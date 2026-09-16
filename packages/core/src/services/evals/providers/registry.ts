@@ -53,5 +53,48 @@ export async function listAvailableProviders(orgId: string): Promise<EvalScorePr
   return available;
 }
 
+/** One provider as the dashboard needs to show it. */
+export type ProviderDescription = {
+  id: string;
+  label: string;
+  available: boolean;
+  /** Why not, when it is unavailable. Empty when it is. */
+  reason: string;
+};
+
+/**
+ * Every provider, with whether this org can use it and why not.
+ *
+ * The UI needs the unavailable ones too, but only sometimes: a provider that
+ * is off because nobody set up AWS should stay invisible, while one that is
+ * off because the region has no AgentCore Evaluations needs saying out loud,
+ * or every run reads as the agent being broken. Handing back the reason lets
+ * the page make that call instead of guessing from a boolean.
+ * @param orgId - Whose credentials to check.
+ */
+export async function describeProviders(orgId: string): Promise<ProviderDescription[]> {
+  const described: ProviderDescription[] = [];
+  for (const provider of listProviders()) {
+    try {
+      const availability = await provider.isAvailable(orgId);
+      described.push({
+        id: provider.id,
+        label: provider.label,
+        available: availability.available,
+        reason: availability.reason,
+      });
+    } catch (error) {
+      console.error(`[evals] could not tell whether ${provider.id} is available for ${orgId}`, error);
+      described.push({
+        id: provider.id,
+        label: provider.label,
+        available: false,
+        reason: (error as Error).message ?? 'could not check availability',
+      });
+    }
+  }
+  return described;
+}
+
 registerProvider(vocionProvider);
 registerProvider(agentcoreProvider);

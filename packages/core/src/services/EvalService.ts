@@ -25,7 +25,7 @@ import type { LangChainProvider } from '@/libs/llm';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { evalCaseResultSchema, evalDatasetSchema, evalRunSchema } from '@/models/Schema';
+import { evalCaseResultSchema, evalDatasetSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
 import { getProvider, listAvailableProviders } from './evals/providers/registry';
 import { scoreWithProvider } from './evals/scoring';
 import { persistTranscripts, produceTranscripts } from './evals/transcripts';
@@ -52,14 +52,65 @@ export async function getDataset(orgId: string, slug: string) {
   return row ?? null;
 }
 
-export async function listRuns(orgId: string, datasetId?: number) {
+/**
+ * The 50 most recent runs, newest first.
+ *
+ * The dataset filter is part of the query rather than applied afterwards: with
+ * several datasets running on a schedule, the newest fifty rows org-wide can
+ * easily contain none of the one being looked at, and the page would say "no
+ * runs yet" about a dataset that ran an hour ago.
+ * @param orgId - Whose runs.
+ * @param datasetId - Narrow to one dataset. Omitted means every dataset.
+ * @param provider - Narrow to one grader, for the provider filter.
+ */
+export async function listRuns(orgId: string, datasetId?: number, provider?: string) {
+  const filters = [eq(evalRunSchema.orgId, orgId)];
+  if (datasetId !== undefined) {
+    filters.push(eq(evalRunSchema.datasetId, datasetId));
+  }
+  if (provider) {
+    filters.push(eq(evalRunSchema.provider, provider));
+  }
+  return db
+    .select()
+    .from(evalRunSchema)
+    .where(and(...filters))
+    .orderBy(desc(evalRunSchema.startedAt))
+    .limit(50);
+}
+
+/**
+ * The other providers' runs for the same execution.
+ *
+ * Two runs sharing a `runGroupId` scored the same transcripts, so the run page
+ * can offer "AgentCore also graded this" as a link rather than leaving someone
+ * to guess which of two runs from the same minute was the matching one.
+ * @param orgId - Whose runs.
+ * @param runGroupId - The group to read.
+ * @param excludeRunId - The run being looked at.
+ */
+export async function listRunGroup(orgId: string, runGroupId: string, excludeRunId: number) {
   const rows = await db
     .select()
     .from(evalRunSchema)
-    .where(eq(evalRunSchema.orgId, orgId))
-    .orderBy(desc(evalRunSchema.startedAt))
-    .limit(50);
-  return datasetId ? rows.filter(r => r.datasetId === datasetId) : rows;
+    .where(and(eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.runGroupId, runGroupId)));
+  return rows.filter(row => row.id !== excludeRunId);
+}
+
+/**
+ * Every score recorded against one run, oldest evaluator first.
+ *
+ * Read by the run page, which shows one chip per evaluator rather than a
+ * single number: "trajectory matched, judge said fail" is a different thing to
+ * know than "50% pass", and averaging the two away hides which is which.
+ * @param runId - The run to read.
+ */
+export async function listScoresForRun(runId: number) {
+  return db
+    .select()
+    .from(evalScoreSchema)
+    .where(eq(evalScoreSchema.runId, runId))
+    .orderBy(asc(evalScoreSchema.id));
 }
 
 export async function getRun(orgId: string, runId: number) {

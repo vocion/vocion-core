@@ -6,7 +6,9 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { usd } from '@/services/evals/modelUpgradeTest';
-import { getDataset, getRun } from '@/services/EvalService';
+import { describeProviders } from '@/services/evals/providers/registry';
+import { getDataset, getRun, listRunGroup, listScoresForRun } from '@/services/EvalService';
+import { RunAutoRefresh } from './RunAutoRefresh';
 
 type Props = {
   params: Promise<{ locale: string; slug: string; runId: string }>;
@@ -38,6 +40,30 @@ export default async function EvalRunDetailPage(props: Props) {
 
   const passRate = run.metrics?.passRate;
   const sortedResults = [...run.results].sort((a, b) => a.itemIndex - b.itemIndex);
+
+  const [scores, providers, siblingRuns] = await Promise.all([
+    listScoresForRun(run.id),
+    describeProviders(orgId),
+    run.runGroupId ? listRunGroup(orgId, run.runGroupId, run.id) : Promise.resolve([]),
+  ]);
+  const labelFor = (id: string) => providers.find(p => p.id === id)?.label ?? id;
+
+  // A score with no case belongs to the run as a whole — AgentCore's
+  // session-level evaluators grade the conversation, not any one turn.
+  const scoresByCase = new Map<number, typeof scores>();
+  const runLevelScores: typeof scores = [];
+  for (const score of scores) {
+    if (score.caseResultId === null) {
+      runLevelScores.push(score);
+      continue;
+    }
+    const existing = scoresByCase.get(score.caseResultId);
+    if (existing) {
+      existing.push(score);
+    } else {
+      scoresByCase.set(score.caseResultId, [score]);
+    }
+  }
 
   return (
     <>
@@ -71,6 +97,11 @@ export default async function EvalRunDetailPage(props: Props) {
         description={(
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <RunStatusBadge status={run.status} />
+            <Badge variant="outline" className="text-[10px]">
+              graded by
+              {' '}
+              {labelFor(run.provider)}
+            </Badge>
             {typeof passRate === 'number' && (
               <span className={passRate >= 0.8 ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
                 {Math.round(passRate * 100)}
@@ -109,6 +140,49 @@ export default async function EvalRunDetailPage(props: Props) {
           </div>
         )}
       />
+
+      <RunAutoRefresh running={run.status === 'running'} />
+
+      {siblingRuns.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
+          <span>The same cases were also graded by</span>
+          {siblingRuns.map(sibling => (
+            <Link
+              key={sibling.id}
+              href={`/dashboard/evals/${slug}/runs/${sibling.id}`}
+              className="font-medium text-foreground underline-offset-2 hover:underline"
+            >
+              {labelFor(sibling.provider)}
+              {typeof sibling.metrics?.passRate === 'number' && ` (${Math.round(sibling.metrics.passRate * 100)}% pass)`}
+            </Link>
+          ))}
+          <span>— same run, different grader.</span>
+        </div>
+      )}
+
+      {runLevelScores.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-1 font-display text-sm font-semibold">Whole-run scores</h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Evaluators that grade the session rather than any one case.
+          </p>
+          <ul className="space-y-2">
+            {runLevelScores.map(score => (
+              <li key={score.id} className="rounded-lg border border-border bg-background px-4 py-3">
+                <ScoreChip
+                  name={score.evaluatorName ?? score.evaluatorSlug}
+                  label={score.label}
+                  value={score.value}
+                  errorMessage={score.errorMessage}
+                />
+                {score.explanation && (
+                  <p className="mt-2 text-xs text-muted-foreground italic">{score.explanation}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="mb-8">
         <h2 className="mb-3 font-display text-sm font-semibold">Metrics</h2>
@@ -207,6 +281,32 @@ export default async function EvalRunDetailPage(props: Props) {
                             <div className="whitespace-pre-wrap text-muted-foreground italic">{r.rationale}</div>
                           </div>
                         )}
+                        {r.trajectory && r.trajectory.length > 0 && (
+                          <div className="md:col-span-2">
+                            <div className="mb-1 text-xs font-medium text-muted-foreground">Tools called</div>
+                            <div className="font-mono text-xs text-muted-foreground">{r.trajectory.join(' → ')}</div>
+                          </div>
+                        )}
+                        {(scoresByCase.get(r.id)?.length ?? 0) > 0 && (
+                          <div className="md:col-span-2">
+                            <div className="mb-2 text-xs font-medium text-muted-foreground">Evaluators</div>
+                            <ul className="space-y-2">
+                              {scoresByCase.get(r.id)!.map(score => (
+                                <li key={score.id}>
+                                  <ScoreChip
+                                    name={score.evaluatorName ?? score.evaluatorSlug}
+                                    label={score.label}
+                                    value={score.value}
+                                    errorMessage={score.errorMessage}
+                                  />
+                                  {score.explanation && (
+                                    <p className="mt-1 text-xs text-muted-foreground italic">{score.explanation}</p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     </li>
                   );
@@ -215,6 +315,42 @@ export default async function EvalRunDetailPage(props: Props) {
             )}
       </section>
     </>
+  );
+}
+
+/**
+ * One evaluator's verdict on one thing.
+ *
+ * An evaluator that errored is shown as errored, not as a fail. "AWS timed
+ * out" and "the agent got it wrong" look identical once both are a red badge,
+ * and the first one is not a quality signal at all.
+ * @param props - Props.
+ * @param props.name - The evaluator, as a person would name it.
+ * @param props.label - pass, fail, or whatever the provider called it.
+ * @param props.value - The numeric score, when there is one.
+ * @param props.errorMessage - Set when the evaluator could not answer.
+ */
+function ScoreChip(props: { name: string; label: string | null; value: number | null; errorMessage: string | null }) {
+  const tone = props.errorMessage
+    ? 'bg-muted text-muted-foreground'
+    : props.label === 'pass'
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+      : props.label === 'fail'
+        ? 'bg-red-500/15 text-red-700 dark:text-red-300'
+        : 'bg-muted text-muted-foreground';
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span className="font-mono text-xs text-muted-foreground">{props.name}</span>
+      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>
+        {props.errorMessage ? 'could not score' : props.label ?? '—'}
+      </span>
+      {props.value !== null && !props.errorMessage && (
+        <span className="font-mono text-xs text-muted-foreground">{props.value.toFixed(2)}</span>
+      )}
+      {props.errorMessage && (
+        <span className="text-xs text-muted-foreground">{props.errorMessage}</span>
+      )}
+    </span>
   );
 }
 
