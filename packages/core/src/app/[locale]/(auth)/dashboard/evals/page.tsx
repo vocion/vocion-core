@@ -7,6 +7,8 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listDatasets, listRuns } from '@/services/EvalService';
+import { summariseLastRun } from './lastRun';
+import { describeProvider } from './providerCopy';
 
 /**
  * Eval datasets list. Each row links to the dataset detail page where
@@ -50,8 +52,15 @@ export default async function EvalsPage(props: { params: Promise<{ locale: strin
             <ul className="grid gap-3 sm:grid-cols-2">
               {datasets.map((d) => {
                 const runs = runsByDataset.get(d.id) ?? [];
-                const lastRun = runs[0];
-                const passRate = lastRun?.metrics?.passRate;
+                // Answers "is this measured recently enough to trust?" without
+                // opening the dataset — a pass rate with no date cannot.
+                const lastRun = summariseLastRun(runs);
+                const passRate = lastRun.passRate;
+                // Which graders have actually scored this dataset, in the order
+                // they last ran. A dataset does not belong to a provider —
+                // providers grade runs — so this is what has happened, not a
+                // property of the dataset.
+                const graders = [...new Set(runs.map(r => r.provider))];
                 return (
                   <li key={d.id}>
                     <Link
@@ -96,6 +105,25 @@ export default async function EvalsPage(props: { params: Promise<{ locale: strin
                             </span>
                           </>
                         )}
+                        <span aria-hidden>·</span>
+                        <span
+                          className={lastRun.warning ? 'text-amber-600 dark:text-amber-400' : undefined}
+                          title={lastRun.exactTime ?? undefined}
+                        >
+                          {lastRun.text}
+                        </span>
+                        {/*
+                          A plain badge with a native tooltip, not the hover
+                          card used on the dataset page: the whole card is one
+                          link, and a focusable tooltip trigger inside a link
+                          is a keyboard trap for the sake of a sentence the
+                          dataset page already carries.
+                        */}
+                        {graders.map(grader => (
+                          <Badge key={grader} variant="outline" title={describeProvider(grader).explanation}>
+                            {describeProvider(grader).label}
+                          </Badge>
+                        ))}
                       </div>
                     </Link>
                   </li>

@@ -29,6 +29,11 @@
       ],
       "ignore": [
         "src/components/ui/**",
+        // Model upgrade test: built, not finished, and not rendered on the
+        // dataset page — both models run inside one request, so it times out
+        // past a handful of cases. Kept with its route and compare view until
+        // the run moves onto the refresh workflow.
+        "src/app/[locale]/(auth)/dashboard/evals/[slug]/CompareModelsForm.tsx",
         "src/features/dashboard/chat/**",
         "src/features/auth/ProtectFallback.tsx",
         "src/features/dashboard/ContextMenu.tsx",

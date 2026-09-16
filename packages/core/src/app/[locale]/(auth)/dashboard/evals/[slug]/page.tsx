@@ -7,7 +7,8 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { getDataset, listEvaluatorProblems, listRuns } from '@/services/EvalService';
-import { CompareModelsForm } from './CompareModelsForm';
+import { ProviderChip } from '../ProviderChip';
+import { describeProvider } from '../providerCopy';
 import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
 
@@ -58,16 +59,6 @@ export default async function EvalDatasetDetailPage(props: Props) {
       passRate: run.metrics!.passRate as number,
       datasetVersion: run.datasetVersion ?? null,
     }));
-  // Runs that named a model and finished, newest first — the pairs a person
-  // can compare without running anything. Adjacent pairs only; the page is
-  // an entry point, not a matrix.
-  const modelRuns = runs.filter(r => r.status === 'succeeded' && r.model);
-  const comparablePairs = modelRuns.slice(0, 3).flatMap((cand, i) => {
-    const base = modelRuns[i + 1];
-    return base && base.model !== cand.model ? [[base, cand] as const] : [];
-  });
-  const lastModel = modelRuns[0]?.model ?? null;
-
   return (
     <>
       <div className="mb-4">
@@ -157,36 +148,17 @@ export default async function EvalDatasetDetailPage(props: Props) {
         </div>
       ))}
 
-      <div className="mb-8 flex flex-wrap items-start gap-3 rounded-lg border border-border bg-muted/10 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Model upgrade test</div>
-          <p className="text-xs text-muted-foreground">
-            Run every case on the model this role uses today and on a candidate release, judged the same way, and compare on cost per passed case — not price per token.
-            {comparablePairs.length > 0 && (
-              <>
-                {' '}
-                Or compare two existing runs:
-                {' '}
-                {comparablePairs.map(([a, b], i) => (
-                  <span key={`${a.id}-${b.id}`}>
-                    {i > 0 ? ', ' : null}
-                    <Link href={`/dashboard/evals/${dataset.slug}/compare?baseline=${a.id}&candidate=${b.id}`} className="font-mono underline-offset-2 hover:underline">
-                      #
-                      {a.id}
-                      {' '}
-                      →
-                      {' '}
-                      #
-                      {b.id}
-                    </Link>
-                  </span>
-                ))}
-              </>
-            )}
-          </p>
-        </div>
-        <CompareModelsForm slug={dataset.slug} defaultBaseline={lastModel ?? ''} />
-      </div>
+      {/*
+        The model upgrade test is not rendered.
+
+        The feature exists — `CompareModelsForm`, `/api/v1/evals/[slug]/model-upgrade-test`
+        and `services/evals/modelUpgradeTest.ts` are all still here, and the
+        compare view at `[slug]/compare` still reads two runs — but it runs both
+        models inside the one request, so anything past a handful of cases times
+        out before it answers. Nobody is using it, and a broken control on this
+        page costs more attention than it is worth. Put this block back when the
+        run moves onto the same Temporal workflow the refresh uses.
+      */}
 
       {trendPoints.length > 1 && (
         <section className="mb-8 rounded-xl border border-border bg-background p-4">
@@ -205,6 +177,14 @@ export default async function EvalDatasetDetailPage(props: Props) {
       <section className="mb-10">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <h2 className="font-display text-sm font-semibold">Recent runs</h2>
+          {/*
+            Named even when there is only one grader: "who scored this" is the
+            fact that makes every number below it mean something, and the
+            tooltip says where the judging happened and who is billed.
+          */}
+          {shownProviders.map(provider => (
+            <ProviderChip key={`legend-${provider.id}`} providerId={provider.id} />
+          ))}
           {shownProviders.length > 1 && (
             <div className="flex items-center gap-1">
               <ProviderFilterLink slug={dataset.slug} label="All" provider={null} active={activeFilter === null} />
@@ -245,7 +225,13 @@ export default async function EvalDatasetDetailPage(props: Props) {
                           </span>
                           <RunStatusBadge status={run.status} />
                           {shownProviders.length > 1 && (
-                            <Badge variant="outline" className="text-[10px]">{labelFor(run.provider)}</Badge>
+                            <Badge
+                              variant="outline"
+                              className="text-[10px]"
+                              title={describeProvider(run.provider).explanation}
+                            >
+                              {labelFor(run.provider)}
+                            </Badge>
                           )}
                           <span className="text-sm text-muted-foreground">
                             {new Date(run.startedAt).toLocaleString()}

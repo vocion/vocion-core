@@ -11,8 +11,8 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  *
  * - A dataset with no runs says so. It must never read as 0% — "nobody has
  *   measured this" and "it fails everything" are opposite facts.
- * - With one grader, there is no provider filter and no provider label. An
- *   org that has never used AgentCore should see no sign that it exists.
+ * - With one grader, the grader is still named but there is no filter, and an
+ *   org that has never used AgentCore sees no sign that it exists.
  * - With two graders, the filter appears, labels each run, and filtering
  *   really narrows the list rather than just highlighting a pill.
  *
@@ -140,6 +140,18 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('the eval section, with more than one grader', () => {
+  test('the list dates every dataset, so stale ones show without opening them', async ({ page }) => {
+    await page.goto('/dashboard/evals');
+
+    const untouchedCard = page.getByRole('listitem').filter({ hasText: fixtures.untouchedSlug });
+    const oneGraderCard = page.getByRole('listitem').filter({ hasText: fixtures.oneGraderSlug });
+
+    // Never run is a fact about measurement, not a score of zero.
+    await expect(untouchedCard).toContainText('never run');
+    await expect(oneGraderCard).toContainText('last run');
+    await expect(oneGraderCard).toContainText('80% pass');
+  });
+
   test('a dataset nobody has run says so, rather than showing zero', async ({ page }) => {
     await page.goto(`/dashboard/evals/${fixtures.untouchedSlug}`);
 
@@ -148,11 +160,15 @@ test.describe('the eval section, with more than one grader', () => {
     await expect(shownText(page, '0% pass')).toHaveCount(0);
   });
 
-  test('one grader means no filter and no provider labels', async ({ page }) => {
+  test('one grader is still named, but there is nothing to filter', async ({ page }) => {
     await page.goto(`/dashboard/evals/${fixtures.oneGraderSlug}`);
 
     await expect(shownText(page, '80% pass')).toBeVisible();
-    // Nothing to choose between, so nothing to choose from.
+    // Who scored it is always said, because it is what makes the number mean
+    // something.
+    await expect(shownText(page, 'Vocion', { exact: true }).first()).toBeVisible();
+    // Nothing to choose between, so nothing to choose from — and an org that
+    // has never touched AWS sees no sign AgentCore exists.
     await expect(page.getByRole('link', { name: 'All', exact: true })).toHaveCount(0);
     await expect(shownText(page, 'AgentCore')).toHaveCount(0);
   });

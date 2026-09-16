@@ -10,6 +10,7 @@ import { browserProjectId } from '@/libs/Langfuse/config';
 import { usd } from '@/services/evals/modelUpgradeTest';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { getDataset, getRun, listRunGroup, listScoresForRun } from '@/services/EvalService';
+import { describeProvider } from '../../../providerCopy';
 import { RunAutoRefresh } from './RunAutoRefresh';
 
 type Props = {
@@ -108,7 +109,8 @@ export default async function EvalRunDetailPage(props: Props) {
         description={(
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <RunStatusBadge status={run.status} />
-            <Badge variant="outline" className="text-[10px]">
+            {/* The grader, with the same explanation the list and cards carry. */}
+            <Badge variant="outline" className="text-[10px]" title={describeProvider(run.provider).explanation}>
               graded by
               {' '}
               {labelFor(run.provider)}
