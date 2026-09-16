@@ -1,0 +1,31 @@
+packages/core/migrations/0107_candidate_replaces.sql
+  s_7aea99fa9ec114::t_1b44ba0dff1ce0 1-9
+packages/core/migrations/0103_memory_store.sql
+  s_7aea99fa9ec114::t_1b44ba0dff1ce0 1-121
+packages/core/migrations/0104_memory_contract.sql
+  s_7aea99fa9ec114::t_1b44ba0dff1ce0 1-27
+packages/core/migrations/0105_candidate_type_scope.sql
+  s_7aea99fa9ec114::t_1b44ba0dff1ce0 1-19
+packages/core/migrations/meta/_journal.json
+  s_7aea99fa9ec114::t_1b44ba0dff1ce0 699,701-702,706,708-709,713,715-716,720,722-723,727,729-730
+packages/core/migrations/0106_candidate_eval_run.sql
+  s_7aea99fa9ec114::t_1b44ba0dff1ce0 1-8
+packages/core/src/models/Schema.ts
+  s_7aea99fa9ec114::t_bf58bca87b49b7 1148,2093
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "384a2d4945529bfc616b62195543aa9697900842",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
