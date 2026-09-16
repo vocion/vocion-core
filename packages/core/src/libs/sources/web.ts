@@ -791,6 +791,28 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
 const INDEX_SEGMENT_RE = /(^|\/)index(?:\.\w+)?$/i;
 
 /**
+ * Whether `url` sits at the listing's own path or under it.
+ *
+ * The path and nothing else. The query string is deliberately not part of the
+ * test, which is what makes a listing's own paginated pages count as its own:
+ * Dorothy Alling's `/index.php/calendar-of-events?month=10&year=2026` is the
+ * next month of the very listing being read, while `/index.php/services/notary`
+ * is another corner of the site. A trailing index segment is stripped first,
+ * so the file that IS the directory scopes to the directory.
+ *
+ * Shared by the two rules that ask "is this about THIS listing":
+ * `describesTheListing`, which drops a site-wide feed, and `crawl`, which
+ * queues the listing's own pages ahead of the rest of the origin.
+ * @param url - the URL being placed.
+ * @param listing - the listing it is measured against.
+ */
+function isUnderListingPath(url: URL, listing: URL): boolean {
+  const path = listing.pathname.replace(INDEX_SEGMENT_RE, '$1');
+  const directory = path.endsWith('/') ? path : `${path}/`;
+  return url.pathname === path || url.pathname.startsWith(directory);
+}
+
+/**
  * Whether a discovered feed describes THIS listing rather than the whole site.
  *
  * The test is the URL path and nothing else: a feed counts when it sits at the
@@ -825,9 +847,7 @@ function describesTheListing(candidate: FeedCandidate, listingUrl: string): bool
   if (feed.origin !== listing.origin) {
     return false;
   }
-  const path = listing.pathname.replace(INDEX_SEGMENT_RE, '$1');
-  const directory = path.endsWith('/') ? path : `${path}/`;
-  return feed.pathname === path || feed.pathname.startsWith(directory);
+  return isUnderListingPath(feed, listing);
 }
 
 /**
@@ -1340,6 +1360,9 @@ function collapse(text: string): string {
  * The crawl starts at the SEED, not at `cfg.startUrl`: with a list of seeds
  * they are not the same URL, and the origin the same-origin rule is read
  * against is the seed's.
+ *
+ * A page's links are queued in two batches, the seed's own path first and the
+ * rest of the origin after, each in page order. See the partition below.
  * @param cfg - the crawl config, defaults already applied.
  * @param ctx - the sync context.
  * @param seed - the start page, already fetched (and already counted) by the caller.
@@ -1353,9 +1376,10 @@ async function* crawl(
   pages: PageBudget,
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
-  const startOrigin = new URL(startUrl).origin;
+  const start = new URL(startUrl);
+  const startOrigin = start.origin;
   const visited = new Set<string>();
-  const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }];
+  const queue: QueueEntry[] = [{ url: startUrl, depth: 0 }];
   let pending: FetchedPage | undefined = seed;
   while (queue.length && pages.attempted < cfg.maxPages) {
     const { url, depth } = queue.shift()!;
@@ -1385,20 +1409,47 @@ async function* crawl(
     // fetch of the same URL whose every failure was swallowed by
     // `.catch(() => '')`: one extra request per source, and a silent one whose
     // failure left the run looking complete with only the listing handled.
+
+    // A stable PARTITION of this page's links, not a filter: the seed's own
+    // path first, the rest of the origin after, each in page order. Every
+    // filter still runs first and nothing that was followable becomes
+    // unfollowable, so with budget to spare the crawl reaches exactly what it
+    // reached before, in a different order.
+    //
+    // Order is what a spent budget turns into content. The queue is FIFO and a
+    // site's chrome is its first markup, collected before chrome removal on
+    // purpose. Dorothy Alling's calendar (third dev shadow, 2026-09-15) crawled
+    // 60 pages and only 3 of them were calendar pages: the listing twice and
+    // one PAST month. The other 50-odd were the Joomla sidebar menu,
+    // `/services/`, `/digital-library/`, `/library-policies/`, `/learn/`,
+    // `/about-us/`, none of which has ever held an event.
+    const ownPath: QueueEntry[] = [];
+    const elsewhere: QueueEntry[] = [];
     for (const href of pageLinks(page)) {
       try {
         const next = new URL(href, url);
         // Strip fragments so #section links don't blow up the queue.
         next.hash = '';
         if (next.origin === startOrigin && !visited.has(next.toString()) && followable(next, cfg)) {
-          queue.push({ url: next.toString(), depth: depth + 1 });
+          (isUnderListingPath(next, start) ? ownPath : elsewhere).push({ url: next.toString(), depth: depth + 1 });
         }
       } catch {
         /* malformed href, skip */
       }
     }
+    // One at a time rather than a spread: neither the page body nor
+    // `collectLinks` caps how many links a page may publish, and a spread of
+    // that array is an argument list.
+    for (const batch of [ownPath, elsewhere]) {
+      for (const entry of batch) {
+        queue.push(entry);
+      }
+    }
   }
 }
+
+/** One page waiting to be crawled, and how many hops from the seed it sits. */
+type QueueEntry = { url: string; depth: number };
 
 /**
  * The links to consider following out of a fetched page.
