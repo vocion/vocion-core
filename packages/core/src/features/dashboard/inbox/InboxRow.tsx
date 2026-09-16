@@ -26,8 +26,12 @@ import { withMinimumPending } from './pending';
  * @param props
  * @param props.item
  * @param props.tab
+ * @param props.why - One clause saying why this matters NOW, rendered under
+ * the breadcrumb. The briefing's "Needs your decision" cards are these rows
+ * with their why-now attached (docs/specs/briefing-v2.md §2) — the same
+ * decision, the same row, the same place it goes.
  */
-export function InboxRow({ item, tab }: { item: InboxItem; tab: InboxTab }) {
+export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; why?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,16 +77,19 @@ export function InboxRow({ item, tab }: { item: InboxItem; tab: InboxTab }) {
           </span>
         )}
         subline={(
-          <Subline
-            separator="›"
-            segments={[
-              item.shape === 'sheet' && item.kind !== 'proposal' ? 'Decision sheet' : meta.label,
-              item.subline,
-              tab === 'decided' && item.decision
-                ? `${item.decision}${item.decidedBy ? ` by ${item.decidedBy}` : ''}${item.note ? ` — “${item.note}”` : ''}`
-                : null,
-            ]}
-          />
+          <>
+            <Subline
+              separator="›"
+              segments={[
+                item.shape === 'sheet' && item.kind !== 'proposal' ? 'Decision sheet' : meta.label,
+                item.subline,
+                tab === 'decided' && item.decision
+                  ? `${item.decision}${item.decidedBy ? ` by ${item.decidedBy}` : ''}${item.note ? ` — “${item.note}”` : ''}`
+                  : null,
+              ]}
+            />
+            {why && <span className="mt-0.5 block text-[13px] leading-5 text-foreground/80">{why}</span>}
+          </>
         )}
         columns={(
           <>

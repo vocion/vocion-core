@@ -18,6 +18,11 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { agentSchema, briefingSchema, teamSchema } from '@/models/Schema';
+import { PublishBriefingInputSchema } from '@/services/briefings/agentInput';
+import { renderedSections } from '@/services/briefings/document';
+import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
+import { publishBriefingDocument } from '@/services/briefings/store';
+import { BriefingContractError } from '@/services/briefings/validate';
 
 async function callerTeam(ctx: RuntimeContext): Promise<{ teamSlug: string | null; leadSlug: string | null }> {
   if (!ctx.agentSlug) {
@@ -58,29 +63,38 @@ function isFromToday(d: Date): boolean {
 export function publishBriefingTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const { title, content, rollup } = args as { title: string; content: string; rollup?: boolean };
+      const input = PublishBriefingInputSchema.parse(args);
       const { teamSlug } = await callerTeam(ctx);
-      const [row] = await db
-        .insert(briefingSchema)
-        .values({
-          orgId: ctx.orgId,
-          title: title.slice(0, 200),
-          content,
-          publishedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : (ctx.userId ?? null),
+      const scope = input.rollup ? null : teamSlug;
+      try {
+        const { id, doc, dropped } = await publishBriefingDocument(ctx.orgId, input, {
+          teamSlug: scope,
           agentSlug: ctx.agentSlug ?? null,
-          teamSlug: rollup ? null : teamSlug,
-        })
-        .returning({ id: briefingSchema.id });
-      return `Briefing #${row!.id} published${rollup ? ' (workspace rollup)' : teamSlug ? ` for team ${teamSlug}` : ''} — live under Workspace → Briefings.`;
+          userId: ctx.userId ?? null,
+        });
+        const sections = renderedSections(doc).join(', ');
+        const notes = dropped.length > 0 ? `\nThe contract trimmed some of it: ${dropped.map(d => d.message).join('; ')}.` : '';
+        return `Briefing #${id} published${scope === null ? ' (workspace)' : ` for team ${scope}`} — /dashboard/briefings/${id}.\nSections rendered: ${sections}.${notes}`;
+      } catch (err) {
+        if (err instanceof BriefingContractError) {
+          return `NOT published — the briefing contract refused it:\n${err.issues.map(i => `- ${i.section}: ${i.message}`).join('\n')}\nFix those and call publish_briefing again.`;
+        }
+        throw err;
+      }
     },
     {
       name: 'publish_briefing',
-      description: 'Publish a briefing (markdown) to the Briefings page, scoped to YOUR team automatically. Set rollup:true only when publishing the cross-team workspace rollup (workspace lead). The FULL briefing goes in content.',
-      schema: z.object({
-        title: z.string().min(1).describe('e.g. "Founder GTM Brief — Thu, Jul 23"'),
-        content: z.string().min(1).describe('The complete briefing, markdown.'),
-        rollup: z.boolean().optional().describe('true = the workspace-wide rollup brief (workspace lead only).'),
-      }),
+      description: [
+        'Publish the briefing to the Briefings page, scoped to YOUR team automatically (rollup:true for the cross-team workspace brief).',
+        'You supply observations and judgement ONLY. The product decides the rest and will overrule you:',
+        'section presence and order, which metrics survive, every delta (computed against the previous brief by key),',
+        'the on-track verdict (never green without a verified or observed measure with a target),',
+        'which decisions are shown and how many (at most 3 unless you mark a genuine incident), and the history.',
+        'Do not write a section that says nothing happened — omit it and it will not render.',
+        'Never put agent names, job names, tool names, run ids, token counts, connector field names or table names in any narrative field:',
+        'they belong in agentActivity, and the publisher will pull them out and footnote them if you do.',
+      ].join(' '),
+      schema: PublishBriefingInputSchema,
     },
   );
 }
@@ -135,9 +149,7 @@ export function refreshBriefingTool(ctx: RuntimeContext) {
       if (!runner) {
         return 'No team lead resolved for this agent — cannot regenerate.';
       }
-      const instruction = teamSlug
-        ? `Assemble and publish your team's daily brief NOW. Ground it in the tracker, your missions, and fresh sources (freshen gmail first if relevant). Structure it as a scannable document (sections, priority-ranked actions). Publish via publish_briefing when done — do not ask for permission.`
-        : `Assemble and publish the WORKSPACE ROLLUP brief NOW: read each team's latest brief (get_briefing with team:"<slug>"), synthesize the cross-team picture (top priorities, risks, asks), and publish via publish_briefing with rollup:true. Do not ask for permission.`;
+      const instruction = teamSlug ? TEAM_BRIEF_INSTRUCTION : WORKSPACE_BRIEF_INSTRUCTION;
       const { runAgentDeep } = await import('@/services/AgentService');
       void runAgentDeep({ orgId: ctx.orgId, agentSlug: runner, message: instruction, userId: ctx.userId ?? 'refresh-briefing' })
         .catch((err: unknown) => console.error(`refresh_briefing run failed: ${String(err)}`));

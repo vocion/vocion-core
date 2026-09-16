@@ -44,6 +44,8 @@ import {
   workerRunSchema,
   workflowRunSchema,
 } from '@/models/Schema';
+import { briefingHref } from '@/services/briefings/links';
+import { parseStoredDocument } from '@/services/briefings/store';
 import { teamReport } from '@/services/TeamReportService';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 
@@ -186,7 +188,7 @@ async function fetchNeedsYou(orgId: string): Promise<NeedsYou> {
  */
 async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSelector): Promise<DailyTeamReportData['rollup']> {
   const notOurs = sql`${briefingSchema.agentSlug} is distinct from ${DAILY_TEAM_REPORT_PUBLISHER}`;
-  const cols = { id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt };
+  const cols = { id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, document: briefingSchema.document };
   if (selector && (selector.teamSlug || selector.agentSlug)) {
     const [row] = await db
       .select(cols)
@@ -201,7 +203,7 @@ async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSele
       .orderBy(desc(briefingSchema.createdAt))
       .limit(1);
     if (row) {
-      return { ...row, full: true, label: selector.teamSlug ? `${selector.teamSlug} briefing` : `${selector.agentSlug} briefing` };
+      return { ...row, document: parseStoredDocument(row.document), href: briefingHref(row.id), full: true, label: selector.teamSlug ? `${selector.teamSlug} briefing` : `${selector.agentSlug} briefing` };
     }
   }
   const [row] = await db
@@ -210,7 +212,7 @@ async function fetchBriefing(orgId: string, until: Date, selector?: BriefingSele
     .where(and(eq(briefingSchema.orgId, orgId), isNull(briefingSchema.teamSlug), lt(briefingSchema.createdAt, until), notOurs))
     .orderBy(desc(briefingSchema.createdAt))
     .limit(1);
-  return row ? { ...row, full: false, label: 'workspace briefing' } : null;
+  return row ? { ...row, document: parseStoredDocument(row.document), href: briefingHref(row.id), full: false, label: 'workspace briefing' } : null;
 }
 
 /** Which briefing the mail should carry instead of the workspace rollup. */

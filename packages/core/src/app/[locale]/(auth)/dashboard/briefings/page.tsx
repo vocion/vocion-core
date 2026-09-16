@@ -1,4 +1,5 @@
 import type { BriefGroup } from '@/features/dashboard/BriefingsView';
+import type { InboxItem } from '@/services/InboxService';
 import { desc, eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
 import { BriefingsView } from '@/features/dashboard/BriefingsView';
@@ -6,6 +7,8 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
+import { parseStoredDocument } from '@/services/briefings/store';
+import { listInbox } from '@/services/InboxService';
 
 /**
  * Briefings — grouped BY TEAM: the workspace ROLLUP tab first (the
@@ -29,7 +32,7 @@ export default async function BriefingsPage(props: { params: Promise<{ locale: s
   }
 
   const [briefings, teams, projects] = await Promise.all([
-    db.select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug })
+    db.select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug, document: briefingSchema.document })
       .from(briefingSchema)
       .where(eq(briefingSchema.orgId, orgId))
       .orderBy(desc(briefingSchema.createdAt))
@@ -40,7 +43,12 @@ export default async function BriefingsPage(props: { params: Promise<{ locale: s
     db.select({ lead: projectSchema.leadAgentSlug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
   ]);
 
-  const rows = briefings.map(b => ({ ...b, createdAt: b.createdAt.toISOString() }));
+  const rows = briefings.map(b => ({ ...b, createdAt: b.createdAt.toISOString(), document: parseStoredDocument(b.document) }));
+
+  // The decision cards on a typed brief are inbox rows; they are re-read live
+  // so a decision made since the brief was written shows as made.
+  const needsLive = rows.some(r => (r.document?.decisions?.judgment.length ?? 0) > 0);
+  const liveDecisions: InboxItem[] = needsLive ? (await listInbox(orgId, { tab: 'open' })).items : [];
   const groups: BriefGroup[] = [
     {
       teamSlug: null,
@@ -62,7 +70,7 @@ export default async function BriefingsPage(props: { params: Promise<{ locale: s
         title="Briefings"
         description="Each team's brief plus the workspace rollup — regenerate on demand, explore history, or chat with a brief."
       />
-      <BriefingsView groups={groups} />
+      <BriefingsView groups={groups} liveDecisions={liveDecisions} archiveTotal={briefings.length} />
     </>
   );
 }

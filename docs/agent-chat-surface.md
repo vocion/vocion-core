@@ -37,6 +37,14 @@ never hide truth*).
   in the everything-scoped history and never shared between users (§8.6).
 - §3.2 — below 1200px the surface covers the page as a sheet instead of
   narrowing it.
+- §3.3 — a **briefing** is a record page like any other. One brief lives at
+  `/dashboard/briefings/<id>` (`docs/specs/briefing-v2.md` §10), so the
+  `briefing` record ref resolves to that URL and the rail's "About:" chip
+  opens the brief it is scoped to rather than the list. `BriefingChatStarter`
+  declares the record and watches `[data-briefing-root]` for a selection, so
+  highlighting any passage of the rendered document pops "Ask Vocion" and
+  opens the rail with that passage quoted — the typed renderer marks the same
+  root the markdown one did. There is no second composer on the page.
 
 ## §6 — One entry function
 

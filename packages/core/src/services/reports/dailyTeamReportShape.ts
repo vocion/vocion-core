@@ -1,3 +1,5 @@
+import type { BriefingV2 } from '@/services/briefings/document';
+
 /**
  * Daily team report — the pure half: the data types and the fold from rows
  * to team → member stats. No database import, so the renderer and its
@@ -125,7 +127,23 @@ export type DailyTeamReportData = {
    * pointed at a team's briefing (`input.briefing`), it is rendered in full
    * and its title becomes the subject (`full: true`).
    */
-  rollup: { id: number; title: string; content: string; createdAt: Date; full: boolean; label: string } | null;
+  rollup: {
+    id: number;
+    title: string;
+    content: string;
+    createdAt: Date;
+    full: boolean;
+    label: string;
+    /**
+     * The typed `BriefingV2`, when the brief carries one. The mail then renders
+     * its FIRST SCREEN — the same editorial layer, shorter
+     * (docs/specs/briefing-v2.md) — instead of excerpting markdown at a
+     * character count.
+     */
+    document?: BriefingV2 | null;
+    /** Where the full brief lives. */
+    href?: string;
+  } | null;
   links: { inbox: string; teamReport: string; briefings: string };
   generatedAt: Date;
 };
