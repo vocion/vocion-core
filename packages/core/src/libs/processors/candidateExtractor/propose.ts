@@ -183,8 +183,8 @@ export async function proposeRecords(opts: {
               suggestedDecisionReason: `Already waiting for review as action run #${record.duplicateOf}.`,
             }
           : {
-              ...(record.suggestedDecision ? { suggestedDecision: record.suggestedDecision } : {}),
-              ...(record.suggestedDecisionReason ? { suggestedDecisionReason: record.suggestedDecisionReason } : {}),
+              suggestedDecision: record.suggestedDecision,
+              suggestedDecisionReason: record.suggestedDecisionReason,
             }),
       },
     });

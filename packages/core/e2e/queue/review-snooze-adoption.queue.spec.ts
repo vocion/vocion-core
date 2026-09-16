@@ -174,6 +174,8 @@ test('a snooze taken from the review card shows up as a snooze on the adoption s
   const proposed = await api.post('/api/v1/reviews/propose', {
     data: {
       actionId: 'objects.propose_candidate',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
       input: {
         objectType: 'event_candidate',
         title: ITEM_TITLE,

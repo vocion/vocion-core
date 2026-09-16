@@ -63,7 +63,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.99, suggestedDecision: 'reject' },
+      proposal: { confidence: 0.99, suggestedDecision: 'reject', suggestedDecisionReason: 'Not open to the public, so it fails the listing rules.' },
     });
 
     expect(res.status).toBe('pending');
@@ -78,7 +78,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.99, suggestedDecision: 'snooze' },
+      proposal: { confidence: 0.99, suggestedDecision: 'snooze', suggestedDecisionReason: 'The venue has not confirmed the date yet.' },
     });
 
     expect(res.status).toBe('pending');
@@ -95,7 +95,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.99, suggestedDecision: 'approve' },
+      proposal: { confidence: 0.99, suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the listing rules and nothing like it is queued.' },
     });
 
     expect(res.status).toBe('done');
@@ -111,7 +111,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.99 },
+      proposal: { confidence: 0.99, suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the listing rules and nothing like it is queued.' },
     });
 
     expect(res.status).toBe('done');
@@ -129,7 +129,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.4, suggestedDecision: 'approve' },
+      proposal: { confidence: 0.4, suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the listing rules and nothing like it is queued.' },
       dedupKey: 'same-record',
     });
     const second = await proposeAction({
@@ -137,7 +137,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.4, suggestedDecision: 'reject' },
+      proposal: { confidence: 0.4, suggestedDecision: 'reject', suggestedDecisionReason: 'Not open to the public, so it fails the listing rules.' },
       dedupKey: 'same-record',
     });
 
@@ -194,7 +194,11 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.8, suggestedDecisionReason: 'Still thinking about it.' },
+      // Cast because the envelope type now forbids this shape. The runtime
+      // rule is still worth pinning: the service is reachable from JavaScript
+      // and from stored payloads, and a reason with nothing to explain must
+      // not survive either route.
+      proposal: { confidence: 0.8, suggestedDecisionReason: 'Still thinking about it.' } as never,
       dedupKey: 'same-record',
     });
 
@@ -213,7 +217,7 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.4, suggestedDecision: 'reject' },
+      proposal: { confidence: 0.4, suggestedDecision: 'reject', suggestedDecisionReason: 'Not open to the public, so it fails the listing rules.' },
       dedupKey: 'same-record',
     });
     await proposeAction({
@@ -232,13 +236,16 @@ describe('proposeAction with a recommendation against acting', () => {
   it('drops a reason that came with no recommendation', async () => {
     // A sentence arguing for an outcome, on a card that recommends none,
     // cannot be read by anyone — the card, the metric or a person months
-    // later. Nothing is inferred from it, so nothing is kept.
+    // later. Nothing is inferred from it, so nothing is kept. The envelope
+    // type refuses this shape now, so the cast is what lets the test stand in
+    // for an untyped caller; the backstop stays because the service is
+    // reachable from JavaScript and from payloads written before the rule.
     await proposeAction({
       orgId: ORG,
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.4, suggestedDecisionReason: 'The date has already passed.' },
+      proposal: { confidence: 0.4, suggestedDecisionReason: 'The date has already passed.' } as never,
     });
 
     const [row] = await db.select().from(actionRunSchema);

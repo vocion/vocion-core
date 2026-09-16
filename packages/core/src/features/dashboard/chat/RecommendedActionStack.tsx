@@ -5,6 +5,7 @@ import { ArrowRight, Bookmark, Check, Layers, Loader2, SkipForward } from 'lucid
 import { useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { RECOMMENDED_ACTION_ADVICE } from '@/services/chat/autoPropose';
 import { RecommendedActionCard } from './RecommendedActionCard';
 
 /**
@@ -50,6 +51,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
       agentSlug: rec.agentSlug,
       rationale: rec.rationale,
       confidence: rec.confidence,
+      ...RECOMMENDED_ACTION_ADVICE,
     });
   };
 

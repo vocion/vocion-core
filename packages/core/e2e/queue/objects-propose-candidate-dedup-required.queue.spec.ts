@@ -110,6 +110,8 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
       headers: { Authorization: `Bearer ${token}` },
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
         input: { objectType: OBJECT_TYPE_SLUG, title, fields: { title } },
       },
     });
@@ -140,6 +142,8 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
       headers: { Authorization: `Bearer ${token}` },
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
         input: { objectType: OBJECT_TYPE_SLUG, title, fields: { title, dedupOn: ['title'] } },
       },
     });
@@ -168,6 +172,8 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
       headers: { Authorization: `Bearer ${token}` },
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
         input: { objectType: OBJECT_TYPE_SLUG, title, fields: { title }, dedupOn: ['title'] },
       },
     });

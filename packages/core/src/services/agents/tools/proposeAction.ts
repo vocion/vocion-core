@@ -36,6 +36,14 @@ export function proposeActionTool(ctx: RuntimeContext) {
         suggested_decision_reason: string;
         suggested_snooze_until?: string;
       };
+      // A model can satisfy a required string with spaces. The tool refuses
+      // that rather than queueing a card whose reason renders as a blank quote
+      // under the badge — and says what to send instead, since the answer is
+      // one sentence the model already has in mind.
+      const reason = parseSuggestedDecisionReason(suggested_decision_reason);
+      if (reason === undefined) {
+        return `Proposal refused: suggested_decision_reason is required. Send ONE short sentence for why you recommended "${suggested_decision}", in words a reviewer can check against the record.`;
+      }
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,
@@ -55,7 +63,7 @@ export function proposeActionTool(ctx: RuntimeContext) {
             rationale,
             evidence,
             suggestedDecision: suggested_decision,
-            suggestedDecisionReason: parseSuggestedDecisionReason(suggested_decision_reason),
+            suggestedDecisionReason: reason,
             suggestedSnoozeUntil: suggested_snooze_until,
           },
         });

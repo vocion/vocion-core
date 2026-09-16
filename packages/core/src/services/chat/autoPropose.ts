@@ -49,6 +49,22 @@ export function deriveRecommendationDedupKey(actionId: string, input: Record<str
  * @param opts.userId
  * @param opts.rec
  */
+/**
+ * What a card filed from a conversation recommendation says about itself.
+ *
+ * Every review card carries a recommendation and a reason, and nothing here
+ * has a model judging the card at the moment it is filed: the agent already
+ * argued for the action in the conversation, and filing it IS the ask. So core
+ * states that plainly rather than leaving the row with no opinion for the
+ * agreement metric to measure. Shared with the two places a person can file
+ * one by hand — `RecommendedActionCard` and `RecommendedActionStack` — so the
+ * queue reads the same sentence however the card got there.
+ */
+export const RECOMMENDED_ACTION_ADVICE = {
+  suggestedDecision: 'approve' as const,
+  suggestedDecisionReason: 'The agent recommended this action in the conversation and it is waiting to be carried out.',
+};
+
 export async function autoProposeRecommendation(opts: {
   orgId: string;
   userId?: string;
@@ -66,6 +82,7 @@ export async function autoProposeRecommendation(opts: {
       proposal: {
         confidence: opts.rec.confidence,
         rationale: opts.rec.rationale,
+        ...RECOMMENDED_ACTION_ADVICE,
       },
       dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input),
     });

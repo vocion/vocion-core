@@ -151,6 +151,8 @@ test('one record, one review item: propose, re-propose, decide, and link what th
   const first = await api.post('/api/v1/reviews/propose', {
     data: {
       actionId: 'objects.propose_candidate',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Public listing with its own date line, and nothing like it is queued.',
       input: openMic(),
       agentSlug: 'ingestion-lead',
       confidence: 0.86,
@@ -184,6 +186,8 @@ test('one record, one review item: propose, re-propose, decide, and link what th
   const repeat = await api.post('/api/v1/reviews/propose', {
     data: {
       actionId: 'objects.propose_candidate',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Public listing with its own date line, and nothing like it is queued.',
       input: openMic({ summary: 'Sign-ups at 7, music at 7:30. Free.' }),
       agentSlug: 'ingestion-lead',
       confidence: 0.91,
@@ -202,6 +206,8 @@ test('one record, one review item: propose, re-propose, decide, and link what th
   const poetry = await api.post('/api/v1/reviews/propose', {
     data: {
       actionId: 'objects.propose_candidate',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Public listing with its own date line, and nothing like it is queued.',
       input: openMic({
         title: POETRY_TITLE,
         fields: { title: POETRY_TITLE, start: '2026-09-12T19:30', venue: 'The Flynn' },

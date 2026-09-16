@@ -58,10 +58,10 @@ let fixtures: SeedFixtures;
  * the record distinct, so each fixture dedups as its own item rather than
  * refreshing the previous one.
  * @param title - What to call the candidate; also part of its identity.
- * @param suggestedDecision - What the agent advises, or undefined for no view.
+ * @param suggestedDecision - What the agent advises. Required by the endpoint.
  * @param suggestedDecisionReason - Why it advises that, in one sentence.
  */
-function candidateProposal(title: string, suggestedDecision?: string, suggestedDecisionReason?: string) {
+function candidateProposal(title: string, suggestedDecision: string, suggestedDecisionReason: string) {
   const fields = {
     title,
     start: '2026-09-19T19:30',
@@ -73,8 +73,8 @@ function candidateProposal(title: string, suggestedDecision?: string, suggestedD
     agentSlug: 'listing-scout',
     confidence: 0.9,
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
-    ...(suggestedDecision ? { suggestedDecision } : {}),
-    ...(suggestedDecisionReason ? { suggestedDecisionReason } : {}),
+    suggestedDecision,
+    suggestedDecisionReason,
     input: {
       objectType: 'event_candidate',
       title,
@@ -111,14 +111,15 @@ async function listQueue(request: APIRequestContext, query = '') {
 test.beforeAll(async ({ request }) => {
   fixtures = seedFixtures();
 
-  // Four items, one lane each plus one the agent had no view on. Proposed
-  // once for the whole file: every assertion below reads the same queue, and
-  // re-seeding per test would only make the run slower.
+  // Three items, one lane each. There is no fourth "no view" item any more:
+  // the endpoint refuses a proposal that recommends nothing, which is the
+  // rule the last describe block below drives directly. Proposed once for the
+  // whole file — every assertion reads the same queue, and re-seeding per
+  // test would only make the run slower.
   const seeded = await Promise.all([
     propose(request, candidateProposal('Open Mic Night', 'approve', 'Fits the listing rules and nothing like it is already queued.')),
     propose(request, candidateProposal('Closed Rehearsal', 'reject', 'Not open to the public, so it fails the listing rules.')),
     propose(request, candidateProposal('Maybe Later Matinee', 'snooze', 'The venue has not confirmed the date yet.')),
-    propose(request, candidateProposal('No Opinion Open Day')),
   ]);
   for (const result of seeded) {
     expect(result.status, JSON.stringify(result.body)).toBe(200);
@@ -153,13 +154,14 @@ test.describe('GET /api/v1/reviews?suggestedDecision=', () => {
     expect(body.total).toBe(1);
   });
 
-  test('the three lanes together are the recommended items, and the queue holds one more', async ({ request }) => {
-    // The point of the filter: several queues cut from one pending set. The
-    // fourth item carries no recommendation and belongs to none of them.
+  test('the three lanes together are the whole queue, because every item carries a recommendation', async ({ request }) => {
+    // The point of the filter: several queues cut from one pending set. And
+    // the point of the requirement: nothing sits outside those lanes, so the
+    // agreement metric measures the queue rather than a subset of it.
     const unfiltered = await listQueue(request);
 
-    expect(unfiltered.body.total).toBe(4);
-    expect(unfiltered.body.items.filter((i: { suggestedDecision?: string }) => i.suggestedDecision === undefined)).toHaveLength(1);
+    expect(unfiltered.body.total).toBe(3);
+    expect(unfiltered.body.items.filter((i: { suggestedDecision?: string }) => !i.suggestedDecision)).toHaveLength(0);
   });
 
   test('carries the recommendation on the thin row, without a detail fetch', async ({ request }) => {
@@ -182,18 +184,13 @@ test.describe('GET /api/v1/reviews?suggestedDecision=', () => {
     expect(body.items[0].suggestedDecisionReason).toBe('Not open to the public, so it fails the listing rules.');
   });
 
-  test('reads a proposal that sent no reason as having none', async ({ request }) => {
-    // The public endpoint keeps both fields optional so third-party callers do
-    // not break. A caller that sends neither must produce an item with no
-    // reason at all, never an empty string the review card would render as a
-    // blank quote under the badge.
-    // Found by the absence itself: the thin row carries no payload to match a
-    // title on, and exactly one seeded item was proposed with no view.
+  test('every row carries a reason beside its recommendation', async ({ request }) => {
+    // Both fields are required of every caller, so a queue read back over HTTP
+    // has no row a reviewer would have to take on faith.
     const { body } = await listQueue(request);
-    const noView = body.items.filter((i: { suggestedDecision?: string }) => !i.suggestedDecision);
+    const bare = body.items.filter((i: { suggestedDecisionReason?: string }) => !i.suggestedDecisionReason);
 
-    expect(noView).toHaveLength(1);
-    expect(noView[0].suggestedDecisionReason).toBeUndefined();
+    expect(bare).toHaveLength(0);
   });
 
   test('composes with the action-type filter', async ({ request }) => {
@@ -236,17 +233,38 @@ test.describe('the detail view', () => {
 
 test.describe('POST /api/v1/reviews/propose', () => {
   test('refuses a recommendation outside the three', async ({ request }) => {
-    const { status, body } = await propose(request, candidateProposal('Bad Recommendation Gig', 'rejected'));
+    const { status, body } = await propose(request, candidateProposal('Bad Recommendation Gig', 'rejected', 'Not open to the public.'));
 
     expect(status).toBe(400);
     expect(JSON.stringify(body)).toContain('suggestedDecision');
+  });
+
+  test('refuses a proposal that recommends nothing', async ({ request }) => {
+    // The rule the whole feature rests on: a card nobody recommended anything
+    // about cannot be compared against the decision a person then takes, so it
+    // never reaches the queue in the first place.
+    const { suggestedDecision: _dropped, ...noView } = candidateProposal('No Opinion Open Day', 'approve', 'Fits the listing rules.');
+
+    const { status, body } = await propose(request, noView);
+
+    expect(status).toBe(400);
+    expect(JSON.stringify(body)).toContain('suggestedDecision');
+  });
+
+  test('refuses a recommendation that comes with no reason', async ({ request }) => {
+    // A verdict a reviewer cannot check is one they can only take on faith,
+    // and whitespace is the same as nothing.
+    const { status, body } = await propose(request, candidateProposal('Unexplained Matinee', 'reject', '   '));
+
+    expect(status).toBe(400);
+    expect(JSON.stringify(body)).toContain('suggestedDecisionReason');
   });
 
   test('keeps a recommendation to turn down out of the auto-execute path', async ({ request }) => {
     // Confidence and recommendation answer different questions. A proposal the
     // agent wants declined stays pending for a person whatever its confidence.
     const { status, body } = await propose(request, {
-      ...candidateProposal('High Confidence Decline', 'reject'),
+      ...candidateProposal('High Confidence Decline', 'reject', 'Not open to the public, so it fails the listing rules.'),
       confidence: 0.99,
     });
 

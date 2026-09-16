@@ -71,6 +71,8 @@ function holdProposal(inspectionId: number, confidence: number) {
     agentSlug: 'qc-screener',
     confidence,
     rationale: 'Seal photo shows a gap on the left edge.',
+    suggestedDecision: 'approve',
+    suggestedDecisionReason: 'The seal gap is visible in the photo, so the kit should be held.',
     input: {
       inspection_id: inspectionId,
       reason: 'Seal gap on the left edge',

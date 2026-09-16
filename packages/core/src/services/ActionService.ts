@@ -179,9 +179,17 @@ export async function proposeAction(input: {
   /**
    * Agent-proposal envelope — confidence (0–1), rationale, evidence uris, and
    * the advisory `suggestedDecision` saying what the agent thinks the reviewer
-   * should do with this. The recommendation can only ever keep the proposal in
-   * the queue (see the guard below); it is never read as a reason to let one
-   * run without a person.
+   * should do with this, with one short sentence for why. The recommendation
+   * can only ever keep the proposal in the queue (see the guard below); it is
+   * never read as a reason to let one run without a person.
+   *
+   * Anything that sends an envelope must state both. That is the rule this
+   * type exists to enforce rather than ask for: a card nobody recommended
+   * anything about cannot be compared against the decision a person then
+   * takes, so a queue where only some cards carry an opinion measures a subset
+   * it never names. A producer with no model in the loop states the
+   * recommendation in its own words — see `candidateExtractor/resolve.ts` and
+   * `chat/autoPropose.ts` — rather than leaving it out.
    *
    * `labels` names the payload fields the proposer wrote as a JUDGEMENT rather
    * than read off its source, so the decision can record what the reviewer did
@@ -192,8 +200,8 @@ export async function proposeAction(input: {
     rationale?: string;
     evidence?: string[];
     agentSlug?: string;
-    suggestedDecision?: SuggestedDecision;
-    suggestedDecisionReason?: string;
+    suggestedDecision: SuggestedDecision;
+    suggestedDecisionReason: string;
     suggestedSnoozeUntil?: string;
     labels?: string[];
   };

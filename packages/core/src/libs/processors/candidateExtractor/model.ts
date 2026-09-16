@@ -56,9 +56,13 @@ export type ExtractedRecord = {
    * reviewer then did, and that comparison is the only read we have on
    * whether the criteria are working.
    */
-  suggestedDecision?: SuggestedDecision;
-  /** One short sentence for why that recommendation, in the model's words. */
-  suggestedDecisionReason?: string;
+  suggestedDecision: SuggestedDecision;
+  /**
+   * One short sentence for why that recommendation, in the model's words.
+   * Required alongside it: a verdict a reviewer cannot check is one they can
+   * only take on faith.
+   */
+  suggestedDecisionReason: string;
   /**
    * Why this occurrence does not follow the pattern of the rest of its series,
    * in a few words. Only meaningful alongside `seriesOf`, and dropped by

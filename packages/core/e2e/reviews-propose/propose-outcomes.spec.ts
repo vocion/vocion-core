@@ -93,6 +93,8 @@ function eventProposal(over: Record<string, unknown> = {}) {
     agentSlug: 'listing-scout',
     confidence: 0.9,
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
+    suggestedDecision: 'approve',
+    suggestedDecisionReason: 'Public listing on the venue\'s own page, and nothing like it is queued.',
     input: {
       objectType: 'event_candidate',
       title: fields.title,

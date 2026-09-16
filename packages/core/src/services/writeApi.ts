@@ -406,17 +406,24 @@ export type ProposeInput = {
   rationale?: string;
   confidence?: number;
   /**
-   * What the agent thinks the reviewer should do. Advisory; never auto-runs
-   * anything. Typed loosely because it arrives off an HTTP body — validated
-   * below, so a bad value is a 400 rather than a dropped field.
+   * What the agent thinks the reviewer should do. Required: a card nobody
+   * recommended anything about cannot be compared against the decision a
+   * person then took, and a queue where only some cards carry an opinion
+   * measures a subset it never names. Advisory in the other direction — it
+   * never auto-runs anything.
+   *
+   * Typed loosely because it arrives off an HTTP body; validated below, so a
+   * missing or misspelt value is a 400 rather than a dropped field.
    */
-  suggestedDecision?: string;
+  suggestedDecision: string;
   /**
    * One short sentence for why that recommendation — "third listing of this
-   * show this week". Distinct from `rationale` above, which argues the payload
-   * is right rather than saying what should happen to it.
+   * show this week". Required alongside it: a recommendation a reviewer cannot
+   * check is one they can only take on faith. Distinct from `rationale` above,
+   * which argues the payload is right rather than saying what should happen
+   * to it.
    */
-  suggestedDecisionReason?: string;
+  suggestedDecisionReason: string;
   /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
   suggestedSnoozeUntil?: string;
   dedupKey?: string;
@@ -449,11 +456,17 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
   if (input.expiresInDays !== undefined && (input.expiresInDays <= 0 || input.expiresInDays > MAX_PROPOSAL_LIFETIME_DAYS)) {
     throw new WriteApiError(400, 'VALIDATION_FAILED', `expiresInDays must be between 1 and ${MAX_PROPOSAL_LIFETIME_DAYS}`);
   }
-  // Refuse an unrecognised recommendation rather than dropping it. Storing a
-  // typo'd value would leave the run looking like it carried no opinion, and
-  // the agreement metric would quietly count nothing for that agent.
-  if (input.suggestedDecision !== undefined && parseSuggestedDecision(input.suggestedDecision) === undefined) {
-    throw new WriteApiError(400, 'VALIDATION_FAILED', `suggestedDecision must be one of ${SUGGESTED_DECISIONS.join(', ')}`);
+  // Refuse a proposal that recommends nothing, and an unrecognised
+  // recommendation rather than dropping it. Either one would leave the run
+  // looking like it carried no opinion, and the agreement metric would quietly
+  // count nothing for that agent — the failure this endpoint exists to stop.
+  const suggestedDecision = parseSuggestedDecision(input.suggestedDecision);
+  if (suggestedDecision === undefined) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', `suggestedDecision is required and must be one of ${SUGGESTED_DECISIONS.join(', ')}`);
+  }
+  const suggestedDecisionReason = parseSuggestedDecisionReason(input.suggestedDecisionReason);
+  if (suggestedDecisionReason === undefined) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'suggestedDecisionReason is required: one short sentence for why you recommended that');
   }
   enforceQueueCapability(caller, 'propose a review item');
 
@@ -472,8 +485,8 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
         confidence: input.confidence,
         rationale: input.rationale,
         agentSlug: input.agentSlug,
-        suggestedDecision: parseSuggestedDecision(input.suggestedDecision),
-        suggestedDecisionReason: parseSuggestedDecisionReason(input.suggestedDecisionReason),
+        suggestedDecision,
+        suggestedDecisionReason,
         suggestedSnoozeUntil: input.suggestedSnoozeUntil,
       },
       dedupKey: input.dedupKey,

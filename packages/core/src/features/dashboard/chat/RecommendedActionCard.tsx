@@ -5,6 +5,7 @@ import { ArrowRight, Check, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X 
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { RECOMMENDED_ACTION_ADVICE } from '@/services/chat/autoPropose';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
@@ -74,6 +75,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
         agentSlug: rec.agentSlug,
         rationale: rec.rationale,
         confidence: rec.confidence,
+        ...RECOMMENDED_ACTION_ADVICE,
       }) as { runId: number; status: string };
       setPhase({ status: 'proposed', runId: res.runId });
       onProposed?.(res.runId);

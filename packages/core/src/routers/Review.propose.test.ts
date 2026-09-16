@@ -99,16 +99,18 @@ describe('proposeFromRecommendationRoute', () => {
     expect(lastProposal().suggestedDecisionReason).toBe('The venue has not confirmed the date.');
   });
 
-  it('reads a blank reason as none, never as an empty sentence', async () => {
-    // A whitespace-only string would reach the review card as an empty quote
-    // under the badge, which reads as the agent having said something.
+  it('trims the reason it stores, so the card never renders padding', async () => {
+    // A whitespace-only reason cannot get this far — the input schema trims
+    // and requires at least one character, and that guard is asserted over
+    // HTTP in `e2e/reviews-suggested-decision`, because calling a procedure
+    // through `~orpc.handler` skips input validation.
     await call(proposeFromRecommendationRoute, {
       actionId: 'objects.propose_candidate',
       input: { id: 1 },
       suggestedDecision: 'approve',
-      suggestedDecisionReason: '   ',
+      suggestedDecisionReason: '  Fits the listing rules.  ',
     });
 
-    expect(lastProposal().suggestedDecisionReason).toBeUndefined();
+    expect(lastProposal().suggestedDecisionReason).toBe('Fits the listing rules.');
   });
 });

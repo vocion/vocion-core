@@ -250,6 +250,12 @@ export async function proposeRelatedObjects(opts: {
             rationale: 'Referenced by a record extracted from this source, and not yet an approved object.',
             evidence: opts.evidence ? [opts.evidence] : undefined,
             agentSlug: opts.config.agentSlug,
+            // Every card carries a recommendation, this one in core's own
+            // words: no model judged this object, it exists because a record
+            // the model DID judge points at it. Approving it is what lets that
+            // record through, so that is what a reviewer is being asked for.
+            suggestedDecision: 'approve' as const,
+            suggestedDecisionReason: 'A record extracted from this source refers to it, and it is not an approved object yet.',
           },
         });
         runId = proposed.runId;

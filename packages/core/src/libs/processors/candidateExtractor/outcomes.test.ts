@@ -67,6 +67,8 @@ function record(over: Record<string, unknown> = {}) {
     },
     confidence: 0.86,
     issues: [] as string[],
+    suggestedDecision: 'approve' as const,
+    suggestedDecisionReason: 'Public listing with a date and a venue.',
     ...rest,
   };
 }
@@ -132,18 +134,28 @@ describe('candidate extractor outcomes', () => {
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(1);
   });
 
-  it('recommends reject on a card the model called a duplicate, and nothing otherwise', async () => {
+  it('overrides the model on a card it called a duplicate, and leaves every other verdict alone', async () => {
+    // A duplicate is core's determination, not the model's, so the card says
+    // reject in core's words whatever the model recommended. Every other card
+    // carries the model's own verdict through untouched — the queue has no
+    // row with nothing recommended on it.
     await propose([
       record({ duplicateOf: 41, fields: { title: 'Open Mic Night', seriesMatch: 'possible duplicate of 41' } }),
-      record(),
+      record({ suggestedDecision: 'snooze', suggestedDecisionReason: 'The venue has not confirmed the date yet.' }),
     ]);
 
     const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
     const byTitle = Object.fromEntries(runs.map(r => [(r.input as { title?: string }).title, r]));
 
-    expect(byTitle['Open Mic Night']?.proposal).toMatchObject({ suggestedDecision: 'reject' });
+    expect(byTitle['Open Mic Night']?.proposal).toMatchObject({
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Already waiting for review as action run #41.',
+    });
     expect(byTitle['Open Mic Night']?.status).toBe('pending');
-    expect((byTitle['The Music of Hey Arnold! Live']?.proposal as { suggestedDecision?: string }).suggestedDecision).toBeUndefined();
+    expect(byTitle['The Music of Hey Arnold! Live']?.proposal).toMatchObject({
+      suggestedDecision: 'snooze',
+      suggestedDecisionReason: 'The venue has not confirmed the date yet.',
+    });
   });
 
   it('links the document to the candidate it created', async () => {

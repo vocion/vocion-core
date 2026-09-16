@@ -1327,6 +1327,12 @@ export async function saveDraftSequence(orgId: string, opts: SaveDraftSequenceOp
     proposal: {
       confidence: row.confidence ?? undefined,
       rationale: opts.recommendedSequence.reason,
+      // Every review card says what it wants done with it. The drafts are
+      // written and the sequence is picked; sending them is the whole point of
+      // the card, so the recommendation is to go ahead, and the sentence names
+      // the sequence rather than repeating the rationale above.
+      suggestedDecision: 'approve' as const,
+      suggestedDecisionReason: `Drafts are ready for the ${opts.recommendedSequence.name} sequence and only need a person to release them.`,
     },
   });
 

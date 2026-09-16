@@ -377,11 +377,18 @@ describe('apiRewriteDraft', () => {
   });
 });
 
+/**
+ * The recommendation every proposal has to carry now. Spread into the calls
+ * whose subject is something else, so a test about capability or expiry fails
+ * on the thing it names rather than on the missing advice.
+ */
+const ADVICE = { suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the operator rules.' };
+
 describe('apiProposeReview', () => {
   it('proposes with an agent principal so the item lands pending', async () => {
     proposeAction.mockResolvedValue({ runId: 42, status: 'pending' });
 
-    const out = await apiProposeReview(owner, { actionId: 'crm.update', input: { id: 1 }, agentSlug: 'sweeper' });
+    const out = await apiProposeReview(owner, { ...ADVICE, actionId: 'crm.update', input: { id: 1 }, agentSlug: 'sweeper' });
 
     expect(out).toEqual({ runId: 42, status: 'pending' });
     expect(proposeAction).toHaveBeenCalledWith(expect.objectContaining({
@@ -398,14 +405,14 @@ describe('apiProposeReview', () => {
     // so nothing here may narrow the result back down to runId + status.
     proposeAction.mockResolvedValue({ runId: 42, status: 'rejected', outcome: 'already_decided', decidedAt: new Date('2026-09-01T00:00:00Z') });
 
-    const out = await apiProposeReview(owner, { actionId: 'objects.propose_candidate', input: { id: 1 } });
+    const out = await apiProposeReview(owner, { ...ADVICE, actionId: 'objects.propose_candidate', input: { id: 1 } });
 
     expect(out).toMatchObject({ runId: 42, status: 'rejected', outcome: 'already_decided' });
     expect((out as { decidedAt: Date }).decidedAt).toEqual(new Date('2026-09-01T00:00:00Z'));
   });
 
   it('requires an actionId', async () => {
-    await expect(apiProposeReview(owner, { actionId: '', input: {} })).rejects.toMatchObject({ status: 400 });
+    await expect(apiProposeReview(owner, { ...ADVICE, actionId: '', input: {} })).rejects.toMatchObject({ status: 400 });
     expect(proposeAction).not.toHaveBeenCalled();
   });
 
@@ -431,26 +438,6 @@ describe('apiProposeReview', () => {
     }));
   });
 
-  it('reads a blank reason as none rather than passing an empty sentence on', async () => {
-    // The endpoint stays open to callers that send neither field, so the
-    // reason has to survive the same tolerance the recommendation does: a
-    // whitespace-only string is nothing, and storing it would put an empty
-    // quote under the badge on the review card.
-    proposeAction.mockResolvedValue({ runId: 8, status: 'pending' });
-
-    await apiProposeReview(owner, {
-      actionId: 'objects.propose_candidate',
-      input: { id: 1 },
-      suggestedDecision: 'approve',
-      suggestedDecisionReason: '   ',
-    });
-
-    const [call] = proposeAction.mock.calls.at(-1) as [{ proposal?: Record<string, unknown> }];
-
-    expect(call.proposal?.suggestedDecision).toBe('approve');
-    expect(call.proposal?.suggestedDecisionReason).toBeUndefined();
-  });
-
   it('refuses a recommendation outside the three it can be', async () => {
     // Dropping the field instead would store a run that looks as though the
     // agent had no opinion, and the agreement metric would quietly count
@@ -459,19 +446,20 @@ describe('apiProposeReview', () => {
       actionId: 'objects.propose_candidate',
       input: {},
       suggestedDecision: 'rejected',
+      suggestedDecisionReason: 'Third listing of this same show this week.',
     })).rejects.toMatchObject({ status: 400 });
     expect(proposeAction).not.toHaveBeenCalled();
   });
 
   it('rejects a confidence outside 0–1', async () => {
-    await expect(apiProposeReview(owner, { actionId: 'crm.update', input: {}, confidence: 1.5 }))
+    await expect(apiProposeReview(owner, { ...ADVICE, actionId: 'crm.update', input: {}, confidence: 1.5 }))
       .rejects
       .toMatchObject({ status: 400 });
     expect(proposeAction).not.toHaveBeenCalled();
   });
 
   it('rejects an expiry beyond the cap', async () => {
-    await expect(apiProposeReview(owner, { actionId: 'crm.update', input: {}, expiresInDays: 365 }))
+    await expect(apiProposeReview(owner, { ...ADVICE, actionId: 'crm.update', input: {}, expiresInDays: 365 }))
       .rejects
       .toMatchObject({ status: 400 });
     expect(proposeAction).not.toHaveBeenCalled();
@@ -480,13 +468,32 @@ describe('apiProposeReview', () => {
   it('turns an unknown action into a 400, not a 500', async () => {
     proposeAction.mockRejectedValue(new Error('No registered action: nope'));
 
-    await expect(apiProposeReview(owner, { actionId: 'nope', input: {} })).rejects.toMatchObject({ status: 400 });
+    await expect(apiProposeReview(owner, { ...ADVICE, actionId: 'nope', input: {} })).rejects.toMatchObject({ status: 400 });
   });
 
   it('forbids a specialist', async () => {
-    await expect(apiProposeReview(specialist, { actionId: 'crm.update', input: {} }))
+    await expect(apiProposeReview(specialist, { ...ADVICE, actionId: 'crm.update', input: {} }))
       .rejects
       .toMatchObject({ status: 403 });
+    expect(proposeAction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a proposal that recommends nothing', async () => {
+    // The rule the whole change exists for: a card with no recommendation
+    // cannot be compared against the decision a person then takes, so the
+    // queue must never accept one rather than storing a blind spot.
+    await expect(apiProposeReview(owner, { actionId: 'objects.propose_candidate', input: { id: 1 } } as never))
+      .rejects
+      .toMatchObject({ status: 400 });
+    expect(proposeAction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a recommendation that comes with no reason', async () => {
+    // A verdict a reviewer cannot check is one they can only take on faith,
+    // and a blank sentence is the same as none.
+    await expect(apiProposeReview(owner, { actionId: 'objects.propose_candidate', input: { id: 1 }, suggestedDecision: 'reject', suggestedDecisionReason: '   ' }))
+      .rejects
+      .toMatchObject({ status: 400 });
     expect(proposeAction).not.toHaveBeenCalled();
   });
 });

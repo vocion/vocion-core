@@ -854,7 +854,7 @@ describe('discovery.review_proposal via proposeAction (agent path)', () => {
         isDiscovery: true,
         proposalReady: true,
       },
-      proposal: { confidence: 0.92, rationale: 'clear discovery' },
+      proposal: { confidence: 0.92, rationale: 'clear discovery', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
   }
 

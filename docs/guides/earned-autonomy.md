@@ -39,7 +39,7 @@ with the decision:
 
 | Where the decision was made | Subject | What was recommended | Agreed when |
 |---|---|---|---|
-| Review queue — approve, edit-then-approve, reject on an `action_run` | `action` / the action id | `proposal.suggestedDecision`, and `proposal.suggestedDecisionReason` for why it says so; both are required of every producer now, so only runs proposed before that shipped state none, and those fall back to an *implicit* `approve` (an agent only proposes work it wants run) | the outcome matches: approve or edit ↔ `approve`, reject ↔ `reject` |
+| Review queue — approve, edit-then-approve, reject on an `action_run` | `action` / the action id | `proposal.suggestedDecision`, and `proposal.suggestedDecisionReason` for why it says so; both are required of every producer and refused at every write boundary, so only runs proposed before that shipped state none, and those are left out of the agreement rate rather than read as an implicit `approve` | the outcome matches: approve or edit ↔ `approve`, reject ↔ `reject` |
 | Needs-you page — an answer to an ask | `ask` / the ask kind | the option marked `recommended` | the chosen option is that one |
 
 Every row carries who decided, whether a note came with it (a correction the

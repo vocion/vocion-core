@@ -1,7 +1,7 @@
 import type { WorkflowRunSummary } from '@/services/WorkflowService';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
-import { parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { logger } from '@/libs/Logger';
 import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
@@ -172,14 +172,20 @@ export const proposeFromRecommendationRoute = os
     agentSlug: z.string().optional(),
     rationale: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
-    /** What the agent thinks the reviewer should do. Advisory — never releases the action. */
-    suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
     /**
-     * One short sentence for why that recommendation. Not `rationale` above:
-     * that argues the payload is right, this argues what should happen to the
-     * card, which is the whole content of a `reject`.
+     * What the agent thinks the reviewer should do. Required, like everywhere
+     * else a proposal is made: a card nobody recommended anything about
+     * cannot be measured against the decision a person then took. Advisory in
+     * the other direction — it never releases the action.
      */
-    suggestedDecisionReason: z.string().optional(),
+    suggestedDecision: z.enum(SUGGESTED_DECISIONS),
+    /**
+     * One short sentence for why that recommendation, required alongside it.
+     * Not `rationale` above: that argues the payload is right, this argues
+     * what should happen to the card, which is the whole content of a
+     * `reject`.
+     */
+    suggestedDecisionReason: z.string().trim().min(1),
     /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
     suggestedSnoozeUntil: z.string().optional(),
     /** Upsert key (object type + id + action) — re-surfacing updates in place. */
@@ -201,7 +207,7 @@ export const proposeFromRecommendationRoute = os
         confidence: input.confidence,
         rationale: input.rationale,
         suggestedDecision: input.suggestedDecision,
-        suggestedDecisionReason: parseSuggestedDecisionReason(input.suggestedDecisionReason),
+        suggestedDecisionReason: input.suggestedDecisionReason.trim(),
         suggestedSnoozeUntil: input.suggestedSnoozeUntil,
       },
       // Explicit key wins; otherwise derive a stable one from the action + its
