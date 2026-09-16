@@ -11,13 +11,25 @@
  * Pinned artifacts (the sidebar's own pin list, `user_nav_pref.pins`) sit at
  * the top: a person who pinned something has already said it is the one they
  * come back to.
+ *
+ * **A row here is a reference, not the task.** This page is where you choose
+ * WHICH artifact you wanted; an artifact's real home is beside the
+ * conversation that made it. So a plain click previews and the header link,
+ * ⌘-click, middle-click and Enter open it properly
+ * (`docs/design/patterns.md` § *A row is a reference, or it is the task*).
+ * The preview is read-only — current version, author, where it came from. An
+ * artifact is editable and the editing happens on the artifact; a preview that
+ * sometimes writes is a different component.
  */
 
 import type { ArtifactListItem } from '@/services/ArtifactService';
 import { Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ListRow, ListRows, Subline } from '@/components/patterns';
 import { EmptyState } from '@/components/ui/empty-state';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { usePreviewList } from '@/features/preview/usePreviewList';
+import { useRouter } from '@/libs/I18nNavigation';
 
 import { cn } from '@/utils/Helpers';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL, authorLabel, relativeTime } from './kinds';
@@ -57,6 +69,14 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
         && (q === '' || a.title.toLowerCase().includes(q) || (a.folder ?? '').includes(q)))
       .sort((x, y) => Number(pinned.has(y.id)) - Number(pinned.has(x.id)));
   }, [artifacts, query, kinds, folder, pinned]);
+
+  const router = useRouter();
+  const items = useMemo(
+    () => rows.map(a => ({ ref: { type: 'artifact' as const, id: String(a.id) }, href: artifactHrefFor(a) })),
+    [rows],
+  );
+  const goTo = useCallback((href: string) => router.push(href), [router]);
+  const preview = usePreviewList(items, goTo);
 
   const toggleKind = (k: string) => {
     setKinds((prev) => {
@@ -139,12 +159,14 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
           )
         : (
             <ListRows>
-              {rows.map((a) => {
+              {rows.map((a, i) => {
                 const Icon = ARTIFACT_KIND_ICON[a.kind];
                 return (
                   <ListRow
                     key={a.id}
                     href={artifactHrefFor(a)}
+                    onSelect={() => preview.select(i)}
+                    selected={preview.selected === i}
                     icon={Icon}
                     title={(
                       <span className="flex items-center gap-2">
@@ -169,6 +191,7 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
               })}
             </ListRows>
           )}
+      <PreviewPanel />
     </div>
   );
 }

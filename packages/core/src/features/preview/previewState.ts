@@ -2,6 +2,8 @@
 
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useId, useSyncExternalStore } from 'react';
+import { dismissSelectionControl } from '@/features/comments/AnchoredComments';
+import { restoreRail, yieldRail } from '@/features/dashboard/chat/dockState';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 
@@ -16,6 +18,13 @@ import { RECORD_TYPES } from '@/services/chat/pageContext';
  * (an evidence list does not know whether the page already has one), so the
  * first mounted host claims the slot and the rest render nothing. No provider,
  * no shell edit — the same shape as `dockState.ts`.
+ *
+ * And at most one thing on the right, across all three members of the family
+ * (`docs/design/patterns.md`): opening a preview borrows the rail's slot
+ * through `yieldRail()` and stands the selection control down through
+ * `dismissSelectionControl()`; closing gives the rail back with
+ * `restoreRail()`, in the state it was in. Both are events — nothing here
+ * holds a reference to the rail or to the comment layer.
  */
 
 function isRecordType(s: string): s is RecordType {
@@ -43,6 +52,10 @@ function readSearch(): string {
 
 /** The element that opened the current preview, so Escape can hand focus back. */
 let opener: HTMLElement | null = null;
+/** Whether the rail was open when this preview took its slot. */
+let railWasOpen = false;
+/** Whether a preview currently holds the slot (swapping refs does not re-borrow). */
+let holdingSlot = false;
 
 function writeParam(value: string | null): void {
   const params = new URLSearchParams(window.location.search);
@@ -71,6 +84,14 @@ export function useOpenPreviewRef(): Pick<RecordRef, 'type' | 'id'> | null {
  */
 export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLElement | null): void {
   opener = from;
+  // Borrow the slot once. Swapping from one reference to another is still the
+  // same borrow — asking again would read the rail as already closed and lose
+  // the memory of how to put it back.
+  if (!holdingSlot) {
+    railWasOpen = yieldRail();
+    holdingSlot = true;
+  }
+  dismissSelectionControl();
   writeParam(previewKey(ref));
 }
 
@@ -79,6 +100,13 @@ export function closePreview(): void {
   const back = opener;
   opener = null;
   writeParam(null);
+  if (holdingSlot) {
+    holdingSlot = false;
+    if (railWasOpen) {
+      restoreRail();
+    }
+    railWasOpen = false;
+  }
   back?.focus();
 }
 

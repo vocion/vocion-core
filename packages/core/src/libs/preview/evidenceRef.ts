@@ -100,3 +100,47 @@ export function evidenceRef(source: string): EvidenceRef {
   const type = prefix === 'deals' || prefix === 'hubspot' ? 'deal' : prefix === 'contacts' || prefix === 'companies' ? 'object' : 'document';
   return { ref: { type, id: raw, label }, sourceLabel, label, raw };
 }
+
+/**
+ * The briefing document carries its own reference vocabulary
+ * (`services/briefings/document.ts`: `crm-deal | crm-company | email | call |
+ * contract | team-briefing | inbox | …`). Translate it here rather than in the
+ * briefing components, so there is one place that knows how a foreign ref
+ * spelling becomes a previewable one.
+ *
+ * Returns null for a reference that must NOT be previewed. `inbox` is the
+ * case: it points at a decision, and a decision is a detail page, not a peek
+ * (`docs/design/patterns.md`).
+ * @param ref - The briefing document's evidence entry.
+ * @param ref.kind
+ * @param ref.id
+ * @param ref.label
+ * @param ref.href
+ */
+export function briefingEvidenceRef(ref: { kind: string; id: string; label: string; href?: string }): RecordRef | null {
+  const id = ref.id;
+  switch (ref.kind) {
+    case 'crm-deal':
+      return { type: 'deal', id: id.includes(':') ? id : `deals:${id}`, label: ref.label };
+    case 'crm-company':
+      return { type: 'object', id: id.includes(':') ? id : `companies:${id}`, label: ref.label };
+    case 'crm-contact':
+      return { type: 'object', id: id.includes(':') ? id : `contacts:${id}`, label: ref.label };
+    case 'email':
+      return { type: 'document', id: id.includes(':') ? id : `gmail:${id}`, label: ref.label };
+    case 'call':
+    case 'meeting':
+      return { type: 'document', id, label: ref.label };
+    case 'contract':
+      return { type: 'document', id: id.includes(':') ? id : `docuseal:${id}`, label: ref.label };
+    case 'team-briefing':
+      return { type: 'briefing', id, label: ref.label };
+    case 'artifact':
+      return { type: 'artifact', id, label: ref.label };
+    case 'inbox':
+      // A decision is the task, not a reference to confirm. It stays a link.
+      return null;
+    default:
+      return { type: 'document', id, label: ref.label };
+  }
+}

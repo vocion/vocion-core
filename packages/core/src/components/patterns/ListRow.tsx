@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
@@ -135,6 +135,18 @@ export type ListRowProps = {
   'href'?: string;
   /** A row that acts in place. Ignored when `href` is set. */
   'onClick'?: () => void;
+  /**
+   * A row that PREVIEWS rather than navigates. Set it alongside `href` and a
+   * plain left-click previews while the row stays a real link: ⌘/Ctrl-click,
+   * middle-click, Open-in-new-tab and a copied address all still go to the
+   * page. A list declares this once for every row — never per row.
+   *
+   * Which a list is: see `docs/design/patterns.md` § *A row is a reference, or
+   * it is the task*.
+   */
+  'onSelect'?: () => void;
+  /** Marks the row the preview is currently showing. */
+  'selected'?: boolean;
   'icon'?: LucideIcon;
   'title': ReactNode;
   /** `<Subline>` or any one-line node under the title. Raw nodes get the subline's type and spacing. */
@@ -151,9 +163,30 @@ export type ListRowProps = {
   'data-testid'?: string;
 };
 
+/**
+ * A click that means "take me there" rather than "show me": a modifier, or
+ * any button but the primary one.
+ * @param e
+ */
+function wantsNavigation(e: MouseEvent<HTMLElement>): boolean {
+  return e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+}
+
 export function ListRow(props: ListRowProps) {
   const Icon = props.icon;
   const chevron = props.chevron ?? Boolean(props.href);
+  const { onSelect } = props;
+  // The row stays an anchor so the browser's own "go there" gestures keep
+  // working; only the plain click is taken for the preview.
+  const intercept = onSelect
+    ? (e: MouseEvent<HTMLElement>) => {
+        if (wantsNavigation(e)) {
+          return;
+        }
+        e.preventDefault();
+        onSelect();
+      }
+    : undefined;
   const content = (
     <>
       {Icon && (
@@ -183,7 +216,7 @@ export function ListRow(props: ListRowProps) {
       {chevron && <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5" aria-hidden />}
     </>
   );
-  const classes = cn(ROW, props.className);
+  const classes = cn(ROW, props.selected && 'bg-surface-soft', props.className);
 
   // A row with actions cannot put them inside its link — a button nested in an
   // anchor is invalid, and the click would navigate. The link covers the
@@ -191,7 +224,7 @@ export function ListRow(props: ListRowProps) {
   if (props.href && props.actions) {
     return (
       <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
-        <Link href={props.href} aria-label={typeof props.title === 'string' ? props.title : undefined} className="flex min-w-0 flex-1 items-center gap-3 outline-none">
+        <Link href={props.href} onClick={intercept} aria-current={props.selected ? 'true' : undefined} aria-label={typeof props.title === 'string' ? props.title : undefined} className="flex min-w-0 flex-1 items-center gap-3 outline-none">
           {content}
         </Link>
         {tail}
@@ -200,15 +233,15 @@ export function ListRow(props: ListRowProps) {
   }
   if (props.href) {
     return (
-      <Link href={props.href} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
+      <Link href={props.href} onClick={intercept} aria-current={props.selected ? 'true' : undefined} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
         {content}
         {tail}
       </Link>
     );
   }
-  if (props.onClick) {
+  if (props.onClick ?? onSelect) {
     return (
-      <button type="button" onClick={props.onClick} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
+      <button type="button" onClick={props.onClick ?? onSelect} aria-current={props.selected ? 'true' : undefined} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
         {content}
         {tail}
       </button>

@@ -3,9 +3,11 @@
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RecordRef } from '@/services/chat/pageContext';
 import { ExternalLink, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { RAIL_INSET_VAR } from '@/features/dashboard/chat/dockState';
+import { RAIL_SHEET_BREAKPOINT } from '@/features/dashboard/chat/railState';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
@@ -19,10 +21,18 @@ import { closePreview, useEscapeToClose, useOpenPreviewRef, usePreviewHost } fro
  * detail page — it answers "is this the right thing, and what does it say",
  * and the link is how you make it the task.
  *
- * It takes the right rail's slot and stacks over it rather than opening a
- * third column. The rail keeps its own state underneath and comes back when
- * the preview closes, so "one thing on the right at a time" holds without the
- * two features having to know about each other.
+ * It takes the right rail's slot — borrowed through `yieldRail()` and given
+ * back with `restoreRail()` (`previewState.ts`) — rather than opening a third
+ * column, so "one thing on the right at a time" holds without either feature
+ * holding a reference to the other. It inherits the rail's other rule too:
+ * while it is open it publishes `--rail-inset`, so the shell's page gutter
+ * pads itself and the panel never covers the record it is about.
+ *
+ * It renders no `Section`, deliberately. `Section` is a commentable region
+ * (`patterns/DetailPage`), and a comment anchored in a peek would be filed
+ * against the page you are standing on rather than the record you are
+ * reading — so a selection inside a preview raises nothing, and the way to
+ * talk about what you found is the link out.
  *
  * It never takes focus. Escape closes it and hands focus back to whatever
  * opened it, and while it is open the page's own shortcuts still work — a
@@ -82,6 +92,24 @@ function Panel(props: { ref_: Pick<RecordRef, 'type' | 'id'> }) {
   const { ref_ } = props;
   const [doc, setDoc] = useState<PreviewDoc | null>(null);
   const [failed, setFailed] = useState(false);
+  const panel = useRef<HTMLElement>(null);
+
+  // The rail's rule, inherited: an open panel over the text is still an open
+  // panel over the text. Below the sheet breakpoint it overlays, as the rail
+  // does, and insets nothing.
+  useEffect(() => {
+    const publish = () => {
+      const wide = window.innerWidth >= RAIL_SHEET_BREAKPOINT;
+      const width = wide ? Math.round(panel.current?.getBoundingClientRect().width ?? 0) : 0;
+      document.documentElement.style.setProperty(RAIL_INSET_VAR, `${width}px`);
+    };
+    publish();
+    window.addEventListener('resize', publish);
+    return () => {
+      window.removeEventListener('resize', publish);
+      document.documentElement.style.setProperty(RAIL_INSET_VAR, '0px');
+    };
+  }, []);
 
   // The panel is keyed on the ref, so a new reference remounts it and the
   // loading state is the initial state — no reset needed here.
@@ -112,6 +140,7 @@ function Panel(props: { ref_: Pick<RecordRef, 'type' | 'id'> }) {
 
   return (
     <aside
+      ref={panel}
       data-testid="preview-panel"
       data-preview-key={`${ref_.type}:${ref_.id}`}
       aria-label={`Preview: ${shown.title}`}
