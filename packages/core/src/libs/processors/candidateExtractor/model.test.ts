@@ -141,19 +141,22 @@ describe('candidate extractor model call', () => {
     expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toBe('The date has already passed.');
   });
 
-  it('truncates an over-long reason instead of failing the answer', async () => {
-    // Same trade as the series note below: a model that writes an essay must
-    // not cost the records it wrote it about.
+  it('keeps a long reason whole rather than cutting it mid-word', async () => {
+    // The prompt asks for one short sentence, but a model that writes two must
+    // not have the second chopped at a character count — half a word tells a
+    // reviewer less than the long version does. The card clamps what it shows.
+    const long = `The venue sits outside the coverage area, ${'and the run repeats every Tuesday, '.repeat(9)}so a person should turn it down.`;
+
     invoke.mockResolvedValue({
       content: JSON.stringify({
-        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'y'.repeat(400) }],
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: long }],
       }),
     });
 
     const result = await call();
 
     expect(result.status).toBe('ok');
-    expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toHaveLength(240);
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toBe(long);
   });
 
   it('strips code fences the way the classifier does', async () => {

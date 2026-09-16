@@ -34,7 +34,7 @@ import type { ExtractionPrompt } from './prompt';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
-import { SUGGESTED_DECISION_REASON_MAX, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg, resolvedModelId } from '@/libs/llm/langchain';
@@ -123,11 +123,12 @@ function envelopeSchema(maxRecords: number) {
       // Required, unlike every optional field around it. A record the model
       // declined to judge is a record the agreement metric cannot see, so this
       // is worth the corrective retry that a missing value costs — the same
-      // trade `maxRecords` above makes. The reason is capped by transform
-      // rather than by a hard `.max()` for the reason `seriesNote` gives: a
-      // sentence one character long costs a card it should never cost.
+      // trade `maxRecords` above makes. The reason carries no length bound:
+      // the prompt asks for one short sentence, and a model that writes two
+      // should not have the second one cut off mid-word — the card clamps
+      // what it shows instead.
       suggestedDecision: z.enum(SUGGESTED_DECISIONS),
-      suggestedDecisionReason: z.string().transform(value => value.trim().slice(0, SUGGESTED_DECISION_REASON_MAX)),
+      suggestedDecisionReason: z.string().transform(value => value.trim()),
       // Truncated, never rejected. `notes` above is a hard `.max(2000)`, and a
       // value one character over a hard bound costs the corrective retry and
       // can cost the whole document. A 141-character aside must never cost a

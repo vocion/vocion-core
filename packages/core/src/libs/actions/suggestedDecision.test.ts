@@ -5,7 +5,7 @@
  * `approve` for a missing value, or an edit counted as a rejection.
  */
 import { describe, expect, it } from 'vitest';
-import { decisionOutcome, parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISION_REASON_MAX, SUGGESTED_DECISIONS } from './suggestedDecision';
+import { decisionOutcome, parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from './suggestedDecision';
 
 describe('parseSuggestedDecision', () => {
   it('accepts exactly the three recommendations an agent can give', () => {
@@ -88,13 +88,13 @@ describe('parseSuggestedDecisionReason', () => {
     expect(parseSuggestedDecisionReason('  Date has already passed.  ')).toBe('Date has already passed.');
   });
 
-  it('truncates an over-long reason instead of dropping it', () => {
-    // A model that writes three paragraphs where one sentence was asked for
-    // must not cost the recommendation it explains — the card is worth more
-    // than the tail of the sentence.
-    const long = `${'x'.repeat(SUGGESTED_DECISION_REASON_MAX + 50)}`;
-    const kept = parseSuggestedDecisionReason(long);
+  it('keeps a long reason whole rather than cutting it mid-word', () => {
+    // The prompts ask for one short sentence; a model that writes two must not
+    // have the second one chopped at a character count, which hands a reviewer
+    // half a word and reads worse than the long version. The card clamps what
+    // it shows — the store keeps the words.
+    const long = `The venue sits outside the coverage area the policy names, ${'and it repeats every Tuesday through December, '.repeat(8)}so a person should turn it down.`;
 
-    expect(kept).toHaveLength(SUGGESTED_DECISION_REASON_MAX);
+    expect(parseSuggestedDecisionReason(long)).toBe(long);
   });
 });

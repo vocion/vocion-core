@@ -37,23 +37,17 @@ export const SUGGESTED_DECISIONS = ['approve', 'reject', 'snooze'] as const;
 export type SuggestedDecision = typeof SUGGESTED_DECISIONS[number];
 
 /**
- * How much of a recommendation's reason we keep.
- *
- * Long enough for the sentence a reviewer actually needs — "third listing of
- * this show this week, duplicate of run #412" — and short enough to sit beside
- * the badge on a review card without pushing the payload off the screen. Text
- * past it is trimmed rather than refused: a reason one character over must
- * never cost the card it belongs to.
- */
-export const SUGGESTED_DECISION_REASON_MAX = 240;
-
-/**
  * Read the reason a recommendation came with, off untrusted input.
  *
  * Returns undefined for anything that is not usable text, which callers should
  * read as "no reason given" — the same way an absent `suggestedDecision` means
  * no recommendation rather than approval. Whitespace-only text is nothing, and
  * storing it would put an empty quote under a badge on the review card.
+ *
+ * Length is not limited here on purpose. Cutting at a character count lands
+ * mid-word and hands the reviewer half a sentence, which reads worse than a
+ * long one; the prompts ask for one short sentence instead, and the card
+ * clamps what it shows rather than the store throwing the words away.
  * @param value - Anything; only non-empty text survives.
  */
 export function parseSuggestedDecisionReason(value: unknown): string | undefined {
@@ -61,7 +55,7 @@ export function parseSuggestedDecisionReason(value: unknown): string | undefined
     return undefined;
   }
   const trimmed = value.trim();
-  return trimmed ? trimmed.slice(0, SUGGESTED_DECISION_REASON_MAX) : undefined;
+  return trimmed || undefined;
 }
 
 /**

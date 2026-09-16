@@ -593,7 +593,11 @@ export function ReviewActionCard(props: {
                   right, this argues what should happen to it, and on a
                   "turning down" the two say opposite-sounding things. */}
               {suggestion && run.proposal?.suggestedDecisionReason && (
-                <span data-testid="suggested-decision-reason" className="text-[12px] text-muted-foreground">
+                <span
+                  data-testid="suggested-decision-reason"
+                  title={run.proposal.suggestedDecisionReason}
+                  className="line-clamp-1 text-[12px] text-muted-foreground"
+                >
                   {run.proposal.suggestedDecisionReason}
                 </span>
               )}

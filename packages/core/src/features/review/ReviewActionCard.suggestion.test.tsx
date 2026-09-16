@@ -57,6 +57,25 @@ describe('the agent recommendation on a review card', () => {
     await expect.element(page.getByTestId('suggested-decision-reason')).toHaveTextContent(REASON);
   });
 
+  it('keeps a long reason to one line on the card, with the whole sentence still reachable', async () => {
+    // Nothing caps the stored reason: a model that writes two sentences where
+    // one was asked for must not be cut mid-word. The row is what protects the
+    // layout, so it clamps to a single line and hands the full text to the
+    // tooltip — and the focus view shows all of it.
+    const long = `The venue sits outside the coverage area, ${'and the run repeats every Tuesday, '.repeat(9)}so a person should turn it down.`;
+
+    render(<ReviewActionCard run={runWith({ confidence: 0.4, suggestedDecision: 'reject', suggestedDecisionReason: long })} />);
+
+    const reason = page.getByTestId('suggested-decision-reason');
+
+    await expect.element(reason).toHaveAttribute('title', long);
+
+    // The clamp itself is CSS, and this project renders without the stylesheet,
+    // so the class is what can be pinned here: measuring the height would
+    // report one line whether or not the clamp survived a refactor.
+    await expect.element(reason).toHaveClass('line-clamp-1');
+  });
+
   it('shows the badge alone for a run proposed before reasons existed', async () => {
     // Every card in the queue today is this shape. An empty element under the
     // badge would read as the agent having said something and stopped.

@@ -2739,7 +2739,8 @@ export const actionRunSchema = pgTable(
        * the recommendations themselves can be read back and judged later
        * rather than only scored as a percentage.
        *
-       * Trimmed to `SUGGESTED_DECISION_REASON_MAX`. Absent on runs proposed
+       * Asked for as one short sentence and stored whole — a reason cut at a
+       * character count reads worse than a long one. Absent on runs proposed
        * before this shipped.
        */
       suggestedDecisionReason?: string;
