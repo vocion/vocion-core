@@ -4,7 +4,8 @@ import type { ReviewRow } from '@/services/inbox/reviewRows';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
-import { humaniseActionId } from '@/services/inbox/describeActionRun';
+import { changeSummaryLine, summariseChanges } from '@/services/inbox/changeSummary';
+import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRun';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
@@ -73,8 +74,13 @@ export type InboxItem = {
   actionId?: string;
   /** Set when this row is a decision sheet — several open items under one key. */
   groupKey?: string;
-  /** Open questions in the sheet. */
+  /** Open questions in the sheet — rendered as a quiet tag beside the title, never inside it. */
   count?: number;
+  /**
+   * What the title is short for, when the title is a name: `Deal 1234`. Shown
+   * on hover so the id stays reachable without being the label.
+   */
+  titleHint?: string;
   /** 0–1, from the proposal. */
   confidence?: number | null;
   amount?: number | null;
@@ -176,15 +182,17 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
     }
     const oldest = g.rows.reduce((m, r) => (r.createdAt < m.createdAt ? r : m));
     const agents = [...new Set(g.rows.map(r => r.described.agentSlug).filter(Boolean))] as string[];
-    const kinds = [...new Set(g.rows.map(r => r.described.actionKind))];
     const confidences = g.rows.map(r => r.described.confidence).filter((c): c is number => c !== null);
     const amount = g.rows.map(r => r.described.amount).find((a): a is number => a !== null) ?? null;
     items.push({
       key: `review-sheet:${g.key}`,
       kind: 'proposal',
       shape: 'sheet',
-      title: `${g.record.name} — ${g.rows.length} proposals`,
-      subline: [g.record.name, kinds.join(' + '), agents.length > 0 ? `proposed by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
+      // The record's NAME is the title; the count is the tag beside it, and
+      // the subline says what the proposals would do (Chris, 2026-09-16).
+      title: recordTitle(g.record),
+      titleHint: g.record.fromId === true ? undefined : g.record.idLabel,
+      subline: [changeSummaryLine(summariseChanges(g.rows)), agents.length > 0 ? `proposed by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
       agentSlug: agents[0] ?? null,
       teamSlug: null,
       risk: null,
@@ -229,7 +237,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       kind: kindForAsk(oldest.kind),
       shape: 'sheet',
       title: oldest.groupTitle ?? `${group.length} questions`,
-      subline: [oldest.agentSlug ? `asked by ${oldest.agentSlug}` : null, `${group.length} questions`].filter(Boolean).join(' › '),
+      subline: oldest.agentSlug ? `asked by ${oldest.agentSlug}` : undefined,
       agentSlug: oldest.agentSlug,
       teamSlug: oldest.teamSlug,
       risk: group.some(a => a.risk === 'high') ? 'high' : group.some(a => a.risk === 'medium') ? 'medium' : oldest.risk,

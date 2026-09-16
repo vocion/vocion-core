@@ -71,7 +71,17 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
         icon={KindIcon}
         title={(
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-normal">{item.title}</span>
+            <span className="truncate font-normal" title={item.titleHint}>{item.title}</span>
+            {item.shape === 'sheet' && item.count !== undefined && (
+              // The count is a label, not the title (Chris, 2026-09-16). Quiet
+              // grey, beside the name, never in place of it.
+              <span
+                className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[11px] font-normal text-muted-foreground tabular-nums"
+                title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'proposal' : 'proposals') : (item.count === 1 ? 'question' : 'questions')} waiting`}
+              >
+                {item.count}
+              </span>
+            )}
             {item.risk && (
               <span className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium tracking-wide uppercase sm:inline ${riskTone(item.risk)}`}>{item.risk}</span>
             )}

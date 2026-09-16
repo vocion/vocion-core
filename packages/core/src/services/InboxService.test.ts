@@ -32,11 +32,11 @@ async function seedActions() {
   const now = Date.now();
   await db.insert(actionRunSchema).values([
     // Three proposals about one deal → one sheet row, oldest age wins.
-    { orgId: ORG, actionId: 'hubspot.update', status: 'pending', invokedBy: 'agent:deal-desk', createdAt: new Date(now - 4 * day), input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Spinutech', dealstage: 'contractsent', amount: '48000' } }, proposal: { confidence: 0.82, agentSlug: 'deal-desk' } },
-    { orgId: ORG, actionId: 'hubspot.update', status: 'pending', invokedBy: 'agent:deal-desk', createdAt: new Date(now - 2 * day), input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Spinutech', hs_next_step: 'Send MSA' } }, proposal: { confidence: 0.6, agentSlug: 'deal-desk' } },
+    { orgId: ORG, actionId: 'hubspot.update', status: 'pending', invokedBy: 'agent:deal-desk', createdAt: new Date(now - 4 * day), input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Northwind renewal', dealstage: 'contractsent', amount: '48000' } }, proposal: { confidence: 0.82, agentSlug: 'deal-desk' } },
+    { orgId: ORG, actionId: 'hubspot.update', status: 'pending', invokedBy: 'agent:deal-desk', createdAt: new Date(now - 2 * day), input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Northwind renewal', hs_next_step: 'Send MSA' } }, proposal: { confidence: 0.6, agentSlug: 'deal-desk' } },
     { orgId: ORG, actionId: 'gmail.send', status: 'pending', invokedBy: 'agent:follow-up-coordinator', createdAt: new Date(now - 1 * day), input: { to: 'ops@spinutech.com', subject: 'MSA attached', body: 'x' }, proposal: { confidence: 0.9, agentSlug: 'follow-up-coordinator' } },
     // One enrollment on its own.
-    { orgId: ORG, actionId: 'personalization.enroll', status: 'pending', invokedBy: 'agent:personalization', createdAt: new Date(now - 3 * day), input: { contactRef: 'contacts:1', contactName: 'Jamie Smith', companyName: 'Redpoint IT', sequenceName: 'MSP nurture' }, proposal: { confidence: 0.88, agentSlug: 'personalization' } },
+    { orgId: ORG, actionId: 'personalization.enroll', status: 'pending', invokedBy: 'agent:personalization', createdAt: new Date(now - 3 * day), input: { contactRef: 'contacts:1', contactName: 'Jamie Smith', companyName: 'Contoso Supply', sequenceName: 'MSP nurture' }, proposal: { confidence: 0.88, agentSlug: 'personalization' } },
     // Decided, another org, expired: none of these are open rows.
     { orgId: ORG, actionId: 'gmail.send', status: 'done', invokedBy: 'agent:follow-up-coordinator', createdAt: new Date(now - 5 * day), executedAt: new Date(now - 1000), decidedAt: new Date(now - 1000), decidedBy: 'user_chris', input: { to: 'a@b.c', subject: 'Done', body: 'x' }, proposal: {} },
     { orgId: 'other_org', actionId: 'gmail.send', status: 'pending', input: { to: 'x@y.z', body: 'x' }, proposal: {} },
@@ -129,10 +129,12 @@ describe('InboxService — proposals', () => {
 
     const [first, second] = inbox.items; // oldest first
 
-    expect(first).toMatchObject({ kind: 'proposal', shape: 'sheet', title: 'Spinutech — 2 proposals', count: 2, amount: 48000, confidence: 0.6, href: '/dashboard/inbox/r/hubspot%3Adeals%3A7781' });
-    expect(first!.subline).toBe('Spinutech › CRM update › proposed by deal-desk');
+    // The record's NAME is the title, the count is a tag beside it, and the
+    // subline says what the proposals would DO — never the name a second time.
+    expect(first).toMatchObject({ kind: 'proposal', shape: 'sheet', title: 'Northwind renewal', titleHint: 'Deal 7781', count: 2, amount: 48000, confidence: 0.6, href: '/dashboard/inbox/r/hubspot%3Adeals%3A7781' });
+    expect(first!.subline).toBe('1 field update · 1 next step › proposed by deal-desk');
     expect(Date.now() - first!.at.getTime()).toBeGreaterThan(3.9 * day);
-    expect(second).toMatchObject({ kind: 'proposal', shape: 'single', title: 'Enroll Jamie Smith (Redpoint IT) in MSP nurture', actionId: 'personalization.enroll', confidence: 0.88 });
+    expect(second).toMatchObject({ kind: 'proposal', shape: 'single', title: 'Enroll Jamie Smith (Contoso Supply) in MSP nurture', actionId: 'personalization.enroll', confidence: 0.88 });
     expect(second!.href).toBe(`/dashboard/inbox/proposal-${second!.reviewId}`);
     expect(second!.ref).toEqual({ kind: 'proposal', id: second!.reviewId });
     expect(inbox.items.map(i => i.title)).not.toContain(expect.stringContaining('stale@'));

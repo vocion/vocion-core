@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/components/ui/toast';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
+import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { decisionCrumbs } from './inbox/inboxMeta';
@@ -26,7 +28,10 @@ import { withMinimumPending } from './inbox/pending';
  * navigate to the next proposal's own address with the list's filters kept
  * in the query string, so a reload, a shared link or the back button land
  * exactly where a person was. Deciding moves to the next proposal in the
- * queue and, when the queue is empty, back to the list.
+ * queue — that IS the queue, and the toast names what you just did while you
+ * read the next one. When the queue runs out it does NOT dump you on the
+ * list: it says the queue is clear and gives you a button back, because a
+ * redirect nobody asked for reads as losing your place (Chris, 2026-09-16).
  *
  * No popups. gmail.send never auto-sends. The run record in the database is
  * the debugging surface — no raw payload here.
@@ -52,6 +57,8 @@ export function ReviewFocus(props: {
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [decided, setDecided] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
+  /** Set when the last proposal in the queue is decided — the only exit is a button. */
+  const [cleared, setCleared] = useState(false);
   // Skipped ids fall to the back of the working queue for this visit.
   const [skipped, setSkipped] = useState<number[]>([]);
 
@@ -70,11 +77,13 @@ export function ReviewFocus(props: {
   const leave = useCallback(() => {
     if (next) {
       router.push(hrefFor(next.id));
-    } else {
-      router.push(listHref);
+      router.refresh();
+      return;
     }
+    // Nothing else is waiting: say so here rather than redirecting.
+    setCleared(true);
     router.refresh();
-  }, [next, router, hrefFor, listHref]);
+  }, [next, router, hrefFor]);
 
   // Editable working copy of a presenter-less item's human fields.
   useEffect(() => {
@@ -226,6 +235,18 @@ export function ReviewFocus(props: {
 
   const upNext = ordered.slice(0, 10).map(q => ({ id: q.id, title: q.title, typeLabel: q.typeLabel }));
   const record = run.card?.subject?.name ?? describeAction(run).title;
+
+  if (cleared) {
+    return (
+      <div className="mx-auto w-full max-w-3xl" data-testid="review-cleared">
+        <ReviewHeader crumbs={decisionCrumbs('proposal', record)} title="Queue clear" system="Proposals" status="done" position={`${decided} decided this visit`} />
+        <p className="mt-3 text-sm text-muted-foreground">Nothing else in this queue is waiting on you.</p>
+        <p className="mt-4">
+          <Link href={listHref} className="text-sm text-primary underline-offset-2 hover:underline" data-testid="review-cleared-back">Back to Needs you</Link>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <ReviewFocusView
