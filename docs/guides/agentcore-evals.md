@@ -19,12 +19,41 @@ consequences worth knowing before you plan around it:
 
 - **No OpenTelemetry, no CloudWatch, no hosting on AgentCore Runtime.** The
   spans go in the request body. Your agent can run anywhere.
-- **AWS stores nothing.** There is no `GetEvaluation` for a synchronous call. A
-  score Vocion does not write down is gone, which is why every score lands in
-  `eval_score` as it arrives.
+- **A synchronous score is not stored anywhere.** There is no
+  `GetEvaluation` for an `Evaluate` call, so a score Vocion does not write down
+  is gone — which is why every score lands in `eval_score` as it arrives.
+  AgentCore does persist other things: evaluators, datasets and their versions,
+  and batch evaluation jobs all live in your account.
 - **The grader never sees your agent run.** It reads a finished transcript, so
   a score is about that one execution and nothing else — rerunning the dataset
   is a new measurement, not a second opinion on the old one.
+
+## Three ways AgentCore evaluates, and the one we use
+
+AWS offers evaluation in three shapes, and they answer different questions:
+
+- **On-demand** — you hand it the spans for one session and it scores them
+  synchronously. This is the one Vocion uses: our runner executes the cases and
+  posts each finished transcript to `Evaluate`.
+- **Batch** — you start a job and the service finds the sessions itself, out of
+  CloudWatch Logs, scores them server-side and hands back per-evaluator
+  averages. Useful for a baseline over a window of real production traffic.
+- **Online** — a standing configuration that scores a sampled percentage of
+  live sessions continuously, writing scores to CloudWatch as they happen.
+
+The last two read your agent's OpenTelemetry traces out of CloudWatch, which
+means an agent instrumented and delivering spans there. Vocion's agents trace
+to Langfuse today, so on-demand is the shape that works without asking anyone
+to rebuild their observability. Nothing about the datasets or the evaluators
+changes if that later becomes possible — only who runs the cases.
+
+Worth being clear about what the live-traffic shape can and cannot tell you.
+Nobody wrote down the right answer for a real customer's question, so online
+evaluation judges a session against itself: was the reply responsive, was it
+grounded in what the tools returned. That is a health signal, not a pass rate.
+The way the two meet is a person promoting a bad live session into a dataset
+and writing the expected answer — after which it is a regression case like any
+other.
 
 ## What is deterministic, and what only looks it
 

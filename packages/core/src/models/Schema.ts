@@ -1584,12 +1584,28 @@ export const evalDatasetSchema = pgTable(
      */
     provider: text('provider').default('vocion').notNull(),
     description: text('description'),
-    /** Test cases. Each: input + optional expectedOutput + optional rubric. */
+    /**
+     * Test cases, the same shape `EvalDatasetItem` in
+     * `services/evals/types.ts` describes. Spelled out again here rather than
+     * imported, because a model reaching into a service is a cycle waiting to
+     * happen.
+     *
+     * It listed only the first four fields once, while the applier wrote all
+     * of them and every reader cast the column back to the full type. A
+     * declaration that lies costs the next writer the ground truth AgentCore
+     * scores against, so it says everything we store.
+     */
     items: jsonb('items').$type<Array<{
       input: string;
       expectedOutput?: string;
       rubric?: string;
       tags?: string[];
+      /** Tool names the agent should call, in order. */
+      expectedTrajectory?: string[];
+      /** Natural-language facts the answer must contain, read by a judge. */
+      assertions?: string[];
+      /** Deterministic checks, run in this process. `EvalCheck` in the same file. */
+      checks?: Array<Record<string, unknown>>;
     }>>().default([]).notNull(),
     version: integer('version').default(1).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })

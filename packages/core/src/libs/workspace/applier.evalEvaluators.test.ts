@@ -96,6 +96,24 @@ afterAll(async () => {
 });
 
 describe('workspace apply — eval evaluators', () => {
+  it('refuses deterministic checks on a dataset another grader scores', async () => {
+    // `checks` run inside our own judge. On an AgentCore dataset they would be
+    // written, applied and silently never run, while the case still reported a
+    // pass rate — which reads as though they had passed.
+    const dir = mkdtempSync(join(tmpdir(), 'cc-eval-checks-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: eval-checks\n`);
+    mkdirSync(join(dir, 'agents'));
+    writeFileSync(join(dir, 'agents', 'support-agent.yaml'), 'slug: support-agent\nname: Support Agent\nsystemPrompt: Be helpful.\n');
+    mkdirSync(join(dir, 'evals'));
+    writeFileSync(
+      join(dir, 'evals', `${DATASET}.yaml`),
+      `slug: ${DATASET}\nname: Refund quality\nagentSlug: support-agent\nprovider: agentcore\nitems:\n  - input: I want a refund.\n    checks:\n      - outputContains: refund\n`,
+    );
+
+    await expect(async () => loadWorkspace(dir)).rejects.toThrow(/case 1 has checks/);
+  });
+
   it('refuses a file whose evaluator is for a grader the dataset does not use', async () => {
     // An eval lives in one place. An AgentCore evaluator on a Vocion dataset
     // would never be asked for a score, so applying the file would leave

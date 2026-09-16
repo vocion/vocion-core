@@ -992,6 +992,23 @@ export const EvalDatasetManifestSchema = z.object({
       });
     }
   }
+
+  // `checks` run inside our own judge and nowhere else, so on a dataset graded
+  // by anyone else they are written, applied, and then silently never run —
+  // and the case still reports a pass rate, which reads as if they had. Refuse
+  // the file instead. A dataset that needs deterministic checks belongs to
+  // Vocion; inside AgentCore the equivalent is a `codeBased` evaluator.
+  if (dataset.provider !== 'vocion') {
+    dataset.items.forEach((item, index) => {
+      if (item.checks?.length) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['items', index, 'checks'],
+          message: `case ${index + 1} has checks, which only run under the vocion grader — this dataset is graded by ${dataset.provider}`,
+        });
+      }
+    });
+  }
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
 export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;
