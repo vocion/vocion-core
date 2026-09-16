@@ -1,9 +1,8 @@
 'use client';
 
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
-import { useCallback, useEffect, useId, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { dismissSelectionControl } from '@/features/comments/AnchoredComments';
-import { restoreRail, yieldRail } from '@/features/dashboard/chat/dockState';
 import { parsePreviewKey, PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
 import { RECORD_TYPES } from '@/services/chat/pageContext';
 
@@ -14,17 +13,18 @@ import { RECORD_TYPES } from '@/services/chat/pageContext';
  * reasons that are really one reason — a preview is a place, not a mode:
  * it is linkable, it survives a reload, and the Back button closes it.
  *
- * At most one panel paints. Any number of surfaces may render `<PreviewPanel/>`
- * (an evidence list does not know whether the page already has one), so the
- * first mounted host claims the slot and the rest render nothing. No provider,
- * no shell edit — the same shape as `dockState.ts`.
+ * Any number of surfaces may render `<PreviewPanel/>` — an evidence list does
+ * not know whether the page already has one, or whether it has a chat rail
+ * that will draw the column instead. Exactly one paints; `claimColumn` in
+ * `dockState.ts` settles which, and the dock wins.
  *
- * And at most one thing on the right, across all three members of the family
- * (`docs/design/patterns.md`): opening a preview borrows the rail's slot
- * through `yieldRail()` and stands the selection control down through
- * `dismissSelectionControl()`; closing gives the rail back with
- * `restoreRail()`, in the state it was in. Both are events — nothing here
- * holds a reference to the rail or to the comment layer.
+ * And one column on the right, not two panels: the preview stands ABOVE chat
+ * in the same column (`features/dashboard/chat/RailColumn`), so there is
+ * nothing to borrow from the rail and nothing to give back. Opening one does
+ * stand the selection control down — `dismissSelectionControl()`, an event,
+ * so nothing here holds a reference to the comment layer — because a floating
+ * control about a passage on this page and a panel about a record on another
+ * are two things the person asked for one of.
  */
 
 function isRecordType(s: string): s is RecordType {
@@ -52,10 +52,6 @@ function readSearch(): string {
 
 /** The element that opened the current preview, so Escape can hand focus back. */
 let opener: HTMLElement | null = null;
-/** Whether the rail was open when this preview took its slot. */
-let railWasOpen = false;
-/** Whether a preview currently holds the slot (swapping refs does not re-borrow). */
-let holdingSlot = false;
 
 function writeParam(value: string | null): void {
   const params = new URLSearchParams(window.location.search);
@@ -84,13 +80,6 @@ export function useOpenPreviewRef(): Pick<RecordRef, 'type' | 'id'> | null {
  */
 export function openPreview(ref: Pick<RecordRef, 'type' | 'id'>, from: HTMLElement | null): void {
   opener = from;
-  // Borrow the slot once. Swapping from one reference to another is still the
-  // same borrow — asking again would read the rail as already closed and lose
-  // the memory of how to put it back.
-  if (!holdingSlot) {
-    railWasOpen = yieldRail();
-    holdingSlot = true;
-  }
   dismissSelectionControl();
   writeParam(previewKey(ref));
 }
@@ -100,49 +89,7 @@ export function closePreview(): void {
   const back = opener;
   opener = null;
   writeParam(null);
-  if (holdingSlot) {
-    holdingSlot = false;
-    if (railWasOpen) {
-      restoreRail();
-    }
-    railWasOpen = false;
-  }
   back?.focus();
-}
-
-const hosts: string[] = [];
-const hostListeners = new Set<() => void>();
-
-function hostEmit(): void {
-  hostListeners.forEach(l => l());
-}
-
-function subscribeHost(listener: () => void): () => void {
-  hostListeners.add(listener);
-  return () => {
-    hostListeners.delete(listener);
-  };
-}
-
-/**
- * True for exactly one mounted host at a time — the one that paints. Any
- * number of surfaces may render the panel; the first to mount claims the
- * slot, so "never two panels" holds without a provider or a shell edit.
- */
-export function usePreviewHost(): boolean {
-  const id = useId();
-  useEffect(() => {
-    hosts.push(id);
-    hostEmit();
-    return () => {
-      const at = hosts.indexOf(id);
-      if (at >= 0) {
-        hosts.splice(at, 1);
-      }
-      hostEmit();
-    };
-  }, [id]);
-  return useSyncExternalStore(subscribeHost, () => hosts[0] === id, () => false);
 }
 
 /**

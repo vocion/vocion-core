@@ -580,11 +580,15 @@ decision, not about a record; read that way, both asks hold. The rule lives in
 opens *onto* beside a record changed on 2026-09-16 — see *The rail is the
 conversation, never a second copy of the page* — but the geometry did not.
 
-**Seams:** `yieldRail()` / `restoreRail()` (`features/dashboard/chat/dockState.ts`)
-— a surface that needs the rail's slot borrows it and gives it back in the
-state it found it, without recording the borrow as the person's preference and
-without holding a reference to the rail's internals. `useDockOpen()` reads the
-state; `--rail-inset` is the room an open rail is taking.
+**Seams:** `dockState.ts` owns the column's geometry and nothing holds a
+reference to anything else's internals. `openChatPane()` / `closeChatPane()`
+(and the low-level `requestRail`) open and close the chat pane from outside it;
+`claimColumn` settles which component draws the column when both `ChatDock` and
+the preview's own host are mounted — the dock wins, because it is the one that
+can hold both panes. `useDockOpen()` reads the state; `--rail-inset` is the
+room the open column is taking. The old `yieldRail()` / `restoreRail()` borrow
+is gone: nothing takes the column's slot any more, so there is nothing to
+borrow and nothing to restore.
 
 **Where it came from.** Chris, 2026-09-16: *"can we use full width by default
 here?"*
@@ -737,12 +741,32 @@ component.
 
 ### The contract
 
-- **One thing on the right.** The panel borrows the rail's slot through
-  `yieldRail()` and gives it back with `restoreRail()`, and stands the
-  selection control down with `dismissSelectionControl()`. Never two panels,
-  never a third column. It inherits the rail's other rule too: while open it
-  publishes `--rail-inset`, so the page gutter pads itself and the peek never
-  covers the record it is about.
+- **One column, two stacked panes.** Chris, 2026-09-16: *"I don't want to have
+  more than 1 sidebar at a time."* There is ONE right column
+  (`features/dashboard/chat/RailColumn`) with one width and one resize handle.
+  The preview stands **above** chat in it, separated by a divider you can drag:
+
+  ```text
+  ┌──────────────┐  preview — what you are looking at
+  ├─ ─ ─ ─ ─ ─ ─ ┤  a divider you can drag; its position persists
+  └──────────────┘  chat — what you are doing about it
+  ```
+
+  **Stacked, not tabbed**, and the reason is the point of both features: you
+  open a preview in order to ask about it. A tab would make you choose between
+  the evidence and the question, and hide the evidence at exactly the moment
+  you want to talk about it.
+
+  Opening a preview while chat is open SPLITS the column; chat keeps its
+  transcript and its composer. Either pane closes on its own — closing the
+  preview gives the column back to chat, closing chat leaves the preview full
+  height, closing both closes the column to its edge tab. One width for the
+  column, never one per pane. Below `RAIL_SHEET_BREAKPOINT` the column is a
+  sheet and shows one pane at a time: the preview replaces its content and its
+  close control becomes *Back to chat*, because halving a phone helps nobody.
+  Opening a preview also stands the selection control down
+  (`dismissSelectionControl()`). The column publishes `--rail-inset` while it
+  stands beside the page, so the peek never covers the record it is about.
 - **Same keyboard.** Escape closes and returns focus to whatever opened it.
   The page's own shortcuts — the decision verbs, `j`/`k` — keep working
   underneath, because the panel never takes focus: a reviewer must still be
