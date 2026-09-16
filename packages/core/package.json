@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -89,6 +89,7 @@
     "@langchain/anthropic": "^1.3.29",
     "@langchain/aws": "^1.0.4",
     "@langchain/core": "^1.1.45",
+    "@langchain/langgraph": "^1.3.0",
     "@langchain/openai": "^1.4.5",
     "@logtape/logtape": "^2.0.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -122,6 +123,7 @@
     "drizzle-orm": "^0.45.1",
     "gray-matter": "^4.0.3",
     "js-tiktoken": "^1.0.21",
+    "langchain": "^1.4.0",
     "langfuse": "^3.38.6",
     "lucide-react": "^0.577.0",
     "next": "^16.1.6",

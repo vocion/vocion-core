@@ -198,6 +198,13 @@ export type AgentEvent
      * diagnosable without depending on the model's cooperation.
      */
     | { type: 'tool_error'; tool: string; message: string; status?: number }
+    /**
+     * Approved learnings were mounted for this turn. Silent by design: the
+     * chat transcript ignores it; the adoption surfaces (Phase 2 growing-
+     * memory panel) are its consumers. `paths` lists the mounted memory
+     * files (`/learnings/…`, later `/memories/…`).
+     */
+    | { type: 'memories_mounted'; paths: string[] }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**

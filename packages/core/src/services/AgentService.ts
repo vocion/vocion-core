@@ -342,6 +342,14 @@ export async function runAgentDeep(opts: {
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug);
 
+  // Silent signal for the adoption surfaces; the chat consumer's event switch
+  // has no case for it, so the transcript is untouched.
+  const { memoryMountPaths } = await import('./agents/memoryDigest');
+  const memoryPaths = memoryMountPaths(initialFiles);
+  if (memoryPaths.length > 0) {
+    emit({ type: 'memories_mounted', paths: memoryPaths });
+  }
+
   const history = (opts.conversationHistory ?? [])
     .filter(t => t.content.trim().length > 0)
     .map(t => ({ role: t.role, content: t.content }));

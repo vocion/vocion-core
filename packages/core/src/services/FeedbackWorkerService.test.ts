@@ -13,7 +13,7 @@ vi.mock('@/services/feedback/classifier', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { feedbackJobSchema, learningCandidateSchema, learningSchema } = await import('@/models/Schema');
+const { feedbackJobSchema, learningCandidateSchema, learningSchema, learningStepSchema } = await import('@/models/Schema');
 const { enqueue, listJobs, runOnce } = await import('@/services/FeedbackWorkerService');
 
 const ORG = 'org_feedback';
@@ -23,6 +23,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(learningCandidateSchema);
   await db.delete(learningSchema);
+  await db.delete(learningStepSchema);
   await db.delete(feedbackJobSchema);
 });
 
@@ -145,5 +146,61 @@ describe('runOnce', () => {
 
   it('reports there was nothing to do on an empty queue', async () => {
     expect(await runOnce()).toBe(false);
+  });
+
+  it('hands the classifier the org step whitelist so it can pick the bucket', async () => {
+    await db.insert(learningStepSchema).values([
+      { orgId: ORG, name: 'crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
+      { orgId: ORG, name: 'email-drafting', title: 'Email drafting', description: 'Voice and structure of outbound email' },
+    ]);
+    classifyComment.mockResolvedValue({ bucket: 'ignore' });
+    await enqueue({ orgId: ORG, source: 'api', externalId: 'p', payload: { text: 'x' } });
+
+    await runOnce();
+
+    expect(classifyComment).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [
+        { name: 'crm-updates', description: 'When to write to the CRM' },
+        { name: 'email-drafting', description: 'Voice and structure of outbound email' },
+      ],
+    }));
+  });
+
+  it('lands the candidate in the step the classifier picked when the payload names none', async () => {
+    await db.insert(learningStepSchema).values([
+      { orgId: ORG, name: 'crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
+      { orgId: ORG, name: 'email-drafting', title: 'Email drafting', description: 'Voice of outbound email' },
+    ]);
+    classifyComment.mockResolvedValue({
+      bucket: 'rule',
+      rule_text: 'Keep follow-up emails under 120 words.',
+      target_step: 'email-drafting',
+    });
+    await enqueue({ orgId: ORG, source: 'api', externalId: 'p', payload: { text: 'shorter emails please' } });
+
+    await runOnce();
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate!.stepName).toBe('email-drafting');
+  });
+
+  it('lets a payload that names the step win over the classifier pick', async () => {
+    await db.insert(learningStepSchema).values([
+      { orgId: ORG, name: 'crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
+      { orgId: ORG, name: 'email-drafting', title: 'Email drafting', description: 'Voice of outbound email' },
+    ]);
+    classifyComment.mockResolvedValue({
+      bucket: 'rule',
+      rule_text: 'Keep follow-up emails under 120 words.',
+      target_step: 'email-drafting',
+    });
+    await enqueue({ orgId: ORG, source: 'api', externalId: 'p', payload: { text: 'x', targetSlug: 'crm-updates' } });
+
+    await runOnce();
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate!.stepName).toBe('crm-updates');
   });
 });

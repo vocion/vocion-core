@@ -73,6 +73,12 @@ export type AgentEvent
      * the model's cooperation.
      */
     | { type: 'tool_error'; tool: string; message: string; status?: number }
+    /**
+     * Approved learnings were mounted for this turn (parity with core's
+     * event union). Core emits it when it builds the payload; the artifact
+     * never needs to. Silent in chat by design.
+     */
+    | { type: 'memories_mounted'; paths: string[] }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**

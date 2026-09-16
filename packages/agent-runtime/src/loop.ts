@@ -14,6 +14,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { createDeepAgent, StateBackend } from 'deepagents';
 import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
+import { createMemoryDigestMiddleware } from './memoryDigest.js';
 import { buildChatModel } from './model.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
@@ -166,6 +167,9 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     subagents,
     systemPrompt: req.agent.systemPrompt || undefined,
     backend: new StateBackend(),
+    // Approved learnings ride the payload as /learnings/ files; this injects
+    // them into every model call's system message (parity with core's loop).
+    middleware: [createMemoryDigestMiddleware()],
     ...(hasPlaybooks ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 

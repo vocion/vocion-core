@@ -21,7 +21,7 @@
 import type { Classification } from './feedback/classifier';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { feedbackJobSchema } from '@/models/Schema';
+import { feedbackJobSchema, learningStepSchema } from '@/models/Schema';
 import { classifyComment } from './feedback/classifier';
 
 export type FeedbackPayload = {
@@ -164,11 +164,23 @@ export async function runOnce(): Promise<boolean> {
       return true;
     }
 
+    // The org's step whitelist rides into the classifier so it picks the
+    // bucket, instead of every unattributed rule landing in the org's first
+    // step (which is how email-drafting rules ended up filed under CRM
+    // judgment). A caller that already knows the step (payload.targetSlug)
+    // still wins below.
+    const steps = await db
+      .select({ name: learningStepSchema.name, description: learningStepSchema.description })
+      .from(learningStepSchema)
+      .where(eq(learningStepSchema.orgId, row.org_id))
+      .orderBy(learningStepSchema.id);
+
     const classification = await classifyComment({
       text: payload.text ?? '',
       quotedText: payload.quotedText,
       artifactTitle: payload.artifactTitle,
       orgId: row.org_id,
+      steps,
     });
 
     await db.execute(sql`
@@ -179,7 +191,7 @@ export async function runOnce(): Promise<boolean> {
             editSummary: classification.edit_summary,
             ruleText: classification.rule_text,
             polarity: classification.polarity ?? payload.polarityHint,
-            targetSlug: payload.targetSlug,
+            targetSlug: payload.targetSlug ?? classification.target_step,
           })}::jsonb
       WHERE id = ${row.id}
     `);
@@ -232,7 +244,7 @@ async function recordLearningCandidate(
       orgId,
       ruleText: classification.rule_text,
       polarity: classification.polarity ?? payload.polarityHint ?? 'correct',
-      stepName: payload.targetSlug,
+      stepName: payload.targetSlug ?? classification.target_step,
       note: payload.text,
       agentSlug: payload.agentSlug,
       sourceFeedbackJobId: feedbackJobId,

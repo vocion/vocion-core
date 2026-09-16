@@ -72,6 +72,14 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
         <TrendChart data={detail.reachTrend} areaKey="messages" areaLabel="Messages" lineKey="reach" lineLabel="Reach (users)" />
       </div>
 
+      <div className="rounded-md border border-border p-4">
+        <div className="mb-1 text-sm font-semibold">Approval rate over time</div>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Cumulative approval rate over the window, over daily judged decisions. Same definition as the stat card: approved as-is ÷ judged; an edited or rewritten draft counts against.
+        </p>
+        <TrendChart data={detail.approvalTrend} areaKey="decisions" areaLabel="Decisions" lineKey="ratePct" lineLabel="Approval % (cumulative)" />
+      </div>
+
       <div>
         <div className="mb-2 text-sm font-semibold">Top users</div>
         <div className="overflow-x-auto rounded-lg border border-border bg-background">

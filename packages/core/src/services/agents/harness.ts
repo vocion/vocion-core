@@ -39,6 +39,7 @@ import { agentSchema, playbookSchema } from '@/models/Schema';
 import { bundleStepMarkdown } from '@/services/LearningsService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { deriveDelegationRoster } from './delegationRoster';
+import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -320,6 +321,10 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     // passed message").
     systemPrompt,
     backend: new StateBackend(),
+    // Approved learnings are injected into every model call's system message
+    // (structural, not discoverable — see memoryDigest.ts). Safe to mount
+    // unconditionally: it declares no required state fields.
+    middleware: [createMemoryDigestMiddleware()],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
     ...(hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });

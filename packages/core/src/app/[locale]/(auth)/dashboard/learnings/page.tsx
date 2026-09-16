@@ -56,6 +56,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
         }))}
         total={pending.total}
         pageSize={CANDIDATE_PAGE_SIZE}
+        steps={steps.map(s => ({ name: s.name, title: s.title }))}
       />
 
       {steps.length === 0

@@ -13,7 +13,7 @@
  * number is tunable per-org in a later phase.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { learningSchema, learningStepSchema } from '@/models/Schema';
 
@@ -286,6 +286,60 @@ export async function removeLearning(opts: { orgId: string; ruleId: number }) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Render cache: rendering is cheap but pure waste to repeat every turn, and
+ * it grows with the rule count. The fingerprint is one indexed aggregate per
+ * step per turn; only a changed step re-renders. In-process (per instance),
+ * which is always correct — a stale entry can't survive its fingerprint.
+ *
+ * `last_used_at` stamping deliberately uses raw SQL: Drizzle's `$onUpdate`
+ * would bump `updated_at` on every stamp, which would both churn this cache's
+ * fingerprint every turn and make "rule changed" indistinguishable from
+ * "rule was read".
+ */
+const renderCache = new Map<string, { fingerprint: string; content: string }>();
+const RENDER_CACHE_LIMIT = 256;
+
+/** Test hook. */
+export function resetLearningsRenderCache(): void {
+  renderCache.clear();
+}
+
+async function stepFingerprint(orgId: string, stepName: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      stepUpdatedAt: learningStepSchema.updatedAt,
+      ruleCount: sql<number>`count(${learningSchema.id})::int`,
+      maxRuleUpdatedAt: sql<string | null>`max(${learningSchema.updatedAt})::text`,
+    })
+    .from(learningStepSchema)
+    .leftJoin(learningSchema, and(
+      eq(learningSchema.stepId, learningStepSchema.id),
+      eq(learningSchema.orgId, orgId),
+    ))
+    .where(and(eq(learningStepSchema.orgId, orgId), eq(learningStepSchema.name, stepName)))
+    .groupBy(learningStepSchema.id);
+  if (!row) {
+    return null;
+  }
+  return `${row.stepUpdatedAt.toISOString()}|${row.ruleCount}|${row.maxRuleUpdatedAt ?? ''}`;
+}
+
+/**
+ * Stamp every rule in the step as read now — the staleness signal the
+ * dashboard's "last used" column reads. Fire-and-forget from the bundle path:
+ * a failed stamp must never fail a turn.
+ * @param orgId
+ * @param stepName
+ */
+async function stampStepUsed(orgId: string, stepName: string): Promise<void> {
+  await db.execute(sql`
+    UPDATE learning SET last_used_at = now()
+    WHERE org_id = ${orgId}
+      AND step_id = (SELECT id FROM learning_step WHERE org_id = ${orgId} AND name = ${stepName})
+  `);
+}
+
+/**
  * Returns `{ '/learnings/<step>.md': content }` for the given step
  * names. Used by services/agents/harness.ts:buildInitialFiles to seed
  * the agent's deepagents StateBackend per turn.
@@ -299,11 +353,35 @@ export async function bundleStepMarkdown(
   const out: Record<string, string> = {};
   for (const name of stepNames) {
     try {
-      out[`/learnings/${name}.md`] = await renderStepMarkdown(orgId, name);
+      const fingerprint = await stepFingerprint(orgId, name);
+      if (fingerprint === null) {
+        // Unknown step — skip silently. The agent's learningSteps list
+        // is the authoring contract; missing steps mean workspace:apply
+        // hasn't seeded them yet.
+        continue;
+      }
+      const cacheKey = `${orgId}::${name}`;
+      const cached = renderCache.get(cacheKey);
+      let content: string;
+      if (cached && cached.fingerprint === fingerprint) {
+        content = cached.content;
+      } else {
+        content = await renderStepMarkdown(orgId, name);
+        if (renderCache.size >= RENDER_CACHE_LIMIT && !renderCache.has(cacheKey)) {
+          const first = renderCache.keys().next().value;
+          if (first !== undefined) {
+            renderCache.delete(first);
+          }
+        }
+        renderCache.set(cacheKey, { fingerprint, content });
+      }
+      out[`/learnings/${name}.md`] = content;
+      void stampStepUsed(orgId, name).catch((error) => {
+        console.error(`[LearningsService] could not stamp last_used_at for step ${name}`, error);
+      });
     } catch {
-      // Unknown step — skip silently. The agent's learningSteps list
-      // is the authoring contract; missing steps mean workspace:apply
-      // hasn't seeded them yet.
+      // Same contract as before the cache: a step that cannot render is
+      // skipped, never a failed turn.
     }
   }
   return out;

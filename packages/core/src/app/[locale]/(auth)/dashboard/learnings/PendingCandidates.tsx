@@ -26,6 +26,8 @@ type Props = {
   total: number;
   /** Rows per page, used for the "load more" fetches. */
   pageSize: number;
+  /** The org's step whitelist, so a misfiled candidate can be re-bucketed before approval. */
+  steps: Array<{ name: string; title: string }>;
 };
 
 /**
@@ -42,12 +44,14 @@ type Props = {
  * @param root0.candidates
  * @param root0.total
  * @param root0.pageSize
+ * @param root0.steps
  */
-export function PendingCandidates({ candidates, total, pageSize }: Props) {
+export function PendingCandidates({ candidates, total, pageSize, steps }: Props) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [stepOverrides, setStepOverrides] = useState<Record<number, string>>({});
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [reason, setReason] = useState('');
   const [extraRows, setExtraRows] = useState<PendingCandidate[]>([]);
@@ -120,6 +124,33 @@ export function PendingCandidates({ candidates, total, pageSize }: Props) {
   }
 
   /**
+   * Move a candidate to a different step before deciding it — the fix for a
+   * classifier misfile. Persisted immediately through the same PATCH endpoint
+   * an external panel uses, so the re-bucket survives a page reload.
+   * @param candidate
+   * @param stepName
+   */
+  async function rebucket(candidate: PendingCandidate, stepName: string): Promise<void> {
+    const previous = stepOverrides[candidate.id] ?? candidate.stepName;
+    setStepOverrides(s => ({ ...s, [candidate.id]: stepName }));
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/learning-candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stepName }),
+      });
+      if (!res.ok) {
+        throw new Error(await messageFor(res));
+      }
+    } catch (err) {
+      console.error('[PendingCandidates] could not re-bucket candidate', err);
+      setStepOverrides(s => ({ ...s, [candidate.id]: previous }));
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
    * Fetch the next page from the same endpoint an external panel would call,
    * and append it. Keeps the whole queue reachable instead of stopping at the
    * server-rendered first page.
@@ -168,7 +199,26 @@ export function PendingCandidates({ candidates, total, pageSize }: Props) {
           return (
             <li key={candidate.id} className="rounded-lg border border-border bg-background p-4">
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <code className="font-mono">{candidate.stepName}</code>
+                {steps.length > 0
+                  ? (
+                      <select
+                        value={stepOverrides[candidate.id] ?? candidate.stepName}
+                        onChange={e => rebucket(candidate, e.target.value)}
+                        disabled={busy}
+                        aria-label="Learning step this rule lands in"
+                        title="Which bucket this rule lands in when approved — change it if the classifier misfiled it"
+                        className="rounded-md border border-input bg-background px-1.5 py-0.5 font-mono text-xs"
+                      >
+                        {/* A candidate can name a step that no longer exists; keep it selectable so the row still renders honestly. */}
+                        {!steps.some(s => s.name === (stepOverrides[candidate.id] ?? candidate.stepName)) && (
+                          <option value={stepOverrides[candidate.id] ?? candidate.stepName}>{stepOverrides[candidate.id] ?? candidate.stepName}</option>
+                        )}
+                        {steps.map(s => (
+                          <option key={s.name} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    )
+                  : <code className="font-mono">{candidate.stepName}</code>}
                 <span aria-hidden>·</span>
                 <span
                   className={candidate.polarity === 'reinforce' ? 'text-emerald-700' : 'text-amber-700'}

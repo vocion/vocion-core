@@ -838,6 +838,15 @@ export type AdoptionAgentDetail = {
   agent: AdoptionAgentRow | null;
   /** Daily distinct users reaching this agent. */
   reachTrend: Array<{ day: string; reach: number; messages: number }>;
+  /**
+   * The approval-rate trend: daily judged decisions plus the cumulative
+   * approval rate over the window (same definition as `approvalRate` on the
+   * row — approved-as-is ÷ judged; edits count against). Cumulative rather
+   * than per-day because a day with two decisions makes a per-day rate
+   * whipsaw between 0 and 100. `adoptions` counts rules adopted that day
+   * (`learning.added`), so cause can sit next to effect on the chart.
+   */
+  approvalTrend: Array<{ day: string; decisions: number; ratePct: number; adoptions: number }>;
   topUsers: Array<{ userId: string; name: string | null; email: string | null; messages: number; decisions: number }>;
 };
 
@@ -853,7 +862,7 @@ export type AdoptionAgentDetail = {
  */
 export async function getAgentDetail(orgId: string, accountId: string | null, slug: string, days: AdoptionWindow): Promise<AdoptionAgentDetail> {
   const since = windowStart(days);
-  const [agents, daily, topUsers] = await Promise.all([
+  const [agents, daily, decisionsDaily, topUsers] = await Promise.all([
     getAgentRows(orgId, days),
     rows(sql`
       SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
@@ -861,6 +870,16 @@ export async function getAgentDetail(orgId: string, accountId: string | null, sl
         count(*) FILTER (WHERE event_type = 'chat.message_sent') AS messages
       FROM user_activity_event
       WHERE org_id = ${orgId} AND agent_slug = ${slug} AND created_at >= ${since}
+      GROUP BY 1 ORDER BY 1
+    `),
+    rows(sql`
+      SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('rejected', 'edited', 'rewritten')) AS against,
+        count(*) FILTER (WHERE event_type = 'learning.added') AS adoptions
+      FROM user_activity_event
+      WHERE org_id = ${orgId} AND agent_slug = ${slug} AND created_at >= ${since}
+        AND event_type IN ('review.decided', 'learning.added')
       GROUP BY 1 ORDER BY 1
     `),
     rows(sql`
@@ -878,16 +897,32 @@ export async function getAgentDetail(orgId: string, accountId: string | null, sl
   ]);
 
   const byDay = new Map(daily.map(r => [String(r.day), r]));
+  const decisionsByDay = new Map(decisionsDaily.map(r => [String(r.day), r]));
   const reachTrend: AdoptionAgentDetail['reachTrend'] = [];
+  const approvalTrend: AdoptionAgentDetail['approvalTrend'] = [];
+  let cumApprovals = 0;
+  let cumDecisions = 0;
   for (let i = days - 1; i >= 0; i--) {
     const key = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
     const row = byDay.get(key);
     reachTrend.push({ day: key, reach: num(row?.reach), messages: num(row?.messages) });
+    const d = decisionsByDay.get(key);
+    const approvals = num(d?.approvals);
+    const against = num(d?.against);
+    cumApprovals += approvals;
+    cumDecisions += approvals + against;
+    approvalTrend.push({
+      day: key,
+      decisions: approvals + against,
+      ratePct: cumDecisions > 0 ? Math.round((cumApprovals / cumDecisions) * 100) : 0,
+      adoptions: num(d?.adoptions),
+    });
   }
 
   return {
     agent: agents.find(a => a.agentSlug === slug) ?? null,
     reachTrend,
+    approvalTrend,
     topUsers: topUsers.map(r => ({
       userId: String(r.user_id),
       name: (r.name as string | null) ?? null,
