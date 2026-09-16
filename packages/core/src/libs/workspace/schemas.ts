@@ -758,6 +758,61 @@ export const TrustManifestSchema = z.object({
 });
 export type TrustManifest = z.infer<typeof TrustManifestSchema>;
 
+/**
+ * Voice rules — workspace/<org>/voice.yaml.
+ *
+ * The workspace's own banned constructions, versioned in the same repo as the
+ * playbooks that describe the voice. Core ships a conservative platform floor
+ * (`libs/writing/voiceRules.ts`); this file is where the sharp edges live,
+ * because what counts as a tell is a property of the person signing the note,
+ * not of the platform.
+ *
+ * Applied onto `project.voice_rules` and enforced by `lintCopy` at every seam
+ * that produces outbound copy — so a banned phrase is a validation failure,
+ * not a hope.
+ */
+export const VoiceManifestSchema = z.object({
+  /** Constructions that must never appear in outbound copy. */
+  never: z.array(z.object({
+    /** The literal phrase, or a regex source when `match: regex`. */
+    pattern: z.string().min(1),
+    /** How `pattern` is read. Phrases are case-insensitive and word-boundary aware. */
+    match: z.enum(['phrase', 'regex']).default('phrase'),
+    /** Why. Handed to the model on the corrective retry and shown to reviewers. */
+    reason: z.string().min(1),
+    /** Optional stable handle, for referring to this rule in review. */
+    id: SlugSchema.optional(),
+  })).default([]),
+  /** Softer steers. Reported, never blocking. */
+  prefer: z.array(z.object({
+    pattern: z.string().min(1),
+    match: z.enum(['phrase', 'regex']).default('phrase'),
+    /** What to write instead. */
+    use: z.string().min(1),
+    reason: z.string().optional(),
+  })).default([]),
+  /** Platform-default rule ids this workspace deliberately permits. */
+  allow: z.array(z.string().min(1)).default([]),
+  maxWordsPerSend: z.number().int().positive().optional(),
+  maxAsksPerSend: z.number().int().min(0).optional(),
+  noExclamation: z.boolean().optional(),
+  noEmoji: z.boolean().optional(),
+  noEmDash: z.boolean().optional(),
+  /**
+   * The playbook slug that describes this voice in prose. Composed into the
+   * rewrite prompt so a reviewer's "Add change" gets the workspace's voice
+   * instead of a generic house style. Core never hardcodes a slug.
+   */
+  playbook: SlugSchema.optional(),
+  /**
+   * The learnings step that reviewer edit-diffs land in as proposed rules.
+   * Unset means edit-diffs are not mined — a voice rule must never be filed
+   * into an unrelated step, so this is opt-in and named.
+   */
+  learningStep: SlugSchema.optional(),
+});
+export type VoiceManifest = z.infer<typeof VoiceManifestSchema>;
+
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().optional(),

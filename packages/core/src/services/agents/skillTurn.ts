@@ -66,6 +66,19 @@ export type SkillTurnOptions<T> = {
   agentSlug?: string;
   /** Lookup budget. The default matches the plan: 3 calls / 60s. */
   maxToolCalls?: number;
+  /**
+   * How many corrective retries a failed answer gets before the turn throws.
+   * Default: as many as the model-turn budget allows, which is right for a
+   * malformed-JSON answer the model will fix on sight.
+   *
+   * A caller whose schema encodes JUDGEMENT rather than shape — an outbound
+   * voice gate, say — should set this to 1: a model that writes the banned
+   * phrase again after being told the phrase and the reason is not going to
+   * find it on the fourth attempt, and burning the budget to fail anyway is
+   * just a slower failure. Failing loudly is the point; a draft that still
+   * carries a banned phrase must never reach a review queue.
+   */
+  maxAnswerRetries?: number;
   timeoutMs?: number;
   userId?: string;
 };
@@ -75,6 +88,26 @@ export type SkillTurnResult<T> = {
   toolCalls: number;
   durationMs: number;
 };
+
+/**
+ * A validation failure the MODEL can act on.
+ *
+ * `ZodError.message` is the issues array JSON-stringified, which buries a
+ * hand-written message — the voice gate's `"Curious about" is banned — …` —
+ * under escaped quotes and path objects. The corrective retry is the one
+ * place that text has to be readable, so the issues are flattened to
+ * `path: message` lines instead. Same reasoning as `ActionService.proposeAction`.
+ * @param err - Whatever the schema or JSON.parse threw.
+ */
+function describeAnswerError(err: unknown): string {
+  if (err && typeof err === 'object' && 'issues' in err && Array.isArray((err as { issues: unknown[] }).issues)) {
+    const issues = (err as { issues: Array<{ path?: Array<string | number>; message: string }> }).issues;
+    return issues
+      .map(i => (i.path && i.path.length > 0 ? `${i.path.join('.')}: ${i.message}` : i.message))
+      .join('; ');
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 const DEFAULT_MAX_TOOL_CALLS = 3;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -189,6 +222,9 @@ export async function runSkillTurn<T>(opts: SkillTurnOptions<T>): Promise<SkillT
     new HumanMessage(user),
   ];
   let toolCallsUsed = 0;
+  let answerAttempts = 0;
+  const maxAnswerAttempts = (opts.maxAnswerRetries ?? Number.POSITIVE_INFINITY) + 1;
+  let lastAnswerError: string | null = null;
 
   for (let turn = 0; turn < MAX_MODEL_TURNS; turn++) {
     const generation = trace.generation({ name: `skill-turn-${turn}`, model: 'skillTurn', input: turn === 0 ? user : undefined });
@@ -240,14 +276,23 @@ export async function runSkillTurn<T>(opts: SkillTurnOptions<T>): Promise<SkillT
       trace.update({ output: { toolCallsUsed, durationMs: Date.now() - started } });
       return { output, toolCalls: toolCallsUsed, durationMs: Date.now() - started };
     } catch (err) {
-      logger.warn('skill turn answer failed to parse — one corrective retry', {
+      answerAttempts += 1;
+      lastAnswerError = describeAnswerError(err);
+      logger.warn('skill turn answer failed to validate — corrective retry', {
         skillSlug: opts.skillSlug,
         orgId: opts.orgId,
-        error: err instanceof Error ? err.message : String(err),
+        attempt: answerAttempts,
+        maxAnswerAttempts: Number.isFinite(maxAnswerAttempts) ? maxAnswerAttempts : null,
+        error: lastAnswerError,
       });
+      if (answerAttempts >= maxAnswerAttempts) {
+        throw new SkillTurnError(
+          `skill turn for "${opts.skillSlug}" produced an answer that does not validate, after ${answerAttempts} attempt(s): ${lastAnswerError}`,
+        );
+      }
       messages.push(res);
       messages.push(new HumanMessage(
-        `Your answer did not validate: ${err instanceof Error ? err.message : String(err)}. Answer again with ONLY the JSON object, no prose, no fences. ${opts.outputInstruction}`,
+        `Your answer did not validate: ${lastAnswerError}. Answer again with ONLY the JSON object, no prose, no fences. ${opts.outputInstruction}`,
       ));
     }
   }

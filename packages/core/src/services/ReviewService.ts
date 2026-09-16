@@ -18,6 +18,7 @@ import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
@@ -908,6 +909,14 @@ export async function decide(
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
         if (opts?.editedInput) {
+          // Same "last moment both versions exist" window as labelVerdicts,
+          // and the reason this has to live here: `updateActionInput` replaces
+          // `input` wholesale, so after the next line the words the agent
+          // wrote are gone. The words the reviewer DELETED are the only
+          // first-hand evidence about voice this system ever gets; every
+          // deletion becomes a proposed rule a person adopts, never an
+          // automatic one. Never blocks the approve.
+          await recordVoiceEditDiff(item.id, orgId, opts.editedInput, reviewedBy);
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
         const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
@@ -1243,7 +1252,7 @@ export async function rewriteDraft(opts: {
    * sequence has several, and a guided review asks about one at a time.
    */
   contentId?: string;
-}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string; prior: string; discardedEdit?: string }> {
+}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string; prior: string; discardedEdit?: string; voiceError?: string }> {
   const [run] = await db
     .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId, revisions: actionRunSchema.revisions })
     .from(actionRunSchema)
@@ -1269,20 +1278,72 @@ export async function rewriteDraft(opts: {
     : String(input.body ?? input.notes ?? props.notes ?? '');
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const { buildVoicePrompt } = await import('@/libs/writing/voicePrompt');
+  const { describeViolations, lintCopy } = await import('@/libs/writing/voiceRules');
   const model = await buildChatModelForOrg('main', opts.orgId, { temperature: 0.4, streaming: false, maxTokens: 1200 });
-  // Generic house-style rewrite — no workspace-specific voice baked into core.
-  // (The learned per-user tone prompt, when built, will supply the voice.)
-  const sys = 'You rewrite an outbound draft in the sender\'s established voice: concise, specific, no filler or "just checking in". Preserve the core ask and any concrete details/names. It stays a DRAFT for human review. Return ONLY the rewritten text, no preamble.';
+  // The workspace's voice, not a house style. This used to be one hardcoded
+  // sentence of generic advice, which meant every "Add change" quietly threw
+  // away the voice guide the rest of the pipeline follows — a rewrite could
+  // reintroduce exactly the phrases the drafting pass was told to avoid.
+  // Now the rules and the workspace's own voice playbook compose the prompt,
+  // and the SAME rules check what comes back.
+  const voice = await buildVoicePrompt(opts.orgId);
+  const sys = voice.system;
   const user = `${opts.hint ? `Instruction: ${opts.hint}\n\n` : ''}Rewrite this:\n\n${original}`;
+
+  const ask = async (messages: Array<InstanceType<typeof SystemMessage> | InstanceType<typeof HumanMessage>>): Promise<string | null> => {
+    try {
+      const res = await model.invoke(messages, { signal: AbortSignal.timeout(20_000) });
+      const out = typeof res.content === 'string'
+        ? res.content
+        : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
+      return out.trim() || null;
+    } catch (err) {
+      logger.warn('rewriteDraft: model call failed', {
+        orgId: opts.orgId,
+        runId: opts.runId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  };
+
   let rewritten = original;
-  try {
-    const res = await model.invoke([new SystemMessage(sys), new HumanMessage(user)], { signal: AbortSignal.timeout(20_000) });
-    const out = typeof res.content === 'string'
-      ? res.content
-      : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
-    rewritten = out.trim() || original;
-  } catch {
-    rewritten = original;
+  // A rewrite that violates the voice rules is worse than no rewrite: it is
+  // the defect the reviewer pressed the button to fix, handed back with a
+  // fresh coat of paint. One corrective retry naming the offending phrases,
+  // then keep the original and SAY SO — never return tell-laden copy quietly.
+  let voiceError: string | undefined;
+  const first = await ask([new SystemMessage(sys), new HumanMessage(user)]);
+  if (first !== null) {
+    const firstLint = lintCopy(first, voice.rules);
+    if (firstLint.ok) {
+      rewritten = first;
+    } else {
+      const report = describeViolations(firstLint.violations);
+      logger.warn('rewriteDraft: rewrite violated the workspace voice rules — one corrective retry', {
+        orgId: opts.orgId,
+        runId: opts.runId,
+        violations: firstLint.violations.filter(v => v.blocking).map(v => v.span),
+      });
+      const second = await ask([
+        new SystemMessage(sys),
+        new HumanMessage(user),
+        new HumanMessage(`Your rewrite is rejected. It contains constructions this sender will not have in a send:\n${report}\n\nWrite it again without them. Do not paraphrase a banned phrase back in, and do not replace it with another way of announcing the tone. Return ONLY the rewritten text.`),
+      ]);
+      const secondLint = second === null ? null : lintCopy(second, voice.rules);
+      if (second !== null && secondLint!.ok) {
+        rewritten = second;
+      } else {
+        const failing = secondLint ? describeViolations(secondLint.violations) : report;
+        voiceError = `The rewrite kept breaking the workspace's voice rules, so the draft is unchanged:\n${failing}`;
+        logger.error('rewriteDraft: rewrite failed the voice gate twice — draft left unchanged', {
+          orgId: opts.orgId,
+          runId: opts.runId,
+          hasVoicePlaybook: voice.hasPlaybook,
+        });
+      }
+    }
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
   // The audit record of the rewrite. The DRAFT is still untouched (the
@@ -1327,13 +1388,59 @@ export async function rewriteDraft(opts: {
       contentId: opts.contentId,
       prior: original,
       ...(discardedEdit !== undefined ? { discardedEdit } : {}),
+      ...(voiceError !== undefined ? { voiceError } : {}),
     };
   }
   if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
-    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
+    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}), ...(voiceError !== undefined ? { voiceError } : {}) };
   }
   const key = input.body !== undefined ? 'body' : 'notes';
-  return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
+  return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}), ...(voiceError !== undefined ? { voiceError } : {}) };
+}
+
+/**
+ * Read the pre-edit copy and file the reviewer's deletions as proposed voice
+ * rules. Split out of `decide` so the window it depends on — before
+ * `updateActionInput` — is stated once, in one place, and so a failure here
+ * can be swallowed without swallowing anything else.
+ * @param runId - The action run being approved.
+ * @param orgId - The project id.
+ * @param editedInput - What the reviewer approved.
+ * @param reviewedBy - Who approved it.
+ */
+async function recordVoiceEditDiff(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown>,
+  reviewedBy?: string,
+): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!row) {
+      return;
+    }
+    const agentSlug = row.proposal?.agentSlug
+      ?? (row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice(6) : undefined);
+    const { recordVoiceEdits } = await import('@/services/feedback/voiceLearning');
+    await recordVoiceEdits({
+      orgId,
+      runId,
+      before: (row.input ?? {}) as Record<string, unknown>,
+      after: editedInput,
+      userId: reviewedBy,
+      agentSlug,
+    });
+  } catch (error) {
+    logger.warn('could not read the edit diff for voice learning', {
+      orgId,
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /** Learning step a proposal trains when its agent declares no `learningSteps` of its own. */
