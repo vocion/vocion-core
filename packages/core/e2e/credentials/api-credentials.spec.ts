@@ -168,6 +168,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'Granola',
       'HubSpot',
       'Jira',
+      'Notion',
       'Strapi',
       'Google',
       'Slack',
