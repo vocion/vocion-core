@@ -2,17 +2,13 @@
  * Pure helpers behind `BriefingSections.tsx` — kept apart so they unit-test
  * without the React/next-intl tree, and so the component file exports only
  * components (fast refresh).
+ *
+ * `isActionSection` used to live here: a heading heuristic that decided which
+ * bullets got a "Do this" chip. The chip sent the bullet's text to the
+ * conversation as a chat message rather than doing anything, so both it and
+ * the heuristic are gone (`docs/specs/briefing-v2.md`; a typed brief routes
+ * each actionable item to the surface that acts on it).
  */
-
-const ACTION_WORDS = /needs?\s+(?:you|me|attention|a\s+person)|moves?\b|action|urgent|at.?risk|close\s+this|not\s+in\s+hubspot|contracts?\s+out|decision|next\s+step|to.?do|owed|follow.?up/i;
-
-/**
- * Which sections carry work for a person (heading heuristic, tuned on the revenue brief).
- * @param heading
- */
-export function isActionSection(heading: string): boolean {
-  return ACTION_WORDS.test(heading);
-}
 
 export function splitSections(md: string): Array<{ heading: string | null; body: string }> {
   const lines = md.split('\n');

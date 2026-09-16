@@ -22,11 +22,11 @@ import { scoresByKey } from '@/services/alignment/AlignmentService';
 import { listInbox } from '@/services/InboxService';
 import { builtInJobNames } from '@/services/jobs/registry';
 import { briefingLabels } from './agentInput';
-import { briefingHref } from './links';
 import { MAX_HISTORY_ENTRIES } from './budget';
 import { composeWorkspaceBriefing } from './compose';
 import { fallbackWhyNow, rankDecisions, splitLanes, toDecisionCard } from './decisions';
 import { BriefingV2Schema } from './document';
+import { briefingHref } from './links';
 import { renderBriefingMarkdown } from './render';
 import { assertBriefingV2 } from './validate';
 

@@ -9,6 +9,9 @@
  * Pure: no database, no clock, no model.
  */
 
+import type { BriefingChange, BriefingDecision, BriefingV2 } from './document';
+import type { AlignmentScore } from '@/services/alignment/AlignmentService';
+import type { InboxItem } from '@/services/InboxService';
 import { describe, expect, it } from 'vitest';
 import {
   aboveFoldCount,
@@ -24,8 +27,8 @@ import {
   splitChanges,
 } from './budget';
 import { composeWorkspaceBriefing, dedupeCriticalPath, dedupeExceptions, dedupeMetrics, metricScore, rankMetrics } from './compose';
-import { computeChanges, directionOf, joinDeltas, narrateChanges, rankChanges } from './deltas';
 import { BATCHABLE_AGREEMENT, BATCHABLE_MIN_SAMPLE, laneFor, splitLanes } from './decisions';
+import { computeChanges, directionOf, joinDeltas, narrateChanges, rankChanges } from './deltas';
 import { BRIEFING_SECTIONS, hasContent, renderedSections, SECTION_TITLE } from './document';
 import { FIXTURE_BRIEFING, FIXTURE_METRICS, FIXTURE_PRIOR_METRICS, metric } from './fixtures';
 import { formatMetric } from './format';
@@ -33,9 +36,6 @@ import { deriveOnTrack } from './onTrack';
 import { redactSystemVocabulary } from './redact';
 import { renderBriefingEmailMarkdown, renderBriefingMarkdown } from './render';
 import { enforceBriefing, validateBriefingV2 } from './validate';
-import type { AlignmentScore } from '@/services/alignment/AlignmentService';
-import type { InboxItem } from '@/services/InboxService';
-import type { BriefingChange, BriefingDecision, BriefingV2 } from './document';
 
 const NOW = new Date('2026-09-16T12:15:00Z');
 
@@ -97,6 +97,7 @@ describe('empty sections are omitted, not rendered', () => {
     };
 
     expect(renderedSections(doc)).toEqual(['today']);
+
     for (const section of BRIEFING_SECTIONS.filter(s => s !== 'today')) {
       expect(hasContent(doc, section)).toBe(false);
     }
@@ -116,6 +117,7 @@ describe('empty sections are omitted, not rendered', () => {
     const order = renderedSections(FIXTURE_BRIEFING);
 
     expect(order).toEqual(['today', 'decisions', 'changes', 'criticalPath', 'exceptions', 'detail', 'provenance', 'history']);
+
     const headings = [...renderBriefingMarkdown(FIXTURE_BRIEFING).matchAll(/^## (.+)$/gm)].map(m => m[1]);
 
     expect(headings).toEqual(order.map(s => SECTION_TITLE[s]));
@@ -151,6 +153,7 @@ describe('deltas join the prior brief by key', () => {
       expect(m.delta).toBeUndefined();
       expect(m.direction).toBeUndefined();
     }
+
     expect(formatMetric(joined[0]!)).toBe('Open pipeline $3.52M');
     expect(formatMetric(joined[0]!)).not.toContain('↑');
   });
@@ -172,6 +175,7 @@ describe('deltas join the prior brief by key', () => {
   it('calls a flat move flat rather than up', () => {
     expect(directionOf(0)).toBe('flat');
     expect(directionOf(-1)).toBe('down');
+
     const joined = joinDeltas([metric({ key: 'awaiting_signature', label: 'Awaiting signature', value: 846_500, unit: 'usd' })], FIXTURE_PRIOR_METRICS);
 
     expect(formatMetric(joined[0]!)).toBe('Awaiting signature $846.5K no change');
@@ -431,6 +435,7 @@ describe('on track requires evidence', () => {
 
     expect(onTrack.status).toBe('not-enough-evidence');
     expect(onTrack.note).toContain('target is set');
+
     const md = renderBriefingMarkdown({ ...FIXTURE_BRIEFING, today: { metrics: FIXTURE_BRIEFING.today!.metrics, onTrack } });
 
     expect(md).toContain('Not enough evidence');

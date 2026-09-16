@@ -4,8 +4,8 @@ import type { BriefingV2 } from '@/services/briefings/document';
 import type { InboxItem } from '@/services/InboxService';
 import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { ListRow, ListRows } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
-import { ListRow, ListRows } from '@/components/ui/list-row';
 import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -135,25 +135,24 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
       </div>
 
       <div className="flex items-center justify-between gap-2">
+        {/* A typed brief carries its own title and date line; only a pre-v2
+            markdown brief needs one here. */}
         <div className="min-w-0">
-          {viewing
-            ? (
-                <>
-                  <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
-                  <div className="text-xs text-muted-foreground">
-                    {viewing.document ? `${viewing.document.dateLabel} · ${viewing.document.updatedLabel}` : fmt(viewing.createdAt)}
-                  </div>
-                </>
-              )
-            : (
-                <h2 className="text-base font-semibold text-muted-foreground">
-                  No
-                  {' '}
-                  {g.teamName}
-                  {' '}
-                  brief yet
-                </h2>
-              )}
+          {viewing && !viewing.document && (
+            <>
+              <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
+              <div className="text-xs text-muted-foreground">{fmt(viewing.createdAt)}</div>
+            </>
+          )}
+          {!viewing && (
+            <h2 className="text-base font-semibold text-muted-foreground">
+              No
+              {' '}
+              {g.teamName}
+              {' '}
+              brief yet
+            </h2>
+          )}
         </div>
         <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
           {regen === 'assembling' ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
@@ -181,7 +180,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
 
       {viewing && (viewing.document
         ? (
-            <div className="mt-4 rounded-2xl border border-border bg-card p-5">
+            <div className="mt-2">
               <BriefingView doc={viewing.document} liveDecisions={liveDecisions} />
             </div>
           )
@@ -198,7 +197,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
           <h2 className="mb-2 text-base font-semibold tracking-tight">Previous briefings</h2>
           <ListRows>
             {history.map(b => (
-              <ListRow key={b.id} href={briefingHref(b.id)} title={b.title} meta={fmt(b.createdAt)} />
+              <ListRow key={b.id} href={briefingHref(b.id)} title={b.title} subline={fmt(b.createdAt)} />
             ))}
           </ListRows>
           <p className="mt-2 text-[13px]">

@@ -59,23 +59,25 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
 
   return (
     <>
-      <TitleBar
-        title={doc?.title ?? brief.title}
-        description={doc
-          ? `${doc.dateLabel} · ${doc.updatedLabel}`
-          : brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-      />
+      {/* A typed brief is a Detail page and carries its own crumbs and H1;
+          a pre-v2 markdown brief has no header of its own, so it gets one. */}
       {doc
         ? <BriefingView doc={doc} liveDecisions={liveDecisions} />
         : (
-            <div data-briefing-root className="prose prose-sm max-w-none dark:prose-invert">
-              <BriefingSections briefingId={brief.id} briefingTitle={brief.title} content={brief.content} agentSlug={brief.agentSlug ?? undefined} />
-              {history && history.entries.length > 0 && (
-                <p className="not-prose mt-6 text-[13px] text-muted-foreground">
-                  {`${history.total} briefings in all.`}
-                </p>
-              )}
-            </div>
+            <>
+              <TitleBar
+                title={brief.title}
+                description={brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              />
+              <div data-briefing-root className="prose prose-sm max-w-none dark:prose-invert">
+                <BriefingSections briefingId={brief.id} briefingTitle={brief.title} content={brief.content} agentSlug={brief.agentSlug ?? undefined} />
+                {history && history.entries.length > 0 && (
+                  <p className="not-prose mt-6 text-[13px] text-muted-foreground">
+                    {`${history.total} briefings in all.`}
+                  </p>
+                )}
+              </div>
+            </>
           )}
       <BriefingChatStarter
         briefingId={brief.id}

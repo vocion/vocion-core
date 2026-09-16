@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
-import { ListRow, ListRows } from '@/components/ui/list-row';
+import { ListRow, ListRows } from '@/components/patterns';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -88,7 +88,7 @@ export default async function BriefingArchivePage(props: {
                   key={r.id}
                   href={briefingHref(r.id)}
                   title={r.title}
-                  meta={`${r.teamSlug ? nameOf.get(r.teamSlug) ?? r.teamSlug : 'Workspace'} · ${r.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`}
+                  subline={`${r.teamSlug ? nameOf.get(r.teamSlug) ?? r.teamSlug : 'Workspace'} · ${r.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`}
                 />
               ))}
             </ListRows>

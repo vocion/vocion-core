@@ -13,6 +13,24 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }), usePathname: () => '/dashboard/briefings/42' }));
 
+// Every call that would open the conversation, recorded. A briefing action
+// that carries a `prompt` is a prompt pretending to be an action.
+const surfaceCalls: unknown[] = [];
+vi.mock('@/features/dashboard/chat/agentSurface', async () => {
+  const actual = await vi.importActual<typeof import('@/features/dashboard/chat/agentSurface')>('@/features/dashboard/chat/agentSurface');
+  return {
+    ...actual,
+    requestAgentSurface: (opts?: unknown) => {
+      surfaceCalls.push(opts);
+      return true;
+    },
+    openAgentSurface: (opts: unknown) => {
+      surfaceCalls.push(opts);
+      return 'claimed' as const;
+    },
+  };
+});
+
 const { BriefingView } = await import('./BriefingView');
 
 /** The live inbox rows behind the fixture's three decision cards. */
@@ -40,7 +58,8 @@ describe('the briefing page', () => {
     render(<BriefingView doc={FIXTURE_BRIEFING} liveDecisions={LIVE} />);
 
     await expect.element(page.getByText('Weighted forecast unavailable')).toBeInTheDocument();
-    const line = document.querySelector('[data-briefing-section="today"]')!;
+
+    const line = document.querySelector('[data-pattern="detail-meta"]')!;
 
     expect(line.textContent).toContain('Open pipeline');
     expect(line.textContent).toContain('$3.52M');
@@ -67,8 +86,14 @@ describe('the briefing page', () => {
 
   it('keeps the first screen inside the attention budget', async () => {
     render(<BriefingView doc={FIXTURE_BRIEFING} liveDecisions={LIVE} />);
-    const decisions = document.querySelectorAll('[data-briefing-section="decisions"] li[data-kind]');
-    const changes = document.querySelectorAll('[data-briefing-section="changes"] > ul > li');
+
+    await expect.element(page.getByText(/decisions need you today/)).toBeInTheDocument();
+
+    const decisions = document.querySelectorAll('[data-slot="decision-rows"] [data-kind]');
+    const changes = document.querySelectorAll('[data-slot="changes"] > li');
+
+    expect(decisions.length).toBe(3);
+    expect(changes.length).toBe(2);
 
     expect(decisions.length + changes.length).toBeLessThanOrEqual(MAX_ABOVE_FOLD_ITEMS);
   });
@@ -78,27 +103,64 @@ describe('the briefing page', () => {
 
     await expect.element(page.getByRole('button', { name: /View full pipeline/ })).toBeInTheDocument();
     await expect.element(page.getByRole('button', { name: /Sources & run details/ })).toBeInTheDocument();
+    // Collapsed: the pipeline table is not in the document until it is opened.
+    expect(document.body.textContent ?? '').not.toContain('Open pipeline by stage');
     // The connector field is nowhere on the page until "Why?" is opened.
     expect(document.body.textContent ?? '').not.toContain('hs_deal_stage_probability');
 
-    await page.getByRole('button', { name: 'Why?' }).click();
+    await page.getByRole('button', { name: /Why\?/ }).click();
+
     await expect.element(page.getByText(/hs_deal_stage_probability/)).toBeInTheDocument();
   });
 
   it('draws no section for anything that carries nothing', async () => {
     render(<BriefingView doc={{ ...FIXTURE_BRIEFING, exceptions: { items: [] }, detail: { tables: [] } }} liveDecisions={LIVE} />);
 
-    expect(document.querySelector('[data-briefing-section="exceptions"]')).toBeNull();
-    expect(document.querySelector('[data-briefing-section="detail"]')).toBeNull();
+    expect(document.querySelector('[data-testid="briefing-exceptions"]')).toBeNull();
+    // With no tables and no agent activity, the depth accordion holds only the
+    // sources — never an empty "View full pipeline" that opens onto nothing.
+    expect(document.body.textContent ?? '').not.toContain('View full pipeline');
     expect(document.body.textContent ?? '').not.toMatch(/nothing (?:ran|to judge|happened)/i);
   });
 
   it('shows the last briefings and a link to the archive, not the archive', async () => {
     render(<BriefingView doc={FIXTURE_BRIEFING} liveDecisions={LIVE} />);
-    const rows = document.querySelectorAll('[data-briefing-section="history"] [data-slot="list-row"]');
 
+    await expect.element(page.getByRole('link', { name: /View all briefings/ })).toHaveAttribute('href', '/dashboard/briefings/archive');
+
+    const rows = document.querySelectorAll('[data-testid="briefing-history"] [data-pattern="list-row"]');
+
+    expect(rows.length).toBe(3);
     expect(rows.length).toBeLessThanOrEqual(5);
-    await expect.element(page.getByRole('link', { name: 'View all briefings' })).toHaveAttribute('href', '/dashboard/briefings/archive');
+  });
+
+  it('routes every actionable item to the surface that does the thing, never to the composer', async () => {
+    surfaceCalls.length = 0;
+    render(<BriefingView doc={FIXTURE_BRIEFING} liveDecisions={LIVE} />);
+
+    // The queue counts are links into the inbox, filtered to what they count.
+    await expect.element(page.getByRole('link', { name: '612 safe to batch' })).toHaveAttribute('href', '/dashboard/inbox?kind=proposal');
+    await expect.element(page.getByRole('link', { name: '46 background' })).toHaveAttribute('href', '/dashboard/inbox');
+
+    // Every link on the brief goes to a dashboard route — no `#`, no handler
+    // standing in for one.
+    const links = Array.from(document.querySelectorAll('[data-pattern="detail-page"] a')) as HTMLAnchorElement[];
+
+    expect(links.length).toBeGreaterThan(0);
+
+    for (const a of links) {
+      expect(a.getAttribute('href') ?? '').toMatch(/^\/dashboard\b/);
+    }
+
+    // No chip that sends the item's own text to the conversation.
+    expect(document.body.textContent ?? '').not.toContain('Do this');
+
+    // Opening every disclosure reaches the conversation surface not once.
+    for (const button of Array.from(document.querySelectorAll('[data-pattern="accordion-row"] button'))) {
+      (button as HTMLElement).click();
+    }
+
+    expect(surfaceCalls).toEqual([]);
   });
 
   it('says a decision was already made rather than showing it as waiting', async () => {

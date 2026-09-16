@@ -3,10 +3,12 @@
 import type { BriefingDecision } from '@/services/briefings/document';
 import type { InboxItem } from '@/services/InboxService';
 import { AlertTriangle } from 'lucide-react';
-import { ListRow, ListRows } from '@/components/ui/list-row';
+import { ListRow, ListRows, Section } from '@/components/patterns';
 import { InboxRow } from '@/features/dashboard/inbox/InboxRow';
 import { Link } from '@/libs/I18nNavigation';
 import { decisionHeadline } from '@/services/briefings/budget';
+
+const SECTION_EYEBROW = 'Needs your decision';
 
 /**
  * "Needs your decision" — the inbox, quoted.
@@ -19,14 +21,21 @@ import { decisionHeadline } from '@/services/briefings/budget';
  * first — approve from the brief and approve from `/dashboard/inbox` are one
  * code path.
  *
+ * **Every route out of this section goes to the surface that does the thing.**
+ * The queue links open the inbox filtered to a kind; a card opens its own
+ * detail screen. Nothing here opens the conversation with prefilled text —
+ * "Do this: 4 learning candidates to adopt or reject" as a chat message is a
+ * prompt pretending to be an action, and the person ends up doing the work
+ * twice.
+ *
  * A card whose row is no longer open — decided between the brief being
  * written and being read — is shown as decided rather than silently dropped.
  * @param props
  * @param props.cards - The judgment cards the document carries, in order.
  * @param props.live - The open inbox right now, keyed by the same `key` the cards carry.
  * @param props.queued - The lower-priority remainder, for the headline.
- * @param props.queued.batchable
- * @param props.queued.background
+ * @param props.queued.batchable - Proposals of a kind this person almost always approves.
+ * @param props.queued.background - Everything else still waiting.
  * @param props.href - Where the queue lives.
  */
 export function DecisionCards({ cards, live, queued, href }: {
@@ -41,49 +50,56 @@ export function DecisionCards({ cards, live, queued, href }: {
   const queuedTotal = queued.batchable + queued.background;
 
   return (
-    <section data-briefing-section="decisions">
-      <h2 className="not-prose text-base font-semibold tracking-tight">Needs your decision</h2>
-      <p className="not-prose mt-0.5 mb-3 text-[13px] text-muted-foreground">
+    <Section
+      eyebrow={SECTION_EYEBROW}
+      data-testid="briefing-decisions"
+      action={queuedTotal > 0
+        ? <Link href={href} className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">Open the queue</Link>
+        : undefined}
+    >
+      <p className="mb-3 text-[13px] text-muted-foreground" data-slot="decisions-headline">
         {decisionHeadline(open.length, queuedTotal + settled.length)}
       </p>
 
       {open.length > 0 && (
-        <ul className="not-prose divide-y divide-border border-y border-border">
-          {open.map((card) => {
-            const item = byKey.get(card.key)!;
-            return (
-              <InboxRow key={card.key} item={item} tab="open" why={whyLine(card)} />
-            );
-          })}
-        </ul>
+        <div data-slot="decision-rows">
+          <ListRows className="border-y border-border/70">
+            {open.map(card => <InboxRow key={card.key} item={byKey.get(card.key)!} tab="open" why={whyLine(card)} />)}
+          </ListRows>
+        </div>
       )}
 
       {open.some(c => c.incident) && (
-        <p className="not-prose mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <p className="mt-2 flex items-start gap-1.5 text-[13px] text-amber-600 dark:text-amber-400">
           <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
-          <span>
-            {`A brief shows at most three decisions. ${incidentReason(open)}`}
-          </span>
+          <span>{`A brief shows at most three decisions. ${incidentReason(open)}`}</span>
         </p>
       )}
 
       {settled.length > 0 && (
-        <ListRows className="not-prose mt-2">
-          {settled.map(card => (
-            <ListRow key={card.key} href={card.href} title={card.title} meta="Decided since this brief was written" />
-          ))}
+        <ListRows className="mt-2">
+          {settled.map(card => <ListRow key={card.key} href={card.href} title={card.title} subline="Decided since this brief was written" />)}
         </ListRows>
       )}
 
       {queuedTotal > 0 && (
-        <p className="not-prose mt-3 text-[13px]">
-          <Link href={href} className="text-brand-amber-deep hover:opacity-80">Open the queue</Link>
-          <span className="text-muted-foreground">
-            {` — ${queued.batchable} safe to batch, ${queued.background} background.`}
-          </span>
+        // Each count is a link to the inbox filtered to what it counts — the
+        // number and the way to work it are the same control.
+        <p className="mt-3 text-[13px] text-muted-foreground" data-slot="queue-links">
+          {queued.batchable > 0 && (
+            <Link href={`${href}?kind=proposal`} className="underline decoration-border underline-offset-2 hover:text-foreground">
+              {`${queued.batchable} safe to batch`}
+            </Link>
+          )}
+          {queued.batchable > 0 && queued.background > 0 && <span aria-hidden>{' · '}</span>}
+          {queued.background > 0 && (
+            <Link href={href} className="underline decoration-border underline-offset-2 hover:text-foreground">
+              {`${queued.background} background`}
+            </Link>
+          )}
         </p>
       )}
-    </section>
+    </Section>
   );
 }
 

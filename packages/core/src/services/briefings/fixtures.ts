@@ -8,7 +8,10 @@
 
 import type { BriefingMetric, BriefingV2 } from './document';
 
-/** A metric, with the noise defaulted away. */
+/**
+ * A metric, with the noise defaulted away.
+ * @param partial
+ */
 export function metric(partial: Partial<BriefingMetric> & Pick<BriefingMetric, 'key' | 'label'>): BriefingMetric {
   return { value: 0, provenance: 'observed', evidence: [], ...partial };
 }
