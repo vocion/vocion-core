@@ -9,7 +9,7 @@
  * move from one provider to another when a grader has no runs yet.
  */
 import { describe, expect, it } from 'vitest';
-import { buildSeries, versionBoundaries } from './EvalTrendChart';
+import { buildSeries, versionBoundaries } from './evalTrend';
 
 const PROVIDERS = [{ id: 'vocion', label: 'Vocion' }, { id: 'agentcore', label: 'AgentCore' }];
 
