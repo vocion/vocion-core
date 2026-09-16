@@ -14,6 +14,28 @@ import type { AgentOption, ContextRef } from './types';
  */
 
 /**
+ * The built-in, virtual search-only entry. It is appended to every agent list
+ * so retrieval works before any agent is authored — which means the list is
+ * NEVER empty, which means "has this workspace got agents?" cannot be asked
+ * by counting it. Ask `hasWorkspaceAgents` instead.
+ */
+export const SEARCH_ONLY_SLUG = '__search__';
+
+/**
+ * Whether this workspace has a real agent to answer with.
+ *
+ * A fresh database has none, and the everything conversation used to fall
+ * back to `__search__` and send it — the server then answered
+ * `agent __search__ not found in org proj-…`, which is a stack trace dressed
+ * as a sentence (CEO's preview, 2026-09-16). An empty workspace is a STATE and
+ * gets said as one; a double-underscore slug never reaches a person.
+ * @param agents - The agent list a surface was given.
+ */
+export function hasWorkspaceAgents(agents: AgentOption[]): boolean {
+  return agents.some(a => a.slug !== SEARCH_ONLY_SLUG);
+}
+
+/**
  * The agent a fresh conversation opens with: the workspace lead, which `loadChatAgentContext` orders first.
  * @param agents
  */

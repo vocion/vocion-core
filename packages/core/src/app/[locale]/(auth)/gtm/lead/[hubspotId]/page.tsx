@@ -161,9 +161,10 @@ export default async function LeadPage(props: {
     handoffAt: row.handoffAt?.toISOString() ?? null,
   };
 
-  // The dock: the agent conversation as a third column, scoped to this lead
-  // and open by default (agent-chat-surface.md §3, decided 2026-09-02). The
-  // floating bubble bails on this route, so this is the page's one surface.
+  // The dock: the agent conversation as an overlay on the page's right edge,
+  // scoped to this lead (agent-chat-surface.md §3, decided 2026-09-02; made an
+  // overlay 2026-09-16). The shell's dock bails on this route, so this is the
+  // page's one surface.
   const { agents } = await loadChatAgentContext(orgId);
 
   // The comment layer spans both: a note taken on the brief becomes a chip in
@@ -171,7 +172,14 @@ export default async function LeadPage(props: {
   // It reads the commentable regions from the rendered page, so an anchor
   // always points at the words the reviewer actually selected.
   return (
-    <CommentLayerProvider targetRef={`lead_brief:${row.id}`}>
+    <CommentLayerProvider
+      targetRef={`lead_brief:${row.id}`}
+      record={{ type: 'object', id: row.contactRef, label: row.contactName }}
+      // The sequence draft is in view exactly when a decision is waiting, so
+      // that is exactly when the selection offers *Add change* and `(+)`
+      // offers `@change`.
+      changeIntent={runState.run !== null}
+    >
       <div className="min-w-0 flex-1">
         {/* `guided`: with a decision waiting, the conversation takes it and
             the page states what is pending — one decision surface per page. */}
@@ -181,6 +189,9 @@ export default async function LeadPage(props: {
         agents={agents}
         scopeRef={row.contactRef}
         scopeLabel={row.contactName}
+        // Full width by default (2026-09-16): the record is the page and the
+        // rail overlays it on demand. The rail's own rule makes the exception
+        // — a decision waiting opens it, because the guided review is in it.
         run={runState.run}
       />
     </CommentLayerProvider>

@@ -46,12 +46,14 @@ export type MessageListProps = {
   autonomy?: ConversationAutonomy;
   /** Opens an artifact a turn produced in the pane beside the conversation (0101). */
   onOpenArtifact?: (id: number) => void;
+  /** The thread — stamped into a failed step's Copy details block. */
+  conversationId?: number | null;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -114,6 +116,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                     onFeedback={onFeedback}
                     autonomy={autonomy}
                     onOpenArtifact={onOpenArtifact}
+                    conversationId={conversationId}
                   />
                 )}
             {blocksAfter(i)}

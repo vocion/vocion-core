@@ -329,6 +329,47 @@ is the ambiguity this whole mechanism removes.
 
 See [artifacts.md](./artifacts.md#guaranteeing-an-artifact-when-one-was-asked-for).
 
+### Intents — `@change`, beside `@artifact` (2026-09-16)
+
+`@artifact` says what the turn **owes**. `@change` says what it must **do**.
+
+On the personalization lead page one ask is not a question: *this must alter
+the sequence draft*. That used to be decided by a wording heuristic
+(`isRevisionAsk` — "shorten", "rewrite", "make…"), which is the same
+prompt-shaped guess `deliverable` exists to replace, one level down. It is a
+tag now:
+
+| Tag | `type` | `id` | What it changes |
+|---|---|---|---|
+| `@artifact` | `deliverable` | `artifact` | the turn must end in a document |
+| `@change` | `intent` | `change` | the ask routes to `rewriteDraft`, not to an answer |
+
+Same mechanism as `@artifact`, deliberately: it is offered by the same `@`
+popover, inserted by the same `(+)` menu, resolved by the same reader into the
+same chip, and **stripped from `context_refs` before the wire** because it
+points at no record (`composerTags.ts#isIntentTag`,
+`useChatSession#sendMessage`). The definition lives in
+`features/dashboard/chat/composerTags.ts` next to the artifact tag's.
+
+**How it gets armed.** Usually not by typing. Selecting a passage in the brief
+raises the standard selection control, whose second action — *Add change* —
+stores the anchored note AND arms the tag (`AgentSurfaceRequest.tags`, applied
+by the rail through `addContextRef`). So the person sees one pattern
+everywhere — select → talk — and the tag is what makes a particular ask act.
+`(+)` offers `@change` **only where a sequence draft is in view**; an intent
+that cannot be carried out is not listed.
+
+**What reading it does.** `ChatDock`'s send path calls
+`guided.askAbout(text, { contentId })` where `contentId` comes from
+`guidedFlow#contentIdForAsk` — the anchor's own content id when the selection
+was inside a send, else the send the text names ("send 2"), else the send under
+review. That goes to `ReviewService.rewriteDraft({ runId, hint, contentId })`,
+exactly as before. An ask carrying the tag is ALWAYS a revision: the person
+said so, and a wording heuristic has no business overruling them. Without the
+tag the heuristic still decides, so what reviewers already type keeps working.
+
+See [design/patterns.md](./design/patterns.md) → *Select → talk*.
+
 ## Failures reach the person (2026-09-16)
 
 The same turn also proved that a **failed delegation was invisible**. The

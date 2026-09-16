@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { contextTagRefs, insertTagAt, matchesTag, tagSlug } from './composerTags';
+import { changeRef, contextTagRefs, hasChangeIntent, insertTagAt, matchesTag, tagSlug } from './composerTags';
 
-const LABELS = { artifact: 'Artifact', page: 'This page' };
+const LABELS = { artifact: 'Artifact', page: 'This page', change: 'Change the draft' };
 
 describe('contextTagRefs', () => {
   it('always offers the artifact contract, first — it is the one tag that changes what the turn produces', () => {
@@ -80,5 +80,22 @@ describe('insertTagAt', () => {
   it('clamps a caret that is off the end of the draft', () => {
     expect(insertTagAt('hi', 99, 'page')).toEqual({ value: 'hi @page', caret: 8 });
     expect(insertTagAt('hi', -4, 'page')).toEqual({ value: '@pagehi', caret: 5 });
+  });
+});
+
+describe('the change intent', () => {
+  it('is offered only where a sequence draft is in view — a menu entry that cannot act is a menu entry that lies', () => {
+    const without = contextTagRefs({ path: '/gtm/lead/1', title: 'Lead' }, LABELS);
+    const with_ = contextTagRefs({ path: '/gtm/lead/1', title: 'Lead' }, LABELS, { change: true });
+
+    expect(without.map(r => r.type)).toEqual(['deliverable', 'page']);
+    expect(with_.map(r => r.type)).toEqual(['deliverable', 'intent', 'page']);
+  });
+
+  it('types as `@change` and reads back off the message', () => {
+    expect(tagSlug(changeRef())).toBe('change');
+    expect(matchesTag(changeRef(), 'chan')).toBe(true);
+    expect(hasChangeIntent([changeRef()])).toBe(true);
+    expect(hasChangeIntent([{ type: 'deliverable', id: 'artifact' }])).toBe(false);
   });
 });

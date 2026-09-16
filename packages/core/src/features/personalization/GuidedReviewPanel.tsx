@@ -85,8 +85,11 @@ export function GuidedReviewPanel({ run, guided, pendingComments = 0 }: GuidedRe
   const heading = run.card.recommendation?.headline ?? run.card.title;
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
-      <GuidedCard eyebrow="Sequence overview" title={heading}>
+    // Flat, by rule: hairlines and eyebrows separate the blocks, because the
+    // rail is already a surface and a surface never contains another one
+    // (docs/design/patterns.md, "Never").
+    <div className="flex flex-col gap-3 px-4 py-3" data-testid="guided-review">
+      <GuidedCard first eyebrow="Sequence overview" title={heading}>
         <GuidedList items={sends.map(s => (
           <span key={s.id}>
             <b>{s.label}</b>

@@ -267,6 +267,18 @@ export function ConfidenceMeter(props: {
  * hairlines between them; none has a border of its own. `action` sits at the
  * eyebrow's right — a ghost verb ("View research", "Edit all"), never the
  * page's primary.
+ *
+ * **A section is a commentable region.** It carries `data-comment-field`,
+ * named by its eyebrow, which is the whole opt-in for select-to-talk
+ * (`docs/design/patterns.md` § Select → talk): wrap a Detail page in a
+ * `CommentLayerProvider` and every section in it becomes selectable, with no
+ * per-section wiring and no page inventing a control of its own. The
+ * attribute is inert without a provider above — it is an id, not behaviour —
+ * so it costs nothing on the pages that have not opted in.
+ *
+ * Pass `commentField` to name the region something other than the eyebrow
+ * (an eyebrow that is a `ReactNode`, or two sections that would collide), or
+ * `null` to opt a section out.
  * @param props
  * @param props.eyebrow - The label, sentence case.
  * @param props.action
@@ -274,6 +286,7 @@ export function ConfidenceMeter(props: {
  * @param props.tone - `quiet` for the right column: tighter padding.
  * @param props.className
  * @param props.id
+ * @param props.commentField - Region name for select-to-talk; `null` opts out.
  */
 export function Section(props: {
   'eyebrow': ReactNode;
@@ -284,14 +297,22 @@ export function Section(props: {
   'aria-label'?: string;
   'id'?: string;
   'data-testid'?: string;
+  'commentField'?: string | null;
 }) {
   const quiet = props.tone === 'quiet';
+  // The eyebrow IS the region's name when it is a plain string; a composed
+  // eyebrow has to be named explicitly rather than stringified into
+  // something an anchor cannot be resolved against later.
+  const commentField = props.commentField === null
+    ? undefined
+    : props.commentField ?? (typeof props.eyebrow === 'string' ? props.eyebrow : undefined);
   return (
     <section
       id={props.id}
       aria-label={props['aria-label']}
       data-pattern="section"
       data-testid={props['data-testid']}
+      data-comment-field={commentField}
       className={cn('border-b border-rule last:border-b-0', quiet ? 'py-4' : 'py-6', props.className)}
     >
       <div className="mb-2 flex items-baseline justify-between gap-3">

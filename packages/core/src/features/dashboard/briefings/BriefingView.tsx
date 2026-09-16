@@ -32,10 +32,10 @@ import { DecisionCards } from './DecisionCards';
  *
  * **No control on this page opens the conversation with a prefilled prompt.**
  * Every actionable item routes to the surface that does the thing; asking
- * about the brief is the selection path (`BriefingChatStarter`), which is
- * secondary by construction. A chip that sends "Do this: 4 learning
- * candidates to adopt or reject" as a chat message is a prompt pretending to
- * be an action.
+ * about the brief is the SELECTION path — highlight a passage and the
+ * standard control offers *Ask about this* — which is secondary by
+ * construction. A chip that sends "Do this: 4 learning candidates to adopt or
+ * reject" as a chat message is a prompt pretending to be an action.
  * @param props
  * @param props.doc - The document.
  * @param props.liveDecisions - The open inbox now, so a card decided since the brief was written says so.
@@ -128,9 +128,12 @@ export function BriefingView({ doc, liveDecisions }: { doc: BriefingV2; liveDeci
   }
 
   return (
-    // `data-briefing-root` is the selection root the rail watches (#329,
-    // docs/agent-chat-surface.md §3.3): highlight any passage of the brief and
-    // "Ask Vocion" opens the conversation with it quoted.
+    // Every `Section` below carries `data-comment-field` (the Detail
+    // archetype's own opt-in), so highlighting a passage inside the
+    // `CommentLayerProvider` this page is wrapped in raises the platform's
+    // one selection control — *Ask about this* — with the passage quoted
+    // (docs/design/patterns.md § Select → talk). `data-briefing-root` stays
+    // as this page's own marker, for tests and styling.
     <div data-briefing-root>
       <DetailPage
         data-testid="briefing"

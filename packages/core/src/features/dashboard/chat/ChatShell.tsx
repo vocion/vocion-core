@@ -11,11 +11,11 @@ import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { useComposerQueueProps } from './composerQueue';
-import { EmptyState } from './EmptyState';
+import { EmptyState, NoAgentsState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
-import { parseSearchCommand } from './routing';
+import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
 import { useComposerTags } from './tagSearch';
 import { useChatSession } from './useChatSession';
@@ -200,12 +200,16 @@ function ChatShellInner({
               )
             : session.messages.length === 0
               ? (
-                  <EmptyState
-                    greeting={session.emptyGreeting}
-                    suggestions={session.emptyChips}
-                    suggestionsLoading={session.emptyChipsLoading}
-                    onPick={session.handlePickSuggestion}
-                  />
+                  hasWorkspaceAgents(agents)
+                    ? (
+                        <EmptyState
+                          greeting={session.emptyGreeting}
+                          suggestions={session.emptyChips}
+                          suggestionsLoading={session.emptyChipsLoading}
+                          onPick={session.handlePickSuggestion}
+                        />
+                      )
+                    : <NoAgentsState />
                 )
               : (
                   <MessageList
@@ -217,6 +221,7 @@ function ChatShellInner({
                     onCitationClick={session.handleCitationClick}
                     onFeedback={session.handleFeedback}
                     autonomy={session.autonomy}
+                    conversationId={session.conversationId}
                   />
                 )}
 

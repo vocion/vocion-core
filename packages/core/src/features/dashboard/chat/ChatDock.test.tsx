@@ -116,7 +116,7 @@ describe('ChatDock', () => {
   });
 
   it('opens to a third of the viewport, never under the old column width, and the width is a pixel value it can resize', async () => {
-    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" defaultCollapsed={false} />));
 
     const aside = page.getByRole('complementary', { name: 'Conversation about Pete Laverick' });
 
@@ -195,7 +195,7 @@ describe('ChatDock', () => {
       return new Response('', { status: 500 });
     }));
     try {
-      await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} />));
+      await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" pageContext={{ path: '/dashboard/review', title: 'Review' }} defaultCollapsed={false} />));
       await userEvent.fill(page.getByRole('textbox'), 'what is waiting?');
       await userEvent.keyboard('{Enter}');
 
@@ -207,14 +207,120 @@ describe('ChatDock', () => {
     }
   });
 
+  it('a record page is full width on arrival: collapsed to the edge tab, one ⌘J away', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+
+    await expect.element(page.getByTestId('rail-edge-tab')).toBeVisible();
+    expect(page.getByRole('complementary').elements()).toHaveLength(0);
+
+    await userEvent.keyboard('{Meta>}j{/Meta}');
+
+    await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeVisible();
+  });
+
+  it('a decision waiting is the exception — the rail opens, because the decision is inside it', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+
+    await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeVisible();
+  });
+
+  it('overlays the page rather than narrowing it, in the viewport\'s own frame', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" defaultCollapsed={false} />));
+
+    const aside = (await page.getByRole('complementary', { name: 'Conversation about Pete Laverick' }).element()) as HTMLElement;
+
+    // Portalled out of whatever mounted it, and fixed to the viewport: the
+    // page beside it keeps its full width, and the composer cannot drift
+    // below the fold because a page gutter padded its containing block.
+    // (The test environment loads no stylesheet, so the class list is the
+    // assertable form of "fixed to the viewport".)
+    expect(aside.parentElement).toBe(document.body);
+    expect(aside.className).toContain('fixed');
+    expect(aside.className).toContain('right-0');
+    expect(aside.className).not.toContain('sticky');
+    expect(aside.className).not.toContain('shrink-0');
+  });
+
+  it('a `@change` tag routes the ask to the draft rewrite, with the send the anchor named', async () => {
+    const rewriteDraft = vi.fn(async () => ({ body: 'a shorter draft one body' }));
+    // @ts-expect-error — the mocked client is shaped per test.
+    client.review = { rewriteDraft, actionStatus: vi.fn(async () => ({ status: 'pending', decidedBy: null, decidedAt: null })) };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
+    try {
+      await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+      // The selection control arms the tag through the one entry function.
+      requestAgentSurface({ tags: [{ type: 'intent', id: 'change', label: 'Change the draft' }] });
+
+      await expect.element(page.getByTestId('composer-tag')).toBeVisible();
+
+      await userEvent.fill(page.getByRole('textbox'), 'this opener is too long');
+      await userEvent.keyboard('{Enter}');
+
+      await vi.waitFor(() => expect(rewriteDraft).toHaveBeenCalled());
+
+      expect(rewriteDraft).toHaveBeenCalledWith({ runId: 42, hint: 'this opener is too long', contentId: 'send-1' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('without the tag the same words are a question — nothing is rewritten', async () => {
+    const rewriteDraft = vi.fn();
+    // @ts-expect-error — the mocked client is shaped per test.
+    client.review = { rewriteDraft, actionStatus: vi.fn(async () => ({ status: 'pending', decidedBy: null, decidedAt: null })) };
+    const calls: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_u: string, init?: RequestInit) => {
+      calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response('', { status: 500 });
+    }));
+    try {
+      await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+      await userEvent.fill(page.getByRole('textbox'), 'why is this opener like that?');
+      await userEvent.keyboard('{Enter}');
+
+      await expect.poll(() => calls.length).toBe(1);
+
+      expect(rewriteDraft).not.toHaveBeenCalled();
+      expect(calls[0]).toMatchObject({ message: 'why is this opener like that?' });
+      // An intent tag is not a record: it never travels as one.
+      expect(calls[0]).not.toHaveProperty('context_refs');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('says an empty workspace is a state, with the next step, and never sends the sentinel', async () => {
+    const searchOnly = [{ slug: '__search__', name: 'Search only', icon: 'search' as const, placeholder: 'Search…' }];
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(String(url));
+      return new Response('', { status: 500 });
+    }));
+    try {
+      await render(wrap(<ChatDock agents={searchOnly} scopeLabel="Everything" defaultCollapsed={false} />));
+
+      await expect.element(page.getByTestId('no-agents-state')).toBeVisible();
+      await expect.element(page.getByRole('link', { name: /Teams & agents/ })).toBeVisible();
+
+      // The composer stays live, and the answer is the same sentence.
+      await userEvent.fill(page.getByRole('textbox'), 'what should I do?');
+      await userEvent.keyboard('{Enter}');
+
+      await expect.element(page.getByText(/This workspace has no agents yet/)).toBeVisible();
+      expect(calls.filter(u => u.includes('/rpc/agent/stream'))).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('renders nothing when there are no agents', async () => {
     await render(wrap(<ChatDock agents={[]} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     await expect.element(page.getByRole('complementary')).not.toBeInTheDocument();
   });
 
-  it('defaults to open, with the scope as the header title and no underlined link under it', async () => {
-    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+  it('opens with the scope as the header title and no underlined link under it', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" defaultCollapsed={false} />));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     await expect.element(page.getByText('Pete Laverick')).toBeInTheDocument();
@@ -224,7 +330,7 @@ describe('ChatDock', () => {
   });
 
   it('puts the autonomy rung in the header, not in the composer', async () => {
-    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" defaultCollapsed={false} />));
 
     // The chip names the current rung; the composer has one action left.
     await expect.element(page.getByTestId('autonomy-chip')).toBeInTheDocument();
@@ -245,7 +351,7 @@ describe('ChatDock', () => {
       ],
     } as never);
 
-    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" defaultCollapsed={false} />));
 
     await expect.element(page.getByText('The entrance path sets it.')).toBeInTheDocument();
     expect(vi.mocked(client.conversations.latestForScope)).toHaveBeenCalledWith({ scopeRef: SCOPE });
@@ -253,7 +359,7 @@ describe('ChatDock', () => {
   });
 
   it('collapses to the reopen button and the choice persists', async () => {
-    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" defaultCollapsed={false} />));
 
     await userEvent.click(page.getByRole('button', { name: 'Collapse the conversation (⌘J)' }));
 
@@ -286,7 +392,7 @@ describe('ChatDock speaks as the workspace (§9.10)', () => {
 
   it('scoped: titled by the record, with the workspace — not an agent — as who answers', async () => {
     const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
-    await render(wrap(<ChatDock agents={agents} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
+    await render(wrap(<ChatDock agents={agents} scopeRef={SCOPE} scopeLabel="Pete Laverick" defaultCollapsed={false} />));
 
     // The record names the sheet (title + sr description) and the header — several matches, all correct.
     await vi.waitFor(() => expect(page.getByText('Pete Laverick', { exact: true }).elements().length).toBeGreaterThan(0));

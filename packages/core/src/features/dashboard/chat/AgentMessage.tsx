@@ -3,7 +3,7 @@
 import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
@@ -70,6 +70,8 @@ export type AgentMessageProps = {
   via?: string;
   /** Opens an artifact this turn produced in the pane beside the conversation. */
   onOpenArtifact?: (id: number) => void;
+  /** The thread this turn belongs to — stamped into a failed step's Copy details. */
+  conversationId?: number | null;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -96,11 +98,16 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
-  const hasToolError = runs.some(r => r.type === 'tool' && r.state === 'error');
+  // A failure is a failure whether it arrived as a legacy run or as a typed
+  // trace node — #368 persists the latter, and the badge has to find both.
+  const hasToolError = runs.some(r => r.type === 'tool' && r.state === 'error')
+    || (message.trace ?? []).some(n => n.status === 'error');
+  // Bumped by the badge; the work timeline opens to the failed step on change.
+  const [inspect, setInspect] = useState(0);
   // One consolidated work timeline instead of breadcrumbs scattered through
   // the transcript; text runs render below it in order.
   const toolRuns = runs.filter((r): r is Extract<AgentRun, { type: 'tool' }> => r.type === 'tool');
@@ -131,16 +138,33 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               {sourceCount}
             </button>
           )}
+          {/* The badge is the way IN to the failure, not a label over it: it
+              opens the trace at the failed step, which carries the message and
+              a Copy details block (CEO, 2026-09-16). */}
           {hasToolError && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case">
+            <button
+              type="button"
+              data-testid="tool-error-badge"
+              onClick={() => setInspect(n => n + 1)}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
+            >
               <AlertCircle className="size-2.5" aria-hidden />
               Tool error
-            </span>
+            </button>
           )}
         </div>
         <div className="mt-2 text-sm leading-relaxed">
           {(toolRuns.length > 0 || streaming || message.thinkingText || (message.trace?.length ?? 0) > 0) && (
-            <WorkTimeline runs={toolRuns} streaming={streaming} activity={activity} thinkingText={message.thinkingText} documents={message.documents} trace={message.trace} />
+            <WorkTimeline
+              runs={toolRuns}
+              streaming={streaming}
+              activity={activity}
+              thinkingText={message.thinkingText}
+              documents={message.documents}
+              trace={message.trace}
+              inspect={inspect}
+              failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
+            />
           )}
           {textRuns.map((run, i) => (
             <div key={i} className="prose prose-sm max-w-none dark:prose-invert">

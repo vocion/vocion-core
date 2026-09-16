@@ -156,8 +156,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       </div>
 
       {/* Draft preview — one compact block: to→subject line + 2-line body */}
+      {/* A hairline block, not a second card inside the card. */}
       {isEmail && (to || subject || body) && (
-        <div className="mx-3 mt-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs">
+        <div className="mt-2 border-t border-rule px-3 pt-2 text-xs">
           {(to || subject) && (
             <div className="truncate">
               {to && <span className="text-muted-foreground">{to}</span>}

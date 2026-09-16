@@ -17,6 +17,7 @@
  * which surface is on the page.
  */
 
+import type { ContextRef } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 
 export const AGENT_SURFACE_EVENT = 'vocion:open-agent-surface';
@@ -46,6 +47,13 @@ export type AgentSurfaceRequest = {
   send?: boolean;
   /** Prefer this agent for the turn (a briefing's team lead, a team's lead). */
   agentSlug?: string;
+  /**
+   * Composer tags the affordance armed — today `@change`, from the selection
+   * control on a page with a sequence draft in view. The surface adds them
+   * as chips, exactly as if the person had typed the word: one mechanism, two
+   * ways in (Manifesto §19, and `composerTags.ts`).
+   */
+  tags?: ContextRef[];
   /**
    * Treat the request as a toggle: a mounted surface that is already open,
    * and has no intent to apply, collapses instead of re-focusing. The

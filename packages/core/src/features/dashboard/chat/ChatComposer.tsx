@@ -2,7 +2,7 @@
 
 import type { QueuedMessage } from './queueReducer';
 import type { ContextRef } from './types';
-import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, Plus, Square, Target, Users, X } from 'lucide-react';
+import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, PencilLine, Plus, Square, Target, Users, X } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
 import { insertTagAt, tagSlug } from './composerTags';
@@ -39,6 +39,12 @@ import { insertTagAt, tagSlug } from './composerTags';
  * and they go out in order the moment the turn lands. ⌘⏎ stops the turn and
  * sends immediately; Esc on an empty box stops it. Enter alone never kills a
  * running turn.
+ *
+ * Everything stacked above the box — queued rows, tag chips, the pasted-text
+ * chip, and whatever the surface passes as `above` (the "About: …" context
+ * chip, anchored-comment chips) — lives in ONE column with the input, so
+ * there is a single left edge to align to rather than a padding decision per
+ * child (2026-09-16).
  *
  * Stateless about the conversation: the parent owns `value`, `onChange`,
  * `onSubmit`, `disabled` and the tags. Copy for the shortcuts comes from this
@@ -95,6 +101,14 @@ export type ChatComposerProps = {
    * render behaves.
    */
   attachable?: ContextRef[];
+  /**
+   * Anything the SURFACE stacks above the box — the "About: …" context chip,
+   * the anchored-comment chips. It renders inside the composer's own column,
+   * so one padding rule governs everything above the input instead of each
+   * caller guessing at it (CEO, 2026-09-16: the chip sat flush against the
+   * rail edge while the box was inset).
+   */
+  above?: React.ReactNode;
 };
 
 /** Everything the queue affordance says, so the parent can translate it. */
@@ -147,6 +161,7 @@ const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
   deal: AtSign,
   page: AtSign,
   deliverable: FileText,
+  intent: PencilLine,
 };
 
 const SHORTCUTS: Array<[keys: string, what: string]> = [
@@ -156,6 +171,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team, mission or the page'],
   ['@artifact', 'This turn ends in a document'],
+  ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
   ['⌘ J', 'Open or collapse the conversation'],
   ['?', 'These shortcuts'],
@@ -187,6 +203,7 @@ export function ChatComposer({
   onDismissHeld,
   copy,
   attachable = [],
+  above,
 }: ChatComposerProps) {
   const words = { ...DEFAULT_COPY, ...copy };
   const [queuedExpanded, setQueuedExpanded] = useState(false);
@@ -378,6 +395,8 @@ export function ChatComposer({
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-3 sm:px-6 sm:pt-4">
       <div className="relative mx-auto max-w-3xl">
+        {/* The surface's own stack — same column, same left edge as the box. */}
+        {above}
         {tagQuery !== null && tagHits.length > 0 && (
           <ul role="listbox" aria-label="Tag a record" className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-full rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop)">
             {tagHits.map((h, i) => {
