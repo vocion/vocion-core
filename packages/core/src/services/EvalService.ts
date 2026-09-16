@@ -27,6 +27,7 @@ import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
 import { getProvider } from './evals/providers/registry';
+import { syncDatasetToProvider } from './evals/publish';
 import { scoreWithProvider } from './evals/scoring';
 import { persistTranscripts, produceTranscripts } from './evals/transcripts';
 
@@ -390,6 +391,19 @@ export async function runDatasetAndScore(
   const modelOverride = opts.modelOverride
     ? { model: opts.modelOverride, ...(opts.providerOverride ? { provider: opts.providerOverride } : {}) }
     : undefined;
+
+  // Before anything costs a model call, make sure the grader is holding the
+  // cases this dataset now declares. Usually a hash comparison and nothing
+  // else. A failure here is recorded and the run continues: the scores do not
+  // depend on the published copy, so refusing to measure would be the larger
+  // loss — the same call the evaluator sync already makes.
+  await syncDatasetToProvider(opts.orgId, {
+    id: dataset.id,
+    slug: dataset.slug,
+    name: dataset.name,
+    description: dataset.description ?? null,
+    items,
+  }, provider);
 
   const transcripts = await produceTranscripts({
     orgId: opts.orgId,

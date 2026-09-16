@@ -1771,6 +1771,16 @@ export const evalScoreSchema = pgTable('eval_score', {
   /** Set when this evaluator failed. A failure is recorded, never scored as zero. */
   errorCode: text('error_code'),
   errorMessage: text('error_message'),
+  /**
+   * The grader's own response, untouched.
+   *
+   * The columns above are the ones the dashboard aggregates, and they stay
+   * columns for that reason — a pass rate that has to dig through JSON cannot
+   * be indexed or grouped. Everything a grader returns that we have not
+   * modelled lands here instead of being dropped, and a field moves out into a
+   * column of its own the moment something reads it to draw a number.
+   */
+  raw: jsonb('raw').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 }, table => [
   index('eval_score_run_idx').on(table.runId),
@@ -1825,8 +1835,62 @@ export const evalEvaluatorSchema = pgTable('eval_evaluator', {
   uniqueIndex('eval_evaluator_org_dataset_slug_idx').on(table.orgId, table.datasetSlug, table.provider, table.slug),
 ]);
 
+/**
+ * Where a dataset lives in a grader's own account.
+ *
+ * A dataset graded by AgentCore is published into the customer's AWS account
+ * as a real dataset with its own versions, so "an AgentCore eval" is one, and
+ * so a support engineer can open it in the console. Nothing about scoring
+ * depends on it: `Evaluate` carries the expected answer in the request, and
+ * reproducibility comes from `eval_run.datasetVersion`. That is exactly why a
+ * failed publish is recorded here and the run goes ahead anyway.
+ *
+ * Its own table rather than columns on `eval_dataset`, because a dataset's
+ * `provider` is mutable — a rewritten workspace file can flip it — and a row
+ * per provider means flipping to Vocion and back needs no clearing logic, and
+ * a third grader needs no migration.
+ */
+export const evalDatasetRemoteSchema = pgTable('eval_dataset_remote', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  datasetId: integer('dataset_id').notNull().references(() => evalDatasetSchema.id, { onDelete: 'cascade' }),
+  /** Which grader's account this row describes. */
+  provider: text('provider').notNull(),
+  /** The grader's id for the dataset. NULL until the first publish lands. */
+  remoteId: text('remote_id'),
+  /** The version the grader published, as it names it — AWS counts from "1". */
+  remoteVersion: text('remote_version'),
+  /**
+   * Hash of the cases we last published, and the whole reason a run usually
+   * makes no AWS calls at all. Left untouched when a publish fails partway, so
+   * the next attempt resends the complete diff rather than assuming half of it
+   * landed.
+   */
+  casesHash: text('cases_hash'),
+  /** The grader's status at the last sync: ACTIVE, CREATE_FAILED, and so on. */
+  status: text('status'),
+  /** Why the last publish failed. Kept so the page can say so rather than look synced. */
+  syncError: text('sync_error'),
+  syncedAt: timestamp('synced_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  uniqueIndex('eval_dataset_remote_dataset_provider_idx').on(table.datasetId, table.provider),
+]);
+
 export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
   runs: many(evalRunSchema),
+  remotes: many(evalDatasetRemoteSchema),
+}));
+
+export const evalDatasetRemoteRelations = relations(evalDatasetRemoteSchema, ({ one }) => ({
+  dataset: one(evalDatasetSchema, {
+    fields: [evalDatasetRemoteSchema.datasetId],
+    references: [evalDatasetSchema.id],
+  }),
 }));
 export const evalRunRelations = relations(evalRunSchema, ({ one, many }) => ({
   dataset: one(evalDatasetSchema, {

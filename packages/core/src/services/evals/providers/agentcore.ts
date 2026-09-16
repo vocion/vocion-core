@@ -29,6 +29,7 @@ import { BedrockAgentCoreClient, EvaluateCommand } from '@aws-sdk/client-bedrock
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { bedrockRegion } from '@/libs/llm/bedrockCredentials';
 import { resolveAwsCredentials } from '@/services/ApiTokenService';
+import { publishAgentcoreDataset } from './agentcoreDatasets';
 import { resolveAgentcoreEvaluators } from './agentcoreEvaluators';
 import { buildSessionSpans } from './agentcoreSpans';
 
@@ -296,4 +297,9 @@ export const agentcoreProvider: EvalScoreProvider = {
   label: 'AgentCore',
   isAvailable,
   score,
+  // The cases also live in the customer's account, as a real AgentCore dataset
+  // with versions. Nothing here reads it — `score` sends the ground truth with
+  // every request — so it is for provenance, for the console, and for the day
+  // an AWS-side batch job runs these same cases.
+  publishDataset: publishAgentcoreDataset,
 };

@@ -13,7 +13,7 @@
  */
 
 import type { CaseTranscript } from '../transcripts';
-import type { ProviderScore } from '../types';
+import type { EvalDatasetItem, ProviderScore } from '../types';
 
 /**
  * Whether this provider can grade anything for this org right now, and if not,
@@ -55,4 +55,42 @@ export type EvalScoreProvider = {
    * someone their own judge's results.
    */
   score: (request: ScoreRequest) => Promise<ProviderScore[]>;
+  /**
+   * Put the dataset's cases in the provider's own account, and hand back what
+   * it calls them.
+   *
+   * Omitted by a provider that keeps no dataset of its own — ours holds the
+   * cases in Postgres and has nothing to publish — which is what lets the run
+   * path ask whether `publishDataset` exists instead of asking which provider
+   * this is.
+   *
+   * Throwing means the eval could not be synced, not that it cannot be
+   * measured: the ground truth travels with each score request, so the caller
+   * records the failure and runs the dataset anyway.
+   */
+  publishDataset?: (request: PublishDatasetRequest) => Promise<PublishedDataset>;
+};
+
+/** Everything a provider needs to mirror one dataset into its own account. */
+export type PublishDatasetRequest = {
+  orgId: string;
+  datasetSlug: string;
+  datasetName: string;
+  description: string | null;
+  items: EvalDatasetItem[];
+  /**
+   * What we published last time, so the provider updates what already exists
+   * rather than making a second copy. Null the first time, and again once the
+   * last one turns out to be gone.
+   */
+  remoteId: string | null;
+};
+
+/** What the provider calls the dataset once it holds it. */
+export type PublishedDataset = {
+  remoteId: string;
+  /** The version the provider cut, as it names it. AWS counts from "1". */
+  remoteVersion: string;
+  /** The provider's own status word, kept verbatim so the page can show it. */
+  status: string;
 };

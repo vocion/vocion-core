@@ -23,7 +23,7 @@ const getProvider = vi.fn();
 vi.mock('@/services/evals/providers/registry', () => ({ listAvailableProviders, getProvider }));
 
 const { db } = await import('@/libs/DB');
-const { evalCaseResultSchema, evalDatasetSchema, evalRunSchema, evalScoreSchema } = await import('@/models/Schema');
+const { evalCaseResultSchema, evalDatasetRemoteSchema, evalDatasetSchema, evalRunSchema, evalScoreSchema } = await import('@/models/Schema');
 const { runAgentDeep } = await import('@/services/AgentService');
 const { eq } = await import('drizzle-orm');
 const { EvalProviderUnavailableError, runDatasetAndScore, UnknownEvalProviderError } = await import('@/services/EvalService');
@@ -66,6 +66,7 @@ async function seedDataset(items: Array<{ input: string }>, provider = 'vocion')
 beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(evalScoreSchema);
+  await db.delete(evalDatasetRemoteSchema);
   await db.delete(evalCaseResultSchema);
   await db.delete(evalRunSchema);
   await seedDataset([{ input: 'one' }, { input: 'two' }]);
@@ -164,6 +165,58 @@ describe('runDatasetAndScore', () => {
     // Nobody pays for a run that could never have been scored.
     expect(mockAgent).not.toHaveBeenCalled();
     expect(await db.select().from(evalRunSchema)).toHaveLength(0);
+  });
+
+  it('puts the cases in the grader\'s account before running a single one', async () => {
+    const provider = fakeProvider('agentcore', 'AgentCore');
+    const order: string[] = [];
+    const publishDataset = vi.fn(async () => {
+      order.push('publish');
+      return { remoteId: 'ds-7', remoteVersion: '2', status: 'ACTIVE' };
+    });
+    mockAgent.mockImplementation(async () => {
+      order.push('agent');
+      return { response: 'ok', toolCalls: [], traceId: 't', usage: {} } as never;
+    });
+    await seedDataset([{ input: 'one' }], 'agentcore');
+    getProvider.mockReturnValue({ ...provider, publishDataset });
+
+    await runDatasetAndScore({ orgId: ORG, datasetSlug: SLUG });
+
+    // A grader that rejects the cases should say so before anyone pays for a
+    // model call, so publishing cannot come after the run.
+    expect(order[0]).toBe('publish');
+
+    const [remote] = await db.select().from(evalDatasetRemoteSchema);
+
+    expect(remote?.remoteId).toBe('ds-7');
+    expect(remote?.remoteVersion).toBe('2');
+  });
+
+  it('still measures the dataset when the grader would not take the cases', async () => {
+    const provider = fakeProvider('agentcore', 'AgentCore');
+    await seedDataset([{ input: 'one' }], 'agentcore');
+    getProvider.mockReturnValue({
+      ...provider,
+      publishDataset: vi.fn(async () => {
+        throw new Error('AWS refused the dataset');
+      }),
+    });
+
+    const result = await runDatasetAndScore({ orgId: ORG, datasetSlug: SLUG });
+
+    // Scoring carries its own ground truth, so an unsynced mirror is a sync
+    // problem. Losing the measurement as well would be the real cost.
+    expect(result.run.error).toBeNull();
+    expect(await db.select().from(evalCaseResultSchema)).toHaveLength(1);
+
+    const [run] = await db.select().from(evalRunSchema);
+
+    expect(run?.status).toBe('succeeded');
+
+    const [remote] = await db.select().from(evalDatasetRemoteSchema);
+
+    expect(remote?.syncError).toContain('AWS refused the dataset');
   });
 
   it('runs no agent at all for a dataset with no cases', async () => {
