@@ -2607,10 +2607,11 @@ export const autonomyPolicySchema = pgTable(
  * (an `ask`, keyed by ask kind). `recommended` is what the agent advised — the
  * proposal's `suggestedDecision`, or the ask option marked `recommended` — and
  * `agreed` whether the person chose it. An action proposed with no explicit
- * recommendation carries an `implicit` approve: an agent only proposes work it
- * wants run, and the autonomy question is "had this executed without you,
- * would you have let it", which that answers. The adoption agreement metric
- * deliberately leaves those out; this ledger deliberately keeps them, labelled.
+ * recommendation stores a null `recommended`, never an inferred `approve`:
+ * silence is not a recommendation, and scoring it as one made an agent that
+ * said nothing look wrong every time a reviewer turned its work down. Such a
+ * row still records that a decision happened — it just sits outside the
+ * agreement rate, whose denominator counts only a stated recommendation.
  *
  * `auto_executed` is set when the run had already executed under a trust rule
  * before the person saw it — a rejection there is the strongest demotion signal
@@ -2632,7 +2633,13 @@ export const decisionAlignmentSchema = pgTable(
     decision: text('decision').notNull(),
     /** approve | reject | snooze | <option id>; null when nothing was recommended. */
     recommended: text('recommended'),
-    /** True when `recommended` was inferred (an action proposed without a suggestedDecision). */
+    /**
+     * Legacy. Marked a `recommended` that was inferred rather than stated,
+     * back when an action proposed without a `suggestedDecision` was recorded
+     * as an implicit `approve`. Nothing writes `true` any more — an unstated
+     * recommendation is a null `recommended` — and the column stays only so
+     * the rows written under the old rule remain readable as what they were.
+     */
     implicit: boolean('implicit').default(false).notNull(),
     /** Whether the decision matched the recommendation; null when nothing was recommended. */
     agreed: boolean('agreed'),

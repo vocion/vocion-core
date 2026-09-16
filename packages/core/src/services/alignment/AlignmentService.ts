@@ -175,10 +175,18 @@ export async function recordActionAlignment(opts: { orgId: string; runId: number
       subjectId: opts.runId,
       agentSlug,
       decision,
-      // An agent only proposes work it wants run: with no stated view, the
-      // recommendation is approve, and it is labelled as inferred.
-      recommended: suggested ?? 'approve',
-      implicit: suggested === undefined,
+      // No stated view is no recommendation, never an inferred `approve`.
+      // Reading silence as approval scored every such proposal against what
+      // the reviewer did, so an agent that said nothing and happened to be
+      // rejected looked like an agent that had been wrong. A null keeps the
+      // row as evidence a decision happened while leaving it out of the
+      // agreement rate entirely: `n` counts only rows whose `recommended` is
+      // not null, and `agreed` is null for the rest.
+      //
+      // Both producers are now required to state one (`propose_action` and
+      // the candidate extractor), so a null here means a run proposed before
+      // that shipped, or one written straight over the API.
+      recommended: suggested ?? null,
       outcome: decisionOutcome(decision),
       confidence: typeof run.proposal?.confidence === 'number' ? run.proposal.confidence : null,
       autoExecuted: run.proposal?.autoApproved === true,

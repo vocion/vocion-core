@@ -174,6 +174,24 @@ describe('proposeAction with a recommendation against acting', () => {
     expect(row!.proposal).toBeNull();
   });
 
+  it('drops a reason that came with no recommendation', async () => {
+    // A sentence arguing for an outcome, on a card that recommends none,
+    // cannot be read by anyone — the card, the metric or a person months
+    // later. Nothing is inferred from it, so nothing is kept.
+    await proposeAction({
+      orgId: ORG,
+      actionId: ACTION_ID,
+      input: { value: 'x' },
+      principal: agent,
+      proposal: { confidence: 0.4, suggestedDecisionReason: 'The date has already passed.' },
+    });
+
+    const [row] = await db.select().from(actionRunSchema);
+
+    expect(row!.proposal).not.toHaveProperty('suggestedDecisionReason');
+    expect(row!.proposal).toMatchObject({ confidence: 0.4 });
+  });
+
   it('stores the recommendation on the run so the queue can read it back', async () => {
     const res = await proposeAction({
       orgId: ORG,

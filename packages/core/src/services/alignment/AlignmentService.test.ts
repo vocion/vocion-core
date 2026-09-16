@@ -87,14 +87,31 @@ describe('review-queue decisions', () => {
     expect(row!.confidence).toBeCloseTo(0.81, 5);
   });
 
-  it('an approval of a proposal with no stated recommendation counts as an IMPLICIT agreement', async () => {
+  it('a proposal with no stated recommendation records the decision and agrees with nothing', async () => {
+    // Silence is not a recommendation. Reading it as `approve` made an agent
+    // that stated nothing look wrong every time a reviewer turned its work
+    // down, and right every time they did not — both of which are inventions.
     const id = await seedRun({ confidence: 0.9 });
 
     await decide({ kind: 'action', id }, 'approve', ORG, { reviewedBy: 'usr_chris' });
 
     const [row] = await ledger();
 
-    expect(row).toMatchObject({ decision: 'approved', recommended: 'approve', implicit: true, agreed: true, hasNote: false });
+    expect(row).toMatchObject({ decision: 'approved', recommended: null, agreed: null, hasNote: false });
+  });
+
+  it('keeps a decision with no recommendation out of the agreement rate', async () => {
+    // The row still counts as a decision — it is evidence the queue was
+    // worked — but the rate it feeds must be computed only over proposals
+    // that actually recommended something.
+    await decide({ kind: 'action', id: await seedRun({ confidence: 0.9 }) }, 'approve', ORG, { reviewedBy: 'usr_chris' });
+    await decide({ kind: 'action', id: await seedRun({ suggestedDecision: 'approve' }) }, 'approve', ORG, { reviewedBy: 'usr_chris' });
+
+    const score = await scoreFor({ orgId: ORG, subjectKey: 'test.alignment' });
+
+    expect(score.decided).toBe(2);
+    expect(score.n).toBe(1);
+    expect(score.agreementRate).toBe(1);
   });
 
   it('edit-then-approve agrees; agreeing with a recommended rejection agrees too', async () => {
@@ -117,7 +134,10 @@ describe('review-queue decisions', () => {
 
     await decide({ kind: 'action', id }, 'reject', ORG, { reviewedBy: 'usr_chris' });
 
-    expect((await ledger())[0]).toMatchObject({ decision: 'rejected', autoExecuted: true, agreed: false });
+    // `agreed` is null rather than false: this run recommended nothing, so
+    // there is nothing for the rejection to have disagreed with. The demotion
+    // signal the ladder reads is `autoExecuted` plus the rejection itself.
+    expect((await ledger())[0]).toMatchObject({ decision: 'rejected', autoExecuted: true, agreed: null });
   });
 });
 

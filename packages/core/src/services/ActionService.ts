@@ -70,6 +70,29 @@ const DAY_IN_MS = 86_400_000;
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
 
 /**
+ * The proposal envelope as it should be stored.
+ *
+ * A reason belongs to a recommendation. An envelope carrying
+ * `suggestedDecisionReason` with no `suggestedDecision` would put a sentence
+ * arguing for an outcome on a card that recommends none, and every reader —
+ * the review card, the agreement metric, a person scrolling the ledger months
+ * later — would have to guess which outcome it argued for. Dropping it is the
+ * honest answer: nothing is inferred from it, and nothing is stored that
+ * cannot be read.
+ * @param proposal - The envelope a caller passed, or undefined.
+ */
+function proposalForStorage<T extends { suggestedDecision?: unknown; suggestedDecisionReason?: string }>(proposal: T | undefined): T | null {
+  if (!proposal) {
+    return null;
+  }
+  if (proposal.suggestedDecision || proposal.suggestedDecisionReason === undefined) {
+    return proposal;
+  }
+  const { suggestedDecisionReason: _dropped, ...rest } = proposal;
+  return rest as T;
+}
+
+/**
  * The run of this dedup key a person already decided, when the action says a
  * repeat proposal should collapse into it.
  *
@@ -267,7 +290,7 @@ export async function proposeAction(input: {
           status: 'pending',
           error: null,
           input: parsed as Record<string, unknown>,
-          proposal: input.proposal ?? null,
+          proposal: proposalForStorage(input.proposal),
           expiresAt: input.expiresAt ?? null,
           // The refresh is the completion edge of a regeneration: the new
           // payload landing on the same pending run clears the in-flight
@@ -329,7 +352,7 @@ export async function proposeAction(input: {
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
-      proposal: input.proposal ?? null,
+      proposal: proposalForStorage(input.proposal),
       dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
     })
@@ -396,7 +419,7 @@ export async function proposeAction(input: {
         .update(actionRunSchema)
         .set({
           proposal: {
-            ...(input.proposal ?? {}),
+            ...(proposalForStorage(input.proposal) ?? {}),
             autoApproved: true,
             autoApprovedThreshold: trust.threshold,
           } as never,
