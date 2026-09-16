@@ -21,6 +21,14 @@ Two rules from §18–§19 bind day-to-day engineering here, so they are worth r
 
 - **Implementation is the forcing function.** Build what real work demanded, not what was
   imagined. If a change cannot name the thing it unblocked, it is not ready to build.
+- **Map onto the nouns we have.** Vocion's vocabulary is small — record, artifact,
+  ask, conversation, run, measure — and a new feature maps onto one rather than
+  adding another. Anything that needs to be referenced, edited, versioned,
+  previewed or cited is an **artifact**; implementing versioning or a history list
+  a second time is the tell that you are duplicating a noun instead of extending
+  one. Worked examples and the reduction pass (*less evidence should produce a
+  smaller output, not a longer explanation of why evidence is missing*) are in
+  `docs/design/reduction.md`.
 - **Extend the core; keep specifics at the edge.** Ask *how can we simplify this* and *how can we
   make this universal* before adding any surface. Extend an existing component or interaction
   pattern rather than building a second one beside it — especially when the gap is real, because
