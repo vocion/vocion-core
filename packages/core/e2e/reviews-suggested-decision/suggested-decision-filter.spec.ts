@@ -59,8 +59,9 @@ let fixtures: SeedFixtures;
  * refreshing the previous one.
  * @param title - What to call the candidate; also part of its identity.
  * @param suggestedDecision - What the agent advises, or undefined for no view.
+ * @param suggestedDecisionReason - Why it advises that, in one sentence.
  */
-function candidateProposal(title: string, suggestedDecision?: string) {
+function candidateProposal(title: string, suggestedDecision?: string, suggestedDecisionReason?: string) {
   const fields = {
     title,
     start: '2026-09-19T19:30',
@@ -73,6 +74,7 @@ function candidateProposal(title: string, suggestedDecision?: string) {
     confidence: 0.9,
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
     ...(suggestedDecision ? { suggestedDecision } : {}),
+    ...(suggestedDecisionReason ? { suggestedDecisionReason } : {}),
     input: {
       objectType: 'event_candidate',
       title,
@@ -113,9 +115,9 @@ test.beforeAll(async ({ request }) => {
   // once for the whole file: every assertion below reads the same queue, and
   // re-seeding per test would only make the run slower.
   const seeded = await Promise.all([
-    propose(request, candidateProposal('Open Mic Night', 'approve')),
-    propose(request, candidateProposal('Closed Rehearsal', 'reject')),
-    propose(request, candidateProposal('Maybe Later Matinee', 'snooze')),
+    propose(request, candidateProposal('Open Mic Night', 'approve', 'Fits the listing rules and nothing like it is already queued.')),
+    propose(request, candidateProposal('Closed Rehearsal', 'reject', 'Not open to the public, so it fails the listing rules.')),
+    propose(request, candidateProposal('Maybe Later Matinee', 'snooze', 'The venue has not confirmed the date yet.')),
     propose(request, candidateProposal('No Opinion Open Day')),
   ]);
   for (const result of seeded) {
@@ -168,6 +170,30 @@ test.describe('GET /api/v1/reviews?suggestedDecision=', () => {
       .sort();
 
     expect(recommendations).toEqual(['approve', 'reject', 'snooze']);
+  });
+
+  test('carries the reason beside the recommendation on the thin row', async ({ request }) => {
+    // The pair is what makes a "wants turned down" lane usable: the badge says
+    // what the agent advised, the sentence says what a reviewer should check,
+    // and neither costs a detail fetch per row.
+    const { body } = await listQueue(request, 'suggestedDecision=reject');
+
+    expect(body.items[0].suggestedDecision).toBe('reject');
+    expect(body.items[0].suggestedDecisionReason).toBe('Not open to the public, so it fails the listing rules.');
+  });
+
+  test('reads a proposal that sent no reason as having none', async ({ request }) => {
+    // The public endpoint keeps both fields optional so third-party callers do
+    // not break. A caller that sends neither must produce an item with no
+    // reason at all, never an empty string the review card would render as a
+    // blank quote under the badge.
+    // Found by the absence itself: the thin row carries no payload to match a
+    // title on, and exactly one seeded item was proposed with no view.
+    const { body } = await listQueue(request);
+    const noView = body.items.filter((i: { suggestedDecision?: string }) => !i.suggestedDecision);
+
+    expect(noView).toHaveLength(1);
+    expect(noView[0].suggestedDecisionReason).toBeUndefined();
   });
 
   test('composes with the action-type filter', async ({ request }) => {
