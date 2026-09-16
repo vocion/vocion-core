@@ -757,6 +757,13 @@
       "when": 1787727500000,
       "tag": "0107_candidate_replaces",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1787727600000,
+      "tag": "0108_action_run_approved_by_agent",
+      "breakpoints": true
     }
   ]
 }

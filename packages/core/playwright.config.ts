@@ -208,6 +208,12 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/reviews-suggested-decision',
       timeout: 60 * 1000,
     },
+    // Run with: npx playwright test --project=reviews-approved-by-agent
+    {
+      name: 'reviews-approved-by-agent',
+      testDir: './e2e/reviews-approved-by-agent',
+      timeout: 60 * 1000,
+    },
     ...(process.env.CI
       ? [
           {

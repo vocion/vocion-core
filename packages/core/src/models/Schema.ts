@@ -2719,6 +2719,34 @@ export const actionRunSchema = pgTable(
     decidedBy: text('decided_by'),
     decidedAt: timestamp('decided_at', { mode: 'date' }),
     /**
+     * Who made the approval call — an agent, or a person. Three states, and
+     * the third one is the point:
+     *
+     * - `null` — nobody has decided yet (the run is still open in the queue),
+     *   and every run decided before this column shipped
+     * - `true` — the trust ladder released it without a person
+     * - `false` — a person approved or rejected it in the review queue
+     *
+     * A plain boolean defaulting to false would be cheaper to query and wrong:
+     * it would make every run still waiting in the queue read as
+     * human-approved. "Nobody has looked at this yet" and "a person said yes"
+     * are the two facts this column exists to tell apart, so a missing value
+     * is never a human approval — treat it as unknown.
+     *
+     * The LAST decider owns the row. A run can only be decided twice while it
+     * sits in the queue as `failed` — an agent released it, the execution
+     * threw, and a person then retried or rejected it — because a `done` or
+     * `rejected` run is never re-decided and a later proposal opens a new run.
+     * In that one case the person's call replaces the agent's, which is the
+     * honest reading: the ladder did not get this through on its own, so it
+     * should not be counted as though it had. The agent's original approval
+     * stays visible in the adoption stream.
+     *
+     * `decidedBy` names the deciding agent as `agent:<slug>` on the auto path,
+     * so "which agent, and when" is answerable from the same row.
+     */
+    approvedByAgent: boolean('approved_by_agent'),
+    /**
      * Server truth for an in-flight regeneration: stamped by the regenerate
      * route before the work dispatches, cleared by the dedup refresh that
      * lands the new content (or by a failed fast-path turn). While fresh
@@ -2760,6 +2788,16 @@ export const actionRunSchema = pgTable(
     index('action_run_suggested_decision_idx')
       .on(table.orgId, sql`(${table.proposal} ->> 'suggestedDecision')`)
       .where(sql`${table.status} IN ('pending', 'failed')`),
+    // The auto-approved list asks for exactly the rows where an agent took the
+    // decision, newest first. Partial on true because those are a small
+    // fraction of every run ever decided, and indexing the false and null rows
+    // too would be most of the table to answer a question nobody asks of it.
+    // The direction matches `listAutoExecuted`'s ORDER BY so a page is read
+    // off the index rather than sorted out of the org's whole history;
+    // changing either one without the other loses the index quietly.
+    index('action_run_approved_by_agent_idx')
+      .on(table.orgId, sql`${table.decidedAt} DESC NULLS LAST`)
+      .where(sql`${table.approvedByAgent}`),
   ],
 );
 
