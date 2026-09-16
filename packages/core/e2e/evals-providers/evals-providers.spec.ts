@@ -100,9 +100,9 @@ function seedFixtures(): SeedFixtures {
 /**
  * Text a person can actually read on the page.
  *
- * Next streams `<title>` into the body, and every eval page titles itself with
- * the same "80% pass" text it shows in the run list — so a plain `getByText`
- * matches twice and trips strict mode. Keeping only the visible matches asserts
+ * Next streams `<title>` into the body, and an eval page titles itself with the
+ * same text it shows on the page — so a plain `getByText` matches twice and
+ * trips strict mode. Keeping only the visible matches asserts
  * on what someone looking at the screen would see, which is what these tests
  * are about.
  * @param page - The page under test.
@@ -180,13 +180,16 @@ test.describe('the eval section, with more than one grader', () => {
 
     await expect(shownText(page, 'No runs yet', { exact: false })).toBeVisible();
     // The distinction this test exists for.
-    await expect(shownText(page, '0% pass')).toHaveCount(0);
+    await expect(shownText(page, 'Pass rate')).toHaveCount(0);
+    await expect(shownText(page, '0%', { exact: true })).toHaveCount(0);
   });
 
   test('the grader is named once, and an org with no AWS never hears of AgentCore', async ({ page }) => {
     await page.goto(`/dashboard/evals/${fixtures.oneGraderSlug}`);
 
-    await expect(shownText(page, '80% pass')).toBeVisible();
+    // Labelled, so the number is not left to be decoded from its units.
+    await expect(shownText(page, 'Pass rate').first()).toBeVisible();
+    await expect(shownText(page, '80%', { exact: true }).first()).toBeVisible();
     // Who scored it is always said, because it is what makes the number mean
     // something.
     await expect(shownText(page, 'Vocion', { exact: true }).first()).toBeVisible();
@@ -204,8 +207,8 @@ test.describe('the eval section, with more than one grader', () => {
     await expect(shownText(page, 'AgentCore', { exact: true }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'All', exact: true })).toHaveCount(0);
     // Both AgentCore runs are here — nothing is filtered away.
-    await expect(shownText(page, '90% pass')).toBeVisible();
-    await expect(shownText(page, '70% pass')).toBeVisible();
+    await expect(shownText(page, '90%', { exact: true }).first()).toBeVisible();
+    await expect(shownText(page, '70%', { exact: true }).first()).toBeVisible();
 
     // The 60% run predates the switch, so it carries its own grader rather
     // than being read as AgentCore's work.
