@@ -149,6 +149,61 @@ describe('proposeAction with a recommendation against acting', () => {
     expect(rows[0]!.proposal).toMatchObject({ suggestedDecision: 'reject' });
   });
 
+  it('a re-proposal replaces the reason along with the recommendation it explained', async () => {
+    // The envelope is replaced, not merged, so a stale reason must not outlive
+    // the verdict it was written for — a card reading "approve" under "the
+    // date has already passed" is worse than one with no reason at all.
+    await proposeAction({
+      orgId: ORG,
+      actionId: ACTION_ID,
+      input: { value: 'x' },
+      principal: agent,
+      proposal: { confidence: 0.4, suggestedDecision: 'reject', suggestedDecisionReason: 'The date has already passed.' },
+      dedupKey: 'same-record',
+    });
+    await proposeAction({
+      orgId: ORG,
+      actionId: ACTION_ID,
+      input: { value: 'x' },
+      principal: agent,
+      proposal: { confidence: 0.8, suggestedDecision: 'approve', suggestedDecisionReason: 'The venue re-listed it for next month.' },
+      dedupKey: 'same-record',
+    });
+
+    const [row] = await db.select().from(actionRunSchema);
+
+    expect(row!.proposal).toMatchObject({
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'The venue re-listed it for next month.',
+    });
+  });
+
+  it('a refresh that arrives with a reason and no recommendation keeps neither', async () => {
+    // The orphan rule holds on the refresh path too, which writes through a
+    // different statement from the create path.
+    await proposeAction({
+      orgId: ORG,
+      actionId: ACTION_ID,
+      input: { value: 'x' },
+      principal: agent,
+      proposal: { confidence: 0.4, suggestedDecision: 'reject', suggestedDecisionReason: 'The date has already passed.' },
+      dedupKey: 'same-record',
+    });
+    await proposeAction({
+      orgId: ORG,
+      actionId: ACTION_ID,
+      input: { value: 'x' },
+      principal: agent,
+      proposal: { confidence: 0.8, suggestedDecisionReason: 'Still thinking about it.' },
+      dedupKey: 'same-record',
+    });
+
+    const [row] = await db.select().from(actionRunSchema);
+
+    expect(row!.proposal).not.toHaveProperty('suggestedDecision');
+    expect(row!.proposal).not.toHaveProperty('suggestedDecisionReason');
+  });
+
   it('a re-proposal with no envelope clears the recommendation rather than keeping the old one', async () => {
     // Same rule confidence has always followed: the envelope is replaced, not
     // merged. Pinned here because the failure is silent — the item would drop

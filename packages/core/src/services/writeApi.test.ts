@@ -417,6 +417,7 @@ describe('apiProposeReview', () => {
       input: { id: 1 },
       agentSlug: 'screener',
       suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Third listing of this same show this week.',
       suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z',
     });
 
@@ -424,9 +425,30 @@ describe('apiProposeReview', () => {
       proposal: expect.objectContaining({
         agentSlug: 'screener',
         suggestedDecision: 'reject',
+        suggestedDecisionReason: 'Third listing of this same show this week.',
         suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z',
       }),
     }));
+  });
+
+  it('reads a blank reason as none rather than passing an empty sentence on', async () => {
+    // The endpoint stays open to callers that send neither field, so the
+    // reason has to survive the same tolerance the recommendation does: a
+    // whitespace-only string is nothing, and storing it would put an empty
+    // quote under the badge on the review card.
+    proposeAction.mockResolvedValue({ runId: 8, status: 'pending' });
+
+    await apiProposeReview(owner, {
+      actionId: 'objects.propose_candidate',
+      input: { id: 1 },
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: '   ',
+    });
+
+    const [call] = proposeAction.mock.calls.at(-1) as [{ proposal?: Record<string, unknown> }];
+
+    expect(call.proposal?.suggestedDecision).toBe('approve');
+    expect(call.proposal?.suggestedDecisionReason).toBeUndefined();
   });
 
   it('refuses a recommendation outside the three it can be', async () => {
