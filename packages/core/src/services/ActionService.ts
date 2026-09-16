@@ -17,7 +17,7 @@
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
@@ -470,12 +470,18 @@ export async function executeAction(
         ? {
             decidedBy: opts.reviewedBy,
             decidedAt: new Date(),
-            // A person is executing this, so the decision was not an agent's —
-            // unless one already took it. `coalesce` keeps the FIRST decider:
-            // an agent-approved run whose execution failed and which a person
-            // then retries by hand must not lose the fact that an agent
-            // approved it, which is the whole thing this column audits.
-            approvedByAgent: sql`coalesce(${actionRunSchema.approvedByAgent}, false)`,
+            // The LAST decider owns the row, so a person executing this makes
+            // it a human decision outright — no coalesce.
+            //
+            // The only run this can overwrite is one an agent approved whose
+            // execution then threw and which sits in the queue as `failed`: a
+            // `done` or `rejected` run is never re-decided, because the dedup
+            // refresh matches only open rows and a later proposal opens a new
+            // run instead. So what this reclassifies is precisely the case
+            // where the agent did NOT take the work off anyone's plate — it
+            // broke and a person finished it — and counting that as an
+            // auto-approval overstates what the ladder actually did.
+            approvedByAgent: false,
           }
         : {}),
     })
@@ -564,12 +570,13 @@ export async function rejectAction(runId: number, orgId: string, reason?: string
       executedAt: new Date(),
       decidedBy: opts?.reviewedBy ?? null,
       decidedAt: new Date(),
-      // A rejection is a decision, so this stops being null — and it is never
-      // an agent's, because the trust ladder can only release work, never turn
-      // it down. `coalesce` still guards the one case that matters: rejecting a
-      // run an agent had already approved leaves the original `true` standing,
-      // so the reversal shows up in `status` without erasing who approved it.
-      approvedByAgent: sql`coalesce(${actionRunSchema.approvedByAgent}, false)`,
+      // A rejection is a decision, and it is never an agent's — the trust
+      // ladder can only release work, never turn it down. The last decider
+      // owns the row, so rejecting a run an agent approved makes it a human
+      // decision: the agent's call did not stand, and a column that still read
+      // `true` would count a rejected proposal towards what the ladder got
+      // through on its own.
+      approvedByAgent: false,
     })
     .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
     .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });

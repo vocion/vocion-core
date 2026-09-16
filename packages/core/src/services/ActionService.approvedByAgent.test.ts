@@ -185,7 +185,7 @@ describe('approved_by_agent', () => {
     expect(run.approvedByAgent).toBe(false);
   });
 
-  it('keeps the agent approval when a person later rejects the run the agent approved', async () => {
+  it('hands the row to the person when they reject a run the agent approved', async () => {
     await enableTrustRule(0.5);
     const out = await proposeAction({
       orgId: ORG,
@@ -199,10 +199,11 @@ describe('approved_by_agent', () => {
 
     const run = await readRun(out.runId);
 
-    // The reversal shows in `status`. Flipping the flag would erase the exact
-    // fact the column exists to audit — that an agent approved this first.
+    // The last decider owns the row: the agent's call did not stand, so this
+    // proposal must not count towards what the ladder got through on its own.
     expect(run.status).toBe('rejected');
-    expect(run.approvedByAgent).toBe(true);
+    expect(run.approvedByAgent).toBe(false);
+    expect(run.decidedBy).toBe('user_123');
   });
 
   it('clears the stamp when a decided run is re-proposed and comes back to the queue', async () => {
@@ -269,7 +270,7 @@ describe('approved_by_agent', () => {
     expect(run.decidedAt).toBeNull();
   });
 
-  it('keeps the agent approval when a person re-runs an auto-approved execution that failed', async () => {
+  it('hands the row to the person when they re-run an auto-approved execution that failed', async () => {
     await db.insert(actionRunSchema).values({
       orgId: ORG,
       actionId: 'test.trusted-write',
@@ -285,6 +286,31 @@ describe('approved_by_agent', () => {
 
     const run = await readRun(row!.id);
 
+    // The agent released it and it broke; a person finished it. Counting that
+    // as an auto-approval would say the ladder took work off someone's plate
+    // when the opposite happened.
+    expect(run.approvedByAgent).toBe(false);
+    expect(run.decidedBy).toBe('user_123');
+  });
+
+  it('leaves a decided run alone, so nothing can re-decide one that already went through', async () => {
+    await enableTrustRule(0.5);
+    const out = await proposeAction({
+      orgId: ORG,
+      actionId: 'test.trusted-write',
+      input: { value: 'clean auto-approval' },
+      principal: proposingAgent(),
+      proposal: { confidence: 0.9 },
+    });
+
+    // The guard behind the rule above: only an open row — `pending` or
+    // `failed` — can be decided a second time. A run that executed cleanly is
+    // `done`, and a later proposal on the same key opens a NEW run rather than
+    // touching this one, so an agent approval that worked is permanent.
+    const run = await readRun(out.runId);
+
+    expect(run.status).toBe('done');
     expect(run.approvedByAgent).toBe(true);
+    expect(run.decidedBy).toBe('agent:event-scout');
   });
 });

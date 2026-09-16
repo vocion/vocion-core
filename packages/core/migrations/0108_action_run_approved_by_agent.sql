@@ -11,9 +11,11 @@
 -- looked at this yet" and "a person said yes" are the two facts this column
 -- exists to tell apart.
 --
--- The column records the APPROVAL decision only. A person who later rejects or
--- cancels a run an agent approved does not flip it; that reversal moves
--- `status`. Flipping it would erase the thing being audited.
+-- The last decider owns the row. A run can only be decided twice while it sits
+-- in the queue as `failed` — an agent released it, the execution threw, and a
+-- person retried or rejected it — because a decided run is never re-decided
+-- and a later proposal opens a new one. There the person's call replaces the
+-- agent's: the ladder did not get that one through on its own.
 --
 -- Additive and nullable, so this is metadata-only - no table rewrite, no
 -- backfill, safe on live data. The index that makes the auto-approved list

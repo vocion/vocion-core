@@ -2733,10 +2733,14 @@ export const actionRunSchema = pgTable(
      * are the two facts this column exists to tell apart, so a missing value
      * is never a human approval — treat it as unknown.
      *
-     * Records the APPROVAL decision only. A person who later rejects or
-     * cancels a run an agent approved does not flip this; that reversal moves
-     * `status`, and the adoption stream carries both acts. Flipping it would
-     * erase the thing being audited — that an agent approved this first.
+     * The LAST decider owns the row. A run can only be decided twice while it
+     * sits in the queue as `failed` — an agent released it, the execution
+     * threw, and a person then retried or rejected it — because a `done` or
+     * `rejected` run is never re-decided and a later proposal opens a new run.
+     * In that one case the person's call replaces the agent's, which is the
+     * honest reading: the ladder did not get this through on its own, so it
+     * should not be counted as though it had. The agent's original approval
+     * stays visible in the adoption stream.
      *
      * `decidedBy` names the deciding agent as `agent:<slug>` on the auto path,
      * so "which agent, and when" is answerable from the same row.
