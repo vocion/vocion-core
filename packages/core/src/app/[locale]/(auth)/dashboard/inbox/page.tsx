@@ -10,7 +10,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { INBOX_SORTS, INBOX_TABS, isInboxKind, listInbox } from '@/services/InboxService';
 
 /**
- * Needs you — THE decision surface. Everything waiting on a person, in one
+ * Review queue — THE decision surface. Everything waiting on a person, in one
  * column: proposals (agent actions described for a person and grouped per
  * record), rulings, approvals, merges, inputs, credentials, gates,
  * recommendations, runs that stopped, suggested rules. Kind chips filter it;
@@ -40,7 +40,7 @@ export default async function InboxPage(props: {
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
-    return <TitleBar title="Needs you" description="Sign in to an organization to see what is waiting on you." />;
+    return <TitleBar title="Review queue" description="Sign in to an organization to see what is waiting on you." />;
   }
 
   const tab = ((INBOX_TABS as readonly string[]).includes(sp.tab ?? '') ? sp.tab : 'open') as InboxTab;
@@ -58,7 +58,7 @@ export default async function InboxPage(props: {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <TitleBar title="Needs you" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total)}</span>} />
+      <TitleBar title="Review queue" description={<span data-testid="inbox-context">{contextLine(tab, open, oldest, inbox.total)}</span>} />
 
       <div className="mb-4">
         <InboxControls tab={tab} q={q} sort={sort} kinds={kinds} actionKinds={actionKinds} agents={agents} facets={inbox.facets} counts={inbox.counts} tabs={inbox.tabs} />

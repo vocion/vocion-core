@@ -12,7 +12,7 @@ import { RecordSheet } from './RecordSheet';
  * Deciding on a record keeps you on the record.
  *
  * Chris, 2026-09-16, after approving one proposal on a record sheet: "It
- * redirected me back to Needs you list with no context. At least give me my
+ * redirected me back to the review queue list with no context. At least give me my
  * toast notification?" The toast was in fact firing and surviving the
  * navigation — what was missing was the record. These tests pin the contract
  * that replaced the redirect: no navigation on submit, the decided row joins
@@ -50,7 +50,7 @@ const decided: DecidedProposal[] = [
   { id: 900, title: 'Update Northwind renewal — Stage: contract sent', subline: 'Approve', status: 'done', decidedAt: '2026-09-15T10:00:00.000Z' },
 ];
 
-const CRUMBS = [{ label: 'Needs you', href: '/dashboard/inbox' }, { label: 'Northwind renewal' }];
+const CRUMBS = [{ label: 'Review queue', href: '/dashboard/inbox' }, { label: 'Northwind renewal' }];
 
 const sheet = (open: SheetAsk[]) => (
   <NextIntlClientProvider locale="en" messages={messages}>

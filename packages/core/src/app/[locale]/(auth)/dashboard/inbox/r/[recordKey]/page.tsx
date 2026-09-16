@@ -2,7 +2,7 @@ import { Inbox } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { ListEmpty } from '@/components/patterns';
-import { decisionCrumbs, NEEDS_YOU_CRUMB } from '@/features/dashboard/inbox/inboxMeta';
+import { decisionCrumbs, REVIEW_CRUMB } from '@/features/dashboard/inbox/inboxMeta';
 import { RecordSheet } from '@/features/dashboard/inbox/RecordSheet';
 import { recordSheetView } from '@/features/dashboard/inbox/recordSheetView';
 import { reviewRowToSheetAsk } from '@/features/dashboard/inbox/reviewRowToSheetAsk';
@@ -18,7 +18,7 @@ import { listReviewRowsForRecord } from '@/services/inbox/reviewRows';
  *
  * Deciding stays on the record. The sheet moves to the record's next open
  * proposal and the decided one joins the list below; only when nothing is
- * left does it offer a button back to Needs you. `RecordSheet` owns both
+ * left does it offer a button back to the review queue. `RecordSheet` owns both
  * halves so that stays true without waiting on a refetch.
  *
  * Arriving with nothing left is the same answer, not a missing page: the URL
@@ -46,7 +46,7 @@ export default async function RecordSheetPage(props: { params: Promise<{ locale:
           icon={Inbox}
           title="Nothing waiting on this record"
           description={`No open or decided proposals about ${view.label} any more.`}
-          action={{ label: 'Back to Needs you', href: NEEDS_YOU_CRUMB.href }}
+          action={{ label: 'Back to the review queue', href: REVIEW_CRUMB.href }}
         />
       </div>
     );

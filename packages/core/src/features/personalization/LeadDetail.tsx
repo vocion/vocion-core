@@ -49,7 +49,8 @@ import { SequenceStateBlock } from './SequenceStateBlock';
  *   is stated once — what, why, and what approving will actually do — and the
  *   sequence-state reconciliation is part of it, because that is the thing a
  *   person has to understand before pressing the button.
- * - **Brief · Sequence · Evidence.** The brief is five sections; the sequence
+ * - **Sequence · Brief · Evidence.** The sequence leads, because this page is
+ * an enrollment review and the sends are the work being approved; the brief is five sections; the sequence
  *   is the sends with their rationale and their edit; Evidence holds
  *   everything the brief no longer has to carry.
  * - **The decision never scrolls away**, and its primary is HELD when the
@@ -116,7 +117,7 @@ const SNOOZES = [
   { label: 'Next week', days: 7 },
 ];
 
-const TABS = ['brief', 'sequence', 'evidence'] as const;
+const TABS = ['sequence', 'brief', 'evidence'] as const;
 type TabKey = (typeof TABS)[number];
 
 // Inline fields: text until touched, a soft fill on hover/focus.
@@ -236,7 +237,16 @@ export const LeadView = (props: {
 
   const search = useSearchParams();
   const urlTab = search?.get('tab');
-  const [tab, setTab] = useState<TabKey>(TABS.includes(urlTab as TabKey) ? urlTab as TabKey : 'brief');
+  // This is an ENROLLMENT REVIEW page, so the sequence is the thing being
+  // approved — the brief and the evidence exist to justify it. Chris,
+  // 2026-09-16: *"The recommendation block tells me what Vocion wants to do.
+  // My next natural question is: okay, what are you going to send? Not: show
+  // me the research report."* So the sequence leads whenever there is one to
+  // review; a lead with no sends yet has nothing to approve and opens on the
+  // brief. An explicit `?tab=` always wins.
+  const [tab, setTab] = useState<TabKey>(
+    TABS.includes(urlTab as TabKey) ? urlTab as TabKey : lead.draftSequence.length > 0 ? 'sequence' : 'brief',
+  );
 
   // The two states the page has to reconcile BEFORE a button
   // (`docs/specs/personalization-v2.md`, P0).
@@ -418,8 +428,8 @@ export const LeadView = (props: {
         className="pt-4"
       >
         <TabsList variant="line" data-testid="lead-tabs">
-          <TabsTrigger value="brief">Brief</TabsTrigger>
           <TabsTrigger value="sequence">{`Sequence${lead.draftSequence.length > 0 ? ` · ${lead.draftSequence.length}` : ''}`}</TabsTrigger>
+          <TabsTrigger value="brief">Brief</TabsTrigger>
           <TabsTrigger value="evidence">Evidence</TabsTrigger>
         </TabsList>
 

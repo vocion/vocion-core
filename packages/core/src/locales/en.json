@@ -11,7 +11,7 @@
     "main_section_label": "Workspace",
     "organization_section_label": "Organization",
     "chat": "Chat",
-    "inbox": "Needs you",
+    "inbox": "Review",
     "search": "Search",
     "observability": "Observability",
     "sources": "Connectors",
@@ -206,7 +206,7 @@
     "working_with": "Working with:"
   },
   "Inbox": {
-    "title": "Needs you",
+    "title": "Review queue",
     "tab_open": "Open",
     "tab_decided": "Decided",
     "tab_snoozed": "Snoozed",

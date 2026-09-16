@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { reviewRedirectTarget } from './reviewRedirect';
 
 /**
- * `/dashboard/review` forwards to the proposal kind of Needs you, carrying
+ * `/dashboard/review` forwards to the proposal kind of Review queue, carrying
  * the old `?type=` filter as `?actionKind=`.
  */
 describe('reviewRedirectTarget', () => {

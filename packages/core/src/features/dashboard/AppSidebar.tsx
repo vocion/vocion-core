@@ -23,7 +23,7 @@ import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 /**
  * Dashboard left sidebar — two views, Linear-settings style:
  *
- *   WORK (default) — Workspace (the daily driver: Chat, Needs you, Briefings,
+ *   WORK (default) — Workspace (the daily driver: Chat, Review queue, Briefings,
  *                    Search), Pinned (this person's pins, in pin order), Pages
  *                    (the workspace's own pages, 7 then "More pages ›"),
  *                    the enabled surfaces,
@@ -80,7 +80,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   enabledSurfaces?: SurfaceId[];
   /** Tenant pages from the workspace's pages/ dir — the Pages group. */
   workspacePages?: WorkspaceNavPage[];
-  /** Open items waiting on a person — shown as a badge on "Needs you" (the inbox PR supplies it). */
+  /** Open items waiting on a person — shown as a badge on "Review queue" (the inbox PR supplies it). */
   needsYouCount?: number;
 }) => {
   const t = useTranslations('DashboardLayout');

@@ -399,7 +399,7 @@ export default async function WorkspacePage(props: {
           <p className="mb-3 text-sm text-muted-foreground">
             The same items as
             {' '}
-            <Link href="/dashboard/inbox?kind=proposal" className="underline">Needs you</Link>
+            <Link href="/dashboard/inbox?kind=proposal" className="underline">Review queue</Link>
             {' '}
             — the core decision list, scoped to this page. Approve or decline here or there; it is one queue.
           </p>

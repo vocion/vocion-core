@@ -11,7 +11,7 @@
     "main_section_label": "Espace de travail",
     "organization_section_label": "Organisation",
     "chat": "Chat",
-    "inbox": "À traiter",
+    "inbox": "Revue",
     "search": "Rechercher",
     "observability": "Observabilité",
     "sources": "Connecteurs",
@@ -206,7 +206,7 @@
     "working_with": "Travaille avec :"
   },
   "Inbox": {
-    "title": "À traiter",
+    "title": "File de revue",
     "tab_open": "Ouverts",
     "tab_decided": "Décidés",
     "tab_snoozed": "Reportés",

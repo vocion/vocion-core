@@ -220,6 +220,64 @@ describe('the sequence state, resolved before an Enroll button', () => {
   });
 });
 
+describe('which tab the page opens on', () => {
+  /**
+   * The page is an enrollment review, so the sends are the work being
+   * approved and the brief is the justification. Chris, 2026-09-16: *"the
+   * sequence is the thing the human is actually approving. The brief and
+   * evidence exist to justify it."*
+   */
+  it('opens on the sequence when there are sends waiting to be approved', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88210,
+          contactName: 'Rowan Pike',
+          recommendedSequence: NURTURE,
+          currentSequence: REPLACE,
+          draftSequence: [{ step: 1, day: 0, subject: 'The ebook you pulled', body: 'One line.' }],
+        })}
+        contactHref={HUBSPOT}
+        runState={NO_RUN}
+      />,
+    );
+
+    await expect.element(page.getByTestId('lead-tabs')).toBeVisible();
+    expect(page.getByTestId('brief-tab').elements()).toHaveLength(0);
+  });
+
+  it('falls back to the brief when there is nothing to send yet', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88211, contactName: 'Rowan Pike', draftSequence: [] })}
+        contactHref={HUBSPOT}
+        runState={NO_RUN}
+      />,
+    );
+
+    await expect.element(page.getByTestId('brief-tab')).toBeVisible();
+  });
+
+  it('puts the sequence first in the tab order, before the brief', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88212,
+          contactName: 'Rowan Pike',
+          recommendedSequence: NURTURE,
+          draftSequence: [{ step: 1, day: 0, subject: 'The ebook you pulled', body: 'One line.' }],
+        })}
+        contactHref={HUBSPOT}
+        runState={NO_RUN}
+      />,
+    );
+
+    const labels = await page.getByTestId('lead-tabs').element().textContent;
+
+    expect(labels?.indexOf('Sequence')).toBeLessThan(labels?.indexOf('Brief') ?? -1);
+  });
+});
+
 describe('the sequence tab', () => {
   it('decides the SAME run the review queue does, with the same verbs', async () => {
     await render(

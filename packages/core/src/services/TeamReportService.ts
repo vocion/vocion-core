@@ -310,7 +310,7 @@ export function permissionKeys(policy: Record<string, unknown> | null | undefine
 /**
  * The inbox filtered to a team. `?agents=<comma-separated slugs>` is what the
  * one-decision surface parses (R10, #348) — verified against its `Params` and
- * `InboxQuery.agents`, which survived Review folding into Needs you.
+ * `InboxQuery.agents`, which survived Review folding into the review queue.
  * @param agentSlugs
  */
 export function inboxHrefFor(agentSlugs: string[]): string {

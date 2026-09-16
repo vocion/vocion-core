@@ -125,7 +125,7 @@ export const Empty: Story = {
         icon={Sparkles}
         title="No briefs yet"
         description="The hourly sweep queues each new MQL, researches it, and posts the brief here."
-        action={{ label: 'Open Needs you', href: '/dashboard/inbox?kind=proposal' }}
+        action={{ label: 'Open Review queue', href: '/dashboard/inbox?kind=proposal' }}
       />
     </ListPage>
   ),

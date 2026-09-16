@@ -93,7 +93,7 @@ const gmailSend: ActionRun = {
 /**
  * A discovery assessment. The card names its own object, so the H1 is the
  * meeting ("Project Ranger – Follow Up"), the line under it says what kind of
- * record this is, and the breadcrumb reads Needs you › Discovery › <object>
+ * record this is, and the breadcrumb reads Review queue › Discovery › <object>
  * instead of putting a generated identifier where the page's name belongs.
  * The long Up-next label beside it is what used to squeeze the H1 into ~150px.
  * Every name is a fixture.

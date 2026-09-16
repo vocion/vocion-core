@@ -13,7 +13,7 @@ import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
 
 /**
  * InboxService — THE list of everything waiting on a person, wherever it is
- * recorded. Backs `/dashboard/inbox` ("Needs you"), its detail routes and the
+ * recorded. Backs `/dashboard/inbox` ("Review queue"), its detail routes and the
  * sidebar count. There is no second decision surface: the review queue's
  * proposals, the asks, the stopped runs and the suggested rules are rows of
  * one list, told apart by `kind`.

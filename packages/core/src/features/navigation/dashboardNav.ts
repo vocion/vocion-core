@@ -98,16 +98,16 @@ export type DashboardRoute = {
 export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── WORK ────────────────────────────────────────────────────────────────
   { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
-  { url: '/dashboard/inbox', title: 'Needs you', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
+  { url: '/dashboard/inbox', title: 'Review', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
   { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings' },
   // Everything an agent or a person made beside a conversation — live,
   // versioned, editable. Replaces Canvases, whose saved tile arrangements
   // nobody arranged twice (`/dashboard/canvases` 308s here).
   { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'] },
-  // Review is no longer a place: the queue is the `proposal` kind of Needs you
+  // Review is no longer a place: the queue is the `proposal` kind of Review queue
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.
-  { url: '/dashboard/inbox?kind=proposal', title: 'Needs you · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
+  { url: '/dashboard/inbox?kind=proposal', title: 'Review · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
   { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'] },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───

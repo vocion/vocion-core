@@ -227,7 +227,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                   href={phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal'}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
                 >
-                  {status === 'pending' ? 'Decide on Needs you' : 'Open on Needs you'}
+                  {status === 'pending' ? 'Decide in review' : 'Open in review'}
                   <ArrowRight className="size-3.5" aria-hidden />
                 </Link>
                 {decideError && (
