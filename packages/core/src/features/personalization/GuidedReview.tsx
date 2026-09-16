@@ -5,6 +5,7 @@ import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { useCallback, useEffect, useState } from 'react';
 import { SurfaceSection } from '@/components/ui/surface';
 import { client } from '@/libs/Orpc';
+import { publishDraftRevision } from './draftRevision';
 import {
   applyRevision,
   canDecide,
@@ -65,7 +66,7 @@ export function savedGuidedEdits(run: ReviewCardRun): Array<{ id: string; body: 
  */
 export type AskResult
   = | { kind: 'question' }
-    | { kind: 'revised'; send: GuidedSend }
+    | { kind: 'revised'; send: GuidedSend; body: string }
     | { kind: 'unchanged'; send: GuidedSend }
     | { kind: 'failed'; send: GuidedSend };
 
@@ -187,7 +188,14 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
       const prior = currentBody(target, state);
       const discarded = versionOf(target, state) > 1 ? prior : undefined;
       setState(s => applyRevision(s, sends, target.id, res.body, text, prior, discarded));
-      return { kind: 'revised', send: target };
+      // The page beside the rail owns the record, sends included, so the new
+      // copy goes THERE rather than being re-rendered here to prove it landed
+      // (docs/design/patterns.md, "The rail is the conversation, never a
+      // second copy of the page"). Nothing listening — the full-page chat —
+      // simply does not hear it; the saved state still carries the revision
+      // into the decision either way.
+      publishDraftRevision({ runId: run.id, contentId: target.id, body: res.body });
+      return { kind: 'revised', send: target, body: res.body };
     } catch (error) {
       // The ask still reaches the agent as a message, so nothing is lost;
       // what must not happen is the copy claiming to have changed.

@@ -12,9 +12,12 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
+import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
 import { contentIdForAsk } from '@/features/personalization/guidedFlow';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
+import { SequencePointer } from '@/features/personalization/SequencePointer';
+import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
@@ -60,16 +63,28 @@ export type ChatDockProps = {
    *
    * Collapsed to the edge tab, everywhere — a page is full width when you
    * arrive on it (2026-09-16). Left unset it resolves to `!run`: the ONE
-   * exception is a record with a DECISION waiting, because the guided review
-   * lives in the rail and hiding the decision behind a tab on a page whose
+   * exception is a record with a DECISION waiting, because the decision is
+   * what the person came for and hiding it behind a tab on a page whose
    * masthead says "Ready for review" is not a thing to make somebody discover
    * (058's "the decision is the point", read as being about the decision
    * rather than about the record). A stored choice wins over this.
    */
   defaultCollapsed?: boolean;
   /**
-   * A decision waiting on this record. Given one, the dock runs the guided
-   * review: the sends walked one card at a time, decided here (050).
+   * A decision waiting on this record.
+   *
+   * What the rail does with it depends on whether the record is ALREADY on
+   * screen (`pageShowsRecord`). Where it is not — the full-page chat — the
+   * rail runs the guided review: the sends walked one card at a time, decided
+   * here (050). Where it is, the page owns the sends and the verbs and the
+   * rail carries only the conversation plus a pointer at them; the run is
+   * still needed, because `@change` rewrites against it.
+   *
+   * Note that the rail's GEOMETRY is unchanged by that split: a decision
+   * waiting still opens the rail at the same width (`startCollapsed` below),
+   * because the right column's layout is one concern and what goes inside the
+   * chat pane is another. Whether a record page should still auto-open the
+   * rail now that the decision is on the page belongs with the column work.
    */
   run?: ReviewCardRun | null;
   /** Fired after a guided decision lands, so the page can re-resolve. */
@@ -186,6 +201,36 @@ export function ChatDock({ agents, scopeRef, scopeLabel, pageContext, defaultCol
  */
 function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultCollapsed, run, onDecided, resumeConversationId = null }: ChatDockProps) {
   const t = useTranslations('Chat');
+  // THE division of labour (2026-09-16). The record this rail is about, as
+  // the page beside it would name it, and then the one question that decides
+  // what the rail may draw: is that record ALREADY on screen?
+  //
+  // The record page owns the record; the rail owns the conversation about it.
+  // A rail that re-renders the page's own content is a second copy with no
+  // owner — which is exactly what the guided review had become on the lead
+  // page (docs/design/patterns.md, "The rail is the conversation, never a
+  // second copy of the page"). Read from `pageContext`, not from `intent`:
+  // dismissing the "About:" chip changes what the TURN carries, never what is
+  // on the screen.
+  const railRecord = useMemo(() => (scopeRef ? scopeRefToRecord(scopeRef) : null), [scopeRef]);
+  // The page's own declaration (R4 / #329, `<RecordContext record=…>`), which
+  // a page that mounts its own dock makes to the shell rather than through
+  // this component's props — so nothing is threaded down five components to
+  // answer a question the page already answered.
+  const { record: declaredRecord } = usePageRecord();
+  const surfaceContext = useMemo<PageContext | null>(() => {
+    if (!pageContext) {
+      return declaredRecord ? { path: '', title: '', record: declaredRecord } : null;
+    }
+    if (pageContext.record || !declaredRecord) {
+      return pageContext;
+    }
+    return { ...pageContext, record: declaredRecord };
+  }, [pageContext, declaredRecord]);
+  const recordOnPage = pageShowsRecord(surfaceContext, railRecord);
+  // The rail runs the review only where nothing else is rendering it — the
+  // full-page chat, with no record beside it.
+  const railOwnsReview = Boolean(run) && !recordOnPage;
   // The rule lives here rather than in every caller: collapsed, unless a
   // DECISION is waiting on this record — then the rail opens, because the
   // decision is inside it.
@@ -486,7 +531,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     // "What do I need to review?" brings the cards back under the answer the
     // agent is about to give: the send adds a user turn and a reply, so the
     // cards follow the reply.
-    if (run && typed && isRecallAsk(typed)) {
+    if (railOwnsReview && typed && isRecallAsk(typed)) {
       setCardAnchor(session.messages.length + 1);
     }
     const quoted = pendingNotes
@@ -510,7 +555,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     return () => publishDockOpen(false);
   }, [collapsed, narrow, width]);
 
-  const showCards = run && (!guided.state.decided || guided.outcome);
+  const showCards = run && railOwnsReview && (!guided.state.decided || guided.outcome);
+  // Beside a record page the rail carries a POINTER instead: one line naming
+  // what is under discussion, pinned to the top of the transcript where an
+  // opening remark belongs, never travelling with the recall anchor — it is
+  // not a thing to walk back to, it is how the conversation opens.
+  const showPointer = run && recordOnPage;
   const cardBlocks = showCards
     ? [{
         key: 'guided',
@@ -520,7 +570,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
         // cards" the Never rule exists to stop (docs/design/patterns.md).
         node: <GuidedReviewPanel run={run} guided={guided} pendingComments={comments?.open.length ?? 0} />,
       }]
-    : [];
+    : showPointer
+      ? [{ key: 'pointer', afterIndex: -1, node: <SequencePointer run={run} guided={guided} /> }]
+      : [];
 
   const autonomyCopy = {
     ask: t('autonomy_ask'),
@@ -644,7 +696,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
 
         {/* The cards have scrolled up behind newer turns: one click brings
             them back to the bottom, the same as asking for them (058). */}
-        {run && !guided.state.decided && cardsScrolledAway && (
+        {railOwnsReview && !guided.state.decided && cardsScrolledAway && (
           <div className="px-4 pt-2 sm:px-6">
             <button
               type="button"

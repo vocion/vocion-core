@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatDock } from '@/features/dashboard/chat/ChatDock';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { LeadDetail } from '@/features/personalization/LeadDetail';
 import { getAction } from '@/libs/actions/registry';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -180,18 +181,23 @@ export default async function LeadPage(props: {
       // offers `@change`.
       changeIntent={runState.run !== null}
     >
+      {/* What this page IS about, declared once (R4 / #329). The rail beside
+          it reads this to know the record is already on screen and therefore
+          not to render it a second time (`pageShowsRecord`); it is the same
+          `RecordRef` the scoped dock resolves from `contacts:{id}`. */}
+      <RecordContext record={{ type: 'object', id: row.contactRef, label: row.contactName, href: `/gtm/lead/${hubspotId}` }} />
       <div className="min-w-0 flex-1">
-        {/* `guided`: with a decision waiting, the conversation takes it and
-            the page states what is pending — one decision surface per page. */}
+        {/* `guided`: the rewrite is asked for in the conversation and rides
+            the decision taken HERE — the page keeps the record and the verbs. */}
         <LeadDetail lead={lead} contactHref={contactHref} runState={runState} guided={agents.length > 0} />
       </div>
       <ChatDock
         agents={agents}
         scopeRef={row.contactRef}
         scopeLabel={row.contactName}
-        // Full width by default (2026-09-16): the record is the page and the
-        // rail overlays it on demand. The rail's own rule makes the exception
-        // — a decision waiting opens it, because the guided review is in it.
+        // Full width by default (2026-09-16), with no exception: the record —
+        // the sends included — and its decision bar are on this page, so the
+        // rail is the conversation about them and waits on its edge tab.
         run={runState.run}
       />
     </CommentLayerProvider>

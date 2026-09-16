@@ -522,11 +522,13 @@ nothing is occluded; the page is full width again the moment the rail closes.
 Overlay is the rail's *geometry*, not a licence to sit on the text.
 
 **The one exception to collapsed-by-default**: a record with a **decision
-waiting**. The guided review lives in the rail, and hiding the decision behind
-a tab on a page whose masthead reads "Ready for review" is not a thing to make
+waiting**. The decision is what the person came for, and hiding it behind a tab
+on a page whose masthead reads "Ready for review" is not a thing to make
 somebody discover. 058's *"the decision is the point"* is about a pending
 decision, not about a record; read that way, both asks hold. The rule lives in
-`ChatDock` (`defaultCollapsed ?? !run`), not in each caller.
+`ChatDock` (`defaultCollapsed ?? !run`), not in each caller. What the rail
+opens *onto* beside a record changed on 2026-09-16 — see *The rail is the
+conversation, never a second copy of the page* — but the geometry did not.
 
 **Seams:** `yieldRail()` / `restoreRail()` (`features/dashboard/chat/dockState.ts`)
 — a surface that needs the rail's slot borrows it and gives it back in the
@@ -536,6 +538,99 @@ state; `--rail-inset` is the room an open rail is taking.
 
 **Where it came from.** Chris, 2026-09-16: *"can we use full width by default
 here?"*
+
+## The rail is the conversation, never a second copy of the page
+
+> Chris, 2026-09-16, on a lead page with the rail open: *"what's going on with
+> the Chat UX here for personalization? review cards isn't a card. I don't
+> really understand what to do with it... if anything? and it's mixed with
+> chat. above or below?"*
+
+He was looking at the same four sends twice on one screen. The page's main
+pane rendered the record in full — recommended action, prospect facts,
+`OUTREACH · 4 SENDS` with each send expandable, the decision in a sticky bar.
+The rail then rendered `GuidedReviewPanel` beside it: `SEQUENCE OVERVIEW`
+listing the same four sends, then `SEND 1 OF 4` with that send's full body and
+an amber *Looks good · send 2 next* button, interleaved into the transcript.
+
+The second copy is unanswerable by design. It is not a message and not a card;
+it belongs to neither surface; and because it carries a verb it is not even
+inert. "Above or below?" is the right question and it has no answer, because
+the thing has no owner.
+
+**The rule.** *The rail carries the conversation and the agent's own output; it
+never re-renders what the page already shows.* A record page owns the record —
+its facts, its content, and its verbs. The rail owns the talking about it. What
+the rail may draw beside a record page:
+
+- **the conversation** — the turns, and what the agent produced *in* them;
+- **the agent's own output** — work it just did, something it is proposing,
+  something it is blocked waiting on. None of that exists anywhere else;
+- **a pointer**, where naming the subject genuinely helps: *one line, in the
+  transcript's own voice, that takes the person to the thing* — scrolling the
+  page to it when it is on the page, or opening it in the **preview pane above
+  the chat pane** when it is not. Never a copy, never an action button.
+
+The preview pane is the general answer to "the agent wants to show me
+something". A record or an artifact the agent refers to opens *there*, where it
+gets the room to be itself, instead of being flattened into a transcript-shaped
+imitation of itself. A transcript that renders a record is always a worse
+rendering of that record than the surface built for it.
+
+**What it may not draw:** the record's content, and any verb that belongs on
+the record's decision bar. A decision about the record is taken where the
+record's other verbs are.
+
+**The predicate.** `pageShowsRecord(ctx, ref)`
+(`services/chat/pageContext.ts`) — is the record this conversation is about
+already rendered by the page beside it? Evaluated once, in `ChatDock`, against
+the `RecordRef` the page declared to the shell (R4's `<RecordContext record=…>`)
+and the record the rail is scoped to. It is a question about **context**, not a
+prop: a page already says what it is about, and a surface that says nothing —
+the full-page chat — is by construction a surface with no record beside it, so
+the answer is false and the rail renders the record itself. Nothing is threaded
+down the component tree for the two surfaces to divide the work.
+
+**Consequences on the lead page** (`/gtm/lead/[hubspotId]`):
+
+- The rail shows the transcript and one `SequencePointer` line at the top of
+  it, naming the sequence under discussion with *Show me the sends on the
+  page*. No sequence overview, no send bodies, no buttons.
+- *Looks good · send N next* is **gone**, not moved. It was a read receipt for
+  a walk that only exists where there is no page to read the sends on; the page
+  expresses "I have read this send" with its own accordion. The verbs that are
+  actually decisions — Enroll / Snooze / Decline — were already on the page's
+  sticky bar and stay there, and a rewrite asked for in the conversation still
+  rides that decision (`savedGuidedEdits`).
+- A rewrite lands **on the page**: the rail says *"I rewrote Day 3 …"* — that is
+  the agent reporting its own work — and `draftRevision.ts` carries the new copy
+  to the page, which shows it marked `edited`. Reprinting the send in the rail
+  to prove it happened would be the second copy again.
+- The rail's **geometry is untouched**: it still opens by itself here, at the
+  same width, and still yields and restores its slot. The right column's layout
+  — width, collapse, and the preview pane stacked above the chat pane — is one
+  concern and it is not this one. What changed is only what the chat pane
+  *contains*.
+
+**The audit** — everything `ChatDock` puts in or beside the transcript, and
+why it is allowed to be there:
+
+| In the rail | Verdict |
+|---|---|
+| Messages; `WorkTimeline` (trace, tool calls, failure detail); confidence; *via* attribution | **Agent's own output.** This turn's work; exists nowhere else. |
+| `HitlGate` | **Agent's own output.** The loop is blocked on this person right now. Not a record. |
+| `RecommendedActionCard` / `RecommendedActionStack` | **Agent's own output** at the moment it is proposed, and the one thing in the transcript that has no page yet — it *is* the proposal. It becomes record data once accepted, and then mirrors what `/dashboard/inbox` shows; it is never rendered beside its own record page, so it is not a second copy on one screen. Left as is. If a page ever renders a proposed run beside the rail, it comes under this rule, and the answer there is the preview pane rather than a second card. |
+| `EmptyState` greeting + suggestion chips | Agent/workspace output. |
+| `CommentChips`, queued messages, `@` tag chips, the "About:" chip | The person's own pending input, and what the next turn will carry. Not the record. |
+| `SequencePointer` | **A pointer**, by this rule. One line, no verb. |
+| `GuidedReviewPanel` | **Was a duplication**; now renders only where `pageShowsRecord` is false. |
+| `ArtifactChips`, the *Sources · N* pill, inline `[n]` citations | Legitimate agent output in principle, but **inert in the rail** — nothing populates `message.artifacts` here and no sources panel is mounted to open. Named, not fixed: they render nothing or do nothing rather than duplicating anything, so they are a dead-affordance bug, not a division-of-labour one. Their fix is the **preview pane**: a chip opens the artifact or the cited document above the conversation, rather than growing a second renderer inside it. |
+| Dashboard link chips in agent prose (`links.ts`) | A reference, not a copy — and the right destination for it is the **preview pane**, not a navigation that costs the page. |
+
+**Seam:** `draftRevision.ts` (`publishDraftRevision` / `useDraftRevision`) — a
+window event, the same shape as `dockState.ts`, so the surface that does the
+work and the surface that shows the result hold no reference to each other and
+an unmounted listener simply does not hear it.
 
 ## Preview where you are, from any reference
 

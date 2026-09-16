@@ -21,6 +21,7 @@ import { contentKindRenderer } from '@/features/review/contentKinds';
 import { useReviewDecision } from '@/features/review/useReviewDecision';
 import { cn } from '@/utils/Helpers';
 import { confidenceLevel } from './confidence';
+import { useDraftRevision } from './draftRevision';
 import { savedGuidedEdits } from './GuidedReview';
 import { entranceLabel, HandoffBriefZone, LANE_PILL, LeadContext, shortDate } from './LeadContext';
 
@@ -367,6 +368,11 @@ const LeadDecision = (props: {
     // A rewrite asked for in the conversation rides a decision taken here.
     extraContentEdits: guided ? () => savedGuidedEdits(run) : undefined,
   });
+  // A rewrite asked for in the conversation lands HERE, on the record, because
+  // the record is what shows the sends. The rail reports that it rewrote a
+  // send; it does not reprint it (docs/design/patterns.md, "The rail is the
+  // conversation, never a second copy of the page").
+  useDraftRevision(run.id, (contentId, body) => d.editContent(contentId, { body }));
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const content = card.content ?? [];
   const emails = content.filter((c): c is Extract<ReviewContent, { kind: 'email' }> => c.kind === 'email');

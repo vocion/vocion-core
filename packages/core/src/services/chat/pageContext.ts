@@ -285,6 +285,34 @@ export function mergeScopeRef(ctx: PageContext | null, scopeRef: string | null |
 }
 
 /**
+ * **Is the record this conversation is about ALREADY rendered, in full, by the
+ * page the rail is sitting on?**
+ *
+ * The one predicate behind the platform rule "the rail carries the
+ * conversation, never a second copy of the page" (`docs/design/patterns.md`).
+ * A record page owns the record; the rail owns the talking about it. Where
+ * both are on screen the rail must not re-render what the page already shows
+ * — that is how the CEO ended up looking at the same four sends twice, in two
+ * shapes, on one screen (2026-09-16).
+ *
+ * It is deliberately a question about CONTEXT, not a prop: a surface already
+ * declares what it is about (`PageContext.record`), and a surface that
+ * declares nothing — the full-page chat — is by construction a surface with
+ * no record beside it, so the answer is false and the rail renders the record
+ * itself. Nothing has to be threaded down through the component tree for the
+ * two surfaces to divide the work.
+ * @param ctx - The page context the surface carries, if any.
+ * @param ref - The record the rail is talking about (its scope, or the record a pending decision is on).
+ * @returns True only when the page beside the rail is that same record's page.
+ */
+export function pageShowsRecord(ctx: PageContext | null | undefined, ref: RecordRef | null | undefined): boolean {
+  if (!ctx?.record || !ref) {
+    return false;
+  }
+  return ctx.record.type === ref.type && ctx.record.id === ref.id;
+}
+
+/**
  * `contacts:9412` → a record ref. Contacts/companies/deals map onto the
  * one CRM record type the context knows; anything else stays an `object`.
  * @param scopeRef - The dock's scope ref.
