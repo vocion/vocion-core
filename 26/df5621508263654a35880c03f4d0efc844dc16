@@ -1,0 +1,91 @@
+packages/core/src/services/FeedbackWorkerService.ts
+  s_7aea99fa9ec114::t_a9f687fc0cfb31 247
+  s_7aea99fa9ec114::t_25acedbe1f03d9 167-177,183,194
+  s_7aea99fa9ec114::t_b04c78a2948ec3 24
+packages/core/src/services/LearningsService.ts
+  s_7aea99fa9ec114::t_a4271f90ea1989 288-341,356-381,383-384
+  s_7aea99fa9ec114::t_3adce6c72d5008 16
+packages/core/src/services/adoption/AdoptionService.ts
+  s_7aea99fa9ec114::t_e408f123fb61c4 900,902-904,909-919,925
+  s_7aea99fa9ec114::t_9794ae75717256 841-849
+  s_7aea99fa9ec114::t_15d187c12e4e09 865,875-882
+  s_7aea99fa9ec114::t_9abedfa62e8938 883-884
+packages/core/src/services/agents/memoryDigest.ts
+  s_7aea99fa9ec114::t_a4a87c82e8d36f 1-23,26-45,50-96,101-118,125-127,131-147
+  s_7aea99fa9ec114::t_9e997639fb2538 97-100
+  s_7aea99fa9ec114::t_30e83f74914db2 46-49
+  s_7aea99fa9ec114::t_cfa46f4eec016f 128,130
+  s_7aea99fa9ec114::t_72e78796e2349e 24-25,119-124,129
+packages/core/src/services/AgentService.ts
+  s_7aea99fa9ec114::t_265bec3169c0a5 347-348
+  s_7aea99fa9ec114::t_93b2753d08da34 345-346,349-352
+packages/core/src/app/[locale]/(auth)/dashboard/learnings/PendingCandidates.tsx
+  s_7aea99fa9ec114::t_310a15f6d238ee 29-30
+  s_7aea99fa9ec114::t_d02f951a230a8e 49,54
+  s_7aea99fa9ec114::t_68a3a829cd1c32 202-221
+  s_7aea99fa9ec114::t_217ec6454d4dca 127-152
+  s_7aea99fa9ec114::t_69195f7491cb2f 47,126
+packages/core/src/services/agents/memoryDigest.test.ts
+  s_7aea99fa9ec114::t_918d3c00d99e12 1-107
+packages/core/src/services/adoption/AdoptionService.approvalTrend.test.ts
+  s_7aea99fa9ec114::t_cc773e8bbff93e 1-94
+packages/agent-runtime/src/contract.ts
+  s_7aea99fa9ec114::t_ed71f1bf47ccad 76-81
+packages/core/src/services/agents/types.ts
+  s_7aea99fa9ec114::t_97ea3b23123d24 201-207
+packages/core/src/services/LearningsService.bundle.test.ts
+  s_7aea99fa9ec114::t_b91b009bcf21e5 1-75
+packages/core/src/scripts/rehome-learning.ts
+  s_7aea99fa9ec114::t_afdf4580fbfe59 1-79
+packages/core/src/app/[locale]/(auth)/dashboard/learnings/page.tsx
+  s_7aea99fa9ec114::t_be92acb7f4c128 59
+packages/agent-runtime/src/loop.ts
+  s_7aea99fa9ec114::t_3d2389fd113f3e 170-172
+  s_7aea99fa9ec114::t_6d36886d6f9640 17
+packages/core/src/services/agents/harness.ts
+  s_7aea99fa9ec114::t_5c07c43907d490 324-327
+  s_7aea99fa9ec114::t_ce0d05c1a63c76 42
+packages/core/package.json
+  s_7aea99fa9ec114::t_5c513f84c8097b 92
+  s_7aea99fa9ec114::t_b649a82f6fccfa 5,126
+packages/agent-runtime/src/memoryDigest.ts
+  s_7aea99fa9ec114::t_9c3d1497894497 1-18,21-23,26-45,50-96,101-118,125-127,131-147
+  s_7aea99fa9ec114::t_e3333297c2f0e8 46-49,97-100
+  s_7aea99fa9ec114::t_a9ca226dab6a5c 19-20
+  s_7aea99fa9ec114::t_c47b2e33652f95 24-25,119-124,128-130
+packages/core/src/features/adoption/AgentDetailPanel.tsx
+  s_7aea99fa9ec114::t_2d7addd41373ff 75-82
+packages/core/src/services/feedback/classifier.ts
+  s_7aea99fa9ec114::t_e54209453d5277 77-82,85
+  s_7aea99fa9ec114::t_396b8b21d33283 28-34
+  s_7aea99fa9ec114::t_3c8751233e6234 56,58-69
+  s_7aea99fa9ec114::t_525aad7170213f 106
+  s_7aea99fa9ec114::t_fb0d12b3d8a60b 142-149
+packages/agent-runtime/package.json
+  s_7aea99fa9ec114::t_5c513f84c8097b 20
+  s_7aea99fa9ec114::t_b649a82f6fccfa 6,22
+packages/core/src/services/FeedbackWorkerService.test.ts
+  s_7aea99fa9ec114::t_5a9e1956a5af6e 16,26
+  s_7aea99fa9ec114::t_622bbe41e2de89 150-205
+packages/core/src/services/agents/providers/runtime.ts
+  s_7aea99fa9ec114::t_12b5023bef1419 45,111
+  s_7aea99fa9ec114::t_89efec8203785a 109-110,112-115
+package-lock.json
+  s_7aea99fa9ec114::t_eca0a28c6009f3 3142,3160,3178,3196,3214,3232,3250,3268,3286,3304,3322,3340,3358,3376,3394,3412,3430,3448,3466,3484,3502,3520,3538,3556,3574,3592,24084,24106,24128,24150,24172,24194,24216,24238,24260,24282,24304,34468,34486,34504,34522,34540,34558,34576,34594,34612,34630,34648,34666,34684,34702,34720,34738,34756,34774,34792,34810,34828,34846,34864,34882,34900,34918,34976,35951,35969,35987,36005,36023,36041,36059,36077,36095,36113,36131,36149,36167,36185,36203,36221,36239,36257,36275,36293,36311,36329,36347,36365,36383,36401,36459,37528,37530,37976,38010
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "26df5621508263654a35880c03f4d0efc844dc16",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
