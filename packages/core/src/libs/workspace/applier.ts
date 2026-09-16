@@ -743,6 +743,10 @@ async function applyWorkspaceLeadConfig(
     ? loaded.manifest.defaults.regenerateSkills
     : null;
   const goal = loaded.manifest.goal ?? null;
+  // voice.yaml, declarative like the rest: the whole file lands on the column
+  // and deleting the file clears it, dropping the workspace back to core's
+  // platform floor.
+  const voiceRules = loaded.voice ?? null;
 
   const [project] = await db
     .select({
@@ -753,6 +757,7 @@ async function applyWorkspaceLeadConfig(
       enabledSurfaces: projectSchema.enabledSurfaces,
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
+      voiceRules: projectSchema.voiceRules,
       goal: projectSchema.goal,
       mailboxAddress: projectSchema.mailboxAddress,
       mailboxEnabled: projectSchema.mailboxEnabled,
@@ -783,7 +788,7 @@ async function applyWorkspaceLeadConfig(
   }
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || goal !== null || mailboxEnabled) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -800,6 +805,8 @@ async function applyWorkspaceLeadConfig(
     = JSON.stringify(project.embeddingConfig ?? null) === JSON.stringify(embeddingConfig);
   const regenerateUnchanged
     = JSON.stringify(project.regenerateSkills ?? null) === JSON.stringify(regenerateSkills);
+  const voiceUnchanged
+    = JSON.stringify(project.voiceRules ?? null) === JSON.stringify(voiceRules);
 
   if (
     (project.leadAgentSlug ?? null) === lead
@@ -807,6 +814,7 @@ async function applyWorkspaceLeadConfig(
     && surfacesUnchanged
     && embeddingUnchanged
     && regenerateUnchanged
+    && voiceUnchanged
     && (project.goal ?? null) === goal
     && project.mailboxEnabled === mailboxEnabled
     && (project.mailboxAddress ?? null) === mailboxAddress
@@ -816,7 +824,7 @@ async function applyWorkspaceLeadConfig(
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, goal, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, voiceRules, goal, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

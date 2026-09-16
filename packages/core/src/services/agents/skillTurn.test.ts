@@ -171,6 +171,56 @@ describe('runSkillTurn', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('stops after maxAnswerRetries and fails loudly, naming what did not validate', async () => {
+    await seedAgent();
+    // A judgement schema — a voice gate, say — that the model keeps failing.
+    // Burning the whole model-turn budget to fail anyway is just a slower
+    // failure, and the caller must never get copy that did not validate.
+    const { model, calls } = fakeModel([
+      { content: '{"body": "Curious about the rollout."}' },
+      { content: '{"body": "Curious about how that works."}' },
+      { content: '{"body": "clean"}' },
+    ]);
+    vi.mocked(buildChatModelForOrg).mockResolvedValue(model as never);
+
+    await expect(runSkillTurn({
+      orgId: ORG,
+      skillSlug: 'regenerate-sequence-copy',
+      task: 'answer',
+      outputSchema: z.object({
+        body: z.string().refine(v => !v.toLowerCase().includes('curious about'), '"Curious about" is banned'),
+      }),
+      outputInstruction: 'body: string.',
+      maxAnswerRetries: 1,
+    })).rejects.toThrow(/"Curious about" is banned/);
+
+    // One answer, one corrective retry, then stop — the third scripted
+    // response is never asked for.
+    expect(calls).toHaveLength(2);
+  });
+
+  it('still converges when the retry fixes it', async () => {
+    await seedAgent();
+    const { model } = fakeModel([
+      { content: '{"body": "Curious about the rollout."}' },
+      { content: '{"body": "How does the rollout work?"}' },
+    ]);
+    vi.mocked(buildChatModelForOrg).mockResolvedValue(model as never);
+
+    const res = await runSkillTurn({
+      orgId: ORG,
+      skillSlug: 'regenerate-sequence-copy',
+      task: 'answer',
+      outputSchema: z.object({
+        body: z.string().refine(v => !v.toLowerCase().includes('curious about'), '"Curious about" is banned'),
+      }),
+      outputInstruction: 'body: string.',
+      maxAnswerRetries: 1,
+    });
+
+    expect(res.output.body).toBe('How does the rollout work?');
+  });
+
   it('is generic: a second caller with its own skill, schema and belt runs through the same executor', async () => {
     await seedAgent({ slug: 'follow-up-coordinator', skillSlugs: ['regenerate-followup-email'], harnessConfig: { grantTools: [] } });
     vi.mocked(mountSkills).mockResolvedValue({

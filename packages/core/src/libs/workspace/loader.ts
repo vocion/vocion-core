@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod';
 import type { ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
-import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
@@ -24,6 +24,7 @@ import {
   SourceManifestSchema,
   TeamManifestSchema,
   TrustManifestSchema,
+  VoiceManifestSchema,
   WorkflowManifestSchema,
   WorkspaceManifestSchema,
 } from './schemas';
@@ -112,6 +113,8 @@ export type LoadedWorkspace = {
   missions: LoadedMission[];
   automations: LoadedAutomation[];
   trust: TrustManifest | null;
+  /** The workspace's voice rules from voice.yaml, or null when unauthored. */
+  voice: VoiceManifest | null;
   playbooks: LoadedPlaybook[];
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
@@ -196,6 +199,16 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     ? (() => {
         files.push(trustPath);
         return parseFile(trustPath, TrustManifestSchema, 'trust') as TrustManifest;
+      })()
+    : null;
+
+  // Voice rules: one top-level file, same shape as trust.yaml. Absent means
+  // the workspace inherits core's platform floor and nothing else.
+  const voicePath = ['voice.yaml', 'voice.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  const voice: VoiceManifest | null = voicePath
+    ? (() => {
+        files.push(voicePath);
+        return parseFile(voicePath, VoiceManifestSchema, 'voice') as VoiceManifest;
       })()
     : null;
 
@@ -292,6 +305,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     missions,
     automations,
     trust,
+    voice,
     playbooks,
     learningSteps,
     evalDatasets,

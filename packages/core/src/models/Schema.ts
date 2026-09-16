@@ -213,6 +213,30 @@ export const projectSchema = pgTable(
      */
     regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
     /**
+     * The workspace's voice rules (migration 0108) — the banned constructions
+     * outbound copy is linted against before it can reach a review queue.
+     * Authored as `workspace/<org>/voice.yaml`; shape is
+     * `libs/workspace/schemas.ts` `VoiceManifestSchema`, read through
+     * `libs/writing/loadVoiceRules.ts` which merges it over core's platform
+     * floor. NULL = the floor only.
+     *
+     * A workspace setting rather than a per-agent one on purpose: the voice
+     * belongs to the person whose name is on the send, and two agents drafting
+     * for the same signature must not disagree about it.
+     */
+    voiceRules: jsonb('voice_rules').$type<{
+      never?: Array<{ id?: string; pattern: string; match?: 'phrase' | 'regex'; reason: string }>;
+      prefer?: Array<{ pattern: string; match?: 'phrase' | 'regex'; use: string; reason?: string }>;
+      allow?: string[];
+      maxWordsPerSend?: number;
+      maxAsksPerSend?: number;
+      noExclamation?: boolean;
+      noEmoji?: boolean;
+      noEmDash?: boolean;
+      playbook?: string;
+      learningStep?: string;
+    }>(),
+    /**
      * The workspace's top-line goal — one sentence every team's weight and
      * progress is read against on the team report. Authored as top-level
      * `goal:` in workspace.yaml. NULL = none stated.
