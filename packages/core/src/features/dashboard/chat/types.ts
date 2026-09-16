@@ -97,7 +97,14 @@ export type ConversationAutonomy = 'ask' | 'act-within-bounds';
  * shape). `type` is the dashboard entity family; `id` its slug or numeric id.
  */
 export type ContextRef = {
-  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page';
+  /**
+   * `deliverable` is the odd one out and deliberately so: every other value
+   * names a RECORD the turn is about, that one names what the turn OWES
+   * (`@artifact`). It rides the same mention mechanism because arming the
+   * contract is the same gesture as tagging a team, and it is stripped out of
+   * `context_refs` before the wire — see `libs/chat/deliverable.ts`.
+   */
+  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page' | 'deliverable';
   id: string;
   label: string;
   /** For a team: the agent slug a `@team` tag routes the turn to (its lead). */

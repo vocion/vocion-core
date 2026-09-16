@@ -451,7 +451,12 @@ requirements/                       # Product specs and case studies
   inside tool outputs (weakest). Prove behavior with a harness/E2E run —
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
-  `<scratch>` strip and the typed trace.)
+  `<scratch>` strip and the typed trace.) **Worked example, all four levers in
+  one change:** "this turn produces an artifact" — a typed `deliverable` field
+  on the turn request, armed by an explicit `@artifact` tag the person types,
+  with deterministic wrapping of a long-form answer, a gated backstop pass only
+  for the short-answer case, and a prompt line carried into the out-of-process
+  loop as the weakest lever. See `docs/agent-chat-surface.md` → *Deliverables*.
 - **Manifesto first.** Product decisions are judged against `docs/MANIFESTO.md` (see the section
   near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)

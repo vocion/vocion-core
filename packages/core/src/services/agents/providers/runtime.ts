@@ -60,6 +60,13 @@ export type RuntimeRunOptions = {
   /** Persisted conversation id — keys the AgentCore Memory session (Phase 5). */
   conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /**
+   * What the turn owes (`libs/chat/deliverable.ts`). Carried into the payload
+   * so the out-of-process loop knows too — the core-side backstop still
+   * guarantees the artifact, but a loop that knows an artifact was asked for
+   * can render one itself, which is always better than being wrapped.
+   */
+  deliverable?: 'artifact' | 'answer';
   onEvent?: (event: AgentEvent) => void;
 };
 
@@ -162,6 +169,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       excludeTools: hc.excludeTools,
     },
     message: opts.message,
+    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
     conversationHistory: omitHistory ? undefined : opts.conversationHistory,
     files,
     tools: { endpoint: TOOL_ENDPOINT(), catalog, claim },

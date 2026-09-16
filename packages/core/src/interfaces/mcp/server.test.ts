@@ -117,7 +117,7 @@ describe('MCP server (end-to-end)', () => {
           name: 'workspace_write_skill',
           arguments: {
             manifest: {
-              slug: 'hello_world',
+              slug: 'hello-world',
               name: 'Hello World',
               description: 'test skill',
               version: 1,
@@ -132,7 +132,7 @@ describe('MCP server (end-to-end)', () => {
           apply: { counts: { skills: { created: number } }; versionId: number | null } | { error: string };
         }>(writeResult as ToolResult);
 
-        expect(write.written.slug).toBe('hello_world');
+        expect(write.written.slug).toBe('hello-world');
         expect(write.commit?.committed).toBe(true);
         expect(write.commit?.sha).toMatch(/^[a-f0-9]{12}$/);
         expect('counts' in write.apply! && write.apply.counts.skills.created).toBe(1);
@@ -140,7 +140,7 @@ describe('MCP server (end-to-end)', () => {
         // Verify git log
         const log = execSync('git log --oneline', { cwd: scratch.root, encoding: 'utf8' });
 
-        expect(log).toContain('chore(context): update skill hello_world');
+        expect(log).toContain('chore(context): update skill hello-world');
 
         // List shows it
         const list = parseToolResult<{ skills: Array<{ slug: string }> }>(
@@ -148,11 +148,11 @@ describe('MCP server (end-to-end)', () => {
         );
 
         expect(list.skills).toHaveLength(1);
-        expect(list.skills[0]!.slug).toBe('hello_world');
+        expect(list.skills[0]!.slug).toBe('hello-world');
 
         // Get returns the full body
         const got = parseToolResult<{ slug: string; body: string }>(
-          await client.callTool({ name: 'workspace_get', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
+          await client.callTool({ name: 'workspace_get', arguments: { kind: 'skill', slug: 'hello-world' } }) as ToolResult,
         );
 
         expect(got.body).toBe('Say hello and be brief.');
@@ -180,7 +180,7 @@ describe('MCP server (end-to-end)', () => {
             name: 'workspace_write_skill',
             arguments: {
               manifest: {
-                slug: 'hello_world',
+                slug: 'hello-world',
                 name: 'Hello World (v2)',
                 description: 'now improved',
                 version: 2,
@@ -194,7 +194,7 @@ describe('MCP server (end-to-end)', () => {
 
         // Delete
         const del = parseToolResult<{ removed: string[]; dbRowsDeleted: number }>(
-          await client.callTool({ name: 'workspace_delete', arguments: { kind: 'skill', slug: 'hello_world' } }) as ToolResult,
+          await client.callTool({ name: 'workspace_delete', arguments: { kind: 'skill', slug: 'hello-world' } }) as ToolResult,
         );
 
         expect(del.removed.length).toBeGreaterThan(0);

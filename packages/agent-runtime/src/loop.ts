@@ -275,6 +275,15 @@ async function runTurn(
     }
   }
 
+  // The turn's deliverable contract, restated where the model reads it. Core
+  // guarantees the artifact whatever happens here (it wraps or stubs the
+  // answer when none was rendered), so this is the weak lever on purpose: it
+  // buys a real rendered artifact on the turns it works, and costs nothing on
+  // the turns it does not.
+  if (req.deliverable === 'artifact') {
+    modelMessage = `[This turn must END WITH AN ARTIFACT: call render_markdown (or render_table / render_chart / render_record) with the finished document before you reply. The reply itself is a short pointer to it, not the document. If you cannot produce the document, render one that states plainly what failed and what is needed.]\n\n${modelMessage}`;
+  }
+
   const input = {
     messages: [...history, { role: 'user', content: modelMessage }],
     files: req.files ?? {},

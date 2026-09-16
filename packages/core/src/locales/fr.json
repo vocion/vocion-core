@@ -198,7 +198,10 @@
     "queue_more": "+{count} de plus",
     "queue_action": "Mettre le message en file",
     "queue_held": "Le tour s’est interrompu — ces messages n'ont pas été envoyés.",
-    "queue_dismiss": "Fermer"
+    "queue_dismiss": "Fermer",
+    "attach": "Ajouter à ce tour",
+    "tag_artifact": "Document",
+    "tag_page": "Cette page"
   },
   "Inbox": {
     "title": "À traiter",
