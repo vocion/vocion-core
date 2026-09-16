@@ -90,7 +90,12 @@ export function isDisagreement(disposition: Disposition): boolean {
 export type Calibration = {
   /** Rows with a classification. */
   assessed: number;
-  /** Rows waiting on a person. */
+  /**
+   * ASSESSED rows waiting on a person. A matched call with no transcript is
+   * also `pending`, but it is not waiting on a human — it is waiting on a
+   * transcript, and counting it here would make the header's number disagree
+   * with the filter it applies.
+   */
   needReview: number;
   /** Rows a person overrode. */
   corrected: number;
@@ -117,7 +122,9 @@ export function calibrationOf(rows: ReadonlyArray<{ assessed: boolean; dispositi
       assessed += 1;
     }
     if (r.disposition === 'pending') {
-      needReview += 1;
+      if (r.assessed) {
+        needReview += 1;
+      }
     } else if (r.disposition === 'corrected') {
       corrected += 1;
     } else if (r.disposition === 'accepted') {

@@ -450,9 +450,12 @@ export function DiscoveryLedger(props: { entries: DiscoveryEntry[] }) {
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pb-3 text-[13px] text-muted-foreground" data-testid="ledger-summary">
         <Count value={calibration.assessed} label="assessed" testId="count-assessed" onClick={() => setList({ facets: { decision: '', review: '', reason: '' }, chips: [] })} />
         <span aria-hidden className="text-muted-foreground/40">·</span>
-        <Count value={calibration.needReview} label="need review" testId="count-need-review" tone="text-brand-borderline" onClick={() => setList({ facets: { ...facets, review: 'pending' }, chips: [] })} />
+        {/* The count and the filter use the SAME predicate — the `needs-review`
+            chip — so clicking a number never lands on a different set than the
+            number promised. */}
+        <Count value={calibration.needReview} label="need review" testId="count-need-review" tone="text-brand-borderline" onClick={() => setList({ facets: { decision: '', review: '', reason: '' }, chips: ['needs-review'] })} />
         <span aria-hidden className="text-muted-foreground/40">·</span>
-        <Count value={calibration.corrected} label="corrected" testId="count-corrected" tone="text-brand-fail" onClick={() => setList({ facets: { ...facets, review: 'corrected' }, chips: [] })} />
+        <Count value={calibration.corrected} label="corrected" testId="count-corrected" tone="text-brand-fail" onClick={() => setList({ facets: { decision: '', review: '', reason: '' }, chips: ['disagreed'] })} />
         {calibration.agreementRate !== null && (
           <>
             <span aria-hidden className="text-muted-foreground/40">·</span>

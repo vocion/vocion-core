@@ -243,6 +243,21 @@ describe('disagreements are the hero', () => {
     await expect.element(page.getByText('Growth Strategy call')).toBeInTheDocument();
   });
 
+  it('lands a clicked count on exactly the set the number promised', async () => {
+    // A matched call with no transcript is `pending` too, but it waits on a
+    // transcript rather than on a person. The count and the filter use one
+    // predicate, so clicking "1 need review" cannot land on two rows.
+    const unassessed = { ...NOT_DISCOVERY, id: 9, title: 'zoom:not-yet-read', classification: null, route: null, recommendedAction: null, skippedReason: 'no-transcript', reviewActionRunId: null, reviewStatus: null } as DiscoveryEntry;
+    await render(<DiscoveryLedger entries={[NOT_DISCOVERY, unassessed]} />);
+
+    await expect.element(page.getByTestId('count-need-review')).toHaveTextContent('1 need review');
+
+    await userEvent.click(page.getByTestId('count-need-review'));
+
+    expect(page.getByTestId('discovery-entry').elements()).toHaveLength(1);
+    await expect.element(page.getByText('Project Ranger – Follow Up')).toBeInTheDocument();
+  });
+
   it('has a first-class quick filter for them too', async () => {
     await render(<DiscoveryLedger entries={ENTRIES} />);
     await userEvent.click(page.getByRole('button', { name: /Human disagreed/ }));

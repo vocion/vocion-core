@@ -46,6 +46,15 @@ describe('calibrationOf', () => {
     expect(Math.round(c.agreementRate! * 100)).toBe(88);
   });
 
+  it('counts only ASSESSED rows as needing review — a call with no transcript waits on a transcript', () => {
+    const c = calibrationOf([
+      { assessed: true, disposition: 'pending' },
+      { assessed: false, disposition: 'pending' },
+    ]);
+
+    expect(c).toMatchObject({ assessed: 1, needReview: 1 });
+  });
+
   it('reports no rate rather than 100% when nothing has been decided', () => {
     expect(calibrationOf([{ assessed: true, disposition: 'pending' }]).agreementRate).toBeNull();
   });
