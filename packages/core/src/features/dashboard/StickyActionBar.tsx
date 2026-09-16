@@ -78,7 +78,12 @@ function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
       {a.busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : Icon && <Icon className="size-4" aria-hidden />}
       <span>{a.label}</span>
       {a.shortcut && (
-        <kbd className={cn('ml-0.5 hidden rounded border px-1 font-mono text-[10px] leading-4 sm:inline', primary ? 'border-current/30 opacity-80' : 'border-border text-muted-foreground')}>
+        // Decorative, like the icon above it: the letter is a hint at the
+        // keyboard shortcut, not part of what the button is called. Without
+        // this it joins the accessible name ("Snooze s"), which is what a
+        // screen reader announces and what `getByRole('button', {name})`
+        // matches on.
+        <kbd aria-hidden className={cn('ml-0.5 hidden rounded border px-1 font-mono text-[10px] leading-4 sm:inline', primary ? 'border-current/30 opacity-80' : 'border-border text-muted-foreground')}>
           {a.shortcut}
         </kbd>
       )}
