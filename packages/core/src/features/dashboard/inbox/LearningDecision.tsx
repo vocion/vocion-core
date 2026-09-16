@@ -108,7 +108,9 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
       toast.success(`${decision === 'approve' ? 'Adopted' : 'Rejected'} · ${draft.trim().slice(0, 80)}`, {
         description: decision === 'approve' ? `Agents read it at /learnings/${candidate.stepName}.md on their next run.` : 'Dropped; your reason is kept for the classifier.',
       });
-      router.push('/dashboard/inbox?kind=learning');
+      // Stay on the rule. The page re-reads it and renders what was decided,
+      // with an explicit way back — a redirect on submit loses the context
+      // the decision was made in (Chris, 2026-09-16).
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -165,6 +167,11 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
             {candidate.decidedBy ? ` by ${candidate.decidedBy}` : ''}
             {candidate.decidedAt ? ` · ${new Date(candidate.decidedAt).toLocaleString()}` : ''}
             {candidate.rejectedReason ? ` — “${candidate.rejectedReason}”` : ''}
+          </p>
+        )}
+        {!open && (
+          <p className="mt-3">
+            <Link href="/dashboard/inbox?kind=learning" className="text-[13px] text-primary underline-offset-2 hover:underline" data-testid="learning-back">Back to Needs you</Link>
           </p>
         )}
       </section>

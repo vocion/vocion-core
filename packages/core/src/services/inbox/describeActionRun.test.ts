@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { amountLabel, confidenceLabel, describeActionRun, firstSentence, humaniseField } from './describeActionRun';
+import { amountLabel, confidenceLabel, describeActionRun, firstSentence, humaniseField, recordTitle } from './describeActionRun';
 
 const base = { id: 1, invokedBy: 'agent:revenue-lead' as string | null };
 
@@ -8,13 +8,13 @@ describe('describeActionRun', () => {
     const d = describeActionRun({
       ...base,
       actionId: 'hubspot.update',
-      input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Spinutech — AI workforce', dealstage: 'contractsent', hs_next_step: 'Send MSA', amount: '48000' } },
+      input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Northwind renewal', dealstage: 'contractsent', hs_next_step: 'Send MSA', amount: '48000' } },
       proposal: { confidence: 0.82, rationale: 'The MSA went out on the 12th; the stage still says proposal.', agentSlug: 'deal-desk', before: { dealstage: 'presentationscheduled' } },
     });
 
-    expect(d.title).toBe('Update Spinutech — AI workforce — Deal stage: presentationscheduled → contractsent, Next step: Send MSA, Amount: $48,000');
-    expect(d.subline).toBe('Spinutech — AI workforce › CRM update › proposed by deal-desk');
-    expect(d.record).toEqual({ kind: 'deal', key: 'hubspot:deals:7781', name: 'Spinutech — AI workforce' });
+    expect(d.title).toBe('Update Northwind renewal — Deal stage: presentationscheduled → contractsent, Next step: Send MSA, Amount: $48,000');
+    expect(d.subline).toBe('CRM update › proposed by deal-desk');
+    expect(d.record).toEqual({ kind: 'deal', key: 'hubspot:deals:7781', name: 'Northwind renewal', idLabel: 'Deal 7781', fromId: false });
     expect(d.changes.map(c => c.field)).toEqual(['dealstage', 'hs_next_step', 'amount']);
     expect(d.changes[0]).toEqual({ field: 'dealstage', from: 'presentationscheduled', to: 'contractsent' });
     expect(d.amount).toBe(48000);
@@ -33,21 +33,56 @@ describe('describeActionRun', () => {
 
     expect(d.title).toBe('Update Contact 88201 — Lifecycle stage: salesqualifiedlead');
     expect(d.record?.key).toBe('hubspot:contacts:88201');
+    expect(d.record?.fromId).toBe(true);
+    expect(d.record?.idLabel).toBe('Contact 88201');
+    // The id is not passed off as a name.
+    expect(recordTitle(d.record!)).toBe('Contact 88201 (name not synced)');
     expect(d.agentSlug).toBe('revenue-lead');
     expect(d.amount).toBeNull();
+  });
+
+  it('a name the workspace knows replaces an id-derived one, in the title and on the record', () => {
+    const run = {
+      ...base,
+      actionId: 'hubspot.update',
+      input: { objectType: 'deals', objectId: '900112', properties: { closedate: '2026-11-30' } },
+      proposal: { confidence: 0.7 },
+    } as const;
+
+    const bare = describeActionRun(run);
+
+    expect(bare.title).toBe('Update Deal 900112 — Close date: 2026-11-30');
+    expect(recordTitle(bare.record!)).toBe('Deal 900112 (name not synced)');
+
+    const named = describeActionRun(run, { recordNames: new Map([['hubspot:deals:900112', 'Northwind renewal']]) });
+
+    expect(named.title).toBe('Update Northwind renewal — Close date: 2026-11-30');
+    expect(named.record).toEqual({ kind: 'deal', key: 'hubspot:deals:900112', name: 'Northwind renewal', idLabel: 'Deal 900112', fromId: false });
+    expect(recordTitle(named.record!)).toBe('Northwind renewal');
+  });
+
+  it('a name the proposer actually wrote is never overwritten by the mirror', () => {
+    const d = describeActionRun({
+      ...base,
+      actionId: 'hubspot.update',
+      input: { objectType: 'deals', objectId: '900112', properties: { dealname: 'Northwind renewal (2027)' } },
+      proposal: null,
+    }, { recordNames: new Map([['hubspot:deals:900112', 'Northwind renewal']]) });
+
+    expect(d.record?.name).toBe('Northwind renewal (2027)');
   });
 
   it('personalization.enroll: contact, company and sequence; keyed on the contact ref', () => {
     const d = describeActionRun({
       ...base,
       actionId: 'personalization.enroll',
-      input: { leadBriefId: 3, contactRef: 'contacts:88201', contactName: 'Jamie Smith', companyName: 'Redpoint IT', sequenceId: 's1', sequenceName: 'MSP triage nurture', senderEmail: 'c@metacto.com', sends: [] },
+      input: { leadBriefId: 3, contactRef: 'contacts:88201', contactName: 'Jamie Smith', companyName: 'Contoso Supply', sequenceId: 's1', sequenceName: 'MSP triage nurture', senderEmail: 'sender@example.test', sends: [] },
       proposal: { confidence: 0.88, agentSlug: 'personalization' },
     });
 
-    expect(d.title).toBe('Enroll Jamie Smith (Redpoint IT) in MSP triage nurture');
-    expect(d.subline).toBe('Jamie Smith (Redpoint IT) › Enrollment › proposed by personalization');
-    expect(d.record).toEqual({ kind: 'contact', key: 'hubspot:contacts:88201', name: 'Jamie Smith (Redpoint IT)' });
+    expect(d.title).toBe('Enroll Jamie Smith (Contoso Supply) in MSP triage nurture');
+    expect(d.subline).toBe('Enrollment › proposed by personalization');
+    expect(d.record).toEqual({ kind: 'contact', key: 'hubspot:contacts:88201', name: 'Jamie Smith (Contoso Supply)' });
     expect(d.actionKind).toBe('Enrollment');
   });
 
@@ -55,13 +90,13 @@ describe('describeActionRun', () => {
     const d = describeActionRun({
       ...base,
       actionId: 'gmail.send',
-      input: { to: 'Jane@Acme.com', subject: 'Following up on Tuesday', body: '…', draft: true },
+      input: { to: 'Jane@Example.test', subject: 'Following up on Tuesday', body: '…', draft: true },
       proposal: { confidence: 0.71, agentSlug: 'follow-up-coordinator' },
     });
 
-    expect(d.title).toBe('Draft email to Jane@Acme.com — Following up on Tuesday');
-    expect(d.record).toEqual({ kind: 'email', key: 'email:jane@acme.com', name: 'Jane@Acme.com' });
-    expect(d.subline).toBe('Jane@Acme.com › Email draft › proposed by follow-up-coordinator');
+    expect(d.title).toBe('Draft email to Jane@Example.test — Following up on Tuesday');
+    expect(d.record).toEqual({ kind: 'email', key: 'email:jane@example.test', name: 'Jane@Example.test' });
+    expect(d.subline).toBe('Email draft › proposed by follow-up-coordinator');
   });
 
   it('unknown action: rationale first sentence, then the action id spelled out; no record', () => {

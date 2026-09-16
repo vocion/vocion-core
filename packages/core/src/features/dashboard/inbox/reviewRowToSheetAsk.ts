@@ -33,6 +33,7 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
     id: row.id,
     kind: 'approval',
     title: d.title,
+    subline: d.subline,
     body: body || null,
     options: [
       { id: 'approve', label: 'Approve', description: `Execute this ${d.actionKind.replace(/^[A-Z](?![A-Z])/, m => m.toLowerCase())} now.`, recommended: isRecommended(row, 'approve') },
