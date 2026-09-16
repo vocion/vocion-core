@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { builtinBrowseProvider } from './builtin';
 
-const PAGE_URL = 'https://highergroundmusic.com/shows-at-higher-ground/';
+const PAGE_URL = 'https://bellwaterhall.example/shows-at-bellwater-hall/';
 
 /**
  * A 200 response that looks like HTML to the provider's content-type check.
@@ -26,16 +26,16 @@ beforeEach(() => {
 describe('builtinBrowseProvider', () => {
   it('resolves the page\'s relative links and images against the URL it fetched', async () => {
     const html = `<html><head><title>Shows</title><meta property="og:image" content="/hero.jpg"></head>
-      <body><main><p><a href="/events/thesaurus-rex/">Thesaurus Rex</a></p>
+      <body><main><p><a href="/events/velvet-antler/">Velvet Antler</a></p>
       <img src="/card.jpg" alt="Card"></main></body></html>`;
     vi.stubGlobal('fetch', vi.fn(async () => htmlResponse(html)));
 
     const page = await builtinBrowseProvider().fetchPage(PAGE_URL);
 
     expect(page?.title).toBe('Shows');
-    expect(page?.content).toContain('Image: https://highergroundmusic.com/hero.jpg');
-    expect(page?.content).toContain('Thesaurus Rex (https://highergroundmusic.com/events/thesaurus-rex/)');
-    expect(page?.content).toContain('[image: Card](https://highergroundmusic.com/card.jpg)');
+    expect(page?.content).toContain('Image: https://bellwaterhall.example/hero.jpg');
+    expect(page?.content).toContain('Velvet Antler (https://bellwaterhall.example/events/velvet-antler/)');
+    expect(page?.content).toContain('[image: Card](https://bellwaterhall.example/card.jpg)');
   });
 
   it('returns null when a page has no readable text, so fetch_url can say so', async () => {

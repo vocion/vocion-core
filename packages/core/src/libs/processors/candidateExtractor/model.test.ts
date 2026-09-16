@@ -41,7 +41,7 @@ const prompt = { system: 'system', human: 'human', estimatedTokens: 500, trimmed
 function call(overrides: Partial<Parameters<typeof extractRecords>[0]> = {}) {
   return extractRecords({
     orgId: 'org_extract',
-    sourceSlug: 'higher-ground',
+    sourceSlug: 'bellwater-hall',
     config,
     prompt,
     budget: createSyncBudget(),

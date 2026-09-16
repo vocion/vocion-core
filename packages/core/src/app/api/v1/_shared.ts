@@ -14,7 +14,7 @@ import { WriteApiError } from '@/services/writeApi';
  * Every endpoint accepts **either** credential:
  *
  * - `Authorization: Bearer vcn_live_…` — a tenant API token. This is how an
- *   external app (the Veerio admin panel, for one) drives Vocion.
+ *   external app (the Larkfield admin panel, for one) drives Vocion.
  * - A signed-in dashboard session cookie, for calls made from the browser.
  *
  * Both resolve to the same {@link ApiCaller}, so a handler never has to care

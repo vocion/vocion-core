@@ -43,7 +43,7 @@ function makeTemplatedWorkspace(): string {
       'description: Pull the source list before ingesting.',
       '---',
       '',
-      'Fetch {{env.VEERIO_API_URL}}/api/sources/ingestion first.',
+      'Fetch {{env.LARKFIELD_API_URL}}/api/sources/ingestion first.',
       '',
     ].join('\n'),
   );
@@ -82,11 +82,11 @@ describe('workspace apply — unresolvable {{env.NAME}} token', () => {
   it('exits non-zero and names the file and the token when the variable is not set', () => {
     const workspaceDir = makeTemplatedWorkspace();
 
-    const result = runApply(workspaceDir, { WORKSPACE_TEMPLATE_VARS: 'VEERIO_API_URL', VEERIO_API_URL: '' });
+    const result = runApply(workspaceDir, { WORKSPACE_TEMPLATE_VARS: 'LARKFIELD_API_URL', LARKFIELD_API_URL: '' });
 
     expect(result.status).toBe(2);
     expect(result.output).toContain('playbooks/ingest-sources/SKILL.md');
-    expect(result.output).toContain('{{env.VEERIO_API_URL}}');
+    expect(result.output).toContain('{{env.LARKFIELD_API_URL}}');
   });
 
   it('exits non-zero when the variable is set but missing from the allowlist', () => {
@@ -94,7 +94,7 @@ describe('workspace apply — unresolvable {{env.NAME}} token', () => {
 
     const result = runApply(workspaceDir, {
       WORKSPACE_TEMPLATE_VARS: 'SOMETHING_ELSE',
-      VEERIO_API_URL: 'https://api-dev.veerio.app',
+      LARKFIELD_API_URL: 'https://api-dev.larkfield.example',
     });
 
     expect(result.status).toBe(2);

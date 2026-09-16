@@ -27,11 +27,11 @@ describe('extractChunk', () => {
 
 describe('parseCitations', () => {
   it('pulls title + sourceType + snippet from a search_knowledge result', () => {
-    const content = '[1] **Gauge <> metacto — 2026-05-29** [granola] discussed referral pipeline\n[2] **Intro note** [gmail] follow-up owed';
+    const content = '[1] **Kestrel <> metacto — 2026-05-29** [granola] discussed referral pipeline\n[2] **Intro note** [gmail] follow-up owed';
     const cites = parseCitations(content, 'lead');
 
     expect(cites).toHaveLength(2);
-    expect(cites[0]).toMatchObject({ title: 'Gauge <> metacto — 2026-05-29', sourceType: 'granola', actorId: 'lead' });
+    expect(cites[0]).toMatchObject({ title: 'Kestrel <> metacto — 2026-05-29', sourceType: 'granola', actorId: 'lead' });
     expect(cites[1]).toMatchObject({ sourceType: 'gmail' });
   });
 });
@@ -57,24 +57,24 @@ describe('traceEmitter — lead work', () => {
 
   it('emits a search node with citations on tool end, attributed to the lead', () => {
     const em = new TraceEmitter({ leadName: 'Lead' });
-    const start = em.handle({ event: 'on_tool_start', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { input: { input: '{"query":"Gauge follow-up"}' } } });
+    const start = em.handle({ event: 'on_tool_start', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { input: { input: '{"query":"Kestrel follow-up"}' } } });
 
-    expect(start[0]).toMatchObject({ kind: 'search', status: 'start', detail: '"Gauge follow-up"', tool: 'search_knowledge', args: '{"query":"Gauge follow-up"}' });
-    expect(start[0]?.label).toBe('Searching "Gauge follow-up"');
+    expect(start[0]).toMatchObject({ kind: 'search', status: 'start', detail: '"Kestrel follow-up"', tool: 'search_knowledge', args: '{"query":"Kestrel follow-up"}' });
+    expect(start[0]?.label).toBe('Searching "Kestrel follow-up"');
 
-    const end = em.handle({ event: 'on_tool_end', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { output: { content: '[1] **Gauge <> metacto** [granola] pipeline talk' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { output: { content: '[1] **Kestrel <> metacto** [granola] pipeline talk' } } });
 
     expect(end[0]).toMatchObject({ kind: 'search', status: 'done', result: '1 source' });
-    expect(end[0]?.citations?.[0]).toMatchObject({ title: 'Gauge <> metacto', sourceType: 'granola', actorId: 'lead' });
+    expect(end[0]?.citations?.[0]).toMatchObject({ title: 'Kestrel <> metacto', sourceType: 'granola', actorId: 'lead' });
     expect(em.citations()).toHaveLength(1);
   });
 
   it('carries a record-name preview on lookup_objects for the call drill', () => {
     const em = new TraceEmitter({ leadName: 'Lead' });
     em.handle({ event: 'on_tool_start', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { input: { input: '{"type_slug":"follow-up"}' } } });
-    const end = em.handle({ event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { output: { content: '[{"contact":"Sam Smith"},{"contact":"Jim Lott"}]' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { output: { content: '[{"contact":"Sam Smith"},{"contact":"Dana Reyes"}]' } } });
 
-    expect(end[0]).toMatchObject({ kind: 'tool', result: '2 records', resultDetail: 'Sam Smith, Jim Lott' });
+    expect(end[0]).toMatchObject({ kind: 'tool', result: '2 records', resultDetail: 'Sam Smith, Dana Reyes' });
   });
 
   it('drops plumbing tools (write_todos, ls, …)', () => {
@@ -129,7 +129,7 @@ describe('traceEmitter — delegation + nested specialist work', () => {
       event: 'on_tool_start',
       name: 'task',
       metadata: { checkpoint_ns: `tools:${TASK_ID}` },
-      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Rank the Gauge follow-ups by ROI and return the top 3.' }) } },
+      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Rank the Kestrel follow-ups by ROI and return the top 3.' }) } },
     });
 
     expect(del[0]).toMatchObject({ id: TASK_ID, kind: 'delegate', status: 'start', actor: { kind: 'lead' } });
@@ -149,7 +149,7 @@ describe('traceEmitter — delegation + nested specialist work', () => {
       event: 'on_tool_end',
       name: 'search_knowledge',
       metadata: { checkpoint_ns: `tools:${TASK_ID}|tools:subsearch` },
-      data: { output: { content: '[1] **Gauge deal — $120k ARR** [hubspot] stage: proposal' } },
+      data: { output: { content: '[1] **Kestrel deal — $120k ARR** [hubspot] stage: proposal' } },
     });
 
     expect(subSearchEnd[0]).toMatchObject({ kind: 'search', parentId: TASK_ID, actor: { name: 'Pipeline Analyst' } });

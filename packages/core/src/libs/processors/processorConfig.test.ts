@@ -67,7 +67,7 @@ describe('candidate-extractor config', () => {
       timezone: 'America/New_York',
       imageFrom: 'imageUrl',
       followLinks: { enabled: true, maxPerDocument: 5, urlPattern: 'tickets' },
-      defaults: { venueName: 'The Fillmore', venueCity: 'Burlington' },
+      defaults: { venueName: 'The Marlow', venueCity: 'Riverton' },
       knownCandidates: { keyedBy: 'venueName', dateField: 'startDate' },
       dropIfPast: { field: 'startDate', keepIfField: 'endDate' },
       allowedValues: { categories: ['music', 'theatre'] },
@@ -188,7 +188,7 @@ describe('the sync budget', () => {
     // A document is one feed entry or one detail page now, not one listing
     // page, so the cap is per document. The second dev shadow (2026-09-15)
     // crawled 59 detail pages on one source, spent all 25 calls and skipped 44
-    // documents; the fourth (2026-09-16, Higher Ground, 117 documents) spent
+    // documents; the fourth (2026-09-16, Bellwater Hall, 117 documents) spent
     // 400,000 tokens after 88 calls at about 4,500 a detail page and left 29
     // documents unread, so the token cap is 150 calls at the measured cost.
     expect(SYNC_BUDGET_DEFAULTS.maxModelCalls).toBe(150);

@@ -28,7 +28,7 @@ import { Client } from 'pg';
  *   2. The feedback worker running against that database, with a provider
  *      configured for the `classifier` role. On Bedrock that is:
  *
- *        AWS_PROFILE=veerio AWS_REGION=us-west-2 \
+ *        AWS_PROFILE=larkfield AWS_REGION=us-west-2 \
  *        VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
  *        ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
  *
@@ -44,8 +44,8 @@ import { Client } from 'pg';
 
 const ADMIN = {
   name: 'Ines Okafor',
-  account: 'Veerio Learning',
-  email: 'ines@veerio.example',
+  account: 'Larkfield Learning',
+  email: 'ines@larkfield.example',
   password: 'learning-loop-1',
 };
 

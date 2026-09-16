@@ -67,7 +67,7 @@ Sample plugin shipped:
 
 - `transcript_highlights` — chunking + multi-LLM-call + structured output (in `src/plugins/samples/`)
 
-For Algren's NINJIO-account work (planned): `meeting_prep_pack`, `urgency_classifier`, `account_health_summary`, `thread_sentiment`, `stakeholder_activity_summary`. See [internal case study](../docs/internal/use-cases/algren.md).
+For key-account management (planned): `meeting_prep_pack`, `urgency_classifier`, `account_health_summary`, `thread_sentiment`, `stakeholder_activity_summary`. The worked case study for these lives in `docs/internal/`, which is not distributed with this repo.
 
 ## Related
 

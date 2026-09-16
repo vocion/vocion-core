@@ -26,8 +26,8 @@ function PaletteList({ query, themeIsDark }: { query: string; themeIsDark?: bool
     teams: [{ slug: 'revops', name: 'RevOps' }, { slug: 'deal-desk', name: 'Deal Desk' }],
     missions: [{ slug: 'daily-revenue-briefing', name: 'Revenue Briefing' }],
     conversations: [
-      { id: 42, title: 'Spinutech — is it dead?', agentSlug: 'revenue-director' },
-      { id: 41, title: 'Prep for the Lerner call', agentSlug: 'revenue-lead' },
+      { id: 42, title: 'Northwind — is it dead?', agentSlug: 'revenue-director' },
+      { id: 41, title: 'Prep for the Halford call', agentSlug: 'revenue-lead' },
     ],
   });
   const icon = (kind: string, url?: string) => {
@@ -77,5 +77,5 @@ export default meta;
 type Story = StoryObj<typeof PaletteList>;
 
 export const Browse: Story = { args: { query: '' } };
-export const AskVocion: Story = { args: { query: 'why is Spinutech stale' } };
+export const AskVocion: Story = { args: { query: 'why is Northwind stale' } };
 export const DarkTheme: Story = { args: { query: '', themeIsDark: true }, parameters: { backgrounds: { default: 'dark' } }, decorators: [Story => <div className="dark rounded-xl bg-background p-6"><Story /></div>] };

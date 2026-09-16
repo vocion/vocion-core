@@ -1,8 +1,8 @@
 /**
  * Company tools — the "why did we lose X" chain:
  *
- *   - search matches by name and domain; "Terra Clear" also matches
- *     "TerraClear" (de-spaced variant); a multi-word miss broadens once.
+ *   - search matches by name and domain; "Sun Fleet" also matches
+ *     "SunFleet" (de-spaced variant); a multi-word miss broadens once.
  *   - get_company returns the firmographics row.
  *   - company_deals includes closed-won AND closed-lost, newest-closed
  *     first, with combined loss_reason on lost rows.
@@ -51,19 +51,19 @@ function res(status: number, body: unknown): Response {
   return { ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) } as unknown as Response;
 }
 
-const TERRACLEAR = {
+const SUNFLEET = {
   id: '501',
   properties: {
-    name: 'TerraClear',
-    domain: 'terraclear.com',
+    name: 'SunFleet',
+    domain: 'sunfleet.example',
     industry: 'COMPUTER_SOFTWARE',
     lifecyclestage: 'customer',
     annualrevenue: '12000000',
     numberofemployees: '120',
-    city: 'Grangeville',
-    state: 'ID',
+    city: 'Cedar Falls',
+    state: 'IA',
     country: 'USA',
-    description: 'Rock-picking robots.',
+    description: 'Fleet-maintenance software.',
   },
 };
 
@@ -93,16 +93,16 @@ describe('hubspot_search_companies', () => {
     const bodies: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       bodies.push(String(init?.body ?? ''));
-      return res(200, { results: [TERRACLEAR] });
+      return res(200, { results: [SUNFLEET] });
     }));
-    const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'Terra Clear' });
+    const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'Sun Fleet' });
 
     expect(out).toMatchObject({ ok: true, count: 1, broadened: false });
-    expect(out.companies[0]).toMatchObject({ id: '501', name: 'TerraClear', domain: 'terraclear.com', location: 'Grangeville, ID, USA' });
+    expect(out.companies[0]).toMatchObject({ id: '501', name: 'SunFleet', domain: 'sunfleet.example', location: 'Cedar Falls, IA, USA' });
     // One request, four filter groups: name+domain for both variants.
     expect(bodies).toHaveLength(1);
-    expect(bodies[0]).toContain('"value":"Terra Clear"');
-    expect(bodies[0]).toContain('"value":"TerraClear"');
+    expect(bodies[0]).toContain('"value":"Sun Fleet"');
+    expect(bodies[0]).toContain('"value":"SunFleet"');
   });
 
   it('falls back to a prefix wildcard when the exact tokens miss', async () => {
@@ -110,10 +110,10 @@ describe('hubspot_search_companies', () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const body = String(init?.body ?? '');
       bodies.push(body);
-      // Whole-token "WalkEZ" misses; the wildcard pass "WalkEZ*" matches.
-      return res(200, body.includes('"value":"WalkEZ*"') ? { results: [TERRACLEAR] } : { results: [] });
+      // Whole-token "TrailFix" misses; the wildcard pass "TrailFix*" matches.
+      return res(200, body.includes('"value":"TrailFix*"') ? { results: [SUNFLEET] } : { results: [] });
     }));
-    const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'WalkEZ' });
+    const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'TrailFix' });
 
     expect(out).toMatchObject({ ok: true, count: 1, broadened: false, matched_via: 'prefix_wildcard' });
     expect(bodies).toHaveLength(2);
@@ -124,7 +124,7 @@ describe('hubspot_search_companies', () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const body = String(init?.body ?? '');
       bodies.push(body);
-      return res(200, body.includes('"value":"Holdings*"') ? { results: [TERRACLEAR] } : { results: [] });
+      return res(200, body.includes('"value":"Holdings*"') ? { results: [SUNFLEET] } : { results: [] });
     }));
     const out = await call(toolsByName().get('hubspot_search_companies'), { name: 'Acme Holdings Inc' });
 
@@ -136,20 +136,20 @@ describe('hubspot_search_companies', () => {
 
 describe('hubspot_get_company', () => {
   it('returns domain, industry, lifecycle stage, revenue, employees, location, description', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => res(200, TERRACLEAR)));
+    vi.stubGlobal('fetch', vi.fn(async () => res(200, SUNFLEET)));
     const out = await call(toolsByName().get('hubspot_get_company'), { company_id: '501' });
 
     expect(out.ok).toBe(true);
     expect(out.company).toEqual({
       id: '501',
-      name: 'TerraClear',
-      domain: 'terraclear.com',
+      name: 'SunFleet',
+      domain: 'sunfleet.example',
       industry: 'COMPUTER_SOFTWARE',
       lifecycle_stage: 'customer',
       revenue: '12000000',
       employees: '120',
-      location: 'Grangeville, ID, USA',
-      description: 'Rock-picking robots.',
+      location: 'Cedar Falls, IA, USA',
+      description: 'Fleet-maintenance software.',
     });
   });
 
@@ -172,9 +172,9 @@ describe('hubspot_company_deals', () => {
         return res(200, PIPELINES);
       }
       return res(200, { results: [
-        { id: '11', properties: { dealname: 'TerraClear website', dealstage: 'stage_lost', amount: '40000', closedate: '2026-03-01', closed_lost_reason_dropdown: 'Budget', closed_lost_reason: 'Went with an internal build' } },
-        { id: '12', properties: { dealname: 'TerraClear retainer', dealstage: 'stage_won', amount: '90000', closedate: '2026-06-15' } },
-        { id: '13', properties: { dealname: 'TerraClear phase 2', dealstage: 'stage_open', amount: '15000' } },
+        { id: '11', properties: { dealname: 'SunFleet website', dealstage: 'stage_lost', amount: '40000', closedate: '2026-03-01', closed_lost_reason_dropdown: 'Budget', closed_lost_reason: 'Went with an internal build' } },
+        { id: '12', properties: { dealname: 'SunFleet retainer', dealstage: 'stage_won', amount: '90000', closedate: '2026-06-15' } },
+        { id: '13', properties: { dealname: 'SunFleet phase 2', dealstage: 'stage_open', amount: '15000' } },
       ] });
     }));
     const out = await call(toolsByName().get('hubspot_company_deals'), { company_id: '501' });

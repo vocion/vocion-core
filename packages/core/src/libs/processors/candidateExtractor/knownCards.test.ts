@@ -26,7 +26,7 @@ function configWith(over: Record<string, unknown> = {}) {
     dedupOn: ['title', 'startDate', 'venueName'],
     titleFrom: 'title',
     promptFragment: 'Only public events.',
-    defaults: { venueName: 'Higher Ground' },
+    defaults: { venueName: 'Bellwater Hall' },
     knownCandidates: { keyedBy: 'venueName', dateField: 'startDate', horizonDays: 60 },
     seriesLabel: { sameOn: ['title', 'venueName'], differsOn: 'startDate', evidenceField: 'recurrence', flagField: 'seriesMatch' },
     ...over,
@@ -100,8 +100,8 @@ describe('known cards block', () => {
   });
 
   it('matches a venue on its dedup-key segment, normalised the way the key is', async () => {
-    const mine = await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'higher-ground' });
-    await seedCard({ title: 'Other Mic', startDate: '2026-11-13', venueKey: 'the-flynn' });
+    const mine = await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'bellwater-hall' });
+    await seedCard({ title: 'Other Mic', startDate: '2026-11-13', venueKey: 'the-corvina' });
 
     const known = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
 
@@ -111,10 +111,10 @@ describe('known cards block', () => {
   });
 
   it('keeps pending, failed and done cards, and nothing else', async () => {
-    const pending = await seedCard({ title: 'A Show', startDate: '2026-11-12', venueKey: 'higher-ground' });
-    const failed = await seedCard({ title: 'B Show', startDate: '2026-11-13', venueKey: 'higher-ground', status: 'failed' });
-    const done = await seedCard({ title: 'C Show', startDate: '2026-11-14', venueKey: 'higher-ground', status: 'done' });
-    await seedCard({ title: 'D Show', startDate: '2026-11-15', venueKey: 'higher-ground', status: 'rejected' });
+    const pending = await seedCard({ title: 'A Show', startDate: '2026-11-12', venueKey: 'bellwater-hall' });
+    const failed = await seedCard({ title: 'B Show', startDate: '2026-11-13', venueKey: 'bellwater-hall', status: 'failed' });
+    const done = await seedCard({ title: 'C Show', startDate: '2026-11-14', venueKey: 'bellwater-hall', status: 'done' });
+    await seedCard({ title: 'D Show', startDate: '2026-11-15', venueKey: 'bellwater-hall', status: 'rejected' });
 
     const known = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
 
@@ -122,9 +122,9 @@ describe('known cards block', () => {
   });
 
   it('holds the date window open only from today to the horizon', async () => {
-    await seedCard({ title: 'Yesterday', startDate: '2026-11-09', venueKey: 'higher-ground' });
-    const inside = await seedCard({ title: 'Soon', startDate: '2026-11-12', venueKey: 'higher-ground' });
-    await seedCard({ title: 'Next Year', startDate: '2027-06-01', venueKey: 'higher-ground' });
+    await seedCard({ title: 'Yesterday', startDate: '2026-11-09', venueKey: 'bellwater-hall' });
+    const inside = await seedCard({ title: 'Soon', startDate: '2026-11-12', venueKey: 'bellwater-hall' });
+    await seedCard({ title: 'Next Year', startDate: '2027-06-01', venueKey: 'bellwater-hall' });
 
     const known = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
 
@@ -132,7 +132,7 @@ describe('known cards block', () => {
   });
 
   it('parses a date-time value, never compares it as text', async () => {
-    const withTime = await seedCard({ title: 'Evening Show', startDate: '2026-11-12T20:00:00Z', venueKey: 'higher-ground' });
+    const withTime = await seedCard({ title: 'Evening Show', startDate: '2026-11-12T20:00:00Z', venueKey: 'bellwater-hall' });
 
     const known = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
 
@@ -141,7 +141,7 @@ describe('known cards block', () => {
   });
 
   it('ignores cards of another object type on the same venue', async () => {
-    await seedCard({ title: 'A Venue', startDate: '2026-11-12', venueKey: 'higher-ground', type: 'venue-candidate' });
+    await seedCard({ title: 'A Venue', startDate: '2026-11-12', venueKey: 'bellwater-hall', type: 'venue-candidate' });
 
     const known = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
 
@@ -150,7 +150,7 @@ describe('known cards block', () => {
 
   it('caps the block by item count and by characters', async () => {
     for (let day = 11; day < 26; day++) {
-      await seedCard({ title: `Show ${day}`, startDate: `2026-11-${day}`, venueKey: 'higher-ground' });
+      await seedCard({ title: `Show ${day}`, startDate: `2026-11-${day}`, venueKey: 'bellwater-hall' });
     }
 
     const byItems = await loadKnownCards({
@@ -172,11 +172,11 @@ describe('known cards block', () => {
   });
 
   it('loads once per sync, whatever the document count', async () => {
-    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'higher-ground' });
+    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'bellwater-hall' });
     const syncContext = freshContext();
 
     const first = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext, today: TODAY });
-    await seedCard({ title: 'Added Mid Sync', startDate: '2026-11-13', venueKey: 'higher-ground' });
+    await seedCard({ title: 'Added Mid Sync', startDate: '2026-11-13', venueKey: 'bellwater-hall' });
     const second = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext, today: TODAY });
 
     // The intra-sync blindness is a known limit, not a bug: the sibling rule
@@ -188,8 +188,8 @@ describe('known cards block', () => {
   it('carries each card\'s series key, or null when no key field is configured', async () => {
     // What makes the group one hop deep: a record naming the second card has
     // to inherit `41` rather than start a fresh group at that card's id.
-    const root = await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'higher-ground' });
-    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-19', venueKey: 'higher-ground', seriesKey: String(root) });
+    const root = await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'bellwater-hall' });
+    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-19', venueKey: 'bellwater-hall', seriesKey: String(root) });
 
     const keyed = await loadKnownCards({
       orgId: ORG,
@@ -208,8 +208,8 @@ describe('known cards block', () => {
   });
 
   it('renders the recurrence as the fourth column, or a dash', async () => {
-    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'higher-ground', recurrence: 'every Thursday' });
-    await seedCard({ title: 'One Off', startDate: '2026-11-13', venueKey: 'higher-ground' });
+    await seedCard({ title: 'Open Mic Night', startDate: '2026-11-12', venueKey: 'bellwater-hall', recurrence: 'every Thursday' });
+    await seedCard({ title: 'One Off', startDate: '2026-11-13', venueKey: 'bellwater-hall' });
 
     const known = await loadKnownCards({ orgId: ORG, config: configWith(), syncContext: freshContext(), today: TODAY });
     const [first, second] = known.text.split('\n');

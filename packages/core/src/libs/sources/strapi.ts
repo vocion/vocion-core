@@ -1,7 +1,7 @@
 /**
  * Strapi connector — ingest entries from one or more Strapi headless CMS
- * collections as retrievable documents. Built for the Veerio event-ingestion
- * work (VEERIO-235), where partner organisations publish their event listings
+ * collections as retrievable documents. Built for the Larkfield event-ingestion
+ * work (LARK-235), where partner organisations publish their event listings
  * from their own Strapi instance rather than a purpose-built feed.
  *
  * Auth: a Strapi API token in `ctx.credentials.token`, sent as a Bearer header,
@@ -429,7 +429,7 @@ export type StrapiInspection = {
  * We try it anyway — some deployments do expose it, and when they do the
  * operator gets a pick-list instead of typing plural ids from memory. There is
  * no second-best listing route to fall back on either: checked against
- * api-dev.veerio.app on 2026-08-31, the Documentation plugin's OpenAPI spec
+ * api-dev.larkfield.example on 2026-08-31, the Documentation plugin's OpenAPI spec
  * (`/documentation/v1.0.0/full_documentation.json`) is a 404 and `/api/content-types`
  * does not exist, so a closed 403 means the operator types the ids.
  * @param baseUrl - Instance root, e.g. `https://cms.partner.org`.

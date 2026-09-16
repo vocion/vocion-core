@@ -34,9 +34,9 @@ type Story = StoryObj<typeof LeadView>;
 const LEAD: LeadRow = {
   id: 42,
   contactRef: 'contacts:88201',
-  contactName: 'Pete Laverick',
+  contactName: 'Rowan Pike',
   contactTitle: 'CEO',
-  companyName: 'Incline Gaming Marketing Inc',
+  companyName: 'Tideline Gaming Marketing Inc',
   entranceSource: 'PAID_SOCIAL',
   utmCampaign: 'LinkedIn',
   engagementSent: 2,
@@ -44,13 +44,13 @@ const LEAD: LeadRow = {
   status: 'ready_for_review',
   confidence: 0.6,
   sections: [
-    { heading: 'Prospect', body: 'Pete Laverick, CEO at Incline Gaming Marketing Inc — an iGaming affiliate marketing agency.' },
+    { heading: 'Prospect', body: 'Rowan Pike, CEO at Tideline Gaming Marketing Inc — an iGaming affiliate marketing agency.' },
     { heading: 'Research That Matters', body: 'The agency publishes state-by-state compliance updates, which suggests the compliance workload is in-house and manual.' },
     { heading: 'Recommended Angle', body: 'Ask how the team keeps affiliate compliance current across states.' },
   ],
   claims: [
-    { text: 'Runs an iGaming affiliate marketing agency.', kind: 'Fact', source: 'https://incline.bet/about', date: '2026-08-30' },
-    { text: 'Compliance tracking is the likely pain point.', kind: 'Inference', source: 'https://incline.bet/compliance' },
+    { text: 'Runs an iGaming affiliate marketing agency.', kind: 'Fact', source: 'https://tideline.example/about', date: '2026-08-30' },
+    { text: 'Compliance tracking is the likely pain point.', kind: 'Inference', source: 'https://tideline.example/compliance' },
   ],
   missing: ['No public team size.'],
   briefError: null,
@@ -94,7 +94,7 @@ export const DecisionWaiting: Story = {
         card: {
           title: 'New MQL ready to enroll',
           system: 'Personalization',
-          subject: { name: 'Pete Laverick', role: 'CEO', company: 'Incline Gaming Marketing Inc', href: HUBSPOT },
+          subject: { name: 'Rowan Pike', role: 'CEO', company: 'Tideline Gaming Marketing Inc', href: HUBSPOT },
           provenance: [
             { label: 'Source', value: 'Paid social' },
             { label: 'Campaign', value: 'LinkedIn' },

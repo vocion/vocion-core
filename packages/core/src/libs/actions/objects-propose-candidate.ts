@@ -32,7 +32,7 @@
  * be legal (empty meant "every proposal is its own item") until a formatting
  * slip by a model — `dedupOn: []` at the top level with the real identity
  * list nested inside `fields` — passed validation, stored `dedup_key` NULL,
- * and permanently duplicated pending rows in a live run (VEERIO-257). A
+ * and permanently duplicated pending rows in a live run (LARK-257). A
  * genuinely one-off candidate now needs a real identity value of its own
  * (a source id, a timestamp) rather than an empty list.
  */

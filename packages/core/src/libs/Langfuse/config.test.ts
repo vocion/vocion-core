@@ -156,7 +156,7 @@ describe('LANGFUSE_ENABLED=true — tracing demanded, so gaps are errors', () =>
     runAsProduction();
     setEnv('LANGFUSE_ENABLED', 'true');
     setRealCredentials();
-    setEnv('LANGFUSE_PROJECT_ID', 'veerio');
+    setEnv('LANGFUSE_PROJECT_ID', 'larkfield');
 
     const config = resolveLangfuseConfig();
 
@@ -165,7 +165,7 @@ describe('LANGFUSE_ENABLED=true — tracing demanded, so gaps are errors', () =>
       publicKey: 'pk-lf-real',
       secretKey: 'sk-lf-real',
       baseUrl: 'https://cloud.langfuse.com',
-      projectId: 'veerio',
+      projectId: 'larkfield',
       browserBaseUrl: 'https://cloud.langfuse.com',
       retentionDays: DEFAULT_RETENTION_DAYS,
     });
@@ -277,41 +277,41 @@ describe('browser-facing URL and project — the self-hosted split', () => {
     // What the app posts to, inside the compose network.
     setEnv('LANGFUSE_BASE_URL', 'http://langfuse-web:3000');
     // What a person's browser can actually open.
-    setEnv('NEXT_PUBLIC_LANGFUSE_BASE_URL', 'https://traces.veerio.com');
+    setEnv('NEXT_PUBLIC_LANGFUSE_BASE_URL', 'https://traces.larkfield.example');
 
     const config = resolveLangfuseConfig();
 
     expect(config).toMatchObject({
       baseUrl: 'http://langfuse-web:3000',
-      browserBaseUrl: 'https://traces.veerio.com',
+      browserBaseUrl: 'https://traces.larkfield.example',
     });
   });
 
   it('mirrors the SDK project ID for links when no override is set', () => {
     runAsProduction();
     setRealCredentials();
-    setEnv('LANGFUSE_PROJECT_ID', 'veerio');
+    setEnv('LANGFUSE_PROJECT_ID', 'larkfield');
 
     const config = resolveLangfuseConfig();
     if (!config.enabled) {
       throw new Error('expected tracing to be enabled for this case');
     }
 
-    expect(browserProjectId(config)).toBe('veerio');
+    expect(browserProjectId(config)).toBe('larkfield');
   });
 
   it('honours a separate project ID for links when one is set', () => {
     runAsProduction();
     setRealCredentials();
-    setEnv('LANGFUSE_PROJECT_ID', 'veerio');
-    setEnv('NEXT_PUBLIC_LANGFUSE_PROJECT_ID', 'veerio-public');
+    setEnv('LANGFUSE_PROJECT_ID', 'larkfield');
+    setEnv('NEXT_PUBLIC_LANGFUSE_PROJECT_ID', 'larkfield-public');
 
     const config = resolveLangfuseConfig();
     if (!config.enabled) {
       throw new Error('expected tracing to be enabled for this case');
     }
 
-    expect(browserProjectId(config)).toBe('veerio-public');
+    expect(browserProjectId(config)).toBe('larkfield-public');
   });
 });
 

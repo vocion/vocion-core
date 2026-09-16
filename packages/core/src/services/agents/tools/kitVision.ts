@@ -617,7 +617,7 @@ export function kitVisionTools(ctx: RuntimeContext) {
       },
       {
         name: 'vision_detect_labels',
-        description: 'Second-opinion classifier: run the workspace\'s trained Amazon Rekognition Custom Labels model on a kit photo and return whole-image labels with confidence (e.g. C-PM-134-PC_good 0.97). Cannot name a specific missing part. Reports clearly when the model is training or stopped.',
+        description: 'Second-opinion classifier: run the workspace\'s trained Amazon Rekognition Custom Labels model on a kit photo and return whole-image labels with confidence (e.g. RM-204-A_good 0.97). Cannot name a specific missing part. Reports clearly when the model is training or stopped.',
         schema: z.object({
           image_key: z.string().describe('S3 key of the photo (or s3://bucket/key)'),
           min_confidence: z.number().min(0).max(100).optional().describe('Minimum label confidence percent to return (default 10)'),

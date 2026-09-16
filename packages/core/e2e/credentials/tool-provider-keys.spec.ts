@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { tolerateExistingUser } from '../../tests/TestUtils';
 
 /**
- * Whose key a paid tool spends, end to end (VEERIO-171).
+ * Whose key a paid tool spends, end to end (LARK-171).
  *
  * The Tools page is the only place a workspace admin ever learns that web
  * search is about to bill *their* Tavily account rather than the deployment's.

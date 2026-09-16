@@ -1203,8 +1203,7 @@ export const workspaceVersionSchema = pgTable(
 // proposal_drafting). Per-step rules live in `learning` rows. Steps are
 // whitelisted via context (`workspace/<org>/learnings/<step>.yaml`) so we
 // don't drift into a junk drawer of near-duplicates. See rev-ai's
-// /var/www/metacto/spinutech/kickoff-demo/server/learnings.py for the
-// originating pattern.
+// `server/learnings.py` for the originating pattern.
 
 /**
  * The namespace manifest — the whitelist of memory buckets, seeded by

@@ -48,10 +48,10 @@ function brief(over: Partial<BriefRow> & Pick<BriefRow, 'id' | 'contactName'>): 
 }
 
 const BRIEFS: BriefRow[] = [
-  brief({ id: 88201, contactName: 'Jamie Smith', contactTitle: 'Managing Partner', companyName: 'Redpoint IT', entranceSource: 'ebook', utmCampaign: 'msp-triage', confidence: 0.88, mqlAt: '2026-09-07T12:00:00.000Z' }),
-  brief({ id: 88202, contactName: 'Sean Parno', contactTitle: 'Co-founder & President', companyName: 'GLR Inc', entranceSource: 'ebook', utmCampaign: 'ai-construction', confidence: 0.86 }),
+  brief({ id: 88201, contactName: 'Jamie Smith', contactTitle: 'Managing Partner', companyName: 'Contoso Supply', entranceSource: 'ebook', utmCampaign: 'msp-triage', confidence: 0.88, mqlAt: '2026-09-07T12:00:00.000Z' }),
+  brief({ id: 88202, contactName: 'Sam Parry', contactTitle: 'Co-founder & President', companyName: 'Halstead Inc', entranceSource: 'ebook', utmCampaign: 'ai-construction', confidence: 0.86 }),
   brief({ id: 88203, contactName: 'Rosa Lindqvist', contactTitle: 'VP Operations', companyName: 'Meridian Group', confidence: 0.64, engagementOpened: 0 }),
-  brief({ id: 88204, contactName: 'Pete Laverick', contactTitle: 'CEO', companyName: 'Incline Gaming Marketing Inc', confidence: 0.42, mqlAt: '2026-09-01T12:00:00.000Z' }),
+  brief({ id: 88204, contactName: 'Rowan Pike', contactTitle: 'CEO', companyName: 'Tideline Gaming Marketing Inc', confidence: 0.42, mqlAt: '2026-09-01T12:00:00.000Z' }),
   brief({ id: 88205, contactName: 'Dee Nakamura', contactTitle: 'Head of Growth', companyName: 'Orlin Health', confidence: null, entranceSource: null, utmCampaign: null, engagementSent: 0, engagementOpened: 0 }),
   brief({ id: 88206, contactName: 'Marta Kovac', companyName: 'Orlin Health', status: 'sent', confidence: 0.84 }),
   brief({ id: 88207, contactName: 'Bo Ferreira', companyName: 'Halcyon Freight', status: 'handed_off', confidence: 0.79 }),
