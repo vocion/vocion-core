@@ -90,6 +90,7 @@ describe('candidate-extractor config', () => {
         differsOn: 'startDate',
         evidenceField: 'recurrence',
         flagField: 'seriesMatch',
+        keyField: 'seriesKey',
       },
       limits: { maxModelCalls: 5 },
       dryRun: true,
@@ -98,6 +99,37 @@ describe('candidate-extractor config', () => {
     expect(parsed.knownCandidates?.maxChars).toBe(4000);
     expect(parsed.seriesLabel?.maxAnchors).toBe(40);
     expect(parsed.resolveAgainst?.[0]?.copyOnMatch).toBe(true);
+  });
+
+  it('accepts seriesLabel without keyField and rejects an unknown key', () => {
+    // The group key is opt-in: a tenant that configures none gets the label
+    // and no key, which is the shape every existing source is in. And the
+    // block is `.strict()`, so a typo has to fail rather than be ignored.
+    const parsed = candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch' },
+    });
+
+    expect(parsed.seriesLabel?.keyField).toBeUndefined();
+    expect(() => candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch', keyFeild: 'seriesKey' },
+    })).toThrow(/keyFeild/);
+  });
+
+  it('rejects a keyField that collides with flagField or evidenceField', () => {
+    // Three jobs on three fields: the label sentence, the group key, and the
+    // recurrence text an anchor is recognised by. Aim two at one field and the
+    // later write erases the earlier one with nothing said, which is the
+    // failure `.strict()` prevents one level up.
+    expect(() => candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', flagField: 'seriesMatch', keyField: 'seriesMatch' },
+    })).toThrow(/flagField/);
+    expect(() => candidateExtractorConfigSchema.parse({
+      ...minimal,
+      seriesLabel: { sameOn: ['title'], differsOn: 'startDate', evidenceField: 'recurrence', flagField: 'seriesMatch', keyField: 'recurrence' },
+    })).toThrow(/evidenceField/);
   });
 
   it('caps followLinks at twenty pages a document', () => {
@@ -137,6 +169,33 @@ describe('the sync budget', () => {
 
     expect(budget.caps.maxModelCalls).toBe(SYNC_BUDGET_DEFAULTS.maxModelCalls);
     expect(budget.caps.maxProposalsPerSync).toBe(SYNC_BUDGET_DEFAULTS.maxProposalsPerSync);
+  });
+
+  it('lets a source lower modelTimeoutMs but never raise it', () => {
+    // The deadline is a cap like any other: the 60s default is the ceiling,
+    // and it is 60s because 20s was below what a healthy call costs and so
+    // abandoned every real extraction mid-flight.
+    expect(SYNC_BUDGET_DEFAULTS.modelTimeoutMs).toBe(60_000);
+    expect(createSyncBudget({ limits: { modelTimeoutMs: 30_000 } }).caps.modelTimeoutMs).toBe(30_000);
+    expect(createSyncBudget({ limits: { modelTimeoutMs: 600_000 } }).caps.modelTimeoutMs).toBe(60_000);
+    expect(candidateExtractorConfigSchema.parse({
+      ...minimal,
+      limits: { modelTimeoutMs: 30_000 },
+    }).limits?.modelTimeoutMs).toBe(30_000);
+  });
+
+  it('sizes the sync caps for one model call per document, and still only lets a source lower them', () => {
+    // A document is one feed entry or one detail page now, not one listing
+    // page, so the cap is per document. The second dev shadow (2026-09-15)
+    // crawled 59 detail pages on one source, spent all 25 calls and skipped 44
+    // documents; the fourth (2026-09-16, Higher Ground, 117 documents) spent
+    // 400,000 tokens after 88 calls at about 4,500 a detail page and left 29
+    // documents unread, so the token cap is 150 calls at the measured cost.
+    expect(SYNC_BUDGET_DEFAULTS.maxModelCalls).toBe(150);
+    expect(SYNC_BUDGET_DEFAULTS.maxInputTokensPerSync).toBe(800_000);
+    expect(createSyncBudget({ limits: { maxModelCalls: 40 } }).caps.maxModelCalls).toBe(40);
+    expect(createSyncBudget({ limits: { maxInputTokensPerSync: 1_000_000 } }).caps.maxInputTokensPerSync).toBe(800_000);
+    expect(createSyncBudget({ limits: { maxInputTokensPerSync: 200_000 } }).caps.maxInputTokensPerSync).toBe(200_000);
   });
 
   it('ignores a limits value that is not a number at all', () => {

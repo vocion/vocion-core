@@ -2,8 +2,9 @@ import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningSt
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -224,6 +225,13 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
           threshold: r.autoApproveAbove,
           enabled: String(r.enabled),
         })));
+      }
+      // The autonomy ladder behind those rules: rung + risk per authored
+      // action (`rung:` / `risk:` on a rule, or the top-level `risk:` map).
+      // In-app promotions of kinds the file does not name are left alone.
+      const { syncPoliciesFromManifest } = await import('@/services/autonomy/AutonomyService');
+      for (const problem of await syncPoliciesFromManifest(orgId, loaded.trust)) {
+        errors.push({ resource: 'trustRule', slug: problem.action, message: problem.message });
       }
     } catch (err) {
       errors.push({ resource: 'trustRule', slug: 'trust.yaml', message: (err as Error).message });
@@ -651,9 +659,10 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     // workspace default is inherited at read time, never baked in here.
     accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
     goal: team.goal ?? null,
-    // Declarative like the rest: authored KPIs land wholesale, an omitted
-    // block clears the column.
-    kpis: team.kpis,
+    // Declarative like the rest: authored measures land wholesale (a legacy
+    // `kpis:` block is already folded in by the schema), an omitted block
+    // clears the column. The deprecated `kpis` column is no longer written.
+    measures: team.measures,
   };
 
   if (!existing) {
@@ -669,7 +678,7 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
     && (existing.goal ?? null) === payload.goal
-    && JSON.stringify(existing.kpis ?? []) === JSON.stringify(payload.kpis)
+    && JSON.stringify(existing.measures ?? []) === JSON.stringify(payload.measures)
   ) {
     return 'unchanged';
   }
@@ -738,19 +747,43 @@ async function applyWorkspaceLeadConfig(
   const [project] = await db
     .select({
       id: projectSchema.id,
+      slug: projectSchema.slug,
       leadAgentSlug: projectSchema.leadAgentSlug,
       accountableUserId: projectSchema.accountableUserId,
       enabledSurfaces: projectSchema.enabledSurfaces,
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
       goal: projectSchema.goal,
+      mailboxAddress: projectSchema.mailboxAddress,
+      mailboxEnabled: projectSchema.mailboxEnabled,
     })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
+  // Mailbox: `mailbox.enabled` claims `<slug>@<VOCION_MAIL_DOMAIN>` (or the
+  // named address, which must be on that domain). No domain configured, or an
+  // address off it, is an error — a workspace must not pose as another host.
+  const mailboxManifest = loaded.manifest.mailbox;
+  let mailboxEnabled = false;
+  let mailboxAddress: string | null = null;
+  if (mailboxManifest?.enabled) {
+    const domain = mailDomain();
+    if (!domain) {
+      errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: 'mailbox.enabled is set but VOCION_MAIL_DOMAIN is not configured on this deployment' });
+    } else {
+      const candidate = (mailboxManifest.address ?? defaultMailboxAddress(project?.slug ?? loaded.manifest.name, domain)).toLowerCase();
+      if (!addressOnDomain(candidate, domain)) {
+        errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: `mailbox.address "${candidate}" is not on ${domain}; a workspace may only claim addresses on the deployment's mail domain` });
+      } else {
+        mailboxEnabled = true;
+        mailboxAddress = candidate;
+      }
+    }
+  }
+
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || goal !== null) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -775,13 +808,15 @@ async function applyWorkspaceLeadConfig(
     && embeddingUnchanged
     && regenerateUnchanged
     && (project.goal ?? null) === goal
+    && project.mailboxEnabled === mailboxEnabled
+    && (project.mailboxAddress ?? null) === mailboxAddress
   ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, goal })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, goal, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }
@@ -1043,21 +1078,30 @@ function specForSource(src: LoadedSource): SourceUpsertSpec {
 }
 
 /**
- * Workspace-shipped seed rules → `learning` rows, keyed on source
- * `workspace:<id>` so re-applying is idempotent and text edits update in place.
+ * Workspace-shipped seed rules → memory-store entries, keyed
+ * `ws-<rule id>.md` under the namespace's directory so re-applying is
+ * idempotent and text edits update in place (`addRule` upserts on the fixed
+ * key; the store carries `source: workspace:<id>` for provenance).
  * @param orgId
- * @param stepId
+ * @param namespaceName
+ * @param namespacePath
  * @param rules
  */
-async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ id: string; text: string }>): Promise<void> {
+async function seedLearningRules(orgId: string, namespaceName: string, namespacePath: string, rules: Array<{ id: string; text: string }>): Promise<void> {
+  const { addRule, namespaceFilePrefix } = await import('@/services/MemoryService');
   for (const r of rules) {
-    const source = `workspace:${r.id}`;
-    const text = r.text.trim();
-    const [existing] = await db.select().from(learningSchema).where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.stepId, stepId), eq(learningSchema.source, source)));
-    if (!existing) {
-      await db.insert(learningSchema).values({ orgId, stepId, ruleText: text, source, createdBy: 'workspace:apply' });
-    } else if (existing.ruleText !== text) {
-      await db.update(learningSchema).set({ ruleText: text, updatedAt: new Date() }).where(eq(learningSchema.id, existing.id));
+    const result = await addRule({
+      orgId,
+      stepName: namespaceName,
+      ruleText: r.text.trim(),
+      source: `workspace:${r.id}`,
+      createdBy: 'workspace:apply',
+      key: `${namespaceFilePrefix(namespacePath)}ws-${r.id}.md`,
+    });
+    if (!result.ok) {
+      // A seed rule that near-duplicates an adopted rule is an authoring
+      // conflict a person should resolve; skipping keeps the apply usable.
+      console.warn(`[applier] seed rule "${r.id}" in ${namespaceName} skipped: ${result.detail}`);
     }
   }
 }
@@ -1065,12 +1109,18 @@ async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ i
 async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
-    .from(learningStepSchema)
-    .where(and(eq(learningStepSchema.orgId, orgId), eq(learningStepSchema.name, step.name)));
+    .from(memoryNamespaceSchema)
+    .where(and(eq(memoryNamespaceSchema.orgId, orgId), eq(memoryNamespaceSchema.name, step.name)));
 
+  const { namespacePath } = await import('@/services/MemoryService');
+  const scopeKind = step.scope?.kind ?? 'workspace';
+  const scopeRef = step.scope?.ref ?? null;
   const payload = {
     orgId,
     name: step.name,
+    scopeKind,
+    scopeRef,
+    path: namespacePath({ scopeKind, scopeRef, name: step.name }),
     title: step.title,
     description: step.description,
     preamble: step.preamble ?? null,
@@ -1079,15 +1129,15 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
 
   if (!existing) {
     if (!dryRun) {
-      const [row] = await db.insert(learningStepSchema).values(payload).returning();
+      const [row] = await db.insert(memoryNamespaceSchema).values(payload).returning();
       if (row) {
-        await seedLearningRules(orgId, row.id, step.rules ?? []);
+        await seedLearningRules(orgId, row.name, row.path, step.rules ?? []);
       }
     }
     return 'created';
   }
   if (!dryRun) {
-    await seedLearningRules(orgId, existing.id, step.rules ?? []);
+    await seedLearningRules(orgId, existing.name, existing.path, step.rules ?? []);
   }
 
   if (
@@ -1095,11 +1145,14 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
     && existing.description === payload.description
     && (existing.preamble ?? null) === payload.preamble
     && canonical(existing.agentSlugs) === canonical(payload.agentSlugs)
+    && existing.scopeKind === payload.scopeKind
+    && (existing.scopeRef ?? null) === payload.scopeRef
+    && existing.path === payload.path
   ) {
     return 'unchanged';
   }
   if (!dryRun) {
-    await db.update(learningStepSchema).set(payload).where(eq(learningStepSchema.id, existing.id));
+    await db.update(memoryNamespaceSchema).set(payload).where(eq(memoryNamespaceSchema.id, existing.id));
   }
   return 'updated';
 }

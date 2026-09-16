@@ -15,10 +15,9 @@ import { memberReport, parseReportWindow } from '@/services/TeamReportService';
 /**
  * /dashboard/team-report/[agentSlug] — one member: its contract, then its runs.
  *
- * The contract first (purpose, owner inherited from its team, autonomy,
- * permissions, escalation) with weight against outcome — the member's share
- * of the org's spend beside its share of the team's KPI readings. Then the
- * evidence: a quiet line of numbers and every run in the window, newest
+ * The contract first (mission, accountable owner inherited from its team,
+ * control, needs you) with the member's share of the org's operating cost.
+ * Then the evidence: a quiet line of numbers and every run in the window, newest
  * first, with kind badge, model, duration, cost, status and the worker's own
  * summary. Rows carry `id="run-<id>"` so the activity feed can deep-link.
  */
@@ -68,23 +67,16 @@ export default async function MemberReportPage(props: {
               </Link>
             )}
           </div>
-          {/* Weight against outcome, for this member. */}
+          {/* This member's share of the org's operating cost; the team's outcome is on the report, never split per agent (spec §3). */}
           <p className="mt-1 text-sm tabular-nums">
             <span className="font-semibold">{pct(member.shareOfCents)}</span>
-            <span className="text-muted-foreground"> of org spend</span>
-            <span className="mx-2 text-muted-foreground/60">·</span>
-            {member.outcomeShare === null
-              ? <span className="text-muted-foreground">{team ? 'team outcome not measured' : 'no team contract'}</span>
-              : (
-                  <>
-                    <span className="font-semibold">{pct(member.outcomeShare)}</span>
-                    <span className="text-muted-foreground">
-                      {' of '}
-                      {team?.name ?? 'team'}
-                      ’s outcome
-                    </span>
-                  </>
-                )}
+            <span className="text-muted-foreground"> of operating cost</span>
+            {team && (
+              <>
+                <span className="mx-2 text-muted-foreground/60">·</span>
+                <Link href={`/dashboard/team-report#team-${team.slug}`} className="text-muted-foreground hover:text-foreground">{`${team.name} performance`}</Link>
+              </>
+            )}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
             <Link href={`/dashboard/agents/${member.slug}`} className="font-medium text-muted-foreground hover:text-primary">Profile →</Link>
@@ -95,9 +87,9 @@ export default async function MemberReportPage(props: {
 
       <section className="mt-6 border-y border-border py-5">
         <ContractGrid
-          contract={{ ...member.contract, purpose: member.contract.purpose ?? team?.goal ?? null }}
-          escalationHref={`/dashboard/inbox?agent=${encodeURIComponent(member.slug)}`}
-          purposeFallback="No description authored for this agent."
+          contract={{ ...member.contract, purpose: member.contract.purpose ?? team?.mission ?? null }}
+          escalationHref={`/dashboard/inbox?agents=${encodeURIComponent(member.slug)}`}
+          purposeFallback="No mission stated for this agent."
         />
       </section>
 

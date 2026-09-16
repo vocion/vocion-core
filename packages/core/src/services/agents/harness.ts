@@ -29,15 +29,19 @@ import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
 import { tool as makeTool } from '@langchain/core/tools';
-import { createDeepAgent, StateBackend } from 'deepagents';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
-import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
-import { bundleStepMarkdown } from '@/services/LearningsService';
+import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
+import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
+import { agentSchema, playbookSchema } from '@/models/Schema';
+import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { deriveDelegationRoster } from './delegationRoster';
+import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -217,71 +221,46 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
-  // registered agents that name this agent as their parent (parentAgentSlug)
-  // — same rows the Agents page/org chart shows, so delegation and the
-  // registry can't drift. The inline `subagents` JSONB is DEPRECATED: kept
+  // the registry (agent-chat-surface.md §9 — routing is delegation): agents
+  // that name this agent as their parent, plus — for the workspace lead —
+  // every team's lead AND members, and — for a team lead — its own team's
+  // members. Same rows the Agents page/org chart shows, so delegation and the
+  // registry can't drift, and a workspace author never enumerates
+  // `subagents` by hand. The inline `subagents` JSONB is DEPRECATED: kept
   // only as a fallback for names not registered (legacy brief-runner etc.).
-  const children = await db
-    .select()
-    .from(agentSchema)
-    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, row.slug)));
+  // See services/agents/delegationRoster.ts for the ordering rules.
+  const roster = await deriveDelegationRoster(orgId, row);
   // Specialists get the SAME domain tool surface as the lead. Explicit
   // because deepagents defaults a custom subagent's tools to [] (only its
   // auto-injected general-purpose inherits) — which silently left every
   // registered specialist with filesystem tools only.
   const subagentTools = tools as SubAgent['tools'];
-  const subagents: SubAgent[] = children.map(c => ({
-    name: c.slug,
-    description: c.description ?? c.name,
-    systemPrompt: c.systemPrompt ?? '',
+  // Authored config first, and it WINS a name collision with the derived
+  // roster: an author who wrote a `subagents` entry for a slug tuned its
+  // description/prompt on purpose; the registry row is the fallback, not the
+  // override. The team-table entry for that slug is skipped.
+  const authored = row.subagents ?? [];
+  const authoredNames = new Set(authored.map(s => s.name));
+  const subagents: SubAgent[] = authored.map(s => ({
+    name: s.name,
+    description: s.description,
+    systemPrompt: s.systemPrompt,
     tools: subagentTools,
   }));
-  const registered = new Set(subagents.map(s => s.name));
-  for (const s of row.subagents ?? []) {
-    if (!registered.has(s.name)) {
-      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt, tools: subagentTools });
+  for (const d of roster.delegates) {
+    if (!authoredNames.has(d.slug)) {
+      subagents.push({ name: d.slug, description: d.description, systemPrompt: d.systemPrompt, tools: subagentTools });
     }
   }
 
-  // F1 "consult the leads", chat path: when THIS agent is the workspace
-  // lead (project.lead_agent_slug), the team leads from the `team` table
-  // merge into its dispatchable subagents — "how's the quarter?" in chat
-  // then consults every team, with the team named in each subagent's
-  // description for per-team provenance (acceptance #4). JSONB-authored
-  // subagents win name collisions. Lead-less teams are named in the
-  // system prompt so the answer degrades per team ("no lead yet") rather
-  // than silently omitting one (acceptance #5).
+  // Lead-less teams are named in the workspace lead's system prompt so the
+  // answer degrades per team ("no lead yet") rather than silently omitting
+  // one (F1 acceptance #5).
   let systemPrompt = row.systemPrompt ?? undefined;
-  const [project] = await db
-    .select({ leadAgentSlug: projectSchema.leadAgentSlug })
-    .from(projectSchema)
-    .where(eq(projectSchema.id, orgId))
-    .limit(1);
-  if (project?.leadAgentSlug === row.slug) {
-    const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
-    const leadSlugs = teams.map(t => t.leadAgentSlug).filter((s): s is string => s !== null && s !== row.slug);
-    const leadRows = leadSlugs.length > 0
-      ? await db.select().from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, leadSlugs)))
-      : [];
-    const taken = new Set(subagents.map(s => s.name));
-    for (const team of teams) {
-      const lead = leadRows.find(a => a.slug === team.leadAgentSlug);
-      if (!lead || taken.has(lead.slug)) {
-        continue;
-      }
-      taken.add(lead.slug);
-      subagents.push({
-        name: lead.slug,
-        description: `${lead.name} — lead of the ${team.name} team. Consult for: ${team.description ?? lead.description ?? `the ${team.name} team's status and work`}.`,
-        systemPrompt: lead.systemPrompt ?? `You are ${lead.name}, lead of the ${team.name} team.`,
-        tools: subagentTools,
-      });
-    }
-    const leadless = teams.filter(t => t.leadAgentSlug === null).map(t => t.name);
-    if (leadless.length > 0) {
-      const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
-      systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
-    }
+  if (roster.leadlessTeams.length > 0) {
+    const leadless = roster.leadlessTeams;
+    const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
+    systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
   }
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
@@ -343,7 +322,21 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
     systemPrompt,
-    backend: new StateBackend(),
+    // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
+    // Store over Postgres, so an agent's file reads there see the org's full
+    // approved memory across threads. Writes under /memories/ are refused —
+    // the human approval gate is the only write path into durable memory
+    // (a poisoned "learning" is a persistent prompt injection; see the
+    // PolinRider incident). Refused via readOnlyBackend, NOT deepagents
+    // `permissions`: permission rules throw and a thrown tool error aborts
+    // the whole turn, verified live.
+    backend: new CompositeBackend(new StateBackend(), {
+      '/memories/': readOnlyBackend(new StoreBackend({ store: new DrizzleMemoryStore(orgId), namespace: MEMORY_STORE_NAMESPACE })),
+    }),
+    // Approved learnings are injected into every model call's system message
+    // (structural, not discoverable — see memoryDigest.ts). Safe to mount
+    // unconditionally: it declares no required state fields.
+    middleware: [createMemoryDigestMiddleware()],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
     ...(hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
@@ -398,9 +391,11 @@ export function bindRequestEmit(
   missionSlug?: string,
   missionRunId?: number,
   conversationId?: number,
+  pageContext?: RuntimeContext['pageContext'],
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
+  internal.__ctx.pageContext = pageContext;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
@@ -443,6 +438,7 @@ function toFileData(content: string): MountedFileData {
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
+  memoryCtx: { userId?: string; missionSlug?: string; workflowSlug?: string } = {},
 ): Promise<Record<string, MountedFileData>> {
   const [row] = await db
     .select()
@@ -465,9 +461,19 @@ export async function buildInitialFiles(
     logger.error(`agent "${agentSlug}" cannot start: mounting its workspace files failed`, { error });
     throw error;
   }
-  const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
+  // Pre-rendered store content, one file per rule under /memories/…: the
+  // digest middleware reads these out of graph state, and the same paths are
+  // readable through the StoreBackend route. Rendering happened at write
+  // time; this is one indexed select per mounted namespace. The layer stack
+  // (workspace → agent → workflow → mission → user) resolves from who this
+  // turn is for.
+  const memories = await assembleAgentMemory(orgId, {
+    agentSlug,
+    workspaceSteps: row.learningSteps ?? [],
+    ...memoryCtx,
+  });
   return Object.fromEntries(
-    Object.entries({ ...mounted, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

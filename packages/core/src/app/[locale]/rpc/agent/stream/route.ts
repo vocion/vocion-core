@@ -17,13 +17,15 @@ import type { AgentEvent } from '@/services/agents/types';
 import type { ConversationRun, ConversationTraceNode } from '@/services/ConversationService';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { openStream } from '@/libs/streams/buffer';
+import { track } from '@/services/adoption/track';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
+import { stampArtifactsWithMessage } from '@/services/ArtifactService';
 import {
   appendMessage,
-
   createConversation,
   getConversation,
   listMessages,
+  setConversationContextIfEmpty,
   toHistoryTurns,
 } from '@/services/ConversationService';
 
@@ -44,6 +46,23 @@ class RunCollector {
   // Merged by id, mirroring the client's fold (start → progress* → done),
   // so the persisted trace equals what the live surface showed.
   private readonly trace = new Map<string, ConversationTraceNode>();
+  /**
+   * Artifacts this turn created or changed. Stamped onto the assistant
+   * message once it is persisted, so a RELOADED transcript still shows the
+   * chip where the thing came from — otherwise the pane holds the current
+   * artifact and nothing in the history says which turn made which.
+   */
+  private readonly artifactIds = new Set<number>();
+
+  onArtifact(id: number): void {
+    if (Number.isInteger(id) && id > 0) {
+      this.artifactIds.add(id);
+    }
+  }
+
+  get touchedArtifactIds(): number[] {
+    return [...this.artifactIds];
+  }
 
   onTraceNode(event: Record<string, unknown>): void {
     const id = typeof event.id === 'string' ? event.id : null;
@@ -137,11 +156,18 @@ export async function POST(request: Request): Promise<Response> {
   // Where the person is when they ask (058): the everything-scoped dock off a
   // record page sends it; the model reads it under the message, the log
   // keeps the message as typed.
-  const { readPageContext, withPageContext } = await import('@/services/chat/pageContext');
-  const pageContext = readPageContext(body.page_context);
-  // Resolve the agent. Explicit `agent_slug` wins; otherwise fall back
-  // to the first agent for this project. 404 when zero agents authored
-  // — the pre-v0.5.2 hardcoded "sales-assistant" fallback is gone.
+  const { mergeScopeRef, readContextRefs, readPageContext, withPageContext } = await import('@/services/chat/pageContext');
+  const { autoProposeRecommendation, readAutonomy } = await import('@/services/chat/autoPropose');
+  // Structured (R4): page + record + highlighted passage + @-mentions. A
+  // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
+  const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
+  // `@` tags (§9.10): besides routing the turn's `agent_slug`, the tagged
+  // records reach the model as a note under the message.
+  const contextRefs = readContextRefs(body.context_refs);
+  // Resolve the agent. Explicit `agent_slug` wins (an `@mention` routes one
+  // turn); otherwise the WORKSPACE AGENT answers — the project's lead
+  // (agent-chat-surface.md §9.10), falling back to the first agent when no
+  // lead is configured. 404 when zero agents authored.
   let agentSlug = body.agent_slug as string | undefined;
   if (!agentSlug) {
     const agents = await listAgents(orgId);
@@ -151,7 +177,9 @@ export async function POST(request: Request): Promise<Response> {
         { status: 404 },
       );
     }
-    agentSlug = agents[0]!.slug;
+    const { getWorkspaceLead } = await import('@/services/TeamService');
+    const lead = await getWorkspaceLead(orgId);
+    agentSlug = (lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug;
   }
   const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
   // Optional persistence — when the client supplies a conversation_id
@@ -160,17 +188,35 @@ export async function POST(request: Request): Promise<Response> {
   // but the conversation is ephemeral.
   const conversationIdRaw = body.conversation_id;
   let conversationId: number | null = null;
+  // Conversation autonomy (R2 adds the column; until then the client may send
+  // it per turn). `act-within-bounds` files recommendations into the review
+  // queue as they are emitted — still pending, still a person's decision.
+  let autonomy = readAutonomy(body.autonomy);
   if (typeof conversationIdRaw === 'number') {
     const existing = await getConversation({ orgId, id: conversationIdRaw });
     conversationId = existing ? existing.id : null;
+    if (existing && 'autonomy' in existing) {
+      autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
+    }
+    if (existing && pageContext && !existing.contextJson) {
+      await setConversationContextIfEmpty({ orgId, id: existing.id, context: pageContext });
+    }
   }
   if (conversationId === null && body.create_conversation === true) {
     const conv = await createConversation({
       orgId,
       agentSlug,
       createdBy: userId,
+      context: pageContext,
     });
     conversationId = conv.id;
+  }
+  if (pageContext?.openedFrom && pageContext.record) {
+    void track({ orgId, userId }, 'chat.opened_from_context', {
+      agentSlug,
+      meta: { recordType: pageContext.record.type },
+      ...(conversationId !== null ? { resource: ['conversation', conversationId] as [string, number] } : {}),
+    });
   }
 
   if (!message?.trim()) {
@@ -219,7 +265,7 @@ export async function POST(request: Request): Promise<Response> {
         }
       };
 
-      const sendEvent = (event: AgentEvent) => {
+      const writeEvent = (event: AgentEvent) => {
         buffered.append(JSON.stringify(event));
         // Tee certain events into the RunCollector for persistence.
         if (collector) {
@@ -233,9 +279,27 @@ export async function POST(request: Request): Promise<Response> {
             collector.onDocuments(event.documents as CollectedDoc[]);
           } else if (event.type === 'trace_node') {
             collector.onTraceNode(event as unknown as Record<string, unknown>);
+          } else if (event.type === 'artifact' && !event.pending) {
+            collector.onArtifact(event.artifact.id);
           }
         }
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      };
+      // Recommendations under `act-within-bounds` are filed first, then sent
+      // with their run id, so the card renders queue status from frame one.
+      // The proposal is awaited before the frame goes out; the turn's other
+      // events keep flowing — `pending` tracks the in-flight ones so the
+      // finaliser waits for them before closing the stream.
+      const pending: Promise<void>[] = [];
+      const sendEvent = (event: AgentEvent) => {
+        if (event.type === 'recommended_action' && autonomy === 'act-within-bounds' && event.recommendation.runId === undefined) {
+          pending.push((async () => {
+            const runId = await autoProposeRecommendation({ orgId, userId, rec: event.recommendation });
+            writeEvent(runId === null ? event : { ...event, recommendation: { ...event.recommendation, runId } });
+          })());
+          return;
+        }
+        writeEvent(event);
       };
 
       const keepaliveTimer = setInterval(() => {
@@ -251,10 +315,11 @@ export async function POST(request: Request): Promise<Response> {
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext),
+          message: withPageContext(message, pageContext, contextRefs),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,
+          pageContext: pageContext ?? undefined,
           onEvent: sendEvent,
         });
       } catch (err) {
@@ -262,13 +327,14 @@ export async function POST(request: Request): Promise<Response> {
         sendEvent({ type: 'error', message: m });
       } finally {
         clearInterval(keepaliveTimer);
+        await Promise.allSettled(pending);
         buffered.close();
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
           const { text, runs, documents, trace } = collector.finalise();
           if (text || runs.length > 0) {
             try {
-              await appendMessage({
+              const msg = await appendMessage({
                 orgId,
                 conversationId,
                 role: 'assistant',
@@ -277,6 +343,10 @@ export async function POST(request: Request): Promise<Response> {
                 documents,
                 trace,
               });
+              const touched = collector.touchedArtifactIds;
+              if (touched.length > 0) {
+                await stampArtifactsWithMessage({ orgId, artifactIds: touched, messageId: msg.id });
+              }
             } catch {
               /* conversation may have been deleted mid-stream */
             }

@@ -1,6 +1,8 @@
+import type { Metadata } from 'next';
 import { Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
+import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
 import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
@@ -24,6 +26,9 @@ const KEY_SOURCE_LABELS: Record<string, string> = {
   none: '',
 };
 
+/** The Tools tab of "Skills & tools" — see `skills/page.tsx`. */
+export const metadata: Metadata = { title: combinedPageTitle('/dashboard/tools') };
+
 export default async function ToolsPage(props: {
   params: Promise<{ locale: string }>;
 }) {
@@ -39,8 +44,8 @@ export default async function ToolsPage(props: {
 
   return (
     <>
-      <TitleBar
-        title="Tools"
+      <CombinedPageHeader
+        active="/dashboard/tools"
         description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Paid providers run on this workspace's own key when it has stored one, and on the Vocion server key otherwise."
       />
 
@@ -58,7 +63,7 @@ export default async function ToolsPage(props: {
           }
           return (
             <section key={cat}>
-              <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <h2 className="mb-3 text-xs font-medium text-muted-foreground">
                 {CATEGORY_LABELS[cat]}
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

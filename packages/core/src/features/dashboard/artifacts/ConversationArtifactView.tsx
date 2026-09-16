@@ -1,0 +1,231 @@
+'use client';
+
+/**
+ * One conversation, expanded: the transcript on the left, ONE artifact on the
+ * right (`?artifact=<id>`).
+ *
+ * The pane is not a dashboard. Whatever the agent last created or changed is
+ * what is open, unless the person opened something else from a chip or the
+ * log — so "make the third column currency" changes the thing they are
+ * looking at rather than adding a seventh tile to a grid nobody arranged.
+ *
+ * The open artifact travels back to the agent as the turn's page context
+ * (`record: {type: 'artifact'}`), which is what makes "this", "it" and "the
+ * table" resolvable without the person naming an id.
+ *
+ * Deliberately NOT touched here: the composer. It is its own component with
+ * its own queue/steer behaviour (#352) — this view only lays the two columns
+ * out and hands it the same `useComposerQueueProps` spread the full page and
+ * the rail use. It never receives a disabled state for a turn in flight.
+ */
+
+import type { ArtifactEntry } from './artifactReducer';
+import type { AgentOption, ChatMessage, ChatMessageArtifact } from '@/features/dashboard/chat/types';
+import type { ArtifactPayload } from '@/services/agents/types';
+import { Minimize2, PanelRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { Button } from '@/components/ui/button';
+import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
+import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
+import { HitlGate } from '@/features/dashboard/chat/HitlGate';
+import { MessageList } from '@/features/dashboard/chat/MessageList';
+import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
+import { useChatSession } from '@/features/dashboard/chat/useChatSession';
+import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
+import { cn } from '@/utils/Helpers';
+import { ArtifactPane } from './ArtifactPane';
+import { artifactReducer, initialArtifactPaneState, openArtifact } from './artifactReducer';
+import { useArtifactEvents } from './useArtifactEvents';
+
+export type ConversationArtifactViewProps = {
+  agents: AgentOption[];
+  conversationId: number;
+  conversationTitle: string;
+  agentSlug: string;
+  initialArtifacts: ArtifactPayload[];
+  /** `?artifact=<id>`; null opens the newest. */
+  initialArtifactId: number | null;
+  selfId?: string | null;
+  workspaceSlug?: string | null;
+};
+
+function chipOf(a: ArtifactPayload): ChatMessageArtifact {
+  return { id: a.id, title: a.title, kind: a.kind, version: a.version };
+}
+
+export function ConversationArtifactView(props: ConversationArtifactViewProps) {
+  const router = useRouter();
+  const [pane, dispatch] = useReducer(artifactReducer, {
+    ...initialArtifactPaneState,
+    artifacts: props.initialArtifacts as ArtifactEntry[],
+    openId: props.initialArtifactId ?? props.initialArtifacts.at(-1)?.id ?? null,
+  });
+
+  const open = openArtifact(pane);
+  const openId = open?.id ?? null;
+  const openTitle = open?.title ?? '';
+
+  // What the agent is told "this" means. Rebuilt whenever the open artifact
+  // changes so a turn sent right after switching panes is about the new one.
+  const pageContext = useMemo(() => ({
+    path: `/dashboard/chat/${props.conversationId}`,
+    title: props.conversationTitle,
+    ...(openId === null
+      ? {}
+      : { record: { type: 'artifact' as const, id: String(openId), label: openTitle, href: `/dashboard/artifacts/${openId}` } }),
+  }), [openId, openTitle, props.conversationId, props.conversationTitle]);
+
+  const session = useChatSession({
+    agents: props.agents,
+    pageContext,
+    onEvent: (evt, api) => {
+      if (evt.type !== 'artifact' || !evt.artifact) {
+        return undefined;
+      }
+      const merged = mergeArtifactEvent(undefined, evt as unknown as { artifact: ArtifactPayload; pending?: boolean; delta?: string });
+      if (merged.conversationId !== null && merged.conversationId !== props.conversationId) {
+        return undefined;
+      }
+      dispatch({ type: 'upsert', artifact: merged, focus: !merged.pending });
+      api.setActivity(merged.pending ? `Writing ${merged.title}…` : `Updated ${merged.title}`);
+      if (!merged.pending) {
+        api.flushDeltas();
+        api.appendToLatestAgent((m: ChatMessage) => {
+          const rest = (m.artifacts ?? []).filter(x => x.id !== merged.id);
+          return { ...m, artifacts: [...rest, chipOf(merged)] };
+        });
+      }
+      // Not claimed: any other handling of `artifact` still runs.
+      return undefined;
+    },
+  });
+
+  // The composer never locks mid-turn (#352): Enter queues, ⌘⏎ interrupts and
+  // sends, Esc stops. This surface renders the same composer as the full page
+  // and the rail, so it takes the same queue props — a queue that worked on
+  // two surfaces out of three would read as a bug.
+  const queueProps = useComposerQueueProps(session);
+
+  // Open THIS conversation (the hook boots on the last-viewed pointer).
+  useEffect(() => {
+    if (session.booted && session.conversationId !== props.conversationId) {
+      void session.handlePickConversation(props.conversationId);
+    }
+  }, [session.booted, props.conversationId]);
+
+  useArtifactEvents({ conversationId: props.conversationId, isStreaming: session.isStreaming, dispatch });
+
+  // The URL names the open artifact, so a link is a link to what you saw.
+  useEffect(() => {
+    const qs = pane.openId ? `?artifact=${pane.openId}` : '';
+    router.replace(`/dashboard/chat/${props.conversationId}${qs}`, { scroll: false });
+  }, [pane.openId, props.conversationId, router]);
+
+  const openById = useCallback((id: number) => dispatch({ type: 'open', id }), []);
+
+  // Chips on a RELOADED transcript. A live turn attaches its own through the
+  // event seam above; a reloaded one has only the artifacts and their
+  // `messageId`, stamped when the assistant turn was persisted. Merged here
+  // rather than in the session hook, so the chat surface stays unaware of
+  // artifacts and the two PRs touching this area do not collide.
+  const messages = useMemo(() => {
+    const byMessage = new Map<number, ChatMessageArtifact[]>();
+    for (const a of pane.artifacts) {
+      if (a.pending || a.messageId === null) {
+        continue;
+      }
+      const list = byMessage.get(a.messageId) ?? [];
+      list.push(chipOf(a));
+      byMessage.set(a.messageId, list);
+    }
+    if (byMessage.size === 0) {
+      return session.messages;
+    }
+    return session.messages.map((m) => {
+      const hydrated = typeof m.id === 'number' ? byMessage.get(m.id) : undefined;
+      if (!hydrated) {
+        return m;
+      }
+      const live = m.artifacts ?? [];
+      const ids = new Set(live.map(x => x.id));
+      return { ...m, artifacts: [...live, ...hydrated.filter(x => !ids.has(x.id))] };
+    });
+  }, [pane.artifacts, session.messages]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <ShellBarActionsPortal>
+        <div className="flex items-center gap-1">
+          {pane.openId === null && pane.artifacts.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'open', id: pane.artifacts.at(-1)!.id })} className="gap-1.5">
+              <PanelRight className="size-4" />
+              <span className="hidden sm:inline">{`Artifacts · ${pane.artifacts.length}`}</span>
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard/chat')} aria-label="Back to the conversation" className="gap-1.5">
+            <Minimize2 className="size-4" />
+            <span className="hidden sm:inline">Collapse</span>
+          </Button>
+        </div>
+      </ShellBarActionsPortal>
+
+      <div className={cn('grid min-h-0 flex-1 gap-4', open ? 'lg:grid-cols-[minmax(22rem,5fr)_minmax(0,7fr)]' : 'grid-cols-1')}>
+        {/* Conversation */}
+        <div className="flex min-h-0 flex-col">
+          <div className="mb-2 flex items-baseline gap-2 px-1">
+            <h1 className="truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
+            <span className="text-xs text-muted-foreground">{session.agent.name}</span>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            {session.messages.length === 0 && !session.resuming
+              ? <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Nothing here yet — ask for something and it opens beside you.</p>
+              : (
+                  <MessageList
+                    messages={messages}
+                    agentName={session.agent.name}
+                    streaming={session.isStreaming}
+                    activity={session.activity}
+                    onShowSources={session.handleShowSources}
+                    onCitationClick={session.handleCitationClick}
+                    onOpenArtifact={openById}
+                  />
+                )}
+            {session.pendingHitl && (
+              <HitlGate gate={session.pendingHitl} onApprove={session.handleApproveHitl} onReject={session.handleRejectHitl} disabled={session.isStreaming} />
+            )}
+            <ChatComposer
+              value={session.composerValue}
+              onChange={session.setComposerValue}
+              onSubmit={() => void session.sendMessage(session.composerValue)}
+              disabled={!session.booted}
+              streaming={session.isStreaming}
+              {...queueProps}
+              onStop={session.handleStop}
+              placeholder={session.composerPlaceholder}
+              pastedText={session.pastedText}
+              onPasteText={session.setPastedText}
+              onClearPasted={() => session.setPastedText(null)}
+            />
+          </div>
+        </div>
+
+        {/* The one artifact */}
+        {open && (
+          <ArtifactPane
+            key={open.id}
+            artifact={open}
+            selfId={props.selfId}
+            workspaceSlug={props.workspaceSlug}
+            conflict={pane.conflict}
+            onBeginEdit={() => dispatch({ type: 'beginEdit' })}
+            onEndEdit={() => dispatch({ type: 'endEdit' })}
+            onDismissConflict={() => dispatch({ type: 'dismissConflict' })}
+            onUpdated={a => dispatch({ type: 'upsert', artifact: a, focus: true })}
+            onClose={() => dispatch({ type: 'close' })}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

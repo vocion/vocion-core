@@ -111,6 +111,17 @@ export type DocumentProcessor<TConfig = unknown> = {
   configSchema: z.ZodTypeAny;
   /** Ingest outcomes to run for. `DEFAULT_RUNS_ON` when omitted. */
   runsOn?: ProcessorRunsOn[];
+  /**
+   * How long ONE document may take before the runner stops waiting for it.
+   * Omitted, the runner's generic default applies.
+   *
+   * It belongs to the processor because only the processor knows what its
+   * document costs: a generic cap is either too tight for the expensive one
+   * (every extraction abandoned mid-model-call) or too loose for the cheap
+   * one. Declared here, in the eager half, so the runner can read it without
+   * loading `run` and the model client behind it.
+   */
+  documentTimeoutMs?: number;
   run: (ctx: ProcessorRunContext<TConfig>) => Promise<ProcessorResult>;
 };
 

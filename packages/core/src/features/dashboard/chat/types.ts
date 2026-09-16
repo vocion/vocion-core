@@ -84,13 +84,52 @@ export type RecommendedAction = {
   rationale?: string;
   confidence?: number;
   agentSlug?: string;
+  /** Set when the server already filed it into the review queue (act-within-bounds). */
+  runId?: number;
+};
+
+/** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
+export type ConversationAutonomy = 'ask' | 'act-within-bounds';
+
+/**
+ * A record the person pointed the conversation at — an `@` tag in the
+ * composer, or the page they are on (R4's page-context model reads the same
+ * shape). `type` is the dashboard entity family; `id` its slug or numeric id.
+ */
+export type ContextRef = {
+  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page';
+  id: string;
+  label: string;
+  /** For a team: the agent slug a `@team` tag routes the turn to (its lead). */
+  routeTo?: string;
+};
+
+/**
+ * An artifact this turn created or changed — rendered as a chip under the
+ * message so the transcript still says where a thing came from once the pane
+ * has moved on to the next one.
+ */
+export type ChatMessageArtifact = {
+  id: number;
+  title: string;
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  version: number;
 };
 
 export type ChatMessage = {
+  /** Persisted row id, once known — the feedback control writes against it. */
+  id?: number;
   role: 'user' | 'assistant';
   content: string;
+  /** The person's thumb on this turn (assistant rows only), as stored. */
+  feedback?: { rating: 'up' | 'down' | null; note: string | null };
+  /** When a turn was routed to a specialist (`@agent`), who answered — rendered as the speaker (§9). */
+  agentSlug?: string;
+  agentName?: string;
   /** A2UI recommended-action cards emitted during this turn (clickable). */
   recommendations?: RecommendedAction[];
+  /** Artifacts this turn created or changed (0101) — chips under the message. */
+  artifacts?: ChatMessageArtifact[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];
@@ -131,6 +170,8 @@ export type AgentOption = {
   role?: 'lead' | 'specialist';
   /** Slug of the primary this agent reports to. Undefined = a primary/coordinator. */
   parentSlug?: string;
+  /** The workspace this agent belongs to — the ONE name the chat surface speaks as (§9.10). */
+  workspaceName?: string;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

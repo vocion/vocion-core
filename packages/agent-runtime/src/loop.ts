@@ -12,9 +12,11 @@ import type { SubAgent } from 'deepagents';
 import type { AgentEvent, InvocationRequest } from './contract.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import { createDeepAgent, StateBackend } from 'deepagents';
+import { CompositeBackend, createDeepAgent, StateBackend } from 'deepagents';
 import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
+import { createMemoryDigestMiddleware } from './memoryDigest.js';
 import { buildChatModel } from './model.js';
+import { readOnlyBackend } from './readOnlyBackend.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
 
@@ -165,7 +167,18 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     tools: kept,
     subagents,
     systemPrompt: req.agent.systemPrompt || undefined,
-    backend: new StateBackend(),
+    // The artifact has no database, so approved memories ride the payload as
+    // /memories/ files (assembled core-side from the store) into graph state.
+    // Writes there are refused for gate parity with core's loop (the human
+    // approval gate is the only write path into durable memory) — via
+    // readOnlyBackend, not deepagents `permissions`, because permission rules
+    // throw and a thrown tool error aborts the whole turn.
+    backend: new CompositeBackend(new StateBackend(), {
+      '/memories/': readOnlyBackend(new StateBackend()),
+    }),
+    // The digest middleware injects those files into every model call's
+    // system message (parity with core's loop).
+    middleware: [createMemoryDigestMiddleware()],
     ...(hasPlaybooks ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 

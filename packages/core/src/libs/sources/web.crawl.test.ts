@@ -197,3 +197,72 @@ describe('the cost bound', () => {
     expect(docs.map(d => d.externalId)).toEqual([LISTING_URL]);
   });
 });
+
+describe('link order', () => {
+  /** Dorothy Alling's calendar, whose path carries Joomla's `/index.php` segment. */
+  const CALENDAR_URL = 'https://venue.test/index.php/calendar-of-events';
+  const MONTH_URL = 'https://venue.test/index.php/calendar-of-events?month=10&year=2026';
+  const STORY_URL = 'https://venue.test/index.php/calendar-of-events/story-time';
+  const NOTARY_URL = 'https://venue.test/index.php/services/notary';
+  const EBOOKS_URL = 'https://venue.test/index.php/digital-library/ebooks';
+
+  /**
+   * The shape that motivated the partition: the sidebar menu is the first
+   * markup on the page, the calendar's own links come after it. Links are
+   * collected BEFORE chrome removal, so the menu is in the crawl's link set.
+   * Built fresh per call: a Response body can only be read once.
+   */
+  function joomlaListing(): Response {
+    return page(`
+      <nav>
+        <a href="/index.php/services/notary">Notary</a>
+        <a href="/index.php/digital-library/ebooks">Ebooks</a>
+      </nav>
+      <p><a href="/index.php/calendar-of-events?month=10&amp;year=2026">Next month</a></p>
+      <p><a href="/index.php/calendar-of-events/story-time">Story Time</a></p>
+    `);
+  }
+
+  it('queues links under the listing path before the rest of the same origin', async () => {
+    const fetchFn = stubFetch(url => url === CALENDAR_URL ? joomlaListing() : page('<p>An event.</p>'));
+
+    // Two pages buys the listing and exactly one link. The menu is first in
+    // page order, so before the partition that link was the menu.
+    await run({ crawl: { startUrl: CALENDAR_URL, maxPages: 2 } });
+    const fetched = fetchFn.mock.calls.map(c => String(c[0]));
+
+    // The seed's own path with a different query string is under it.
+    expect(fetched).toEqual([CALENDAR_URL, MONTH_URL]);
+    expect(fetched).not.toContain(NOTARY_URL);
+  });
+
+  it('the partition changes order only: with enough budget every same-origin link is still fetched once', async () => {
+    const fetchFn = stubFetch(url => url === CALENDAR_URL ? joomlaListing() : page('<p>An event.</p>'));
+
+    await run({ crawl: { startUrl: CALENDAR_URL, maxPages: 20 } });
+    const fetched = fetchFn.mock.calls.map(c => String(c[0]));
+
+    // Nothing followable was dropped, and nothing was fetched twice.
+    expect([...fetched].sort()).toEqual([CALENDAR_URL, MONTH_URL, STORY_URL, NOTARY_URL, EBOOKS_URL].sort());
+    expect(new Set(fetched).size).toBe(fetched.length);
+    // Only the order moved: the listing's own pages ahead of the menu, each
+    // group still in page order.
+    expect(fetched).toEqual([CALENDAR_URL, MONTH_URL, STORY_URL, NOTARY_URL, EBOOKS_URL]);
+  });
+
+  it('leaves the path filters in charge: being under the listing path is not a pass', async () => {
+    const excluded = stubFetch(url => url === CALENDAR_URL ? joomlaListing() : page('<p>An event.</p>'));
+
+    await run({ crawl: { startUrl: CALENDAR_URL, exclude: ['?month='] } });
+
+    expect(excluded.mock.calls.map(c => String(c[0]))).not.toContain(MONTH_URL);
+
+    const included = stubFetch(url => url === CALENDAR_URL ? joomlaListing() : page('<p>An event.</p>'));
+
+    await run({ crawl: { startUrl: CALENDAR_URL, include: ['/services/'] } });
+
+    // The listing's own pages lost the whitelist, so the menu page is all
+    // that is left, partition or no partition.
+    expect(included.mock.calls.map(c => String(c[0]))).toEqual([CALENDAR_URL, NOTARY_URL]);
+  });
+});

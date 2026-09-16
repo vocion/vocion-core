@@ -24,7 +24,7 @@ Every page derives from a core page shape rather than inventing one:
 | archetype | derived from | data |
 |---|---|---|
 | `list` | the objects/type list page | `objects` \| `skillRuns` \| `documents` |
-| `queue` | the review page (read-only; decisions stay in `/dashboard/review`) | `skillRuns` |
+| `queue` | the proposal list (read-only; decisions stay on Needs you, `/dashboard/inbox`) | `skillRuns` |
 | `markdown` | the docs page | a sibling `.md` file |
 
 A `list`/`queue` page composes: a stats row (`stats:`), grouping

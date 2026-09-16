@@ -176,6 +176,8 @@ export async function runAgentDeep(opts: {
   /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
   conversationId?: number;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
+  pageContext?: import('./chat/pageContext').PageContext;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
   /**
    * Run this ONE turn on a named model instead of the agent's own. The
@@ -290,7 +292,7 @@ export async function runAgentDeep(opts: {
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId);
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
@@ -338,7 +340,15 @@ export async function runAgentDeep(opts: {
 
   emit({ type: 'thinking' });
 
-  const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug);
+  const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
+
+  // Silent signal for the adoption surfaces; the chat consumer's event switch
+  // has no case for it, so the transcript is untouched.
+  const { memoryMountPaths } = await import('./agents/memoryDigest');
+  const memoryPaths = memoryMountPaths(initialFiles);
+  if (memoryPaths.length > 0) {
+    emit({ type: 'memories_mounted', paths: memoryPaths });
+  }
 
   const history = (opts.conversationHistory ?? [])
     .filter(t => t.content.trim().length > 0)

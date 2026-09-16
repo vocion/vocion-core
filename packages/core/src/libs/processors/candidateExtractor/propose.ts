@@ -20,7 +20,7 @@ import type { SyncBudget } from '../budget';
 import type { CandidateExtractorConfig } from './config';
 import type { ValidatedRecord } from './validate';
 import type { IngestDoc } from '@/services/IngestionService';
-import { describeSchemaProblems } from '@/libs/actions/objects-propose-candidate';
+import { candidateDedupKey, describeSchemaProblems } from '@/libs/actions/objects-propose-candidate';
 
 /** Extraction notes a card can carry, matching the action's own cap. */
 const NOTES_CHAR_CAP = 2000;
@@ -115,12 +115,26 @@ export async function proposeRecords(opts: {
     if (opts.config.dryRun) {
       // One structured line per would-be candidate: the dry run's entire
       // output, and what the first rollout step is read from.
+      //
+      // The whole validated `fields` object is on the line, not just the
+      // title and the identity values, because a shadow run is judged by
+      // diffing the card it WOULD have written against the card a person got,
+      // and three of a dozen fields cannot be diffed. `dedupKey` is the live
+      // action's own function, over the same three values this `input` hands
+      // it, so the line names the row the live run would have created or
+      // refreshed rather than something that merely resembles it.
       log('info', 'candidate extractor dry run', {
         orgId: opts.orgId,
         source: opts.sourceSlug,
         objectType: opts.config.objectType,
         title: input.title,
         identity: opts.config.dedupOn.map(field => record.fields[field]),
+        dedupKey: candidateDedupKey({
+          objectType: opts.config.objectType,
+          fields: record.fields,
+          dedupOn: opts.config.dedupOn,
+        }),
+        fields: record.fields,
         confidence: record.confidence,
         document: opts.document.uri ?? opts.document.externalId,
       });
@@ -145,6 +159,17 @@ export async function proposeRecords(opts: {
         rationale: `Extracted from ${opts.document.uri ?? opts.document.externalId} during a source sync.`,
         evidence: opts.document.uri ? [opts.document.uri] : undefined,
         agentSlug: opts.config.agentSlug,
+        // What this pipeline decided rather than read, named so the decision
+        // can be compared against it. From what `labels.ts` actually wrote,
+        // never from the config: a record nothing labelled declares nothing,
+        // and a declared field nobody wrote would score as cleared on every
+        // approve.
+        ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
+        // A card the model called a duplicate of a known one is a recommendation
+        // to turn it down; core keeps such a card pending for a person and only
+        // scores agreement with what the reviewer does. Everything else carries
+        // no recommendation until a measured threshold says approve is safe.
+        ...(record.duplicateOf !== undefined ? { suggestedDecision: 'reject' as const } : {}),
       },
     });
 

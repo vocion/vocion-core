@@ -22,6 +22,21 @@
 import { z } from 'zod';
 
 /**
+ * How long one DOCUMENT of this processor may take, end to end.
+ *
+ * Read eagerly by the registry, so it is a plain number here rather than
+ * anything derived from the model stage: importing that would drag LangChain
+ * into the Temporal worker, which is the whole reason this file exists.
+ *
+ * 150s is what the work actually costs when it goes well: two model attempts
+ * at the 60s default (`SYNC_BUDGET_DEFAULTS.modelTimeoutMs`), the one ticket
+ * hop a record may ask for, and writing the proposals. The generic 25s cap it
+ * replaces was below a single healthy model call, so every real extraction
+ * was abandoned mid-flight.
+ */
+export const CANDIDATE_EXTRACTOR_DOCUMENT_TIMEOUT_MS = 150_000;
+
+/**
  * A field name on the object type being extracted.
  *
  * Constrained rather than free text because these strings are read back as
@@ -142,8 +157,49 @@ export const candidateExtractorConfigSchema = z.object({
     evidenceField: FieldName.optional(),
     /** Field the label is written into. */
     flagField: FieldName,
+    /**
+     * Field the group key is written into, so a reader can show every
+     * occurrence of one series together.
+     *
+     * The value is the run id of the FIRST card of the group, as a bare
+     * decimal string, and it is root-normalised at write time: a record whose
+     * anchor already carries a key inherits that key rather than pointing at
+     * the anchor, so a chain of occurrences collapses to one group in one hop
+     * and no consumer ever walks it.
+     *
+     * The anchor itself is never written to and carries no key, because
+     * nothing in this pipeline refreshes another card. That is deliberate, and
+     * it is why the key is the anchor's own run id rather than a synthetic
+     * value: the whole group is `fields[keyField] || String(card.id)`, which
+     * answers for the anchor and its followers with one comparison.
+     *
+     * Not part of the record's identity, so it never belongs in `dedupOn`.
+     * That one is cross-field against the rest of the config and is checked
+     * where the rest of the identity-relative knobs are, in
+     * `libs/sources/upsert.ts`.
+     */
+    keyField: FieldName.optional(),
     maxAnchors: z.number().int().positive().max(200).default(40),
-  }).strict().optional(),
+  }).strict().superRefine((series, ctx) => {
+    // Three jobs, three fields: the label sentence, the group key, and the
+    // recurrence text an anchor is recognised by. Point two of them at one
+    // field and the later write silently erases the earlier one, which is the
+    // same failure `.strict()` exists to prevent, one level up.
+    if (series.keyField !== undefined && series.keyField === series.flagField) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['keyField'],
+        message: `seriesLabel.keyField "${series.keyField}" is also its flagField; the group key would overwrite the label sentence`,
+      });
+    }
+    if (series.keyField !== undefined && series.keyField === series.evidenceField) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['keyField'],
+        message: `seriesLabel.keyField "${series.keyField}" is also its evidenceField; the group key would overwrite the recurrence text an anchor is recognised by`,
+      });
+    }
+  }).optional(),
   /**
    * Lower this sync's spending caps. Every value is optional and may only
    * LOWER the code default, see `libs/processors/budget.ts`.
@@ -153,6 +209,7 @@ export const candidateExtractorConfigSchema = z.object({
     maxDetailHops: z.number().int().nonnegative().optional(),
     maxModelCalls: z.number().int().nonnegative().optional(),
     maxInputTokensPerCall: z.number().int().nonnegative().optional(),
+    modelTimeoutMs: z.number().int().nonnegative().optional(),
     maxInputTokensPerSync: z.number().int().nonnegative().optional(),
     maxProposalsPerSync: z.number().int().nonnegative().optional(),
     maxWallClockMs: z.number().int().nonnegative().optional(),

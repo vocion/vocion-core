@@ -19,6 +19,7 @@ import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
+import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
@@ -141,6 +142,7 @@ async function findDecidedRunForKey(
  * @param input.proposal.agentSlug
  * @param input.proposal.suggestedDecision
  * @param input.proposal.suggestedSnoozeUntil
+ * @param input.proposal.labels - Payload field names the proposer wrote as a judgement of its own.
  * @param input.dedupKey
  * @param input.expiresAt
  */
@@ -156,6 +158,10 @@ export async function proposeAction(input: {
    * should do with this. The recommendation can only ever keep the proposal in
    * the queue (see the guard below); it is never read as a reason to let one
    * run without a person.
+   *
+   * `labels` names the payload fields the proposer wrote as a JUDGEMENT rather
+   * than read off its source, so the decision can record what the reviewer did
+   * with each of them. Names only, never values.
    */
   proposal?: {
     confidence?: number;
@@ -164,6 +170,7 @@ export async function proposeAction(input: {
     agentSlug?: string;
     suggestedDecision?: SuggestedDecision;
     suggestedSnoozeUntil?: string;
+    labels?: string[];
   };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).
@@ -355,7 +362,9 @@ export async function proposeAction(input: {
     // Deliberately not configurable; revisit only once UC5 trust reporting
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
+    // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
+    // ladder reads the same one and never offers a promotion this gate refuses.
+    if (isNeverAuto(action)) {
       return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
     // An agent that recommended anything other than approval does not get to

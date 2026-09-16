@@ -72,6 +72,9 @@ vi.mock('deepagents', () => ({
       }),
     };
   },
+  StoreBackend: class {},
+  CompositeBackend: class {},
+  filesValue: {},
 }));
 
 vi.mock('./model.js', () => ({

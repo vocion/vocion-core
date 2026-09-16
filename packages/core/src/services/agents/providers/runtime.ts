@@ -42,6 +42,7 @@ import { agentSchema } from '@/models/Schema';
 import { chargeUsage } from '@/services/BudgetService';
 import { signClaim } from '../claims';
 import { buildInitialFiles } from '../harness';
+import { memoryMountPaths } from '../memoryDigest';
 import { buildToolCatalog } from '../tools/registry';
 
 const RUNTIME_URL = (): string => process.env.VOCION_AGENT_RUNTIME_URL ?? 'http://localhost:8080';
@@ -102,8 +103,15 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     conversationId: opts.conversationId,
   });
 
-  const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
+  const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
   const hc = row.harnessConfig ?? {};
+
+  // Silent signal for the adoption surfaces (same as the in-process loop):
+  // the chat consumer has no case for it, so the transcript is untouched.
+  const memoryPaths = memoryMountPaths(files);
+  if (memoryPaths.length > 0) {
+    emit({ type: 'memories_mounted', paths: memoryPaths });
+  }
 
   // Resolved for every run, not only for `modelProvider: bedrock` agents:
   // which vendor the artifact actually calls depends on ITS environment

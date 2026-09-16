@@ -37,6 +37,22 @@ export async function queueRunFeedbackForLearning(opts: {
   submittedBy?: string;
 }): Promise<void> {
   const note = opts.note?.trim();
+  // A rating with or without text is an EPISODE (raw, TTL'd consolidation
+  // material); only rated text goes on the classifier queue below.
+  if (opts.rating) {
+    void (async () => {
+      const { recordEpisode } = await import('@/services/MemoryService');
+      await recordEpisode({
+        orgId: opts.orgId,
+        runKind: `${opts.kind}_run`,
+        runId: opts.runId,
+        agentSlug: await resolveAgentSlug(opts.orgId, opts.kind, opts.runId),
+        text: `Rated ${opts.rating === 'up' ? 'UP' : 'DOWN'}${opts.submittedBy ? ` by ${opts.submittedBy}` : ''}.${note ? ` Note: ${note}` : ''}`,
+      });
+    })().catch((error) => {
+      console.error(`[runFeedbackQueue] could not record an episode for ${opts.kind} run ${opts.runId}`, error);
+    });
+  }
   if (!note || !opts.rating) {
     return;
   }

@@ -1,26 +1,26 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import {
-  addLearning,
+  addRule,
   checkDedup,
-  getLearnings,
-  listSteps,
-  removeLearning,
-  updateLearning,
-} from '@/services/LearningsService';
+  getNamespace,
+  listNamespaces,
+  removeRule,
+  updateRule,
+} from '@/services/MemoryService';
 import { guardAuth } from './AuthGuards';
 
 export const listLearningSteps = os
   .handler(async () => {
     const { orgId } = await guardAuth();
-    return listSteps(orgId);
+    return listNamespaces(orgId);
   });
 
 export const get = os
   .input(z.object({ step: z.string() }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    return getLearnings(orgId, input.step);
+    return getNamespace(orgId, input.step);
   });
 
 export const check = os
@@ -38,7 +38,7 @@ export const add = os
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
-    return addLearning({
+    return addRule({
       orgId,
       stepName: input.step,
       ruleText: input.rule,
@@ -48,15 +48,15 @@ export const add = os
   });
 
 export const update = os
-  .input(z.object({ ruleId: z.number().int().positive(), rule: z.string().min(1) }))
+  .input(z.object({ ruleKey: z.string().min(1), rule: z.string().min(1) }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    return updateLearning({ orgId, ruleId: input.ruleId, ruleText: input.rule });
+    return updateRule({ orgId, key: input.ruleKey, ruleText: input.rule });
   });
 
 export const remove = os
-  .input(z.object({ ruleId: z.number().int().positive() }))
+  .input(z.object({ ruleKey: z.string().min(1) }))
   .handler(async ({ input }) => {
     const { orgId } = await guardAuth();
-    return removeLearning({ orgId, ruleId: input.ruleId });
+    return removeRule({ orgId, key: input.ruleKey });
   });

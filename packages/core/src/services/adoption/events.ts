@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 /**
@@ -56,6 +57,26 @@ export const ADOPTION_EVENTS = {
   'chat.conversation_created': { agent: true },
   'chat.message_sent': { agent: true },
   /**
+   * A conversation turn opened FROM a record via an "Ask about this"
+   * affordance (briefing section, inbox ask, team-report row, record page) —
+   * distinct from the hotkey. `recordType` says which surface hands work to
+   * the agent; the count against `chat.message_sent` is how much of the chat
+   * starts in context rather than cold.
+   */
+  'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
+  /**
+   * A thumb on one assistant turn in the chat (0094). `rating` null = the
+   * person cleared their thumb. The note itself never travels here — it goes
+   * to the feedback classifier — only whether there was one.
+   */
+  'chat.feedback': {
+    agent: true,
+    meta: z.object({
+      rating: feedbackRating.nullable().optional(),
+      hasNote: z.boolean().optional(),
+    }),
+  },
+  /**
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
    * terminal; skip/save leave the item pending; rewrite = the human asked AI
@@ -87,6 +108,20 @@ export const ADOPTION_EVENTS = {
        * approval, and never to be counted as one.
        */
       suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
+      /**
+       * What the reviewer did with each field the proposal declared as a
+       * label of its own making: kept it, changed it, cleared it, or filled
+       * one in the proposer left empty.
+       *
+       * Field NAMES as keys and verdict ENUMS as values, which is as far as
+       * this envelope goes: the before and after values are message content
+       * and stay out, exactly as the rule at the top of this file says. The
+       * tenant's own correction note is where a person reads what changed.
+       *
+       * Absent when the proposal declared no labels, which is every proposal
+       * that judges nothing, and must never be read as "nothing was edited".
+       */
+      labels: z.record(z.string(), z.enum(LABEL_VERDICTS)).optional(),
     }),
   },
   'review.feedback': {
@@ -119,6 +154,20 @@ export const ADOPTION_EVENTS = {
       suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
     }),
   },
+  /**
+   * A person edited an artifact in the pane — a save, or a restore of an
+   * older version. Agent edits are NOT tracked here: adoption measures what
+   * humans do, and an agent's own version is already in artifact_version.
+   * `action` separates a normal edit from a restore, which is the signal
+   * that the agent's last change was not wanted.
+   */
+  'artifact.edited': {
+    meta: z.object({
+      kind: z.string().max(20),
+      action: z.enum(['edited', 'restored']),
+      version: z.number().int().positive(),
+    }),
+  },
   'learning.added': { agent: true },
   /**
    * Feedback proposed a rule nobody had proposed before, so a candidate is
@@ -147,6 +196,15 @@ export const ADOPTION_EVENTS = {
     meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
   },
   /**
+   * A person approved a consolidation proposal: one stronger rule replaced
+   * several. `replaced` is how many were retired; `stepName` names the
+   * namespace, so the growing-memory chart can mark "N → 1" on the day.
+   */
+  'learning.consolidated': {
+    agent: true,
+    meta: z.object({ replaced: z.number().int().positive(), stepName: z.string() }),
+  },
+  /**
    * A person answered an ask — a ruling, an approval, a credential, a merge, a
    * recommendation, a gate. Nothing executes on a decision, so the outcome is
    * the status the ask landed in. `kind` says what sort of thing was waiting.
@@ -157,6 +215,20 @@ export const ADOPTION_EVENTS = {
       kind: z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate']),
       status: z.enum(['approved', 'rejected', 'done', 'superseded']),
     }),
+  },
+  /**
+   * An action kind moved on the autonomy ladder. `automatic` is a demotion
+   * the system made itself (a rejected auto-execution, or a rejection on a
+   * high-risk kind) as opposed to a person's promote/demote. System events
+   * exist for the audit trail; adoption keeps measuring humans.
+   */
+  'autonomy.promoted': {
+    system: true,
+    meta: z.object({ actionId: z.string(), from: z.string(), to: z.string(), automatic: z.boolean() }),
+  },
+  'autonomy.demoted': {
+    system: true,
+    meta: z.object({ actionId: z.string(), from: z.string(), to: z.string(), automatic: z.boolean() }),
   },
   /**
    * One assessed call = one event, whoever ordered it (scheduled mission

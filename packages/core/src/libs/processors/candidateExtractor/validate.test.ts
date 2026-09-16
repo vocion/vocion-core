@@ -155,6 +155,29 @@ describe('candidate extractor validation', () => {
     expect(out.counts['skipped.not_in_list']).toBe(1);
   });
 
+  it('drops a series note the model sent without a series id', () => {
+    // A note about a series says nothing on a card that claims no series.
+    const out = run([record({ seriesNote: 'a Saturday for once' })]);
+
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]?.seriesNote).toBeUndefined();
+  });
+
+  it('drops the note when the series id was not in the list this call carried', () => {
+    // The order matters: the hallucination guard can clear `seriesOf` itself,
+    // so a note checked before it would survive its own id.
+    const out = run([record({ seriesOf: 999, seriesNote: 'a Saturday for once' })], configWith(), { knownIds: new Set([41]) });
+
+    expect(out.records[0]?.seriesOf).toBeUndefined();
+    expect(out.records[0]?.seriesNote).toBeUndefined();
+  });
+
+  it('keeps a note that arrived with an id the call did carry', () => {
+    const out = run([record({ seriesOf: 41, seriesNote: 'a Saturday for once' })], configWith(), { knownIds: new Set([41]) });
+
+    expect(out.records[0]?.seriesNote).toBe('a Saturday for once');
+  });
+
   it('reads today as a calendar day in the configured zone', () => {
     // 01:30 UTC on the 11th is still the 10th in New York, which is the whole
     // reason this is not `toISOString().slice(0, 10)`.

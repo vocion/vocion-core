@@ -92,7 +92,7 @@ describe('candidate extractor model call', () => {
     expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledWith(
       'extractor',
       'org_extract',
-      { temperature: 0, maxTokens: 2048, streaming: false },
+      { temperature: 0, maxTokens: 4096, streaming: false },
     );
   });
 
@@ -136,6 +136,24 @@ describe('candidate extractor model call', () => {
     expect(result).toMatchObject({ status: 'skipped', reason: 'model_timeout' });
   });
 
+  it('gives the call the model deadline from the budget, which a source may lower', async () => {
+    // The old 20s literal was below what a healthy Bedrock call costs (18.2s
+    // average on the first dev shadow), so the deadline is a cap now: the
+    // default is 60s and this source asked for 20ms, which it gets.
+    invoke.mockImplementation(async (_messages: unknown, options: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const aborted = new Error('The operation was aborted due to timeout');
+          aborted.name = 'TimeoutError';
+          reject(aborted);
+        }, { once: true });
+      }));
+
+    const result = await call({ budget: createSyncBudget({ limits: { modelTimeoutMs: 20 } }) });
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'model_timeout', calls: 1 });
+  });
+
   it('passes the cache read count through, so cached input is not billed at full rate', async () => {
     invoke.mockResolvedValue(goodAnswer({
       input_tokens: 1000,
@@ -150,6 +168,23 @@ describe('candidate extractor model call', () => {
       agentSlug: 'event-ingestion-lead',
       usage: { inputTokens: 1000, outputTokens: 40, cacheReadTokens: 800 },
     }));
+  });
+
+  it('truncates an over-long series note instead of failing the answer', async () => {
+    // `notes` is a hard `.max(2000)`, so an over-long value there costs the
+    // corrective retry and can cost the document. A 141-character aside must
+    // never cost a card, so this one transforms rather than rejects.
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, seriesOf: 41, seriesNote: 'x'.repeat(400) }],
+      }),
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result.status === 'ok' && result.records[0]?.seriesNote).toHaveLength(140);
   });
 
   it('refuses before the call when the sync has no model calls left', async () => {

@@ -27,7 +27,10 @@ import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
 import { discoveryTools } from './discovery';
+import { editArtifactTools } from './editArtifacts';
 import { fetchUrlTool } from './fetchUrl';
+import { fileFeedbackTool } from './fileFeedback';
+import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
 import { gmailTools } from './gmailThread';
@@ -43,14 +46,17 @@ import {
   checkLearningDedupTool,
   getLearningsTool,
   listLearningStepsTool,
+  rememberPreferenceTool,
   removeLearningTool,
   updateLearningTool,
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
+import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
+import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
@@ -104,6 +110,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     fetchUrlTool(ctx),
     crawlSiteTool(ctx),
     generateImageTool(ctx),
+    findScreenshotsTool(ctx),
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
@@ -113,11 +120,21 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     addLearningTool(ctx),
     updateLearningTool(ctx),
     removeLearningTool(ctx),
+    rememberPreferenceTool(ctx),
     listRecentRunsTool(ctx),
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
     recommendActionTool(ctx),
+    pageContextTool(ctx),
+    // Every interaction should teach the system something (MANIFESTO §9):
+    // feedback said anywhere becomes a proposed rule and a recommendation.
+    fileFeedbackTool(ctx),
+    // Artifacts (0095/0101): render_* creates one, read_artifact/update_artifact
+    // change the one already open. No side effect outside the conversation, so
+    // on for every agent.
+    ...renderArtifactTools(ctx),
+    ...editArtifactTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

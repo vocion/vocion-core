@@ -16,6 +16,7 @@ export type TrendSeriesPoint = { day: string } & Record<string, number | string>
  * @param props.lineKey
  * @param props.lineLabel
  * @param props.height
+ * @param props.markers
  */
 export function TrendChart(props: {
   data: TrendSeriesPoint[];
@@ -26,6 +27,11 @@ export function TrendChart(props: {
   lineKey: string;
   lineLabel: string;
   height?: number;
+  /**
+   * Event markers pinned to days — e.g. rule adoptions on the approval-rate
+   * trend, so cause sits next to effect (adjacency, never a causal claim).
+   */
+  markers?: Array<{ day: string; label: string }>;
 }) {
   const gradientId = useId();
   const [hover, setHover] = useState<number | null>(null);
@@ -63,6 +69,7 @@ export function TrendChart(props: {
   };
 
   const hovered = hover != null ? data[hover] : null;
+  const markersByDay = new Map((props.markers ?? []).map(m => [m.day, m]));
 
   return (
     <div className="relative">
@@ -75,6 +82,12 @@ export function TrendChart(props: {
           <span className="inline-block h-0.5 w-3 rounded bg-[var(--brand-pass,theme(colors.emerald.500))]" />
           {props.lineLabel}
         </span>
+        {(props.markers?.length ?? 0) > 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block size-2 rotate-45 bg-[var(--brand-accent,theme(colors.amber.500))]" />
+            {props.markers![0]!.label}
+          </span>
+        )}
         {hovered && (
           <span className="ml-auto tabular-nums">
             {hovered.day}
@@ -126,6 +139,24 @@ export function TrendChart(props: {
               </text>
             )
           : null))}
+        {/* event markers (e.g. rule adoptions) */}
+        {data.map((d, i) => {
+          const marker = markersByDay.get(String(d.day));
+          if (!marker) {
+            return null;
+          }
+          return (
+            <g key={`marker-${d.day}`}>
+              <path
+                d={`M ${x(i)} ${pad.top - 2} l 4 5 l -4 5 l -4 -5 Z`}
+                style={{ fill: 'var(--brand-accent, #f59e0b)' }}
+              >
+                <title>{`${d.day} — ${marker.label}`}</title>
+              </path>
+              <line x1={x(i)} y1={pad.top + 8} x2={x(i)} y2={pad.top + innerH} stroke="var(--brand-accent, #f59e0b)" strokeOpacity="0.25" strokeDasharray="2 3" />
+            </g>
+          );
+        })}
         {/* hover cursor */}
         {hover != null && (
           <g>

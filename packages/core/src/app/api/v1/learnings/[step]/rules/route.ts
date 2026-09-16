@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { addLearning, getLearnings } from '@/services/LearningsService';
+import { addRule, getNamespace } from '@/services/MemoryService';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../../_shared';
 
 /**
@@ -18,10 +18,10 @@ export async function GET(req: Request, context: { params: Promise<{ step: strin
   }
   const { step } = await context.params;
   try {
-    return NextResponse.json(await getLearnings(caller.orgId, step));
+    return NextResponse.json(await getNamespace(caller.orgId, step));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.startsWith('unknown learning step')) {
+    if (message.startsWith('unknown memory namespace')) {
       return jsonError('NOT_FOUND', message, 404);
     }
     console.error(`[api/v1/learnings] could not read rules for step "${step}"`, err);
@@ -57,7 +57,7 @@ export async function POST(req: Request, context: { params: Promise<{ step: stri
   const source = typeof body.source === 'string' ? body.source : undefined;
 
   try {
-    const result = await addLearning({
+    const result = await addRule({
       orgId: caller.orgId,
       stepName: step,
       ruleText: body.ruleText,
@@ -66,14 +66,14 @@ export async function POST(req: Request, context: { params: Promise<{ step: stri
     });
     if (!result.ok) {
       return jsonError('NEAR_DUPLICATE', result.detail, 409, {
-        existingId: result.existing?.existingId,
+        existingKey: result.existing?.existingKey,
         similarity: result.existing?.similarity,
       });
     }
     return NextResponse.json(result.rule, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.startsWith('unknown learning step')) {
+    if (message.startsWith('unknown memory namespace')) {
       return jsonError('NOT_FOUND', message, 404);
     }
     console.error(`[api/v1/learnings] could not add a rule to step "${step}"`, err);

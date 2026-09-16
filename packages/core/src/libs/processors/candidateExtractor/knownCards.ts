@@ -45,11 +45,26 @@ const KNOWN_STATUSES = ['pending', 'failed', 'done'] as const;
 /** One card, as the block prints it. */
 export type KnownCard = {
   runId: number;
+  /**
+   * The key this card is stored under. Never rendered into the block, and the
+   * one thing that tells a record which NAMES this card apart from the record
+   * which IS it: a sync re-reads the page behind every queued card, so the
+   * card for the very record being extracted is in this list, and matching it
+   * is a refresh rather than a duplicate. Read by `labels.ts`.
+   */
+  dedupKey: string;
   /** Calendar date as stored, for ordering and for the line. */
   date: string;
   title: string;
   /** The anchor's evidence field, a recurrence description, usually. */
   evidence: string;
+  /**
+   * The card's own series group, read from `seriesLabel.keyField`, or null
+   * when it carries none (the anchor of a group always does) and when no key
+   * field is configured. A record naming this card inherits this value rather
+   * than the card's id, which is what keeps a group one hop deep.
+   */
+  seriesKey: string | null;
 };
 
 export type KnownCards = {
@@ -99,6 +114,38 @@ function dayPlus(day: string, days: number): string {
 }
 
 /**
+ * Strip what semi-trusted text is not allowed to carry: no code fences, no
+ * closing-tag openers, one line.
+ *
+ * No trim and no cap here, deliberately. Its two callers apply their own and
+ * they are different lengths (`scrubCardText` below, `scrubSeriesNote` in
+ * `labels.ts`, which also has a step of its own to run after this one). What
+ * is shared is the defence, so a step added to it reaches both callers instead
+ * of whichever file the next reader happened to open.
+ * @param value - Any stored or model-written string.
+ */
+export function defangText(value: string): string {
+  return value
+    .replace(/```/g, '')
+    .replace(/<\//g, '< /')
+    .replace(/[\n\r|]+/g, ' ');
+}
+
+/**
+ * A card's series group key, read off its stored payload.
+ *
+ * One reader for two callers: `queryKnownCards` below, which puts it on the
+ * block's card, and `labels.ts`, which reads the same value off a sibling row
+ * it found itself. A blank reads as "this card is the root of its own group",
+ * and so does a source that configures no key field at all.
+ * @param fields - The stored `input.fields` of a queued card.
+ * @param keyField - `seriesLabel.keyField`, or undefined when none is configured.
+ */
+export function seriesKeyOf(fields: Record<string, unknown>, keyField: string | undefined): string | null {
+  return keyField ? (String(fields[keyField] ?? '').trim() || null) : null;
+}
+
+/**
  * Strip what a semi-trusted block is not allowed to carry.
  *
  * These lines are earlier MODEL output stored on a card, so they are treated
@@ -107,10 +154,7 @@ function dayPlus(day: string, days: number): string {
  * @param value - A title or evidence string off a stored card.
  */
 function scrubCardText(value: unknown): string {
-  return String(value ?? '')
-    .replace(/```/g, '')
-    .replace(/<\//g, '< /')
-    .replace(/[\n\r|]+/g, ' ')
+  return defangText(String(value ?? ''))
     .trim()
     .slice(0, 160);
 }
@@ -149,8 +193,10 @@ export async function loadKnownCards(opts: {
 
   const segmentIndex = opts.config.dedupOn.indexOf(known.keyedBy);
   if (segmentIndex < 0) {
-    // Validated at apply time; belt here, because a key segment that does not
-    // exist would compare against undefined and match nothing silently.
+    // Validated at apply time by `validateSourceProcessor`
+    // (`libs/sources/upsert.ts`); belt here, because a key segment that does
+    // not exist would compare against undefined and match nothing silently,
+    // and because a row written before that check existed can still be read.
     return EMPTY;
   }
 
@@ -197,10 +243,15 @@ async function queryKnownCards(opts: {
   const wantedKey = normaliseForKey(opts.keyValue);
   const until = dayPlus(opts.today, opts.known.horizonDays);
   const evidenceField = opts.config.seriesLabel?.evidenceField;
+  const keyField = opts.config.seriesLabel?.keyField;
 
   const cards: KnownCard[] = [];
   for (const row of rows) {
-    const segments = candidateKeySegments(row.dedupKey);
+    // `?? ''` rather than a guard of its own: `candidateKeySegments` already
+    // rejects a keyless row on the next line, and the coalesce is what lets
+    // the key ride onto the card as a plain string.
+    const dedupKey = row.dedupKey ?? '';
+    const segments = candidateKeySegments(dedupKey);
     if (!segments || segments.objectType !== wantedType) {
       continue;
     }
@@ -214,9 +265,14 @@ async function queryKnownCards(opts: {
     }
     cards.push({
       runId: row.id,
+      dedupKey,
       date: day,
       title: scrubCardText(row.input?.title ?? fields[opts.config.titleFrom]),
       evidence: evidenceField ? scrubCardText(fields[evidenceField]) : '',
+      // Not scrubbed, and deliberately: the key is never rendered into the
+      // block, it is only read back by `labels.ts`, and a blank reads as "this
+      // card is the root of its own group".
+      seriesKey: seriesKeyOf(fields, keyField),
     });
   }
 

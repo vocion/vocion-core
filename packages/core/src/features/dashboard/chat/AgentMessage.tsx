@@ -1,13 +1,37 @@
 'use client';
 
-import type { AgentRun, ChatMessage, IndexedDocument } from './types';
-import { AlertCircle, FileText } from 'lucide-react';
+import type { DashboardLinkKind } from './links';
+import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
+import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { Link } from '@/libs/I18nNavigation';
+import { ArtifactChips } from './ArtifactChips';
+import { classifyDashboardLink } from './links';
+import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { WorkTimeline } from './WorkTimeline';
+
+/** One glyph per dashboard entity family, so a chip reads before its label does. */
+const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
+  'agent': Bot,
+  'team': Users,
+  'mission': Target,
+  'mission-run': Rocket,
+  'ask': Inbox,
+  'briefing': Newspaper,
+  'object': LayoutDashboard,
+  'review': ClipboardCheck,
+  'learning': FileText,
+  'eval': ClipboardCheck,
+  'connector': LayoutDashboard,
+  'workflow': Rocket,
+  'team-report': Users,
+  'chat': MessageSquare,
+  'page': ArrowUpRight,
+};
 
 /**
  * Agent message (Phase C).
@@ -38,6 +62,14 @@ export type AgentMessageProps = {
   streaming?: boolean;
   /** Live status line while streaming (rendered inside the work timeline). */
   activity?: string | null;
+  /** Persists a thumb + note on this turn (0094). Absent = no feedback control. */
+  onFeedback?: (messageId: number, rating: 'up' | 'down' | null, note?: string | null) => void | Promise<void>;
+  /** How recommended actions in this thread behave (0094). */
+  autonomy?: ConversationAutonomy;
+  /** Preformatted attribution for a routed turn ("via Proposal Writer") — the workspace stays the speaker (§9.10). */
+  via?: string;
+  /** Opens an artifact this turn produced in the pane beside the conversation. */
+  onOpenArtifact?: (id: number) => void;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -64,7 +96,7 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -79,10 +111,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // multiple agents sharing a surface, the NAME is the signal, not a
   // decorative circle.
   return (
-    <div className="flex">
+    <div className="group flex">
       <div className="max-w-2xl min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <span>{agentName}</span>
+          {via && (
+            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
+          )}
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (
             <button
@@ -130,6 +165,23 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                         </button>
                       );
                     }
+                    // A same-origin dashboard route becomes a chip that
+                    // navigates in place (§9); anything else stays an
+                    // ordinary external link in a new tab.
+                    const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
+                    if (inApp) {
+                      const Icon = LINK_ICON[inApp.kind];
+                      return (
+                        <Link
+                          href={inApp.href}
+                          data-link-kind={inApp.kind}
+                          className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
+                        >
+                          <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                          <span className="truncate">{children}</span>
+                        </Link>
+                      );
+                    }
                     return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
                   },
                 }}
@@ -141,13 +193,25 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {/* One card renders directly; several become the in-chat triage
               stepper (skip / save-for-later / queue-all). */}
           {(message.recommendations?.length ?? 0) > 0 && (
-            <RecommendedActionStack recs={message.recommendations!} />
+            <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
+          )}
+          {(message.artifacts?.length ?? 0) > 0 && (
+            <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
           )}
         </div>
         {message.confidence && (
           <div className="mt-2 flex justify-end">
             <ConfidenceIndicator level={message.confidence} />
           </div>
+        )}
+        {/* The thumb lives under the turn once the row is persisted (0094). */}
+        {onFeedback && typeof message.id === 'number' && !streaming && (
+          <MessageFeedback
+            messageId={message.id}
+            rating={message.feedback?.rating ?? null}
+            note={message.feedback?.note ?? null}
+            onFeedback={onFeedback}
+          />
         )}
       </div>
     </div>

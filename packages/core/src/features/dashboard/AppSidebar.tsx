@@ -1,62 +1,70 @@
 'use client';
 
+import type { PinnableItem } from './nav/navPins';
+import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import type { SurfaceId } from '@/features/navigation/surfaces';
-import {
-  Activity,
-  ArrowLeft,
-  BarChart3,
-  BookOpen,
-  CalendarClock,
-  CheckSquare,
-  Compass,
-  Cpu,
-  Database,
-  FileText,
-  Gauge,
-  GitBranch,
-  Inbox,
-  KeyRound,
-  LineChart,
-  MessageSquare,
-  Network,
-  Newspaper,
-  PanelsTopLeft,
-  Plug,
-  ShieldCheck,
-  Sparkles,
-  TestTube,
-  UserPlus,
-  Users,
-  Wrench,
-  Zap,
-} from 'lucide-react';
+import { ArrowLeft, FileText, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useState } from 'react';
-import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
-import { AppSidebarNavGroup } from '@/features/dashboard/AppSidebarNavGroup';
-import { WorkspaceMenu } from '@/features/dashboard/WorkspaceMenu';
+import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
+import { applyPins, withoutPins } from '@/features/dashboard/nav/navPins';
+import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
+import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
+import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
+import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
+import { manageNavGroups, manageRoutes, tabsOf, workRoutes } from '@/features/navigation/dashboardNav';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
-import { VocionLogo } from '@/templates/VocionLogo';
+import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
 /**
  * Dashboard left sidebar — two views, Linear-settings style:
  *
- *   WORK (default) — the daily surface only: chat, needs-you, briefings,
- *                    review, activity, search. Pure navigation, no chrome.
- *   MANAGE         — entered via the quiet "Manage workspace" item at the
- *                    BOTTOM of the work view; swaps the sidebar into the
- *                    configuration sections with "Back to work" at top.
+ *   WORK (default) — Workspace (the daily driver: Chat, Needs you, Briefings,
+ *                    Search), Pinned (this person's pins, in pin order), Pages
+ *                    (the workspace's own pages, 7 then "More pages ›"),
+ *                    the enabled surfaces,
+ *                    the invite card, a quiet "Manage workspace" row, and the
+ *                    workspace row.
+ *   MANAGE         — the configuration sections (Team · Knowledge · Build ·
+ *                    Insights · Organization), every row pinnable, with
+ *                    "Back to work" at top.
  *
- * The view persists per browser (reloading mid-manage keeps you managing).
- * Nav sweep 2026-07-24: every route has a real page (no dead links, no
- * stubs). Active-state styling via `--sidebar-accent`.
+ * Both views are DERIVED from `features/navigation/dashboardNav.ts` — groups,
+ * order, labels, icons and admin gating live there, once, shared with the ⌘K
+ * palette and the breadcrumb (nav sweep, Chris 2026-09-15: "team report and
+ * activity don't look like they belong in the main workspace nav"). Reports
+ * and the Developers page moved to MANAGE; nothing configurational is left in
+ * WORK.
+ *
+ * Three doors into MANAGE (Chris, 2026-09-15: "we lost nav access to
+ * workspace settings"): the visible row in the work nav (the primary one —
+ * a gear with a tooltip in the icon rail), the workspace popover's
+ * "Workspace settings" row, and the header avatar menu's item, which fires
+ * {@link OPEN_MANAGE_VIEW}. Everything configurational lives behind it, so
+ * one entry point buried in a popover that reads as a *switcher* was one
+ * entry point too few.
+ *
+ * The view persists per browser; pins and dismissed prompts persist per
+ * (org, user) on the server with localStorage as the fast path. Airy pass
+ * (B-034b §3 + ElevenLabs reference, 2026-09-15): 56px icon rail, 13px rows,
+ * inactive labels dark grey, hover lighter than the active pill, one pin
+ * gesture and no settings page.
  * @param props.isAdmin
  * @param props
  */
 
-const NAV_VIEW_KEY = 'vocion:nav:view';
 type NavView = 'work' | 'manage';
+const PAGES_MAX = 7;
+const INVITE_CARD = 'invite-card';
+// The sidebar shows the MARK + wordmark as text (ElevenLabs pattern): never the
+// lockup SVG (its descriptor is unreadable at 24px) and never the tagline —
+// both stay on sign-in, where `VocionLogo` renders them.
+const BRAND_MARK = process.env.NEXT_PUBLIC_BRAND_MARK || VOCION_PRIMARY_MARK;
+const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 
 /** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
 export type WorkspaceNavPage = {
@@ -70,165 +78,226 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   isAdmin?: boolean;
   /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts`. */
   enabledSurfaces?: SurfaceId[];
-  /** Tenant pages from the workspace's pages/ dir — rendered as their own WORK sections. */
+  /** Tenant pages from the workspace's pages/ dir — the Pages group. */
   workspacePages?: WorkspaceNavPage[];
-  /** How many things are waiting on a person — the badge on "Needs you". */
+  /** Open items waiting on a person — shown as a badge on "Needs you" (the inbox PR supplies it). */
   needsYouCount?: number;
 }) => {
   const t = useTranslations('DashboardLayout');
+  const { state } = useSidebar();
+  const collapsed = state === 'collapsed';
   const [view, setView] = useState<NavView>('work');
+  const prefs = useNavPrefs();
+
+  // The header's avatar menu asks for the manage view by event — it is a
+  // sidebar mode, not a route, so there is nothing to navigate to.
+  useEffect(() => {
+    const onOpen = () => setView('manage');
+    window.addEventListener(OPEN_MANAGE_VIEW, onOpen);
+    return () => window.removeEventListener(OPEN_MANAGE_VIEW, onOpen);
+  }, []);
 
   // Restore the persisted view after mount (SSR renders the default).
-  // localStorage cannot be read while rendering on the server, so a lazy
-  // useState initializer would hydrate with a mismatched value — the setState
-  // here is the intended hydration pattern, not a cascading render.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(NAV_VIEW_KEY);
-      if (stored === 'manage') {
-        // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
-        setView('manage');
-      }
-    } catch { /* private mode */ }
+    if (readNavView(globalThis.localStorage) === 'manage') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- pre-existing SSR-safe restore; hydration must render the default first
+      setView('manage');
+    }
   }, []);
 
   const pick = (v: NavView) => {
     setView(v);
-    try {
-      localStorage.setItem(NAV_VIEW_KEY, v);
-    } catch { /* ignore */ }
+    writeNavView(globalThis.localStorage, v);
   };
+
+  // Sidebar labels come from the registry's i18n keys (typed against en.json);
+  // the English title is the fallback for a route that has none yet.
+  const label = useCallback((r: Pick<DashboardRoute, 'i18nKey' | 'title'>) => (r.i18nKey ? t(r.i18nKey) : r.title), [t]);
+
+  // ---- the three WORK groups ----
+  const workspaceItems = workRoutes().map(r => ({
+    title: label(r),
+    url: r.url,
+    icon: r.icon,
+    badge: r.url === '/dashboard/inbox' ? needsYouCount : undefined,
+  }));
+
+  // Tenant pages only. Artifacts used to join this group as "saved canvases";
+  // they are a WORK row of their own now (registry), with their own log.
+  const pageItems = useMemo<PinnableItem[]>(
+    () => workspacePages.map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft, origin: 'page' as const })),
+    [workspacePages],
+  );
+
+  // Every MANAGE destination — pages and their tabs — so a pin to either resolves.
+  const manageItems = useMemo<PinnableItem[]>(
+    () => manageRoutes(isAdmin).map(r => ({ title: label(r), url: r.url, icon: r.icon, origin: 'manage' as const })),
+    [isAdmin, label],
+  );
+
+  // The MANAGE sections: top-level rows, each combined page carrying its
+  // other tabs (shown beneath it while open; a pinned tab moves up to Pinned).
+  const manageSections = useMemo(() => manageNavGroups(isAdmin).map(({ group, routes }) => ({
+    label: label(group),
+    items: routes.map((r): PinnableItem => ({
+      title: label(r),
+      url: r.url,
+      icon: r.icon,
+      origin: 'manage',
+      tabs: tabsOf(r.url).filter(tab => tab.tabOf).map(tab => ({ title: label(tab), url: tab.url, icon: tab.icon, origin: 'manage' as const })),
+    })),
+  })), [isAdmin, label]);
+
+  const pinnable = useMemo(() => [...pageItems, ...manageItems], [pageItems, manageItems]);
+  const pinned = applyPins(pinnable, prefs.pins);
+  const unpinnedPages = withoutPins(pageItems, prefs.pins);
+  const manageGroup = (section: { label: string; items: PinnableItem[] }) => (
+    <PinnableNav
+      key={section.label}
+      label={section.label}
+      items={withoutPins(section.items, prefs.pins).map(i => ({ ...i, tabs: i.tabs ? withoutPins(i.tabs, prefs.pins) : undefined }))}
+      pins={prefs.pins}
+      onTogglePin={prefs.togglePin}
+      max={99}
+      moreLabel={t('more_pages')}
+      pinLabel={t('pin')}
+      unpinLabel={t('unpin')}
+    />
+  );
+
+  const pinLabels = { moreLabel: t('more_pages'), pinLabel: t('pin'), unpinLabel: t('unpin') };
 
   return (
     <Sidebar {...props}>
       <SidebarHeader className="pt-5">
-        <div className="flex justify-start px-2 pb-2">
-          <VocionLogo size="sm" />
+        {/* Brand block — mark + wordmark, nothing else. */}
+        <div className="flex items-center gap-2 px-2 pb-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+          {/* eslint-disable-next-line next/no-img-element */}
+          <img src={BRAND_MARK} alt="" className="h-5 w-auto shrink-0" aria-hidden />
+          {!collapsed && <span className="truncate text-[15px] font-semibold tracking-tight text-foreground">{BRAND_NAME}</span>}
         </div>
-
       </SidebarHeader>
 
       <SidebarContent>
         {view === 'work'
           ? (
-              // WORK — the daily surface; the only door to config is the
-              // quiet Manage entry at the bottom.
               <>
-                <AppSidebarNav
-                  label={t('main_section_label')}
-                  items={[
-                    { title: t('chat'), url: '/dashboard/chat', icon: MessageSquare },
-                    { title: t('inbox'), url: '/dashboard/inbox', icon: Inbox, badge: needsYouCount },
-                    { title: 'Briefings', url: '/dashboard/briefings', icon: Newspaper },
-                    { title: t('review'), url: '/dashboard/review', icon: CheckSquare },
-                    { title: 'Activity', url: '/dashboard/activity', icon: Activity },
-                    { title: t('search'), url: '/dashboard/search', icon: BookOpen },
-                  ]}
+                {/* WORKSPACE — the permanent Vocion pages. */}
+                <AppSidebarNav label={t('main_section_label')} items={workspaceItems} />
+
+                {/* PINNED — this person's pins, in pin order, draggable. */}
+                {pinned.length > 0 && (
+                  <PinnableNav
+                    label={t('pinned')}
+                    items={pinned}
+                    pins={prefs.pins}
+                    onTogglePin={prefs.togglePin}
+                    onMovePin={prefs.movePin}
+                    max={99}
+                    reorderable
+                    {...pinLabels}
+                  />
+                )}
+
+                {/* PAGES — the workspace's own pages, seven then "More pages ›". */}
+                <PinnableNav
+                  label={t('pages')}
+                  items={unpinnedPages}
+                  pins={prefs.pins}
+                  onTogglePin={prefs.togglePin}
+                  max={PAGES_MAX}
+                  {...pinLabels}
                 />
+
                 {/* Workspace-enabled surfaces (workspace.yaml `surfaces:`).
                     Renders nothing when none are on. */}
                 <SurfaceNav enabled={enabledSurfaces} />
-                {[...new Set(workspacePages.map(p => p.section))].map(section => (
-                  <AppSidebarNav
-                    key={section}
-                    label={section}
-                    items={workspacePages
-                      .filter(p => p.section === section)
-                      .map(p => ({ title: p.title, url: p.url, icon: PanelsTopLeft }))}
-                  />
-                ))}
-                {/* Bottom cluster: which workspace you're in + the door to
-                    its configuration. Both are context, not daily nav. */}
-                <div className="mt-auto px-2 pb-1">
-                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+
+                {/* Bottom cluster: invite card (dismissible, remembered),
+                    which workspace you're in + the door to its configuration. */}
+                <div className="mt-auto">
+                  {!prefs.dismissed.includes(INVITE_CARD) && <InviteTeamCard onDismiss={() => prefs.dismiss(INVITE_CARD)} />}
+                  {/* The visible door to MANAGE — everything configurational is
+                      behind it, so it is a row in the nav, not only a line in a
+                      popover. Icon rail: the gear alone, with a tooltip. */}
+                  <div className="px-2 pb-1 group-data-[collapsible=icon]:px-0">
+                    <ManageWorkspaceRow label={t('manage_workspace')} collapsed={collapsed} onOpen={() => pick('manage')} />
+                  </div>
+                  {/* Workspace context: avatar · name · account · ⇄ Switch. */}
+                  <div className="px-2 pb-2 group-data-[collapsible=icon]:px-0">
+                    <WorkspaceSwitcherLive onManage={() => pick('manage')} />
+                  </div>
                 </div>
               </>
             )
           : (
               <>
                 <div className="px-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => pick('work')}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-[13px] font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                  >
-                    <ArrowLeft className="size-4" aria-hidden />
-                    Back to work
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => pick('work')}
+                        aria-label={t('back_to_work')}
+                        className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
+                      >
+                        <ArrowLeft className="size-4 shrink-0" aria-hidden />
+                        <span className="group-data-[collapsible=icon]:hidden">{t('back_to_work')}</span>
+                      </button>
+                    </TooltipTrigger>
+                    {/* The label is hidden in the icon rail; the way out must
+                        not be. */}
+                    <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{t('back_to_work')}</TooltipContent>
+                  </Tooltip>
                 </div>
-                {/* MANAGE — who works for you + the shapes their work takes. */}
-                <AppSidebarNav
-                  label="Team"
-                  items={[
-                    { title: t('teams'), url: '/dashboard/teams', icon: Network },
-                    { title: t('agents'), url: '/dashboard/agents', icon: Users },
-                    { title: 'Missions', url: '/dashboard/missions', icon: Compass },
-                    { title: t('workflows'), url: '/dashboard/workflows', icon: GitBranch },
-                    { title: 'Automation', url: '/dashboard/automation', icon: CalendarClock },
-                  ]}
-                />
+                {/* MANAGE — who works for you + the shapes their work takes.
+                    Every row is pinnable into the WORK view's Pinned group. */}
+                {pinned.length > 0 && (
+                  <PinnableNav label={t('pinned')} items={pinned} pins={prefs.pins} onTogglePin={prefs.togglePin} onMovePin={prefs.movePin} max={99} reorderable {...pinLabels} />
+                )}
+                {manageSections.map(manageGroup)}
+                <AppSidebarNav items={[{ title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText }]} />
 
-                {/* What the team knows. Playbooks folded into Skills. */}
-                <AppSidebarNav
-                  label="Knowledge"
-                  items={[
-                    { title: t('sources'), url: '/dashboard/connectors', icon: Plug },
-                    { title: t('objects'), url: '/dashboard/objects', icon: Database },
-                    { title: t('learnings'), url: '/dashboard/learnings', icon: Sparkles },
-                  ]}
-                />
-
-                {/* How capabilities are made and proven. */}
-                <AppSidebarNav
-                  label="Build"
-                  items={[
-                    { title: t('skills'), url: '/dashboard/skills', icon: Zap },
-                    { title: 'Tools', url: '/dashboard/tools', icon: Wrench },
-                    { title: 'Vision models', url: '/dashboard/models', icon: Cpu },
-                    { title: t('evals'), url: '/dashboard/evals', icon: TestTube },
-                  ]}
-                />
-
-                {/* See what happened. Logs folded into Activity. */}
-                <AppSidebarNav
-                  label={t('observability_section_label')}
-                  items={[
-                    { title: t('observability'), url: '/dashboard/observability', icon: LineChart },
-                    { title: t('team_report'), url: '/dashboard/team-report', icon: Gauge },
-                  ]}
-                />
-
-                {/* The account itself. Adoption is admin-gated server-side too. */}
-                <AppSidebarNavGroup
-                  label={t('organization_section_label')}
-                  items={[
-                    ...(isAdmin ? [{ title: t('adoption'), url: '/dashboard/adoption', icon: BarChart3 }] : []),
-                    { title: 'Members', url: '/dashboard/members', icon: UserPlus },
-                    ...(isAdmin ? [{ title: 'API tokens', url: '/dashboard/api-tokens', icon: KeyRound }] : []),
-                    { title: 'System', url: '/dashboard/admin', icon: ShieldCheck },
-                    { title: t('docs'), url: 'https://www.vocion.ai/docs', icon: FileText },
-                  ]}
-                />
-
-                <div className="mt-auto px-2 pb-1">
-                  <WorkspaceMenu isAdmin={isAdmin} onManage={() => pick('manage')} />
+                <div className="mt-auto px-2 pb-2 group-data-[collapsible=icon]:px-0">
+                  <WorkspaceSwitcherLive onManage={() => pick('manage')} />
                 </div>
               </>
             )}
       </SidebarContent>
 
-      <SidebarFooter className="px-4 pb-3 text-[11px] text-muted-foreground/70">
-        <div>
-          ©
-          {' '}
-          {new Date().getFullYear()}
-          {' '}
-          {/* Deployments override via NEXT_PUBLIC_BRAND_ATTRIBUTION
-              (same pattern as the NEXT_PUBLIC_BRAND_* logo vars). */}
-          {process.env.NEXT_PUBLIC_BRAND_ATTRIBUTION || 'Vocion · Apache 2.0'}
-        </div>
-      </SidebarFooter>
+      {/* The © / attribution line lives in the account menu now (B-034b §3). */}
       <SidebarRail />
     </Sidebar>
   );
 };
+
+/**
+ * The work view's door to MANAGE — a quiet row, one click in.
+ *
+ * Deliberately not a nav link: the manage view is a sidebar mode, so there is
+ * no URL to point at. Collapsed to the icon rail it is the gear alone and the
+ * tooltip carries the label, the same contract every other rail row keeps.
+ * @param props
+ * @param props.label - Translated label.
+ * @param props.collapsed - True in the icon rail, where the tooltip is the label.
+ * @param props.onOpen - Switch the sidebar to the manage view.
+ */
+function ManageWorkspaceRow({ label, collapsed, onOpen }: { label: string; collapsed: boolean; onOpen: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-testid="manage-workspace-row"
+          onClick={onOpen}
+          aria-label={label}
+          className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-sidebar-foreground transition-colors group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:bg-surface-hover hover:text-foreground"
+        >
+          <Settings2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate group-data-[collapsible=icon]:hidden">{label}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" collisionPadding={8} hidden={!collapsed}>{label}</TooltipContent>
+    </Tooltip>
+  );
+}

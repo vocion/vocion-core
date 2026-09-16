@@ -8,12 +8,23 @@
  *   - `toHistoryTurns` drops tool entries before replaying to the agent.
  */
 
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import type { PageContext } from '@/services/chat/pageContext';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
+import { enqueue } from '@/services/FeedbackWorkerService';
 
 const DEFAULT_TITLE = 'New conversation';
+
+/**
+ * How recommended actions behave in a thread (0094). Neither rung executes
+ * anything — the review queue and trust rules still gate every outward step.
+ */
+export const CONVERSATION_AUTONOMY = ['ask', 'act-within-bounds'] as const;
+export type ConversationAutonomy = typeof CONVERSATION_AUTONOMY[number];
+
+export type MessageFeedbackRating = 'up' | 'down';
 
 export type ConversationRun
   = | { type: 'text'; text: string }
@@ -48,6 +59,8 @@ export async function createConversation(opts: {
   createdBy?: string;
   /** The record this conversation is scoped to (CRM mirror ref), when opened from a dock. */
   scopeRef?: string;
+  /** Where the first turn was asked from — persisted once (R4). */
+  context?: PageContext | null;
 }) {
   const title = (opts.initialTitle ?? DEFAULT_TITLE).trim() || DEFAULT_TITLE;
   const [row] = await db
@@ -58,6 +71,7 @@ export async function createConversation(opts: {
       title,
       createdBy: opts.createdBy ?? null,
       scopeRef: opts.scopeRef ?? null,
+      contextJson: opts.context ?? null,
     })
     .returning();
   if (opts.createdBy) {
@@ -67,6 +81,22 @@ export async function createConversation(opts: {
     });
   }
   return row!;
+}
+
+/**
+ * Record where a conversation started, once: the first turn's page context.
+ * A no-op when the row already has one, so a later turn from another page
+ * never overwrites the origin.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.context
+ */
+export async function setConversationContextIfEmpty(opts: { orgId: string; id: number; context: PageContext }): Promise<void> {
+  await db
+    .update(conversationSchema)
+    .set({ contextJson: opts.context })
+    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id), isNull(conversationSchema.contextJson)));
 }
 
 export async function listConversations(opts: {
@@ -247,4 +277,266 @@ function deriveTitle(content: string, maxLen = 60): string {
     return s || DEFAULT_TITLE;
   }
   return `${s.slice(0, maxLen - 1)}…`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Autonomy (0094)                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Set how recommended actions behave in one thread. The per-conversation
+ * setting is the unit because a person's appetite for autonomy differs by
+ * task, not by day (Manifesto §8: earned one rung at a time).
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.autonomy
+ */
+export async function setConversationAutonomy(opts: { orgId: string; id: number; autonomy: ConversationAutonomy }) {
+  const [row] = await db
+    .update(conversationSchema)
+    .set({ autonomy: opts.autonomy })
+    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Feedback (0094)                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Record a thumb (and an optional note) on one assistant turn.
+ *
+ * The rating is a metric — it lands on the row and in the adoption stream as
+ * `chat.feedback`. The note is what teaches: with text present and a rating
+ * beside it, the pair is queued for the feedback classifier under source
+ * `chat`, keyed on the message id so a re-submit updates rather than
+ * duplicates. A cleared rating (null) wipes both columns. Never throws past
+ * the row write: the queue ride-along is best-effort, like every other
+ * feedback entry point.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.messageId
+ * @param opts.rating - Up, down, or null to clear.
+ * @param opts.note - What the person wrote, if anything.
+ * @param opts.userId
+ */
+export async function setMessageFeedback(opts: {
+  orgId: string;
+  messageId: number;
+  rating: MessageFeedbackRating | null;
+  note?: string | null;
+  userId?: string;
+}) {
+  const [found] = await db
+    .select({
+      id: conversationMessageSchema.id,
+      role: conversationMessageSchema.role,
+      conversationId: conversationMessageSchema.conversationId,
+      agentSlug: conversationSchema.agentSlug,
+    })
+    .from(conversationMessageSchema)
+    .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
+    .where(and(eq(conversationMessageSchema.id, opts.messageId), eq(conversationSchema.orgId, opts.orgId)));
+  if (!found) {
+    return null;
+  }
+  if (found.role !== 'assistant') {
+    throw new Error('feedback is recorded on assistant turns only');
+  }
+  const note = opts.rating ? (opts.note?.trim() || null) : null;
+  const [row] = await db
+    .update(conversationMessageSchema)
+    .set({
+      feedbackRating: opts.rating,
+      feedbackNote: note,
+      feedbackAt: opts.rating ? new Date() : null,
+      feedbackBy: opts.rating ? (opts.userId ?? null) : null,
+    })
+    .where(eq(conversationMessageSchema.id, opts.messageId))
+    .returning();
+
+  if (opts.userId) {
+    void track({ orgId: opts.orgId, userId: opts.userId }, 'chat.feedback', {
+      agentSlug: found.agentSlug,
+      resource: ['conversation_message', found.id],
+      meta: { rating: opts.rating, hasNote: Boolean(note) },
+    });
+  }
+  if (note && opts.rating) {
+    try {
+      await enqueue({
+        orgId: opts.orgId,
+        source: 'chat',
+        externalId: `conversation_message:${found.id}:feedback`,
+        payload: {
+          text: note,
+          agentSlug: found.agentSlug,
+          submittedBy: opts.userId,
+          polarityHint: opts.rating === 'up' ? 'reinforce' : 'correct',
+        },
+      });
+    } catch (error) {
+      console.error(`[ConversationService] could not queue feedback on message ${found.id} for learning`, error);
+    }
+  }
+  return row ?? null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Search (0094)                                                       */
+/* ------------------------------------------------------------------ */
+
+export type ConversationSearchHit = {
+  id: number;
+  title: string;
+  agentSlug: string;
+  updatedAt: Date;
+  /** Where the thread began: 'app' | 'slack' | 'email'. */
+  surface: string;
+  /** Turns so far — how a list says "a question" apart from "a working session". */
+  messageCount: number;
+  /** The record this thread is about, when it was opened from one. */
+  scopeRef: string | null;
+  /** The matched message's content around the hit, when the match was in a message. */
+  snippet: string | null;
+};
+
+/**
+ * Find threads by title or message content — the rail's history search and
+ * the command palette's conversation rows.
+ *
+ * Full-text (`simple` dictionary, no stemming surprises across languages)
+ * plus a case-insensitive substring match so a two-letter fragment still
+ * finds something. Everything-scoped threads by default: a record-scoped
+ * thread is one person's and belongs to its record page
+ * (agent-chat-surface.md §8.6). `includeScopedFor` widens that to the
+ * caller's OWN scoped threads — what /dashboard/conversations shows, because
+ * a person looking for "all my conversations" means the one about the deal
+ * too, and it is still only ever their own. Never pass another user's id.
+ * Indexed by the GIN builds in migrations/concurrent/0094 in production.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.q - The query; blank returns the most recent threads.
+ * @param opts.limit
+ * @param opts.agentSlug - Restrict to one agent's threads.
+ * @param opts.includeScopedFor - Also include record-scoped threads this user created.
+ */
+export async function searchConversations(opts: {
+  orgId: string;
+  q: string;
+  limit?: number;
+  agentSlug?: string;
+  includeScopedFor?: string;
+}): Promise<ConversationSearchHit[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const q = opts.q.trim();
+  const visible = opts.includeScopedFor
+    ? or(sql`${conversationSchema.scopeRef} IS NULL`, eq(conversationSchema.createdBy, opts.includeScopedFor))
+    : sql`${conversationSchema.scopeRef} IS NULL`;
+  const base = [eq(conversationSchema.orgId, opts.orgId), visible];
+  if (opts.agentSlug) {
+    base.push(eq(conversationSchema.agentSlug, opts.agentSlug));
+  }
+  if (!q) {
+    const rows = await db
+      .select({
+      id: conversationSchema.id,
+      title: conversationSchema.title,
+      agentSlug: conversationSchema.agentSlug,
+      updatedAt: conversationSchema.updatedAt,
+      surface: conversationSchema.surface,
+      messageCount: conversationSchema.messageCount,
+      scopeRef: conversationSchema.scopeRef,
+    })
+      .from(conversationSchema)
+      .where(and(...base))
+      .orderBy(desc(conversationSchema.updatedAt))
+      .limit(limit);
+    return rows.map(r => ({ ...r, snippet: null }));
+  }
+  const like = `%${q.replaceAll(/[%_\\]/g, ch => `\\${ch}`)}%`;
+  const tsMatch = (col: unknown) => sql`to_tsvector('simple', ${col}) @@ plainto_tsquery('simple', ${q})`;
+  // Messages whose content matches — one snippet per conversation (the newest).
+  const matchedMessages = await db
+    .select({
+      conversationId: conversationMessageSchema.conversationId,
+      content: conversationMessageSchema.content,
+      id: conversationMessageSchema.id,
+    })
+    .from(conversationMessageSchema)
+    .innerJoin(conversationSchema, eq(conversationSchema.id, conversationMessageSchema.conversationId))
+    .where(and(...base, or(tsMatch(conversationMessageSchema.content), sql`${conversationMessageSchema.content} ILIKE ${like}`)))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(limit * 4);
+  const snippetByConv = new Map<number, string>();
+  for (const m of matchedMessages) {
+    if (!snippetByConv.has(m.conversationId)) {
+      snippetByConv.set(m.conversationId, snippetAround(m.content, q));
+    }
+  }
+  const convIds = [...snippetByConv.keys()];
+  const rows = await db
+    .select({
+      id: conversationSchema.id,
+      title: conversationSchema.title,
+      agentSlug: conversationSchema.agentSlug,
+      updatedAt: conversationSchema.updatedAt,
+      surface: conversationSchema.surface,
+      messageCount: conversationSchema.messageCount,
+      scopeRef: conversationSchema.scopeRef,
+    })
+    .from(conversationSchema)
+    .where(and(
+      ...base,
+      or(
+        tsMatch(conversationSchema.title),
+        sql`${conversationSchema.title} ILIKE ${like}`,
+        convIds.length > 0 ? inArray(conversationSchema.id, convIds) : sql`false`,
+      ),
+    ))
+    .orderBy(desc(conversationSchema.updatedAt))
+    .limit(limit);
+  return rows.map(r => ({ ...r, snippet: snippetByConv.get(r.id) ?? null }));
+}
+
+/**
+ * A short window of text around the first occurrence of the query.
+ * @param content
+ * @param q
+ * @param radius
+ */
+function snippetAround(content: string, q: string, radius = 70): string {
+  const flat = content.replaceAll(/\s+/g, ' ').trim();
+  const at = flat.toLowerCase().indexOf(q.toLowerCase());
+  if (at < 0) {
+    return flat.length > radius * 2 ? `${flat.slice(0, radius * 2)}…` : flat;
+  }
+  const start = Math.max(0, at - radius);
+  const end = Math.min(flat.length, at + q.length + radius);
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`;
+}
+
+/**
+ * The last N message rows of a thread, newest last — how the client learns
+ * the persisted id of the turn it just streamed, so the feedback control
+ * has a row to write to.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.conversationId
+ * @param opts.limit
+ */
+export async function tailMessages(opts: { orgId: string; conversationId: number; limit?: number }) {
+  const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
+  if (!conv) {
+    return [];
+  }
+  const rows = await db
+    .select({ id: conversationMessageSchema.id, role: conversationMessageSchema.role, createdAt: conversationMessageSchema.createdAt })
+    .from(conversationMessageSchema)
+    .where(eq(conversationMessageSchema.conversationId, opts.conversationId))
+    .orderBy(desc(conversationMessageSchema.id))
+    .limit(Math.min(Math.max(opts.limit ?? 2, 1), 20));
+  return rows.reverse();
 }

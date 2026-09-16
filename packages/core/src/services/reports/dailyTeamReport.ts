@@ -20,11 +20,14 @@
  *     and open rows of an `ask` table if one exists (same sibling-PR guard).
  *   - the latest workspace-rollup `briefing` (team_slug NULL).
  *
- * Deliberately no import from a TeamReportService: that page is being built
- * in parallel, and the mail must not wait on it.
+ * Performance — goal attainment per team, human load, cost per outcome,
+ * what needs attention — comes from `TeamReportService.teamReport` over the
+ * same window, so the mail and the page say the same thing
+ * (docs/specs/team-report-v2.md). A failure there is logged and the mail
+ * goes out without the section rather than not at all.
  */
 
-import type { DailyTeamReportData, NeedsYou, ReportWindow, WorkerRunRow } from './dailyTeamReportShape';
+import type { DailyTeamReportData, NeedsYou, PerformanceSummary, ReportWindow, WorkerRunRow } from './dailyTeamReportShape';
 import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
@@ -41,10 +44,59 @@ import {
   workerRunSchema,
   workflowRunSchema,
 } from '@/models/Schema';
+import { teamReport } from '@/services/TeamReportService';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 
 export { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
-export type { AgentRow, BudgetRow, DailyTeamReportData, MemberStats, NeedsYou, ReportWindow, TeamRow, TeamStats, WorkerRunRow } from './dailyTeamReportShape';
+export type { AgentRow, BudgetRow, DailyTeamReportData, MemberStats, NeedsYou, PerformanceSummary, ReportWindow, TeamPerformance, TeamRow, TeamStats, WorkerRunRow } from './dailyTeamReportShape';
+
+/**
+ * The performance summary, from the same read model as the page. The mail
+ * is a daily, so the activity window is 24h; each measure reads its own
+ * authored window regardless.
+ * @param orgId - Project id.
+ * @param until - The clock the report is read at.
+ */
+async function fetchPerformance(orgId: string, until: Date): Promise<PerformanceSummary | undefined> {
+  try {
+    const r = await teamReport(orgId, '24h', until);
+    return {
+      goal: r.goal,
+      setupNeeded: r.setup.needed,
+      teamsOnTarget: r.headline.teamsOnTarget,
+      goalProgress: r.headline.goalProgress?.progress ?? null,
+      humanReviewMs: r.headline.humanReviewMs,
+      autoCompletedRate: r.headline.autoCompletedRate,
+      needsAttention: r.headline.needsAttention,
+      teams: r.teams.map(t => ({
+        slug: t.slug,
+        name: t.name,
+        mission: t.mission,
+        primary: t.primary
+          ? {
+              label: t.primary.measure.label,
+              value: t.primary.value,
+              target: t.primary.measure.target,
+              unit: t.primary.measure.unit,
+              attainment: t.primary.attainment,
+              met: t.primary.met,
+              provenance: t.primary.provenance,
+              trend: t.primary.trend,
+              delta: t.primary.delta,
+              window: t.primary.measure.window,
+            }
+          : null,
+        humanLoad: { interventions: t.humanLoad.interventions, reviewMs: t.humanLoad.decisionLatencyMs, interventionRate: t.humanLoad.interventionRate, autonomousCompletionRate: t.humanLoad.autonomousCompletionRate },
+        cents: t.cents,
+        costPerOutcomeCents: t.economics.costPerOutcomeCents,
+        needsYou: t.needsYou.count,
+      })),
+    };
+  } catch (err) {
+    console.warn('[daily-team-report] could not read team performance; mailing without it', err);
+    return undefined;
+  }
+}
 
 /**
  * Does `table.column` exist? Cheap `information_schema` probe, one round trip.
@@ -193,7 +245,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     accountableEmail = u?.email ?? null;
   }
 
-  const [agents, teams, budgets, runs, needsYou, rollupRows] = await Promise.all([
+  const [agents, teams, budgets, runs, needsYou, rollupRows, performance] = await Promise.all([
     db.select({ slug: agentSchema.slug, name: agentSchema.name, teamSlug: agentSchema.teamSlug, active: agentSchema.active }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
     db.select({ slug: teamSchema.slug, name: teamSchema.name, leadAgentSlug: teamSchema.leadAgentSlug }).from(teamSchema).where(eq(teamSchema.orgId, orgId)),
     db.select({ agentSlug: agentBudgetSchema.agentSlug, period: agentBudgetSchema.period, currentCents: agentBudgetSchema.currentCents, currentTokens: agentBudgetSchema.currentTokens, hardCentsLimit: agentBudgetSchema.hardCentsLimit })
@@ -202,6 +254,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     fetchWorkerRuns(orgId, w),
     fetchNeedsYou(orgId),
     fetchBriefing(orgId, until, opts.briefing),
+    fetchPerformance(orgId, until),
   ]);
   const rollup = rollupRows;
 
@@ -220,6 +273,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     workspace: { id: project.id, name: project.name, slug: project.slug, accountableEmail },
     window: w,
     ...shaped,
+    ...(performance ? { performance } : {}),
     needsYou,
     rollup,
     links: { inbox: link('/dashboard/inbox'), teamReport: link('/dashboard/team-report'), briefings: link('/dashboard/briefings') },

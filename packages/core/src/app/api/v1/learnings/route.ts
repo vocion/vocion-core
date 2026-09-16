@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listSteps } from '@/services/LearningsService';
+import { listNamespaces } from '@/services/MemoryService';
 import { authApi, isErrorResponse } from '../_shared';
 
 /**
@@ -15,5 +15,5 @@ export async function GET(req: Request) {
   if (isErrorResponse(caller)) {
     return caller;
   }
-  return NextResponse.json({ steps: await listSteps(caller.orgId) });
+  return NextResponse.json({ steps: await listNamespaces(caller.orgId) });
 }

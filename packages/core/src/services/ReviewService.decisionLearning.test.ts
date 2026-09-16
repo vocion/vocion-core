@@ -20,7 +20,7 @@ vi.mock('@/services/WorkflowService', () => ({ cancelWorkflow: vi.fn(), resumeWo
 vi.mock('@/services/adoption/track', () => ({ track: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentSchema, feedbackJobSchema, learningSchema, learningStepSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, feedbackJobSchema, memoryNamespaceSchema, memorySchema } = await import('@/models/Schema');
 const { registerAction } = await import('@/libs/actions/registry');
 const { decide } = await import('@/services/ReviewService');
 
@@ -46,7 +46,7 @@ const REVIEWER = 'user_reviewer';
  */
 async function seedAgent(): Promise<void> {
   for (const name of ['crm-updates', STEP]) {
-    await db.insert(learningStepSchema).values({ orgId: ORG, name, title: name, description: name, agentSlugs: [] });
+    await db.insert(memoryNamespaceSchema).values({ orgId: ORG, name, path: `workspace/${name}`, title: name, description: name, agentSlugs: [] });
   }
   await db.insert(agentSchema).values({
     orgId: ORG,
@@ -81,8 +81,8 @@ async function queuedJobs(): Promise<Array<typeof feedbackJobSchema.$inferSelect
 
 async function clear(): Promise<void> {
   await db.delete(feedbackJobSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
   await db.delete(actionRunSchema);
   await db.delete(agentSchema);
 }
@@ -186,9 +186,15 @@ describe('recordActionDecisionLearning (via ReviewService.decide)', () => {
     await decide({ kind: 'action', id: rejected }, 'reject', ORG, { reason: 'wrong call', reviewedBy: REVIEWER });
 
     // Both decisions were live, they queued, and neither reached the rules
-    // the agent reads back on its next run.
+    // the agent reads back on its next run. (Each decision DOES leave a
+    // TTL'd episode under /runs/ — raw consolidation material, never
+    // mounted as instructions — so only rule keys are asserted empty.)
     expect(await queuedJobs()).toHaveLength(2);
-    expect(await db.select().from(learningSchema)).toHaveLength(0);
+
+    const rows = await db.select().from(memorySchema);
+
+    expect(rows.filter(r => !r.key.startsWith('/runs/'))).toHaveLength(0);
+    expect(rows.every(r => r.expiresAt !== null)).toBe(true);
   });
 
   it('queues nothing for an action a human proposed directly', async () => {

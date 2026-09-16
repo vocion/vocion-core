@@ -19,6 +19,7 @@
 import { db } from '@/libs/DB';
 import { mailEnabled, MailError, sendMail } from '@/libs/mail';
 import { briefingSchema } from '@/models/Schema';
+import { workspaceFrom } from '@/services/mail/workspaceFrom';
 import { collectDailyTeamReport, DAILY_TEAM_REPORT_PUBLISHER } from '@/services/reports/dailyTeamReport';
 import { renderDailyTeamReport } from '@/services/reports/renderDailyTeamReport';
 
@@ -99,7 +100,10 @@ export async function runDailyTeamReportJob(orgId: string, rawInput: Record<stri
     mail = { sent: false, reason: 'no recipient: pass input.to or set the workspace accountableUser' };
   } else {
     try {
-      const res = await sendMail({ to: recipients, subject: rendered.subject, html: rendered.html, text: rendered.text, tags: { job: DAILY_TEAM_REPORT_JOB, org: orgId } });
+      // From the workspace's own mailbox when it has one, so a reply to the
+      // report threads back into the workspace's conversation.
+      const from = await workspaceFrom(orgId);
+      const res = await sendMail({ to: recipients, subject: rendered.subject, html: rendered.html, text: rendered.text, ...(from ? { from } : {}), tags: { job: DAILY_TEAM_REPORT_JOB, org: orgId } });
       mail = res.skipped ? { sent: false, reason: res.reason } : { sent: true, id: res.id };
     } catch (err) {
       // The briefing is already stored; a provider failure is reported, not fatal.

@@ -17,7 +17,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { learningCandidateSchema, learningFeedbackOccurrenceSchema } from '@/models/Schema';
-import { addLearning, checkDedup } from '@/services/LearningsService';
+import { addRule, checkDedup, ensureScopedNamespace } from '@/services/MemoryService';
 
 export type LearningCandidate = typeof learningCandidateSchema.$inferSelect;
 
@@ -107,8 +107,13 @@ export async function getCandidate(orgId: string, id: number): Promise<LearningC
  * @param opts.stepName
  * @param opts.ruleText
  * @param opts.polarity
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  * @param opts.sourceFeedbackJobId
  * @param opts.sourceRunId
+ * @param opts.projectId
+ * @param opts.sourceRef
  */
 export async function createCandidate(opts: {
   orgId: string;
@@ -120,8 +125,21 @@ export async function createCandidate(opts: {
    * is what feedback without an explicit polarity has always been.
    */
   polarity?: 'correct' | 'reinforce';
+  /** 'preference' | 'knowledge' | 'procedure'; null = pre-Phase-2 default. */
+  memoryType?: string | null;
+  /** Where the rule lands on approval; null = the workspace step above. */
+  scopeKind?: string | null;
+  scopeRef?: string | null;
   sourceFeedbackJobId?: number | null;
   sourceRunId?: number | null;
+  /** The workspace this rule belongs to, when the caller knows it. */
+  projectId?: string | null;
+  /**
+   * Where it came from when it came from something other than a feedback job
+   * (0102): a Slack permalink, an ask ref. "Why does this rule exist" is a
+   * question a queue should be able to answer with a link.
+   */
+  sourceRef?: string | null;
 }): Promise<LearningCandidate> {
   const ruleText = opts.ruleText.trim();
   if (!ruleText) {
@@ -134,8 +152,13 @@ export async function createCandidate(opts: {
       stepName: opts.stepName,
       ruleText,
       polarity: opts.polarity ?? 'correct',
+      memoryType: opts.memoryType ?? null,
+      scopeKind: opts.scopeKind ?? null,
+      scopeRef: opts.scopeRef ?? null,
       sourceFeedbackJobId: opts.sourceFeedbackJobId ?? null,
       sourceRunId: opts.sourceRunId ?? null,
+      projectId: opts.projectId ?? null,
+      sourceRef: opts.sourceRef ?? null,
       status: 'pending',
     })
     .returning();
@@ -154,12 +177,18 @@ export type UpdateCandidateResult
  * @param opts.id
  * @param opts.editedRuleText
  * @param opts.stepName
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  */
 export async function updateCandidate(opts: {
   orgId: string;
   id: number;
   editedRuleText?: string;
   stepName?: string;
+  memoryType?: string | null;
+  scopeKind?: string | null;
+  scopeRef?: string | null;
 }): Promise<UpdateCandidateResult> {
   const existing = await getCandidate(opts.orgId, opts.id);
   if (!existing) {
@@ -180,6 +209,15 @@ export async function updateCandidate(opts: {
   if (opts.stepName !== undefined) {
     patch.stepName = opts.stepName;
   }
+  if (opts.memoryType !== undefined) {
+    patch.memoryType = opts.memoryType;
+  }
+  if (opts.scopeKind !== undefined) {
+    patch.scopeKind = opts.scopeKind;
+    // A scope change re-points the ref too; a kind with no ref means the
+    // caller cleared it back to workspace.
+    patch.scopeRef = opts.scopeRef ?? null;
+  }
   if (Object.keys(patch).length === 0) {
     return { ok: true, candidate: existing };
   }
@@ -193,12 +231,12 @@ export async function updateCandidate(opts: {
 }
 
 export type DecideCandidateResult
-  = | { ok: true; candidate: LearningCandidate; ruleId: number | null }
+  = | { ok: true; candidate: LearningCandidate; ruleKey: string | null }
     | { ok: false; error: 'not_found' | 'already_decided' | 'reason_required' | 'unknown_step' }
     | {
       ok: false;
       error: 'near_duplicate';
-      existing: { existingId: number; existingRule: string; similarity: number };
+      existing: { existingKey: string; existingRule: string; similarity: number };
     };
 
 /**
@@ -241,24 +279,52 @@ export async function decideCandidate(opts: {
       .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
       .returning();
     await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'rejected');
-    return { ok: true, candidate: row!, ruleId: null };
+    return { ok: true, candidate: row!, ruleKey: null };
   }
 
   const agentSlug = await resolveCandidateAgentSlug(opts.orgId, opts.id);
+  // A scoped candidate lands in its scope's own namespace (created on first
+  // use); everything else lands in the workspace step it names, as always.
+  let targetStep = candidate.stepName;
+  if (candidate.scopeKind && candidate.scopeKind !== 'workspace' && candidate.scopeRef) {
+    targetStep = (await ensureScopedNamespace(opts.orgId, candidate.scopeKind, candidate.scopeRef)).name;
+  }
+
+  // A consolidation proposal replaces the rules it merged. The retire happens
+  // FIRST (the merged text near-duplicates its own sources by construction),
+  // but only after checking the merge does not collide with some rule it is
+  // NOT replacing — that way a refused merge leaves the store untouched.
+  const replaces = candidate.replacesKeys ?? [];
+  if (replaces.length > 0) {
+    const collision = await checkCandidateText(opts.orgId, targetStep, effectiveRuleText(candidate));
+    if (!collision.ok && !replaces.includes(collision.existingKey)) {
+      return {
+        ok: false,
+        error: 'near_duplicate',
+        existing: { existingKey: collision.existingKey, existingRule: collision.existingRule, similarity: collision.similarity },
+      };
+    }
+    const { removeRule } = await import('@/services/MemoryService');
+    for (const key of replaces) {
+      await removeRule({ orgId: opts.orgId, key });
+    }
+  }
   let added;
   try {
-    added = await addLearning({
+    added = await addRule({
       orgId: opts.orgId,
-      stepName: candidate.stepName,
+      stepName: targetStep,
       ruleText: effectiveRuleText(candidate),
       source: candidate.sourceFeedbackJobId ? `feedback:${candidate.sourceFeedbackJobId}` : 'learning-candidate',
       createdBy: opts.decidedBy,
       agentSlug,
       occurrenceCount: candidate.occurrenceCount,
+      polarity: candidate.polarity,
+      type: candidate.memoryType ?? undefined,
     });
   } catch (error) {
-    // addLearning throws only for an unknown step; anything else is a real fault.
-    if (error instanceof Error && error.message.startsWith('unknown learning step')) {
+    // addRule throws only for an unknown namespace; anything else is a real fault.
+    if (error instanceof Error && error.message.startsWith('unknown memory namespace')) {
       console.error(`[LearningCandidateService] candidate ${opts.id} targets unknown step "${candidate.stepName}"`, error);
       return { ok: false, error: 'unknown_step' };
     }
@@ -270,7 +336,7 @@ export async function decideCandidate(opts: {
       ok: false,
       error: 'near_duplicate',
       existing: {
-        existingId: added.existing.existingId,
+        existingKey: added.existing.existingKey,
         existingRule: added.existing.existingRule,
         similarity: added.existing.similarity,
       },
@@ -281,14 +347,60 @@ export async function decideCandidate(opts: {
     .update(learningCandidateSchema)
     .set({
       status: 'approved',
-      createdLearningId: added.rule?.id ?? null,
+      createdMemoryKey: added.rule?.key ?? null,
       decidedBy: opts.decidedBy,
       decidedAt: new Date(),
     })
     .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
     .returning();
   await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'approved', agentSlug);
-  return { ok: true, candidate: row!, ruleId: added.rule?.id ?? null };
+  if (replaces.length > 0) {
+    // The compaction mark for the growing-memory chart ("N → 1").
+    void (async () => {
+      const { track } = await import('@/services/adoption/track');
+      await track({ orgId: opts.orgId, userId: opts.decidedBy }, 'learning.consolidated', {
+        agentSlug: agentSlug ?? undefined,
+        resource: ['learning_candidate', opts.id],
+        meta: { replaced: replaces.length, stepName: targetStep },
+      });
+    })().catch((error) => {
+      console.error(`[LearningCandidateService] could not track consolidation for candidate ${opts.id}`, error);
+    });
+  }
+  // Adoption evidence: run the affected agent's eval dataset so the card can
+  // show a before/after score. Fire-and-forget — a dataset run takes minutes
+  // of model time and its failure must never fail a decision a person made.
+  if (agentSlug) {
+    void runAdoptionEval(opts.orgId, opts.id, agentSlug).catch((error) => {
+      console.error(`[LearningCandidateService] adoption eval for candidate ${opts.id} failed`, error);
+    });
+  }
+  return { ok: true, candidate: row!, ruleKey: added.rule?.key ?? null };
+}
+
+/**
+ * Run the agent's eval dataset after one of its rules was adopted, and stamp
+ * the run on the candidate so the card can show the delta.
+ * @param orgId
+ * @param candidateId
+ * @param agentSlug
+ */
+async function runAdoptionEval(orgId: string, candidateId: number, agentSlug: string): Promise<void> {
+  const { evalDatasetSchema } = await import('@/models/Schema');
+  const [dataset] = await db
+    .select({ slug: evalDatasetSchema.slug })
+    .from(evalDatasetSchema)
+    .where(and(eq(evalDatasetSchema.orgId, orgId), eq(evalDatasetSchema.agentSlug, agentSlug)))
+    .limit(1);
+  if (!dataset) {
+    return;
+  }
+  const { runDataset } = await import('@/services/EvalService');
+  const { runId } = await runDataset({ orgId, datasetSlug: dataset.slug });
+  await db
+    .update(learningCandidateSchema)
+    .set({ evalRunId: runId })
+    .where(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.id, candidateId)));
 }
 
 /**
@@ -363,4 +475,160 @@ async function trackCandidateDecision(
   } catch (error) {
     console.error(`[LearningCandidateService] could not track the ${decision} decision on candidate ${candidateId}`, error);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* The preference fast lane — light-touch half of the gate             */
+/* ------------------------------------------------------------------ */
+
+export type FastLanePreferenceResult
+  = | { ok: true; candidateId: number; ruleKey: string }
+    | { ok: false; error: 'no_user' | 'empty_text' | 'near_duplicate'; detail?: string };
+
+/**
+ * An explicit "remember this" from the person in the conversation. The one
+ * sanctioned exception to approve-before-apply: a user-scoped preference is
+ * applied immediately AND recorded as an approved candidate on the review
+ * queue, so a reviewer is notified after the fact and can revoke it. It can
+ * only ever land at USER scope for the SPEAKING user — nothing behavior-
+ * changing for anyone else ships through this lane.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.userId - The person whose preference this is. Refused when the turn has no user (missions, schedules).
+ * @param opts.text - The preference, as a standalone instruction.
+ * @param opts.agentSlug - The agent that captured it, for the adoption stream.
+ */
+export async function recordFastLanePreference(opts: {
+  orgId: string;
+  userId?: string;
+  text: string;
+  agentSlug?: string | null;
+}): Promise<FastLanePreferenceResult> {
+  const text = opts.text.trim();
+  if (!opts.userId) {
+    return { ok: false, error: 'no_user' };
+  }
+  if (!text) {
+    return { ok: false, error: 'empty_text' };
+  }
+  const ns = await ensureScopedNamespace(opts.orgId, 'user', opts.userId);
+  const added = await addRule({
+    orgId: opts.orgId,
+    stepName: ns.name,
+    ruleText: text,
+    source: 'preference-fast-lane',
+    createdBy: opts.userId,
+    agentSlug: opts.agentSlug ?? null,
+    type: 'preference',
+  });
+  if (!added.ok) {
+    return { ok: false, error: 'near_duplicate', detail: added.detail };
+  }
+  // The notify half: an already-approved candidate on the queue, so the
+  // decided list shows what shipped and a reviewer can revoke the rule.
+  const [candidate] = await db
+    .insert(learningCandidateSchema)
+    .values({
+      orgId: opts.orgId,
+      stepName: ns.name,
+      ruleText: text,
+      polarity: 'reinforce',
+      memoryType: 'preference',
+      scopeKind: 'user',
+      scopeRef: opts.userId,
+      status: 'approved',
+      decidedBy: `fast-lane:${opts.userId}`,
+      decidedAt: new Date(),
+      createdMemoryKey: added.rule.key,
+    })
+    .returning();
+  await db.insert(learningFeedbackOccurrenceSchema).values({
+    orgId: opts.orgId,
+    candidateId: candidate!.id,
+    polarity: 'reinforce',
+    note: text,
+    agentSlug: opts.agentSlug ?? null,
+    submittedBy: opts.userId,
+  });
+  await trackCandidateDecision(opts.orgId, candidate!.id, opts.userId, 'approved', opts.agentSlug ?? null);
+  return { ok: true, candidateId: candidate!.id, ruleKey: added.rule.key };
+}
+
+/* ------------------------------------------------------------------ */
+/* Decided cards with their eval evidence                              */
+/* ------------------------------------------------------------------ */
+
+export type DecidedCandidateCard = {
+  id: number;
+  stepName: string;
+  ruleText: string;
+  status: string;
+  memoryType: string | null;
+  scopeKind: string | null;
+  scopeRef: string | null;
+  decidedBy: string | null;
+  decidedAt: Date | null;
+  rejectedReason: string | null;
+  /** Pass rate of the adoption-triggered eval run, and of the run before it. */
+  evalAfterPct: number | null;
+  evalBeforePct: number | null;
+};
+
+/**
+ * The most recent decisions, each with its eval before/after when an adoption
+ * triggered a run — the card evidence the plan's Phase 3 asks for.
+ * @param orgId
+ * @param limit
+ */
+export async function listDecidedWithEvidence(orgId: string, limit = 8): Promise<DecidedCandidateCard[]> {
+  const decided = await db
+    .select()
+    .from(learningCandidateSchema)
+    .where(and(
+      eq(learningCandidateSchema.orgId, orgId),
+      sql`${learningCandidateSchema.status} <> 'pending'`,
+    ))
+    .orderBy(desc(learningCandidateSchema.decidedAt))
+    .limit(limit);
+
+  const { evalRunSchema } = await import('@/models/Schema');
+  const out: DecidedCandidateCard[] = [];
+  for (const c of decided) {
+    let after: number | null = null;
+    let before: number | null = null;
+    if (c.evalRunId) {
+      const [run] = await db.select().from(evalRunSchema).where(eq(evalRunSchema.id, c.evalRunId));
+      const passRate = (run?.metrics as { passRate?: number } | null)?.passRate;
+      after = typeof passRate === 'number' ? Math.round(passRate * 100) : null;
+      if (run) {
+        const [prev] = await db
+          .select()
+          .from(evalRunSchema)
+          .where(and(
+            eq(evalRunSchema.orgId, orgId),
+            eq(evalRunSchema.datasetId, run.datasetId),
+            sql`${evalRunSchema.id} < ${run.id}`,
+          ))
+          .orderBy(desc(evalRunSchema.id))
+          .limit(1);
+        const prevRate = (prev?.metrics as { passRate?: number } | null)?.passRate;
+        before = typeof prevRate === 'number' ? Math.round(prevRate * 100) : null;
+      }
+    }
+    out.push({
+      id: c.id,
+      stepName: c.stepName,
+      ruleText: effectiveRuleText(c),
+      status: c.status,
+      memoryType: c.memoryType,
+      scopeKind: c.scopeKind,
+      scopeRef: c.scopeRef,
+      decidedBy: c.decidedBy,
+      decidedAt: c.decidedAt,
+      rejectedReason: c.rejectedReason,
+      evalAfterPct: after,
+      evalBeforePct: before,
+    });
+  }
+  return out;
 }

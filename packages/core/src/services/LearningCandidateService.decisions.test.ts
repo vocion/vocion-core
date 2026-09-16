@@ -11,14 +11,20 @@ vi.mock('@/libs/DB');
 const trackMock = vi.fn();
 
 vi.mock('@/services/adoption/track', () => ({ track: (...args: unknown[]) => trackMock(...args) }));
+
+const runDatasetMock = vi.fn();
+
+vi.mock('@/services/EvalService', () => ({ runDataset: (...args: unknown[]) => runDatasetMock(...args) }));
 vi.mock('@/services/adoption/attribution', () => ({ agentSlugFromPrincipal: () => null }));
 
 const { db } = await import('@/libs/DB');
 const {
   learningCandidateSchema,
   learningFeedbackOccurrenceSchema,
-  learningSchema,
-  learningStepSchema,
+  evalDatasetSchema,
+  evalRunSchema,
+  memoryNamespaceSchema,
+  memorySchema,
 } = await import('@/models/Schema');
 const { decideCandidate } = await import('@/services/LearningCandidateService');
 
@@ -28,9 +34,9 @@ const REVIEWER = 'user_lead';
 
 async function makeStep(): Promise<number> {
   const [row] = await db
-    .insert(learningStepSchema)
-    .values({ orgId: ORG, name: STEP, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
-    .returning({ id: learningStepSchema.id });
+    .insert(memoryNamespaceSchema)
+    .values({ orgId: ORG, name: STEP, path: `workspace/${STEP}`, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
+    .returning({ id: memoryNamespaceSchema.id });
   return row!.id;
 }
 
@@ -39,8 +45,11 @@ async function makeStep(): Promise<number> {
  * @param opts
  * @param opts.occurrenceCount
  * @param opts.agentSlug
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  */
-async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: string | null } = {}): Promise<number> {
+async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: string | null; memoryType?: string; scopeKind?: string; scopeRef?: string } = {}): Promise<number> {
   const [candidate] = await db
     .insert(learningCandidateSchema)
     .values({
@@ -49,6 +58,9 @@ async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: strin
       ruleText: 'always cite the source line for every number',
       polarity: 'correct',
       occurrenceCount: opts.occurrenceCount ?? 1,
+      memoryType: opts.memoryType ?? null,
+      scopeKind: opts.scopeKind ?? null,
+      scopeRef: opts.scopeRef ?? null,
     })
     .returning({ id: learningCandidateSchema.id });
 
@@ -66,9 +78,12 @@ async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: strin
 beforeEach(async () => {
   await db.delete(learningFeedbackOccurrenceSchema);
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
   trackMock.mockReset();
+  runDatasetMock.mockReset();
+  await db.delete(evalRunSchema);
+  await db.delete(evalDatasetSchema);
 });
 
 describe('decideCandidate', () => {
@@ -115,9 +130,9 @@ describe('decideCandidate', () => {
 
     await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
 
-    const [rule] = await db.select().from(learningSchema);
+    const [rule] = await db.select().from(memorySchema);
 
-    expect(rule?.occurrenceCount).toBe(4);
+    expect((rule?.value as { meta?: { occurrenceCount?: number } }).meta?.occurrenceCount).toBe(4);
   });
 
   it('leaves the agent unset when no occurrence named one', async () => {
@@ -141,5 +156,67 @@ describe('decideCandidate', () => {
 
     expect(result).toEqual({ ok: false, error: 'already_decided' });
     expect(trackMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('decideCandidate — typed, scoped adoption (Phase 2)', () => {
+  it('lands a user-scoped preference in that user own namespace with its type', async () => {
+    await makeStep();
+    const candidateId = await makeCandidate({ memoryType: 'preference', scopeKind: 'user', scopeRef: 'user_jamie' });
+
+    const result = await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+
+    expect(result.ok).toBe(true);
+
+    const [rule] = await db.select().from(memorySchema);
+
+    expect(rule!.key.startsWith('/users/user_jamie/preferences/')).toBe(true);
+    expect((rule!.value as { meta?: { type?: string } }).meta?.type).toBe('preference');
+
+    const namespaces = await db.select().from(memoryNamespaceSchema);
+    const created = namespaces.find(ns => ns.scopeKind === 'user');
+
+    expect(created).toMatchObject({ scopeRef: 'user_jamie', path: 'users/user_jamie/preferences' });
+  });
+
+  it('still lands an unscoped candidate in its workspace step', async () => {
+    await makeStep();
+    const candidateId = await makeCandidate({ memoryType: 'procedure' });
+
+    await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+
+    const [rule] = await db.select().from(memorySchema);
+
+    expect(rule!.key.startsWith(`/workspace/${STEP}/`)).toBe(true);
+  });
+});
+
+describe('decideCandidate — eval evidence (Phase 3)', () => {
+  const settle = () => new Promise(resolve => setTimeout(resolve, 25));
+
+  it('runs the affected agent dataset on adoption and stamps the run on the card', async () => {
+    await makeStep();
+    await db.insert(evalDatasetSchema).values({ orgId: ORG, slug: 'lead-quality', name: 'Lead quality', agentSlug: 'pipeline-analyst', items: [{ input: 'x' }] });
+    runDatasetMock.mockResolvedValue({ runId: 4242, metrics: { passRate: 0.9 } });
+    const candidateId = await makeCandidate({ agentSlug: 'pipeline-analyst' });
+
+    await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+    await settle();
+
+    expect(runDatasetMock).toHaveBeenCalledWith({ orgId: ORG, datasetSlug: 'lead-quality' });
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate!.evalRunId).toBe(4242);
+  });
+
+  it('skips the eval quietly when the agent has no dataset', async () => {
+    await makeStep();
+    const candidateId = await makeCandidate({ agentSlug: 'pipeline-analyst' });
+
+    await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+    await settle();
+
+    expect(runDatasetMock).not.toHaveBeenCalled();
   });
 });

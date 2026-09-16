@@ -197,18 +197,18 @@ export default async function EvalDatasetDetailPage(props: Props) {
                 ))}
               </div>
               <div className="mb-3">
-                <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Input</div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">Input</div>
                 <div className="text-sm whitespace-pre-wrap">{item.input}</div>
               </div>
               {item.expectedOutput && (
                 <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Expected</div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Expected</div>
                   <div className="text-sm whitespace-pre-wrap text-muted-foreground">{item.expectedOutput}</div>
                 </div>
               )}
               {item.rubric && (
                 <div>
-                  <div className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Rubric</div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Rubric</div>
                   <div className="text-sm whitespace-pre-wrap text-muted-foreground italic">{item.rubric}</div>
                 </div>
               )}

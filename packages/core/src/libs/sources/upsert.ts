@@ -27,7 +27,7 @@ import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/reg
 import { withManifestDir } from '@/libs/sources/manifestDir';
 import { withProcessor } from '@/libs/sources/processor';
 import { getConnector, listConnectors } from '@/libs/sources/registry';
-import { agentSchema, knowledgeSourceSchema, learningStepSchema } from '@/models/Schema';
+import { agentSchema, knowledgeSourceSchema, memoryNamespaceSchema } from '@/models/Schema';
 
 /**
  * Config key holding a source's human-readable name.
@@ -95,7 +95,7 @@ export type KnownProcessorNames = {
  */
 export async function storedProcessorNames(orgId: string): Promise<KnownProcessorNames> {
   const [steps, agents] = await Promise.all([
-    db.select({ name: learningStepSchema.name }).from(learningStepSchema).where(eq(learningStepSchema.orgId, orgId)),
+    db.select({ name: memoryNamespaceSchema.name }).from(memoryNamespaceSchema).where(eq(memoryNamespaceSchema.orgId, orgId)),
     db.select({ slug: agentSchema.slug }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
   ]);
   return {
@@ -109,8 +109,9 @@ export async function storedProcessorNames(orgId: string): Promise<KnownProcesso
  * `config_json`.
  *
  * Everything checked here would otherwise fail at run time, once per document,
- * for as long as nobody noticed: `getLearnings` throws on an unknown step, and
- * a mistyped agent slug degrades the learning loop silently.
+ * for as long as nobody noticed: `getLearnings` throws on an unknown step, a
+ * mistyped agent slug degrades the learning loop silently, and a field named
+ * outside `dedupOn` makes a key-segment comparison that can never match.
  * @param spec - The source declaring the processor.
  * @param known - What its config may name.
  */
@@ -123,7 +124,13 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
     throw new Error(`source "${spec.slug}" references unknown processor: "${spec.processor.slug}". Registered: ${listProcessorSlugs().join(', ')}`);
   }
   // Throws ZodError on bad input, same as the connector config below.
-  const parsed = schema.parse(spec.processor.config) as { learningSteps?: string[]; agentSlug?: string };
+  const parsed = schema.parse(spec.processor.config) as {
+    learningSteps?: string[];
+    agentSlug?: string;
+    dedupOn?: string[];
+    knownCandidates?: { keyedBy?: string };
+    seriesLabel?: { sameOn?: string[]; differsOn?: string; keyField?: string };
+  };
   for (const step of parsed.learningSteps ?? []) {
     if (!known.learningSteps.has(step)) {
       throw new Error(`source "${spec.slug}" processor names unknown learning step: "${step}"`);
@@ -132,6 +139,37 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
   if (parsed.agentSlug && !known.agentSlugs.has(parsed.agentSlug)) {
     throw new Error(`source "${spec.slug}" processor names unknown agent: "${parsed.agentSlug}"`);
   }
+  // The identity-relative knobs. Both the known-cards block and the sibling
+  // rule compare dedup-key SEGMENTS, and a segment is found by the field's
+  // POSITION in `dedupOn` (`candidateExtractor/knownCards.ts`,
+  // `candidateExtractor/labels.ts`). A name that is not in `dedupOn` therefore
+  // has no segment: at run time it compares against undefined, matches
+  // nothing, and the operator is left with a rule they believe is in force.
+  // `knownCards.ts` has said "validated at apply time" since it shipped; this
+  // is that validation.
+  const identity = new Set(parsed.dedupOn ?? []);
+  const requireIdentity = (field: string | undefined, knob: string): void => {
+    if (field !== undefined && !identity.has(field)) {
+      throw new Error(`source "${spec.slug}" processor names "${field}" in ${knob}, which is not one of its dedupOn fields (${[...identity].join(', ')})`);
+    }
+  };
+  requireIdentity(parsed.knownCandidates?.keyedBy, 'knownCandidates.keyedBy');
+  for (const field of parsed.seriesLabel?.sameOn ?? []) {
+    requireIdentity(field, 'seriesLabel.sameOn');
+  }
+  requireIdentity(parsed.seriesLabel?.differsOn, 'seriesLabel.differsOn');
+  // And the one knob that must NOT be identity. The label stage runs BEFORE
+  // the proposal (`candidateExtractor/labels.ts` writes into `record.fields`,
+  // `propose.ts` reads them), so a key written into an identity field would
+  // change the record's own dedup key on the way past: every occurrence of a
+  // series would key on its group instead of itself, and a refresh would file
+  // a second card rather than find the first.
+  const requireNotIdentity = (field: string | undefined, knob: string): void => {
+    if (field !== undefined && identity.has(field)) {
+      throw new Error(`source "${spec.slug}" processor names "${field}" in ${knob}, which IS one of its dedupOn fields (${[...identity].join(', ')}); that field is written before the proposal, so it would change the record's own dedup key`);
+    }
+  };
+  requireNotIdentity(parsed.seriesLabel?.keyField, 'seriesLabel.keyField');
   return { slug: spec.processor.slug, config: spec.processor.config };
 }
 

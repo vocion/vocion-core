@@ -5,7 +5,7 @@
  * string, so it cannot go through `./orgKey`. It has two ways in:
  *
  *   1. **The org's own AWS access key pair**, stored under the `aws` platform
- *      at /dashboard/api-tokens and encrypted under that org's DEK. When it is
+ *      at /dashboard/developers and encrypted under that org's DEK. When it is
  *      there, we sign with it and the model spend lands on the customer's own
  *      AWS bill. This is the path the product is built around.
  *   2. **The process's own AWS identity**, when the org has stored nothing.
@@ -178,7 +178,7 @@ export async function mintBedrockSessionForRuntime(orgId: string): Promise<Runti
     console.error(`[bedrock] STS refused a session for org ${orgId}:`, error);
     throw new Error(
       `Could not mint a Bedrock session from the AWS credentials stored for this org. `
-      + `Check the access key at /dashboard/api-tokens is active and allowed to call sts:GetSessionToken.`,
+      + `Check the access key at /dashboard/developers is active and allowed to call sts:GetSessionToken.`,
     );
   }
 

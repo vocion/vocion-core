@@ -12,12 +12,15 @@
 
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
+import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
+import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
+import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
@@ -484,6 +487,8 @@ export type ReviewDetail = ReviewItem & {
   proposal: Record<string, unknown> | null;
   /** The action's own rendering of itself, when it defines a `reviewCard`. */
   card: unknown | null;
+  /** How often this agent's recommendations of this kind matched the person (30d). Actions only. */
+  alignment?: AlignmentScore | null;
   /** Everything else about the underlying row, kept verbatim for the client. */
   record: Record<string, unknown>;
 };
@@ -537,6 +542,11 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
       approvedByAgent: row.approvedByAgent,
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
+      alignment: await scoreFor({
+        orgId,
+        subjectKey: row.actionId,
+        agentSlug: row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null,
+      }).catch(() => null),
       record: row as unknown as Record<string, unknown>,
     };
   }
@@ -833,7 +843,13 @@ export async function decide(
       return {};
     case 'action': {
       let execution: DecideResult['execution'];
+      let labels: Record<string, LabelVerdict> | undefined;
       if (action === 'approve') {
+        // BEFORE the write, and only here: `updateActionInput` replaces
+        // `input` wholesale and `onProposed` rewrites the object's metadata
+        // after it, so this is the last moment the values the proposer wrote
+        // still exist anywhere.
+        labels = await labelVerdicts(item.id, orgId, opts?.editedInput);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
@@ -887,7 +903,13 @@ export async function decide(
         signal,
         hint: opts?.note,
         learn: opts?.learn,
+        labels,
       }).catch(() => {});
+      // The alignment ledger: this decision compared with what the agent
+      // recommended, so deciding is also evidence — for the score beside the
+      // confidence meter and for the autonomy ladder. A rejection of a run
+      // that had already auto-executed demotes its kind from in here.
+      await recordActionAlignment({ orgId, runId: item.id, signal, userId: reviewedBy, hasNote: !!(opts?.reason?.trim() || opts?.note?.trim()) }).catch(() => {});
       return { execution };
     }
   }
@@ -920,6 +942,79 @@ function trackDecision(
   })();
 }
 
+/**
+ * The stored `fields` object of an action input, whatever else it carries.
+ * @param input - An action payload, stored or edited.
+ */
+function fieldsOf(input: unknown): Record<string, unknown> {
+  const fields = (input as { fields?: unknown } | null | undefined)?.fields;
+  return fields && typeof fields === 'object' ? fields as Record<string, unknown> : {};
+}
+
+/**
+ * One field's value as the comparison sees it: a trimmed string, blank for absent.
+ * @param value - The stored or edited field value.
+ */
+function labelText(value: unknown): string {
+  return value == null ? '' : String(value).trim();
+}
+
+/**
+ * What a reviewer did to the labels a proposal declared, read at decide time.
+ *
+ * Called BEFORE `updateActionInput`, which replaces `input` wholesale, so the
+ * proposed values are still there to compare against. A proposal that declared
+ * nothing is measured not at all, which is what keeps this free for every
+ * caller that has never heard of a label.
+ * @param runId - The action run being decided.
+ * @param orgId - Org that owns it.
+ * @param editedInput - The payload the reviewer is approving, when they edited one.
+ */
+async function labelVerdicts(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown> | undefined,
+): Promise<Record<string, LabelVerdict> | undefined> {
+  const [run] = await db
+    .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+    .limit(1);
+  const declared = run?.proposal?.labels;
+  if (!Array.isArray(declared) || declared.length === 0) {
+    return undefined;
+  }
+
+  const before = fieldsOf(run?.input);
+  // A plain approve is a decision about the labels too: the reviewer looked at
+  // them and left them alone, which is the strongest "kept" there is.
+  const after = editedInput ? fieldsOf(editedInput) : before;
+
+  const verdicts: Record<string, LabelVerdict> = {};
+  for (const name of declared) {
+    if (typeof name !== 'string' || name === '') {
+      continue;
+    }
+    if (editedInput && !(name in after)) {
+      // Omission is not a clear: a reviewer clearing a label sends it as '',
+      // and a payload that never mentions the field was not edited on it.
+      continue;
+    }
+    const was = labelText(before[name]);
+    const now = labelText(after[name]);
+    if (was === now) {
+      verdicts[name] = 'kept';
+    } else if (was === '') {
+      verdicts[name] = 'added';
+    } else if (now === '') {
+      verdicts[name] = 'cleared';
+    } else {
+      verdicts[name] = 'changed';
+    }
+  }
+  return Object.keys(verdicts).length > 0 ? verdicts : undefined;
+}
+
 /** Every distinct triage decision on an agent-suggested action. */
 export type ActionSignal = 'approve' | 'edit' | 'reject' | 'skip' | 'save' | 'rewrite' | 'regenerate';
 
@@ -946,8 +1041,9 @@ const SIGNAL_TO_DECISION = {
  * @param opts.userId
  * @param opts.hint
  * @param opts.learn - `false` from an automated caller; measured as always, but trains nothing.
+ * @param opts.labels - Per-field verdicts on the labels the proposal declared, read before the edit was written.
  */
-export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string; learn?: boolean }): Promise<void> {
+export async function recordActionSignal(opts: { orgId: string; runId: number; signal: ActionSignal; userId?: string; hint?: string; learn?: boolean; labels?: Record<string, LabelVerdict> }): Promise<void> {
   try {
     const [run] = await db
       .select({
@@ -984,7 +1080,15 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
         // it serves the workflow and mission planes. Actions come through here
         // instead because the typed triage signal (edit, rewrite, skip …) has
         // no home there. Keep the two in step.
+        //
+        // `labels` below is deliberately NOT mirrored over there, and that is
+        // the one asymmetry between them: only an action carries a proposal
+        // envelope to declare labels on, and only the action path re-reads the
+        // row before the edit is written, which is what the verdicts are read
+        // from. A workflow or mission that ever gains a labelled payload needs
+        // that read first, not a copy of this key.
         ...(suggestedDecision ? { suggestedDecision } : {}),
+        ...(opts.labels && Object.keys(opts.labels).length > 0 ? { labels: opts.labels } : {}),
         ...(opts.hint ? { hint: opts.hint } : {}),
       },
     });
@@ -1239,11 +1343,11 @@ async function recordActionDecisionLearning(opts: {
 }): Promise<void> {
   const note = opts.text?.trim();
   const polarity = SIGNAL_POLARITY[opts.signal];
-  if (opts.learn === false || !note || !polarity) {
+  if (opts.learn === false) {
     return;
   }
   const [run] = await db
-    .select({ invokedBy: actionRunSchema.invokedBy })
+    .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId, proposal: actionRunSchema.proposal })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
     .limit(1);
@@ -1251,6 +1355,32 @@ async function recordActionDecisionLearning(opts: {
     return; // only agent proposals train agents
   }
   const agentSlug = run.invokedBy.slice('agent:'.length);
+
+  // Every judged decision leaves an EPISODE — raw, TTL'd material the
+  // consolidation job mines (a confident-but-rejected proposal is exactly
+  // where the next learning candidate hides). Unlike the feedback queue
+  // below, episodes need no human text: the decision itself is the outcome.
+  // Fire-and-forget; never read as instructions.
+  void (async () => {
+    const { recordEpisode } = await import('@/services/MemoryService');
+    const confidence = (run.proposal as { confidence?: number } | null)?.confidence;
+    await recordEpisode({
+      orgId: opts.orgId,
+      runKind: 'action_run',
+      runId: opts.runId,
+      agentSlug,
+      text: [
+        `${opts.signal.toUpperCase()}${typeof confidence === 'number' ? ` (confidence ${confidence})` : ''}: ${run.actionId} proposed by ${agentSlug}.`,
+        note ? `Reviewer (${opts.reviewedBy}): ${note}` : `Decided by ${opts.reviewedBy} with no note.`,
+      ].join(' '),
+    });
+  })().catch((error) => {
+    console.error(`[ReviewService] could not record an episode for action run ${opts.runId}`, error);
+  });
+
+  if (!note || !polarity) {
+    return;
+  }
   // Resolved here rather than left to the worker: without a target the
   // recorder falls back to the org's FIRST learning step by id, which in a
   // workspace running more than one domain is somebody else's bucket.

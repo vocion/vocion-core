@@ -27,6 +27,15 @@ describe('normaliseOptions', () => {
     expect(svc.normaliseOptions(undefined)).toEqual([]);
   });
 
+  it('accepts a confidence between 0 and 1 on an option, and refuses anything else', () => {
+    expect(svc.normaliseOptions([{ id: 'a', label: 'A', recommended: true, confidence: 0.72 }])).toEqual([
+      { id: 'a', label: 'A', recommended: true, confidence: 0.72 },
+    ]);
+    expect(svc.normaliseOptions([{ id: 'a', label: 'A', confidence: null }])).toEqual([{ id: 'a', label: 'A' }]);
+    expect(() => svc.normaliseOptions([{ id: 'a', label: 'A', confidence: 1.2 }])).toThrow(/confidence must be a number between 0 and 1/);
+    expect(() => svc.normaliseOptions([{ id: 'a', label: 'A', confidence: '0.9' }])).toThrow(/confidence must be a number/);
+  });
+
   it('refuses two recommended options, duplicate ids, and non-option shapes', () => {
     expect(() => svc.normaliseOptions([{ label: 'a', recommended: true }, { label: 'b', recommended: true }])).toThrow(/at most one/);
     expect(() => svc.normaliseOptions(['Yes', 'yes'])).toThrow(/duplicate option id/);

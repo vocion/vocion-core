@@ -29,6 +29,8 @@ export type SyncBudgetCaps = {
   maxModelCalls: number;
   /** Input tokens one model call may carry, enforced by truncation. */
   maxInputTokensPerCall: number;
+  /** Milliseconds one model call may take before it is abandoned. */
+  modelTimeoutMs: number;
   /** Input tokens the whole sync may send. */
   maxInputTokensPerSync: number;
   /** Proposals the whole sync may write. */
@@ -41,25 +43,51 @@ export type SyncBudgetCaps = {
  * The ceilings. A manifest's `limits` block may lower any of these and can
  * never raise one, see `createSyncBudget`.
  *
- * `maxModelCalls` is 25 because the agent run that motivated this pipeline
- * spent 26 calls on five sources; `maxInputTokensPerSync` is 120,000, which is
- * twelve full-size calls and binds before `maxModelCalls` when every call is
- * at its own 10,000-token ceiling.
+ * `maxModelCalls` is 150 and `maxInputTokensPerSync` is 800,000, and both are
+ * sized for ONE CALL PER DOCUMENT, because a document is now one feed entry or
+ * one detail page rather than one listing page. 25 and 120,000 came from the
+ * agent run that motivated this pipeline, which spent 26 calls on five listing
+ * pages, and the second dev shadow (2026-09-15, three Veerio sources) showed
+ * what that costs at the new granularity: Dorothy Alling crawled 59 detail
+ * pages, spent all 25 calls, hit a cap 34 times and SKIPPED 44 documents, and
+ * Brownell skipped 1 of its 26. The same run measured what a call actually
+ * carries: 51 Bedrock invocations, 169,831 input tokens, 3,330 average, 6,150
+ * at the worst, well under the 10,000-token per-call ceiling.
+ *
+ * The token cap was 400,000 on those averages, which read as 150 calls at
+ * about 2,700 each. The fourth dev shadow (2026-09-16, Higher Ground) showed
+ * that the two caps are not the same size in practice: 117 documents, about
+ * 4,500 input tokens for a detail page rather than 2,700, so the sync spent
+ * its tokens after 88 of its 150 calls and left 29 documents unread. 800,000
+ * is that same 150 calls at the measured 4,500, which puts the token cap back
+ * behind the call cap where it belongs: the call cap is the one meant to stop
+ * a runaway source, and a sync should end because it ran out of PAGES, not
+ * because a long first sweep of a venue was cut in the middle. The ceiling
+ * only pays for a first sweep in any case, a steady-state sync re-reads just
+ * the pages that changed.
+ *
+ * `modelTimeoutMs` is 60,000 because it was 20,000 and that number came from
+ * nowhere: the first dev shadow of this pipeline (2026-09-15) measured six
+ * Bedrock calls averaging 18.2s and topping out at 19.8s, none of which
+ * failed, and ALL of which were cut off by the 20s deadline. A cap set below
+ * what a healthy call costs is not a cap, it is a guaranteed failure, and it
+ * costs the retry and then the whole document.
  */
 export const SYNC_BUDGET_DEFAULTS: SyncBudgetCaps = {
   maxPages: 60,
   maxDetailHops: 40,
-  maxModelCalls: 25,
+  maxModelCalls: 150,
   maxInputTokensPerCall: 10_000,
-  maxInputTokensPerSync: 120_000,
+  modelTimeoutMs: 60_000,
+  maxInputTokensPerSync: 800_000,
   maxProposalsPerSync: 120,
   maxWallClockMs: 600_000,
 };
 
 /**
  * The caps that count something up. `maxInputTokensPerCall` is a truncation
- * budget rather than a tally, and `maxWallClockMs` is time, both are read
- * off `caps` directly.
+ * budget rather than a tally, and `modelTimeoutMs` and `maxWallClockMs` are
+ * time, all three are read off `caps` directly.
  */
 export type CountedCap = 'maxPages' | 'maxDetailHops' | 'maxModelCalls' | 'maxInputTokensPerSync' | 'maxProposalsPerSync';
 

@@ -54,7 +54,8 @@ async function main(): Promise<void> {
     orgId,
     agentSlug,
     message,
-    userId: 'smoke-runtime',
+    // --user lets a smoke run exercise user-scoped memory (Phase 2 layers).
+    userId: arg('user') ?? 'smoke-runtime',
     onEvent: (event) => {
       seen.add(event.type);
       if (event.type === 'response_delta') {

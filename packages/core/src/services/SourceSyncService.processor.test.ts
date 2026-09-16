@@ -36,6 +36,8 @@ type ProcessorLog = {
   loads: number;
   /** The last context the processor was given, for assertions about it. */
   lastSignal: AbortSignal | null;
+  /** The per-document budget the fixture declares, or undefined for none. */
+  documentTimeoutMs: number | undefined;
   /** The ingest outcome a document gets, so a test can pick created/updated/unchanged. */
   outcomeFor: (externalId: string) => Record<string, unknown>;
   /** What the processor does when it runs. */
@@ -50,6 +52,7 @@ const processorLog: ProcessorLog = {
   peakActive: 0,
   loads: 0,
   lastSignal: null,
+  documentTimeoutMs: undefined,
   outcomeFor: () => ({ status: 'created', documentId: 41, chunks: 1 }),
   behaviour: async () => ({ produced: 1, skipped: 0 }),
   deleteWasCalled: false,
@@ -77,6 +80,11 @@ const fixtureProcessor = {
     label: z.string().optional(),
     limits: z.object({ maxModelCalls: z.number().int().nonnegative().optional() }).strict().optional(),
   }).strict(),
+  // A getter, so one test can declare a budget without giving every other
+  // test in the file a 40ms document.
+  get documentTimeoutMs() {
+    return processorLog.documentTimeoutMs;
+  },
   load: async () => {
     processorLog.loads += 1;
     return {
@@ -184,6 +192,7 @@ beforeEach(async () => {
   processorLog.peakActive = 0;
   processorLog.loads = 0;
   processorLog.lastSignal = null;
+  processorLog.documentTimeoutMs = undefined;
   processorLog.outcomeFor = () => ({ status: 'created', documentId: 41, chunks: 1 });
   processorLog.behaviour = async () => ({ produced: 1, skipped: 0 });
   processorLog.deleteWasCalled = false;
@@ -349,6 +358,37 @@ describe('the document processor hook', () => {
     // The run stops waiting either way; the signal is what stops the work
     // itself from carrying on spending money.
     expect(processorLog.lastSignal?.aborted).toBe(true);
+  });
+
+  it('uses a processor declared documentTimeoutMs, and the env override still wins', async () => {
+    // A generic cap is either too tight for the expensive processor or too
+    // loose for the cheap one: 25s was below one healthy model call, so every
+    // real extraction was abandoned mid-flight. The env override stays on top
+    // of both so a test need not wait out a real budget.
+    processorLog.documentTimeoutMs = 40;
+    processorLog.behaviour = async (ctx) => {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 5000);
+        ctx.signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve(null);
+        }, { once: true });
+      });
+      return { produced: 1, skipped: 0 };
+    };
+
+    registerFixtureConnector('proc-declared-timeout', ['a']);
+    const declaredId = await createSource('proc-declared-timeout', { slug: FIXTURE_SLUG, config: {} });
+    const declared = await runSync({ orgId: ORG_ID, sourceId: declaredId });
+
+    expect(declared.firstProcessorError).toContain('did not finish within 40ms');
+
+    vi.stubEnv('VOCION_PROCESSOR_TIMEOUT_MS', '15');
+    registerFixtureConnector('proc-overridden-timeout', ['a']);
+    const overriddenId = await createSource('proc-overridden-timeout', { slug: FIXTURE_SLUG, config: {} });
+    const overridden = await runSync({ orgId: ORG_ID, sourceId: overriddenId });
+
+    expect(overridden.firstProcessorError).toContain('did not finish within 15ms');
   });
 
   it('leaves no processor work running when an edit supersedes the sync', async () => {

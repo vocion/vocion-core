@@ -40,6 +40,9 @@ export function buildResendBody(from: string, message: ResendRequest['message'])
   if (message.tags && Object.keys(message.tags).length > 0) {
     body.tags = Object.entries(message.tags).map(([name, value]) => ({ name, value }));
   }
+  if (message.headers && Object.keys(message.headers).length > 0) {
+    body.headers = message.headers;
+  }
   return body;
 }
 

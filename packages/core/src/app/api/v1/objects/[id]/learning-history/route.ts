@@ -33,7 +33,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   }
   const meta = (obj.metadata ?? {}) as Record<string, unknown>;
   const template = typeof meta.template_id === 'string' ? meta.template_id : null;
-  const ref = ((meta.checks as Record<string, unknown> | undefined)?.reference ?? {}) as { learnings_applied?: Array<{ id: number; step: string; text: string }>; at?: string; prompt?: { system?: string; user?: string }; usage?: Record<string, unknown>; model?: string };
+  const ref = ((meta.checks as Record<string, unknown> | undefined)?.reference ?? {}) as { learnings_applied?: Array<{ id: number | string; step: string; text: string }>; at?: string; prompt?: { system?: string; user?: string }; usage?: Record<string, unknown>; model?: string };
 
   const adopted = await loadLearningRules(caller.orgId);
   const candidates = await db.select().from(learningCandidateSchema).where(and(

@@ -13,6 +13,20 @@ import {
   remove as removeComment,
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
+import {
+  folders as artifactFoldersRoute,
+  exportPage as exportArtifactPageRoute,
+  get as getArtifactRoute,
+  version as getArtifactVersionRoute,
+  listForConversation as listArtifactsForConversationRoute,
+  list as listArtifactsRoute,
+  versions as listArtifactVersionsRoute,
+  remove as removeArtifactRoute,
+  restore as restoreArtifactVersionRoute,
+  setFolder as setArtifactFolderRoute,
+  update as updateArtifactRoute,
+} from './Artifacts';
+import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -28,15 +42,19 @@ import {
   update as updateObject,
 } from './BusinessObject';
 import { suggestions as chatSuggestions } from './Chat';
-import { getState as getChatWidgetState, setState as setChatWidgetState } from './ChatWidget';
+import { getState as getChatWidgetState, setRail as setChatWidgetRail, setState as setChatWidgetState } from './ChatWidget';
 import {
   append as appendConvMessage,
   create as createConv,
+  feedback as feedbackConvMessage,
   get as getConv,
   latestForScope as latestConvForScope,
   list as listConvs,
   remove as removeConv,
   rename as renameConv,
+  search as searchConvs,
+  setAutonomy as setConvAutonomy,
+  tail as tailConv,
 } from './Conversations';
 import {
   runDetail as evalRunDetail,
@@ -73,6 +91,7 @@ import {
   start as startMissionRoute,
   submitFeedback as submitMissionFeedbackRoute,
 } from './Missions';
+import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
@@ -93,6 +112,7 @@ import {
   snoozeActionRoute,
   submitFeedback,
 } from './Review';
+import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
@@ -148,9 +168,25 @@ export const router = {
     list: listProjects,
     setActive: setActiveProject,
   },
+  nav: {
+    getPrefs: getNavPrefs,
+    setPins: setNavPins,
+    dismiss: dismissNavPrompt,
+  },
   teams: {
     list: listTeamsRoute,
     seedSample: seedSampleTeamsRoute,
+  },
+  teamReport: {
+    lineage: teamReportLineageRoute,
+    planConfig: planTeamReportConfigRoute,
+    applyConfig: applyTeamReportConfigRoute,
+  },
+  autonomy: {
+    list: listAutonomyRoute,
+    promote: promoteAutonomyRoute,
+    demote: demoteAutonomyRoute,
+    acknowledgeFlag: acknowledgeAutonomyFlagRoute,
   },
   apiTokens: {
     list: listTokensRoute,
@@ -177,6 +213,19 @@ export const router = {
     apply: applyComment,
     delete: removeComment,
   },
+  artifacts: {
+    listForConversation: listArtifactsForConversationRoute,
+    get: getArtifactRoute,
+    list: listArtifactsRoute,
+    folders: artifactFoldersRoute,
+    update: updateArtifactRoute,
+    setFolder: setArtifactFolderRoute,
+    versions: listArtifactVersionsRoute,
+    version: getArtifactVersionRoute,
+    restore: restoreArtifactVersionRoute,
+    remove: removeArtifactRoute,
+    exportPage: exportArtifactPageRoute,
+  },
   conversations: {
     list: listConvs,
     get: getConv,
@@ -185,6 +234,10 @@ export const router = {
     rename: renameConv,
     append: appendConvMessage,
     latestForScope: latestConvForScope,
+    search: searchConvs,
+    tail: tailConv,
+    feedback: feedbackConvMessage,
+    setAutonomy: setConvAutonomy,
   },
   learnings: {
     listSteps: listLearningSteps,
@@ -208,6 +261,7 @@ export const router = {
   chatWidget: {
     getState: getChatWidgetState,
     setState: setChatWidgetState,
+    setRail: setChatWidgetRail,
   },
   briefings: {
     regenerate: briefingsRegenerateRoute,

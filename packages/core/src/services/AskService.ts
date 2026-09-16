@@ -4,6 +4,7 @@ import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { db } from '@/libs/DB';
 import { askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
+import { recordAskAlignment } from '@/services/alignment/AlignmentService';
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
 
 export type { AskOption } from '@/models/Schema';
@@ -98,7 +99,7 @@ export function normaliseOptions(raw: unknown): AskOption[] {
     return [];
   }
   if (!Array.isArray(raw)) {
-    throw new AskError('VALIDATION_FAILED', 'options must be an array of strings or { id, label, description?, recommended? } objects', 400);
+    throw new AskError('VALIDATION_FAILED', 'options must be an array of strings or { id, label, description?, recommended?, confidence? } objects', 400);
   }
   const out: AskOption[] = [];
   const seen = new Set<string>();
@@ -124,8 +125,14 @@ export function normaliseOptions(raw: unknown): AskOption[] {
       if (o.recommended === true) {
         option.recommended = true;
       }
+      if (o.confidence !== undefined && o.confidence !== null) {
+        if (typeof o.confidence !== 'number' || Number.isNaN(o.confidence) || o.confidence < 0 || o.confidence > 1) {
+          throw new AskError('VALIDATION_FAILED', `option "${id}" confidence must be a number between 0 and 1`, 400);
+        }
+        option.confidence = o.confidence;
+      }
     } else {
-      throw new AskError('VALIDATION_FAILED', 'options must be strings or { id, label, description?, recommended? } objects', 400);
+      throw new AskError('VALIDATION_FAILED', 'options must be strings or { id, label, description?, recommended?, confidence? } objects', 400);
     }
     if (seen.has(option.id)) {
       throw new AskError('VALIDATION_FAILED', `duplicate option id "${option.id}"`, 400);
@@ -412,6 +419,9 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     ),
     // A correction with a reason is a rule waiting to be written.
     proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
+    // And every answer is alignment evidence: did the person choose the
+    // option the team recommended? Read back on the sheet and by the ladder.
+    recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
   ]);
   return row;
 }

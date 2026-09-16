@@ -31,6 +31,7 @@ import {
   knowledgeSourceSchema,
   toolCallSchema,
 } from '@/models/Schema';
+import { inboxHref } from '@/services/inbox/inboxRef';
 import { listPending } from '@/services/ReviewService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 
@@ -149,7 +150,7 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
 type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
 
 async function loadPendingActions(orgId: string, actionIds?: string[]) {
-  // Agent-proposed actions awaiting a person — the same rows /dashboard/review
+  // Agent-proposed actions awaiting a person — the same rows /dashboard/inbox?kind=proposal
   // decides. `skills` on the review config scopes to action ids (gmail.send…).
   const items = await listPending(orgId, { kind: 'action' });
   return items.filter(i => !actionIds?.length || actionIds.some(a => i.title.includes(a) || String(i.id) === a));
@@ -280,7 +281,7 @@ export default async function WorkspacePage(props: {
 
   // Review embed (the actual HITL mechanism): explicit `review:` block on any
   // archetype, or implicit on `queue` from its source skills. Same items,
-  // same approve/decline services as /dashboard/review — one queue.
+  // same approve/decline services as /dashboard/inbox — one queue.
   const reviewCfg = manifest.review
     ?? (manifest.archetype === 'queue' && manifest.source?.kind === 'skillRuns'
       ? { skills: manifest.source.skills, workflows: false, heading: 'Waiting on a person' }
@@ -353,7 +354,7 @@ export default async function WorkspacePage(props: {
               <thead>
                 <tr className="border-b border-border bg-muted/40">
                   {fields.map(f => (
-                    <th key={f.key} className="px-4 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    <th key={f.key} className="px-4 py-2 text-xs font-medium text-muted-foreground">
                       {f.label ?? f.key}
                     </th>
                   ))}
@@ -398,9 +399,9 @@ export default async function WorkspacePage(props: {
           <p className="mb-3 text-sm text-muted-foreground">
             The same items as
             {' '}
-            <Link href="/dashboard/review" className="underline">Review</Link>
+            <Link href="/dashboard/inbox?kind=proposal" className="underline">Needs you</Link>
             {' '}
-            — the core approval queue, scoped to this page. Approve or decline here or there; it is one queue.
+            — the core decision list, scoped to this page. Approve or decline here or there; it is one queue.
           </p>
           {pendingActions.length > 0
             ? (
@@ -409,7 +410,7 @@ export default async function WorkspacePage(props: {
                     <li key={`${a.kind}-${a.id}`} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
                       <span className="font-medium">{a.title}</span>
                       <StatusPill status="pending" size="sm" />
-                      <Link href="/dashboard/review" className="ml-auto text-xs underline">Decide in Review</Link>
+                      <Link href={a.kind === 'action' ? inboxHref('proposal', a.id) : '/dashboard/inbox?kind=run'} className="ml-auto text-xs underline">Decide</Link>
                     </li>
                   ))}
                 </ul>

@@ -77,9 +77,12 @@ how many workers it took. Status is plain text, not an enum.
 
 `counts` is a flat `Record<string, number>` the worker sends on heartbeat and complete
 (`{ prsOpened: 2, drafts: 1 }`); keys merge, so a worker can report incrementally. Two things read
-it: the run's row on the member page, and **team KPIs** — a `kpis[].source: counts.<key>` in
-`teams/<slug>.yaml` sums that key over the team's agents, so whatever a worker counts can become a
-measure the team is graded on. See [Team](./team.md).
+it: the run's row on the member page, and **team measures** — a measure whose source is
+`{ kind: agent-reported, counts: <key> }` in `teams/<slug>.yaml` sums that key over the team's agents,
+and `{ kind: observed, counts: <key> }` counts the completed runs that reported it. Whatever a worker
+counts can become a measure the team is graded on — labelled as the worker's own report, which is the
+weakest provenance the report shows. See [Team](./team.md) and
+[Team performance](../guides/team-performance.md).
 
 ## Cost
 
@@ -94,10 +97,10 @@ to the in-process loop. Vocion stores checkpoints and progress, not the worker's
 
 ## Surfaces
 
-- **Team report** (`/dashboard/team-report`) — runs grouped by team and member, each team's and
-  member's share of spend and tokens in a window (24h / 7d / all), KPI meters against the authored
-  targets under the workspace's `goal:`, and per-member run lists with the worker's `summary`. Board
-  and red-team runs are badged wherever runs are counted.
+- **Team report** (`/dashboard/team-report`) — the team's operating cost in a window (24h / 7d /
+  30d), agent-reported and observed measures read from `counts`, and — under Evidence — activity by
+  member with tokens, and per-member run lists with the worker's `summary`. Board and red-team runs
+  are badged wherever runs are counted.
 - **Activity** (`/dashboard/activity?kind=worker`) — every run in the org's one stream, badged by kind.
 
 ## Operations

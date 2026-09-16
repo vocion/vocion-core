@@ -1,6 +1,6 @@
 /**
  * Real-browser proof for the Action Queue catch-up triage: seed 2 pending
- * gmail.send drafts, open /dashboard/review, click "Catch up", step through
+ * gmail.send drafts, open /dashboard/inbox?kind=proposal, click "Catch up", step through
  * (Skip → Save) to the "All caught up" summary. Self-cleaning; gmail.send
  * stays pending so nothing sends.
  *
@@ -63,12 +63,12 @@ async function main(): Promise<void> {
     await page.waitForTimeout(6000);
     await ctx.addCookies([{ name: 'vocion_active_project', value: ORG, domain: new URL(BASE).hostname, path: '/' }]);
 
-    await page.goto(`${BASE}/en/dashboard/review`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE}/en/dashboard/inbox?kind=proposal`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(2500);
     // Focus mode IS the page now — no button, no modal.
     const focus = page.getByTestId('review-focus');
     await focus.waitFor({ state: 'visible', timeout: 20_000 });
-    opened = (await page.getByText(/\d+ in queue/i).count()) > 0;
+    opened = (await page.getByTestId('queue-position').count()) > 0;
     const firstLabel = await page.locator('input').nth(1).inputValue().catch(() => null); // subject field of the focused item
 
     // Rewrite-with-AI on card 1 (a seeded gmail.send, newest → first): the body

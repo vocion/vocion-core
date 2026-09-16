@@ -14,7 +14,7 @@ vi.mock('@/services/adoption/track', () => ({ track: vi.fn() }));
 vi.mock('@/services/adoption/attribution', () => ({ agentSlugFromPrincipal: vi.fn(() => undefined) }));
 
 const { db } = await import('@/libs/DB');
-const { learningCandidateSchema, learningSchema, learningStepSchema } = await import('@/models/Schema');
+const { learningCandidateSchema, memoryNamespaceSchema, memorySchema } = await import('@/models/Schema');
 const {
   createCandidate,
   decideCandidate,
@@ -31,22 +31,22 @@ const STEP = 'crm-updates';
 
 async function makeStep(orgId = ORG): Promise<number> {
   const [row] = await db
-    .insert(learningStepSchema)
-    .values({ orgId, name: STEP, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
-    .returning({ id: learningStepSchema.id });
+    .insert(memoryNamespaceSchema)
+    .values({ orgId, name: STEP, path: `workspace/${STEP}`, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
+    .returning({ id: memoryNamespaceSchema.id });
   return row!.id;
 }
 
 beforeEach(async () => {
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
 });
 
 afterAll(async () => {
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
 });
 
 describe('helpers', () => {
@@ -198,12 +198,12 @@ describe('decideCandidate — approve', () => {
     expect(result.candidate.status).toBe('approved');
     expect(result.candidate.decidedBy).toBe('u_drew');
     expect(result.candidate.decidedAt).toBeInstanceOf(Date);
-    expect(result.ruleId).toBe(result.candidate.createdLearningId);
+    expect(result.ruleKey).toBe(result.candidate.createdMemoryKey);
 
-    const rules = await db.select().from(learningSchema);
+    const rules = await db.select().from(memorySchema);
 
     expect(rules).toHaveLength(1);
-    expect(rules[0]!.ruleText).toBe('Always cite the source line.');
+    expect((rules[0]!.value as { content?: string }).content).toBe('Always cite the source line.');
   });
 
   it('adopts the edited text, not the original', async () => {
@@ -213,9 +213,9 @@ describe('decideCandidate — approve', () => {
 
     await decideCandidate({ orgId: ORG, id: candidate.id, decision: 'approve', decidedBy: 'u_drew' });
 
-    const rules = await db.select().from(learningSchema);
+    const rules = await db.select().from(memorySchema);
 
-    expect(rules[0]!.ruleText).toBe('Completely different guidance entirely.');
+    expect((rules[0]!.value as { content?: string }).content).toBe('Completely different guidance entirely.');
   });
 
   it('refuses a near-duplicate of a rule already on file', async () => {
@@ -227,7 +227,7 @@ describe('decideCandidate — approve', () => {
     const result = await decideCandidate({ orgId: ORG, id: second.id, decision: 'approve', decidedBy: 'u_drew' });
 
     expect(result).toMatchObject({ ok: false, error: 'near_duplicate' });
-    expect(await db.select().from(learningSchema)).toHaveLength(1);
+    expect(await db.select().from(memorySchema)).toHaveLength(1);
     expect((await getCandidate(ORG, second.id))!.status).toBe('pending');
   });
 
@@ -260,8 +260,8 @@ describe('decideCandidate — reject', () => {
 
     expect(result.candidate.status).toBe('rejected');
     expect(result.candidate.rejectedReason).toBe('This is an edit, not a standing rule.');
-    expect(result.ruleId).toBeNull();
-    expect(await db.select().from(learningSchema)).toHaveLength(0);
+    expect(result.ruleKey).toBeNull();
+    expect(await db.select().from(memorySchema)).toHaveLength(0);
   });
 
   it('requires a reason', async () => {

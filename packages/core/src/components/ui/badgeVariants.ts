@@ -1,18 +1,26 @@
 import { cva } from 'class-variance-authority';
 
+/**
+ * Badges after the airy pass (B-034b §2): no solid fills. The default is a
+ * muted pill in sentence case; `accent` is amber at 12% for the one thing on
+ * a page that earns colour; `outline` is a hairline. `secondary` and
+ * `destructive` keep their names so call sites compile, restyled to match.
+ */
 export const badgeVariants = cva(
-  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3',
+  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-[11px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-foreground/10 aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3',
   {
     variants: {
       variant: {
         default:
-          'border-transparent bg-primary text-primary-foreground [a&]:hover:bg-primary/90',
+          'bg-foreground/[0.06] text-foreground/80 [a&]:hover:bg-foreground/10',
         secondary:
-          'border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90',
+          'bg-surface-soft text-muted-foreground [a&]:hover:bg-surface-hover',
+        accent:
+          'bg-brand-amber/12 text-brand-amber-deep [a&]:hover:bg-brand-amber/20',
         destructive:
-          'border-transparent bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90',
+          'bg-brand-fail-bg text-brand-fail [a&]:hover:bg-brand-fail-bg/80',
         outline:
-          'text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground',
+          'border-border text-foreground/80 [a&]:hover:bg-surface-hover',
       },
     },
     defaultVariants: {

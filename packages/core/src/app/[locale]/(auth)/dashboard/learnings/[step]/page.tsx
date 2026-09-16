@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
-import { getLearnings } from '@/services/LearningsService';
+import { getNamespace } from '@/services/MemoryService';
 import { RulesEditor } from './RulesEditor';
 
 type Props = {
@@ -21,7 +21,7 @@ export default async function LearningStepDetailPage(props: Props) {
 
   let data;
   try {
-    data = await getLearnings(orgId, step);
+    data = await getNamespace(orgId, step);
   } catch {
     notFound();
   }
@@ -50,13 +50,13 @@ export default async function LearningStepDetailPage(props: Props) {
             </div>
           </div>
         )}
-        description={data.preamble ?? `Bucket of approved rules. The agent reads these as /learnings/${data.step}.md at runtime.`}
+        description={data.preamble ?? `Bucket of approved rules. Mounted for the agent under /memories/${data.path}/ at runtime.`}
       />
 
       <RulesEditor
         step={data.step}
         initialRules={data.rules.map(r => ({
-          id: r.id,
+          id: r.key.split('/').pop()!.replace(/\.md$/, ''),
           ruleText: r.ruleText,
           source: r.source,
           createdBy: r.createdBy,

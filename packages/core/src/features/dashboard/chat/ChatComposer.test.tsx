@@ -78,3 +78,193 @@ describe('UserMessage clamp', () => {
     await expect.element(page.getByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
   });
 });
+
+describe('ChatComposer slash command hint (§9.10)', () => {
+  it('shows the mode pill the parent names while a /search command is armed', async () => {
+    await render(
+      <ChatComposer value="/search MSA unsigned" onChange={() => {}} onSubmit={() => {}} commandHint="Search only — retrieval, no model in the loop" />,
+    );
+
+    await expect.element(page.getByTestId('command-hint')).toHaveTextContent('Search only');
+  });
+
+  it('shows no pill for an ordinary message', async () => {
+    await render(<ChatComposer value="how is the quarter?" onChange={() => {}} onSubmit={() => {}} />);
+
+    expect(page.getByTestId('command-hint').query()).toBeNull();
+  });
+});
+
+describe('ChatComposer never locks while a turn streams', () => {
+  it('the box stays enabled for the whole turn', async () => {
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} streaming onStop={() => {}} />,
+    );
+
+    await expect.element(page.getByRole('textbox')).not.toBeDisabled();
+  });
+
+  it('shows the queue placeholder so the affordance is discoverable', async () => {
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} streaming onStop={() => {}} />,
+    );
+
+    await expect.element(page.getByPlaceholder('Queue a message… ⌘⏎ to send now')).toBeInTheDocument();
+  });
+
+  it('Enter queues instead of sending, and never kills the running turn', async () => {
+    const onQueue = vi.fn();
+    const onSubmit = vi.fn();
+    const onStop = vi.fn();
+    await render(
+      <ChatComposer
+        value="and skip the closed ones"
+        onChange={() => {}}
+        onSubmit={onSubmit}
+        streaming
+        onStop={onStop}
+        onQueue={onQueue}
+      />,
+    );
+
+    await page.getByRole('textbox').click();
+    await userEvent.keyboard('{Enter}');
+
+    expect(onQueue).toHaveBeenCalledWith('and skip the closed ones');
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onStop).not.toHaveBeenCalled();
+  });
+
+  it('⌘⏎ jumps the queue — stop the turn and send now', async () => {
+    const onQueue = vi.fn();
+    const onSendNow = vi.fn();
+    await render(
+      <ChatComposer
+        value="actually stop"
+        onChange={() => {}}
+        onSubmit={() => {}}
+        streaming
+        onStop={() => {}}
+        onQueue={onQueue}
+        onSendNow={onSendNow}
+      />,
+    );
+
+    await page.getByRole('textbox').click();
+    await userEvent.keyboard('{Meta>}{Enter}{/Meta}');
+
+    expect(onSendNow).toHaveBeenCalledWith('actually stop');
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+
+  it('Esc on an empty box stops the turn; Esc with text in it does not', async () => {
+    const onStop = vi.fn();
+    const screen = await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} streaming onStop={onStop} />,
+    );
+
+    await page.getByRole('textbox').click();
+    await userEvent.keyboard('{Escape}');
+
+    expect(onStop).toHaveBeenCalledTimes(1);
+
+    screen.rerender(
+      <ChatComposer value="half a thought" onChange={() => {}} onSubmit={() => {}} streaming onStop={onStop} />,
+    );
+    await page.getByRole('textbox').click();
+    await userEvent.keyboard('{Escape}');
+
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter still sends normally when nothing is streaming', async () => {
+    const onSubmit = vi.fn();
+    const onQueue = vi.fn();
+    await render(
+      <ChatComposer value="how is the quarter?" onChange={() => {}} onSubmit={onSubmit} onQueue={onQueue} />,
+    );
+
+    await page.getByRole('textbox').click();
+    await userEvent.keyboard('{Enter}');
+
+    expect(onSubmit).toHaveBeenCalled();
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatComposer queued rows', () => {
+  const three = [
+    { id: 'a', text: 'first', at: 1 },
+    { id: 'b', text: 'second', at: 2 },
+    { id: 'c', text: 'third', at: 3 },
+  ];
+
+  it('renders one compact row per queued message, in order', async () => {
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} streaming onStop={() => {}} queued={three} />,
+    );
+
+    const rows = page.getByTestId('queued-row').elements();
+
+    expect(rows.map(r => r.textContent)).toEqual(['first', 'second', 'third']);
+  });
+
+  it('the ✕ drops just that row', async () => {
+    const onDropQueued = vi.fn();
+    await render(
+      <ChatComposer
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        streaming
+        onStop={() => {}}
+        queued={three}
+        onDropQueued={onDropQueued}
+      />,
+    );
+
+    await userEvent.click(page.getByRole('button', { name: 'Remove queued message: second' }));
+
+    expect(onDropQueued).toHaveBeenCalledWith('b');
+  });
+
+  it('clicking a row pulls it back for an edit', async () => {
+    const onEditQueued = vi.fn();
+    await render(
+      <ChatComposer
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        streaming
+        onStop={() => {}}
+        queued={three}
+        onEditQueued={onEditQueued}
+      />,
+    );
+
+    await userEvent.click(page.getByRole('button', { name: 'Edit queued message: third' }));
+
+    expect(onEditQueued).toHaveBeenCalledWith('c');
+  });
+
+  it('caps the visible rows so a phone keeps its viewport, and expands on demand', async () => {
+    const five = [...three, { id: 'd', text: 'fourth', at: 4 }, { id: 'e', text: 'fifth', at: 5 }];
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} streaming onStop={() => {}} queued={five} />,
+    );
+
+    expect(page.getByTestId('queued-row').elements()).toHaveLength(3);
+
+    await userEvent.click(page.getByRole('button', { name: '+2 more' }));
+
+    expect(page.getByTestId('queued-row').elements()).toHaveLength(5);
+  });
+
+  it('says so when a stopped or failed turn left the queue unsent', async () => {
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} queued={three} queueHeld onDismissHeld={() => {}} />,
+    );
+
+    await expect.element(page.getByTestId('queue-held')).toHaveTextContent('were not sent');
+  });
+});
