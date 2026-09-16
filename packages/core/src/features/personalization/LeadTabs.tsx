@@ -134,20 +134,28 @@ export const BriefTab = ({ row, artifact }: { row: LeadDossier; artifact?: LeadA
                     )
                   : section.heading === 'Research confidence'
                     ? (
-                        <div className="flex flex-col gap-2">
-                          <ConfidenceBars value={row.confidence} subject="Research" size="md" />
-                          {dimensions && (
-                            <FactList
-                              facts={CONFIDENCE_DIMENSIONS.map(k => ({
-                                key: k,
-                                label: DIMENSION_LABEL[k],
-                                value: dimensions[k].value === null
-                                  ? <span className="text-muted-foreground" title={dimensions[k].basis}>Unavailable — nothing can be inferred</span>
-                                  : <ConfidenceBars value={dimensions[k].value} subject={DIMENSION_LABEL[k]} note={dimensions[k].basis} />,
-                              }))}
-                            />
-                          )}
-                        </div>
+                        // The headline reading is already in the page's meta
+                        // row; saying it twice is the repetition the reduction
+                        // pass exists to remove. What this section adds is the
+                        // five dimensions the one number was collapsing —
+                        // each drawn by `ConfidenceBars`, which carries its
+                        // own subject, so there is no label column repeating
+                        // the word beside it.
+                        <ul className="flex flex-col gap-1.5">
+                          {dimensions
+                            ? CONFIDENCE_DIMENSIONS.map(k => (
+                                <li key={k}>
+                                  {dimensions[k].value === null
+                                    ? (
+                                        <span className="text-muted-foreground" title={dimensions[k].basis}>
+                                          {`${DIMENSION_LABEL[k]} unavailable — nothing can be inferred`}
+                                        </span>
+                                      )
+                                    : <ConfidenceBars value={dimensions[k].value} subject={DIMENSION_LABEL[k]} note={dimensions[k].basis} />}
+                                </li>
+                              ))
+                            : <li><ConfidenceBars value={row.confidence} subject="Research" /></li>}
+                        </ul>
                       )
                     : <Prose body={section.body} field={section.heading} />}
               </Section>

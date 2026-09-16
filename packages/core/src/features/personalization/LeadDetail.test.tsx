@@ -155,7 +155,7 @@ describe('the lead workspace — three zones, three tabs', () => {
       />,
     );
 
-    await expect.element(page.getByText('Unavailable — nothing can be inferred')).toBeVisible();
+    await expect.element(page.getByText('Engagement unavailable — nothing can be inferred')).toBeVisible();
   });
 
   it('puts the timeline, the claims and the run details under Evidence', async () => {
