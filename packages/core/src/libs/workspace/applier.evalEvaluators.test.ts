@@ -95,23 +95,61 @@ afterAll(async () => {
   }
 });
 
+/**
+ * A workspace whose dataset carries deterministic checks on one case.
+ * @param provider - The grader the dataset names.
+ * @param checksOnCase - Which case gets the checks block, 1-based.
+ */
+function writeChecksFixture(provider: string, checksOnCase: number): string {
+  const dir = mkdtempSync(join(tmpdir(), 'cc-eval-checks-'));
+  dirs.push(dir);
+  writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: eval-checks\n`);
+  mkdirSync(join(dir, 'agents'));
+  writeFileSync(join(dir, 'agents', 'support-agent.yaml'), 'slug: support-agent\nname: Support Agent\nsystemPrompt: Be helpful.\n');
+  mkdirSync(join(dir, 'evals'));
+  const cases = [1, 2].map((number) => {
+    const checks = number === checksOnCase ? '    checks:\n      - outputContains: refund\n' : '';
+    return `  - input: Case ${number}\n${checks}`;
+  }).join('');
+  writeFileSync(
+    join(dir, 'evals', `${DATASET}.yaml`),
+    `slug: ${DATASET}\nname: Refund quality\nagentSlug: support-agent\nprovider: ${provider}\nitems:\n${cases}`,
+  );
+  return dir;
+}
+
 describe('workspace apply — eval evaluators', () => {
   it('refuses deterministic checks on a dataset another grader scores', async () => {
     // `checks` run inside our own judge. On an AgentCore dataset they would be
     // written, applied and silently never run, while the case still reported a
     // pass rate — which reads as though they had passed.
-    const dir = mkdtempSync(join(tmpdir(), 'cc-eval-checks-'));
-    dirs.push(dir);
-    writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: eval-checks\n`);
-    mkdirSync(join(dir, 'agents'));
-    writeFileSync(join(dir, 'agents', 'support-agent.yaml'), 'slug: support-agent\nname: Support Agent\nsystemPrompt: Be helpful.\n');
-    mkdirSync(join(dir, 'evals'));
-    writeFileSync(
-      join(dir, 'evals', `${DATASET}.yaml`),
-      `slug: ${DATASET}\nname: Refund quality\nagentSlug: support-agent\nprovider: agentcore\nitems:\n  - input: I want a refund.\n    checks:\n      - outputContains: refund\n`,
-    );
+    const dir = writeChecksFixture('agentcore', 1);
 
     await expect(async () => loadWorkspace(dir)).rejects.toThrow(/case 1 has checks/);
+  });
+
+  it('names the case that carries the checks, not the first one', async () => {
+    // The message is the whole value of the refusal: a file with twenty cases
+    // and one stray checks block is unfixable without being told which.
+    const dir = writeChecksFixture('agentcore', 2);
+
+    await expect(async () => loadWorkspace(dir)).rejects.toThrow(/case 2 has checks/);
+  });
+
+  it('still applies a Vocion dataset that uses checks', async () => {
+    // The refusal is about the grader, not about checks — our own judge runs
+    // them, and this is what stops the rule being written as a blanket ban.
+    const dir = writeChecksFixture('vocion', 1);
+    const loaded = await loadWorkspace(dir);
+
+    await applyWorkspace(loaded, { orgId: ORG });
+
+    const [stored] = await db
+      .select({ items: evalDatasetSchema.items })
+      .from(evalDatasetSchema)
+      .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
+
+    expect(stored?.items?.[0]?.checks).toEqual([{ outputContains: 'refund' }]);
   });
 
   it('refuses a file whose evaluator is for a grader the dataset does not use', async () => {
