@@ -16,10 +16,7 @@ import { Link } from '@/libs/I18nNavigation';
  * The crumb rule itself lives in `breadcrumbModel.ts`.
  */
 
-/**
- * Subscribe to `<title>` changes the same way PageDock does — pages set it after paint.
- * @param onChange
- */
+/** Subscribe to `<title>` changes the same way PageDock does — pages set it after paint. */
 function subscribeTitle(onChange: () => void) {
   const el = document.querySelector('title');
   if (!el) {

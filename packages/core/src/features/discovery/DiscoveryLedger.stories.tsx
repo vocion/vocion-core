@@ -198,6 +198,46 @@ const ENTRIES: DiscoveryEntry[] = [
     reviewActionRunId: 504,
     reviewStatus: 'cancelled',
   },
+  // A second v1 row, accepted — so the header can compare this model version
+  // against the previous one. Without decided rows on both, the delta is not
+  // shown at all rather than shown against an invented baseline.
+  {
+    ...BASE,
+    id: 6,
+    title: 'Fabrikam — scoping call',
+    meetingExternalId: 'zoom:5c08',
+    when: '2026-09-13T13:00:00.000Z',
+    matchedAt: '2026-09-13T13:30:00.000Z',
+    classifiedAt: '2026-09-13T13:31:00.000Z',
+    classifierVersion: 'claude-haiku-4-5-20251001#discovery-v1',
+    route: 'confirm',
+    recommendedAction: 'continue-discovery',
+    classification: {
+      semantics: 'legacy',
+      classification: 'discovery',
+      classificationConfidence: null,
+      proposalReadiness: 'not-proposal-ready',
+      proposalReadinessConfidence: null,
+      reasonCode: null,
+      reasonCodeFallback: false,
+      reasonSummary: '',
+      reasoning: 'A scoping conversation; the buyer defers budget to next quarter.',
+      legacyScores: { isDiscoveryConfidence: 0.81, proposalReadyConfidence: 0.42 },
+    },
+    disposition: 'accepted',
+    humanDecision: 'approved',
+    humanDecidedBy: 'rev-lead',
+    entities: {
+      opportunity: null,
+      account: { label: 'Fabrikam Logistics', ref: 'companies:77' },
+      accountResolved: true,
+      unresolvedKnown: null,
+      sponsorDomain: null,
+      attendees: [],
+    },
+    reviewActionRunId: 505,
+    reviewStatus: 'approved',
+  },
   // Matched, never assessed — the coverage record, still a row.
   {
     ...BASE,

@@ -28,10 +28,7 @@ export function combinedPage(url: string): CombinedPage | undefined {
   return { owner, tabs, active };
 }
 
-/**
- * `document.title` for a tab: "Agents · Teams & agents"; the owner's own tab is just the page.
- * @param url
- */
+/** `document.title` for a tab: "Agents · Teams & agents"; the owner's own tab is just the page. */
 export function combinedPageTitle(url: string): string | undefined {
   const page = combinedPage(url);
   if (!page) {

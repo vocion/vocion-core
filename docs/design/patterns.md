@@ -90,10 +90,10 @@ ListPage ───────────────────────�
   `·` for facts), `columns` (right-aligned `Column`s), `chip`, `actions`
   (hover/focus-revealed; always visible on touch). A `href` makes it a link
   with a chevron; `onClick` makes it a button.
-- `Column` + `COLUMN` — the width convention. `score` (w-32, "speculative
-  0.42"), `number` (w-16), `amount` (w-20), `date` (w-24), `status` (w-28),
-  `chip` (w-24). Pick by meaning so a score here sits where a score there
-  does; numbers are `tabular-nums` and right-aligned.
+- `Column` + `COLUMN` — the width convention. `score` (w-32, a
+  `<ConfidenceBars>`), `number` (w-16), `amount` (w-20), `date` (w-24),
+  `status` (w-28), `chip` (w-24). Pick by meaning so a score here sits where a
+  score there does; numbers are `tabular-nums` and right-aligned.
 - `ChipRow` — the category chips, on ONE line. It measures the real widths
   and folds the overflow into a "+N more" menu; pinned ("All") and active
   chips are laid out first, so a chip you turned on never hides. `fitChips`
@@ -240,31 +240,81 @@ LedgerGroup ──────────────────────�
   MON, SEP 14  3
   ───────────────────────────────────────────────────────────────────── (hairline)
   LedgerEntry
-  Acme <> Metacto intro  Sep 14, 10:00 AM               routed  [generate]
-  Matched hubspot-deal · deals:1201
-  discovery 0.95 ▮▮▮▮▯   proposal-ready 0.88 ▮▮▮▮▯   thresholds 0.8 / 0.75
-  Two lines of the model's reasoning, clamped, with a "more" toggle…
-  claude-haiku-4-5#discovery-v1 · revops-lead · run #4412 · transcript 9f3c… · ws a81f…
-                                                            review: pending →
+  Project Ranger – Follow Up  Sep 14, 11:30 AM   Existing opportunity  Not discovery
+  Project Ranger / Northwind Health
+  ▮▮▮▮▮ Not discovery 95%    ▮▮▮▮▯ Proposal-ready 82%
+  Existing opportunity; diligence and bid preparation already underway.
+  Agent action: No discovery workflow · Human review: Pending →
+  › Evidence & decision details
   ─────────────────────────────────────────────────────────────────────
   …
 ```
 
 - `LedgerGroup` — a day header with a count.
-- `LedgerEntry` — `title` · `when`, `detail` (the match reason), `state`
-  (routing state) + `verdict` at the right, `scores`, `summary` (clamped to
-  two lines; "more" past ~180 chars), `provenance` footer, `human` slot
-  (what a person did — linked to where they did it).
-- `ScoreChip` — `label 0.95` with a 32px meter; with a `threshold` it colours
-  pass (green) / fail (red) and draws a tick at the threshold. Logic in
-  `scoreChip.ts` (`scoreVerdict` uses `>=`, the router's inequality).
-- `VerdictBadge` — `drop` ink, `generate` green, `confirm` / `hold` amber,
-  `skipped` / `pending` ink; unknown verdicts render neutral, as written.
+- `LedgerEntry` — `title` · `when`, `detail` (who the meeting was with),
+  `verdict` + `state` at the right, `scores`, `summary` (one sentence; clamped
+  to two lines with "more" past ~180 chars), `human` (what a person did, and
+  what happened as a result), and `details` — the collapsed
+  **Evidence & decision details** disclosure. `provenance` renders inside
+  `details` when there is one, and on its own when there is not.
+- `ConfidenceBars` (`components/ui/confidence-indicator`) — the reading. Five
+  bars for magnitude, colour for level, the number AND the class it belongs to
+  in the text, the tooltip and the accessible name.
+- `VerdictBadge` — a routing outcome, where a page still shows one: `drop` ink,
+  `generate` green, `confirm` / `hold` amber, `skipped` / `pending` ink.
+- `ScoreChip` — `label 0.95` with a 32px meter and a threshold tick. Retained
+  for a genuine threshold comparison (an eval, a calibration view). **A
+  confidence is not one of those**: use `ConfidenceBars`.
 - `ProvenanceLine` — mono, muted: model#prompt · agent · run · transcript ·
   workspace, each titled.
 
-The Ledger reuses `ListToolbar` (chips for verdicts with counts, search, sort)
-and `useListUrlState`.
+The Ledger reuses `ListToolbar` (facets, chips, search, sort) and
+`useListUrlState`.
+
+### The row answers four questions, in order
+
+**What meeting was this? What did the system decide? Why? What did the human
+do?** That ordering is the archetype, not a preference: the decision history is
+the ledger and the model internals are supporting evidence (MANIFESTO §12).
+Thresholds, prompt version, run id and transcript hash are product telemetry —
+they go in `details`, collapsed. A number a person scans past on every row is
+paying rent it does not earn.
+
+### Three dimensions are three controls
+
+A ledger row usually carries several independent dimensions — what the system
+decided, what it recommended doing, what a person did about it. They are not
+one status, and a filter that mixes them cannot be read: `routed confirm` next
+to `review: declined` does not say what was declined.
+
+`ListToolbar.facets` is the control for this — one labelled select per
+dimension, one value each, each in the URL under its own name. Chips stay what
+they were: several categories of ONE kind at a time. The quick chips beside
+them are shortcuts across dimensions (`Needs review`, `Human disagreed`), not a
+fourth dimension.
+
+**Where it came from.** Chris, on the Discovery Ledger, 2026-09-16: *"Filters
+are All · generate · confirm · drop, but those are not the same kind of
+thing."* Full review: `docs/specs/discovery-ledger-v2.md`.
+
+### Never a score without its class
+
+`ConfidenceBars` takes a `subject` — the class, verdict or recommendation the
+number is about — and puts it in the visible text, the tooltip and the
+accessible name. With no subject the level word plays that part
+(`speculative 42%`), which is still a class.
+
+This is a rule because breaking it produced a real defect, not a cosmetic one:
+the ledger drew `discovery 0.95` on a record whose reasoning said "Not a
+discovery call", because the model had returned confidence in its own answer
+and the label assumed a probability of the positive class. A reader cannot
+recover the difference from the number.
+
+It has a second half: **a score whose meaning was never defined is not
+rendered as a percentage at all.** The row shows the verdict and says the
+confidence is not comparable; the raw number goes behind Evidence, labelled.
+An audit ledger that asserts a probability it cannot justify is worse than one
+that admits it does not know.
 
 ## Do / don't
 
@@ -319,7 +369,7 @@ Audited 2026-09-16. "On `ListRow`" means the page renders its records through
 | Artifacts (`/dashboard/artifacts`) | `ListRows` + `ListRow` | **On `ListRow`** |
 | Learnings (`/dashboard/learnings`) | `ListRows` + `ListRow` | **On `ListRow`** (the "Recent decisions" block below it is still cards) |
 | Personalization (`/gtm/personalization`) | `ListPage` + `ListToolbar` + `ListRow` | **On `ListRow`** |
-| Discovery (`/gtm/discovery`) | Ledger (`LedgerEntry`) | **On Ledger** — a richer read-mostly row by design |
+| Discovery (`/gtm/discovery`) | Ledger (`LedgerEntry`) + `ListToolbar` facets | **On Ledger** — a richer read-mostly row by design |
 | Conversations | day-bucketed hairline rows inside a bordered card | Owed — List; day buckets stay, the card goes |
 | Activity | hairline rows inside one bordered box, three chip rows | Owed — Ledger; the chip rows become one `ChipRow` |
 | Briefings | bordered cards for previous briefs | Owed — List for the archive; the brief itself is prose |
