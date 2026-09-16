@@ -243,7 +243,11 @@ export async function listTokens(
       eq(apiTokenSchema.orgId, orgId),
       options.includeRevoked ? undefined : isNull(apiTokenSchema.revokedAt),
     ))
-    .orderBy(desc(apiTokenSchema.createdAt));
+    // `id` breaks the tie: two keys stored inside the same millisecond share a
+    // `created_at`, and without a second sort key Postgres may return them in
+    // either order — so a rotated key could list above its replacement, and a
+    // test asserting that order fails at random.
+    .orderBy(desc(apiTokenSchema.createdAt), desc(apiTokenSchema.id));
 }
 
 /* ------------------------------------------------------------------ */
@@ -396,7 +400,11 @@ export async function listPlatformCredentials(
       eq(apiTokenSchema.platform, platform),
       isNull(apiTokenSchema.revokedAt),
     ))
-    .orderBy(desc(apiTokenSchema.createdAt));
+    // `id` breaks the tie: two keys stored inside the same millisecond share a
+    // `created_at`, and without a second sort key Postgres may return them in
+    // either order — so a rotated key could list above its replacement, and a
+    // test asserting that order fails at random.
+    .orderBy(desc(apiTokenSchema.createdAt), desc(apiTokenSchema.id));
 }
 
 /**
