@@ -442,14 +442,14 @@ export async function searchConversations(opts: {
   if (!q) {
     const rows = await db
       .select({
-      id: conversationSchema.id,
-      title: conversationSchema.title,
-      agentSlug: conversationSchema.agentSlug,
-      updatedAt: conversationSchema.updatedAt,
-      surface: conversationSchema.surface,
-      messageCount: conversationSchema.messageCount,
-      scopeRef: conversationSchema.scopeRef,
-    })
+        id: conversationSchema.id,
+        title: conversationSchema.title,
+        agentSlug: conversationSchema.agentSlug,
+        updatedAt: conversationSchema.updatedAt,
+        surface: conversationSchema.surface,
+        messageCount: conversationSchema.messageCount,
+        scopeRef: conversationSchema.scopeRef,
+      })
       .from(conversationSchema)
       .where(and(...base))
       .orderBy(desc(conversationSchema.updatedAt))

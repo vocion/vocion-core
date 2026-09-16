@@ -130,11 +130,11 @@ Site-side signups are a GA4 event; app-side signups are Vocion's own rows. The
 second is stronger evidence and does not need this connector at all:
 
 ```yaml
-  - key: signups
-    label: Signups
-    target: 20
-    window: 30d
-    source: {kind: observed, rows: workspace-members}
+- key: signups
+  label: Signups
+  target: 20
+  window: 30d
+  source: {kind: observed, rows: workspace-members}
 ```
 
 That counts `account_membership` rows created in the window for the account
