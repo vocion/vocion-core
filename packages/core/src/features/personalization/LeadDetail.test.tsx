@@ -3,6 +3,7 @@ import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { publishDraftRevision } from './draftRevision';
 import { LeadDetail } from './LeadDetail';
 
 // The regenerate control and the decide path refresh the route after a write.
@@ -180,6 +181,42 @@ describe('LeadDetail', () => {
     await expect.element(page.getByRole('button', { name: 'Snooze' })).toBeVisible();
     // Feedback is optional on every verb: a fast no must not cost a note.
     await expect.element(page.getByRole('button', { name: 'Decline' })).toBeEnabled();
+  });
+
+  it('a rewrite asked for in the conversation lands HERE, marked edited — the rail reports it, the record shows it', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Pete Laverick', reviewActionRunId: 501 })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
+        guided
+      />,
+    );
+
+    await expect.element(page.getByText('Pete, following up on the ebook.')).toBeVisible();
+
+    publishDraftRevision({ runId: 501, contentId: 'send-1', body: 'Pete — one line on the ebook.' });
+
+    await expect.element(page.getByText('Pete — one line on the ebook.')).toBeVisible();
+    // The page says which send changed, the way an edit made here would.
+    await expect.element(page.getByText('edited')).toBeVisible();
+  });
+
+  it('ignores a rewrite announced for a different run', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Pete Laverick', reviewActionRunId: 501 })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
+        guided
+      />,
+    );
+
+    await expect.element(page.getByText('Pete, following up on the ebook.')).toBeVisible();
+
+    publishDraftRevision({ runId: 999, contentId: 'send-1', body: 'not this lead' });
+
+    expect(page.getByText('not this lead').elements()).toHaveLength(0);
   });
 
   it('shows the decision record for a handed-off lead: the line, the read-only sends, no card', async () => {

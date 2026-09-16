@@ -51,6 +51,23 @@ beforeEach(() => {
 });
 
 const { requestAgentSurface } = await import('./agentSurface');
+const { PageContextProvider } = await import('@/features/dashboard/context/PageContextProvider');
+const { RecordContext } = await import('@/features/dashboard/context/RecordContext');
+const { DRAFT_REVISED_EVENT } = await import('@/features/personalization/draftRevision');
+
+/**
+ * The rail as it actually stands on the lead page: inside the shell's page
+ * context, beside a page that has declared which record it is.
+ * @param ui - The dock under test.
+ */
+function onRecordPage(ui: React.ReactNode) {
+  return wrap(
+    <PageContextProvider>
+      <RecordContext record={{ type: 'object', id: SCOPE, label: 'Pete Laverick', href: '/gtm/lead/9412' }} />
+      {ui}
+    </PageContextProvider>,
+  );
+}
 
 const RUN = {
   id: 42,
@@ -104,6 +121,86 @@ describe('ChatDock', () => {
     expect(Math.abs(paneBottom - composerBottom)).toBeLessThan(2);
     // With nothing after the cards there is nothing to recall.
     expect(page.getByRole('button', { name: 'Show my review cards' }).elements()).toHaveLength(0);
+  });
+
+  it('beside the record page it renders the conversation, never a second copy of the sends', async () => {
+    await render(onRecordPage(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+
+    await expect.element(page.getByTestId('sequence-pointer')).toBeVisible();
+
+    // Not the overview, not the send, not the walk: the page owns all three.
+    expect(page.getByTestId('guided-review').elements()).toHaveLength(0);
+    expect(page.getByText('draft one body').elements()).toHaveLength(0);
+    expect(page.getByText('Sequence overview').elements()).toHaveLength(0);
+
+    // And no verb — a decision about the record belongs on the record's bar.
+    for (const verb of [/Looks good/, /^Enroll$/, /^Snooze$/, /^Decline$/]) {
+      expect(page.getByRole('button', { name: verb }).elements(), String(verb)).toHaveLength(0);
+    }
+  });
+
+  it('the pointer is one line at the TOP of the transcript, and it points rather than acts', async () => {
+    await render(onRecordPage(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+
+    const pointer = await page.getByTestId('sequence-pointer').element();
+    const link = await page.getByRole('button', { name: 'Show me the sends on the page' }).element();
+
+    // Inside the scrolling transcript, and the first thing in it.
+    expect(pointer.closest('.overflow-y-auto')).not.toBeNull();
+    expect(pointer.parentElement?.previousElementSibling).toBeNull();
+    // A text link, not a filled action.
+    expect(link.className).toContain('underline');
+    expect(link.className).not.toContain('bg-brand-amber');
+  });
+
+  it('the guided panel survives where nothing else renders the record — the chat-only surface', async () => {
+    // Same dock, same run, no page declaring the record: the rail IS the only
+    // rendering of the decision, so it renders it.
+    await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+
+    await expect.element(page.getByTestId('guided-review')).toBeVisible();
+    expect(page.getByTestId('sequence-pointer').elements()).toHaveLength(0);
+  });
+
+  it('a page about a DIFFERENT record does not silence the rail', async () => {
+    await render(wrap(
+      <PageContextProvider>
+        <RecordContext record={{ type: 'object', id: 'contacts:1', label: 'Someone else' }} />
+        <ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />
+      </PageContextProvider>,
+    ));
+
+    await expect.element(page.getByTestId('guided-review')).toBeVisible();
+  });
+
+  it('beside the record page a rewrite is REPORTED, and the new copy goes to the page', async () => {
+    const rewriteDraft = vi.fn(async () => ({ body: 'a shorter draft one body' }));
+    // @ts-expect-error — the mocked client is shaped per test.
+    client.review = { rewriteDraft, actionStatus: vi.fn(async () => ({ status: 'pending', decidedBy: null, decidedAt: null })) };
+    const revised: Array<{ runId: number; contentId: string; body: string }> = [];
+    const onRevised = (e: Event) => revised.push((e as CustomEvent<{ runId: number; contentId: string; body: string }>).detail);
+    window.addEventListener(DRAFT_REVISED_EVENT, onRevised);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
+    try {
+      await render(onRecordPage(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" run={RUN} />));
+      requestAgentSurface({ tags: [{ type: 'intent', id: 'change', label: 'Change the draft' }] });
+
+      await expect.element(page.getByTestId('composer-tag')).toBeVisible();
+
+      await userEvent.fill(page.getByRole('textbox'), 'this opener is too long');
+      await userEvent.keyboard('{Enter}');
+
+      await vi.waitFor(() => expect(revised).toHaveLength(1));
+
+      // The page is told the new copy; the rail says what it did and still
+      // does not print the send.
+      expect(revised[0]).toEqual({ runId: 42, contentId: 'send-1', body: 'a shorter draft one body' });
+      await expect.element(page.getByText(/I rewrote Day 0/)).toBeVisible();
+      expect(page.getByText('a shorter draft one body').elements()).toHaveLength(0);
+    } finally {
+      window.removeEventListener(DRAFT_REVISED_EVENT, onRevised);
+      vi.unstubAllGlobals();
+    }
   });
 
   it('knows a question that asks for the cards back', () => {
