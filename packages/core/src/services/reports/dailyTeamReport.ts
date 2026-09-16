@@ -44,7 +44,8 @@ import {
   workerRunSchema,
   workflowRunSchema,
 } from '@/models/Schema';
-import { briefingHref, parseStoredDocument } from '@/services/briefings/store';
+import { briefingHref } from '@/services/briefings/links';
+import { parseStoredDocument } from '@/services/briefings/store';
 import { teamReport } from '@/services/TeamReportService';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 

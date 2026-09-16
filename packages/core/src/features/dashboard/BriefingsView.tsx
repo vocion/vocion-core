@@ -10,7 +10,7 @@ import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { MAX_HISTORY_ENTRIES } from '@/services/briefings/budget';
-import { BRIEFING_ARCHIVE_HREF, briefingHref } from '@/services/briefings/store';
+import { BRIEFING_ARCHIVE_HREF, briefingHref } from '@/services/briefings/links';
 import { BriefingChatStarter } from './BriefingChatStarter';
 import { BriefingSections } from './BriefingSections';
 

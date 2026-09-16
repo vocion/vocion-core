@@ -6,7 +6,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { briefingSchema, teamSchema } from '@/models/Schema';
-import { briefingHref } from '@/services/briefings/store';
+import { briefingHref } from '@/services/briefings/links';
 
 /**
  * The briefing archive — where search and filter live
