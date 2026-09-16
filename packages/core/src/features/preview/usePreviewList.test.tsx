@@ -35,7 +35,22 @@ function Harness() {
   const items = IDS.map(id => ({ ref: { type: 'document' as const, id }, href: `/dashboard/search/${id}` }));
   const preview = usePreviewList(items, href => navigated.push(href));
   return (
-    <>
+    // A meta-click on a real anchor navigates the harness's own iframe, which
+    // tears down the browser runner's connection to it ("Cannot connect to the
+    // iframe"). The contract under test is that the row stays a real link and
+    // that the modified click does NOT preview — not that the browser performs
+    // the navigation. So the navigation is recorded and prevented here, the way
+    // a router would take it over.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
+    <div
+      onClick={(e) => {
+        const anchor = (e.target as HTMLElement).closest('a');
+        if (anchor && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+          e.preventDefault();
+          navigated.push(anchor.getAttribute('href') ?? '');
+        }
+      }}
+    >
       <ListRows>
         {IDS.map((id, i) => (
           <ListRow
@@ -49,7 +64,7 @@ function Harness() {
         ))}
       </ListRows>
       <PreviewPanel />
-    </>
+    </div>
   );
 }
 
@@ -77,6 +92,7 @@ describe('a list whose rows are references', () => {
     await row.click({ modifiers: ['Meta'] });
 
     await expect.element(page.getByTestId('preview-panel')).not.toBeInTheDocument();
+    expect(navigated).toEqual(['/dashboard/search/11']);
   });
 
   it('puts the selection in the URL without losing the list state', async () => {
