@@ -1,4 +1,5 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { BriefingV2 } from '@/services/briefings/document';
 import { relations, sql } from 'drizzle-orm';
 import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
@@ -2505,8 +2506,15 @@ export const briefingSchema = pgTable(
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
     title: text('title').notNull(),
-    /** Markdown body. */
+    /** Markdown body — what the document renders to, and what pre-v2 rows carry. */
     content: text('content').notNull(),
+    /**
+     * The typed `BriefingV2` document (migration 0108,
+     * `docs/specs/briefing-v2.md`). NULL on every row written before v2 and on
+     * any row an older publisher writes; the page falls back to rendering
+     * `content` as markdown when it is absent, so nothing needs backfilling.
+     */
+    document: jsonb('document').$type<BriefingV2>(),
     /** Who published — usually `agent:<slug>` via a mission check. */
     publishedBy: text('published_by'),
     /** Team this brief belongs to; NULL = the workspace-wide ROLLUP brief. */

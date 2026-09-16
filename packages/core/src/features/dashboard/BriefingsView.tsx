@@ -1,10 +1,16 @@
 'use client';
 
-import { Check, Clock, Loader2, RefreshCw } from 'lucide-react';
+import type { BriefingV2 } from '@/services/briefings/document';
+import type { InboxItem } from '@/services/InboxService';
+import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { useRouter } from '@/libs/I18nNavigation';
+import { ListRow, ListRows } from '@/components/ui/list-row';
+import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
+import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { MAX_HISTORY_ENTRIES } from '@/services/briefings/budget';
+import { BRIEFING_ARCHIVE_HREF, briefingHref } from '@/services/briefings/store';
 import { BriefingChatStarter } from './BriefingChatStarter';
 import { BriefingSections } from './BriefingSections';
 
@@ -22,6 +28,8 @@ export type BriefRow = {
   content: string;
   createdAt: string;
   teamSlug: string | null;
+  /** The typed document, when this brief carries one (docs/specs/briefing-v2.md). */
+  document: BriefingV2 | null;
 };
 
 export type BriefGroup = {
@@ -37,7 +45,7 @@ function fmt(d: string): string {
   return new Date(d).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
+export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: { groups: BriefGroup[]; liveDecisions?: InboxItem[]; archiveTotal?: number }) {
   const router = useRouter();
   const [active, setActive] = useState(0);
   // Regeneration lifecycle: idle → assembling (polling briefings.latest until
@@ -45,12 +53,13 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
   const [regen, setRegen] = useState<'idle' | 'assembling' | 'landed' | 'failed'>('idle');
   const [elapsed, setElapsed] = useState(0);
   const baselineRef = useRef<number | null>(null);
-  const [openHistory, setOpenHistory] = useState<number | null>(null);
 
   const g = groups[active];
   const latest = g?.briefs[0];
-  const history = g?.briefs.slice(1) ?? [];
-  const viewing = openHistory != null ? g?.briefs.find(b => b.id === openHistory) ?? latest : latest;
+  const history = (g?.briefs.slice(1) ?? []).slice(0, MAX_HISTORY_ENTRIES);
+  // Previous briefs are links now, not a second viewer on this page: one
+  // brief lives at one URL (docs/specs/briefing-v2.md §10).
+  const viewing = latest;
 
   const regenerate = async () => {
     // Only reachable from the rendered group, but `g` is optional now that the
@@ -86,7 +95,6 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
         .then((row) => {
           if (row && row.id !== baselineRef.current) {
             setRegen('landed');
-            setOpenHistory(null);
             router.refresh();
           } else if (Date.now() - startedAt > 5 * 60_000) {
             setRegen('failed');
@@ -116,7 +124,6 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
             type="button"
             onClick={() => {
               setActive(i);
-              setOpenHistory(null);
               setRegen('idle');
             }}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
@@ -134,11 +141,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
                 <>
                   <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
                   <div className="text-xs text-muted-foreground">
-                    {fmt(viewing.createdAt)}
-                    {openHistory != null && ' · historical — '}
-                    {openHistory != null && (
-                      <button type="button" className="text-brand-amber-deep hover:opacity-80" onClick={() => setOpenHistory(null)}>back to latest</button>
-                    )}
+                    {viewing.document ? `${viewing.document.dateLabel} · ${viewing.document.updatedLabel}` : fmt(viewing.createdAt)}
                   </div>
                 </>
               )
@@ -176,32 +179,32 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
       )}
       {regen === 'failed' && <p className="mt-1 text-xs text-destructive">Regeneration didn't land — check the lead agent's activity or try again.</p>}
 
-      {viewing && (
-        <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">
-          <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
-        </div>
-      )}
+      {viewing && (viewing.document
+        ? (
+            <div className="mt-4 rounded-2xl border border-border bg-card p-5">
+              <BriefingView doc={viewing.document} liveDecisions={liveDecisions} />
+            </div>
+          )
+        : (
+            <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">
+              <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
+            </div>
+          ))}
 
+      {/* Section 9: the last few briefs, then the archive — never the archive
+          itself (docs/specs/briefing-v2.md §10). */}
       {history.length > 0 && (
-        <div className="mt-5">
-          <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium tracking-[0.1em] text-muted-foreground">
-            <Clock className="size-3.5" aria-hidden />
-            Previous briefs
-          </div>
-          <ul className="space-y-1">
+        <div className="mt-6">
+          <h2 className="mb-2 text-base font-semibold tracking-tight">Previous briefings</h2>
+          <ListRows>
             {history.map(b => (
-              <li key={b.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpenHistory(b.id)}
-                  className={`flex w-full items-baseline gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:border-brand-amber/40 ${openHistory === b.id ? 'border-brand-amber' : 'border-border/60'}`}
-                >
-                  <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
-                  <span className="shrink-0 text-muted-foreground">{fmt(b.createdAt)}</span>
-                </button>
-              </li>
+              <ListRow key={b.id} href={briefingHref(b.id)} title={b.title} meta={fmt(b.createdAt)} />
             ))}
-          </ul>
+          </ListRows>
+          <p className="mt-2 text-[13px]">
+            <Link href={BRIEFING_ARCHIVE_HREF} className="text-brand-amber-deep hover:opacity-80">View all briefings</Link>
+            {archiveTotal > history.length && <span className="text-muted-foreground">{` — ${archiveTotal} in all`}</span>}
+          </p>
         </div>
       )}
 
