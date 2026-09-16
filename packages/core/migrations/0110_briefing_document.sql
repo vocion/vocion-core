@@ -1,4 +1,10 @@
--- 0108 — the typed briefing document (docs/specs/briefing-v2.md).
+-- 0110 — the typed briefing document (docs/specs/briefing-v2.md).
+--
+-- It was 0108 while it was being built. `main` took that number for
+-- `action_run.approved_by_agent` (#341) and 0109 for `project.voice_rules`
+-- (#370) in the meantime, so this one moved twice rather than reusing either:
+-- an applied migration is immutable, and two files sharing a number means one
+-- of them never runs somewhere.
 --
 -- A briefing stops being a markdown blob and becomes a `BriefingV2`: nine
 -- named sections, ranked and budgeted in code rather than asked of a model.

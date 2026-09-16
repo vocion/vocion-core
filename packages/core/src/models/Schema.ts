@@ -2509,7 +2509,7 @@ export const briefingSchema = pgTable(
     /** Markdown body — what the document renders to, and what pre-v2 rows carry. */
     content: text('content').notNull(),
     /**
-     * The typed `BriefingV2` document (migration 0108,
+     * The typed `BriefingV2` document (migration 0110,
      * `docs/specs/briefing-v2.md`). NULL on every row written before v2 and on
      * any row an older publisher writes; the page falls back to rendering
      * `content` as markdown when it is absent, so nothing needs backfilling.
