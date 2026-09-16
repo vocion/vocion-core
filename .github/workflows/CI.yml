@@ -95,10 +95,11 @@ jobs:
       # Refuses a migration that would take a write lock on a populated table.
       # See packages/core/migrations/CONVENTIONS.md.
       #
-      # Ahead of the linter deliberately. `npm run lint` currently exits 1 on
-      # this repo's standing errors, so any step after it never runs at all —
-      # a migration check placed later would be wired up and silently dead.
-      # It is also the cheapest step here: no build, no database, ~1s.
+      # Ahead of the linter deliberately. Not because the linter is expected to
+      # fail — it is green on `main` as of #367 — but because a step placed
+      # after a failing one never runs, and the whole point of this check is to
+      # be reached on the branch that is breaking something else. It is also
+      # the cheapest step here: no build, no database, ~1s.
       - name: Migration conventions
         run: npm run check:migrations
 
