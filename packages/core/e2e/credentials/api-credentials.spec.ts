@@ -172,6 +172,8 @@ test.describe('the platform selector decides which controls exist', () => {
       'Google',
       'Slack',
       'Zoom',
+      // The measure sources a workspace verifies its own numbers against.
+      'Google Analytics',
       // The tool providers, which an org supplies its own key for so the
       // search and crawl tools run on the org's account rather than the
       // deployment's.
@@ -385,7 +387,15 @@ test.describe('the Vocion token keeps its own rules', () => {
 
     await expect(page.getByText(/created/)).toBeVisible();
 
-    const secret = (await page.locator('code').first().textContent()) ?? '';
+    // Scoped to the token rather than the first <code> on the page: the tokens
+    // page also renders the MCP endpoint URL in a <code>, so a positional
+    // locator picks up whichever happens to render first. Counting it also
+    // states what the test is named for — shown once, and only once.
+    const secretCode = page.locator('code').filter({ hasText: /^vcn_live_/ });
+
+    await expect(secretCode).toHaveCount(1);
+
+    const secret = (await secretCode.textContent()) ?? '';
 
     expect(secret).toMatch(/^vcn_live_/);
 
