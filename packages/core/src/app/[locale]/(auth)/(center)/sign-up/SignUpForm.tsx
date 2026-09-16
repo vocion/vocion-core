@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Link } from '@/libs/I18nNavigation';
 
 type Props = {
   /** From ?invite=… — the only way to reach the form. */
@@ -28,7 +29,7 @@ export function SignUpForm({ inviteToken }: Props) {
         <p className="text-sm">
           Already have an account?
           {' '}
-          <a className="underline" href="/sign-in">Sign in</a>
+          <Link className="underline" href="/sign-in">Sign in</Link>
         </p>
       </div>
     );
@@ -94,7 +95,7 @@ export function SignUpForm({ inviteToken }: Props) {
         <p className="text-center text-sm">
           Already have an account?
           {' '}
-          <a className="underline" href="/sign-in">Sign in</a>
+          <Link className="underline" href="/sign-in">Sign in</Link>
         </p>
       </form>
     </div>
