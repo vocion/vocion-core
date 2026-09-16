@@ -220,6 +220,22 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
   const missing: string[] = [];
   switch (measure.source.kind) {
     case 'verified': {
+      if (measure.source.connector === 'web-analytics') {
+        // A web-analytics reading has no items to list: GA4 answers with an
+        // aggregate over anonymous sessions, and there is no per-visit record
+        // Vocion could link to without inventing one. The basis says what was
+        // counted and the gap is named out loud rather than padded with the
+        // team's runs.
+        const q = measure.source.query;
+        const where = [
+          q.filter.pathPrefix === undefined ? null : `landing on ${q.filter.pathPrefix}`,
+          q.filter.channel === undefined ? null : `from ${q.filter.channel}`,
+          q.filter.event === undefined ? null : `event \`${q.filter.event}\``,
+        ].filter((x): x is string => x !== null);
+        outcomeBasis = `${q.metric} in Google Analytics${where.length > 0 ? ` · ${where.join(' · ')}` : ''}, over the days the window covers`;
+        missing.push('A web-analytics reading counts anonymous sessions and events. Nothing ties an individual visit to a run, a decision or an artifact, so the chain below starts at the team\'s own work rather than at the traffic.');
+        break;
+      }
       const q = measure.source.query;
       const result = await queryCrmRecords(orgId, q.object, { ...q.filter, createdAfter: range.since.toISOString(), createdBefore: range.until.toISOString(), limit: ITEM_LIMIT });
       outcomeBasis = `${q.object} in HubSpot matching the measure's filter, created in the window${result.asOf ? ` · mirror synced ${result.asOf.toISOString().slice(0, 16).replace('T', ' ')} UTC` : ''}`;
@@ -242,11 +258,18 @@ export async function trace(orgId: string, teamSlug: string, measureKey: string,
         const executed = proposals.filter(p => p.status === 'done' && ids.includes(p.actionId) && p.executedAt && new Date(p.executedAt) >= range.since && new Date(p.executedAt) < range.until);
         outcomeItems.push(...executed.map(proposalItem));
         outcomeBasis = `${ids.join(', ')} actions that executed in the window`;
-      } else {
-        const key = measure.source.counts!;
+      } else if (measure.source.counts) {
+        const key = measure.source.counts;
         const completed = runs.filter(r => r.status === 'completed' && r.counts && key in r.counts);
         outcomeItems.push(...runItems.filter(i => completed.some(r => `run:${r.id}` === i.id)));
         outcomeBasis = `completed runs that reported \`${key}\``;
+      } else {
+        // `rows` counts Vocion's own records, which belong to the workspace
+        // rather than to this team's agents — so there is nothing team-scoped
+        // to list, and saying so is better than listing the team's runs beside
+        // a number they did not produce.
+        outcomeBasis = 'people who joined this workspace in the window (account_membership rows)';
+        missing.push('A workspace-member count is a workspace record, not this team\'s output. Nothing links a person joining to a particular run or decision.');
       }
       break;
     }

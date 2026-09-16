@@ -217,6 +217,86 @@ describe('AWS, the one platform whose credential is a pair', () => {
   });
 });
 
+describe('Google Analytics, the measurement platform', () => {
+  it('holds ONE live credential, because a verified measure names a connector and not a row', () => {
+    // Every other connector platform is `many`, told apart by the row id an
+    // install names. A measure's source carries no row id — `connector:
+    // web-analytics` says what is being measured, not which secret to spend —
+    // so there has to be exactly one answer per workspace for
+    // `resolvePlatformCredential` to give.
+    expect(holdsManyCredentials('google-analytics')).toBe(false);
+    expect(MANY_CREDENTIAL_PLATFORM_IDS).not.toContain('google-analytics');
+  });
+
+  it('carries the property alongside the service account, so no team file holds an account id', () => {
+    expect(getPlatform('google-analytics').fields.map(f => f.name)).toEqual(['propertyId', 'clientEmail', 'privateKey']);
+  });
+
+  it('shows the property and the service account in full and keeps only the private key secret', () => {
+    const secrecy = Object.fromEntries(getPlatform('google-analytics').fields.map(f => [f.name, f.secret]));
+
+    expect(secrecy).toEqual({ propertyId: false, clientEmail: false, privateKey: true });
+  });
+
+  it('claims no source connector — the GA4 INGEST connector authenticates as Google instead', () => {
+    // Two different reads of the same product: `sources/ga4.ts` pulls report
+    // rows in as documents on the shared Google OAuth consent; this platform
+    // answers one measure as a service account. Letting this descriptor claim
+    // the `ga4` slug would point every existing install at the wrong
+    // credential.
+    expect(getPlatform('google-analytics').connectorSlugs).toEqual([]);
+    expect(platformForConnectorSlug('ga4')?.id).toBe('google');
+  });
+
+  it('accepts a complete service-account credential', () => {
+    const values = validatePlatformCredential('google-analytics', {
+      propertyId: '100000001',
+      clientEmail: 'reader@example-org.iam.gserviceaccount.com',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----',
+    });
+
+    expect(values.propertyId).toBe('100000001');
+  });
+
+  it('refuses the G-XXXXXXX measurement id, which the Data API cannot address', () => {
+    expect(() => validatePlatformCredential('google-analytics', {
+      propertyId: 'G-ABCDEFGHIJ',
+      clientEmail: 'reader@example-org.iam.gserviceaccount.com',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----',
+    })).toThrow(/numeric GA4 property ID/);
+  });
+
+  it('refuses an end-user email in the service account slot', () => {
+    expect(() => validatePlatformCredential('google-analytics', {
+      propertyId: '100000001',
+      clientEmail: 'someone@example.com',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----',
+    })).toThrow(/iam\.gserviceaccount\.com/);
+  });
+
+  it('refuses a private key that is not a PEM block, and never echoes it', () => {
+    try {
+      validatePlatformCredential('google-analytics', {
+        propertyId: '100000001',
+        clientEmail: 'reader@example-org.iam.gserviceaccount.com',
+        privateKey: 'hunter2-not-a-key',
+      });
+
+      expect.unreachable('a non-PEM private key must be refused');
+    } catch (error) {
+      expect((error as Error).message).not.toContain('hunter2');
+      expect((error as Error).message).toMatch(/BEGIN PRIVATE KEY/);
+    }
+  });
+
+  it('refuses a credential missing the property, which would otherwise read nothing', () => {
+    expect(() => validatePlatformCredential('google-analytics', {
+      clientEmail: 'reader@example-org.iam.gserviceaccount.com',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----',
+    })).toThrow();
+  });
+});
+
 describe('keyHint', () => {
   it('shows only the last four characters', () => {
     expect(keyHint('sk-abcdefghijkl6789')).toBe('…6789');

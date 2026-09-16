@@ -167,12 +167,20 @@ const ActionIdList = z.array(z.string().min(1)).min(1).describe('registered acti
 const CountsKey = z.string().regex(/^[\w-]+$/, 'counts key must be a plain key, e.g. pitches').describe('a worker_run.counts key');
 
 /**
- * `verified` — a query against a system of record through a connector. The
- * only connector today is HubSpot, read from the synced mirror
+ * The connectors a `verified` measure may read through. Closed on purpose: an
+ * unknown connector has to be a validation error, because the alternative is
+ * a measure that parses, reads nothing and shows a zero nobody asked a system
+ * of record for.
+ */
+export const VERIFIED_CONNECTORS = ['hubspot', 'web-analytics'] as const;
+export type VerifiedConnector = typeof VERIFIED_CONNECTORS[number];
+
+/**
+ * `verified` through HubSpot — read from the synced mirror
  * (`CrmRecordsService`), so the reading carries the mirror's own freshness.
  * `filter` keys mirror `CrmFilter`; `aggregate` is `count` or `sum(amount)`.
  */
-export const VerifiedMeasureSourceSchema = z.object({
+export const HubspotVerifiedSourceSchema = z.object({
   kind: z.literal('verified'),
   connector: z.literal('hubspot'),
   query: z.object({
@@ -189,16 +197,85 @@ export const VerifiedMeasureSourceSchema = z.object({
   }),
 });
 
+/** What a web-analytics measure can count. */
+export const WEB_ANALYTICS_METRICS = ['sessions', 'users', 'conversions', 'signups'] as const;
+export type WebAnalyticsMetric = typeof WEB_ANALYTICS_METRICS[number];
+
 /**
- * `observed` — Vocion saw the action execute: `action_run` rows that reached
- * `done` for the named action ids, or `worker_run`s that completed carrying
- * the named `counts` key. One of the two must be set.
+ * `verified` through web analytics — a report the analytics provider runs
+ * over the measure's own window. Today the provider is GA4, read through the
+ * Analytics Data API (`properties/<id>:runReport`) with a service account the
+ * workspace supplies; the property id is workspace configuration and is
+ * deliberately NOT part of the measure, so a team file names what it measures
+ * and never an account id.
+ *
+ * Deliberately narrow. The filter keys are the three predicates GA4 can apply
+ * to a session or an event server-side — where the visit landed, which channel
+ * brought it, which event fired. There is no pages-per-session predicate
+ * because the Data API has no session-level engagement filter; asking for one
+ * would mean either silently filtering the wrong thing or filtering nothing,
+ * and a `verified` reading that quietly measures something else is worse than
+ * one that was never authored.
+ */
+export const WebAnalyticsVerifiedSourceSchema = z.object({
+  kind: z.literal('verified'),
+  connector: z.literal('web-analytics'),
+  query: z.object({
+    metric: z.enum(WEB_ANALYTICS_METRICS),
+    filter: z.object({
+      /** Sessions whose landing page starts here, e.g. `/docs`. */
+      pathPrefix: z.string().min(1).startsWith('/', 'pathPrefix must start with /').optional(),
+      /** A GA4 default channel group, e.g. `Organic Search`. Matched exactly. */
+      channel: z.string().min(1).optional(),
+      /** A GA4 event name. Required by the `signups` metric, which is a count of one named event. */
+      event: z.string().regex(/^[a-z_]\w*$/i, 'event must be a GA4 event name, e.g. sign_up').optional(),
+    }).default({}),
+  }),
+}).refine(
+  s => s.query.metric !== 'signups' || s.query.filter.event !== undefined,
+  'a signups measure must name the GA4 event that records a signup, e.g. filter.event: sign_up',
+);
+
+/**
+ * `verified` — a query against a system of record through a connector,
+ * discriminated on which connector. Adding one means adding a member here; an
+ * unknown connector is "No matching discriminator" at parse time rather than a
+ * source that reads nothing and shows a zero.
+ */
+export const VerifiedMeasureSourceSchema = z.discriminatedUnion('connector', [
+  HubspotVerifiedSourceSchema,
+  WebAnalyticsVerifiedSourceSchema,
+]);
+
+/**
+ * Rows Vocion keeps that an `observed` measure may count, beyond the actions
+ * and runs it already counts. Closed, and each one names a table rather than a
+ * concept, because the honesty of `observed` rests on there being a row.
+ *
+ * `workspace-members` — `account_membership` rows created in the window for
+ * the account that owns this workspace: the people who joined. A scorecard
+ * calls this "signups"; the row kind does not, because what Vocion can prove
+ * is that an account gained a member, and the measure's own `label` is where
+ * the workspace's word for that belongs.
+ */
+export const OBSERVED_ROW_KINDS = ['workspace-members'] as const;
+export type ObservedRowKind = typeof OBSERVED_ROW_KINDS[number];
+
+/**
+ * `observed` — Vocion saw it happen in our own tables: `action_run` rows that
+ * reached `done` for the named action ids, `worker_run`s that completed
+ * carrying the named `counts` key, or `rows` of one of the kinds Vocion keeps
+ * itself. Exactly one of the three must be set.
  */
 export const ObservedMeasureSourceSchema = z.object({
   kind: z.literal('observed'),
   actions: ActionIdList.optional(),
   counts: CountsKey.optional(),
-}).refine(s => Boolean(s.actions) !== Boolean(s.counts), 'observed source names either actions or a counts key, not both and not neither');
+  rows: z.enum(OBSERVED_ROW_KINDS).optional(),
+}).refine(
+  s => [s.actions, s.counts, s.rows].filter(v => v !== undefined).length === 1,
+  'observed source names exactly one of actions, a counts key or rows',
+);
 
 /**
  * `human-confirmed` — a person approved it: `action_run` decisions of
@@ -217,6 +294,12 @@ export const AgentReportedMeasureSourceSchema = z.object({
   counts: CountsKey,
 });
 
+/**
+ * Nested discriminated unions: `kind` picks the provenance arm, and inside
+ * `verified`, `connector` picks the system of record. Both levels stay closed
+ * — an unknown `kind` or an unknown `connector` is a parse failure, never a
+ * source that silently reads nothing.
+ */
 export const MeasureSourceSchema = z.discriminatedUnion('kind', [
   VerifiedMeasureSourceSchema,
   ObservedMeasureSourceSchema,

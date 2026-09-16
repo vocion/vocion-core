@@ -57,6 +57,10 @@ export type CredentialPlatformId
     | 'google'
     | 'slack'
     | 'zoom'
+  // Measurement platforms. Read-only, and resolved per org with no row id in
+  // hand, because a `verified` measure names a connector rather than a
+  // credential — see the descriptor for why that forces `one-live`.
+    | 'google-analytics'
   // Tool platforms. One per paid built-in tool provider, so a workspace that
   // pastes its own Tavily or Firecrawl key spends its own account on tool
   // calls the way it already does on model calls.
@@ -566,6 +570,66 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         label: 'Client secret',
         pattern: null,
         shapeHint: 'is the client secret on the app\'s Credentials page',
+        secret: true,
+      },
+    ],
+  },
+  {
+    id: 'google-analytics',
+    label: 'Google Analytics',
+    keySource: 'supplied',
+    // ONE live credential, unlike every other connector platform, and the
+    // reason is the shape of what points at it. A source install names the
+    // credential row it uses, so Strapi can hold one per environment. A
+    // `verified` measure names a CONNECTOR — `connector: web-analytics` — and
+    // carries no row id, because a team's outcome contract is about what is
+    // being measured, not about which stored secret to spend. With no id in
+    // hand there has to be exactly one answer per workspace, so this platform
+    // is `one-live` and `resolvePlatformCredential` can resolve it.
+    credentialsPerOrg: 'one-live',
+    // Not a source connector. The `ga4` INGEST connector authenticates with
+    // the shared `google` OAuth credential and pulls report rows in as
+    // documents; this platform is the read behind a measure, which is a
+    // different question with a different credential and no sync.
+    connectorSlugs: [],
+    credentialsShareable: false,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a service-account client email and private key, plus the property the report reads',
+    helpText: 'A Google Cloud service account with the Viewer role on one GA4 property, and that property\'s numeric id. Used read-only, to answer `verified` measures from the Analytics Data API. The property id is workspace configuration and lives here rather than in a team file.',
+    fields: [
+      {
+        name: 'propertyId',
+        label: 'GA4 property ID',
+        // Numeric, the value the Data API addresses as `properties/<id>`. Not
+        // the `G-…` measurement id, which the Data API does not accept — the
+        // pattern refuses that paste rather than letting it fail at read time.
+        pattern: /^\d{6,}$/,
+        shapeHint: 'is the numeric GA4 property ID (Admin → Property Settings), not the G-XXXXXXX measurement ID',
+        // An identifier, not a secret, and shown back in full so two
+        // workspaces' analytics credentials can be told apart by property.
+        secret: false,
+      },
+      {
+        name: 'clientEmail',
+        label: 'Service account email',
+        pattern: /^[^\s@]+@[^\s@]+\.iam\.gserviceaccount\.com$/,
+        shapeHint: 'is the service account\'s email, ending .iam.gserviceaccount.com',
+        // The `client_email` out of the JSON key file. It authenticates
+        // nothing on its own — the private key does — so it is shown in full,
+        // the same call the AWS access key id gets.
+        secret: false,
+      },
+      {
+        name: 'privateKey',
+        label: 'Service account private key',
+        // The `private_key` out of the same JSON key file, PEM-wrapped. Pasted
+        // as its own field rather than as the whole JSON document: a JSON blob
+        // in a single string field cannot be masked field by field, and the
+        // other two values in it are ones we want shown.
+        pattern: /-----BEGIN PRIVATE KEY-----/,
+        shapeHint: 'is the private_key value from the service account JSON, beginning -----BEGIN PRIVATE KEY-----',
         secret: true,
       },
     ],

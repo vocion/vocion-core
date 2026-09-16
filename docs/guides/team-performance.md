@@ -51,8 +51,8 @@ beside every number. Strongest first:
 
 | Kind | Means | Read from | Chip |
 |---|---|---|---|
-| `verified` | A system of record says so | HubSpot, through the synced CRM mirror (`CrmRecordsService`). Count or `sum(amount)` of records created in the window that match the filter. Carries the mirror's own freshness: "verified · HubSpot (synced 25m ago)", and says *stale* when the sync is older than its schedule promises. | green |
-| `observed` | Vocion saw the action execute | `action_run` rows that reached `done` for the named action ids (approved or auto-executed), or completed `worker_run`s carrying the named `counts` key | neutral |
+| `verified` | A system of record says so | Two connectors. **HubSpot**, through the synced CRM mirror (`CrmRecordsService`): count or `sum(amount)` of records created in the window that match the filter, carrying the mirror's own freshness — "verified · HubSpot (synced 25m ago)", and *stale* when the sync is older than its schedule promises. **Web analytics**, through the GA4 Data API as a service account the workspace supplies: one metric over the days the window covers. | green |
+| `observed` | Vocion saw it happen in our own tables | `action_run` rows that reached `done` for the named action ids (approved or auto-executed), completed `worker_run`s carrying the named `counts` key, or `rows:` of a kind Vocion keeps itself — today `workspace-members`, the `account_membership` rows created in the window for the account that owns the workspace | neutral |
 | `human-confirmed` | A person approved it | approve / edit decisions on the named action ids (the alignment ledger), and asks of the named kinds decided with anything but a reject | neutral |
 | `agent-reported` | The worker said so | Σ `worker_run.counts.<key>` over the team's agents | muted, dashed — "the worker reported this; not independently verified" |
 
@@ -100,11 +100,49 @@ measures:
     direction: lower # less is better
     baseline: 240
     source: {kind: agent-reported, counts: turnaround_min}
+  - key: qualified_traffic
+    label: Qualified sessions on the docs
+    target: 500
+    unit: sessions
+    window: 30d
+    source:
+      kind: verified
+      connector: web-analytics
+      query:
+        metric: sessions # sessions | users | conversions | signups
+        filter: {pathPrefix: /docs, channel: Organic Search}
+  - key: signups
+    label: Signups
+    target: 20
+    window: 30d
+    source: {kind: observed, rows: workspace-members}
 ```
 
 Field reference: [Team](../entities/team.md#measures). The filter keys under
-a verified query mirror `CrmFilter` (`dealStages`, `pipelines`, `dealStatus`,
-`lifecycleStages`, `industries`, `ownerIds`).
+a verified **HubSpot** query mirror `CrmFilter` (`dealStages`, `pipelines`,
+`dealStatus`, `lifecycleStages`, `industries`, `ownerIds`). A verified
+**web-analytics** query takes a `metric` and up to three predicates —
+`pathPrefix` (the session's landing page), `channel` (a GA4 default channel
+group) and `event` (a GA4 event name, mandatory for `signups`). Turning it on
+takes one credential and no code: [Web analytics as a measure
+source](./web-analytics-measures.md).
+
+### When a source cannot be read
+
+A measure whose source could not produce a number shows an em dash and a chip
+saying which gap it is. It never shows 0.
+
+| State | When | Chip |
+|---|---|---|
+| **not connected** | No credential and no synced source for the connector. Nobody asked the system of record anything. | `Google Analytics · not connected` |
+| **read failed** | The source is connected and the read was attempted, and failed — a refused credential, an HTTP error, a vault that will not open. | `HubSpot · read failed` |
+| **cannot be read** | The source is connected and answered, but cannot answer what was asked — a filter naming values the CRM does not have, an aggregate the mirror does not carry. | `HubSpot · cannot be read` |
+
+The distinction matters because 0 is a real reading. GA4 answering "no
+sessions matched" is a measurement and shows as **0**; GA4 never having been
+asked is not, and shows as **—**. A team with an unreadable measure is not
+counted in "teams on target" and contributes nothing to goal progress, rather
+than dragging either down with a zero nobody measured.
 
 `kpis:` — the previous, worker-reported-only shape — is accepted for one
 release and read as `agent-reported` measures. Its `all` window becomes
@@ -213,6 +251,9 @@ then the manifesto's four questions; tokens only in the evidence footer. See
 
 - **Schema:** `TeamMeasureSchema`, `MeasureSourceSchema` in
   `libs/workspace/schemas.ts`; `team.measures` (migration `0100`).
+- **Web analytics:** `libs/analytics/credentials.ts` (which property, as
+  whom), `libs/analytics/ga4.ts` (the Data API read); the
+  `google-analytics` platform in `libs/platforms/registry.ts`.
 - **Services:** `services/team-report/` — `measures.ts` (shapes, windows),
   `provenance.ts` (the four readers), `derive.ts` (every derivation),
   `humanLoad.ts`, `setup.ts`, `evidence.ts` (chains), `lineage.ts`,

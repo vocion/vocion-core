@@ -4,17 +4,67 @@
  * asks, worker_runs), human load, evidence chains, outcome lineage, and the
  * composed report. Spec: docs/specs/team-report-v2.md.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { generateKeyPairSync } from 'node:crypto';
+import process from 'node:process';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentBudgetSchema, agentSchema, askSchema, decisionAlignmentSchema, knowledgeDocumentSchema, knowledgeSourceSchema, projectSchema, teamSchema, tenantAccountSchema, trustRuleSchema, userSchema, workerRunSchema } = await import('@/models/Schema');
+const { accountMembershipSchema, actionRunSchema, agentBudgetSchema, agentSchema, askSchema, decisionAlignmentSchema, knowledgeDocumentSchema, knowledgeSourceSchema, projectSchema, teamSchema, tenantAccountSchema, trustRuleSchema, userSchema, workerRunSchema } = await import('@/models/Schema');
 const { readMeasure, readTeamMeasures } = await import('./provenance');
 const { readHumanLoad } = await import('./humanLoad');
 const { readOutcomeChains } = await import('./evidence');
 const { trace } = await import('./lineage');
 const { teamReport, memberReport, controlSummary, inboxHrefFor } = await import('@/services/TeamReportService');
+const { resetWebAnalyticsTokenCache } = await import('@/libs/analytics/ga4');
+
+/** A throwaway RSA key so the service-account JWT can be signed without a real credential. */
+const TEST_SERVICE_ACCOUNT_KEY = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+}).privateKey;
+
+const WEB_ANALYTICS_MEASURE = {
+  key: 'qualified_traffic',
+  label: 'Qualified sessions',
+  dimension: 'outcome' as const,
+  target: 500,
+  unit: 'sessions',
+  window: '7d' as const,
+  direction: 'higher' as const,
+  source: { kind: 'verified' as const, connector: 'web-analytics' as const, query: { metric: 'sessions' as const, filter: { pathPrefix: '/docs' } } },
+};
+
+/** Put a deployment-level analytics credential in place for the duration of one test. */
+function configureAnalytics() {
+  process.env.GOOGLE_ANALYTICS_PROPERTY_ID = '100000001';
+  process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL = 'reader@example-org.iam.gserviceaccount.com';
+  process.env.GOOGLE_ANALYTICS_PRIVATE_KEY = TEST_SERVICE_ACCOUNT_KEY;
+}
+
+function unconfigureAnalytics() {
+  delete process.env.GOOGLE_ANALYTICS_PROPERTY_ID;
+  delete process.env.GOOGLE_ANALYTICS_CLIENT_EMAIL;
+  delete process.env.GOOGLE_ANALYTICS_PRIVATE_KEY;
+}
+
+/**
+ * Mint a token, then answer runReport with `report`.
+ * @param report - What GA4 should answer runReport with.
+ * @param report.status - HTTP status; 200 when omitted.
+ * @param report.body - The JSON body.
+ */
+function analyticsTransport(report: { status?: number; body?: unknown }) {
+  return vi.fn(async (url: string) => {
+    if (url.includes('oauth2.googleapis.com')) {
+      return { ok: true, status: 200, json: async () => ({ access_token: 'stub-token', expires_in: 3600 }) };
+    }
+    const status = report.status ?? 200;
+    return { ok: status < 400, status, json: async () => report.body ?? {}, text: async () => '' };
+  });
+}
 
 const ORG = 'proj_tr_v2';
 const OTHER_ORG = 'proj_tr_v2_other';
@@ -26,6 +76,8 @@ const iso = (ms: number) => ago(ms).toISOString();
 
 const CHRIS = { id: 'usr-tr2-chris', name: 'Chris Fitkin', email: 'chris@example.com' };
 const LILI = { id: 'usr-tr2-lili', name: 'Lili Chen', email: 'lili@example.com' };
+/** A third member, joined in the window before — the prior reading the signups trend compares against. */
+const PRIOR = { id: 'usr-tr2-prior', name: 'Earlier Joiner', email: 'earlier@example.com' };
 /** The mirror's freshness is judged against the REAL clock inside CrmRecordsService, so the sync time is relative to it. */
 const SYNCED_AT = new Date(Date.now() - 30 * 60_000);
 
@@ -45,6 +97,7 @@ const DEAL_DESK_MEASURES: Measure = [
 ];
 
 async function wipe() {
+  await db.delete(accountMembershipSchema);
   await db.delete(decisionAlignmentSchema);
   await db.delete(actionRunSchema);
   await db.delete(askSchema);
@@ -62,8 +115,15 @@ async function wipe() {
 
 async function seed() {
   await wipe();
-  await db.insert(userSchema).values([CHRIS, LILI]);
+  await db.insert(userSchema).values([CHRIS, LILI, PRIOR]);
   await db.insert(tenantAccountSchema).values({ id: 'acct-tr2', name: 'MetaCTO', slug: 'metacto-tr2' });
+  // Signups, as Vocion can honestly observe them: rows in `account_membership`
+  // for the account that owns the workspace. Two this week, one the week before.
+  await db.insert(accountMembershipSchema).values([
+    { accountId: 'acct-tr2', userId: CHRIS.id, role: 'admin', createdAt: ago(2 * DAY) },
+    { accountId: 'acct-tr2', userId: LILI.id, role: 'member', createdAt: ago(5 * DAY) },
+    { accountId: 'acct-tr2', userId: PRIOR.id, role: 'member', createdAt: ago(9 * DAY) },
+  ]);
   await db.insert(projectSchema).values([
     { id: ORG, accountId: 'acct-tr2', slug: 'revenue', name: 'Revenue Team', leadAgentSlug: 'ceo', accountableUserId: CHRIS.id, goal: 'Create $1.5M of qualified pipeline this quarter.' },
     { id: OTHER_ORG, accountId: 'acct-tr2', slug: 'empty', name: 'Empty' },
@@ -180,6 +240,13 @@ async function seed() {
 describe('team-report module (PGlite)', () => {
   beforeAll(seed);
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    unconfigureAnalytics();
+    resetWebAnalyticsTokenCache();
+  });
+
   afterAll(wipe);
 
   const gtm = { teamSlug: 'founder-gtm', agentSlugs: ['gtm-lead', 'outreach'] };
@@ -241,6 +308,68 @@ describe('team-report module (PGlite)', () => {
 
       expect(typo.value).toBeNull();
       expect(typo.unavailableReason).toMatch(/lifecycleStage value.*MQL/);
+    });
+
+    it('web-analytics: an unconfigured workspace reads as NOT CONNECTED, never as 0', async () => {
+      // The whole point of the provenance model. A workspace that has not
+      // connected analytics has not been told its traffic is zero — nobody
+      // asked. A 0 here would put a measured-looking number on an executive
+      // report that no system of record ever produced.
+      unconfigureAnalytics();
+
+      const r = await readMeasure(ORG, WEB_ANALYTICS_MEASURE, gtm, NOW);
+
+      expect(r.value).toBeNull();
+      expect(r.value).not.toBe(0);
+      expect(r.unavailableKind).toBe('unconfigured');
+      expect(r.unavailableReason).toMatch(/No web analytics property is connected/);
+      expect(r.attainment).toBeNull();
+      expect(r.met).toBe(false);
+      expect(r.sourceLabel).toBe('Google Analytics');
+    });
+
+    it('web-analytics: a configured property reads the figure GA4 returns, with the day-boundary caveat attached', async () => {
+      configureAnalytics();
+      vi.stubGlobal('fetch', analyticsTransport({ body: { rows: [{ metricValues: [{ value: '412' }] }] } }));
+
+      const r = await readMeasure(ORG, WEB_ANALYTICS_MEASURE, gtm, NOW);
+
+      expect(r).toMatchObject({ value: 412, previous: 412, provenance: 'verified', sourceLabel: 'Google Analytics', unavailableKind: null });
+      expect(r.freshness.stale).toBe(false);
+      expect(r.freshness.note).toMatch(/whole days in the property's own timezone/);
+      expect(r.attainment).toBeCloseTo(412 / 500, 5);
+    });
+
+    it('web-analytics: a zero GA4 actually measured is shown as a zero', async () => {
+      configureAnalytics();
+      vi.stubGlobal('fetch', analyticsTransport({ body: { rows: [] } }));
+
+      const r = await readMeasure(ORG, WEB_ANALYTICS_MEASURE, gtm, NOW);
+
+      expect(r.value).toBe(0);
+      expect(r.unavailableKind).toBeNull();
+    });
+
+    it('web-analytics: a failed request reads as an ERROR state, never as 0', async () => {
+      configureAnalytics();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.stubGlobal('fetch', analyticsTransport({ status: 403 }));
+
+      const r = await readMeasure(ORG, WEB_ANALYTICS_MEASURE, gtm, NOW);
+
+      expect(r.value).toBeNull();
+      expect(r.value).not.toBe(0);
+      expect(r.unavailableKind).toBe('error');
+      expect(r.unavailableReason).toMatch(/Viewer role on the property/);
+      expect(r.attainment).toBeNull();
+    });
+
+    it('observed rows: people who joined this workspace in the window, scoped through the project\'s account', async () => {
+      const measure = { key: 'signups', label: 'Signups', dimension: 'outcome' as const, target: 4, window: '7d' as const, direction: 'higher' as const, source: { kind: 'observed' as const, rows: 'workspace-members' as const } };
+
+      const r = await readMeasure(ORG, measure, gtm, NOW);
+
+      expect(r).toMatchObject({ value: 2, previous: 1, provenance: 'observed', sourceLabel: 'workspace members', unavailableKind: null });
     });
 
     it('reads every team\'s measures in one pass, keyed team/key', async () => {

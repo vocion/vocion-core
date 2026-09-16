@@ -14,7 +14,14 @@ import { client } from '@/libs/Orpc';
 
 export type ConfigureTeamSeed = { slug: string; name: string; mission: string | null; hasMeasure: boolean };
 
-type SourceKind = MeasureSource['kind'];
+/**
+ * What the "Measured by" select offers. Flatter than `MeasureSource['kind']`
+ * because `verified` is a choice of CONNECTOR as much as of kind: reading
+ * HubSpot and reading web analytics are the same strength of evidence and two
+ * entirely different forms, so the select names the system rather than making
+ * a person pick "verified" and then pick again.
+ */
+type SourceChoice = 'verified-hubspot' | 'verified-web-analytics' | 'observed' | 'observed-members' | 'human-confirmed' | 'agent-reported';
 
 type TeamDraft = {
   slug: string;
@@ -25,26 +32,33 @@ type TeamDraft = {
   target: string;
   unit: string;
   window: MeasureWindow;
-  kind: SourceKind;
+  kind: SourceChoice;
   /** agent-reported / observed(counts): the counts key. */
   counts: string;
   /** observed / human-confirmed: action ids, comma-separated. */
   actions: string;
-  /** verified: object + stage filter + aggregate. */
+  /** verified-hubspot: object + stage filter + aggregate. */
   object: 'deals' | 'contacts' | 'companies';
   stages: string;
   aggregate: 'count' | 'sum(amount)';
+  /** verified-web-analytics: which figure, and the predicates narrowing it. */
+  metric: 'sessions' | 'users' | 'conversions' | 'signups';
+  pathPrefix: string;
+  channel: string;
+  event: string;
 };
 
-const SOURCE_HELP: Record<SourceKind, string> = {
-  'verified': 'Read from HubSpot — the strongest evidence. Counts (or sums) synced records created in the window.',
+const SOURCE_HELP: Record<SourceChoice, string> = {
+  'verified-hubspot': 'Read from HubSpot — the strongest evidence. Counts (or sums) synced records created in the window.',
+  'verified-web-analytics': 'Read from Google Analytics. Needs an analytics credential on this workspace; without one the measure reads "not connected" rather than zero.',
   'observed': 'Vocion saw the action execute — count of executed actions, or of completed runs carrying a counts key.',
+  'observed-members': 'People who joined this workspace in the window, as the account records it. No connector and nothing to configure.',
   'human-confirmed': 'A person approved it — approve/edit decisions on the named action kinds.',
   'agent-reported': 'The worker reports a count. Weakest — nothing independent confirms it.',
 };
 
 function draftFor(t: ConfigureTeamSeed): TeamDraft {
-  return { slug: t.slug, name: t.name, mission: t.mission ?? '', configure: !t.hasMeasure, label: '', target: '', unit: '', window: '7d', kind: 'human-confirmed', counts: '', actions: '', object: 'deals', stages: '', aggregate: 'count' };
+  return { slug: t.slug, name: t.name, mission: t.mission ?? '', configure: !t.hasMeasure, label: '', target: '', unit: '', window: '7d', kind: 'human-confirmed', counts: '', actions: '', object: 'deals', stages: '', aggregate: 'count', metric: 'sessions', pathPrefix: '', channel: '', event: '' };
 }
 
 function sourceOf(d: TeamDraft): MeasureSource {
@@ -54,12 +68,18 @@ function sourceOf(d: TeamDraft): MeasureSource {
       return { kind: 'agent-reported', counts: d.counts.trim() };
     case 'observed':
       return d.counts.trim() ? { kind: 'observed', counts: d.counts.trim() } : { kind: 'observed', actions: list(d.actions) };
+    case 'observed-members':
+      return { kind: 'observed', rows: 'workspace-members' };
     case 'human-confirmed':
       return { kind: 'human-confirmed', actions: list(d.actions) };
-    case 'verified': {
+    case 'verified-hubspot': {
       const stages = list(d.stages);
       const filter = d.object === 'deals' ? { dealStages: stages.length ? stages : undefined } : d.object === 'contacts' ? { lifecycleStages: stages.length ? stages : undefined } : { industries: stages.length ? stages : undefined };
       return { kind: 'verified', connector: 'hubspot', query: { object: d.object, filter, aggregate: d.aggregate } };
+    }
+    case 'verified-web-analytics': {
+      const text = (s: string) => (s.trim() === '' ? undefined : s.trim());
+      return { kind: 'verified', connector: 'web-analytics', query: { metric: d.metric, filter: { pathPrefix: text(d.pathPrefix), channel: text(d.channel), event: text(d.event) } } };
     }
   }
 }
@@ -207,15 +227,17 @@ export function ConfigureWorkforce({ goal, teams, isAdmin }: { goal: string | nu
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
                       <Label htmlFor={`cw-${d.slug}-kind`}>Measured by</Label>
-                      <select id={`cw-${d.slug}-kind`} value={d.kind} onChange={e => update(d.slug, { kind: e.target.value as SourceKind })} className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
-                        <option value="verified">Verified — HubSpot</option>
+                      <select id={`cw-${d.slug}-kind`} value={d.kind} onChange={e => update(d.slug, { kind: e.target.value as SourceChoice })} className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+                        <option value="verified-hubspot">Verified — HubSpot</option>
+                        <option value="verified-web-analytics">Verified — Google Analytics</option>
                         <option value="observed">Observed — Vocion saw it happen</option>
+                        <option value="observed-members">Observed — people who joined this workspace</option>
                         <option value="human-confirmed">Human-confirmed — a person approved it</option>
                         <option value="agent-reported">Agent-reported — the worker's own count</option>
                       </select>
                       <p className="text-xs text-muted-foreground">{SOURCE_HELP[d.kind]}</p>
                     </div>
-                    {d.kind === 'verified' && (
+                    {d.kind === 'verified-hubspot' && (
                       <>
                         <div className="space-y-1.5">
                           <Label htmlFor={`cw-${d.slug}-object`}>Object</Label>
@@ -236,6 +258,33 @@ export function ConfigureWorkforce({ goal, teams, isAdmin }: { goal: string | nu
                           <Label htmlFor={`cw-${d.slug}-stages`}>{d.object === 'deals' ? 'Deal stages' : d.object === 'contacts' ? 'Lifecycle stages' : 'Industries'}</Label>
                           <Input id={`cw-${d.slug}-stages`} value={d.stages} onChange={e => update(d.slug, { stages: e.target.value })} placeholder={d.object === 'deals' ? 'Qualified, Proposal' : d.object === 'contacts' ? 'marketingqualifiedlead' : 'Software'} />
                           <p className="text-xs text-muted-foreground">Comma-separated, as HubSpot names them. Leave empty for all.</p>
+                        </div>
+                      </>
+                    )}
+                    {d.kind === 'verified-web-analytics' && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`cw-${d.slug}-metric`}>Figure</Label>
+                          <select id={`cw-${d.slug}-metric`} value={d.metric} onChange={e => update(d.slug, { metric: e.target.value as TeamDraft['metric'] })} className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm">
+                            <option value="sessions">Sessions</option>
+                            <option value="users">Users</option>
+                            <option value="conversions">Conversions (key events)</option>
+                            <option value="signups">Signups (one named event)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`cw-${d.slug}-channel`}>Channel</Label>
+                          <Input id={`cw-${d.slug}-channel`} value={d.channel} onChange={e => update(d.slug, { channel: e.target.value })} placeholder="Organic Search" />
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label htmlFor={`cw-${d.slug}-path`}>Landing path starts with</Label>
+                          <Input id={`cw-${d.slug}-path`} value={d.pathPrefix} onChange={e => update(d.slug, { pathPrefix: e.target.value })} placeholder="/docs" />
+                          <p className="text-xs text-muted-foreground">Leave both empty to count every session on the property.</p>
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label htmlFor={`cw-${d.slug}-event`}>Event name</Label>
+                          {/* Required for signups: there is no universal signup event, and guessing one would count the wrong thing without saying so. */}
+                          <Input id={`cw-${d.slug}-event`} required={d.metric === 'signups'} value={d.event} onChange={e => update(d.slug, { event: e.target.value })} placeholder="sign_up" />
                         </div>
                       </>
                     )}

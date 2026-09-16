@@ -1,6 +1,17 @@
 # Team report — product review (Chris Fitkin, 2026-09-15)
 
 > Verbatim review of the shipped `/dashboard/team-report` (PR #326 / release 2026-09-15). This is the spec for v2.
+>
+> **What shipped against it** — the measurement model of §2 lives in
+> [Team performance](../guides/team-performance.md), which is the field
+> reference for `measures:` and their provenance. `verified` today has two
+> connectors: HubSpot, and web analytics
+> ([wiring it](../guides/web-analytics-measures.md)) — so an adoption number
+> such as qualified traffic or conversions can be read from the analytics
+> provider rather than reported by the agent whose work it grades. A measure
+> whose source cannot be read shows a *state* ("not connected", "read failed"),
+> never a zero; §2's whole argument is that a number nobody measured must not
+> be presentable as one.
 
 I would not ship this yet as the canonical **Team report**. The underlying idea is right, but the page is currently a **configuration/status inspector wearing the clothes of a performance report**.
 

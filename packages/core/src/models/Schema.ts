@@ -765,7 +765,8 @@ export type TeamKpi = {
  */
 export type TeamMeasureSource
   = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string } }
-    | { kind: 'observed'; actions?: string[]; counts?: string }
+    | { kind: 'verified'; connector: 'web-analytics'; query: { metric: 'sessions' | 'users' | 'conversions' | 'signups'; filter: { pathPrefix?: string; channel?: string; event?: string } } }
+    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' }
     | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
     | { kind: 'agent-reported'; counts: string };
 
