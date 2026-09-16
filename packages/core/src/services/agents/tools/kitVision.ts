@@ -37,7 +37,7 @@ import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 import { metadataFromKey, parseS3Config } from '@/libs/sources/s3';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeSourceSchema } from '@/models/Schema';
 import { createBusinessObject, updateBusinessObject } from '@/services/BusinessObjectService';
-import { getLearnings, listSteps } from '@/services/LearningsService';
+import { getNamespace, listNamespaces } from '@/services/MemoryService';
 
 export const KIT_VISION_TOOL_NAMES = ['vision_compare_reference', 'vision_detect_labels'] as const;
 
@@ -363,17 +363,17 @@ async function zoomAndCount(opts: {
  * Every adopted learning in the org, flattened — the rules the vision prompt must apply.
  * @param orgId
  */
-export async function loadLearningRules(orgId: string): Promise<Array<{ id: number; step: string; text: string }>> {
-  const out: Array<{ id: number; step: string; text: string }> = [];
+export async function loadLearningRules(orgId: string): Promise<Array<{ id: string; step: string; text: string }>> {
+  const out: Array<{ id: string; step: string; text: string }> = [];
   try {
-    const steps = await listSteps(orgId);
+    const steps = await listNamespaces(orgId);
     for (const st of steps) {
-      const l = await getLearnings(orgId, st.name);
+      const l = await getNamespace(orgId, st.name);
       for (const r of l.rules) {
-        out.push({ id: r.id, step: st.name, text: r.ruleText });
+        out.push({ id: r.key.split('/').pop()!.replace(/\.md$/, ''), step: st.name, text: r.ruleText });
       }
     }
-  } catch { /* no learning steps — fine */ }
+  } catch { /* no learning namespaces — fine */ }
   return out;
 }
 

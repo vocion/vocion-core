@@ -1142,20 +1142,41 @@ export const workspaceVersionSchema = pgTable(
 // /var/www/metacto/spinutech/kickoff-demo/server/learnings.py for the
 // originating pattern.
 
-export const learningStepSchema = pgTable(
-  'learning_step',
+/**
+ * The namespace manifest — the whitelist of memory buckets, seeded by
+ * `workspace:apply` (successor of `learning_step`, which it replaced in
+ * migration 0099/0100). A namespace is a scoped shelf in the memory store:
+ * `workspace/<name>` for org-wide buckets today; agent / object / user /
+ * workflow / mission / run scopes arrive in Phase 2 of the scoped-memory
+ * plan. Rules live in the `memory` table under the namespace's `path`.
+ */
+export const memoryNamespaceSchema = pgTable(
+  'memory_namespace',
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
-    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
-    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    /** Step slug, e.g. `meeting_triage`. Lowercased, alpha+underscore. */
+    /** Short slug, e.g. `crm-updates`. What agents' `learningSteps` lists name. */
     name: text('name').notNull(),
+    /**
+     * Which kind of Vocion entity scopes this namespace:
+     * 'workspace' | 'agent' | 'object' | 'user' | 'workflow' | 'mission' | 'run'.
+     * Phase 1 migrates every step as 'workspace'; the rest arrive in Phase 2.
+     */
+    scopeKind: text('scope_kind').default('workspace').notNull(),
+    /** The scoped entity: agent slug, user id, `type/id` for an object; null for workspace scope. */
+    scopeRef: text('scope_ref'),
+    /**
+     * The namespace's directory inside the store, e.g. `workspace/crm-updates`
+     * or `agents/revenue-lead/procedures`. Rules are files under
+     * `/memories/<path>/`. Derived from (scopeKind, scopeRef, name) at write
+     * time and stored so reads never re-derive it.
+     */
+    path: text('path').notNull(),
     title: text('title').notNull(),
     description: text('description').notNull(),
-    /** Optional intro shown above the rule list in `/learnings/<step>.md`. */
+    /** Optional intro surfaced above the rules in the agent's memory digest. */
     preamble: text('preamble'),
-    /** Which agent slugs own / read this step. */
+    /** Which agent slugs mount this namespace (workspace-scoped ones; narrower scopes attach by ref). */
     agentSlugs: jsonb('agent_slugs').$type<string[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -1164,31 +1185,42 @@ export const learningStepSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [
-    uniqueIndex('learning_step_org_name_idx').on(table.orgId, table.name),
+    uniqueIndex('memory_namespace_org_name_idx').on(table.orgId, table.name),
+    uniqueIndex('memory_namespace_org_path_idx').on(table.orgId, table.path),
   ],
 );
 
-export const learningSchema = pgTable(
-  'learning',
+/**
+ * The memory store — the generic LangGraph `BaseStore` backing table
+ * (`libs/memory/store.ts` implements the protocol over it). One row per
+ * stored item; for approved rules the key is the rule's file path
+ * (`/memories/<namespace path>/<key>.md`), the value is FileData-compatible
+ * (`content`, `mimeType`, `created_at`, `modified_at`) so deepagents'
+ * StoreBackend can read it as a file, plus a `meta` block carrying
+ * provenance (source, createdBy, occurrenceCount, polarity, adoptedAt).
+ *
+ * Content is rendered ONCE, at write time — runtime reads never re-render.
+ * The human approval gate is the only write path for behavior-changing
+ * entries; agents get read-only access (a write-deny permission on
+ * `/memories/**` in both loops).
+ */
+export const memorySchema = pgTable(
+  'memory',
   {
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
-    /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
-    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    stepId: integer('step_id').notNull().references(() => learningStepSchema.id, { onDelete: 'cascade' }),
-    /** The rule text — typically one-paragraph directive. */
-    ruleText: text('rule_text').notNull(),
-    /** Where the rule came from: 'manual', 'feedback:<id>', 'self-improver:<run_id>', etc. */
-    source: text('source'),
-    createdBy: text('created_by'),
+    /** BaseStore namespace WITHIN the org (the org rides the column, not the array). `{memories}` today. */
+    namespace: text('namespace').array().notNull(),
+    /** Store key; for rule entries, the full file path. */
+    key: text('key').notNull(),
+    value: jsonb('value').$type<Record<string, unknown>>().notNull(),
+    /** Phase 4: episodic entries expire; null = permanent. Expired rows are invisible to reads. */
+    expiresAt: timestamp('expires_at', { mode: 'date' }),
     /**
-     * How many separate pieces of feedback asked for this rule — the count
-     * carried over from the candidate on approval, plus every later piece of
-     * feedback that restated an already-adopted rule. A rule people keep
-     * asking for is worth surfacing differently from one asked for once.
+     * Staleness signal: when an agent last had this entry mounted. A dedicated
+     * column (not value.meta) so stamping never rewrites the jsonb or churns
+     * `updated_at`.
      */
-    occurrenceCount: integer('occurrence_count').default(1).notNull(),
-    /** Optional last-applied timestamp for staleness UI; updated when the agent reads the step. */
     lastUsedAt: timestamp('last_used_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -1196,18 +1228,10 @@ export const learningSchema = pgTable(
       .notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
+  table => [
+    uniqueIndex('memory_org_ns_key_idx').on(table.orgId, table.namespace, table.key),
+  ],
 );
-
-export const learningStepRelations = relations(learningStepSchema, ({ many }) => ({
-  rules: many(learningSchema),
-}));
-
-export const learningRelations = relations(learningSchema, ({ one }) => ({
-  step: one(learningStepSchema, {
-    fields: [learningSchema.stepId],
-    references: [learningStepSchema.id],
-  }),
-}));
 
 /* ------------------------------------------------------------------ */
 /* Conversations — persistent chat threads (Phase 5)                  */
@@ -1988,8 +2012,8 @@ export const learningCandidateSchema = pgTable(
     rejectedReason: text('rejected_reason'),
     decidedBy: text('decided_by'),
     decidedAt: timestamp('decided_at', { mode: 'date' }),
-    /** The rule created on approval, so a candidate and its rule stay linked. */
-    createdLearningId: integer('created_learning_id').references(() => learningSchema.id, { onDelete: 'set null' }),
+    /** The store entry created on approval (its key), so a candidate and its rule stay linked. */
+    createdMemoryKey: text('created_memory_key'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2011,8 +2035,9 @@ export const learningCandidateSchema = pgTable(
  * candidate. That is what lets the queue answer "how many people asked for
  * this, and who" without showing the same idea five times.
  *
- * Exactly one of `candidateId` / `learningId` is set: feedback attaches to a
- * pending suggestion, or to a rule that has already been adopted.
+ * Exactly one of `candidateId` / `memoryKey` is set: feedback attaches to a
+ * pending suggestion, or to a rule that has already been adopted (a store
+ * entry, referenced by its key).
  */
 export const learningFeedbackOccurrenceSchema = pgTable(
   'learning_feedback_occurrence',
@@ -2021,8 +2046,8 @@ export const learningFeedbackOccurrenceSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** Set when the feedback landed on a candidate still awaiting a decision. */
     candidateId: integer('candidate_id').references(() => learningCandidateSchema.id, { onDelete: 'cascade' }),
-    /** Set when the feedback restated a rule that is already adopted. */
-    learningId: integer('learning_id').references(() => learningSchema.id, { onDelete: 'cascade' }),
+    /** Set when the feedback restated a rule that is already adopted — the store entry's key. */
+    memoryKey: text('memory_key'),
     /** 'correct' or 'reinforce' — the polarity of this individual submission. */
     polarity: text('polarity').notNull(),
     /** What the person actually wrote, kept so a reviewer can read the evidence. */
@@ -2037,15 +2062,15 @@ export const learningFeedbackOccurrenceSchema = pgTable(
   },
   table => [
     index('learning_feedback_occurrence_candidate_idx').on(table.orgId, table.candidateId),
-    index('learning_feedback_occurrence_learning_idx').on(table.orgId, table.learningId),
+    index('learning_feedback_occurrence_memory_idx').on(table.orgId, table.memoryKey),
     // A row with neither target is an orphan nothing would ever read; a row
     // with both would be counted twice. Declared here as well as in migration
-    // 0077 so `drizzle-kit generate` does not later propose dropping it.
+    // 0100 so `drizzle-kit generate` does not later propose dropping it.
     check(
       'learning_feedback_occurrence_target_ck',
       sql`(
-        (${table.candidateId} is not null and ${table.learningId} is null)
-        or (${table.candidateId} is null and ${table.learningId} is not null)
+        (${table.candidateId} is not null and ${table.memoryKey} is null)
+        or (${table.candidateId} is null and ${table.memoryKey} is not null)
       )`,
     ),
   ],
@@ -2055,10 +2080,6 @@ export const learningFeedbackOccurrenceRelations = relations(learningFeedbackOcc
   candidate: one(learningCandidateSchema, {
     fields: [learningFeedbackOccurrenceSchema.candidateId],
     references: [learningCandidateSchema.id],
-  }),
-  rule: one(learningSchema, {
-    fields: [learningFeedbackOccurrenceSchema.learningId],
-    references: [learningSchema.id],
   }),
 }));
 

@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -1070,21 +1070,30 @@ function specForSource(src: LoadedSource): SourceUpsertSpec {
 }
 
 /**
- * Workspace-shipped seed rules → `learning` rows, keyed on source
- * `workspace:<id>` so re-applying is idempotent and text edits update in place.
+ * Workspace-shipped seed rules → memory-store entries, keyed
+ * `ws-<rule id>.md` under the namespace's directory so re-applying is
+ * idempotent and text edits update in place (`addRule` upserts on the fixed
+ * key; the store carries `source: workspace:<id>` for provenance).
  * @param orgId
- * @param stepId
+ * @param namespaceName
+ * @param namespacePath
  * @param rules
  */
-async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ id: string; text: string }>): Promise<void> {
+async function seedLearningRules(orgId: string, namespaceName: string, namespacePath: string, rules: Array<{ id: string; text: string }>): Promise<void> {
+  const { addRule, namespaceFilePrefix } = await import('@/services/MemoryService');
   for (const r of rules) {
-    const source = `workspace:${r.id}`;
-    const text = r.text.trim();
-    const [existing] = await db.select().from(learningSchema).where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.stepId, stepId), eq(learningSchema.source, source)));
-    if (!existing) {
-      await db.insert(learningSchema).values({ orgId, stepId, ruleText: text, source, createdBy: 'workspace:apply' });
-    } else if (existing.ruleText !== text) {
-      await db.update(learningSchema).set({ ruleText: text, updatedAt: new Date() }).where(eq(learningSchema.id, existing.id));
+    const result = await addRule({
+      orgId,
+      stepName: namespaceName,
+      ruleText: r.text.trim(),
+      source: `workspace:${r.id}`,
+      createdBy: 'workspace:apply',
+      key: `${namespaceFilePrefix(namespacePath)}ws-${r.id}.md`,
+    });
+    if (!result.ok) {
+      // A seed rule that near-duplicates an adopted rule is an authoring
+      // conflict a person should resolve; skipping keeps the apply usable.
+      console.warn(`[applier] seed rule "${r.id}" in ${namespaceName} skipped: ${result.detail}`);
     }
   }
 }
@@ -1092,12 +1101,15 @@ async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ i
 async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
-    .from(learningStepSchema)
-    .where(and(eq(learningStepSchema.orgId, orgId), eq(learningStepSchema.name, step.name)));
+    .from(memoryNamespaceSchema)
+    .where(and(eq(memoryNamespaceSchema.orgId, orgId), eq(memoryNamespaceSchema.name, step.name)));
 
   const payload = {
     orgId,
     name: step.name,
+    scopeKind: 'workspace',
+    scopeRef: null,
+    path: `workspace/${step.name}`,
     title: step.title,
     description: step.description,
     preamble: step.preamble ?? null,
@@ -1106,15 +1118,15 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
 
   if (!existing) {
     if (!dryRun) {
-      const [row] = await db.insert(learningStepSchema).values(payload).returning();
+      const [row] = await db.insert(memoryNamespaceSchema).values(payload).returning();
       if (row) {
-        await seedLearningRules(orgId, row.id, step.rules ?? []);
+        await seedLearningRules(orgId, row.name, row.path, step.rules ?? []);
       }
     }
     return 'created';
   }
   if (!dryRun) {
-    await seedLearningRules(orgId, existing.id, step.rules ?? []);
+    await seedLearningRules(orgId, existing.name, existing.path, step.rules ?? []);
   }
 
   if (
@@ -1126,7 +1138,7 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
     return 'unchanged';
   }
   if (!dryRun) {
-    await db.update(learningStepSchema).set(payload).where(eq(learningStepSchema.id, existing.id));
+    await db.update(memoryNamespaceSchema).set(payload).where(eq(memoryNamespaceSchema.id, existing.id));
   }
   return 'updated';
 }

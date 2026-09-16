@@ -51,7 +51,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   });
 
   if (result.ok) {
-    return NextResponse.json({ ok: true, candidate: result.candidate, ruleId: result.ruleId });
+    return NextResponse.json({ ok: true, candidate: result.candidate, ruleKey: result.ruleKey });
   }
   switch (result.error) {
     case 'not_found':
@@ -65,7 +65,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     case 'near_duplicate':
       return jsonError(
         'CONFLICT',
-        `This rule is a near-duplicate of existing rule #${result.existing.existingId}`,
+        `This rule is a near-duplicate of existing rule ${result.existing.existingKey}`,
         409,
         { existing: result.existing },
       );

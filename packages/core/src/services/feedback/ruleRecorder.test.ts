@@ -30,8 +30,8 @@ const { db } = await import('@/libs/DB');
 const {
   learningCandidateSchema,
   learningFeedbackOccurrenceSchema,
-  learningSchema,
-  learningStepSchema,
+  memoryNamespaceSchema,
+  memorySchema,
 } = await import('@/models/Schema');
 const { recordProposedRule } = await import('@/services/feedback/ruleRecorder');
 const { eq } = await import('drizzle-orm');
@@ -52,17 +52,17 @@ function judgeAnswers(matchedLine: number | null) {
 
 async function makeStep(name = STEP): Promise<number> {
   const [row] = await db
-    .insert(learningStepSchema)
-    .values({ orgId: ORG, name, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
-    .returning({ id: learningStepSchema.id });
+    .insert(memoryNamespaceSchema)
+    .values({ orgId: ORG, name, path: `workspace/${name}`, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
+    .returning({ id: memoryNamespaceSchema.id });
   return row!.id;
 }
 
 beforeEach(async () => {
   await db.delete(learningFeedbackOccurrenceSchema);
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
   invokeMock.mockReset();
   trackMock.mockReset();
 });
@@ -100,7 +100,7 @@ describe('recordProposedRule', () => {
     expect(occurrences).toHaveLength(1);
     expect(occurrences[0]).toMatchObject({
       candidateId: candidate!.id,
-      learningId: null,
+      memoryKey: null,
       polarity: 'correct',
       note: 'you quoted a number with no source again',
       agentSlug: 'pipeline-analyst',
@@ -162,11 +162,10 @@ describe('recordProposedRule', () => {
   });
 
   it('bumps an already-adopted rule and creates no candidate', async () => {
-    const stepId = await makeStep();
-    const [rule] = await db
-      .insert(learningSchema)
-      .values({ orgId: ORG, stepId, ruleText: RULE })
-      .returning({ id: learningSchema.id });
+    await makeStep();
+    const { addRule } = await import('@/services/MemoryService');
+    const added = await addRule({ orgId: ORG, stepName: STEP, ruleText: RULE });
+    const ruleKey = added.ok ? added.rule.key : '';
     judgeAnswers(1);
 
     const result = await recordProposedRule({
@@ -178,16 +177,16 @@ describe('recordProposedRule', () => {
       submittedBy: 'user_3',
     });
 
-    expect(result).toMatchObject({ outcome: 'duplicate', matched: { kind: 'learning', id: rule!.id } });
+    expect(result).toMatchObject({ outcome: 'duplicate', matched: { kind: 'learning', id: ruleKey } });
     expect(await db.select().from(learningCandidateSchema)).toHaveLength(0);
 
-    const [adopted] = await db.select().from(learningSchema).where(eq(learningSchema.id, rule!.id));
+    const [adopted] = await db.select().from(memorySchema).where(eq(memorySchema.key, ruleKey));
 
-    expect(adopted?.occurrenceCount).toBe(2);
+    expect((adopted?.value as { meta?: { occurrenceCount?: number } }).meta?.occurrenceCount).toBe(2);
 
     const [occurrence] = await db.select().from(learningFeedbackOccurrenceSchema);
 
-    expect(occurrence).toMatchObject({ learningId: rule!.id, candidateId: null });
+    expect(occurrence).toMatchObject({ memoryKey: ruleKey, candidateId: null });
   });
 
   it('falls back to the org\'s first learning step when the caller names none', async () => {

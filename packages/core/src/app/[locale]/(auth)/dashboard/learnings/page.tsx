@@ -7,7 +7,7 @@ import { ListRow, ListRows } from '@/components/ui/list-row';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listCandidates } from '@/services/LearningCandidateService';
-import { listSteps } from '@/services/LearningsService';
+import { listNamespaces } from '@/services/MemoryService';
 import { PendingCandidates } from './PendingCandidates';
 
 /**
@@ -32,7 +32,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
 
   const CANDIDATE_PAGE_SIZE = 20;
   const [steps, pending] = await Promise.all([
-    listSteps(orgId),
+    listNamespaces(orgId),
     listCandidates(orgId, { status: 'pending', limit: CANDIDATE_PAGE_SIZE }),
   ]);
 
@@ -40,7 +40,7 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
     <>
       <TitleBar
         title="Learnings"
-        description="Whitelisted rule buckets the self-improver agent feeds, gated by human approval. Each step is mounted into the agent's virtual FS at /learnings/<step>.md."
+        description="Whitelisted memory namespaces the feedback loop feeds, gated by human approval. Each one mounts into the agent's virtual FS under /memories/<path>/."
       />
 
       <PendingCandidates

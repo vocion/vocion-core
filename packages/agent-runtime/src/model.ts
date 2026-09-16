@@ -78,6 +78,19 @@ export function bedrockCredentialProvider(
   };
 }
 
+/**
+ * Whether this Anthropic model REFUSES sampling parameters. Claude 4.7, 4.8
+ * and the whole 5 family answer `temperature` with a 400 ("`temperature` is
+ * deprecated for this model"); 4.6 deprecated but still honours it. Mirror of
+ * core's `anthropicOmitsSampling` (libs/llm/langchain.ts) — the artifact
+ * cannot import core modules. Bedrock ids decorate the model name, so the
+ * match is a substring.
+ * @param model - Model id, vendor or Bedrock spelling.
+ */
+export function anthropicOmitsSampling(model: string): boolean {
+  return /claude-(?:opus-4-[78]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
+}
+
 export async function buildChatModel(opts: {
   model?: string;
   temperature?: number;
@@ -93,9 +106,10 @@ export async function buildChatModel(opts: {
 
   if (provider === 'anthropic') {
     const { ChatAnthropic } = await import('@langchain/anthropic');
+    const model = opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? ANTHROPIC_DEFAULT;
     return new ChatAnthropic({
-      model: opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? ANTHROPIC_DEFAULT,
-      temperature: opts.temperature,
+      model,
+      ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
       maxTokens: opts.maxTokens ?? 8192,
     });
   }
@@ -104,9 +118,11 @@ export async function buildChatModel(opts: {
   const credentials = opts.readAwsSession
     ? bedrockCredentialProvider(opts.readAwsSession)
     : undefined;
+  const model = opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT;
   return new ChatBedrockConverse({
-    model: opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT,
-    temperature: opts.temperature,
+    model,
+    // Same models, second transport: Bedrock refuses the same parameters.
+    ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
     maxTokens: opts.maxTokens ?? 8192,
     region: process.env.AWS_REGION ?? 'us-west-2',
     ...(credentials ? { credentials } : {}),

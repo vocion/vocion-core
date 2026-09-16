@@ -17,8 +17,8 @@ const { db } = await import('@/libs/DB');
 const {
   learningCandidateSchema,
   learningFeedbackOccurrenceSchema,
-  learningSchema,
-  learningStepSchema,
+  memoryNamespaceSchema,
+  memorySchema,
 } = await import('@/models/Schema');
 const { decideCandidate } = await import('@/services/LearningCandidateService');
 
@@ -28,9 +28,9 @@ const REVIEWER = 'user_lead';
 
 async function makeStep(): Promise<number> {
   const [row] = await db
-    .insert(learningStepSchema)
-    .values({ orgId: ORG, name: STEP, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
-    .returning({ id: learningStepSchema.id });
+    .insert(memoryNamespaceSchema)
+    .values({ orgId: ORG, name: STEP, path: `workspace/${STEP}`, title: 'CRM updates', description: 'Rules for CRM update drafts.' })
+    .returning({ id: memoryNamespaceSchema.id });
   return row!.id;
 }
 
@@ -66,8 +66,8 @@ async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: strin
 beforeEach(async () => {
   await db.delete(learningFeedbackOccurrenceSchema);
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
   trackMock.mockReset();
 });
 
@@ -115,9 +115,9 @@ describe('decideCandidate', () => {
 
     await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
 
-    const [rule] = await db.select().from(learningSchema);
+    const [rule] = await db.select().from(memorySchema);
 
-    expect(rule?.occurrenceCount).toBe(4);
+    expect((rule?.value as { meta?: { occurrenceCount?: number } }).meta?.occurrenceCount).toBe(4);
   });
 
   it('leaves the agent unset when no occurrence named one', async () => {

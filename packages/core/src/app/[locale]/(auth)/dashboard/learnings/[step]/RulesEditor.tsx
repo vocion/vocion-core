@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 
 type Rule = {
-  id: number;
+  /** The rule's file slug inside the step (e.g. `r5` or `ws-cite-sources`). */
+  id: string;
   ruleText: string;
   source: string | null;
   createdBy: string | null;
@@ -35,7 +36,7 @@ type Props = {
 export function RulesEditor({ step, initialRules }: Props) {
   const router = useRouter();
   const [rules, setRules] = useState<Rule[]>(initialRules);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>('');
   const [adding, setAdding] = useState(false);
   const [newText, setNewText] = useState('');
@@ -57,7 +58,7 @@ export function RulesEditor({ step, initialRules }: Props) {
         throw new Error(body?.error?.message ?? `${res.status} ${res.statusText}`);
       }
       const added = await res.json();
-      setRules(r => [...r, { ...added, createdAt: added.createdAt }]);
+      setRules(r => [...r, { ...added, id: String(added.key ?? '').split('/').pop()!.replace(/\.md$/, ''), createdAt: added.createdAt }]);
       setNewText('');
       setAdding(false);
       router.refresh();
@@ -68,7 +69,7 @@ export function RulesEditor({ step, initialRules }: Props) {
     }
   }
 
-  async function onSaveEdit(ruleId: number) {
+  async function onSaveEdit(ruleId: string) {
     setBusy(true);
     setError(null);
     try {
@@ -93,7 +94,7 @@ export function RulesEditor({ step, initialRules }: Props) {
     }
   }
 
-  async function onDelete(ruleId: number) {
+  async function onDelete(ruleId: string) {
     // eslint-disable-next-line no-alert -- native confirm is sufficient for the v0.5 floor; replace with a modal in v0.5.1
     if (!confirm('Remove this rule? This is irreversible.')) {
       return;

@@ -17,7 +17,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { learningCandidateSchema, learningFeedbackOccurrenceSchema } from '@/models/Schema';
-import { addLearning, checkDedup } from '@/services/LearningsService';
+import { addRule, checkDedup } from '@/services/MemoryService';
 
 export type LearningCandidate = typeof learningCandidateSchema.$inferSelect;
 
@@ -193,12 +193,12 @@ export async function updateCandidate(opts: {
 }
 
 export type DecideCandidateResult
-  = | { ok: true; candidate: LearningCandidate; ruleId: number | null }
+  = | { ok: true; candidate: LearningCandidate; ruleKey: string | null }
     | { ok: false; error: 'not_found' | 'already_decided' | 'reason_required' | 'unknown_step' }
     | {
       ok: false;
       error: 'near_duplicate';
-      existing: { existingId: number; existingRule: string; similarity: number };
+      existing: { existingKey: string; existingRule: string; similarity: number };
     };
 
 /**
@@ -241,13 +241,13 @@ export async function decideCandidate(opts: {
       .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
       .returning();
     await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'rejected');
-    return { ok: true, candidate: row!, ruleId: null };
+    return { ok: true, candidate: row!, ruleKey: null };
   }
 
   const agentSlug = await resolveCandidateAgentSlug(opts.orgId, opts.id);
   let added;
   try {
-    added = await addLearning({
+    added = await addRule({
       orgId: opts.orgId,
       stepName: candidate.stepName,
       ruleText: effectiveRuleText(candidate),
@@ -255,10 +255,11 @@ export async function decideCandidate(opts: {
       createdBy: opts.decidedBy,
       agentSlug,
       occurrenceCount: candidate.occurrenceCount,
+      polarity: candidate.polarity,
     });
   } catch (error) {
-    // addLearning throws only for an unknown step; anything else is a real fault.
-    if (error instanceof Error && error.message.startsWith('unknown learning step')) {
+    // addRule throws only for an unknown namespace; anything else is a real fault.
+    if (error instanceof Error && error.message.startsWith('unknown memory namespace')) {
       console.error(`[LearningCandidateService] candidate ${opts.id} targets unknown step "${candidate.stepName}"`, error);
       return { ok: false, error: 'unknown_step' };
     }
@@ -270,7 +271,7 @@ export async function decideCandidate(opts: {
       ok: false,
       error: 'near_duplicate',
       existing: {
-        existingId: added.existing.existingId,
+        existingKey: added.existing.existingKey,
         existingRule: added.existing.existingRule,
         similarity: added.existing.similarity,
       },
@@ -281,14 +282,14 @@ export async function decideCandidate(opts: {
     .update(learningCandidateSchema)
     .set({
       status: 'approved',
-      createdLearningId: added.rule?.id ?? null,
+      createdMemoryKey: added.rule?.key ?? null,
       decidedBy: opts.decidedBy,
       decidedAt: new Date(),
     })
     .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
     .returning();
   await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'approved', agentSlug);
-  return { ok: true, candidate: row!, ruleId: added.rule?.id ?? null };
+  return { ok: true, candidate: row!, ruleKey: added.rule?.key ?? null };
 }
 
 /**

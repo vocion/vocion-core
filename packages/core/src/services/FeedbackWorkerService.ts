@@ -21,7 +21,7 @@
 import type { Classification } from './feedback/classifier';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { feedbackJobSchema, learningStepSchema } from '@/models/Schema';
+import { feedbackJobSchema, memoryNamespaceSchema } from '@/models/Schema';
 import { classifyComment } from './feedback/classifier';
 
 export type FeedbackPayload = {
@@ -170,10 +170,10 @@ export async function runOnce(): Promise<boolean> {
     // judgment). A caller that already knows the step (payload.targetSlug)
     // still wins below.
     const steps = await db
-      .select({ name: learningStepSchema.name, description: learningStepSchema.description })
-      .from(learningStepSchema)
-      .where(eq(learningStepSchema.orgId, row.org_id))
-      .orderBy(learningStepSchema.id);
+      .select({ name: memoryNamespaceSchema.name, description: memoryNamespaceSchema.description })
+      .from(memoryNamespaceSchema)
+      .where(eq(memoryNamespaceSchema.orgId, row.org_id))
+      .orderBy(memoryNamespaceSchema.id);
 
     const classification = await classifyComment({
       text: payload.text ?? '',

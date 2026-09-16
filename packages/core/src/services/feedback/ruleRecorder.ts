@@ -24,10 +24,10 @@ import { db } from '@/libs/DB';
 import {
   learningCandidateSchema,
   learningFeedbackOccurrenceSchema,
-  learningSchema,
-  learningStepSchema,
+  memoryNamespaceSchema,
 } from '@/models/Schema';
 import { createCandidate } from '@/services/LearningCandidateService';
+import { bumpOccurrence, getNamespace } from '@/services/MemoryService';
 import { findDuplicateRule } from './duplicateDetection';
 
 /** Which direction a piece of feedback points the agent. */
@@ -53,13 +53,13 @@ async function resolveStepName(orgId: string, preferredStepName?: string): Promi
   if (preferredStepName?.trim()) {
     return preferredStepName.trim();
   }
-  const [firstStep] = await db
-    .select({ name: learningStepSchema.name })
-    .from(learningStepSchema)
-    .where(eq(learningStepSchema.orgId, orgId))
-    .orderBy(learningStepSchema.id)
+  const [first] = await db
+    .select({ name: memoryNamespaceSchema.name })
+    .from(memoryNamespaceSchema)
+    .where(eq(memoryNamespaceSchema.orgId, orgId))
+    .orderBy(memoryNamespaceSchema.id)
     .limit(1);
-  return firstStep?.name ?? null;
+  return first?.name ?? null;
 }
 
 /**
@@ -86,22 +86,20 @@ async function loadExistingRules(orgId: string, stepName: string): Promise<Exist
     ))
     .orderBy(desc(learningCandidateSchema.id));
 
-  const [step] = await db
-    .select({ id: learningStepSchema.id })
-    .from(learningStepSchema)
-    .where(and(eq(learningStepSchema.orgId, orgId), eq(learningStepSchema.name, stepName)));
-
-  const adopted = step
-    ? await db
-        .select({ id: learningSchema.id, ruleText: learningSchema.ruleText })
-        .from(learningSchema)
-        .where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.stepId, step.id)))
-        .orderBy(desc(learningSchema.id))
-    : [];
+  // Adopted rules live in the memory store now; an unknown namespace is not
+  // an error (candidates may name one before workspace:apply seeds it), so
+  // there is simply nothing adopted to compare against.
+  let adopted: Array<{ key: string; ruleText: string; createdAt: Date }> = [];
+  try {
+    adopted = (await getNamespace(orgId, stepName)).rules;
+  } catch {
+    adopted = [];
+  }
+  adopted.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   return [
     ...pending.map(row => ({ kind: 'candidate' as const, id: row.id, ruleText: row.ruleText })),
-    ...adopted.map(row => ({ kind: 'learning' as const, id: row.id, ruleText: row.ruleText })),
+    ...adopted.map(row => ({ kind: 'learning' as const, id: row.key, ruleText: row.ruleText })),
   ];
 }
 
@@ -223,8 +221,8 @@ async function attachOccurrence(
     .insert(learningFeedbackOccurrenceSchema)
     .values({
       orgId: row.orgId,
-      candidateId: target.kind === 'candidate' ? target.id : null,
-      learningId: target.kind === 'learning' ? target.id : null,
+      candidateId: target.kind === 'candidate' ? (target.id as number) : null,
+      memoryKey: target.kind === 'learning' ? (target.id as string) : null,
       polarity: row.polarity,
       note: row.note,
       agentSlug: row.agentSlug,
@@ -239,12 +237,9 @@ async function attachOccurrence(
       await db
         .update(learningCandidateSchema)
         .set({ occurrenceCount: sql`${learningCandidateSchema.occurrenceCount} + 1` })
-        .where(eq(learningCandidateSchema.id, target.id));
+        .where(eq(learningCandidateSchema.id, target.id as number));
     } else {
-      await db
-        .update(learningSchema)
-        .set({ occurrenceCount: sql`${learningSchema.occurrenceCount} + 1` })
-        .where(eq(learningSchema.id, target.id));
+      await bumpOccurrence(row.orgId, target.id as string);
     }
   }
 

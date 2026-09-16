@@ -27,7 +27,7 @@ import { listProcessorSlugs, processorConfigSchema } from '@/libs/processors/reg
 import { withManifestDir } from '@/libs/sources/manifestDir';
 import { withProcessor } from '@/libs/sources/processor';
 import { getConnector, listConnectors } from '@/libs/sources/registry';
-import { agentSchema, knowledgeSourceSchema, learningStepSchema } from '@/models/Schema';
+import { agentSchema, knowledgeSourceSchema, memoryNamespaceSchema } from '@/models/Schema';
 
 /**
  * Config key holding a source's human-readable name.
@@ -95,7 +95,7 @@ export type KnownProcessorNames = {
  */
 export async function storedProcessorNames(orgId: string): Promise<KnownProcessorNames> {
   const [steps, agents] = await Promise.all([
-    db.select({ name: learningStepSchema.name }).from(learningStepSchema).where(eq(learningStepSchema.orgId, orgId)),
+    db.select({ name: memoryNamespaceSchema.name }).from(memoryNamespaceSchema).where(eq(memoryNamespaceSchema.orgId, orgId)),
     db.select({ slug: agentSchema.slug }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
   ]);
   return {

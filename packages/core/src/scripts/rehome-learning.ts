@@ -1,19 +1,23 @@
 /**
- * Move an ADOPTED rule to a different learning step — the fix for rules the
- * classifier misfiled before it learned to pick a bucket (email-drafting
+ * Move an ADOPTED rule to a different memory namespace — the fix for rules
+ * the classifier misfiled before it learned to pick a bucket (email-drafting
  * rules sitting in the CRM-judgment step, live in prod as of 2026-09-15).
  *
  * Pending candidates are re-bucketed on the approval card instead; this script
- * exists because adopted rules have no equivalent control.
+ * exists because adopted rules have no equivalent control. Moving a rule means
+ * re-keying its store entry (the key encodes the namespace path); the
+ * occurrence back-links pointing at the old key are re-pointed in the same
+ * pass so the evidence chain survives the move.
  *
  * Usage, from packages/core:
  *   npx dotenv -c -- tsx src/scripts/rehome-learning.ts --org <orgId> [--list]
- *   npx dotenv -c -- tsx src/scripts/rehome-learning.ts --org <orgId> --rule <id> --to <stepName>
+ *   npx dotenv -c -- tsx src/scripts/rehome-learning.ts --org <orgId> --rule <slug or key> --to <namespaceName>
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, like, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { learningSchema, learningStepSchema } from '@/models/Schema';
+import { memoryNamespaceSchema, memorySchema } from '@/models/Schema';
+import { namespaceFilePrefix } from '@/services/MemoryService';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -26,51 +30,62 @@ async function main(): Promise<void> {
     throw new Error('pass --org <orgId>');
   }
 
-  const steps = await db
+  const namespaces = await db
     .select()
-    .from(learningStepSchema)
-    .where(eq(learningStepSchema.orgId, orgId))
-    .orderBy(learningStepSchema.id);
-  const stepById = new Map(steps.map(s => [s.id, s]));
+    .from(memoryNamespaceSchema)
+    .where(eq(memoryNamespaceSchema.orgId, orgId))
+    .orderBy(memoryNamespaceSchema.id);
 
   if (process.argv.includes('--list')) {
     const rules = await db
       .select()
-      .from(learningSchema)
-      .where(eq(learningSchema.orgId, orgId))
-      .orderBy(learningSchema.id);
+      .from(memorySchema)
+      .where(and(eq(memorySchema.orgId, orgId), like(memorySchema.key, '/%')))
+      .orderBy(memorySchema.key);
     for (const r of rules) {
-      console.warn(`#${r.id} [${stepById.get(r.stepId)?.name ?? r.stepId}] ${r.ruleText.slice(0, 100)}`);
+      const text = String((r.value as { content?: unknown }).content ?? '');
+      console.warn(`${r.key} :: ${text.slice(0, 90).replace(/\n/g, ' ')}`);
     }
     return;
   }
 
-  const ruleId = Number(arg('rule'));
-  const toStep = arg('to');
-  if (!Number.isInteger(ruleId) || !toStep) {
-    throw new Error('pass --rule <id> --to <stepName> (or --list)');
+  const ruleArg = arg('rule');
+  const toName = arg('to');
+  if (!ruleArg || !toName) {
+    throw new Error('pass --rule <slug or key> --to <namespaceName> (or --list)');
   }
-  const target = steps.find(s => s.name === toStep);
+  const target = namespaces.find(ns => ns.name === toName);
   if (!target) {
-    throw new Error(`unknown step "${toStep}" — org has: ${steps.map(s => s.name).join(', ')}`);
+    throw new Error(`unknown namespace "${toName}" — org has: ${namespaces.map(ns => ns.name).join(', ')}`);
   }
+
+  const slug = ruleArg.includes('/') ? ruleArg.split('/').pop()! : (ruleArg.endsWith('.md') ? ruleArg : `${ruleArg}.md`);
   const [rule] = await db
     .select()
-    .from(learningSchema)
-    .where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.id, ruleId)));
+    .from(memorySchema)
+    .where(and(eq(memorySchema.orgId, orgId), like(memorySchema.key, `%/${slug}`)));
   if (!rule) {
-    throw new Error(`no rule #${ruleId} in org ${orgId}`);
+    throw new Error(`no rule matching "${ruleArg}" in org ${orgId}`);
   }
-  if (rule.stepId === target.id) {
-    console.warn(`rule #${ruleId} is already in ${toStep}; nothing to do`);
+  const newKey = `${namespaceFilePrefix(target.path)}${slug}`;
+  if (rule.key === newKey) {
+    console.warn(`rule ${rule.key} is already in ${toName}; nothing to do`);
     return;
   }
-  const from = stepById.get(rule.stepId)?.name ?? String(rule.stepId);
   await db
-    .update(learningSchema)
-    .set({ stepId: target.id })
-    .where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.id, ruleId)));
-  console.warn(`moved rule #${ruleId} ${from} → ${toStep}: ${rule.ruleText.slice(0, 80)}`);
+    .update(memorySchema)
+    .set({ key: newKey })
+    .where(and(eq(memorySchema.orgId, orgId), eq(memorySchema.id, rule.id)));
+  await db.execute(sql`
+    UPDATE learning_feedback_occurrence SET memory_key = ${newKey}
+    WHERE org_id = ${orgId} AND memory_key = ${rule.key}
+  `);
+  await db.execute(sql`
+    UPDATE learning_candidate SET created_memory_key = ${newKey}
+    WHERE org_id = ${orgId} AND created_memory_key = ${rule.key}
+  `);
+  const text = String((rule.value as { content?: unknown }).content ?? '');
+  console.warn(`moved ${rule.key} → ${newKey}: ${text.slice(0, 80).replace(/\n/g, ' ')}`);
 }
 
 main().then(() => process.exit(0)).catch((error) => {

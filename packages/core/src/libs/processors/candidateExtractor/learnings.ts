@@ -8,7 +8,7 @@
  * Three defences, each for a specific failure seen before:
  *
  *   - **A per-step try/catch.** `getLearnings` throws on an unknown step
- *     (`LearningsService.ts`), and one bad step name would otherwise fail every
+ *     (`MemoryService.ts`), and one bad step name would otherwise fail every
  *     document of the run. Apply-time validation is the real gate; this is the
  *     belt, mirroring `services/agents/tools/kitVision.ts`.
  *   - **`action_run:` rows are excluded.** Those were written automatically
@@ -34,7 +34,7 @@ export type RenderedLearnings = {
 };
 
 /** One rule, flattened out of a step's payload. */
-type Rule = { step: string; id: number; text: string };
+type Rule = { step: string; id: string; text: string };
 
 /**
  * Collapse a rule to one safe line.
@@ -57,20 +57,20 @@ export async function renderLearnings(orgId: string, steps: string[] | undefined
   if (!steps || steps.length === 0) {
     return { text: '', ids: [], failedSteps: [] };
   }
-  const { getLearnings } = await import('@/services/LearningsService');
+  const { getNamespace } = await import('@/services/MemoryService');
 
   const rules: Rule[] = [];
   const failedSteps: string[] = [];
   for (const step of steps) {
     try {
-      const data = await getLearnings(orgId, step);
+      const data = await getNamespace(orgId, step);
       for (const rule of data.rules) {
         if ((rule.source ?? '').startsWith(UNADOPTED_SOURCE_PREFIX)) {
           continue;
         }
         const text = scrubRule(rule.ruleText ?? '');
         if (text) {
-          rules.push({ step, id: rule.id, text });
+          rules.push({ step, id: rule.key.split('/').pop()!.replace(/\.md$/, ''), text });
         }
       }
     } catch {

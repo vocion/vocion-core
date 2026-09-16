@@ -29,14 +29,16 @@ import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
 import { tool as makeTool } from '@langchain/core/tools';
-import { createDeepAgent, StateBackend } from 'deepagents';
+import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
+import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
+import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { agentSchema, playbookSchema } from '@/models/Schema';
-import { bundleStepMarkdown } from '@/services/LearningsService';
+import { assembleMemoryFiles } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
@@ -320,7 +322,17 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
     systemPrompt,
-    backend: new StateBackend(),
+    // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
+    // Store over Postgres, so an agent's file reads there see the org's full
+    // approved memory across threads. Writes under /memories/ are refused —
+    // the human approval gate is the only write path into durable memory
+    // (a poisoned "learning" is a persistent prompt injection; see the
+    // PolinRider incident). Refused via readOnlyBackend, NOT deepagents
+    // `permissions`: permission rules throw and a thrown tool error aborts
+    // the whole turn, verified live.
+    backend: new CompositeBackend(new StateBackend(), {
+      '/memories/': readOnlyBackend(new StoreBackend({ store: new DrizzleMemoryStore(orgId), namespace: MEMORY_STORE_NAMESPACE })),
+    }),
     // Approved learnings are injected into every model call's system message
     // (structural, not discoverable — see memoryDigest.ts). Safe to mount
     // unconditionally: it declares no required state fields.
@@ -448,9 +460,13 @@ export async function buildInitialFiles(
     logger.error(`agent "${agentSlug}" cannot start: mounting its workspace files failed`, { error });
     throw error;
   }
-  const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
+  // Pre-rendered store content, one file per rule under /memories/…: the
+  // digest middleware reads these out of graph state, and the same paths are
+  // readable through the StoreBackend route. Rendering happened at write
+  // time; this is one indexed select per mounted namespace.
+  const memories = await assembleMemoryFiles(orgId, row.learningSteps ?? []);
   return Object.fromEntries(
-    Object.entries({ ...mounted, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

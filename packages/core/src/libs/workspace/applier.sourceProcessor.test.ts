@@ -20,7 +20,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, workspaceVersionSchema } = await import('@/models/Schema');
+const { agentSchema, knowledgeSourceSchema, memoryNamespaceSchema, memorySchema, workspaceVersionSchema } = await import('@/models/Schema');
 const { applyWorkspace } = await import('./applier');
 const { loadWorkspace } = await import('./loader');
 const { eq } = await import('drizzle-orm');
@@ -105,8 +105,8 @@ beforeEach(() => {
 afterEach(async () => {
   warnSpy.mockRestore();
   await db.delete(knowledgeSourceSchema).where(eq(knowledgeSourceSchema.orgId, ORG));
-  await db.delete(learningSchema).where(eq(learningSchema.orgId, ORG));
-  await db.delete(learningStepSchema).where(eq(learningStepSchema.orgId, ORG));
+  await db.delete(memorySchema).where(eq(memorySchema.orgId, ORG));
+  await db.delete(memoryNamespaceSchema).where(eq(memoryNamespaceSchema.orgId, ORG));
   await db.delete(agentSchema).where(eq(agentSchema.orgId, ORG));
   await db.delete(workspaceVersionSchema).where(eq(workspaceVersionSchema.orgId, ORG));
 });

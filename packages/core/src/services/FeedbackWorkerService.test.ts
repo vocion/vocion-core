@@ -13,7 +13,7 @@ vi.mock('@/services/feedback/classifier', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { feedbackJobSchema, learningCandidateSchema, learningSchema, learningStepSchema } = await import('@/models/Schema');
+const { feedbackJobSchema, learningCandidateSchema, memoryNamespaceSchema, memorySchema } = await import('@/models/Schema');
 const { enqueue, listJobs, runOnce } = await import('@/services/FeedbackWorkerService');
 
 const ORG = 'org_feedback';
@@ -22,14 +22,15 @@ const OTHER_ORG = 'org_not_yours';
 beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
   await db.delete(feedbackJobSchema);
 });
 
 afterAll(async () => {
   await db.delete(learningCandidateSchema);
-  await db.delete(learningSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
   await db.delete(feedbackJobSchema);
 });
 
@@ -110,7 +111,7 @@ describe('runOnce', () => {
 
     await runOnce();
 
-    expect(await db.select().from(learningSchema)).toHaveLength(0);
+    expect(await db.select().from(memorySchema)).toHaveLength(0);
   });
 
   it('classifies without a candidate when the feedback names no target step', async () => {
@@ -149,9 +150,9 @@ describe('runOnce', () => {
   });
 
   it('hands the classifier the org step whitelist so it can pick the bucket', async () => {
-    await db.insert(learningStepSchema).values([
-      { orgId: ORG, name: 'crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
-      { orgId: ORG, name: 'email-drafting', title: 'Email drafting', description: 'Voice and structure of outbound email' },
+    await db.insert(memoryNamespaceSchema).values([
+      { orgId: ORG, name: 'crm-updates', path: 'workspace/crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
+      { orgId: ORG, name: 'email-drafting', path: 'workspace/email-drafting', title: 'Email drafting', description: 'Voice and structure of outbound email' },
     ]);
     classifyComment.mockResolvedValue({ bucket: 'ignore' });
     await enqueue({ orgId: ORG, source: 'api', externalId: 'p', payload: { text: 'x' } });
@@ -167,9 +168,9 @@ describe('runOnce', () => {
   });
 
   it('lands the candidate in the step the classifier picked when the payload names none', async () => {
-    await db.insert(learningStepSchema).values([
-      { orgId: ORG, name: 'crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
-      { orgId: ORG, name: 'email-drafting', title: 'Email drafting', description: 'Voice of outbound email' },
+    await db.insert(memoryNamespaceSchema).values([
+      { orgId: ORG, name: 'crm-updates', path: 'workspace/crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
+      { orgId: ORG, name: 'email-drafting', path: 'workspace/email-drafting', title: 'Email drafting', description: 'Voice of outbound email' },
     ]);
     classifyComment.mockResolvedValue({
       bucket: 'rule',
@@ -186,9 +187,9 @@ describe('runOnce', () => {
   });
 
   it('lets a payload that names the step win over the classifier pick', async () => {
-    await db.insert(learningStepSchema).values([
-      { orgId: ORG, name: 'crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
-      { orgId: ORG, name: 'email-drafting', title: 'Email drafting', description: 'Voice of outbound email' },
+    await db.insert(memoryNamespaceSchema).values([
+      { orgId: ORG, name: 'crm-updates', path: 'workspace/crm-updates', title: 'CRM update judgment', description: 'When to write to the CRM' },
+      { orgId: ORG, name: 'email-drafting', path: 'workspace/email-drafting', title: 'Email drafting', description: 'Voice of outbound email' },
     ]);
     classifyComment.mockResolvedValue({
       bucket: 'rule',
