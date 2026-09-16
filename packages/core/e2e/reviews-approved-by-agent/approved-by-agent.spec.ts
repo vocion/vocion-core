@@ -230,3 +230,72 @@ test.describe('a caller that knows nothing about the new field', () => {
     }
   });
 });
+
+test.describe('filtering the queue by who approved', () => {
+  test('asking for the undecided rows returns them, rather than nothing', async ({ request }) => {
+    const proposed = await propose(request, holdProposal(9300, 0.2));
+
+    expect(proposed.status, JSON.stringify(proposed.body)).toBe(200);
+
+    const response = await request.get('/api/v1/reviews?approvedByAgent=null', {
+      headers: { authorization: `Bearer ${fixtures.token}` },
+    });
+    const body = await response.json();
+
+    expect(response.status()).toBe(200);
+    // `approved_by_agent = NULL` is never true in SQL, so an empty queue here
+    // is the failure this asserts against.
+    expect(body.items.some((i: { id: number }) => i.id === proposed.body.runId)).toBe(true);
+
+    for (const item of body.items) {
+      expect(item.approvedByAgent).toBeNull();
+    }
+  });
+
+  test('asking for the agent-approved rows excludes one nobody has decided', async ({ request }) => {
+    const proposed = await propose(request, holdProposal(9301, 0.2));
+
+    expect(proposed.status, JSON.stringify(proposed.body)).toBe(200);
+
+    const response = await request.get('/api/v1/reviews?approvedByAgent=true', {
+      headers: { authorization: `Bearer ${fixtures.token}` },
+    });
+    const body = await response.json();
+
+    expect(response.status()).toBe(200);
+    // A filter that was quietly dropped would return the whole queue, this run
+    // included, while the client believed every row had been agent-approved.
+    expect(body.items.some((i: { id: number }) => i.id === proposed.body.runId)).toBe(false);
+
+    for (const item of body.items) {
+      expect(item.approvedByAgent).toBe(true);
+    }
+  });
+
+  test('composes with the action-type filter instead of replacing it', async ({ request }) => {
+    const proposed = await propose(request, holdProposal(9302, 0.2));
+
+    expect(proposed.status, JSON.stringify(proposed.body)).toBe(200);
+
+    const both = await request.get(
+      `/api/v1/reviews?approvedByAgent=null&actionIds=${TRUSTED_ACTION_ID}`,
+      { headers: { authorization: `Bearer ${fixtures.token}` } },
+    );
+    const body = await both.json();
+
+    expect(both.status()).toBe(200);
+    expect(body.items.some((i: { id: number }) => i.id === proposed.body.runId)).toBe(true);
+
+    for (const item of body.items) {
+      expect(item.approvedByAgent).toBeNull();
+    }
+  });
+
+  test('refuses a value it does not recognise, rather than reading the whole queue', async ({ request }) => {
+    const response = await request.get('/api/v1/reviews?approvedByAgent=1', {
+      headers: { authorization: `Bearer ${fixtures.token}` },
+    });
+
+    expect(response.status()).toBe(400);
+  });
+});

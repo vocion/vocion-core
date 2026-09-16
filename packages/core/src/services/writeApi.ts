@@ -82,6 +82,36 @@ function assertId(id: unknown): asserts id is number {
 }
 
 /**
+ * Read the `approvedByAgent` query parameter — `true`, `false` or `null` — as
+ * the three-state value the queue filters on.
+ *
+ * Undefined in, undefined out: the caller asked for no filter. `null` in means
+ * the caller is asking for the undecided rows, which is a filter, and is why
+ * this cannot be a plain `Boolean()` coercion.
+ *
+ * Anything else is a 400 rather than a shrug. A misread value that fell
+ * through as "no filter" would hand back the whole queue while the client
+ * believed every row in it was agent-approved — the same failure the
+ * `suggestedDecision` check above exists to prevent.
+ * @param raw - The query parameter as sent, or undefined when absent.
+ */
+function parseApprovedByAgent(raw: string | undefined): boolean | null | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (raw === 'true') {
+    return true;
+  }
+  if (raw === 'false') {
+    return false;
+  }
+  if (raw === 'null') {
+    return null;
+  }
+  throw new WriteApiError(400, 'VALIDATION_FAILED', 'approvedByAgent must be one of true, false, null');
+}
+
+/**
  * Deciding, routing, snoozing and triaging a review are all the same
  * capability: `approve`. Owners, PMs and client-reviewers hold it; specialists
  * don't.
@@ -117,6 +147,15 @@ export type ListReviewsInput = {
    * both rather than replacing either.
    */
   suggestedDecision?: string;
+  /**
+   * Narrow to WHO approved — `true` the trust ladder, `false` a person,
+   * `null` nobody yet — as the raw query string, parsed here.
+   *
+   * Sent as the text `true`, `false` or `null`. Anything else is a 400: a
+   * filter that silently does nothing would hand back the whole queue looking
+   * like every row in it matched.
+   */
+  approvedByAgent?: string;
   includeSnoozed?: boolean;
   limit?: number;
   offset?: number;
@@ -139,6 +178,7 @@ export async function apiListReviews(caller: ApiCaller, opts: ListReviewsInput =
   }
   return ReviewService.listPendingPage(caller.orgId, {
     suggestedDecision: parseSuggestedDecision(opts.suggestedDecision),
+    approvedByAgent: parseApprovedByAgent(opts.approvedByAgent),
     assignedTo: opts.assignedTo === undefined
       ? undefined
       : (opts.assignedTo === 'unassigned' ? null : opts.assignedTo),

@@ -51,9 +51,14 @@ export type ReviewItem = {
    * Who made the approval call: `true` an agent took it on its own via the
    * trust ladder, `false` a person decided it, `null` nobody has decided yet.
    *
-   * Null on every item in the pending queue by definition — they are the
-   * undecided ones — and on every run decided before the column shipped. Never
-   * read a missing value as a human approval; it means unknown.
+   * Null on every item still waiting for a decision, and on every run decided
+   * before the column shipped. Never read a missing value as a human approval;
+   * it means unknown.
+   *
+   * Not always null in the queue, which is the part worth knowing: a run whose
+   * approval stood but whose execution threw stays in the queue as `failed`,
+   * so it carries the real answer — `true` when the trust ladder released it,
+   * `false` when a person did.
    *
    * Workflow and mission items carry `null` too: neither plane has an
    * auto-approval path, so there is no honest value other than "no agent
@@ -94,6 +99,26 @@ export type ListOptions = {
    * rather than counting the whole queue and filtering the page.
    */
   suggestedDecision?: SuggestedDecision;
+  /**
+   * Restrict to items by WHO made the approval call: `true` the trust ladder
+   * took it, `false` a person did, `null` nobody has yet.
+   *
+   * What this cuts is the failed lane. A run whose approval stood and whose
+   * execution threw stays in the queue, so "the agent released this and it
+   * broke" is a real set of rows and a different triage job from "a person
+   * approved it and it broke" — until now they came back mixed together.
+   *
+   * `true` and `false` return the action plane alone: no workflow or mission
+   * has an auto-approval path, so no row on those planes could ever match.
+   * `null` keeps all three, because an item nobody has decided is exactly what
+   * a paused workflow or a mission awaiting review is.
+   *
+   * Runs in the WHERE clause, like `actionIds` and `suggestedDecision`, so the
+   * total stays truthful rather than counting the whole queue and filtering
+   * the page. Omit the key for no filter — passing `null` is a filter, and
+   * means something different.
+   */
+  approvedByAgent?: boolean | null;
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -145,6 +170,26 @@ function routingFilters(opts: ListOptions, now: Date): SQL[] {
     filters.push(eq(reviewAssignmentSchema.assignedTo, opts.assignedTo));
   }
   return filters;
+}
+
+/**
+ * The WHERE clause for the `approvedByAgent` filter, or nothing when the
+ * caller did not ask for one.
+ *
+ * Spread into the clause rather than returned as a value, because "no filter"
+ * and "filter on null" are different requests and only an empty list can say
+ * the first one. Asking for null compiles to IS NULL: `approved_by_agent =
+ * NULL` is never true in SQL and would hand back an empty queue.
+ * @param opts
+ */
+function approvedByAgentFilter(opts: ListOptions): SQL[] {
+  if (opts.approvedByAgent === undefined) {
+    return [];
+  }
+  if (opts.approvedByAgent === null) {
+    return [isNull(actionRunSchema.approvedByAgent)];
+  }
+  return [eq(actionRunSchema.approvedByAgent, opts.approvedByAgent)];
 }
 
 /**
@@ -310,6 +355,11 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // is the expression index behind this; it is partial on the same two
     // statuses the clause above names, so the two have to stay in step.
     ...(opts.suggestedDecision ? [eq(suggestedDecisionColumn, opts.suggestedDecision)] : []),
+    // `null` is a value the caller can ask for, so the key being ABSENT is the
+    // only thing that means "no filter" — `opts.approvedByAgent ? …` would
+    // quietly turn a request for undecided rows into a request for all of them.
+    // Asking for null needs IS NULL: `= NULL` matches nothing in SQL.
+    ...approvedByAgentFilter(opts),
     ...routingFilters(opts, now),
   );
   const query = db
@@ -342,9 +392,9 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // older release or by hand can be any string at all, and a row claiming a
     // recommendation nobody defined should read as having none.
     suggestedDecision: parseSuggestedDecision(row.suggestedDecision),
-    // Null for everything in this plane — it only returns open work, which is
-    // by definition undecided. Carried anyway so the field is present on every
-    // item a client sees, rather than appearing only once an item is decided.
+    // Null for a run still waiting, and the real answer for a `failed` one —
+    // that approval already happened, the execution is what threw. Carried on
+    // every item either way, so a client reads one shape across the queue.
     approvedByAgent: row.approvedByAgent,
   }));
   const total = await planeTotal(items.length, cap, async () => {
@@ -420,8 +470,16 @@ async function listPlanes(orgId: string, opts: ListOptions, cap?: number): Promi
   // A recommendation only exists on an action run, so asking for one excludes
   // the other two planes rather than returning rows that could never match.
   const planeCarriesRecommendation = (kind: ReviewKind) => kind === 'action' || opts.suggestedDecision === undefined;
+  // Only an action run can have been decided by an agent, so asking for a
+  // decided row — true or false — excludes the other two planes the same way.
+  // Asking for `null` does NOT: an item nobody has decided is exactly what a
+  // paused workflow or a mission awaiting review is, so those still belong.
+  const planeCanBeDecided = (kind: ReviewKind) =>
+    kind === 'action' || opts.approvedByAgent === undefined || opts.approvedByAgent === null;
   const wants = (kind: ReviewKind) =>
-    (opts.kind === undefined || opts.kind === kind) && planeCarriesRecommendation(kind);
+    (opts.kind === undefined || opts.kind === kind)
+    && planeCarriesRecommendation(kind)
+    && planeCanBeDecided(kind);
   return Promise.all([
     wants('workflow') ? listWorkflowPlane(orgId, opts, now, cap) : EMPTY_PLANE,
     wants('mission') ? listMissionPlane(orgId, opts, now, cap) : EMPTY_PLANE,

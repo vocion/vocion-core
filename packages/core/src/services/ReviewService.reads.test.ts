@@ -276,3 +276,89 @@ describe('approvedByAgent on the queue reads', () => {
     expect((await getReviewDetail(ORG, 'workflow', workflowId))!.approvedByAgent).toBeNull();
   });
 });
+
+describe('the approvedByAgent queue filter', () => {
+  it('separates the two failed lanes, which is the whole point of it', async () => {
+    // A failed run stays in the queue with its decision intact, so these three
+    // are all pending work and only the filter tells them apart.
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true });
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: false });
+    await makePendingAction();
+
+    const agentApproved = await listPendingPage(ORG, { kind: 'action', approvedByAgent: true });
+    const personApproved = await listPendingPage(ORG, { kind: 'action', approvedByAgent: false });
+
+    expect(agentApproved.items).toHaveLength(1);
+    expect(agentApproved.items[0]!.approvedByAgent).toBe(true);
+    expect(personApproved.items).toHaveLength(1);
+    expect(personApproved.items[0]!.approvedByAgent).toBe(false);
+  });
+
+  it('counts only the matching rows, so a filtered queue can say how much work it holds', async () => {
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true });
+    await makePendingAction();
+    await makePendingAction();
+
+    const page = await listPendingPage(ORG, { kind: 'action', approvedByAgent: true, limit: 50 });
+
+    expect(page.total).toBe(1);
+  });
+
+  it('asking for the undecided rows is a filter, not the absence of one', async () => {
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true });
+    await makePendingAction();
+
+    const undecided = await listPendingPage(ORG, { kind: 'action', approvedByAgent: null });
+
+    // `= NULL` matches nothing in SQL, so getting the pending row back is what
+    // proves this compiles to IS NULL rather than silently dropping the filter
+    // or returning everything.
+    expect(undecided.items).toHaveLength(1);
+    expect(undecided.items[0]!.approvedByAgent).toBeNull();
+  });
+
+  it('omitting it returns the whole queue, decided rows included', async () => {
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true });
+    await makePendingAction();
+
+    expect((await listPendingPage(ORG, { kind: 'action' })).items).toHaveLength(2);
+  });
+
+  it('drops the planes no agent can decide when asked for a decided row', async () => {
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true });
+    await makePausedWorkflow();
+    await makeMissionAwaitingReview();
+
+    const decidedByAgent = await listPendingPage(ORG, { approvedByAgent: true });
+
+    // A paused workflow could never have been released by the trust ladder, so
+    // returning it under this filter would answer a different question.
+    expect(decidedByAgent.items).toHaveLength(1);
+    expect(decidedByAgent.items[0]!.kind).toBe('action');
+    expect(decidedByAgent.total).toBe(1);
+  });
+
+  it('keeps those planes when asked for the undecided rows, because that is what they are', async () => {
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true });
+    await makePausedWorkflow();
+    await makeMissionAwaitingReview();
+
+    const undecided = await listPendingPage(ORG, { approvedByAgent: null });
+
+    expect(undecided.items.map(item => item.kind).sort()).toEqual(['mission', 'workflow']);
+  });
+
+  it('composes with the action-type filter rather than replacing it', async () => {
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true, actionId: 'crm.update' });
+    await makePendingAction(ORG, { status: 'failed', approvedByAgent: true, actionId: 'hubspot.update' });
+
+    const page = await listPendingPage(ORG, {
+      kind: 'action',
+      approvedByAgent: true,
+      actionIds: ['hubspot.update'],
+    });
+
+    expect(page.items).toHaveLength(1);
+    expect(page.total).toBe(1);
+  });
+});
