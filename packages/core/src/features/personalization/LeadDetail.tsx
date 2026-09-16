@@ -22,6 +22,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { contentKindRenderer } from '@/features/review/contentKinds';
 import { useReviewDecision } from '@/features/review/useReviewDecision';
+import { readerFailure } from '@/libs/chat/redact';
+import { dimensionState, researchState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { resolveSequenceState } from '@/services/personalization/sequenceState';
 import { cn } from '@/utils/Helpers';
 import { ArtifactRegenerateControl } from './ArtifactRegenerateControl';
@@ -317,7 +319,19 @@ export const LeadView = (props: {
             lead.utmCampaign ? `via ${lead.utmCampaign}` : null,
             lead.mqlAt ? `MQL ${shortDate(lead.mqlAt)}` : lead.arrivedAt ? `Arrived ${shortDate(lead.arrivedAt)}` : null,
             lead.confidence !== null
-              ? <ConfidenceBars key="confidence" value={lead.confidence} subject="Research" note="How far the evidence supports this brief and its angle. Per-dimension readings are in the brief." />
+              ? (
+                  <ConfidenceBars
+                    key="confidence"
+                    value={lead.confidence}
+                    subject="Research"
+                    // A lead graded before the dimensions existed still has a raw
+                    // number, and that number is no more calibrated than the
+                    // five are — so it reads the SAME ladder rather than
+                    // falling back to a percentage.
+                    reading={SIGNAL_STATE_LABEL[lead.confidenceDimensions ? researchState(lead.confidenceDimensions) : dimensionState(lead.confidence)]}
+                    note="How much of the evidence we wanted we actually got. Per-signal states are in the brief."
+                  />
+                )
               : null,
             props.contactHref ? <MetaChip key="crm" href={props.contactHref}>Open in HubSpot ↗</MetaChip> : null,
           ]}
@@ -536,7 +550,7 @@ export const LeadView = (props: {
                   )
                 : (
                     <p className="text-[13px] text-muted-foreground">
-                      {lead.draftError ? `Drafting has not produced sends yet: ${lead.draftError}` : 'No sends drafted yet.'}
+                      {lead.draftError ? `Drafting has not produced sends yet: ${readerFailure(lead.draftError)}` : 'No sends drafted yet.'}
                     </p>
                   )}
             {guided && cardContent.length > 0 && (

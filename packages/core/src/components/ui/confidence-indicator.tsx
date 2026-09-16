@@ -108,6 +108,13 @@ export type ConfidenceBarsProps = Omit<ComponentProps<'span'>, 'title'> & {
   note?: string | null;
   /** Hide the written reading (a dense column that labels itself elsewhere). Never hides it from the accessible name. */
   readingHidden?: boolean;
+  /**
+   * Write this instead of the percentage — a coverage STATE ("Partial"), where
+   * the raw number is not a calibrated probability and printing it would claim
+   * a precision nothing earns. The value still drives the bars and the level,
+   * so the picture and the word cannot disagree.
+   */
+  reading?: string;
 };
 
 /**
@@ -119,6 +126,7 @@ export type ConfidenceBarsProps = Omit<ComponentProps<'span'>, 'title'> & {
  * @param props.size
  * @param props.note
  * @param props.readingHidden
+ * @param props.reading
  * @param props.className
  */
 export function ConfidenceBars({
@@ -129,6 +137,7 @@ export function ConfidenceBars({
   size = 'sm',
   note,
   readingHidden,
+  reading: readingOverride,
   className,
   ...rest
 }: ConfidenceBarsProps) {
@@ -141,7 +150,7 @@ export function ConfidenceBars({
   const filled = scored
     ? Math.min(BARS, Math.max(1, Math.ceil(Math.min(1, Math.max(0, value!)) * BARS)))
     : BAND_BARS[level];
-  const reading = scored ? confidenceReading(value!, format) : null;
+  const reading = readingOverride ?? (scored ? confidenceReading(value!, format) : null);
 
   // The visible text: the class first, the number second. Never one without
   // the other.
@@ -152,7 +161,7 @@ export function ConfidenceBars({
   const accessible = [
     subject ?? 'Confidence',
     '—',
-    reading ? `${reading} confidence` : 'no score recorded',
+    reading ? (readingOverride ? reading : `${reading} confidence`) : 'no score recorded',
     `(${spec.label})`,
   ].join(' ');
 
