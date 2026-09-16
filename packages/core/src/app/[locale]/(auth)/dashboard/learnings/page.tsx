@@ -2,9 +2,9 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { ListRow, ListRows } from '@/components/ui/list-row';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -104,38 +104,20 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
                   href={`/dashboard/learnings/${s.name}`}
                   icon={Sparkles}
                   title={s.title}
-                  meta={(
-                    <>
-                      <code className="font-mono">{s.path}</code>
-                      {s.scopeKind !== 'workspace' && (
-                        <>
-                          {' '}
-                          ·
-                          {' '}
-                          <span className="text-primary/80">
-                            {s.scopeKind}
-                            {' '}
-                            scope
-                          </span>
-                        </>
-                      )}
-                      {s.description && (
-                        <>
-                          {' '}
-                          ·
-                          {' '}
-                          {s.description}
-                        </>
-                      )}
-                      {' '}
-                      ·
-                      {' '}
-                      <span title="When an agent last had this namespace mounted">
-                        {s.lastUsedAt ? `used ${s.lastUsedAt.toISOString().slice(0, 10)}` : 'never used'}
-                      </span>
-                    </>
+                  subline={(
+                    <Subline
+                      separator="·"
+                      segments={[
+                        <code key="path" className="font-mono">{s.path}</code>,
+                        s.scopeKind === 'workspace' ? null : `${s.scopeKind} scope`,
+                        s.description,
+                        <span key="used" title="When an agent last had this namespace mounted">
+                          {s.lastUsedAt ? `used ${s.lastUsedAt.toISOString().slice(0, 10)}` : 'never used'}
+                        </span>,
+                      ]}
+                    />
                   )}
-                  trailing={(
+                  chip={(
                     <span className="flex items-center gap-2">
                       {s.agentSlugs.slice(0, 2).map(slug => (
                         <Badge key={slug} variant="outline">{slug}</Badge>

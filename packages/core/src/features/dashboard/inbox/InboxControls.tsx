@@ -1,14 +1,15 @@
 'use client';
 
-import type { Chip } from './ChipRow';
+import type { Chip } from '@/components/patterns';
 import type { InboxFacets, InboxKind, InboxSort, InboxTab } from '@/services/InboxService';
 import { Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { ChipRow } from '@/components/patterns';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
-import { ChipRow } from './ChipRow';
+
 import { INBOX_KIND_META } from './inboxMeta';
 
 const SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];

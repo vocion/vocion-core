@@ -1,5 +1,5 @@
 import type { BriefRow } from './PersonalizationQueue';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { PersonalizationQueue } from './PersonalizationQueue';
@@ -48,6 +48,13 @@ const UNBRIEFED: BriefRow[] = [
 ];
 
 describe('PersonalizationQueue', () => {
+  // The lane, search, sort and direction live in the URL (`useListUrlState`),
+  // and every test in a file shares one browser page — so a search typed in
+  // one test is still in the query string when the next one renders. Clear it.
+  beforeEach(() => {
+    window.history.replaceState(null, '', window.location.pathname);
+  });
+
   it('opens on Review, and has no lane for unbriefed leads', async () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
 

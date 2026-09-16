@@ -1,5 +1,6 @@
 'use client';
 
+import { RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -15,6 +16,9 @@ import { useState } from 'react';
  * Regenerating returns the lead to unbriefed, so it leaves this screen until
  * the next sweep writes a new brief. That is stated on the control rather than
  * discovered when the row disappears.
+ *
+ * A ghost verb that opens an inline field (Detail archetype: no box around a
+ * form; the field is a soft fill, the one ink button is the commit).
  * @param props
  * @param props.briefId
  * @param props.contactName
@@ -57,17 +61,18 @@ export const RegenerateBriefControl = (props: { briefId: number; contactName: st
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md border border-border px-2.5 py-1.5 text-xs transition hover:bg-muted"
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
       >
+        <RefreshCw className="size-3.5" aria-hidden />
         Regenerate
       </button>
     );
   }
 
   return (
-    <div className="rounded-md border border-border p-3">
+    <div className="border-t border-rule pt-3" data-testid="regenerate-brief">
       <label className="block">
-        <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
           What should the next brief do differently?
         </span>
         <textarea
@@ -76,14 +81,14 @@ export const RegenerateBriefControl = (props: { briefId: number; contactName: st
           rows={3}
           aria-label={`Regenerate instruction for ${props.contactName}`}
           placeholder="e.g. The angle leans on an industry pattern rather than anything about this company. Find something specific to them or say there is nothing."
-          className="mt-1 w-full rounded-md border border-border bg-background p-2 text-sm"
+          className="mt-1.5 w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30"
         />
       </label>
       <p className="mt-1 text-[13px] text-muted-foreground">
         This clears the brief and puts the lead back in line, so it leaves Review until the next
         sweep writes a new one. Your note goes to that pass.
       </p>
-      {error && <p className="mt-2 text-destructive">{error}</p>}
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       <div className="mt-3 flex items-center justify-end gap-2">
         <button
           type="button"
@@ -91,7 +96,7 @@ export const RegenerateBriefControl = (props: { briefId: number; contactName: st
             setOpen(false);
             setError(null);
           }}
-          className="rounded-md border border-border px-3 py-1.5 text-sm transition hover:bg-muted"
+          className="h-9 rounded-lg px-3 text-sm text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
         >
           Cancel
         </button>
@@ -99,7 +104,7 @@ export const RegenerateBriefControl = (props: { briefId: number; contactName: st
           type="button"
           disabled={!armed}
           onClick={submit}
-          className="rounded-md border border-border bg-foreground px-3 py-1.5 text-sm text-background transition disabled:opacity-40"
+          className="h-9 rounded-lg bg-action px-3 text-sm text-action-foreground transition hover:opacity-90 disabled:opacity-40"
         >
           {submitting ? 'Regenerating…' : 'Regenerate'}
         </button>

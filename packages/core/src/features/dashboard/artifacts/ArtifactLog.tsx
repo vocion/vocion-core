@@ -16,8 +16,9 @@
 import type { ArtifactListItem } from '@/services/ArtifactService';
 import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ListRow, ListRows, Subline } from '@/components/patterns';
 import { EmptyState } from '@/components/ui/empty-state';
-import { ListRow, ListRows } from '@/components/ui/list-row';
+
 import { cn } from '@/utils/Helpers';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL, authorLabel, relativeTime } from './kinds';
 
@@ -151,19 +152,17 @@ export function ArtifactLog({ artifacts, folders, pins = [], selfId }: ArtifactL
                         <span className="truncate">{a.title}</span>
                       </span>
                     )}
-                    meta={(
-                      <>
-                        {ARTIFACT_KIND_LABEL[a.kind]}
-                        {' · v'}
-                        {a.version}
-                        {a.versions > 1 ? ` (${a.versions} versions)` : ''}
-                        {' · '}
-                        {authorLabel(a.authorKind, a.authorId, selfId)}
-                        {' · '}
-                        {relativeTime(a.updatedAt)}
-                        {a.folder ? ` · ${a.folder}` : ''}
-                        {a.conversationTitle ? ` · from “${a.conversationTitle}”` : ''}
-                      </>
+                    subline={(
+                      <Subline
+                        separator="·"
+                        segments={[
+                          `${ARTIFACT_KIND_LABEL[a.kind]} · v${a.version}${a.versions > 1 ? ` (${a.versions} versions)` : ''}`,
+                          authorLabel(a.authorKind, a.authorId, selfId),
+                          relativeTime(a.updatedAt),
+                          a.folder,
+                          a.conversationTitle ? `from “${a.conversationTitle}”` : null,
+                        ]}
+                      />
                     )}
                   />
                 );
