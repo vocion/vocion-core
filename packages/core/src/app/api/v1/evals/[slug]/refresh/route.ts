@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { EvalRefreshNotStartedError, startEvalRefresh } from '@/services/evals/refresh';
-import { getDataset, UnknownEvalProviderError } from '@/services/EvalService';
+import { EvalProviderUnavailableError, getDataset, UnknownEvalProviderError } from '@/services/EvalService';
 import { authApi, jsonError } from '../../../_shared';
 
 /**
@@ -17,9 +17,10 @@ import { authApi, jsonError } from '../../../_shared';
  * given the same id as its run group, so it finds that row rather than opening
  * a second one, and so does every retry of its activity.
  *
+ * The grader is the dataset's own — an eval lives in one place, either Vocion
+ * or AgentCore — so the caller cannot pick one here.
+ *
  * Body (all optional):
- * - `providerIds`: grade with only these providers. Omitted means every
- *   provider the org can actually use.
  * - `concurrency`: how many cases to execute at once.
  * @param req - The incoming request.
  * @param context - Next's route context.
@@ -44,13 +45,17 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     started = await startEvalRefresh({
       orgId: auth.orgId,
       datasetSlug: dataset.slug,
-      providerIds: body.providerIds,
       concurrency: body.concurrency,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof UnknownEvalProviderError) {
       return jsonError('UNKNOWN_PROVIDER', message, 400);
+    }
+    if (error instanceof EvalProviderUnavailableError) {
+      // The dataset names a grader that cannot run — an AWS credential that is
+      // missing or expired, usually. Nothing to retry until someone fixes it.
+      return jsonError('PROVIDER_UNAVAILABLE', message, 409);
     }
     if (error instanceof EvalRefreshNotStartedError) {
       // The scheduler is down. Worth retrying, and not the caller's fault.
@@ -68,13 +73,13 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
       runGroupId: started.runGroupId,
       workflowId: started.runGroupId,
       status: 'running',
-      providers: started.providerIds,
+      provider: started.providerId,
     },
     { status: 202 },
   );
 }
 
-type RefreshBody = { providerIds?: string[]; concurrency?: number };
+type RefreshBody = { concurrency?: number };
 
 /**
  * Read the optional request body.
@@ -90,7 +95,6 @@ async function readBody(req: Request): Promise<RefreshBody> {
   }
   const body = parsed as RefreshBody;
   return {
-    providerIds: Array.isArray(body.providerIds) && body.providerIds.length > 0 ? body.providerIds : undefined,
     concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
   };
 }

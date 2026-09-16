@@ -1,12 +1,14 @@
 # Evals graded by AWS AgentCore
 
 Vocion's own judge is not the only opinion you can get about an agent. If your
-workspace runs on AWS, the same run can also be scored by Amazon Bedrock
-AgentCore Evaluations, and both scores are kept — labelled, filterable, and
-trended separately.
+workspace runs on AWS, a dataset can be scored by Amazon Bedrock AgentCore
+Evaluations instead, and the eval section says so everywhere the numbers
+appear.
 
-Separately is the point. An average of two graders is a number nobody can
-check. Two lines on one chart is a disagreement you can look at.
+One eval, one grader. An eval scored by two judges has two pass rates and so
+answers nothing: to compare the graders, point two datasets at the same agent
+and read them side by side, where it is obvious that they are two
+measurements.
 
 ## What AgentCore actually does
 
@@ -20,9 +22,9 @@ consequences worth knowing before you plan around it:
 - **AWS stores nothing.** There is no `GetEvaluation` for a synchronous call. A
   score Vocion does not write down is gone, which is why every score lands in
   `eval_score` as it arrives.
-- **Both graders see the same execution.** The agent runs once. If the two
-  disagree, that is the graders disagreeing — not the agent behaving
-  differently on a second run.
+- **The grader never sees your agent run.** It reads a finished transcript, so
+  a score is about that one execution and nothing else — rerunning the dataset
+  is a new measurement, not a second opinion on the old one.
 
 ## What is deterministic, and what only looks it
 
@@ -66,18 +68,30 @@ giving it a way out of the app. An unrecognised check is skipped rather than
 failing the run, so a file written against a newer version of Vocion still
 works.
 
-## Choosing your graders
+## Choosing your grader
 
-A dataset's `evaluators` block says who grades it. Omit it and you get Vocion's
-judge alone, which is what every dataset written before this existed gets.
+**An eval lives in one place.** A dataset's `provider` says who grades it —
+`vocion` or `agentcore` — and that is the only grader that ever runs it. Omit
+the key and you get `vocion`, which is what every dataset written before this
+existed gets.
+
+One grader, not several, because a dataset scored by two judges has two pass
+rates and no answer: "is refund handling above 80%?" stops having one. Move a
+dataset to AgentCore by changing the key; runs recorded before the switch keep
+whichever grader produced them, and the dataset page says so rather than
+passing old numbers off as the new grader's work.
+
+The `evaluators` block then tunes that grader. Every evaluator in it has to
+name the dataset's own provider — a mismatch is refused when the workspace is
+applied, rather than applied and left waiting for a score that cannot arrive.
 
 ```yaml
 evals:
   - slug: refund-quality
     name: Refund handling
     agentSlug: support-agent
+    provider: agentcore
     evaluators:
-      - provider: vocion
       - provider: agentcore
         builtin: [Builtin.TrajectoryInOrderMatch, Builtin.ToolSelectionAccuracy]
       - provider: agentcore
@@ -165,10 +179,9 @@ automations:
 With no input, that refreshes every dataset in the workspace. Narrow it with
 `input: { dataset: refund-quality }` for one, or a list for a few. There is no
 default cadence: an eval run spends model calls, and picking an hour to start
-spending them is your decision, not ours. Cases execute eight at a time, and every
-grader scores the finished transcripts at the same time as the others. The
-whole dataset finishing takes as long as its slowest case plus its slowest
-grader, not the sum of everything.
+spending them is your decision, not ours. Cases execute eight at a time, and the
+dataset's grader scores the finished transcripts. The whole dataset finishing
+takes as long as its slowest case plus the grading, not the sum of everything.
 
 Because the workflow id is the run group, a retried activity finds the rows it
 already created. A worker dying halfway through does not put a second point on

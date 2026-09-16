@@ -40,8 +40,9 @@ const dirs: string[] = [];
  * A workspace with one agent and one eval dataset, whose evaluator block is
  * whatever the test passes.
  * @param evaluatorsYaml - The `evaluators:` block, or '' for none.
+ * @param provider - The one grader the dataset says it is scored by.
  */
-function writeFixture(evaluatorsYaml: string): string {
+function writeFixture(evaluatorsYaml: string, provider = 'agentcore'): string {
   const dir = mkdtempSync(join(tmpdir(), 'cc-eval-evaluators-'));
   dirs.push(dir);
   writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: eval-evaluators\n`);
@@ -53,13 +54,13 @@ function writeFixture(evaluatorsYaml: string): string {
   mkdirSync(join(dir, 'evals'));
   writeFileSync(
     join(dir, 'evals', `${DATASET}.yaml`),
-    `slug: ${DATASET}\nname: Refund quality\nagentSlug: support-agent\n${evaluatorsYaml}items:\n  - input: I want a refund.\n`,
+    `slug: ${DATASET}\nname: Refund quality\nagentSlug: support-agent\nprovider: ${provider}\n${evaluatorsYaml}items:\n  - input: I want a refund.\n`,
   );
   return dir;
 }
 
-async function apply(evaluatorsYaml: string) {
-  const loaded = await loadWorkspace(writeFixture(evaluatorsYaml));
+async function apply(evaluatorsYaml: string, provider = 'agentcore') {
+  const loaded = await loadWorkspace(writeFixture(evaluatorsYaml, provider));
   return applyWorkspace(loaded, { orgId: ORG });
 }
 
@@ -95,6 +96,15 @@ afterAll(async () => {
 });
 
 describe('workspace apply — eval evaluators', () => {
+  it('refuses a file whose evaluator is for a grader the dataset does not use', async () => {
+    // An eval lives in one place. An AgentCore evaluator on a Vocion dataset
+    // would never be asked for a score, so applying the file would leave
+    // someone waiting for a number that cannot arrive.
+    await expect(apply(ONE_EVALUATOR, 'vocion')).rejects.toThrow(/graded by vocion/);
+
+    expect(await storedEvaluators()).toHaveLength(0);
+  });
+
   it('records what the file asked for, and calls nothing remote', async () => {
     await apply(TWO_EVALUATORS);
 

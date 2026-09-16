@@ -37,8 +37,6 @@ export class EvalRefreshNotStartedError extends Error {
 export type StartEvalRefreshOptions = {
   orgId: string;
   datasetSlug: string;
-  /** Grade with only these. Omitted means every provider the org can use. */
-  providerIds?: string[];
   /** How many cases to execute at once. */
   concurrency?: number;
 };
@@ -47,7 +45,8 @@ export type StartedEvalRefresh = {
   runId: number;
   /** Doubles as the workflow id. */
   runGroupId: string;
-  providerIds: string[];
+  /** The grader this dataset is scored by, from its workspace file. */
+  providerId: string;
 };
 
 /**
@@ -57,8 +56,8 @@ export type StartedEvalRefresh = {
  * having first closed the run out as failed: a row that says `running` with
  * nothing on its way to fill it in is the one state a person cannot recover
  * from on their own. Anything thrown before that point — an unknown dataset,
- * no available grader — comes through as itself.
- * @param options - Which dataset, graded by whom.
+ * a grader that cannot run — comes through as itself.
+ * @param options - Which dataset, and how hard to push.
  */
 export async function startEvalRefresh(options: StartEvalRefreshOptions): Promise<StartedEvalRefresh> {
   const workflowId = evalRefreshWorkflowIdFor(options.orgId, options.datasetSlug, Date.now());
@@ -66,7 +65,6 @@ export async function startEvalRefresh(options: StartEvalRefreshOptions): Promis
     orgId: options.orgId,
     datasetSlug: options.datasetSlug,
     runGroupId: workflowId,
-    providerIds: options.providerIds,
   });
 
   try {
@@ -77,7 +75,6 @@ export async function startEvalRefresh(options: StartEvalRefreshOptions): Promis
       args: [{
         orgId: options.orgId,
         datasetSlug: options.datasetSlug,
-        providerIds: options.providerIds,
         concurrency: options.concurrency,
       }],
     });
@@ -88,5 +85,5 @@ export async function startEvalRefresh(options: StartEvalRefreshOptions): Promis
     throw new EvalRefreshNotStartedError((error as Error).message ?? 'could not start the refresh workflow', { cause: error });
   }
 
-  return { runId: run.runId, runGroupId: workflowId, providerIds: run.providerIds };
+  return { runId: run.runId, runGroupId: workflowId, providerId: run.providerId };
 }

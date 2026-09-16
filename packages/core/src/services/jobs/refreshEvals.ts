@@ -32,8 +32,6 @@ export const REFRESH_EVALS_JOB = 'refresh-evals';
 type RefreshEvalsInput = {
   /** One slug, or several. Omitted means every dataset in the workspace. */
   dataset?: string | string[];
-  /** Grade with only these providers. Omitted means every available one. */
-  providers?: string[];
   concurrency?: number;
 };
 
@@ -88,7 +86,6 @@ export async function runRefreshEvalsJob(orgId: string, input: Record<string, un
       const started = await startEvalRefresh({
         orgId,
         datasetSlug,
-        providerIds: options.providers,
         concurrency: options.concurrency,
       });
       outcomes.push({

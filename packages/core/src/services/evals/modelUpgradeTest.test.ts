@@ -35,6 +35,7 @@ const dataset = {
   slug: 'proposal-writer-upgrade',
   name: 'Proposal Writer — upgrade',
   agentSlug: 'proposal-writer',
+  provider: 'vocion',
   description: null,
   items: [
     { input: 'Draft a brief for Acme', tags: ['brief'] },

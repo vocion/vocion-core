@@ -18,11 +18,12 @@
  *   in progress never blanks out the number someone had yesterday.
  */
 
-/** The parts of a run this file needs. */
-export type RunForCard = {
-  status: string;
-  startedAt: Date | string;
-  metrics?: { passRate?: number | null } | null;
+/** What the database already worked out about a dataset's runs. */
+export type RunFactsForCard = {
+  runCount: number;
+  latestStatus: string | null;
+  latestStartedAt: Date | string | null;
+  lastPassRate: number | null;
 };
 
 export type LastRunSummary = {
@@ -66,24 +67,23 @@ export function timeAgo(at: Date, now: number): string {
 
 /**
  * Sum up a dataset's runs for its card.
- * @param runs - This dataset's runs, newest first, as `listRuns` returns them.
+ * @param facts - What `summariseDatasetRuns` found, or null for a dataset with
+ * no runs at all.
  * @param now - The clock, injectable so tests do not depend on the real one.
  */
-export function summariseLastRun(runs: RunForCard[], now: number = Date.now()): LastRunSummary {
-  const finished = runs.find(run => run.status === 'succeeded');
-  const passRate = typeof finished?.metrics?.passRate === 'number' ? finished.metrics.passRate : null;
-  const newest = runs[0];
-  if (!newest) {
+export function summariseLastRun(facts: RunFactsForCard | null | undefined, now: number = Date.now()): LastRunSummary {
+  if (!facts || facts.runCount === 0 || !facts.latestStartedAt) {
     return { text: 'never run', warning: false, exactTime: null, passRate: null };
   }
 
-  const startedAt = newest.startedAt instanceof Date ? newest.startedAt : new Date(newest.startedAt);
+  const passRate = typeof facts.lastPassRate === 'number' ? facts.lastPassRate : null;
+  const startedAt = facts.latestStartedAt instanceof Date ? facts.latestStartedAt : new Date(facts.latestStartedAt);
   const exactTime = startedAt.toLocaleString();
-  if (newest.status === 'running') {
+  if (facts.latestStatus === 'running') {
     return { text: 'running now', warning: false, exactTime, passRate };
   }
-  if (newest.status === 'failed') {
-    return { text: `last run failed ${timeAgo(startedAt, now)}`, warning: true, exactTime, passRate };
+  if (facts.latestStatus === 'failed') {
+    return { text: `failed ${timeAgo(startedAt, now)}`, warning: true, exactTime, passRate };
   }
-  return { text: `last run ${timeAgo(startedAt, now)}`, warning: false, exactTime, passRate };
+  return { text: timeAgo(startedAt, now), warning: false, exactTime, passRate };
 }

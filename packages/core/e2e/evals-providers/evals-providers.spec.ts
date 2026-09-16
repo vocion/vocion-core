@@ -39,7 +39,7 @@ type SeedFixtures = {
   agentSlug: string;
   untouchedSlug: string;
   oneGraderSlug: string;
-  twoGradersSlug: string;
+  changedGradersSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -140,16 +140,39 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('the eval section, with more than one grader', () => {
-  test('the list dates every dataset, so stale ones show without opening them', async ({ page }) => {
+  test('the list dates every dataset and labels every number', async ({ page }) => {
     await page.goto('/dashboard/evals');
 
-    const untouchedCard = page.getByRole('listitem').filter({ hasText: fixtures.untouchedSlug });
-    const oneGraderCard = page.getByRole('listitem').filter({ hasText: fixtures.oneGraderSlug });
+    const untouchedCard = page.getByRole('list', { name: 'Eval datasets' }).getByRole('listitem').filter({ hasText: fixtures.untouchedSlug });
+    const oneGraderCard = page.getByRole('list', { name: 'Eval datasets' }).getByRole('listitem').filter({ hasText: fixtures.oneGraderSlug });
 
     // Never run is a fact about measurement, not a score of zero.
     await expect(untouchedCard).toContainText('never run');
-    await expect(oneGraderCard).toContainText('last run');
-    await expect(oneGraderCard).toContainText('80% pass');
+    await expect(untouchedCard).toContainText('not scored yet');
+    // Every number says what it is, rather than leaving the reader to work it
+    // out from the units.
+    await expect(oneGraderCard).toContainText('Last run');
+    await expect(oneGraderCard).toContainText('Pass rate');
+    await expect(oneGraderCard).toContainText('80%');
+    await expect(oneGraderCard).toContainText('Runs');
+    await expect(oneGraderCard).toContainText('2');
+  });
+
+  test('searching the list narrows it to what was asked for', async ({ page }) => {
+    await page.goto('/dashboard/evals');
+    await page.getByLabel('Search eval datasets').fill(fixtures.changedGradersSlug);
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+
+    const cards = page.getByRole('list', { name: 'Eval datasets' }).getByRole('listitem');
+
+    await expect(cards).toHaveCount(1);
+    await expect(cards.first()).toContainText(fixtures.changedGradersSlug);
+
+    // A search that matches nothing says so, and says what it searched.
+    await page.getByLabel('Search eval datasets').fill('nothing-matches-this');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+
+    await expect(shownText(page, 'Nothing matches', { exact: false })).toBeVisible();
   });
 
   test('a dataset nobody has run says so, rather than showing zero', async ({ page }) => {
@@ -160,36 +183,38 @@ test.describe('the eval section, with more than one grader', () => {
     await expect(shownText(page, '0% pass')).toHaveCount(0);
   });
 
-  test('one grader is still named, but there is nothing to filter', async ({ page }) => {
+  test('the grader is named once, and an org with no AWS never hears of AgentCore', async ({ page }) => {
     await page.goto(`/dashboard/evals/${fixtures.oneGraderSlug}`);
 
     await expect(shownText(page, '80% pass')).toBeVisible();
     // Who scored it is always said, because it is what makes the number mean
     // something.
     await expect(shownText(page, 'Vocion', { exact: true }).first()).toBeVisible();
-    // Nothing to choose between, so nothing to choose from — and an org that
-    // has never touched AWS sees no sign AgentCore exists.
+    // One grader per eval, so there is nothing to pick between, and a run row
+    // never repeats the grader the heading already gave.
     await expect(page.getByRole('link', { name: 'All', exact: true })).toHaveCount(0);
+    await expect(shownText(page, 'Graded by')).toHaveCount(0);
     await expect(shownText(page, 'AgentCore')).toHaveCount(0);
   });
 
-  test('two graders are labelled, and the filter really narrows the list', async ({ page }) => {
-    await page.goto(`/dashboard/evals/${fixtures.twoGradersSlug}`);
+  test('a dataset that changed graders says so, and flags only the older runs', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.changedGradersSlug}`);
 
-    await expect(page.getByRole('link', { name: 'All', exact: true })).toBeVisible();
+    // The dataset's own grader, said once beside the heading.
+    await expect(shownText(page, 'AgentCore', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'All', exact: true })).toHaveCount(0);
+    // Both AgentCore runs are here — nothing is filtered away.
     await expect(shownText(page, '90% pass')).toBeVisible();
     await expect(shownText(page, '70% pass')).toBeVisible();
 
-    await page.getByRole('link', { name: 'AgentCore', exact: true }).click();
-    await page.waitForURL('**/dashboard/evals/**provider=agentcore');
-
-    // Only AgentCore's runs survive the filter — Vocion's 90% is gone.
-    await expect(shownText(page, '70% pass')).toBeVisible();
-    await expect(shownText(page, '90% pass')).toHaveCount(0);
+    // The 60% run predates the switch, so it carries its own grader rather
+    // than being read as AgentCore's work.
+    await expect(shownText(page, 'before this dataset changed graders', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'Graded by')).toHaveCount(1);
   });
 
   test('the trend chart marks where the dataset changed underneath the scores', async ({ page }) => {
-    await page.goto(`/dashboard/evals/${fixtures.twoGradersSlug}`);
+    await page.goto(`/dashboard/evals/${fixtures.changedGradersSlug}`);
 
     await expect(shownText(page, 'Pass rate over time')).toBeVisible();
     // Says which version, not just that something happened.
@@ -208,7 +233,7 @@ test.describe('the eval section, with more than one grader', () => {
 
     await expect(evalCard).toBeVisible();
     // The newest finished run for this agent from its first grader by name,
-    // which is AgentCore's 70% rather than Vocion's 90% on the same dataset.
-    await expect(evalCard).toContainText('e2e-two-graders');
+    // which is AgentCore's 70% rather than Vocion's 80% on the other dataset.
+    await expect(evalCard).toContainText('e2e-changed-graders');
   });
 });

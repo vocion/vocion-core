@@ -29,7 +29,11 @@ vi.mock('@/libs/temporal/client', async () => {
 // Availability is a credential question that has nothing to do with this
 // route; pinning it keeps the test from depending on whether the machine
 // running it happens to have AWS credentials in its environment.
-const getProvider = vi.fn((id: string) => ({ id, label: id }) as { id: string; label: string } | undefined);
+const getProvider = vi.fn((id: string) => ({
+  id,
+  label: id,
+  isAvailable: async () => ({ available: true }),
+}) as { id: string; label: string; isAvailable: () => Promise<{ available: boolean; reason?: string }> } | undefined);
 vi.mock('@/services/evals/providers/registry', () => ({
   listAvailableProviders: vi.fn(async () => [{ id: 'vocion', label: 'Vocion' }]),
   getProvider,
@@ -94,7 +98,7 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
     const body = await res.json();
 
     expect(body.status).toBe('running');
-    expect(body.providers).toEqual(['vocion']);
+    expect(body.provider).toBe('vocion');
 
     const [run] = await db.select().from(evalRunSchema).where(eq(evalRunSchema.id, body.runId));
 
@@ -137,12 +141,13 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
     expect(run?.completedAt).not.toBeNull();
   });
 
-  it('answers 400, not 500, when the caller names a grader that does not exist', async () => {
-    // A typo in a provider id is the caller's mistake. A 5xx would page
-    // whoever watches the error rate for it.
+  it('answers 400, not 500, when the dataset names a grader that does not exist', async () => {
+    // A typo in the workspace file's `provider` is an authoring mistake. A 5xx
+    // would page whoever watches the error rate for it.
+    await db.update(evalDatasetSchema).set({ provider: 'azure' }).where(eq(evalDatasetSchema.orgId, ORG));
     getProvider.mockReturnValueOnce(undefined);
 
-    const res = await POST(post('pw-refresh', { providerIds: ['azure'] }), paramsFor('pw-refresh'));
+    const res = await POST(post('pw-refresh'), paramsFor('pw-refresh'));
 
     expect(res.status).toBe(400);
 
@@ -150,6 +155,28 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
 
     expect(body.error.code).toBe('UNKNOWN_PROVIDER');
     expect(startWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 when the dataset\'s grader cannot run, and starts nothing', async () => {
+    // AgentCore with no AWS credential connected. Retrying changes nothing
+    // until someone fixes the credential, so it is not a 5xx and there is no
+    // half-open run row left behind.
+    await db.update(evalDatasetSchema).set({ provider: 'agentcore' }).where(eq(evalDatasetSchema.orgId, ORG));
+    getProvider.mockReturnValueOnce({
+      id: 'agentcore',
+      label: 'AgentCore',
+      isAvailable: async () => ({ available: false, reason: 'no AWS credential is connected' }),
+    });
+
+    const res = await POST(post('pw-refresh'), paramsFor('pw-refresh'));
+
+    expect(res.status).toBe(409);
+
+    const body = await res.json();
+
+    expect(body.error.code).toBe('PROVIDER_UNAVAILABLE');
+    expect(startWorkflow).not.toHaveBeenCalled();
+    expect(await db.select().from(evalRunSchema)).toHaveLength(0);
   });
 
   it('answers 404 for another org\'s dataset, never 403', async () => {

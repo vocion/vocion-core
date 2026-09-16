@@ -10,10 +10,11 @@
  * Builds three datasets, one per state the UI has to get right:
  *   - `e2e-untouched` — no runs at all, for the "no runs yet" state, which
  *     must not read as 0%.
- *   - `e2e-one-grader` — runs from Vocion only, so no provider filter appears.
- *   - `e2e-two-graders` — runs from Vocion and AgentCore across two dataset
- *     versions, so the filter, the provider labels and the version boundary
- *     all have something to draw.
+ *   - `e2e-one-grader` — a Vocion dataset with Vocion runs, the ordinary case.
+ *   - `e2e-changed-graders` — an AgentCore dataset that used to be scored by
+ *     Vocion, across two dataset versions, so the grader chip, the note about
+ *     older runs and the version boundary all have something to draw. An eval
+ *     only ever has one grader now, so the second one can only be history.
  *
  * Also files one activity event for the agent, which is what puts it on the
  * adoption page where the eval pass rate sits beside the agreement rate.
@@ -44,8 +45,8 @@ import 'dotenv/config';
 const AGENT_SLUG = 'e2e-eval-agent';
 const UNTOUCHED = 'e2e-untouched';
 const ONE_GRADER = 'e2e-one-grader';
-const TWO_GRADERS = 'e2e-two-graders';
-const SLUGS = [UNTOUCHED, ONE_GRADER, TWO_GRADERS];
+const CHANGED_GRADERS = 'e2e-changed-graders';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -117,13 +118,15 @@ async function resetFixtures(orgId: string): Promise<void> {
  * @param orgId - Whose workspace.
  * @param slug - Dataset slug.
  * @param version - Which version the dataset is on now.
+ * @param provider - The one grader this dataset is scored by.
  */
-async function createDataset(orgId: string, slug: string, version: number): Promise<number> {
+async function createDataset(orgId: string, slug: string, version: number, provider = 'vocion'): Promise<number> {
   const [dataset] = await db.insert(evalDatasetSchema).values({
     orgId,
     slug,
     name: slug,
     agentSlug: AGENT_SLUG,
+    provider,
     items: [{ input: 'Does the refund go through?' }],
     version,
   }).returning({ id: evalDatasetSchema.id });
@@ -173,11 +176,13 @@ async function main(): Promise<void> {
   await createRun({ orgId, datasetId: oneGrader, provider: 'vocion', passRate: 0.75, datasetVersion: 1, startedAt: daysAgo(3) });
   await createRun({ orgId, datasetId: oneGrader, provider: 'vocion', passRate: 0.8, datasetVersion: 1, startedAt: daysAgo(1) });
 
-  const twoGraders = await createDataset(orgId, TWO_GRADERS, 2);
-  await createRun({ orgId, datasetId: twoGraders, provider: 'vocion', passRate: 0.6, datasetVersion: 1, startedAt: daysAgo(4) });
-  await createRun({ orgId, datasetId: twoGraders, provider: 'agentcore', passRate: 0.4, datasetVersion: 1, startedAt: daysAgo(4) });
-  await createRun({ orgId, datasetId: twoGraders, provider: 'vocion', passRate: 0.9, datasetVersion: 2, startedAt: daysAgo(1) });
-  await createRun({ orgId, datasetId: twoGraders, provider: 'agentcore', passRate: 0.7, datasetVersion: 2, startedAt: daysAgo(1) });
+  // Scored by AgentCore now; the oldest run predates the switch and still
+  // belongs to Vocion, which is the only way two graders can appear on one
+  // dataset.
+  const changedGraders = await createDataset(orgId, CHANGED_GRADERS, 2, 'agentcore');
+  await createRun({ orgId, datasetId: changedGraders, provider: 'vocion', passRate: 0.6, datasetVersion: 1, startedAt: daysAgo(4) });
+  await createRun({ orgId, datasetId: changedGraders, provider: 'agentcore', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(3) });
+  await createRun({ orgId, datasetId: changedGraders, provider: 'agentcore', passRate: 0.7, datasetVersion: 2, startedAt: daysAgo(1) });
 
   const [user] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email));
   await db.insert(userActivityEventSchema).values({
@@ -195,7 +200,7 @@ async function main(): Promise<void> {
     agentSlug: AGENT_SLUG,
     untouchedSlug: UNTOUCHED,
     oneGraderSlug: ONE_GRADER,
-    twoGradersSlug: TWO_GRADERS,
+    changedGradersSlug: CHANGED_GRADERS,
   })}\n`);
 }
 

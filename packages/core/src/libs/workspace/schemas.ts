@@ -943,8 +943,20 @@ export const EvalDatasetManifestSchema = z.object({
   agentSlug: z.string().describe('which agent slug this dataset evaluates'),
   version: z.number().int().positive().default(1),
   /**
-   * Who grades this dataset. Omitted means our own judge alone, which is what
-   * every dataset authored before this field existed gets.
+   * Which grader scores this dataset — one, not several.
+   *
+   * `vocion` is our own judge and the default, so every dataset authored
+   * before this field existed keeps behaving the same way. `agentcore` sends
+   * the transcript to AWS. To compare the two, copy the dataset and point the
+   * copy at the other grader: then the comparison is something someone set up
+   * on purpose, with its own history, rather than two disagreeing numbers on
+   * one page.
+   */
+  provider: z.enum(['vocion', 'agentcore']).default('vocion'),
+  /**
+   * The evaluators this dataset's grader should use. Each one names its own
+   * provider, which must be the dataset's — a dataset scored by Vocion cannot
+   * carry an AgentCore evaluator, because nothing would ever run it.
    */
   evaluators: z.array(EvalEvaluatorManifestSchema).optional(),
   items: z.array(z.object({
@@ -967,6 +979,19 @@ export const EvalDatasetManifestSchema = z.object({
     /** Deterministic checks run in this process. No model, no AWS account. */
     checks: z.array(EvalCheckSchema).optional(),
   })).min(1),
+}).superRefine((dataset, ctx) => {
+  // An evaluator whose provider is not the dataset's would never run: nothing
+  // asks that grader for a score. Better to refuse the file than to apply it
+  // and leave someone waiting for a number that cannot arrive.
+  for (const evaluator of dataset.evaluators ?? []) {
+    if (evaluator.provider !== dataset.provider) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['evaluators'],
+        message: `evaluator "${evaluator.slug ?? evaluator.builtin?.join(', ') ?? 'unnamed'}" is for ${evaluator.provider}, but this dataset is graded by ${dataset.provider}`,
+      });
+    }
+  }
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
 export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;

@@ -22,11 +22,11 @@ import type { EvalScoreProvider } from './evals/providers/types';
 import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
 import type { EvalDatasetItem } from './evals/types';
 import type { LangChainProvider } from '@/libs/llm';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
-import { getProvider, listAvailableProviders } from './evals/providers/registry';
+import { getProvider } from './evals/providers/registry';
 import { scoreWithProvider } from './evals/scoring';
 import { persistTranscripts, produceTranscripts } from './evals/transcripts';
 
@@ -44,12 +44,150 @@ export async function listDatasets(orgId: string) {
     .orderBy(asc(evalDatasetSchema.slug));
 }
 
+/** How many datasets one page of the eval list shows. */
+export const EVAL_DATASETS_PAGE_SIZE = 12;
+
+/**
+ * One page of eval datasets, optionally narrowed by a search.
+ *
+ * The search covers the name, the slug and the agent, because those are the
+ * three things someone actually remembers about a dataset — "the refund one",
+ * "refund-quality", "whatever the support agent runs". Matching is
+ * case-insensitive and anywhere in the value, so a half-remembered word finds
+ * it.
+ * @param orgId - Whose datasets.
+ * @param options - Search text, page number (1-based) and page size.
+ * @param options.q - Free text; blank or missing means no filter.
+ * @param options.page - 1-based page number; anything lower is treated as 1.
+ * @param options.pageSize - Rows per page.
+ */
+export async function listDatasetsPage(
+  orgId: string,
+  options: { q?: string; page?: number; pageSize?: number } = {},
+): Promise<{ datasets: Array<typeof evalDatasetSchema.$inferSelect>; page: number; hasMore: boolean }> {
+  const pageSize = options.pageSize ?? EVAL_DATASETS_PAGE_SIZE;
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const search = options.q?.trim();
+  const filters = [eq(evalDatasetSchema.orgId, orgId)];
+  if (search) {
+    const pattern = `%${search}%`;
+    filters.push(or(
+      ilike(evalDatasetSchema.name, pattern),
+      ilike(evalDatasetSchema.slug, pattern),
+      ilike(evalDatasetSchema.agentSlug, pattern),
+    )!);
+  }
+  const rows = await db
+    .select()
+    .from(evalDatasetSchema)
+    .where(and(...filters))
+    .orderBy(asc(evalDatasetSchema.slug))
+    .limit(pageSize + 1)
+    .offset((page - 1) * pageSize);
+  return { datasets: rows.slice(0, pageSize), page, hasMore: rows.length > pageSize };
+}
+
+/** What a dataset card says about its runs, without loading every run. */
+export type DatasetRunFacts = {
+  runCount: number;
+  latestStatus: string | null;
+  latestStartedAt: Date | null;
+  /** From the newest run that finished, so a run in flight hides nothing. */
+  lastPassRate: number | null;
+  /** Every grader that has scored this dataset, alphabetically. */
+  providers: string[];
+};
+
+/**
+ * Summarise each dataset's runs in one query.
+ *
+ * The list used to read the fifty newest runs org-wide and group them in
+ * memory, which is wrong twice over: a busy org's newest fifty can contain
+ * nothing from the dataset being looked at, and the run count on the card was
+ * however many of that fifty happened to belong to it. This asks the database
+ * the question the card is actually asking.
+ * @param orgId - Whose runs.
+ * @param datasetIds - The datasets on this page. An empty list asks nothing.
+ */
+export async function summariseDatasetRuns(orgId: string, datasetIds: number[]): Promise<Map<number, DatasetRunFacts>> {
+  const facts = new Map<number, DatasetRunFacts>();
+  if (datasetIds.length === 0) {
+    return facts;
+  }
+  // `db.execute` hands back `{ rows }` on the Postgres driver and a bare array
+  // on some others, the same shape `AdoptionService` normalises.
+  const result = await db.execute(sql`
+    SELECT
+      dataset_id,
+      count(*)::int AS run_count,
+      (array_agg(status ORDER BY started_at DESC))[1] AS latest_status,
+      max(started_at) AS latest_started_at,
+      (array_agg((metrics->>'passRate')::float8 ORDER BY started_at DESC)
+        FILTER (WHERE status = 'succeeded' AND metrics ? 'passRate'))[1] AS last_pass_rate,
+      array_agg(DISTINCT provider) AS providers
+    FROM eval_run
+    WHERE org_id = ${orgId} AND dataset_id = ANY(${sql.raw(`ARRAY[${datasetIds.join(',')}]`)})
+    GROUP BY dataset_id
+  `);
+  const rows = ((result as { rows?: unknown }).rows ?? result) as Array<Record<string, unknown>>;
+  for (const row of rows) {
+    facts.set(Number(row.dataset_id), {
+      runCount: Number(row.run_count ?? 0),
+      latestStatus: row.latest_status === null || row.latest_status === undefined ? null : String(row.latest_status),
+      latestStartedAt: row.latest_started_at ? new Date(row.latest_started_at as string) : null,
+      lastPassRate: row.last_pass_rate === null || row.last_pass_rate === undefined ? null : Number(row.last_pass_rate),
+      providers: ((row.providers ?? []) as string[]).slice().sort(),
+    });
+  }
+  return facts;
+}
+
 export async function getDataset(orgId: string, slug: string) {
   const [row] = await db
     .select()
     .from(evalDatasetSchema)
     .where(and(eq(evalDatasetSchema.orgId, orgId), eq(evalDatasetSchema.slug, slug)));
   return row ?? null;
+}
+
+/** How many runs one page of the dataset's run list shows. */
+export const EVAL_RUNS_PAGE_SIZE = 20;
+
+/**
+ * One page of a dataset's runs, newest first.
+ *
+ * Paged in SQL rather than by slicing a fetched array: a dataset on a nightly
+ * schedule passes fifty runs in under two months, and the page that reads
+ * "recent runs" would then quietly stop being able to reach the older ones.
+ *
+ * `hasMore` comes from asking for one row more than the page shows, which
+ * costs nothing next to a second `count(*)` over the same rows.
+ * @param orgId - Whose runs.
+ * @param datasetId - Which dataset.
+ * @param options - Page number (1-based), page size, and the grader filter.
+ * @param options.page - 1-based page number; anything lower is treated as 1.
+ * @param options.pageSize - Rows per page.
+ * @param options.provider - Narrow to one grader, for the provider filter.
+ */
+export async function listRunsPage(
+  orgId: string,
+  datasetId: number,
+  options: { page?: number; pageSize?: number; provider?: string } = {},
+): Promise<{ runs: Array<typeof evalRunSchema.$inferSelect>; page: number; hasMore: boolean }> {
+  const pageSize = options.pageSize ?? EVAL_RUNS_PAGE_SIZE;
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const filters = [eq(evalRunSchema.orgId, orgId), eq(evalRunSchema.datasetId, datasetId)];
+  if (options.provider) {
+    filters.push(eq(evalRunSchema.provider, options.provider));
+  }
+  const rows = await db
+    .select()
+    .from(evalRunSchema)
+    .where(and(...filters))
+    .orderBy(desc(evalRunSchema.startedAt))
+    .limit(pageSize + 1)
+    .offset((page - 1) * pageSize);
+  return { runs: rows.slice(0, pageSize), page, hasMore: rows.length > pageSize };
 }
 
 /**
@@ -175,18 +313,16 @@ export class UnknownEvalProviderError extends Error {
 }
 
 /**
- * The provider that owns a run group's transcripts can no longer grade.
+ * The grader a dataset names cannot run right now.
  *
- * Raised on a retry whose available providers no longer include the one that
- * ran first — a credential revoked between attempts, say. Handing the
- * transcripts to a different provider would rewrite the case rows underneath
- * scores that provider already recorded, so the attempt stops here and says
- * why, and someone reconnects the credential or starts a fresh run.
+ * Almost always an AWS credential that is missing, expired or pointing at a
+ * region without AgentCore Evaluations. Raised before any case executes, so
+ * nobody pays for a run that could never have been scored.
  */
-export class EvalPrimaryProviderUnavailableError extends Error {
+export class EvalProviderUnavailableError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'EvalPrimaryProviderUnavailableError';
+    this.name = 'EvalProviderUnavailableError';
   }
 }
 
@@ -205,64 +341,50 @@ export type RunDatasetOptions = {
 };
 
 export async function runDataset(opts: RunDatasetOptions): Promise<{ runId: number; metrics: typeof evalRunSchema.$inferSelect['metrics'] }> {
-  const result = await runDatasetWithProviders({ ...opts, providerIds: ['vocion'] });
-  const primary = result.providerRuns[0];
-  if (!primary) {
-    throw new Error(`no provider scored ${opts.datasetSlug}`);
-  }
+  const result = await runDatasetAndScore(opts);
   const [row] = await db
     .select({ metrics: evalRunSchema.metrics })
     .from(evalRunSchema)
-    .where(eq(evalRunSchema.id, primary.runId));
-  return { runId: primary.runId, metrics: row?.metrics ?? {} };
+    .where(eq(evalRunSchema.id, result.run.runId));
+  return { runId: result.run.runId, metrics: row?.metrics ?? {} };
 }
 
-export type RunDatasetWithProvidersOptions = RunDatasetOptions & {
+export type RunDatasetAndScoreOptions = RunDatasetOptions & {
   /**
-   * Which providers grade this execution. Defaults to every provider the org
-   * can actually use. `runDataset` pins this to `['vocion']` so its five
-   * existing callers — the CLI, the oRPC procedure, the HTTP route, the
-   * model-upgrade test and the automatic learning-candidate check — keep
-   * behaving exactly as they did and never make a paid AWS call nobody asked
-   * for.
-   */
-  providerIds?: string[];
-  /**
-   * Ties every provider's run to the one execution they scored. Set by the
-   * refresh workflow; a retry reuses it and so reuses the run rows instead of
-   * adding a second point to the trend line.
+   * Ties this execution's run row to the workflow that started it. A retry
+   * reuses it and so reuses the run row, instead of adding a second point to
+   * the trend line for work that happened once.
    */
   runGroupId?: string | null;
   /** How many cases to execute at once. Defaults to `DEFAULT_CASE_CONCURRENCY`. */
   concurrency?: number;
 };
 
-export type RunDatasetWithProvidersResult = {
+export type RunDatasetAndScoreResult = {
   runGroupId: string | null;
-  providerRuns: ProviderRunResult[];
+  run: ProviderRunResult;
 };
 
 /**
- * Execute a dataset once and let every named provider grade the same run.
+ * Execute a dataset once and score it with the grader the dataset names.
  *
- * Executing once and scoring N times is what keeps the scores comparable: if
- * each provider ran the agent itself, a disagreement between them could be the
- * agent behaving differently rather than the graders disagreeing, and a trend
- * line built on that cannot answer the only question it exists for.
- * @param opts - The dataset, who grades it, and how hard to push.
+ * One grader per dataset, taken from `eval_dataset.provider` and authored in
+ * the workspace file. Two graders scoring the same cases produced two numbers
+ * that disagreed with nothing to say which was right, and a run list that read
+ * as if the agent had been tested twice. Comparing graders is still possible —
+ * copy the dataset, point the copy at the other grader — but then it is a
+ * thing someone set up, with its own history and its own trend line.
+ * @param opts - The dataset, and how hard to push.
  */
-export async function runDatasetWithProviders(
-  opts: RunDatasetWithProvidersOptions,
-): Promise<RunDatasetWithProvidersResult> {
+export async function runDatasetAndScore(
+  opts: RunDatasetAndScoreOptions,
+): Promise<RunDatasetAndScoreResult> {
   const dataset = await getDataset(opts.orgId, opts.datasetSlug);
   if (!dataset) {
     throw new Error(`dataset ${opts.datasetSlug} not found for org ${opts.orgId}`);
   }
   const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
-  const providers = await resolveProviders(opts.orgId, opts.providerIds);
-  if (providers.length === 0) {
-    throw new Error(`no score provider is available for ${opts.orgId}`);
-  }
+  const provider = await resolveDatasetProvider(opts.orgId, dataset.provider);
 
   const items = (dataset.items ?? []) as EvalDatasetItem[];
   const modelOverride = opts.modelOverride
@@ -277,17 +399,6 @@ export async function runDatasetWithProviders(
     concurrency: opts.concurrency,
   });
 
-  // The first provider's run owns the transcripts, because eval_case_result
-  // belongs to exactly one run. Every other provider points its scores at the
-  // same case rows rather than storing a second copy of the same text.
-  //
-  // Which one is first is pinned to the run group, not re-decided: a retry
-  // re-asks who is available, and a credential that appeared or lapsed between
-  // attempts could otherwise hand the transcripts to a different provider than
-  // the one that already owns them — a second primary run, and every case
-  // executed again at real model cost.
-  const providersByOwner = await primaryFirst(providers, opts.runGroupId ?? null);
-  const [primaryProvider, ...secondaryProviders] = providersByOwner;
   const shared = {
     orgId: opts.orgId,
     datasetId: dataset.id,
@@ -300,100 +411,47 @@ export async function runDatasetWithProviders(
     transcripts,
   };
 
-  const primaryRunId = await createPrimaryRun(shared, primaryProvider!.id);
-  await persistTranscripts(primaryRunId, transcripts);
+  const runId = await createRun(shared, provider.id);
+  await persistTranscripts(runId, transcripts);
 
-  const primaryResult = await scoreWithProvider({
-    ...shared,
-    provider: primaryProvider!,
-    existingRunId: primaryRunId,
-  });
+  const run = await scoreWithProvider({ ...shared, provider, existingRunId: runId });
+  await recordEvalEpisode(opts.orgId, dataset.slug, dataset.agentSlug, run);
 
-  // Providers are independent once the transcripts exist, so they grade at the
-  // same time rather than one after another.
-  const secondaryResults = await Promise.all(
-    secondaryProviders.map(provider => scoreWithProvider({ ...shared, provider })),
-  );
-
-  const providerRuns = [primaryResult, ...secondaryResults];
-  await recordEvalEpisode(opts.orgId, dataset.slug, dataset.agentSlug, primaryResult);
-
-  return { runGroupId: opts.runGroupId ?? null, providerRuns };
+  return { runGroupId: opts.runGroupId ?? null, run };
 }
 
 /**
- * Which providers should grade this run.
+ * The grader this dataset names, if it can actually run.
  *
- * Named ids are looked up and used as given; an unknown one is an error rather
- * than a silent skip, because a caller that asked for AgentCore and quietly got
- * only our own judge would believe it had AWS scores it does not have. With no
- * ids named, every provider the org can actually use grades the run.
+ * Both failures are loud rather than quiet. A grader this build has never
+ * heard of is a workspace file from a newer version, and silently falling back
+ * to our own judge would hand someone AWS scores they never got. A grader that
+ * cannot run — usually an AWS credential that is missing, expired or in the
+ * wrong region — is worth one clear sentence before any case executes, rather
+ * than a run that burns the model calls and then fails at scoring time.
  * @param orgId - Whose credentials decide availability.
- * @param providerIds - Explicit ids, or undefined for "whatever is available".
+ * @param providerId - The dataset's grader.
  */
-async function resolveProviders(orgId: string, providerIds?: string[]): Promise<EvalScoreProvider[]> {
-  if (!providerIds) {
-    return listAvailableProviders(orgId);
+async function resolveDatasetProvider(orgId: string, providerId: string): Promise<EvalScoreProvider> {
+  const provider = getProvider(providerId);
+  if (!provider) {
+    throw new UnknownEvalProviderError(`unknown eval score provider: ${providerId}`);
   }
-  const providers: EvalScoreProvider[] = [];
-  for (const id of providerIds) {
-    const provider = getProvider(id);
-    if (!provider) {
-      throw new UnknownEvalProviderError(`unknown eval score provider: ${id}`);
-    }
-    providers.push(provider);
-  }
-  return providers;
-}
-
-/**
- * Put whichever provider already owns this run group's transcripts first.
- *
- * Only matters on a retry, and only when the set of available providers
- * changed between attempts. Leaves the order alone when nothing in the group
- * has run yet, which is every first attempt.
- *
- * Throws when the owner is gone rather than promoting whoever sorts first:
- * the primary rewrites the case rows, and the scores another provider already
- * wrote hang off those rows.
- * @param providers - Who is grading, in registry order.
- * @param runGroupId - The group this execution belongs to, or null.
- */
-async function primaryFirst(
-  providers: EvalScoreProvider[],
-  runGroupId: string | null,
-): Promise<EvalScoreProvider[]> {
-  if (!runGroupId) {
-    return providers;
-  }
-  const existing = await db
-    .select({ provider: evalRunSchema.provider })
-    .from(evalRunSchema)
-    .where(eq(evalRunSchema.runGroupId, runGroupId))
-    .orderBy(asc(evalRunSchema.id))
-    .limit(1);
-  const owner = existing[0]?.provider;
-  if (!owner) {
-    return providers;
-  }
-  const ownerProvider = providers.find(provider => provider.id === owner);
-  if (!ownerProvider) {
-    // Letting someone else become primary here would delete and reinsert the
-    // case rows this group's scores point at, taking the other provider's
-    // already-recorded scores with them. Louder is safer.
-    throw new EvalPrimaryProviderUnavailableError(
-      `run group ${runGroupId} was graded first by "${owner}", which is not available now — reconnect it or start a new run`,
+  const availability = await provider.isAvailable(orgId);
+  if (!availability.available) {
+    throw new EvalProviderUnavailableError(
+      `${provider.label} cannot grade this dataset right now: ${availability.reason}`,
     );
   }
-  return [ownerProvider, ...providers.filter(provider => provider.id !== owner)];
+  return provider;
 }
 
 /**
- * The run that owns the transcripts. Reused on a retry via the run group.
- * @param shared
- * @param providerId
+ * The run row for this execution. Reused on a retry via the run group.
+ * @param shared - Everything the row records about what is being run.
+ * @param providerId - The grader this dataset uses.
  */
-async function createPrimaryRun(
+async function createRun(
   shared: Omit<ScoreWithProviderOptions, 'provider' | 'existingRunId'>,
   providerId: string,
 ): Promise<number> {
@@ -432,35 +490,26 @@ async function createPrimaryRun(
  * The refresh button needs somewhere to send the browser the moment it is
  * pressed, and "somewhere" is a run page that says running. Creating the row
  * here rather than inside the workflow is what makes that possible: the
- * workflow is handed the same `runGroupId`, so its own `createPrimaryRun`
- * finds this row and fills it in instead of opening a second one.
- *
- * Only the primary provider's row is created. A secondary provider's run is
- * created when it starts scoring, because until the transcripts exist there is
- * nothing for it to be running against.
- * @param opts - Which dataset, under which run group, graded by whom.
- * @param opts.orgId
- * @param opts.datasetSlug
- * @param opts.runGroupId
- * @param opts.providerIds
+ * workflow is handed the same `runGroupId`, so its own `createRun` finds this
+ * row and fills it in instead of opening a second one.
+ * @param opts - Which dataset, under which run group.
+ * @param opts.orgId - Whose dataset.
+ * @param opts.datasetSlug - Which dataset.
+ * @param opts.runGroupId - The workflow id this run belongs to.
  */
 export async function createRefreshRun(opts: {
   orgId: string;
   datasetSlug: string;
   runGroupId: string;
-  providerIds?: string[];
-}): Promise<{ runId: number; providerIds: string[] }> {
+}): Promise<{ runId: number; providerId: string }> {
   const dataset = await getDataset(opts.orgId, opts.datasetSlug);
   if (!dataset) {
     throw new Error(`dataset ${opts.datasetSlug} not found for org ${opts.orgId}`);
   }
-  const providers = await resolveProviders(opts.orgId, opts.providerIds);
-  if (providers.length === 0) {
-    throw new Error(`no score provider is available for ${opts.orgId}`);
-  }
+  const provider = await resolveDatasetProvider(opts.orgId, dataset.provider);
   const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
 
-  const runId = await createPrimaryRun({
+  const runId = await createRun({
     orgId: opts.orgId,
     datasetId: dataset.id,
     datasetSlug: dataset.slug,
@@ -470,9 +519,9 @@ export async function createRefreshRun(opts: {
     model: null,
     runGroupId: opts.runGroupId,
     transcripts: [],
-  }, providers[0]!.id);
+  }, provider.id);
 
-  return { runId, providerIds: providers.map(provider => provider.id) };
+  return { runId, providerId: provider.id };
 }
 
 /**

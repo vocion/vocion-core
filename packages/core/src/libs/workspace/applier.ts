@@ -999,6 +999,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     name: ds.name,
     description: ds.description ?? null,
     agentSlug: ds.agentSlug,
+    provider: ds.provider,
     items: ds.items,
     version: ds.version,
   };
@@ -1015,6 +1016,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     existing.name === payload.name
     && (existing.description ?? null) === payload.description
     && existing.agentSlug === payload.agentSlug
+    && existing.provider === payload.provider
     && existing.version === payload.version
     && canonical(existing.items) === canonical(payload.items)
   ) {

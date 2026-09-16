@@ -1571,6 +1571,18 @@ export const evalDatasetSchema = pgTable(
     name: text('name').notNull(),
     /** Which agent slug this dataset targets. Required — datasets are agent-scoped. */
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * Which grader scores this dataset: `vocion` for our own judge, `agentcore`
+     * for AWS.
+     *
+     * One grader per dataset, chosen in the workspace file. Two graders scoring
+     * the same cases produced two numbers that disagreed with no way to say
+     * which was right, and a run list that looked like the agent had been run
+     * twice. Comparing graders is still possible — copy the dataset and point
+     * the copy at the other one — but it is then an explicit thing someone set
+     * up, not the default reading of every page.
+     */
+    provider: text('provider').default('vocion').notNull(),
     description: text('description'),
     /** Test cases. Each: input + optional expectedOutput + optional rubric. */
     items: jsonb('items').$type<Array<{

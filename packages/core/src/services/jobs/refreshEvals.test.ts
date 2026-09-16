@@ -37,7 +37,7 @@ beforeEach(async () => {
   mockStart.mockImplementation(async ({ datasetSlug }) => ({
     runId: 1,
     runGroupId: `group-${datasetSlug}`,
-    providerIds: ['vocion'],
+    providerId: 'vocion',
   }));
   await db.delete(evalDatasetSchema);
   await insertDataset(ORG, 'refund-quality');
@@ -81,7 +81,7 @@ describe('runRefreshEvalsJob', () => {
       if (datasetSlug === 'refund-quality') {
         throw new Error('temporal unreachable');
       }
-      return { runId: 2, runGroupId: 'group-tone', providerIds: ['vocion'] };
+      return { runId: 2, runGroupId: 'group-tone', providerId: 'vocion' };
     });
 
     const result = await runRefreshEvalsJob(ORG, {});
@@ -91,12 +91,14 @@ describe('runRefreshEvalsJob', () => {
     expect(result.datasets.find(d => d.datasetSlug === 'refund-quality')?.error).toContain('temporal unreachable');
   });
 
-  it('passes the automation\'s provider and concurrency choices through', async () => {
-    await runRefreshEvalsJob(ORG, { dataset: ['tone-check'], providers: ['agentcore'], concurrency: 4 });
+  it('passes the automation\'s concurrency choice through', async () => {
+    // The grader is the dataset's, not the automation's — an automation that
+    // could re-grade with a different provider would quietly split one
+    // dataset's history in two.
+    await runRefreshEvalsJob(ORG, { dataset: ['tone-check'], concurrency: 4 });
 
     expect(mockStart).toHaveBeenCalledWith(expect.objectContaining({
       datasetSlug: 'tone-check',
-      providerIds: ['agentcore'],
       concurrency: 4,
     }));
   });

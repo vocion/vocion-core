@@ -35,12 +35,6 @@ const acts = proxyActivities<typeof activities>({
 export type EvalRefreshWorkflowInput = {
   orgId: string;
   datasetSlug: string;
-  /**
-   * Which providers grade this run. Omitted means every provider the org can
-   * use, which is what a scheduled refresh wants; the refresh button can pin
-   * one when someone only wants to re-score with a single grader.
-   */
-  providerIds?: string[];
   concurrency?: number;
 };
 
@@ -55,7 +49,6 @@ export async function evalRefreshWorkflow(input: EvalRefreshWorkflowInput) {
     orgId: input.orgId,
     datasetSlug: input.datasetSlug,
     runGroupId,
-    providerIds: input.providerIds,
     concurrency: input.concurrency,
   });
 }
