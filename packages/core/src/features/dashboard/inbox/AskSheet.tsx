@@ -36,7 +36,6 @@ export type SheetAsk = {
 type Answer = { decision: string; note: string };
 type Outcome = { ok: true } | { ok: false; error: string };
 
-
 /**
  * What happens next, for the toast — an answer is read by the team; an approved proposal runs.
  * @param endpoint

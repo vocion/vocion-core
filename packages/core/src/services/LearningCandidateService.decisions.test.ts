@@ -192,7 +192,12 @@ describe('decideCandidate — typed, scoped adoption (Phase 2)', () => {
 });
 
 describe('decideCandidate — eval evidence (Phase 3)', () => {
-  const settle = () => new Promise(resolve => setTimeout(resolve, 25));
+  // The adoption eval is fire-and-forget, so the assertion has to wait for it
+  // rather than race a fixed sleep — 25ms was enough alone and not enough
+  // under a full-suite run, which made this test flaky.
+  const settle = () => vi.waitFor(() => expect(runDatasetMock).toHaveBeenCalled(), { timeout: 5000, interval: 10 });
+  /** For the negative case there is nothing to wait for; give the microtask a beat. */
+  const settleQuiet = () => new Promise(resolve => setTimeout(resolve, 50));
 
   it('runs the affected agent dataset on adoption and stamps the run on the card', async () => {
     await makeStep();
@@ -205,9 +210,11 @@ describe('decideCandidate — eval evidence (Phase 3)', () => {
 
     expect(runDatasetMock).toHaveBeenCalledWith({ orgId: ORG, datasetSlug: 'lead-quality' });
 
-    const [candidate] = await db.select().from(learningCandidateSchema);
+    await vi.waitFor(async () => {
+      const [row] = await db.select().from(learningCandidateSchema);
 
-    expect(candidate!.evalRunId).toBe(4242);
+      expect(row!.evalRunId).toBe(4242);
+    }, { timeout: 5000, interval: 10 });
   });
 
   it('skips the eval quietly when the agent has no dataset', async () => {
@@ -215,7 +222,7 @@ describe('decideCandidate — eval evidence (Phase 3)', () => {
     const candidateId = await makeCandidate({ agentSlug: 'pipeline-analyst' });
 
     await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
-    await settle();
+    await settleQuiet();
 
     expect(runDatasetMock).not.toHaveBeenCalled();
   });

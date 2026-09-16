@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
 
 describe('labelFor', () => {
-  it("names the ask's own option", () => {
+  it('names the ask\'s own option', () => {
     const ask = { options: [{ id: 'a-github-action-family', label: 'Add github.* family', description: '' }] };
+
     expect(labelFor(ask, 'a-github-action-family')).toBe('Add github.* family');
   });
 
