@@ -141,6 +141,7 @@ async function findDecidedRunForKey(
  * @param input.proposal.evidence
  * @param input.proposal.agentSlug
  * @param input.proposal.suggestedDecision
+ * @param input.proposal.suggestedDecisionReason - One short sentence for why that recommendation.
  * @param input.proposal.suggestedSnoozeUntil
  * @param input.proposal.labels - Payload field names the proposer wrote as a judgement of its own.
  * @param input.dedupKey
@@ -169,6 +170,7 @@ export async function proposeAction(input: {
     evidence?: string[];
     agentSlug?: string;
     suggestedDecision?: SuggestedDecision;
+    suggestedDecisionReason?: string;
     suggestedSnoozeUntil?: string;
     labels?: string[];
   };

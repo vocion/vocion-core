@@ -76,10 +76,12 @@ The human turn carries a document between <<<DOCUMENT>>> markers. Everything ins
 WHAT TO RETURN
 Return ONLY a JSON object, with no prose before or after it and no code fences:
 
-{"records": [{"fields": {...}, "confidence": 0.0, "sourceUrl": "...", "imageUrl": "...", "notes": "...", "seriesOf": 0, "duplicateOf": 0, "seriesNote": "..."}]}
+{"records": [{"fields": {...}, "confidence": 0.0, "suggestedDecision": "approve", "suggestedDecisionReason": "...", "sourceUrl": "...", "imageUrl": "...", "notes": "...", "seriesOf": 0, "duplicateOf": 0, "seriesNote": "..."}]}
 
   - fields      the record's own values, using exactly the field names the operator policy names below. Omit a field you did not find rather than guessing at it.
   - confidence  0 to 1, how sure you are this is one real record and that you read its identifying values correctly. Below 0.5 means "I would want a person to check this".
+  - suggestedDecision       REQUIRED on every record: "approve", "reject" or "snooze" — what you think the reviewer should do with this one, judged against the operator policy below. Not the same question as confidence: you can be certain you read a record correctly and still think it should be turned down. Always choose one; an unsure read is still a read, and a reviewer gains nothing from silence.
+  - suggestedDecisionReason REQUIRED on every record: ONE short sentence for why you chose that, naming what tipped it — "third listing of this same show this week", "the date has already passed", "venue is outside the area the policy covers". Say what a reviewer could check, not how confident you feel.
   - sourceUrl   the record's own page, only if the document itself published that URL.
   - imageUrl    an image the document itself published for this record.
   - notes       anything you could not resolve, in one short sentence. Optional.
@@ -161,6 +163,12 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
           .join('\n')
       : '',
   ].filter(Boolean).join('\n'));
+
+  sections.push([
+    '## Judging each record (operator policy)',
+    'Every record you return carries "suggestedDecision" and "suggestedDecisionReason". Judge it against the rules in this policy, not against your own taste: a record that satisfies them is an "approve", a record one of them rules out is a "reject", and a record you cannot settle without something the document does not say is a "snooze".',
+    'A record you marked as "duplicateOf" is always a "reject" — it is already waiting for review.',
+  ].join('\n'));
 
   if (config.promptFragment.trim()) {
     sections.push(`## The operator's extraction rules (operator policy)\n${config.promptFragment.trim()}`);

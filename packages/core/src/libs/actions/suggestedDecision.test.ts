@@ -5,7 +5,7 @@
  * `approve` for a missing value, or an edit counted as a rejection.
  */
 import { describe, expect, it } from 'vitest';
-import { decisionOutcome, parseSuggestedDecision, SUGGESTED_DECISIONS } from './suggestedDecision';
+import { decisionOutcome, parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISION_REASON_MAX, SUGGESTED_DECISIONS } from './suggestedDecision';
 
 describe('parseSuggestedDecision', () => {
   it('accepts exactly the three recommendations an agent can give', () => {
@@ -64,5 +64,37 @@ describe('decisionOutcome', () => {
   it('decides nothing for a signal it has never heard of', () => {
     expect(decisionOutcome('escalated')).toBeNull();
     expect(decisionOutcome('')).toBeNull();
+  });
+});
+
+describe('parseSuggestedDecisionReason', () => {
+  it('keeps the sentence an agent gave for its recommendation', () => {
+    expect(parseSuggestedDecisionReason('Third listing of this same show this week.'))
+      .toBe('Third listing of this same show this week.');
+  });
+
+  it('reads whitespace and non-text as no reason given', () => {
+    // A blank string stored as a reason puts an empty quote under the badge on
+    // the review card, which reads as the agent having said something.
+    expect(parseSuggestedDecisionReason('   ')).toBeUndefined();
+    expect(parseSuggestedDecisionReason('\n\t')).toBeUndefined();
+    expect(parseSuggestedDecisionReason(undefined)).toBeUndefined();
+    expect(parseSuggestedDecisionReason(null)).toBeUndefined();
+    expect(parseSuggestedDecisionReason(42)).toBeUndefined();
+    expect(parseSuggestedDecisionReason({ reason: 'duplicate' })).toBeUndefined();
+  });
+
+  it('trims the surrounding whitespace rather than storing it', () => {
+    expect(parseSuggestedDecisionReason('  Date has already passed.  ')).toBe('Date has already passed.');
+  });
+
+  it('truncates an over-long reason instead of dropping it', () => {
+    // A model that writes three paragraphs where one sentence was asked for
+    // must not cost the recommendation it explains — the card is worth more
+    // than the tail of the sentence.
+    const long = `${'x'.repeat(SUGGESTED_DECISION_REASON_MAX + 50)}`;
+    const kept = parseSuggestedDecisionReason(long);
+
+    expect(kept).toHaveLength(SUGGESTED_DECISION_REASON_MAX);
   });
 });

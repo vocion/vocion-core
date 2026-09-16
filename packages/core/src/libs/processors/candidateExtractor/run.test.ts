@@ -115,21 +115,27 @@ function answer() {
         {
           fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Higher Ground', categories: ['Music'], recurrence: 'every Thursday', price: 'Free' },
           confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules and nothing like it is already queued.',
           sourceUrl: 'https://highergroundmusic.com/e/open-mic',
         },
         {
           fields: { title: 'The Music of Hey Arnold! Live', startDate: day(21), venueName: 'Higher Ground', categories: ['Music', 'Interpretive Dance'], price: '$28' },
           confidence: 0.8,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules and nothing like it is already queued.',
         },
         // Duplicated by a "featured" block at the top of the same page.
         {
           fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Higher Ground', categories: ['Music'] },
           confidence: 0.7,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules and nothing like it is already queued.',
         },
         // Already happened.
-        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Higher Ground' }, confidence: 0.9 },
+        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Higher Ground' }, confidence: 0.9, suggestedDecision: 'reject', suggestedDecisionReason: 'The date has already passed.' },
         // The model was not sure.
-        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Higher Ground' }, confidence: 0.2 },
+        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Higher Ground' }, confidence: 0.2, suggestedDecision: 'snooze', suggestedDecisionReason: 'Only a rumour on the page; worth another look closer to the date.' },
       ],
     }),
     usage_metadata: { input_tokens: 3200, output_tokens: 420 },

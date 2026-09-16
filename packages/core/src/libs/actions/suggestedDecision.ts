@@ -7,8 +7,9 @@
  * proposes work it wants run, so a reviewer rejecting something the agent also
  * wanted rejected was recorded as a disagreement.
  *
- * This module holds the three values, the parser every boundary uses, and the
- * rule for when a recommendation and a human decision count as agreeing. It
+ * This module holds the three values, the parsers every boundary uses — for the
+ * recommendation itself and for the short reason an agent gives for it — and
+ * the rule for when a recommendation and a human decision count as agreeing. It
  * imports nothing, so the schema, the services, the routers, the adoption
  * queries and the agent tool can all share it without a cycle.
  *
@@ -34,6 +35,34 @@
 export const SUGGESTED_DECISIONS = ['approve', 'reject', 'snooze'] as const;
 
 export type SuggestedDecision = typeof SUGGESTED_DECISIONS[number];
+
+/**
+ * How much of a recommendation's reason we keep.
+ *
+ * Long enough for the sentence a reviewer actually needs — "third listing of
+ * this show this week, duplicate of run #412" — and short enough to sit beside
+ * the badge on a review card without pushing the payload off the screen. Text
+ * past it is trimmed rather than refused: a reason one character over must
+ * never cost the card it belongs to.
+ */
+export const SUGGESTED_DECISION_REASON_MAX = 240;
+
+/**
+ * Read the reason a recommendation came with, off untrusted input.
+ *
+ * Returns undefined for anything that is not usable text, which callers should
+ * read as "no reason given" — the same way an absent `suggestedDecision` means
+ * no recommendation rather than approval. Whitespace-only text is nothing, and
+ * storing it would put an empty quote under a badge on the review card.
+ * @param value - Anything; only non-empty text survives.
+ */
+export function parseSuggestedDecisionReason(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, SUGGESTED_DECISION_REASON_MAX) : undefined;
+}
 
 /**
  * Read a suggested decision off untrusted input — a query string, a JSON body,

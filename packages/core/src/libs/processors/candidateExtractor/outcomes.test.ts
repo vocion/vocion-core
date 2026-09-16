@@ -202,6 +202,40 @@ describe('candidate extractor outcomes', () => {
     });
   });
 
+  it('stores what the model recommended, and why, on the card it made', async () => {
+    // The pair is the whole point of the field: a reviewer reads the reason
+    // before deciding, and later the two can be compared against what they
+    // actually did. A stored recommendation with no reason is a percentage
+    // nobody can interpret.
+    await propose([record({ suggestedDecision: 'snooze', suggestedDecisionReason: 'The venue has not confirmed the date.' })]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).toMatchObject({
+      suggestedDecision: 'snooze',
+      suggestedDecisionReason: 'The venue has not confirmed the date.',
+    });
+  });
+
+  it('turns down a duplicate in our own words, whatever the model recommended', async () => {
+    // The duplicate id is core's determination, not the model's read, so the
+    // reason a reviewer sees has to be one we can stand behind — and a model
+    // that both flagged the duplicate and recommended approving it must not
+    // leave an "approve" on the card.
+    await propose([record({
+      duplicateOf: 412,
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Looks like a solid listing.',
+    })]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).toMatchObject({
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Already waiting for review as action run #412.',
+    });
+  });
+
   it('stops proposing once the sync has spent its proposal budget', async () => {
     const budget = createSyncBudget({ limits: { maxProposalsPerSync: 1 } });
 

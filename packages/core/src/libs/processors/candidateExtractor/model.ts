@@ -31,8 +31,10 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { SyncBudget } from '../budget';
 import type { CandidateExtractorConfig } from './config';
 import type { ExtractionPrompt } from './prompt';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
+import { SUGGESTED_DECISION_REASON_MAX, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg, resolvedModelId } from '@/libs/llm/langchain';
@@ -47,6 +49,16 @@ export type ExtractedRecord = {
   notes?: string;
   seriesOf?: number;
   duplicateOf?: number;
+  /**
+   * What the model thinks a reviewer should do with this record, judged
+   * against the operator's own extraction rules. Required of the model: a
+   * card nobody recommended anything about cannot be scored against what the
+   * reviewer then did, and that comparison is the only read we have on
+   * whether the criteria are working.
+   */
+  suggestedDecision?: SuggestedDecision;
+  /** One short sentence for why that recommendation, in the model's words. */
+  suggestedDecisionReason?: string;
   /**
    * Why this occurrence does not follow the pattern of the rest of its series,
    * in a few words. Only meaningful alongside `seriesOf`, and dropped by
@@ -108,6 +120,14 @@ function envelopeSchema(maxRecords: number) {
       notes: z.string().max(2000).optional(),
       seriesOf: runRef,
       duplicateOf: runRef,
+      // Required, unlike every optional field around it. A record the model
+      // declined to judge is a record the agreement metric cannot see, so this
+      // is worth the corrective retry that a missing value costs — the same
+      // trade `maxRecords` above makes. The reason is capped by transform
+      // rather than by a hard `.max()` for the reason `seriesNote` gives: a
+      // sentence one character long costs a card it should never cost.
+      suggestedDecision: z.enum(SUGGESTED_DECISIONS),
+      suggestedDecisionReason: z.string().transform(value => value.trim().slice(0, SUGGESTED_DECISION_REASON_MAX)),
       // Truncated, never rejected. `notes` above is a hard `.max(2000)`, and a
       // value one character over a hard bound costs the corrective retry and
       // can cost the whole document. A 141-character aside must never cost a

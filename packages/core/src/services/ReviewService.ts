@@ -16,7 +16,7 @@ import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
+import { parseSuggestedDecision, parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
@@ -48,6 +48,14 @@ export type ReviewItem = {
    * just to label rows it already has in hand.
    */
   suggestedDecision?: SuggestedDecision;
+  /**
+   * The one sentence the proposer gave for that recommendation, so a lane of
+   * "everything the screener wants turned down" can show WHY beside each row.
+   *
+   * Not `proposal.rationale`, which argues the payload is right. This argues
+   * what should happen to the card, which is the part a reviewer is deciding.
+   */
+  suggestedDecisionReason?: string;
   /**
    * Who made the approval call: `true` an agent took it on its own via the
    * trust ladder, `false` a person decided it, `null` nobody has decided yet.
@@ -139,6 +147,7 @@ export type PendingPage = {
  * only way the index gets used at all.
  */
 const suggestedDecisionColumn = sql<string | null>`${actionRunSchema.proposal} ->> 'suggestedDecision'`;
+const suggestedDecisionReasonColumn = sql<string | null>`${actionRunSchema.proposal} ->> 'suggestedDecisionReason'`;
 
 /** The status that means "needs human review" for each kind. */
 const PENDING_STATUS: Record<ReviewKind, string> = {
@@ -372,6 +381,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       suggestedDecision: suggestedDecisionColumn,
+      suggestedDecisionReason: suggestedDecisionReasonColumn,
       approvedByAgent: actionRunSchema.approvedByAgent,
     })
     .from(actionRunSchema)
@@ -393,6 +403,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // older release or by hand can be any string at all, and a row claiming a
     // recommendation nobody defined should read as having none.
     suggestedDecision: parseSuggestedDecision(row.suggestedDecision),
+    suggestedDecisionReason: parseSuggestedDecisionReason(row.suggestedDecisionReason),
     // Null for a run still waiting, and the real answer for a `failed` one —
     // that approval already happened, the execution is what threw. Carried on
     // every item either way, so a client reads one shape across the queue.
@@ -599,6 +610,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       input: row.input ?? null,
       proposal: (row.proposal as Record<string, unknown> | null) ?? null,
       suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
+      suggestedDecisionReason: parseSuggestedDecisionReason(row.proposal?.suggestedDecisionReason),
       approvedByAgent: row.approvedByAgent,
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       alignment: await scoreFor({
@@ -1124,6 +1136,7 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
       ? run.invokedBy.slice('agent:'.length)
       : run?.proposal?.agentSlug ?? undefined;
     const suggestedDecision = parseSuggestedDecision(run?.proposal?.suggestedDecision);
+    const suggestedDecisionReason = parseSuggestedDecisionReason(run?.proposal?.suggestedDecisionReason);
     const { track } = await import('@/services/adoption/track');
     // Scope dimensions travel together: userId (individual) + orgId (workspace)
     // on the actor, actionId (action type) in meta.
@@ -1151,6 +1164,10 @@ export async function recordActionSignal(opts: { orgId: string; runId: number; s
         // from. A workflow or mission that ever gains a labelled payload needs
         // that read first, not a copy of this key.
         ...(suggestedDecision ? { suggestedDecision } : {}),
+        // Travels with the recommendation it explains, for the same reason:
+        // read back later, a percentage says the agent disagreed with people
+        // and this says what it was thinking when it did.
+        ...(suggestedDecisionReason ? { suggestedDecisionReason } : {}),
         ...(opts.labels && Object.keys(opts.labels).length > 0 ? { labels: opts.labels } : {}),
         ...(opts.hint ? { hint: opts.hint } : {}),
       },

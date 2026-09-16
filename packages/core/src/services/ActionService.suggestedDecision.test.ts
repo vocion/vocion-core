@@ -180,7 +180,12 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.4, suggestedDecision: 'reject', suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z' },
+      proposal: {
+        confidence: 0.4,
+        suggestedDecision: 'reject',
+        suggestedDecisionReason: 'Third listing of this same show this week.',
+        suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z',
+      },
     });
 
     const [row] = await db.select().from(actionRunSchema);
@@ -188,6 +193,7 @@ describe('proposeAction with a recommendation against acting', () => {
     expect(row!.id).toBe(res.runId);
     expect(row!.proposal).toMatchObject({
       suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Third listing of this same show this week.',
       suggestedSnoozeUntil: '2026-10-01T00:00:00.000Z',
     });
   });

@@ -47,7 +47,7 @@ export type ReviewCardRun = {
   status: string;
   input: Record<string, unknown>;
   invokedBy: string | null;
-  proposal: { confidence?: number; rationale?: string; suggestedDecision?: SuggestedDecision } | null;
+  proposal: { confidence?: number; rationale?: string; suggestedDecision?: SuggestedDecision; suggestedDecisionReason?: string } | null;
   card: ReviewCard;
   /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
   regeneratingSince?: Date | string | null;
@@ -584,6 +584,17 @@ export function ReviewActionCard(props: {
               {suggestion && (
                 <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium ${suggestion.className}`}>
                   {suggestion.label}
+                </span>
+              )}
+              {/* Why it advised that, beside the advice itself. A badge alone
+                  asks a person to take the agent's word for it; the sentence
+                  is the part they can actually check against the card. Note
+                  this is NOT the rationale above — that argues the payload is
+                  right, this argues what should happen to it, and on a
+                  "turning down" the two say opposite-sounding things. */}
+              {suggestion && run.proposal?.suggestedDecisionReason && (
+                <span data-testid="suggested-decision-reason" className="text-[12px] text-muted-foreground">
+                  {run.proposal.suggestedDecisionReason}
                 </span>
               )}
             </div>

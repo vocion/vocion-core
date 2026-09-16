@@ -165,11 +165,27 @@ export async function proposeRecords(opts: {
         // and a declared field nobody wrote would score as cleared on every
         // approve.
         ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
-        // A card the model called a duplicate of a known one is a recommendation
-        // to turn it down; core keeps such a card pending for a person and only
-        // scores agreement with what the reviewer does. Everything else carries
-        // no recommendation until a measured threshold says approve is safe.
-        ...(record.duplicateOf !== undefined ? { suggestedDecision: 'reject' as const } : {}),
+        // What the model thinks should happen to this card, and why, in one
+        // sentence. Distinct from `rationale` above: that says where the card
+        // came from, this says what to do with it — and for a `reject` the two
+        // are nothing alike, because the extraction can be perfect and the
+        // record still not belong in the queue.
+        //
+        // A card the model called a duplicate of a known one is a `reject`
+        // whatever it recommended, and the reason says so in core's words
+        // rather than the model's: the duplicate id is our determination, and
+        // a reviewer reading "duplicate of #412" should be reading a claim we
+        // can stand behind. Still only a recommendation — core keeps the card
+        // pending for a person and scores agreement against what they do.
+        ...(record.duplicateOf !== undefined
+          ? {
+              suggestedDecision: 'reject' as const,
+              suggestedDecisionReason: `Already waiting for review as action run #${record.duplicateOf}.`,
+            }
+          : {
+              ...(record.suggestedDecision ? { suggestedDecision: record.suggestedDecision } : {}),
+              ...(record.suggestedDecisionReason ? { suggestedDecisionReason: record.suggestedDecisionReason } : {}),
+            }),
       },
     });
 

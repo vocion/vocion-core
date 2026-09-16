@@ -18,7 +18,7 @@
 import type { Principal } from '@/services/authz';
 import type { PendingPage, ReviewDetail, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
-import { parseSuggestedDecision, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
@@ -411,6 +411,12 @@ export type ProposeInput = {
    * below, so a bad value is a 400 rather than a dropped field.
    */
   suggestedDecision?: string;
+  /**
+   * One short sentence for why that recommendation — "third listing of this
+   * show this week". Distinct from `rationale` above, which argues the payload
+   * is right rather than saying what should happen to it.
+   */
+  suggestedDecisionReason?: string;
   /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
   suggestedSnoozeUntil?: string;
   dedupKey?: string;
@@ -467,6 +473,7 @@ export async function apiProposeReview(caller: ApiCaller, input: ProposeInput) {
         rationale: input.rationale,
         agentSlug: input.agentSlug,
         suggestedDecision: parseSuggestedDecision(input.suggestedDecision),
+        suggestedDecisionReason: parseSuggestedDecisionReason(input.suggestedDecisionReason),
         suggestedSnoozeUntil: input.suggestedSnoozeUntil,
       },
       dedupKey: input.dedupKey,

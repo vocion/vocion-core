@@ -8,6 +8,7 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  * Put a proposed action into the review queue. Body:
  *
  *   { actionId, input, agentSlug?, rationale?, confidence?, suggestedDecision?,
+ *     suggestedDecisionReason?,
  *     suggestedSnoozeUntil?, dedupKey?, expiresInDays? }
  *
  * `suggestedDecision` is what the proposing agent thinks the reviewer should
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       // is where it is checked, so a bad value comes back as a 400 naming the
       // three it could have been instead of vanishing on the way in.
       suggestedDecision: typeof body.suggestedDecision === 'string' ? body.suggestedDecision : undefined,
+      suggestedDecisionReason: typeof body.suggestedDecisionReason === 'string' ? body.suggestedDecisionReason : undefined,
       suggestedSnoozeUntil: typeof body.suggestedSnoozeUntil === 'string' ? body.suggestedSnoozeUntil : undefined,
       dedupKey: typeof body.dedupKey === 'string' ? body.dedupKey : undefined,
       expiresInDays: typeof body.expiresInDays === 'number' ? body.expiresInDays : undefined,

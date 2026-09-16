@@ -57,7 +57,7 @@ function call(overrides: Partial<Parameters<typeof extractRecords>[0]> = {}) {
  */
 function goodAnswer(usage?: Record<string, unknown>) {
   return {
-    content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9}]}',
+    content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9,"suggestedDecision":"approve","suggestedDecisionReason":"Fits the operator rules."}]}',
     ...(usage ? { usage_metadata: usage } : {}),
   };
 }
@@ -113,6 +113,47 @@ describe('candidate extractor model call', () => {
 
     expect(result.status).toBe('ok');
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('makes a record with no recommendation cost the corrective retry', async () => {
+    // The whole point of requiring it: a card nobody recommended anything
+    // about cannot be compared against what the reviewer then did, so it is
+    // worth one more model call rather than a card that measures nothing.
+    invoke.mockResolvedValueOnce({ content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9}]}' });
+    invoke.mockResolvedValueOnce(goodAnswer());
+
+    const result = await call();
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe('ok');
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecision).toBe('approve');
+  });
+
+  it('carries the recommendation and its reason through to the record', async () => {
+    invoke.mockResolvedValue({
+      content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9,"suggestedDecision":"reject","suggestedDecisionReason":"  The date has already passed.  "}]}',
+    });
+
+    const result = await call();
+
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecision).toBe('reject');
+    // Trimmed on the way in, so the review card never renders the padding.
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toBe('The date has already passed.');
+  });
+
+  it('truncates an over-long reason instead of failing the answer', async () => {
+    // Same trade as the series note below: a model that writes an essay must
+    // not cost the records it wrote it about.
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'y'.repeat(400) }],
+      }),
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toHaveLength(240);
   });
 
   it('strips code fences the way the classifier does', async () => {
@@ -176,7 +217,7 @@ describe('candidate extractor model call', () => {
     // never cost a card, so this one transforms rather than rejects.
     invoke.mockResolvedValue({
       content: JSON.stringify({
-        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, seriesOf: 41, seriesNote: 'x'.repeat(400) }],
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the operator rules.', seriesOf: 41, seriesNote: 'x'.repeat(400) }],
       }),
     });
 

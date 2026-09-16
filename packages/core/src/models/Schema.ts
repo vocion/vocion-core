@@ -2676,6 +2676,18 @@ export const actionRunSchema = pgTable(
      */
     proposal: jsonb('proposal').$type<{
       confidence?: number;
+      /**
+       * Why the proposer believes this payload is RIGHT — the case for the
+       * record itself, citing what it read: "the Sep 14 call moved the close
+       * date; the deal stage in HubSpot still says Proposal Sent".
+       *
+       * Pairs with `suggestedDecisionReason` below and answers a different
+       * question. This one argues the content is correct; that one argues what
+       * should happen to it. They agree on an `approve` and diverge on a
+       * `reject`, where the payload can be flawless and the record still not
+       * belong in the queue — so a card that carries only this one leaves a
+       * reviewer to guess at the recommendation's grounds.
+       */
       rationale?: string;
       evidence?: string[];
       autoApproved?: boolean;
@@ -2707,6 +2719,23 @@ export const actionRunSchema = pgTable(
        * never as `approve`.
        */
       suggestedDecision?: 'approve' | 'reject' | 'snooze';
+      /**
+       * One short sentence for WHY the agent recommended what it did, in its
+       * own words — "third listing of this show this week", "date has passed",
+       * "venue outside the coverage area".
+       *
+       * Separate from `rationale` above on purpose. `rationale` argues that
+       * the payload is right; this argues what should happen to it, and the two
+       * come apart hardest exactly where it matters: a `reject` recommendation
+       * has a perfectly sound payload and a reason it should still be turned
+       * down. Kept so a person can see the argument before deciding, and so
+       * the recommendations themselves can be read back and judged later
+       * rather than only scored as a percentage.
+       *
+       * Trimmed to `SUGGESTED_DECISION_REASON_MAX`. Absent on runs proposed
+       * before this shipped.
+       */
+      suggestedDecisionReason?: string;
       /**
        * Only meaningful alongside `suggestedDecision: 'snooze'`: an ISO
        * timestamp for when the agent thinks this is worth another look. A

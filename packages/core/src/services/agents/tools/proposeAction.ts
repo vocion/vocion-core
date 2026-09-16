@@ -18,7 +18,7 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { listActions } from '@/libs/actions/registry';
-import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction } from '@/services/ActionService';
 
 export function proposeActionTool(ctx: RuntimeContext) {
@@ -26,13 +26,14 @@ export function proposeActionTool(ctx: RuntimeContext) {
 
   return tool(
     async (input) => {
-      const { action_id, action_input, confidence, rationale, evidence, suggested_decision, suggested_snooze_until } = input as {
+      const { action_id, action_input, confidence, rationale, evidence, suggested_decision, suggested_decision_reason, suggested_snooze_until } = input as {
         action_id: string;
         action_input: Record<string, unknown>;
         confidence: number;
         rationale: string;
         evidence?: string[];
-        suggested_decision?: SuggestedDecision;
+        suggested_decision: SuggestedDecision;
+        suggested_decision_reason: string;
         suggested_snooze_until?: string;
       };
       try {
@@ -54,6 +55,7 @@ export function proposeActionTool(ctx: RuntimeContext) {
             rationale,
             evidence,
             suggestedDecision: suggested_decision,
+            suggestedDecisionReason: parseSuggestedDecisionReason(suggested_decision_reason),
             suggestedSnoozeUntil: suggested_snooze_until,
           },
         });
@@ -92,7 +94,8 @@ export function proposeActionTool(ctx: RuntimeContext) {
         confidence: z.number().min(0).max(1).describe('Your confidence this change is correct, 0–1 (e.g. 0.85)'),
         rationale: z.string().describe('One or two sentences: WHY this change, citing the evidence'),
         evidence: z.array(z.string()).optional().describe('Source doc uris/ids backing the proposal (e.g. gmail message ids, hubspot record uris)'),
-        suggested_decision: z.enum(SUGGESTED_DECISIONS).optional().describe('What you think the reviewer should DO, which is a different question from how confident you are: "approve" to go ahead, "reject" if you believe this should be turned down, "snooze" if it is worth another look later. Say "reject" when that is genuinely your read — filing a record you think should be declined is how a person sees your judgement instead of only your silence. Advisory: a person always decides, and this never makes anything run on its own. Omit it if you have no view.'),
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('Required on every proposal. What you think the reviewer should DO, which is a different question from how confident you are: "approve" to go ahead, "reject" if you believe this should be turned down, "snooze" if it is worth another look later. Always pick the one that best fits the criteria you were given — an unsure read is still a read, and "I would lean to approving this" is worth more to a reviewer than silence. Say "reject" when that is genuinely your call: filing a record you think should be declined is how a person sees your judgement. Advisory: a person always decides, and this never makes anything run on its own.'),
+        suggested_decision_reason: z.string().describe('Required on every proposal. ONE short sentence for why you recommended that, in plain words a reviewer can check: "third listing of this same show this week", "date has already passed", "venue is outside the coverage area". This is not the same as `rationale` — that one argues your payload is right, this one argues what should happen to it, which is the whole content of a "reject". Say what tipped it, not that you are confident.'),
         suggested_snooze_until: z.string().optional().describe('ISO timestamp for when this is worth revisiting. Only meaningful with suggested_decision "snooze".'),
       }),
     },
