@@ -174,9 +174,14 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // user, server-side) and applies on every page (058, §9).
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   // The surface listener is bound once; it reads collapse state through a ref
-  // so a toggle request always sees the rail's current state.
+  // so a toggle request always sees the rail's current state. Written in an
+  // effect rather than during render — the same shape `sessionRef` below uses,
+  // and what react-hooks/refs asks for. Safe here because the only reader is
+  // the DOM event handler, which cannot run before the commit that set it.
   const collapsedRef = useRef(collapsed);
-  collapsedRef.current = collapsed;
+  useEffect(() => {
+    collapsedRef.current = collapsed;
+  }, [collapsed]);
   const [width, setWidth] = useState<number>(() => defaultRailWidth(1440));
   // Intent a page affordance handed us (R4): a prompt to prefill and the
   // record / passage it is about. Cleared once a turn goes out. The record
