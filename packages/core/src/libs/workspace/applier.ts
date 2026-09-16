@@ -1081,21 +1081,31 @@ async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promi
             evalEvaluatorSchema.provider,
             evalEvaluatorSchema.slug,
           ],
-          set: { level: evaluator.level ?? null, config, updatedAt: new Date() },
+          // `retiredAt: null` revives an evaluator someone took out and put
+          // back: the row keeps its remote id, so the sync updates the
+          // evaluator already in AWS instead of failing on its name.
+          set: { level: evaluator.level ?? null, config, retiredAt: null, updatedAt: new Date() },
         });
     }
   }
 
-  // An evaluator taken out of the file stops grading. Left behind, it would
+  // An evaluator taken out of the file stops grading. Left active, it would
   // keep being sent to AWS on every run, so the scores would quietly disagree
-  // with what the workspace says it measures. Same sweep the workflows above
-  // do, and for the same reason.
-  const { notInArray } = await import('drizzle-orm');
+  // with what the workspace says it measures.
+  //
+  // Retired, not deleted — the same sweep the workflows above do, and for the
+  // same reason. We never call AWS `DeleteEvaluator`, so deleting the row
+  // would strand the evaluator in the customer's account with nothing pointing
+  // at it, and putting the evaluator back in the file later would try to
+  // create a second one under a name AWS already has.
+  const { isNull, notInArray } = await import('drizzle-orm');
   await db
-    .delete(evalEvaluatorSchema)
+    .update(evalEvaluatorSchema)
+    .set({ retiredAt: new Date() })
     .where(and(
       eq(evalEvaluatorSchema.orgId, orgId),
       eq(evalEvaluatorSchema.datasetSlug, ds.slug),
+      isNull(evalEvaluatorSchema.retiredAt),
       authoredSlugs.length > 0 ? notInArray(evalEvaluatorSchema.slug, authoredSlugs) : undefined,
     ));
 }

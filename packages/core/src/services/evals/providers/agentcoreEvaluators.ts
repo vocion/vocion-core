@@ -31,7 +31,7 @@ import {
   CreateEvaluatorCommand,
   UpdateEvaluatorCommand,
 } from '@aws-sdk/client-bedrock-agentcore-control';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { evalEvaluatorSchema } from '@/models/Schema';
 
@@ -259,6 +259,9 @@ export async function resolveAgentcoreEvaluators(
       eq(evalEvaluatorSchema.orgId, orgId),
       eq(evalEvaluatorSchema.datasetSlug, datasetSlug),
       eq(evalEvaluatorSchema.provider, 'agentcore'),
+      // Retired evaluators keep their remote id so they can come back, but
+      // they must not be sent to AWS or scored against in the meantime.
+      isNull(evalEvaluatorSchema.retiredAt),
     ));
   if (rows.length === 0) {
     return [];

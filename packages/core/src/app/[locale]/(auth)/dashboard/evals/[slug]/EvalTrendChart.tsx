@@ -5,6 +5,34 @@ import { useState } from 'react';
 import { buildSeries, versionBoundaries } from './evalTrend';
 
 const WIDTH = 720;
+
+/**
+ * A point taking keyboard focus: read it out and ring it.
+ * @param point - The run the person has tabbed to.
+ * @param setHover - Shows the point's detail line above the chart.
+ * @param setFocusedRunId - Draws the ring on that point's dot.
+ */
+function onPointFocus(
+  point: EvalTrendPoint,
+  setHover: (point: EvalTrendPoint | null) => void,
+  setFocusedRunId: (runId: number | null) => void,
+): void {
+  setHover(point);
+  setFocusedRunId(point.runId);
+}
+
+/**
+ * Focus leaving a point: clear both the detail line and the ring.
+ * @param setHover - Shows the point's detail line above the chart.
+ * @param setFocusedRunId - Draws the ring on that point's dot.
+ */
+function onPointBlur(
+  setHover: (point: EvalTrendPoint | null) => void,
+  setFocusedRunId: (runId: number | null) => void,
+): void {
+  setHover(null);
+  setFocusedRunId(null);
+}
 const PAD = { top: 14, right: 10, bottom: 22, left: 34 };
 
 /**
@@ -27,6 +55,9 @@ export function EvalTrendChart(props: {
   height?: number;
 }) {
   const [hover, setHover] = useState<EvalTrendPoint | null>(null);
+  // Separate from hover so a keyboard user gets a ring on the dot they are
+  // on, which a mouse user does not need and should not see.
+  const [focusedRunId, setFocusedRunId] = useState<number | null>(null);
   const height = props.height ?? 170;
   const innerW = WIDTH - PAD.left - PAD.right;
   const innerH = height - PAD.top - PAD.bottom;
@@ -69,91 +100,104 @@ export function EvalTrendChart(props: {
           </span>
         )}
       </div>
-      <svg
-        viewBox={`0 0 ${WIDTH} ${height}`}
-        className="w-full"
-        role="img"
-        aria-label="Pass rate over time, one line per grader"
-      >
-        {[0, 0.5, 1].map((fraction) => {
-          const gridY = PAD.top + innerH - fraction * innerH;
-          return (
-            <g key={fraction}>
-              <line x1={PAD.left} y1={gridY} x2={WIDTH - PAD.right} y2={gridY} stroke="currentColor" strokeOpacity="0.08" />
-              <text x={PAD.left - 6} y={gridY + 3} textAnchor="end" fontSize="13" fill="currentColor" fillOpacity="0.45">
-                {`${Math.round(fraction * 100)}%`}
+      {/*
+        Drawn at its real size rather than scaled to the container. A `w-full`
+        SVG shrinks its own text with it, so on a phone the axis labels came out
+        around seven pixels — there is no font size that survives that, because
+        the scaling is proportional. Fixed width and a scrolling parent keep
+        every label at the size it was written, and a narrow screen scrolls the
+        chart sideways instead of making it unreadable.
+      */}
+      <div className="overflow-x-auto">
+        <svg
+          width={WIDTH}
+          height={height}
+          viewBox={`0 0 ${WIDTH} ${height}`}
+          className="block"
+          role="img"
+          aria-label="Pass rate over time, one line per grader"
+        >
+          {[0, 0.5, 1].map((fraction) => {
+            const gridY = PAD.top + innerH - fraction * innerH;
+            return (
+              <g key={fraction}>
+                <line x1={PAD.left} y1={gridY} x2={WIDTH - PAD.right} y2={gridY} stroke="currentColor" strokeOpacity="0.08" />
+                <text x={PAD.left - 6} y={gridY + 3} textAnchor="end" fontSize="13" fill="currentColor" fillOpacity="0.45">
+                  {`${Math.round(fraction * 100)}%`}
+                </text>
+              </g>
+            );
+          })}
+
+          {boundaries.map(boundary => (
+            <g key={`v${boundary.version}-${boundary.at}`}>
+              <line
+                x1={x(boundary.at)}
+                y1={PAD.top}
+                x2={x(boundary.at)}
+                y2={PAD.top + innerH}
+                stroke="currentColor"
+                strokeOpacity="0.35"
+                strokeDasharray="2 3"
+              >
+                <title>{`Dataset changed to v${boundary.version} — scores before and after are measuring different cases`}</title>
+              </line>
+              <text x={x(boundary.at) + 3} y={PAD.top + 8} fontSize="13" fill="currentColor" fillOpacity="0.5">
+                {`v${boundary.version}`}
               </text>
             </g>
-          );
-        })}
+          ))}
 
-        {boundaries.map(boundary => (
-          <g key={`v${boundary.version}-${boundary.at}`}>
-            <line
-              x1={x(boundary.at)}
-              y1={PAD.top}
-              x2={x(boundary.at)}
-              y2={PAD.top + innerH}
-              stroke="currentColor"
-              strokeOpacity="0.35"
-              strokeDasharray="2 3"
-            >
-              <title>{`Dataset changed to v${boundary.version} — scores before and after are measuring different cases`}</title>
-            </line>
-            <text x={x(boundary.at) + 3} y={PAD.top + 8} fontSize="13" fill="currentColor" fillOpacity="0.5">
-              {`v${boundary.version}`}
-            </text>
-          </g>
-        ))}
-
-        {series.map(line => (
-          <g key={line.provider}>
-            <path
-              d={line.points.map((point, index) =>
-                `${index === 0 ? 'M' : 'L'} ${x(Date.parse(point.startedAt))} ${y(point.passRate)}`).join(' ')}
-              fill="none"
-              style={{ stroke: line.color }}
-              strokeWidth="1.5"
-            />
-            {line.points.map(point => (
-              <circle
-                key={`dot-${point.runId}`}
-                cx={x(Date.parse(point.startedAt))}
-                cy={y(point.passRate)}
-                r="3.5"
-                style={{ fill: line.color }}
+          {series.map(line => (
+            <g key={line.provider}>
+              <path
+                d={line.points.map((point, index) =>
+                  `${index === 0 ? 'M' : 'L'} ${x(Date.parse(point.startedAt))} ${y(point.passRate)}`).join(' ')}
+                fill="none"
+                style={{ stroke: line.color }}
+                strokeWidth="1.5"
               />
-            ))}
-            {line.points.map(point => (
-              <circle
-                key={point.runId}
-                cx={x(Date.parse(point.startedAt))}
-                cy={y(point.passRate)}
-                // Big enough to hit with a thumb; the visible dot is smaller.
-                r="7"
-                fillOpacity="0.001"
-                style={{ fill: line.color }}
-                tabIndex={0}
-                role="img"
-                aria-label={`${line.label}, run ${point.runId}, ${Math.round(point.passRate * 100)} percent pass`}
-                onMouseEnter={() => setHover(point)}
-                onMouseLeave={() => setHover(null)}
-                onFocus={() => setHover(point)}
-                onBlur={() => setHover(null)}
-              >
-                <title>{`${line.label} · #${point.runId} · ${Math.round(point.passRate * 100)}% pass`}</title>
-              </circle>
-            ))}
-          </g>
-        ))}
+              {line.points.map(point => (
+                <circle
+                  key={`dot-${point.runId}`}
+                  cx={x(Date.parse(point.startedAt))}
+                  cy={y(point.passRate)}
+                  r={focusedRunId === point.runId ? 5 : 3.5}
+                  style={{ fill: line.color }}
+                  stroke={focusedRunId === point.runId ? 'currentColor' : 'none'}
+                  strokeWidth="1.5"
+                />
+              ))}
+              {line.points.map(point => (
+                <circle
+                  key={point.runId}
+                  cx={x(Date.parse(point.startedAt))}
+                  cy={y(point.passRate)}
+                  // Big enough to hit with a thumb; the visible dot is smaller.
+                  r="7"
+                  fillOpacity="0.001"
+                  style={{ fill: line.color }}
+                  tabIndex={0}
+                  aria-label={`${line.label}, run ${point.runId}, ${Math.round(point.passRate * 100)} percent pass`}
+                  onMouseEnter={() => setHover(point)}
+                  onMouseLeave={() => setHover(null)}
+                  onFocus={() => onPointFocus(point, setHover, setFocusedRunId)}
+                  onBlur={() => onPointBlur(setHover, setFocusedRunId)}
+                >
+                  <title>{`${line.label} · #${point.runId} · ${Math.round(point.passRate * 100)}% pass`}</title>
+                </circle>
+              ))}
+            </g>
+          ))}
 
-        <text x={PAD.left} y={height - 6} fontSize="13" fill="currentColor" fillOpacity="0.45">
-          {new Date(minTime).toLocaleDateString()}
-        </text>
-        <text x={WIDTH - PAD.right} y={height - 6} textAnchor="end" fontSize="13" fill="currentColor" fillOpacity="0.45">
-          {new Date(maxTime).toLocaleDateString()}
-        </text>
-      </svg>
+          <text x={PAD.left} y={height - 6} fontSize="13" fill="currentColor" fillOpacity="0.45">
+            {new Date(minTime).toLocaleDateString()}
+          </text>
+          <text x={WIDTH - PAD.right} y={height - 6} textAnchor="end" fontSize="13" fill="currentColor" fillOpacity="0.45">
+            {new Date(maxTime).toLocaleDateString()}
+          </text>
+        </svg>
+      </div>
     </div>
   );
 }

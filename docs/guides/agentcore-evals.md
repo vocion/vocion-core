@@ -197,3 +197,16 @@ Three things the UI does on purpose:
   `VOCION_AGENTCORE_EVAL_REGIONS` to override the list when AWS adds a region.
 - AgentCore's judges are billed by AWS per evaluation, on your account. Vocion
   does not mark them up and does not turn any of them on for you.
+- Taking an evaluator out of the workspace file retires it: it stops grading
+  immediately, and the row is kept so Vocion still knows which evaluator in
+  your AWS account belongs to this dataset. Putting it back in the file revives
+  the same one. Vocion never calls AWS `DeleteEvaluator`, so deleting the
+  evaluator in AWS is yours to do, in the console or the CLI.
+- Two refreshes of the same dataset fired in the same instant can each write a
+  run. The index that would make that impossible has to be built concurrently
+  on a table that already has rows, and a concurrent build cannot be unique, so
+  the rule lives in code instead. The visible symptom is one duplicated point
+  on the trend line, not damaged data.
+- Pass rates and judge scores are stored as `real`. That is display precision —
+  fine for a percentage on a chart, not the column to use if scores ever become
+  something anyone is billed against.

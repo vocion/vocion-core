@@ -1777,6 +1777,17 @@ export const evalEvaluatorSchema = pgTable('eval_evaluator', {
   syncedAt: timestamp('synced_at', { mode: 'date' }),
   /** Why the last sync failed. Kept so the UI can say so rather than look synced. */
   syncError: text('sync_error'),
+  /**
+   * Set when the workspace file stopped declaring this evaluator.
+   *
+   * Retired rather than deleted, the same way an unauthored workflow is
+   * retired: a retired evaluator grades nothing, but it keeps its `remoteId`,
+   * so putting it back in the file reuses the evaluator that already exists in
+   * the customer's AWS account. Deleting the row would strand that evaluator —
+   * we never call AWS `DeleteEvaluator` — and the next create would collide
+   * with its name and fail to sync.
+   */
+  retiredAt: timestamp('retired_at', { mode: 'date' }),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .defaultNow()

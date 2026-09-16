@@ -7,9 +7,11 @@
  * given. And `describeProviders` has to carry the reason, because the UI shows
  * "AgentCore cannot run because ..." rather than simply going quiet.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { describeProviders, listAvailableProviders, registerProvider } = await import('./registry');
+const { agentcoreProvider } = await import('./agentcore');
+const { vocionProvider } = await import('./vocion');
 
 const ORG = 'org_registry_test';
 
@@ -26,6 +28,14 @@ beforeEach(() => {
   // The registry is module-level and already holds the real providers; these
   // overwrite by id for the length of the test file.
   registerProvider(providerThat('vocion', async () => ({ available: true, reason: '' })));
+});
+
+afterEach(() => {
+  // Put the real ones back rather than leaning on per-file module isolation:
+  // a stub that outlived this file would make another suite's availability
+  // check answer from nowhere.
+  registerProvider(vocionProvider);
+  registerProvider(agentcoreProvider);
 });
 
 describe('listAvailableProviders', () => {

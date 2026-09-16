@@ -22,7 +22,7 @@ import type { EvalScoreProvider } from './evals/providers/types';
 import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
 import type { EvalDatasetItem } from './evals/types';
 import type { LangChainProvider } from '@/libs/llm';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
@@ -99,6 +99,9 @@ export async function listEvaluatorProblems(orgId: string, datasetSlug: string) 
     .where(and(
       eq(evalEvaluatorSchema.orgId, orgId),
       eq(evalEvaluatorSchema.datasetSlug, datasetSlug),
+      // A retired evaluator grades nothing, so its last sync error is history,
+      // not a problem anyone still has to fix.
+      isNull(evalEvaluatorSchema.retiredAt),
     ));
   return rows.filter(row => row.syncError !== null);
 }
@@ -168,6 +171,22 @@ export class UnknownEvalProviderError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'UnknownEvalProviderError';
+  }
+}
+
+/**
+ * The provider that owns a run group's transcripts can no longer grade.
+ *
+ * Raised on a retry whose available providers no longer include the one that
+ * ran first — a credential revoked between attempts, say. Handing the
+ * transcripts to a different provider would rewrite the case rows underneath
+ * scores that provider already recorded, so the attempt stops here and says
+ * why, and someone reconnects the credential or starts a fresh run.
+ */
+export class EvalPrimaryProviderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EvalPrimaryProviderUnavailableError';
   }
 }
 
@@ -333,6 +352,10 @@ async function resolveProviders(orgId: string, providerIds?: string[]): Promise<
  * Only matters on a retry, and only when the set of available providers
  * changed between attempts. Leaves the order alone when nothing in the group
  * has run yet, which is every first attempt.
+ *
+ * Throws when the owner is gone rather than promoting whoever sorts first:
+ * the primary rewrites the case rows, and the scores another provider already
+ * wrote hang off those rows.
  * @param providers - Who is grading, in registry order.
  * @param runGroupId - The group this execution belongs to, or null.
  */
@@ -340,7 +363,7 @@ async function primaryFirst(
   providers: EvalScoreProvider[],
   runGroupId: string | null,
 ): Promise<EvalScoreProvider[]> {
-  if (!runGroupId || providers.length < 2) {
+  if (!runGroupId) {
     return providers;
   }
   const existing = await db
@@ -355,7 +378,12 @@ async function primaryFirst(
   }
   const ownerProvider = providers.find(provider => provider.id === owner);
   if (!ownerProvider) {
-    return providers;
+    // Letting someone else become primary here would delete and reinsert the
+    // case rows this group's scores point at, taking the other provider's
+    // already-recorded scores with them. Louder is safer.
+    throw new EvalPrimaryProviderUnavailableError(
+      `run group ${runGroupId} was graded first by "${owner}", which is not available now — reconnect it or start a new run`,
+    );
   }
   return [ownerProvider, ...providers.filter(provider => provider.id !== owner)];
 }

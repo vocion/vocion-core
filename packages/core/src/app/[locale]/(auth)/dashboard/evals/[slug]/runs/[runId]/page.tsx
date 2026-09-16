@@ -211,9 +211,15 @@ export default async function EvalRunDetailPage(props: Props) {
 
       <section>
         <h2 className="mb-3 font-display text-sm font-semibold">Per-case results</h2>
+        {/*
+          Announced, because the page really does change on its own: the client
+          poll swaps this copy for results as cases land, and a screen-reader
+          user who is told "this page updates itself" has to actually hear the
+          update.
+        */}
         {sortedResults.length === 0
           ? (
-              <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+              <p aria-live="polite" className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
                 {run.status === 'running'
                   ? 'Still running — this page updates itself as cases finish.'
                   : 'No case results recorded.'}

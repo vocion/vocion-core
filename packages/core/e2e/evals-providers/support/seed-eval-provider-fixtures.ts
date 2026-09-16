@@ -28,7 +28,7 @@
  * Usage: npx dotenv -c -- npx tsx e2e/evals-providers/support/seed-eval-provider-fixtures.ts --email <admin email>
  */
 import process from 'node:process';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
   accountMembershipSchema,
@@ -95,7 +95,7 @@ async function resetFixtures(orgId: string): Promise<void> {
   const datasets = await db
     .select({ id: evalDatasetSchema.id })
     .from(evalDatasetSchema)
-    .where(inArray(evalDatasetSchema.slug, SLUGS));
+    .where(and(eq(evalDatasetSchema.orgId, orgId), inArray(evalDatasetSchema.slug, SLUGS)));
   for (const dataset of datasets) {
     const runs = await db
       .select({ id: evalRunSchema.id })
@@ -106,9 +106,10 @@ async function resetFixtures(orgId: string): Promise<void> {
     }
     await db.delete(evalRunSchema).where(eq(evalRunSchema.datasetId, dataset.id));
   }
-  await db.delete(evalDatasetSchema).where(inArray(evalDatasetSchema.slug, SLUGS));
-  await db.delete(userActivityEventSchema).where(eq(userActivityEventSchema.agentSlug, AGENT_SLUG));
-  void orgId;
+  await db.delete(evalDatasetSchema).where(and(eq(evalDatasetSchema.orgId, orgId), inArray(evalDatasetSchema.slug, SLUGS)));
+  await db
+    .delete(userActivityEventSchema)
+    .where(and(eq(userActivityEventSchema.orgId, orgId), eq(userActivityEventSchema.agentSlug, AGENT_SLUG)));
 }
 
 /**

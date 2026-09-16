@@ -9,7 +9,10 @@
  * longer describes.
  *
  * A re-apply of an unchanged file must also not lose the remote id, or the
- * next run creates a second evaluator in the customer's account.
+ * next run creates a second evaluator in the customer's account. For the same
+ * reason an unauthored evaluator is retired rather than deleted: we never call
+ * AWS `DeleteEvaluator`, so the row is the only thing that remembers which
+ * evaluator in the account belongs to this dataset.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,6 +70,14 @@ async function storedEvaluators() {
     .where(and(eq(evalEvaluatorSchema.orgId, ORG), eq(evalEvaluatorSchema.datasetSlug, DATASET)));
 }
 
+/**
+ * Only the evaluators that would actually grade a run right now.
+ */
+async function gradingEvaluators() {
+  const rows = await storedEvaluators();
+  return rows.filter(row => row.retiredAt === null);
+}
+
 const TWO_EVALUATORS = `evaluators:\n  - provider: agentcore\n    builtin: [Builtin.TrajectoryInOrderMatch]\n  - provider: agentcore\n    slug: tone-check\n    level: TRACE\n    instructions: Is the tone warm?\n`;
 const ONE_EVALUATOR = `evaluators:\n  - provider: agentcore\n    builtin: [Builtin.TrajectoryInOrderMatch]\n`;
 
@@ -113,20 +124,41 @@ describe('workspace apply — eval evaluators', () => {
   it('stops grading with an evaluator the file no longer declares', async () => {
     await apply(TWO_EVALUATORS);
 
-    expect(await storedEvaluators()).toHaveLength(2);
+    expect(await gradingEvaluators()).toHaveLength(2);
 
     await apply(ONE_EVALUATOR);
 
-    const rows = await storedEvaluators();
-
-    expect(rows.map(row => row.slug)).toEqual(['Builtin.TrajectoryInOrderMatch']);
+    expect((await gradingEvaluators()).map(row => row.slug)).toEqual(['Builtin.TrajectoryInOrderMatch']);
   });
 
-  it('clears them all when the block is removed entirely', async () => {
+  it('stops grading with them all when the block is removed entirely', async () => {
     await apply(TWO_EVALUATORS);
 
     await apply('');
 
-    expect(await storedEvaluators()).toHaveLength(0);
+    expect(await gradingEvaluators()).toHaveLength(0);
+  });
+
+  it('remembers the AWS evaluator behind one it retired, and brings it back', async () => {
+    await apply(TWO_EVALUATORS);
+    await db
+      .update(evalEvaluatorSchema)
+      .set({ remoteId: 'ev-456', remoteArn: 'arn:aws:ev-456', syncedAt: new Date() })
+      .where(eq(evalEvaluatorSchema.slug, 'tone-check'));
+
+    await apply(ONE_EVALUATOR);
+
+    const retired = (await storedEvaluators()).find(row => row.slug === 'tone-check');
+
+    // Deleting the row would strand `ev-456` in the customer's account, and the
+    // next create would collide with the name AWS already has.
+    expect(retired?.retiredAt).not.toBeNull();
+    expect(retired?.remoteId).toBe('ev-456');
+
+    await apply(TWO_EVALUATORS);
+
+    const revived = (await gradingEvaluators()).find(row => row.slug === 'tone-check');
+
+    expect(revived?.remoteId).toBe('ev-456');
   });
 });

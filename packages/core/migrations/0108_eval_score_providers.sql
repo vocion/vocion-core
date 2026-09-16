@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS "eval_evaluator" (
   "remote_arn" text,
   "synced_at" timestamp,
   "sync_error" text,
+  "retired_at" timestamp,
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );

@@ -27,7 +27,7 @@ const { db } = await import('@/libs/DB');
 const { evalCaseResultSchema, evalDatasetSchema, evalRunSchema, evalScoreSchema } = await import('@/models/Schema');
 const { runAgentDeep } = await import('@/services/AgentService');
 const { eq } = await import('drizzle-orm');
-const { runDatasetWithProviders, UnknownEvalProviderError } = await import('@/services/EvalService');
+const { EvalPrimaryProviderUnavailableError, runDatasetWithProviders, UnknownEvalProviderError } = await import('@/services/EvalService');
 
 const mockAgent = vi.mocked(runAgentDeep);
 const ORG = 'org_run_with_providers';
@@ -126,6 +126,25 @@ describe('runDatasetWithProviders', () => {
     const caseRows = await db.select().from(evalCaseResultSchema);
 
     expect(new Set(caseRows.map(row => row.runId))).toEqual(new Set([firstOwner!.id]));
+  });
+
+  it('refuses to hand a retry\'s transcripts to a different grader', async () => {
+    listAvailableProviders.mockResolvedValue([fakeProvider('vocion'), fakeProvider('agentcore', 'AgentCore')]);
+    await runDatasetWithProviders({ orgId: ORG, datasetSlug: SLUG, runGroupId: 'group-lost-owner' });
+    const before = await db.select().from(evalCaseResultSchema);
+
+    // The owner's credential went away between attempts. Promoting AgentCore
+    // would delete and rewrite the case rows its own scores already point at,
+    // so the attempt has to stop instead.
+    listAvailableProviders.mockResolvedValue([fakeProvider('agentcore', 'AgentCore')]);
+
+    await expect(runDatasetWithProviders({ orgId: ORG, datasetSlug: SLUG, runGroupId: 'group-lost-owner' }))
+      .rejects
+      .toBeInstanceOf(EvalPrimaryProviderUnavailableError);
+
+    const after = await db.select().from(evalCaseResultSchema);
+
+    expect(after.map(row => row.id).sort()).toEqual(before.map(row => row.id).sort());
   });
 
   it('keeps one grader\'s scores when another one fails', async () => {

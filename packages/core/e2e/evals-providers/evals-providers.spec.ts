@@ -184,10 +184,15 @@ test.describe('the eval section, with more than one grader', () => {
     await page.goto(`/dashboard/adoption/agents/${fixtures.agentSlug}`);
 
     await expect(shownText(page, 'Agreement', { exact: true })).toBeVisible();
-    await expect(shownText(page, 'Eval pass rate')).toBeVisible();
+
+    // Scoped to its own card: another stat on this row could legitimately read
+    // 70% too, and then a page-wide text match would be measuring the wrong
+    // number, or failing on strict mode for the wrong reason.
+    const evalCard = page.locator('div').filter({ hasText: /^70%Eval pass rate/ }).first();
+
+    await expect(evalCard).toBeVisible();
     // The newest finished run for this agent from its first grader by name,
     // which is AgentCore's 70% rather than Vocion's 90% on the same dataset.
-    await expect(shownText(page, '70%', { exact: true })).toBeVisible();
-    await expect(shownText(page, 'e2e-two-graders', { exact: false }).first()).toBeVisible();
+    await expect(evalCard).toContainText('e2e-two-graders');
   });
 });
