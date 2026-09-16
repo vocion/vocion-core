@@ -1283,11 +1283,11 @@ async function recordActionDecisionLearning(opts: {
 }): Promise<void> {
   const note = opts.text?.trim();
   const polarity = SIGNAL_POLARITY[opts.signal];
-  if (opts.learn === false || !note || !polarity) {
+  if (opts.learn === false) {
     return;
   }
   const [run] = await db
-    .select({ invokedBy: actionRunSchema.invokedBy })
+    .select({ invokedBy: actionRunSchema.invokedBy, actionId: actionRunSchema.actionId, proposal: actionRunSchema.proposal })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
     .limit(1);
@@ -1295,6 +1295,32 @@ async function recordActionDecisionLearning(opts: {
     return; // only agent proposals train agents
   }
   const agentSlug = run.invokedBy.slice('agent:'.length);
+
+  // Every judged decision leaves an EPISODE — raw, TTL'd material the
+  // consolidation job mines (a confident-but-rejected proposal is exactly
+  // where the next learning candidate hides). Unlike the feedback queue
+  // below, episodes need no human text: the decision itself is the outcome.
+  // Fire-and-forget; never read as instructions.
+  void (async () => {
+    const { recordEpisode } = await import('@/services/MemoryService');
+    const confidence = (run.proposal as { confidence?: number } | null)?.confidence;
+    await recordEpisode({
+      orgId: opts.orgId,
+      runKind: 'action_run',
+      runId: opts.runId,
+      agentSlug,
+      text: [
+        `${opts.signal.toUpperCase()}${typeof confidence === 'number' ? ` (confidence ${confidence})` : ''}: ${run.actionId} proposed by ${agentSlug}.`,
+        note ? `Reviewer (${opts.reviewedBy}): ${note}` : `Decided by ${opts.reviewedBy} with no note.`,
+      ].join(' '),
+    });
+  })().catch((error) => {
+    console.error(`[ReviewService] could not record an episode for action run ${opts.runId}`, error);
+  });
+
+  if (!note || !polarity) {
+    return;
+  }
   // Resolved here rather than left to the worker: without a target the
   // recorder falls back to the org's FIRST learning step by id, which in a
   // workspace running more than one domain is somebody else's bucket.

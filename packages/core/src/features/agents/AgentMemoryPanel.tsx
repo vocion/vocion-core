@@ -77,6 +77,14 @@ export function AgentMemoryPanel(props: { stats: AgentMemoryStats }) {
           </svg>
         )}
 
+        {stats.consolidations.length > 0 && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Consolidated:
+            {' '}
+            {stats.consolidations.map(c => `${c.day} (${c.replaced} → 1)`).join(', ')}
+          </p>
+        )}
+
         <div className="mt-3 flex flex-wrap gap-1.5">
           {stats.composition.map(ns => (
             <Link

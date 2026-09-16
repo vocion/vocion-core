@@ -182,6 +182,15 @@ export const ADOPTION_EVENTS = {
     meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
   },
   /**
+   * A person approved a consolidation proposal: one stronger rule replaced
+   * several. `replaced` is how many were retired; `stepName` names the
+   * namespace, so the growing-memory chart can mark "N → 1" on the day.
+   */
+  'learning.consolidated': {
+    agent: true,
+    meta: z.object({ replaced: z.number().int().positive(), stepName: z.string() }),
+  },
+  /**
    * A person answered an ask — a ruling, an approval, a credential, a merge, a
    * recommendation, a gate. Nothing executes on a decision, so the outcome is
    * the status the ask landed in. `kind` says what sort of thing was waiting.

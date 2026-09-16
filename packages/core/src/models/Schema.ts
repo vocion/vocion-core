@@ -2033,6 +2033,12 @@ export const learningCandidateSchema = pgTable(
      * the card's before/after evidence. Null when the agent has no dataset.
      */
     evalRunId: integer('eval_run_id'),
+    /**
+     * Consolidation proposals only: the store keys this rule replaces.
+     * Approving the candidate writes the new rule AND retires these — one
+     * human decision covers the whole compaction.
+     */
+    replacesKeys: jsonb('replaces_keys').$type<string[]>(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

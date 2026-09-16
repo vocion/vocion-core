@@ -285,9 +285,17 @@ export function runLoop(): WorkerStopHandle {
   (async () => {
     // eslint-disable-next-line no-console
     console.log('[feedback-worker] started');
+    // Consolidation rides this loop (an hourly check; the per-org interval
+    // lives in ConsolidationService). Opt-in like the worker itself.
+    let lastConsolidationCheck = 0;
     // eslint-disable-next-line no-unmodified-loop-condition -- `stopped` flips via the closure from stop() below
     while (!stopped) {
       try {
+        if ((process.env.ENABLE_CONSOLIDATION ?? '0') === '1' && Date.now() - lastConsolidationCheck > 3_600_000) {
+          lastConsolidationCheck = Date.now();
+          const { consolidationTick } = await import('@/services/ConsolidationService');
+          await consolidationTick();
+        }
         const processed = await runOnce();
         if (!processed) {
           await sleep(POLL_INTERVAL_MS, () => stopped);

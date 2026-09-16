@@ -251,6 +251,21 @@ export async function runDataset(opts: RunDatasetOptions): Promise<{ runId: numb
     .where(eq(evalRunSchema.id, run.id))
     .returning();
 
+  // Eval outcomes are episodes too — raw, TTL'd material the consolidation
+  // job mines. Fire-and-forget; a failed episode must never fail the run.
+  void (async () => {
+    const { recordEpisode } = await import('@/services/MemoryService');
+    await recordEpisode({
+      orgId: opts.orgId,
+      runKind: 'eval_run',
+      runId: run.id,
+      agentSlug: dataset.agentSlug,
+      text: `Eval "${dataset.slug}" on ${dataset.agentSlug}: ${passed} passed, ${failed} failed (pass rate ${metrics.passRate ?? 'n/a'}).`,
+    });
+  })().catch((error) => {
+    console.error(`[EvalService] could not record an episode for eval run ${run.id}`, error);
+  });
+
   return { runId: run.id, metrics: updated?.metrics ?? metrics };
 }
 

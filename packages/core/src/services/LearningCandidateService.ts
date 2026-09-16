@@ -277,6 +277,26 @@ export async function decideCandidate(opts: {
   if (candidate.scopeKind && candidate.scopeKind !== 'workspace' && candidate.scopeRef) {
     targetStep = (await ensureScopedNamespace(opts.orgId, candidate.scopeKind, candidate.scopeRef)).name;
   }
+
+  // A consolidation proposal replaces the rules it merged. The retire happens
+  // FIRST (the merged text near-duplicates its own sources by construction),
+  // but only after checking the merge does not collide with some rule it is
+  // NOT replacing — that way a refused merge leaves the store untouched.
+  const replaces = candidate.replacesKeys ?? [];
+  if (replaces.length > 0) {
+    const collision = await checkCandidateText(opts.orgId, targetStep, effectiveRuleText(candidate));
+    if (!collision.ok && !replaces.includes(collision.existingKey)) {
+      return {
+        ok: false,
+        error: 'near_duplicate',
+        existing: { existingKey: collision.existingKey, existingRule: collision.existingRule, similarity: collision.similarity },
+      };
+    }
+    const { removeRule } = await import('@/services/MemoryService');
+    for (const key of replaces) {
+      await removeRule({ orgId: opts.orgId, key });
+    }
+  }
   let added;
   try {
     added = await addRule({
@@ -322,6 +342,19 @@ export async function decideCandidate(opts: {
     .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)))
     .returning();
   await trackCandidateDecision(opts.orgId, opts.id, opts.decidedBy, 'approved', agentSlug);
+  if (replaces.length > 0) {
+    // The compaction mark for the growing-memory chart ("N → 1").
+    void (async () => {
+      const { track } = await import('@/services/adoption/track');
+      await track({ orgId: opts.orgId, userId: opts.decidedBy }, 'learning.consolidated', {
+        agentSlug: agentSlug ?? undefined,
+        resource: ['learning_candidate', opts.id],
+        meta: { replaced: replaces.length, stepName: targetStep },
+      });
+    })().catch((error) => {
+      console.error(`[LearningCandidateService] could not track consolidation for candidate ${opts.id}`, error);
+    });
+  }
   // Adoption evidence: run the affected agent's eval dataset so the card can
   // show a before/after score. Fire-and-forget — a dataset run takes minutes
   // of model time and its failure must never fail a decision a person made.

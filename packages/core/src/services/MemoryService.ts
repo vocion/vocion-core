@@ -686,6 +686,8 @@ export type AgentMemoryStats = {
   composition: Array<{ name: string; title: string; scopeKind: string; count: number }>;
   /** Cumulative adoption series: one point per day an adoption happened. */
   series: Array<{ day: string; cumulative: number }>;
+  /** Consolidation marks: approved compactions of the namespaces this agent reads ("N → 1"). */
+  consolidations: Array<{ day: string; replaced: number }>;
 };
 
 /**
@@ -741,11 +743,120 @@ export async function agentMemoryStats(
       series.push({ day, cumulative });
     }
   }
+  // Consolidation marks: approved compactions of the namespaces this agent
+  // reads, off the adoption stream (learning.consolidated).
+  const names = namespaces.map(ns => ns.name);
+  const consolidations: AgentMemoryStats['consolidations'] = [];
+  if (names.length > 0) {
+    const { userActivityEventSchema } = await import('@/models/Schema');
+    const events = await db
+      .select({ createdAt: userActivityEventSchema.createdAt, metadata: userActivityEventSchema.metadata })
+      .from(userActivityEventSchema)
+      .where(and(
+        eq(userActivityEventSchema.orgId, orgId),
+        eq(userActivityEventSchema.eventType, 'learning.consolidated'),
+      ));
+    for (const event of events) {
+      const meta = (event.metadata ?? {}) as { replaced?: number; stepName?: string };
+      if (meta.stepName && names.includes(meta.stepName) && typeof meta.replaced === 'number') {
+        consolidations.push({ day: event.createdAt.toISOString().slice(0, 10), replaced: meta.replaced });
+      }
+    }
+  }
+
   const quarterAgo = Date.now() - 90 * 86_400_000;
   return {
     activeCount: adoptedAts.length,
     adoptedLast90: adoptedAts.filter(at => at.getTime() >= quarterAgo).length,
     composition,
     series,
+    consolidations,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Episodes — raw material with a TTL, never read as instructions      */
+/* ------------------------------------------------------------------ */
+
+/** Episodes expire; consolidation mines them before they do. */
+const EPISODE_TTL_DAYS = Number(process.env.VOCION_EPISODE_TTL_DAYS ?? 30);
+
+/**
+ * Record one run outcome as an episodic memory under
+ * `/runs/<kind>/<id>/episodes/`. Episodes deliberately have NO manifest row
+ * and are excluded from every layer the assembly mounts — they are raw
+ * material for the consolidation job, never instructions an agent reads
+ * (episodes as live prompt input would be an ungated write path). TTL'd;
+ * expired rows are invisible to all reads and eventually prunable.
+ *
+ * Fire-and-forget at every call site: an episode must never fail the run it
+ * describes.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.runKind - 'action_run' | 'workflow_run' | 'mission_run' | 'eval_run'.
+ * @param opts.runId
+ * @param opts.text - One-paragraph account of what happened and how it was judged.
+ * @param opts.agentSlug - The agent the run belongs to, for mining attribution.
+ */
+export async function recordEpisode(opts: {
+  orgId: string;
+  runKind: string;
+  runId: number | string;
+  text: string;
+  agentSlug?: string | null;
+}): Promise<void> {
+  const text = opts.text.trim();
+  if (!text) {
+    return;
+  }
+  const now = new Date();
+  const key = `/runs/${opts.runKind}/${opts.runId}/episodes/e${now.getTime().toString(36)}.md`;
+  await db
+    .insert(memorySchema)
+    .values({
+      orgId: opts.orgId,
+      namespace: MEMORY_STORE_NAMESPACE,
+      key,
+      value: {
+        content: text,
+        mimeType: 'text/markdown',
+        created_at: now.toISOString(),
+        modified_at: now.toISOString(),
+        meta: {
+          kind: 'episode',
+          type: 'episode',
+          source: `${opts.runKind}:${opts.runId}`,
+          ...(opts.agentSlug ? { agentSlug: opts.agentSlug } : {}),
+        },
+      },
+      expiresAt: new Date(now.getTime() + EPISODE_TTL_DAYS * 86_400_000),
+    })
+    .onConflictDoNothing();
+}
+
+/**
+ * Unexpired episodes newer than `since`, oldest first — what the
+ * consolidation job mines.
+ * @param orgId
+ * @param since
+ * @param limit
+ */
+export async function listEpisodes(orgId: string, since: Date, limit = 200) {
+  const rows = await db
+    .select()
+    .from(memorySchema)
+    .where(and(
+      eq(memorySchema.orgId, orgId),
+      like(memorySchema.key, '/runs/%'),
+      sql`${memorySchema.createdAt} > ${since}`,
+      sql`(${memorySchema.expiresAt} is null or ${memorySchema.expiresAt} > now())`,
+    ))
+    .orderBy(asc(memorySchema.createdAt))
+    .limit(limit);
+  return rows.map(row => ({
+    key: row.key,
+    text: String((row.value as { content?: unknown }).content ?? ''),
+    agentSlug: ((row.value as { meta?: { agentSlug?: string } }).meta?.agentSlug) ?? null,
+    createdAt: row.createdAt,
+  }));
 }
