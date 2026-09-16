@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowUpRight, CalendarClock, Compass, CornerUpLeft, GitBranc
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { createElement } from 'react';
+import { AgentMemoryPanel } from '@/features/agents/AgentMemoryPanel';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { PrimitiveFiles } from '@/features/dashboard/PrimitiveFiles';
@@ -17,6 +18,7 @@ import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { getAgent, listAgents } from '@/services/AgentService';
 import { automationOwnerAgentSlug, listAutomations } from '@/services/AutomationService';
 import { recordRef } from '@/services/chat/recordContext';
+import { agentMemoryStats } from '@/services/MemoryService';
 import { listMissions } from '@/services/MissionService';
 import { listSkillFolders } from '@/services/playbooks/catalog';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
@@ -93,6 +95,9 @@ export default async function AgentDetailPage(props: {
   const ownedWorkflows = (await listWorkflows(orgId)).filter(w => w.ownerAgentSlug === slug);
   const ownedAutomations = (await listAutomations(orgId))
     .filter(x => automationOwnerAgentSlug(x, missionAgentBySlug) === slug);
+
+  // The growing-memory panel: what this agent knows, stepped by adoptions.
+  const memoryStats = await agentMemoryStats(orgId, slug, agent.learningSteps ?? []);
   const hasWork = ownedMissions.length + ownedAutomations.length + ownedWorkflows.length > 0;
 
   const sourceFiles = readPrimitiveFiles('agent', slug);
@@ -275,6 +280,10 @@ export default async function AgentDetailPage(props: {
 
         {/* Main column — what this agent owns, the people it works with, its prompt */}
         <div className="order-1 flex flex-col gap-8 lg:order-2">
+          {/* Memory — what this agent knows (scoped-memory plan, Phase 2's
+              visible surface). Renders nothing until a namespace exists. */}
+          <AgentMemoryPanel stats={memoryStats} />
+
           {/* Work — the missions this agent runs, the schedules that fire them,
               and the workflows it owns. Answers "what does this agent do?". */}
           {hasWork && (

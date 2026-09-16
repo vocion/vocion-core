@@ -708,6 +708,13 @@
       "when": 1787552800000,
       "tag": "0100_memory_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1787552900000,
+      "tag": "0101_candidate_type_scope",
+      "breakpoints": true
     }
   ]
 }

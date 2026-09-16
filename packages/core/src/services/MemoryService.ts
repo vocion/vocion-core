@@ -39,6 +39,8 @@ export type MemoryRuleMeta = {
   adoptedAt: string;
   /** 'correct' | 'reinforce' when the rule came through the feedback loop. */
   polarity?: string;
+  /** 'preference' | 'knowledge' | 'procedure' | 'episode'. Absent = legacy procedure-flavoured rule. */
+  type?: string;
 };
 
 /** The stored value: FileData (StoreBackend-readable) + provenance. */
@@ -279,6 +281,7 @@ function newRuleKey(path: string): string {
  * @param opts.agentSlug - For the adoption stream, when the rule is about one agent.
  * @param opts.occurrenceCount - Carried from the candidate on approval.
  * @param opts.polarity
+ * @param opts.type
  * @param opts.key - Fixed key for idempotent writers (workspace:apply); omitted keys are generated.
  */
 export async function addRule(opts: {
@@ -290,6 +293,8 @@ export async function addRule(opts: {
   agentSlug?: string | null;
   occurrenceCount?: number;
   polarity?: string;
+  /** Memory type: 'preference' | 'knowledge' | 'procedure' | 'episode'. */
+  type?: string;
   key?: string;
 }) {
   const text = opts.ruleText.trim();
@@ -323,6 +328,7 @@ export async function addRule(opts: {
       occurrenceCount: opts.occurrenceCount ?? 1,
       adoptedAt: now.toISOString(),
       ...(opts.polarity ? { polarity: opts.polarity } : {}),
+      ...(opts.type ? { type: opts.type } : {}),
     },
   };
   const [row] = await db
@@ -407,42 +413,198 @@ export async function bumpOccurrence(orgId: string, key: string): Promise<void> 
 }
 
 /* ------------------------------------------------------------------ */
+/* Scoped namespaces — created on first use, one per (kind, ref)       */
+/* ------------------------------------------------------------------ */
+
+/** The conventional bucket name per scope kind (the plan's memory structure). */
+const SCOPE_BUCKET: Record<string, string> = {
+  agent: 'procedures',
+  user: 'preferences',
+  object: 'knowledge',
+  workflow: 'learnings',
+  mission: 'context',
+  run: 'episodes',
+};
+
+/**
+ * Find or create the namespace for a scoped memory — `agents/<slug>/procedures`,
+ * `users/<id>/preferences`, `workspace/objects/<type/id>/knowledge`, and so on.
+ * Auto-created rows carry a derived unique `name` (the path with slashes
+ * flattened) since `name` is unique per org and every agent's bucket is
+ * called "procedures".
+ * @param orgId
+ * @param scopeKind - 'agent' | 'user' | 'object' | 'workflow' | 'mission' | 'run'.
+ * @param scopeRef - The scoped entity (slug, user id, `type/id`).
+ */
+export async function ensureScopedNamespace(orgId: string, scopeKind: string, scopeRef: string) {
+  const bucket = SCOPE_BUCKET[scopeKind];
+  if (!bucket) {
+    throw new Error(`unknown memory scope kind ${JSON.stringify(scopeKind)}`);
+  }
+  const path = namespacePath({ scopeKind, scopeRef, name: bucket });
+  const [existing] = await db
+    .select()
+    .from(memoryNamespaceSchema)
+    .where(and(eq(memoryNamespaceSchema.orgId, orgId), eq(memoryNamespaceSchema.path, path)));
+  if (existing) {
+    return existing;
+  }
+  const [row] = await db
+    .insert(memoryNamespaceSchema)
+    .values({
+      orgId,
+      name: path.replace(/\//g, '-'),
+      scopeKind,
+      scopeRef,
+      path,
+      title: `${bucket[0]!.toUpperCase()}${bucket.slice(1)} · ${scopeRef}`,
+      description: `${scopeKind}-scoped ${bucket} for ${scopeRef}`,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (row) {
+    return row;
+  }
+  // Lost a create race — the winner's row is the answer.
+  const [raced] = await db
+    .select()
+    .from(memoryNamespaceSchema)
+    .where(and(eq(memoryNamespaceSchema.orgId, orgId), eq(memoryNamespaceSchema.path, path)));
+  return raced!;
+}
+
+/* ------------------------------------------------------------------ */
 /* Runtime assembly — what an agent's turn mounts                      */
 /* ------------------------------------------------------------------ */
 
 /**
- * The memory files for one agent turn: every entry under the given
- * namespaces, exactly as stored (content was rendered at write time), plus a
- * `_preamble.md` per namespace that has one. Also stamps `last_used_at` on
- * the mounted entries, fire-and-forget, via raw SQL so the staleness signal
- * never churns `updated_at`.
- *
- * Unknown names are skipped silently — the agent's `learningSteps` list is
- * the authoring contract; missing namespaces mean workspace:apply has not
- * seeded them yet.
- * @param orgId
- * @param namespaceNames - The agent's mounted namespace names.
+ * Character budget for a turn's mounted memory. Rules are short; a workspace
+ * past this is a consolidation problem (Phase 4), not a bigger-prompt
+ * problem. Matches the digest middleware's own cap.
  */
-export async function assembleMemoryFiles(
+const MEMORY_BUDGET_CHARS = 24_000;
+
+/** Who this turn is for — resolves which memory layers apply. */
+export type MemoryAssemblyContext = {
+  agentSlug?: string;
+  /** Workspace-scoped namespace names the agent mounts (agent.learningSteps). */
+  workspaceSteps?: string[];
+  userId?: string;
+  missionSlug?: string;
+  workflowSlug?: string;
+};
+
+/**
+ * The memory files for one agent turn — the layer stack of the scoped-memory
+ * plan, resolved with precedence:
+ *
+ *   workspace policies → agent procedures → workflow learnings →
+ *   mission context → user preferences
+ *
+ * (Business-object knowledge deliberately does NOT mount here: "objects in
+ * play" are only known once the agent looks one up, so object knowledge rides
+ * the `lookup_objects` tool result instead.)
+ *
+ * Entries mount exactly as stored (content rendered at write time), plus a
+ * `_preamble.md` per namespace that has one. Over budget, entries are kept by
+ * layer precedence, then occurrence count, then recency — a memory nobody
+ * repeated ages out of the prompt first. `last_used_at` is stamped on the
+ * mounted entries fire-and-forget via raw SQL so the staleness signal never
+ * churns `updated_at`.
+ *
+ * Unknown workspace names are skipped silently — the agent's `learningSteps`
+ * list is the authoring contract; missing namespaces mean workspace:apply has
+ * not seeded them yet.
+ * @param orgId
+ * @param ctx - The turn's identities; each present one adds its layer.
+ */
+export async function assembleAgentMemory(
   orgId: string,
-  namespaceNames: string[],
+  ctx: MemoryAssemblyContext,
 ): Promise<Record<string, string>> {
-  const out: Record<string, string> = {};
-  const mountedKeys: string[] = [];
-  for (const name of namespaceNames) {
+  // Layer resolution, in precedence order.
+  const layers: Array<typeof memoryNamespaceSchema.$inferSelect> = [];
+  for (const name of ctx.workspaceSteps ?? []) {
     const ns = await findNamespace(orgId, name);
-    if (!ns) {
+    if (ns) {
+      layers.push(ns);
+    }
+  }
+  const scoped: Array<[string, string | undefined]> = [
+    ['agent', ctx.agentSlug],
+    ['workflow', ctx.workflowSlug],
+    ['mission', ctx.missionSlug],
+    ['user', ctx.userId],
+  ];
+  for (const [kind, ref] of scoped) {
+    if (!ref) {
       continue;
     }
+    const [ns] = await db
+      .select()
+      .from(memoryNamespaceSchema)
+      .where(and(
+        eq(memoryNamespaceSchema.orgId, orgId),
+        eq(memoryNamespaceSchema.scopeKind, kind),
+        eq(memoryNamespaceSchema.scopeRef, ref),
+      ));
+    if (ns) {
+      layers.push(ns);
+    }
+  }
+
+  type Entry = { path: string; content: string; key?: string; layer: number; occurrenceCount: number; createdAt: Date };
+  const entries: Entry[] = [];
+  for (const [layer, ns] of layers.entries()) {
     if (ns.preamble?.trim()) {
-      out[mountPathFor(`${namespaceFilePrefix(ns.path)}_preamble.md`)] = `# ${ns.title}\n\n${ns.preamble.trim()}`;
+      entries.push({
+        path: mountPathFor(`${namespaceFilePrefix(ns.path)}_preamble.md`),
+        content: `# ${ns.title}\n\n${ns.preamble.trim()}`,
+        layer,
+        occurrenceCount: Number.MAX_SAFE_INTEGER, // a preamble never ages out before its rules
+        createdAt: ns.createdAt,
+      });
     }
     for (const row of await rulesUnder(orgId, ns.path)) {
       const value = row.value as Partial<MemoryRuleValue>;
+      const meta = (value.meta ?? {}) as Partial<MemoryRuleMeta>;
       if (typeof value.content === 'string' && value.content.trim()) {
-        out[mountPathFor(row.key)] = value.content;
-        mountedKeys.push(row.key);
+        entries.push({
+          path: mountPathFor(row.key),
+          content: value.content,
+          key: row.key,
+          layer,
+          occurrenceCount: meta.occurrenceCount ?? 1,
+          createdAt: row.createdAt,
+        });
       }
+    }
+  }
+
+  const total = entries.reduce((n, e) => n + e.content.length, 0);
+  let kept = entries;
+  if (total > MEMORY_BUDGET_CHARS) {
+    const ranked = [...entries].sort((a, b) =>
+      a.layer - b.layer
+      || b.occurrenceCount - a.occurrenceCount
+      || b.createdAt.getTime() - a.createdAt.getTime());
+    kept = [];
+    let used = 0;
+    for (const entry of ranked) {
+      if (used + entry.content.length > MEMORY_BUDGET_CHARS) {
+        continue;
+      }
+      used += entry.content.length;
+      kept.push(entry);
+    }
+  }
+
+  const out: Record<string, string> = {};
+  const mountedKeys: string[] = [];
+  for (const entry of kept) {
+    out[entry.path] = entry.content;
+    if (entry.key) {
+      mountedKeys.push(entry.key);
     }
   }
   if (mountedKeys.length > 0) {
@@ -454,4 +616,127 @@ export async function assembleMemoryFiles(
     });
   }
   return out;
+}
+
+/**
+ * Workspace-steps-only view of the assembly — what Phase 1 callers used.
+ * @param orgId
+ * @param namespaceNames - Workspace-scoped namespace names.
+ */
+export async function assembleMemoryFiles(
+  orgId: string,
+  namespaceNames: string[],
+): Promise<Record<string, string>> {
+  return assembleAgentMemory(orgId, { workspaceSteps: namespaceNames });
+}
+
+/**
+ * Approved knowledge for specific business objects — the "entities in play"
+ * layer, consumed by the lookup_objects tool so a client fact reaches the
+ * model only on turns that actually touch that client.
+ * @param orgId
+ * @param refs - Object scope refs (`<type slug>/<object id>`).
+ */
+export async function objectKnowledge(
+  orgId: string,
+  refs: string[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (const ref of refs) {
+    const [ns] = await db
+      .select()
+      .from(memoryNamespaceSchema)
+      .where(and(
+        eq(memoryNamespaceSchema.orgId, orgId),
+        eq(memoryNamespaceSchema.scopeKind, 'object'),
+        eq(memoryNamespaceSchema.scopeRef, ref),
+      ));
+    if (!ns) {
+      continue;
+    }
+    const texts = (await rulesUnder(orgId, ns.path))
+      .map(row => (row.value as Partial<MemoryRuleValue>).content)
+      .filter((c): c is string => typeof c === 'string' && c.trim().length > 0);
+    if (texts.length > 0) {
+      out.set(ref, texts);
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Visible intelligence — the agent page's growing-memory panel        */
+/* ------------------------------------------------------------------ */
+
+export type AgentMemoryStats = {
+  /** Entries currently mounted for this agent (workspace steps + its own scoped buckets). */
+  activeCount: number;
+  /** Entries adopted in the last 90 days. */
+  adoptedLast90: number;
+  /** Composition: one badge per namespace the agent reads. */
+  composition: Array<{ name: string; title: string; scopeKind: string; count: number }>;
+  /** Cumulative adoption series: one point per day an adoption happened. */
+  series: Array<{ day: string; cumulative: number }>;
+};
+
+/**
+ * What this agent knows, for the agent page's growing-memory panel:
+ * cumulative count stepped up by each adoption (consolidation steps it down,
+ * Phase 4), composition by namespace. Counts what the agent READS; the
+ * adoption page shows what reviewers decided.
+ * @param orgId
+ * @param agentSlug
+ * @param workspaceSteps - The agent's mounted workspace namespace names.
+ */
+export async function agentMemoryStats(
+  orgId: string,
+  agentSlug: string,
+  workspaceSteps: string[],
+): Promise<AgentMemoryStats> {
+  const namespaces: Array<typeof memoryNamespaceSchema.$inferSelect> = [];
+  for (const name of workspaceSteps) {
+    const ns = await findNamespace(orgId, name);
+    if (ns) {
+      namespaces.push(ns);
+    }
+  }
+  const scopedRows = await db
+    .select()
+    .from(memoryNamespaceSchema)
+    .where(and(
+      eq(memoryNamespaceSchema.orgId, orgId),
+      eq(memoryNamespaceSchema.scopeKind, 'agent'),
+      eq(memoryNamespaceSchema.scopeRef, agentSlug),
+    ));
+  namespaces.push(...scopedRows);
+
+  const composition: AgentMemoryStats['composition'] = [];
+  const adoptedAts: Date[] = [];
+  for (const ns of namespaces) {
+    const rules = await rulesUnder(orgId, ns.path);
+    composition.push({ name: ns.name, title: ns.title, scopeKind: ns.scopeKind, count: rules.length });
+    for (const row of rules) {
+      adoptedAts.push(row.createdAt);
+    }
+  }
+  adoptedAts.sort((a, b) => a.getTime() - b.getTime());
+  const series: AgentMemoryStats['series'] = [];
+  let cumulative = 0;
+  for (const at of adoptedAts) {
+    cumulative++;
+    const day = at.toISOString().slice(0, 10);
+    const last = series[series.length - 1];
+    if (last && last.day === day) {
+      last.cumulative = cumulative;
+    } else {
+      series.push({ day, cumulative });
+    }
+  }
+  const quarterAgo = Date.now() - 90 * 86_400_000;
+  return {
+    activeCount: adoptedAts.length,
+    adoptedLast90: adoptedAts.filter(at => at.getTime() >= quarterAgo).length,
+    composition,
+    series,
+  };
 }

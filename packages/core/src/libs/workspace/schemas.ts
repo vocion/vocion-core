@@ -656,11 +656,21 @@ export const LearningStepManifestSchema = z.object({
   agents: z.array(z.string()).default([]),
   /**
    * SEED rules shipped with the workspace. Applied once each (keyed on
-   * `workspace:<id>` in `learning.source`); later edits to a seeded rule's
-   * text are applied as updates. Rules people add at runtime live only in
-   * the DB and are never touched by apply.
+   * `workspace:<id>` in the store entry's meta.source); later edits to a
+   * seeded rule's text are applied as updates. Rules people add at runtime
+   * live only in the DB and are never touched by apply.
    */
   rules: z.array(z.object({ id: SlugSchema, text: z.string().min(1) })).default([]),
+  /**
+   * Scope this namespace narrower than the workspace: `kind: agent` +
+   * `ref: revenue-lead` makes it that agent's own bucket
+   * (agents/revenue-lead/<name>), mounted for that agent alone. Omitted =
+   * workspace scope, mounted by the agents that name this step.
+   */
+  scope: z.object({
+    kind: z.enum(['agent', 'user', 'object', 'workflow', 'mission']),
+    ref: z.string().min(1),
+  }).optional(),
 });
 export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 

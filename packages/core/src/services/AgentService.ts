@@ -340,7 +340,7 @@ export async function runAgentDeep(opts: {
 
   emit({ type: 'thinking' });
 
-  const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug);
+  const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
 
   // Silent signal for the adoption surfaces; the chat consumer's event switch
   // has no case for it, so the transcript is untouched.

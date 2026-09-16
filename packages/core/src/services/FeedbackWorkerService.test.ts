@@ -205,3 +205,48 @@ describe('runOnce', () => {
     expect(candidate!.stepName).toBe('crm-updates');
   });
 });
+
+describe('runOnce — typed, scoped candidates (Phase 2)', () => {
+  it('resolves the classifier scope kind against the feedback own refs', async () => {
+    await db.insert(memoryNamespaceSchema).values(
+      { orgId: ORG, name: 'global', path: 'workspace/global', title: 'Global', description: 'Workspace rules' },
+    );
+    classifyComment.mockResolvedValue({
+      bucket: 'rule',
+      rule_text: 'Keep replies under three sentences for me.',
+      memory_type: 'preference',
+      scope: 'user',
+    });
+    await enqueue({
+      orgId: ORG,
+      source: 'chat',
+      externalId: 'pref-1',
+      payload: { text: 'shorter please, always', submittedBy: 'user_jamie' },
+    });
+
+    await runOnce();
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate).toMatchObject({ memoryType: 'preference', scopeKind: 'user', scopeRef: 'user_jamie' });
+  });
+
+  it('falls back to workspace scope when the kind has no ref to attach to', async () => {
+    await db.insert(memoryNamespaceSchema).values(
+      { orgId: ORG, name: 'global', path: 'workspace/global', title: 'Global', description: 'Workspace rules' },
+    );
+    classifyComment.mockResolvedValue({
+      bucket: 'rule',
+      rule_text: 'Always cite the source line.',
+      memory_type: 'procedure',
+      scope: 'agent',
+    });
+    await enqueue({ orgId: ORG, source: 'api', externalId: 'no-ref', payload: { text: 'cite sources' } });
+
+    await runOnce();
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate).toMatchObject({ memoryType: 'procedure', scopeKind: null, scopeRef: null });
+  });
+});

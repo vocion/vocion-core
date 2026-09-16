@@ -39,8 +39,11 @@ async function makeStep(): Promise<number> {
  * @param opts
  * @param opts.occurrenceCount
  * @param opts.agentSlug
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  */
-async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: string | null } = {}): Promise<number> {
+async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: string | null; memoryType?: string; scopeKind?: string; scopeRef?: string } = {}): Promise<number> {
   const [candidate] = await db
     .insert(learningCandidateSchema)
     .values({
@@ -49,6 +52,9 @@ async function makeCandidate(opts: { occurrenceCount?: number; agentSlug?: strin
       ruleText: 'always cite the source line for every number',
       polarity: 'correct',
       occurrenceCount: opts.occurrenceCount ?? 1,
+      memoryType: opts.memoryType ?? null,
+      scopeKind: opts.scopeKind ?? null,
+      scopeRef: opts.scopeRef ?? null,
     })
     .returning({ id: learningCandidateSchema.id });
 
@@ -141,5 +147,37 @@ describe('decideCandidate', () => {
 
     expect(result).toEqual({ ok: false, error: 'already_decided' });
     expect(trackMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('decideCandidate — typed, scoped adoption (Phase 2)', () => {
+  it('lands a user-scoped preference in that user own namespace with its type', async () => {
+    await makeStep();
+    const candidateId = await makeCandidate({ memoryType: 'preference', scopeKind: 'user', scopeRef: 'user_jamie' });
+
+    const result = await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+
+    expect(result.ok).toBe(true);
+
+    const [rule] = await db.select().from(memorySchema);
+
+    expect(rule!.key.startsWith('/users/user_jamie/preferences/')).toBe(true);
+    expect((rule!.value as { meta?: { type?: string } }).meta?.type).toBe('preference');
+
+    const namespaces = await db.select().from(memoryNamespaceSchema);
+    const created = namespaces.find(ns => ns.scopeKind === 'user');
+
+    expect(created).toMatchObject({ scopeRef: 'user_jamie', path: 'users/user_jamie/preferences' });
+  });
+
+  it('still lands an unscoped candidate in its workspace step', async () => {
+    await makeStep();
+    const candidateId = await makeCandidate({ memoryType: 'procedure' });
+
+    await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+
+    const [rule] = await db.select().from(memorySchema);
+
+    expect(rule!.key.startsWith(`/workspace/${STEP}/`)).toBe(true);
   });
 });

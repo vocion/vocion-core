@@ -103,7 +103,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     conversationId: opts.conversationId,
   });
 
-  const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
+  const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
   const hc = row.harnessConfig ?? {};
 
   // Silent signal for the adoption surfaces (same as the in-process loop):

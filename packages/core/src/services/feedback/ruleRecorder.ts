@@ -110,6 +110,9 @@ async function loadExistingRules(orgId: string, stepName: string): Promise<Exist
  * @param opts.ruleText - The rule the classifier proposed.
  * @param opts.polarity - Whether the agent should change or keep its behaviour.
  * @param opts.stepName - Learning step to attach to; falls back to the org's first.
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  * @param opts.note - What the person actually wrote, kept as evidence.
  * @param opts.agentSlug - The agent whose output drew the feedback.
  * @param opts.sourceFeedbackJobId - The queued job this came from, when there was one.
@@ -121,6 +124,11 @@ export async function recordProposedRule(opts: {
   ruleText: string;
   polarity: FeedbackPolarity;
   stepName?: string;
+  /** 'preference' | 'knowledge' | 'procedure' — the classifier's proposal, editable on the card. */
+  memoryType?: string;
+  /** Scope the rule lands at on approval; unset means the workspace step named above. */
+  scopeKind?: 'agent' | 'user' | 'object';
+  scopeRef?: string;
   note?: string | null;
   agentSlug?: string | null;
   sourceFeedbackJobId?: number | null;
@@ -166,6 +174,9 @@ export async function recordProposedRule(opts: {
     stepName,
     ruleText,
     polarity: opts.polarity,
+    memoryType: opts.memoryType,
+    scopeKind: opts.scopeKind,
+    scopeRef: opts.scopeRef,
     sourceFeedbackJobId: opts.sourceFeedbackJobId ?? null,
     sourceRunId: opts.sourceRunId ?? null,
   });

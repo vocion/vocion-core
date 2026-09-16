@@ -2006,6 +2006,20 @@ export const learningCandidateSchema = pgTable(
      * `learningFeedbackOccurrenceSchema` for the individual submissions.
      */
     occurrenceCount: integer('occurrence_count').default(1).notNull(),
+    /**
+     * What kind of memory this rule is: 'preference' | 'knowledge' |
+     * 'procedure'. Proposed by the classifier, editable on the card; null is
+     * the pre-Phase-2 default (a procedure-flavoured workspace rule).
+     */
+    memoryType: text('memory_type'),
+    /**
+     * Where the rule lands on approval: null/'workspace' → the namespace
+     * named by stepName; 'agent'/'user'/'object' + scopeRef → the matching
+     * scoped namespace, created on first use. Storing rule: the broadest
+     * scope where the rule is consistently true, and no broader.
+     */
+    scopeKind: text('scope_kind'),
+    scopeRef: text('scope_ref'),
     /** 'pending' | 'approved' | 'rejected'. */
     status: text('status').default('pending').notNull(),
     /** Required when rejecting — a rejection with no reason teaches nobody anything. */

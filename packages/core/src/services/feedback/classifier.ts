@@ -32,6 +32,18 @@ const ClassificationZ = z.object({
    * falls back exactly as before this field existed (the org's first step).
    */
   target_step: z.string().optional(),
+  /**
+   * What KIND of memory the rule is. Preferences are one person's taste,
+   * knowledge is a fact about the business, procedures are how the agent
+   * should work. Episodes never come through feedback classification.
+   */
+  memory_type: z.enum(['preference', 'knowledge', 'procedure']).optional(),
+  /**
+   * The broadest scope where the rule is consistently true, and no broader.
+   * The classifier only picks the KIND — the worker resolves the ref from the
+   * feedback's own context (the agent reacted to, the person who wrote it).
+   */
+  scope: z.enum(['workspace', 'agent', 'user']).optional(),
 });
 
 export type Classification = z.infer<typeof ClassificationZ>;
@@ -52,10 +64,14 @@ For every rule you propose, set polarity:
 
 When the comment quotes specific target text, lean toward edit/both. When it uses general language ("always", "prefer", "never", "going forward", "keep"), lean toward rule.
 
-Return STRICT JSON:
-{"bucket": "edit|rule|both|ignore", "edit_summary": "...", "rule_text": "...", "polarity": "correct|reinforce", "target_step": "..."}
+For every rule you propose, also set:
+  - memory_type: "preference" (one person's taste — tone, length, format they personally want), "knowledge" (a fact about the business, a client, or a system), or "procedure" (how the work should be done, for everyone).
+  - scope: the BROADEST scope where the rule is consistently true, and no broader. "workspace" — true for every agent and every person (most rules). "agent" — about how ONE agent behaves, wrong to apply to others. "user" — one person's personal preference that teammates may not share.
 
-edit_summary, rule_text, polarity and target_step are optional — include only when the bucket calls for them. Write rule_text as a standalone instruction that makes sense without the original comment.`;
+Return STRICT JSON:
+{"bucket": "edit|rule|both|ignore", "edit_summary": "...", "rule_text": "...", "polarity": "correct|reinforce", "target_step": "...", "memory_type": "preference|knowledge|procedure", "scope": "workspace|agent|user"}
+
+edit_summary, rule_text, polarity, target_step, memory_type and scope are optional — include only when the bucket calls for them. Write rule_text as a standalone instruction that makes sense without the original comment.`;
 
 /**
  * The step-choice suffix, appended only when the caller supplied a whitelist.

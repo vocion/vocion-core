@@ -17,7 +17,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { learningCandidateSchema, learningFeedbackOccurrenceSchema } from '@/models/Schema';
-import { addRule, checkDedup } from '@/services/MemoryService';
+import { addRule, checkDedup, ensureScopedNamespace } from '@/services/MemoryService';
 
 export type LearningCandidate = typeof learningCandidateSchema.$inferSelect;
 
@@ -107,6 +107,9 @@ export async function getCandidate(orgId: string, id: number): Promise<LearningC
  * @param opts.stepName
  * @param opts.ruleText
  * @param opts.polarity
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  * @param opts.sourceFeedbackJobId
  * @param opts.sourceRunId
  */
@@ -120,6 +123,11 @@ export async function createCandidate(opts: {
    * is what feedback without an explicit polarity has always been.
    */
   polarity?: 'correct' | 'reinforce';
+  /** 'preference' | 'knowledge' | 'procedure'; null = pre-Phase-2 default. */
+  memoryType?: string | null;
+  /** Where the rule lands on approval; null = the workspace step above. */
+  scopeKind?: string | null;
+  scopeRef?: string | null;
   sourceFeedbackJobId?: number | null;
   sourceRunId?: number | null;
 }): Promise<LearningCandidate> {
@@ -134,6 +142,9 @@ export async function createCandidate(opts: {
       stepName: opts.stepName,
       ruleText,
       polarity: opts.polarity ?? 'correct',
+      memoryType: opts.memoryType ?? null,
+      scopeKind: opts.scopeKind ?? null,
+      scopeRef: opts.scopeRef ?? null,
       sourceFeedbackJobId: opts.sourceFeedbackJobId ?? null,
       sourceRunId: opts.sourceRunId ?? null,
       status: 'pending',
@@ -154,12 +165,18 @@ export type UpdateCandidateResult
  * @param opts.id
  * @param opts.editedRuleText
  * @param opts.stepName
+ * @param opts.memoryType
+ * @param opts.scopeKind
+ * @param opts.scopeRef
  */
 export async function updateCandidate(opts: {
   orgId: string;
   id: number;
   editedRuleText?: string;
   stepName?: string;
+  memoryType?: string | null;
+  scopeKind?: string | null;
+  scopeRef?: string | null;
 }): Promise<UpdateCandidateResult> {
   const existing = await getCandidate(opts.orgId, opts.id);
   if (!existing) {
@@ -179,6 +196,15 @@ export async function updateCandidate(opts: {
   }
   if (opts.stepName !== undefined) {
     patch.stepName = opts.stepName;
+  }
+  if (opts.memoryType !== undefined) {
+    patch.memoryType = opts.memoryType;
+  }
+  if (opts.scopeKind !== undefined) {
+    patch.scopeKind = opts.scopeKind;
+    // A scope change re-points the ref too; a kind with no ref means the
+    // caller cleared it back to workspace.
+    patch.scopeRef = opts.scopeRef ?? null;
   }
   if (Object.keys(patch).length === 0) {
     return { ok: true, candidate: existing };
@@ -245,17 +271,24 @@ export async function decideCandidate(opts: {
   }
 
   const agentSlug = await resolveCandidateAgentSlug(opts.orgId, opts.id);
+  // A scoped candidate lands in its scope's own namespace (created on first
+  // use); everything else lands in the workspace step it names, as always.
+  let targetStep = candidate.stepName;
+  if (candidate.scopeKind && candidate.scopeKind !== 'workspace' && candidate.scopeRef) {
+    targetStep = (await ensureScopedNamespace(opts.orgId, candidate.scopeKind, candidate.scopeRef)).name;
+  }
   let added;
   try {
     added = await addRule({
       orgId: opts.orgId,
-      stepName: candidate.stepName,
+      stepName: targetStep,
       ruleText: effectiveRuleText(candidate),
       source: candidate.sourceFeedbackJobId ? `feedback:${candidate.sourceFeedbackJobId}` : 'learning-candidate',
       createdBy: opts.decidedBy,
       agentSlug,
       occurrenceCount: candidate.occurrenceCount,
       polarity: candidate.polarity,
+      type: candidate.memoryType ?? undefined,
     });
   } catch (error) {
     // addRule throws only for an unknown namespace; anything else is a real fault.

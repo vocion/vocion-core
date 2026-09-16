@@ -17,6 +17,15 @@ export type PendingCandidate = {
   /** How many separate pieces of feedback asked for this same rule. */
   occurrenceCount: number;
   createdAt: string;
+  /** 'preference' | 'knowledge' | 'procedure'; null = pre-Phase-2 default (procedure). */
+  memoryType: string | null;
+  /** Where the rule lands on approval; null = the workspace step above. */
+  scopeKind: string | null;
+  scopeRef: string | null;
+  /** The agent whose output drew the feedback (from the occurrence evidence). */
+  agentRef: string | null;
+  /** The person who gave the feedback. */
+  userRef: string | null;
 };
 
 type Props = {
@@ -46,12 +55,24 @@ type Props = {
  * @param root0.pageSize
  * @param root0.steps
  */
+/**
+ * Encode a candidate's current scope for the select control.
+ * @param candidate
+ */
+function encodeScope(candidate: PendingCandidate): string {
+  return candidate.scopeKind && candidate.scopeKind !== 'workspace' && candidate.scopeRef
+    ? `${candidate.scopeKind}:${candidate.scopeRef}`
+    : 'workspace';
+}
+
 export function PendingCandidates({ candidates, total, pageSize, steps }: Props) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [stepOverrides, setStepOverrides] = useState<Record<number, string>>({});
+  const [scopeOverrides, setScopeOverrides] = useState<Record<number, string>>({});
+  const [typeOverrides, setTypeOverrides] = useState<Record<number, string>>({});
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [reason, setReason] = useState('');
   const [extraRows, setExtraRows] = useState<PendingCandidate[]>([]);
@@ -151,6 +172,62 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
   }
 
   /**
+   * Re-scope a candidate: 'workspace' (land in the step select's bucket), or
+   * 'agent:<slug>' / 'user:<id>' (land in that scope's own namespace).
+   * Persisted immediately, like the step re-bucket.
+   * @param candidate
+   * @param scoped - Encoded option value.
+   */
+  async function rescope(candidate: PendingCandidate, scoped: string): Promise<void> {
+    const previous = scopeOverrides[candidate.id] ?? encodeScope(candidate);
+    setScopeOverrides(s => ({ ...s, [candidate.id]: scoped }));
+    setError(null);
+    const [kind, ...refParts] = scoped.split(':');
+    const body = kind === 'workspace'
+      ? { scopeKind: null }
+      : { scopeKind: kind, scopeRef: refParts.join(':') };
+    try {
+      const res = await fetch(`/api/v1/learning-candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        throw new Error(await messageFor(res));
+      }
+    } catch (err) {
+      console.error('[PendingCandidates] could not re-scope candidate', err);
+      setScopeOverrides(s => ({ ...s, [candidate.id]: previous }));
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * Change the memory type (preference / knowledge / procedure).
+   * @param candidate
+   * @param memoryType
+   */
+  async function retype(candidate: PendingCandidate, memoryType: string): Promise<void> {
+    const previous = typeOverrides[candidate.id] ?? candidate.memoryType ?? 'procedure';
+    setTypeOverrides(t => ({ ...t, [candidate.id]: memoryType }));
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/learning-candidates/${candidate.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memoryType }),
+      });
+      if (!res.ok) {
+        throw new Error(await messageFor(res));
+      }
+    } catch (err) {
+      console.error('[PendingCandidates] could not re-type candidate', err);
+      setTypeOverrides(t => ({ ...t, [candidate.id]: previous }));
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
    * Fetch the next page from the same endpoint an external panel would call,
    * and append it. Keeps the whole queue reachable instead of stopping at the
    * server-rendered first page.
@@ -228,6 +305,36 @@ export function PendingCandidates({ candidates, total, pageSize, steps }: Props)
                 >
                   {candidate.polarity === 'reinforce' ? 'keep doing' : 'change'}
                 </span>
+                <span aria-hidden>·</span>
+                <select
+                  value={typeOverrides[candidate.id] ?? candidate.memoryType ?? 'procedure'}
+                  onChange={e => retype(candidate, e.target.value)}
+                  disabled={busy}
+                  aria-label="Memory type"
+                  title="What kind of memory this is: a personal preference, a business fact, or a way of working"
+                  className="rounded-md border border-input bg-background px-1.5 py-0.5 text-xs"
+                >
+                  <option value="procedure">procedure</option>
+                  <option value="knowledge">knowledge</option>
+                  <option value="preference">preference</option>
+                </select>
+                {(candidate.agentRef || candidate.userRef) && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <select
+                      value={scopeOverrides[candidate.id] ?? encodeScope(candidate)}
+                      onChange={e => rescope(candidate, e.target.value)}
+                      disabled={busy}
+                      aria-label="Scope this rule lands at"
+                      title="Broadest scope where the rule is consistently true: the whole workspace, one agent, or one person"
+                      className="rounded-md border border-input bg-background px-1.5 py-0.5 text-xs"
+                    >
+                      <option value="workspace">workspace</option>
+                      {candidate.agentRef && <option value={`agent:${candidate.agentRef}`}>{`agent: ${candidate.agentRef}`}</option>}
+                      {candidate.userRef && <option value={`user:${candidate.userRef}`}>{`user: ${candidate.userRef}`}</option>}
+                    </select>
+                  </>
+                )}
                 {candidate.occurrenceCount > 1 && (
                   <>
                     <span aria-hidden>·</span>

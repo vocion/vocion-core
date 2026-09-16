@@ -38,7 +38,7 @@ import { logger } from '@/libs/Logger';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { agentSchema, playbookSchema } from '@/models/Schema';
-import { assembleMemoryFiles } from '@/services/MemoryService';
+import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
@@ -438,6 +438,7 @@ function toFileData(content: string): MountedFileData {
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
+  memoryCtx: { userId?: string; missionSlug?: string; workflowSlug?: string } = {},
 ): Promise<Record<string, MountedFileData>> {
   const [row] = await db
     .select()
@@ -463,8 +464,14 @@ export async function buildInitialFiles(
   // Pre-rendered store content, one file per rule under /memories/…: the
   // digest middleware reads these out of graph state, and the same paths are
   // readable through the StoreBackend route. Rendering happened at write
-  // time; this is one indexed select per mounted namespace.
-  const memories = await assembleMemoryFiles(orgId, row.learningSteps ?? []);
+  // time; this is one indexed select per mounted namespace. The layer stack
+  // (workspace → agent → workflow → mission → user) resolves from who this
+  // turn is for.
+  const memories = await assembleAgentMemory(orgId, {
+    agentSlug,
+    workspaceSteps: row.learningSteps ?? [],
+    ...memoryCtx,
+  });
   return Object.fromEntries(
     Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
   );

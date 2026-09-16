@@ -1104,12 +1104,15 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
     .from(memoryNamespaceSchema)
     .where(and(eq(memoryNamespaceSchema.orgId, orgId), eq(memoryNamespaceSchema.name, step.name)));
 
+  const { namespacePath } = await import('@/services/MemoryService');
+  const scopeKind = step.scope?.kind ?? 'workspace';
+  const scopeRef = step.scope?.ref ?? null;
   const payload = {
     orgId,
     name: step.name,
-    scopeKind: 'workspace',
-    scopeRef: null,
-    path: `workspace/${step.name}`,
+    scopeKind,
+    scopeRef,
+    path: namespacePath({ scopeKind, scopeRef, name: step.name }),
     title: step.title,
     description: step.description,
     preamble: step.preamble ?? null,
@@ -1134,6 +1137,9 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
     && existing.description === payload.description
     && (existing.preamble ?? null) === payload.preamble
     && canonical(existing.agentSlugs) === canonical(payload.agentSlugs)
+    && existing.scopeKind === payload.scopeKind
+    && (existing.scopeRef ?? null) === payload.scopeRef
+    && existing.path === payload.path
   ) {
     return 'unchanged';
   }

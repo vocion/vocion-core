@@ -2,6 +2,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
+import { objectKnowledge } from '@/services/MemoryService';
 
 // Metadata keys that are plumbing, not answer material — never surfaced to the
 // model. They invite verbatim dumps: internal ids, deep-links, profile URLs.
@@ -31,6 +32,14 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       if (objects.length === 0) {
         return 'No records found for this type.';
       }
+      // Object-scoped approved memory rides the lookup result — the plan's
+      // "business objects in play" layer. A client fact reaches the model
+      // only on turns that actually touch that client, so it can never leak
+      // into another client's context. Refs are `<type slug>/<object id>`.
+      const knowledge = await objectKnowledge(
+        ctx.orgId,
+        objects.map(obj => `${obj.type?.slug ?? 'object'}/${obj.id}`),
+      );
       // Return compact JSON, NOT prose. A live turn proved the model happily
       // echoes any human-readable tool output (and even a "synthesize"
       // instruction line) straight into chat. A raw JSON array is data the
@@ -46,6 +55,12 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
         }
         if (obj.summary) {
           rec.summary = compactValue(obj.summary);
+        }
+        const facts = knowledge.get(`${obj.type?.slug ?? 'object'}/${obj.id}`);
+        if (facts) {
+          // Human-approved facts about THIS record — apply them, they outrank
+          // anything inferred from the fields above.
+          rec.approved_knowledge = facts;
         }
         return rec;
       });

@@ -240,11 +240,22 @@ async function recordLearningCandidate(
   }
   try {
     const { recordProposedRule } = await import('@/services/feedback/ruleRecorder');
+    // The classifier picks the scope KIND; the ref comes from the feedback's
+    // own context. A kind with no ref to attach to falls back to workspace
+    // scope rather than minting a candidate that can never land anywhere.
+    const scope
+      = classification.scope === 'agent' && payload.agentSlug
+        ? { scopeKind: 'agent' as const, scopeRef: payload.agentSlug }
+        : classification.scope === 'user' && payload.submittedBy
+          ? { scopeKind: 'user' as const, scopeRef: payload.submittedBy }
+          : {};
     await recordProposedRule({
       orgId,
       ruleText: classification.rule_text,
       polarity: classification.polarity ?? payload.polarityHint ?? 'correct',
       stepName: payload.targetSlug ?? classification.target_step,
+      memoryType: classification.memory_type,
+      ...scope,
       note: payload.text,
       agentSlug: payload.agentSlug,
       sourceFeedbackJobId: feedbackJobId,
