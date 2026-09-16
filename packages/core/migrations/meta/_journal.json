@@ -715,6 +715,13 @@
       "when": 1787640000000,
       "tag": "0101_artifact_version",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1787727000000,
+      "tag": "0102_slack_post_feedback_source",
+      "breakpoints": true
     }
   ]
 }
