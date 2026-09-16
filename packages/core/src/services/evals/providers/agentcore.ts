@@ -23,11 +23,13 @@ import type { DocumentType } from '@smithy/types';
 import type { CaseTranscript } from '../transcripts';
 import type { EvalScoreLevel, ProviderScore } from '../types';
 import type { EvalScoreProvider, ProviderAvailability, ScoreRequest } from './types';
+import type { AwsCredentials } from '@/services/ApiTokenService';
 import process from 'node:process';
 import { BedrockAgentCoreClient, EvaluateCommand } from '@aws-sdk/client-bedrock-agentcore';
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { bedrockRegion } from '@/libs/llm/bedrockCredentials';
 import { resolveAwsCredentials } from '@/services/ApiTokenService';
+import { resolveAgentcoreEvaluators } from './agentcoreEvaluators';
 import { buildSessionSpans } from './agentcoreSpans';
 
 /**
@@ -96,8 +98,28 @@ async function isAvailable(orgId: string): Promise<ProviderAvailability> {
   return { available: true, reason: '' };
 }
 
-/** Which evaluators this dataset asked for. */
-function evaluatorIdsFor(): string[] {
+/**
+ * Which evaluators this dataset asked for.
+ *
+ * The dataset's own `evaluators` block wins; the environment variable is a
+ * deployment-wide fallback for a workspace that authored none, and the
+ * trajectory default is what everyone else gets. Precedence in that order
+ * because the file is the thing a person edited on purpose.
+ * @param orgId - Whose workspace.
+ * @param datasetSlug - Which dataset.
+ * @param credentials - Needed to create a custom evaluator in AWS.
+ * @param region - Where to talk to AWS.
+ */
+async function evaluatorIdsFor(
+  orgId: string,
+  datasetSlug: string,
+  credentials: AwsCredentials,
+  region: string,
+): Promise<string[]> {
+  const authored = await resolveAgentcoreEvaluators(orgId, datasetSlug, credentials, region);
+  if (authored.length > 0) {
+    return authored;
+  }
   const configured = process.env.VOCION_AGENTCORE_EVALUATORS;
   if (configured) {
     return configured.split(',').map(id => id.trim()).filter(Boolean);
@@ -237,15 +259,16 @@ async function score(request: ScoreRequest): Promise<ProviderScore[]> {
   if (!credentials) {
     throw new Error('No AWS credential is connected for this workspace.');
   }
+  const region = bedrockRegion();
   const client = new BedrockAgentCoreClient({
-    region: bedrockRegion(),
+    region,
     credentials: {
       accessKeyId: credentials.accessKeyId,
       secretAccessKey: credentials.secretAccessKey,
     },
   });
 
-  const evaluatorIds = evaluatorIdsFor();
+  const evaluatorIds = await evaluatorIdsFor(request.orgId, request.datasetSlug, credentials, region);
   const jobs: EvaluateJob[] = [];
   for (const transcript of request.transcripts) {
     // An errored case has no trajectory to match and no answer to judge.
