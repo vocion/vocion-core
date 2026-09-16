@@ -1,6 +1,6 @@
 import type { Ask } from '@/services/AskService';
 import { Check, ExternalLink, MessageSquareReply, X } from 'lucide-react';
-import { labelFor } from './AskSheet';
+import { labelFor } from './askOptions';
 import { KIND_LABEL } from './inboxMeta';
 
 /**

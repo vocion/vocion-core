@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuAction, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
@@ -24,7 +24,9 @@ const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
  * 2026-09-15): hovering a row reveals one pin/unpin icon; nothing else to
  * configure. Past `max` rows, a "More … ›" row opens a submenu listing the
  * rest, each with the same pin affordance. In the Pinned group, rows can be
- * dragged to reorder (HTML5 drag, no dependency).
+ * dragged to reorder (HTML5 drag, no dependency). An item with `tabs` (a
+ * combined page) reveals them as sub-rows while that page is open, so each
+ * tab keeps its own pin — one row in the section otherwise.
  * @param props
  * @param props.label
  * @param props.items
@@ -118,6 +120,29 @@ export function PinnableNav(props: {
               >
                 {pinIcon(item.url)}
               </SidebarMenuAction>
+              {/* Tabs of a combined page — only while you are on it. */}
+              {item.tabs && item.tabs.length > 0 && [item, ...item.tabs].some(i => isNavItemActive(pathname, i.url)) && (
+                <SidebarMenuSub>
+                  {item.tabs.map(tab => (
+                    <SidebarMenuSubItem key={tab.url} className="group/tab flex items-center">
+                      <SidebarMenuSubButton asChild size="sm" isActive={isNavItemActive(pathname, tab.url)} className="min-w-0 flex-1 text-[13px]">
+                        <Link href={tab.url}>
+                          <span>{tab.title}</span>
+                        </Link>
+                      </SidebarMenuSubButton>
+                      <button
+                        type="button"
+                        title={pinTitle(tab.url)}
+                        aria-label={`${pinTitle(tab.url)}: ${tab.title}`}
+                        onClick={() => props.onTogglePin(tab.url)}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity group-hover/tab:opacity-100 hover:bg-surface-hover hover:text-foreground focus-visible:opacity-100 [&_svg]:size-3.5"
+                      >
+                        {pinIcon(tab.url)}
+                      </button>
+                    </SidebarMenuSubItem>
+                  ))}
+                </SidebarMenuSub>
+              )}
             </SidebarMenuItem>
           ))}
 

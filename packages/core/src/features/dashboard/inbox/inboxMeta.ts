@@ -1,33 +1,25 @@
 import type { LucideIcon } from 'lucide-react';
-import type { InboxGroup } from '@/services/InboxService';
-import { CheckSquare, DoorOpen, Gavel, GitMerge, KeyRound, Lightbulb, PlayCircle, Sparkles } from 'lucide-react';
+import type { InboxKind, InboxTab } from '@/services/InboxService';
+import { CheckSquare, ClipboardCheck, DoorOpen, Gavel, GitMerge, KeyRound, Lightbulb, MessageSquareText, PlayCircle, Sparkles } from 'lucide-react';
 
-/** How each inbox group is named and drawn. Order here is the order on the page. */
-export const INBOX_GROUP_META: Record<InboxGroup, { label: string; blurb: string; icon: LucideIcon }> = {
-  rulings: { label: 'Rulings', blurb: 'Decisions only you can make — the team is blocked on the answer.', icon: Gavel },
-  approvals: { label: 'Approvals', blurb: 'Things the team wants to do, and proposed actions in the review queue.', icon: CheckSquare },
-  merges: { label: 'Merges', blurb: 'Pull requests ready for a human to merge.', icon: GitMerge },
-  inputs: { label: 'Inputs & credentials', blurb: 'Something the team needs from you — a key, a file, an answer.', icon: KeyRound },
-  recommendations: { label: 'Recommendations', blurb: 'Changes the team proposes to itself — roles, models, budget.', icon: Lightbulb },
-  gates: { label: 'Gates', blurb: 'Runs waiting for you to say go.', icon: DoorOpen },
-  runs: { label: 'Runs waiting', blurb: 'Paused, awaiting review, or recently failed.', icon: PlayCircle },
-  learnings: { label: 'Suggested rules', blurb: 'Rules proposed from feedback, waiting to be adopted.', icon: Sparkles },
+/** How each kind is named and drawn. Order here is the order of the chips. */
+export const INBOX_KIND_META: Record<InboxKind, { label: string; plural: string; blurb: string; icon: LucideIcon }> = {
+  proposal: { label: 'Proposal', plural: 'Proposals', blurb: 'An action an agent wants to take — a CRM update, an email, an enrollment. Approving executes it.', icon: ClipboardCheck },
+  ruling: { label: 'Ruling', plural: 'Rulings', blurb: 'Decisions only you can make — the team is blocked on the answer.', icon: Gavel },
+  approval: { label: 'Approval', plural: 'Approvals', blurb: 'Something the team wants to do and is asking permission for.', icon: CheckSquare },
+  merge: { label: 'Merge', plural: 'Merges', blurb: 'Pull requests ready for a human to merge.', icon: GitMerge },
+  input: { label: 'Input', plural: 'Inputs', blurb: 'Something the team needs from you — a file, a fact, an answer.', icon: MessageSquareText },
+  credential: { label: 'Credential', plural: 'Credentials', blurb: 'A key or a login the team needs to keep going.', icon: KeyRound },
+  gate: { label: 'Gate', plural: 'Gates', blurb: 'Runs waiting for you to say go.', icon: DoorOpen },
+  recommendation: { label: 'Recommendation', plural: 'Recommendations', blurb: 'Changes the team proposes to itself — roles, models, budget.', icon: Lightbulb },
+  run: { label: 'Run', plural: 'Runs', blurb: 'Paused, awaiting review, or recently failed.', icon: PlayCircle },
+  learning: { label: 'Suggested rule', plural: 'Suggested rules', blurb: 'Rules proposed from your feedback, waiting to be adopted.', icon: Sparkles },
 };
 
-/** Short human labels for ask kinds and the other inbox row kinds, for the chip on a row. */
-export const KIND_LABEL: Record<string, string> = {
-  approval: 'Approval',
-  input: 'Input',
-  ruling: 'Ruling',
-  credential: 'Credential',
-  merge: 'Merge',
-  recommendation: 'Recommendation',
-  gate: 'Gate',
-  sheet: 'Decision sheet',
-  review: 'Review',
-  run: 'Run',
-  learning: 'Suggested rule',
-};
+/** Short human labels for a kind, for the chip on a row or a sheet. Ask kinds and inbox kinds share names. */
+export const KIND_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(INBOX_KIND_META).map(([k, m]) => [k, m.label]),
+);
 
 /**
  * Tone classes for a risk label.
@@ -75,4 +67,45 @@ export function waitingFor(at: Date, now: Date = new Date()): string {
 export function agoLabel(at: Date, now: Date = new Date()): string {
   const w = waitingFor(at, now);
   return w === 'just now' ? w : `${w} ago`;
+}
+
+/** The crumbs every detail screen starts with. */
+export const NEEDS_YOU_CRUMB = { label: 'Needs you', href: '/dashboard/inbox' } as const;
+
+/**
+ * "Needs you › <kind> › <record>" — the breadcrumb for one decision screen.
+ * The kind crumb links to the list filtered to that kind.
+ * @param kind
+ * @param record - The thing the decision is about, when the title does not already say.
+ */
+export function decisionCrumbs(kind: InboxKind, record?: string | null): Array<{ label: string; href?: string }> {
+  const crumbs: Array<{ label: string; href?: string }> = [
+    { label: 'Workspace', href: '/dashboard' },
+    NEEDS_YOU_CRUMB,
+    { label: INBOX_KIND_META[kind].plural, href: `/dashboard/inbox?kind=${kind}` },
+  ];
+  if (record) {
+    crumbs.push({ label: record });
+  }
+  return crumbs;
+}
+
+/**
+ * "136 decisions, oldest waiting 53d." — or, on the other tabs, what the tab holds.
+ * @param tab
+ * @param open - Open rows, unfiltered.
+ * @param oldest - The oldest open row's timestamp, when there is one.
+ * @param shown - Rows on this tab after filters.
+ */
+export function contextLine(tab: InboxTab, open: number, oldest: Date | undefined, shown: number): string {
+  if (tab === 'decided') {
+    return shown === 0 ? 'No decisions yet.' : `${shown} decided, newest first.`;
+  }
+  if (tab === 'snoozed') {
+    return shown === 0 ? 'Nothing snoozed.' : `${shown} snoozed, back when their time comes.`;
+  }
+  if (open === 0) {
+    return 'Nothing right now — the team keeps working; new decisions land here.';
+  }
+  return `${open} ${open === 1 ? 'decision' : 'decisions'}${oldest ? `, oldest waiting ${waitingFor(oldest)}` : ''}.`;
 }

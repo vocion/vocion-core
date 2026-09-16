@@ -7,8 +7,10 @@ import { useEffect } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
+import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
+import { useComposerQueueProps } from './composerQueue';
 import { EmptyState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
@@ -130,6 +132,7 @@ function ChatShellInner({
 }: ChatShellProps) {
   const t = useTranslations('Chat');
   const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
+  const queueProps = useComposerQueueProps(session);
   const tagSearch = useTagSearch(agents);
   const autonomyCopy = {
     ask: t('autonomy_ask'),
@@ -164,6 +167,14 @@ function ChatShellInner({
             onPick={id => void session.handlePickConversation(id)}
             onNewChat={session.handleNewChat}
             search={session.searchConversations}
+          />
+          {/* The conversation's rung rides with the conversation's identity on
+              every surface, not inside the composer (§9.7). */}
+          <AutonomyControl
+            value={session.autonomy}
+            onChange={session.setAutonomy}
+            copy={autonomyCopy}
+            label={t('autonomy')}
           />
           <ChatMenu onNewChat={session.handleNewChat} />
         </div>
@@ -219,11 +230,12 @@ function ChatShellInner({
             value={session.composerValue}
             onChange={session.setComposerValue}
             onSubmit={() => void session.sendMessage(session.composerValue)}
-            // Also disabled until boot settles: a message sent while the saved
-            // thread is still loading would be discarded when the restored
-            // transcript lands.
-            disabled={session.isStreaming || !session.booted}
+            // Streaming never disables the box (Enter queues instead); boot
+            // still does, because a message sent while the saved thread is
+            // still loading would be discarded when the transcript lands.
+            disabled={!session.booted}
             streaming={session.isStreaming}
+            {...queueProps}
             onStop={session.handleStop}
             placeholder={session.composerPlaceholder}
             commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
@@ -234,9 +246,6 @@ function ChatShellInner({
             onAddTag={session.addContextRef}
             onRemoveTag={session.removeContextRef}
             tagSearch={tagSearch}
-            autonomy={session.autonomy}
-            onAutonomyChange={session.setAutonomy}
-            autonomyCopy={autonomyCopy}
           />
         </div>
 

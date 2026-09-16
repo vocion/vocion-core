@@ -9,9 +9,6 @@ import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
  * live dialog uses (`buildPaletteGroups`), so the two states can be looked at
  * without a router or a dialog portal: empty query (pages, entities,
  * commands) and free text (Ask Vocion leads).
- * @param root0
- * @param root0.query
- * @param root0.themeIsDark
  */
 function PaletteList({ query, themeIsDark }: { query: string; themeIsDark?: boolean }) {
   const groups = buildPaletteGroups({

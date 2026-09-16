@@ -1,28 +1,27 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { CanvasView } from '@/features/dashboard/canvas/CanvasView';
+import { ConversationArtifactView } from '@/features/dashboard/artifacts/ConversationArtifactView';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { getCanvas, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
+import { listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 
 /**
- * One conversation, expanded: the transcript beside its canvas of rendered
- * artifacts. `?grid=open` shows the canvas; `?canvas=<id>` opens a saved
- * canvas's layout instead of the live tiles. The rail links here to "pull
- * the conversation full screen".
+ * One conversation, expanded: the transcript beside ONE live artifact.
+ * `?artifact=<id>` names which; without it the newest one opens. The rail
+ * links here to "pull the conversation full screen".
  * @param props
  * @param props.params
  * @param props.searchParams
  */
-export default async function ConversationCanvasPage(props: {
+export default async function ConversationArtifactPage(props: {
   params: Promise<{ locale: string; id: string }>;
-  searchParams: Promise<{ grid?: string; canvas?: string }>;
+  searchParams: Promise<{ artifact?: string }>;
 }) {
   const { locale, id } = await props.params;
-  const { grid, canvas: canvasParam } = await props.searchParams;
+  const { artifact: artifactParam } = await props.searchParams;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   const conversationId = Number(id);
   if (!orgId || !Number.isInteger(conversationId) || conversationId <= 0) {
     notFound();
@@ -33,29 +32,20 @@ export default async function ConversationCanvasPage(props: {
   }
 
   const { agents } = await loadChatAgentContext(orgId);
-
-  let initialArtifacts;
-  let savedCanvas: { id: number; name: string } | null = null;
-  const canvasId = canvasParam ? Number(canvasParam) : Number.NaN;
-  if (Number.isInteger(canvasId) && canvasId > 0) {
-    const found = await getCanvas({ orgId, id: canvasId });
-    if (found) {
-      initialArtifacts = found.artifacts.map(toPayload);
-      savedCanvas = { id: found.canvas.id, name: found.canvas.name };
-    }
-  }
-  initialArtifacts ??= (await listArtifactsForConversation({ orgId, conversationId })).map(toPayload);
+  const artifacts = (await listArtifactsForConversation({ orgId, conversationId })).map(toPayload);
+  const requested = artifactParam ? Number(artifactParam) : Number.NaN;
+  const initialArtifactId = Number.isInteger(requested) && artifacts.some(a => a.id === requested) ? requested : null;
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col">
-      <CanvasView
+      <ConversationArtifactView
         agents={agents}
         conversationId={conversationId}
         conversationTitle={conversation.title}
         agentSlug={conversation.agentSlug}
-        initialArtifacts={initialArtifacts}
-        gridOpen={grid === 'open' || savedCanvas !== null}
-        savedCanvas={savedCanvas}
+        initialArtifacts={artifacts}
+        initialArtifactId={initialArtifactId}
+        selfId={userId ?? null}
       />
     </div>
   );

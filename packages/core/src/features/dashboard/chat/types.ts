@@ -104,6 +104,18 @@ export type ContextRef = {
   routeTo?: string;
 };
 
+/**
+ * An artifact this turn created or changed — rendered as a chip under the
+ * message so the transcript still says where a thing came from once the pane
+ * has moved on to the next one.
+ */
+export type ChatMessageArtifact = {
+  id: number;
+  title: string;
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  version: number;
+};
+
 export type ChatMessage = {
   /** Persisted row id, once known — the feedback control writes against it. */
   id?: number;
@@ -116,6 +128,8 @@ export type ChatMessage = {
   agentName?: string;
   /** A2UI recommended-action cards emitted during this turn (clickable). */
   recommendations?: RecommendedAction[];
+  /** Artifacts this turn created or changed (0101) — chips under the message. */
+  artifacts?: ChatMessageArtifact[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];

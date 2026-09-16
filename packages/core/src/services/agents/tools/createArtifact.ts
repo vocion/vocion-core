@@ -1,7 +1,12 @@
 /**
- * create_artifact — produce a downloadable file (CSV, SVG chart, or
+ * create_artifact — produce a downloadable FILE (CSV, SVG chart, or
  * markdown/HTML doc) from structured input and return its served URL.
  * Builtin, no external provider.
+ *
+ * Not to be confused with the live-artifact family: `render_table` and
+ * friends create something the person edits beside the conversation, and
+ * `update_artifact` changes it. This one produces a file to download, and
+ * records it as a `file` artifact so it shows up in the log.
  */
 
 import type { RuntimeContext } from '../types';
@@ -10,6 +15,7 @@ import { z } from 'zod';
 import { toChartSvg, toCsv } from '@/libs/tools/artifacts/build';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { createArtifact as recordArtifact, toPayload } from '@/services/ArtifactService';
+import { authorOf } from './renderArtifacts';
 
 /**
  * Models often stringify nested tool args — parse JSON strings back to objects.
@@ -62,17 +68,18 @@ export function createArtifactTool(ctx: RuntimeContext) {
         }
 
         const artifact = await saveArtifact({ orgId: ctx.orgId, data, ext, contentType });
-        // 0095: the file is also a row, so the conversation's canvas and the
-        // mission page can list it instead of regex-harvesting the URL from prose.
+        // 0095: the file is also a row, so the artifacts log and the mission
+        // page can list it instead of regex-harvesting the URL from prose.
         try {
-          const row = await recordArtifact({
+          const { artifact: row } = await recordArtifact({
             orgId: ctx.orgId,
             conversationId: ctx.conversationId ?? null,
             kind: 'file',
             title: args.title ?? artifact.filename,
             spec: { filename: artifact.filename, contentType: artifact.contentType, bytes: artifact.bytes, url: artifact.url },
             url: artifact.url,
-            createdBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : ctx.userId ?? null,
+            author: authorOf(ctx),
+            changeSummary: 'Created',
           });
           ctx.emit({ type: 'artifact', artifact: toPayload(row) });
         } catch (err) {

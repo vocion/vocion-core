@@ -8,6 +8,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Link } from '@/libs/I18nNavigation';
+import { ArtifactChips } from './ArtifactChips';
 import { classifyDashboardLink } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
@@ -67,6 +68,8 @@ export type AgentMessageProps = {
   autonomy?: ConversationAutonomy;
   /** Preformatted attribution for a routed turn ("via Proposal Writer") — the workspace stays the speaker (§9.10). */
   via?: string;
+  /** Opens an artifact this turn produced in the pane beside the conversation. */
+  onOpenArtifact?: (id: number) => void;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -93,7 +96,7 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -191,6 +194,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               stepper (skip / save-for-later / queue-all). */}
           {(message.recommendations?.length ?? 0) > 0 && (
             <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
+          )}
+          {(message.artifacts?.length ?? 0) > 0 && (
+            <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
           )}
         </div>
         {message.confidence && (

@@ -5,12 +5,14 @@ import {
   BookOpen,
   CalendarClock,
   CheckSquare,
+  Code2,
   Compass,
   Cpu,
   Database,
+  FileCode2,
+  FileStack,
   GitBranch,
   Inbox,
-  KeyRound,
   LineChart,
   MessageSquare,
   Network,
@@ -19,6 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
   TestTube,
+  TrendingUp,
   UserPlus,
   Users,
   Wrench,
@@ -26,58 +29,155 @@ import {
 } from 'lucide-react';
 
 /**
- * One entry in the dashboard's route registry — the single list the
- * breadcrumb and the ⌘K palette read so a page is named the same way in
- * both. The sidebar keeps its own translated lists (it groups differently);
- * a route added there should be added here too.
+ * The dashboard's route registry — the ONE list the sidebar (both views), the
+ * ⌘K palette and the breadcrumb read, so a page is grouped, ordered, named and
+ * gated the same way everywhere (nav sweep, Chris 2026-09-15). Add a page
+ * here and it appears in all three; there is no second list to keep in step.
+ *
+ * Groups: `Workspace` is the WORK view (the daily driver). `Team` … `Organization`
+ * are the MANAGE view's sections, in this order. `You` is personal (Profile) —
+ * reachable from the avatar menu and the palette, never a manage section.
  */
-export type DashboardRoute = {
-  url: string;
+
+export type DashboardGroupId = 'Workspace' | 'Team' | 'Knowledge' | 'Build' | 'Insights' | 'Organization' | 'You';
+
+/** A key of the `DashboardLayout` message namespace — typed against en.json so a label cannot point at a string that does not exist. */
+export type DashboardLayoutKey = keyof (typeof import('@/locales/en.json'))['DashboardLayout'];
+
+export type DashboardGroup = {
+  id: DashboardGroupId;
+  /** English heading — what the palette shows. */
   title: string;
-  group: 'Workspace' | 'Team' | 'Knowledge' | 'Build' | 'Observability' | 'Organization';
-  icon: LucideIcon;
-  /** Extra words the palette should match on. */
-  keywords?: string[];
-  /** Hidden from the palette (still used for breadcrumbs). */
-  adminOnly?: boolean;
+  /** `DashboardLayout` message key for the sidebar's translated heading. */
+  i18nKey?: DashboardLayoutKey;
+  /** Rendered as a section of the sidebar's MANAGE view. */
+  manage: boolean;
 };
 
-export const DASHBOARD_ROUTES: DashboardRoute[] = [
-  { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, keywords: ['ask', 'agent'] },
-  { url: '/dashboard/inbox', title: 'Needs you', group: 'Workspace', icon: Inbox, keywords: ['inbox', 'decisions', 'asks', 'approvals'] },
-  { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper },
-  { url: '/dashboard/review', title: 'Review', group: 'Workspace', icon: CheckSquare, keywords: ['approve', 'queue', 'hitl'] },
-  { url: '/dashboard/activity', title: 'Activity', group: 'Workspace', icon: Activity, keywords: ['runs', 'logs', 'history'] },
-  { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, keywords: ['knowledge', 'retrieval'] },
-  { url: '/dashboard/teams', title: 'Teams', group: 'Team', icon: Network, keywords: ['org chart'] },
-  { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users },
-  { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass },
-  { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch },
-  { url: '/dashboard/automation', title: 'Automation', group: 'Team', icon: CalendarClock, keywords: ['schedules', 'cron', 'triggers'] },
-  { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, keywords: ['sources', 'integrations'] },
-  { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database },
-  { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, keywords: ['rules', 'feedback'] },
-  { url: '/dashboard/skills', title: 'Skills', group: 'Build', icon: Zap, keywords: ['playbooks'] },
-  { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench },
-  { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu },
-  { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, keywords: ['tests', 'datasets'] },
-  { url: '/dashboard/observability', title: 'Observability', group: 'Observability', icon: LineChart, keywords: ['langfuse', 'traces', 'spend'] },
-  { url: '/dashboard/team-report', title: 'Team report', group: 'Observability', icon: Network, keywords: ['outcome', 'kpi', 'spend', 'members'] },
-  { url: '/dashboard/adoption', title: 'Adoption', group: 'Organization', icon: BarChart3, adminOnly: true },
-  { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, keywords: ['users', 'invite'] },
-  { url: '/dashboard/api-tokens', title: 'API tokens', group: 'Organization', icon: KeyRound, adminOnly: true, keywords: ['credentials', 'keys'] },
-  { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, keywords: ['status', 'admin'] },
-  { url: '/dashboard/workspace', title: 'Context', group: 'Build', icon: Database, keywords: ['workspace', 'yaml'] },
-  { url: '/dashboard/profile', title: 'Profile', group: 'Organization', icon: Users },
+export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
+  { id: 'Workspace', title: 'Workspace', i18nKey: 'main_section_label', manage: false },
+  { id: 'Team', title: 'Team', i18nKey: 'team_section_label', manage: true },
+  { id: 'Knowledge', title: 'Knowledge', i18nKey: 'knowledge_section_label', manage: true },
+  { id: 'Build', title: 'Build', i18nKey: 'build_section_label', manage: true },
+  { id: 'Insights', title: 'Insights', i18nKey: 'insights_section_label', manage: true },
+  { id: 'Organization', title: 'Organization', i18nKey: 'organization_section_label', manage: true },
+  { id: 'You', title: 'You', i18nKey: 'you_section_label', manage: false },
 ];
 
-/**
- * Title for a dashboard path, if it is a registered route.
- * @param url - Pathname without locale prefix.
- * @returns The route's title, or undefined for detail pages and unknown paths.
- */
-export function dashboardRouteTitle(url: string): string | undefined {
-  return DASHBOARD_ROUTES.find(r => r.url === url)?.title;
+export type DashboardRoute = {
+  url: string;
+  /** English title — the palette row, the breadcrumb, and the sidebar fallback. */
+  title: string;
+  group: DashboardGroupId;
+  icon: LucideIcon;
+  /** `DashboardLayout` message key for the sidebar's translated label. */
+  i18nKey?: DashboardLayoutKey;
+  /** Extra words the palette should match on. */
+  keywords?: string[];
+  /** Hidden from the palette and the sidebar for non-admins (still used for breadcrumbs). */
+  adminOnly?: boolean;
+  /**
+   * This route is one TAB of a combined page (the url of the page that owns
+   * the tab strip). Tabs keep their own URL so deep links, pins and the
+   * breadcrumb still work; the sidebar shows the owner and reveals the tabs
+   * beneath it while you are on that page.
+   */
+  tabOf?: string;
+  /**
+   * A palette row only — never a sidebar row, never a breadcrumb owner. For an
+   * alias onto a filtered view of a page that is already in the nav, so old
+   * muscle memory ("review") still finds the work without a second door to it.
+   */
+  paletteOnly?: boolean;
+  /** For the page that OWNS a tab strip: the label of its own first tab (its title names the whole page). */
+  tabTitle?: string;
+  /** `DashboardLayout` message key for `tabTitle`. */
+  tabI18nKey?: DashboardLayoutKey;
+};
+
+export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
+  // ── WORK ────────────────────────────────────────────────────────────────
+  { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
+  { url: '/dashboard/inbox', title: 'Needs you', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
+  { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings' },
+  // Everything an agent or a person made beside a conversation — live,
+  // versioned, editable. Replaces Canvases, whose saved tile arrangements
+  // nobody arranged twice (`/dashboard/canvases` 308s here).
+  { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'] },
+  // Review is no longer a place: the queue is the `proposal` kind of Needs you
+  // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
+  // "review" still lands where the work is, without a second sidebar door.
+  { url: '/dashboard/inbox?kind=proposal', title: 'Needs you · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
+  { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'] },
+
+  // ── MANAGE · Team — who works for you and the shapes their work takes ───
+  { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
+  { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
+  { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
+  { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
+  { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation'] },
+
+  // ── MANAGE · Knowledge — what the agents know, and about what ───────────
+  { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
+  { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database, i18nKey: 'objects' },
+  { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
+  { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },
+
+  // ── MANAGE · Build — what the agents can do ─────────────────────────────
+  { url: '/dashboard/skills', title: 'Skills & tools', tabTitle: 'Skills', tabI18nKey: 'skills', group: 'Build', icon: Zap, i18nKey: 'skills_tools', keywords: ['playbooks', 'skills'] },
+  { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench, i18nKey: 'tools', tabOf: '/dashboard/skills', keywords: ['capabilities', 'web search', 'keys'] },
+  { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu, i18nKey: 'vision_models', tabOf: '/dashboard/skills', keywords: ['rekognition', 'classifier', 'analyze'] },
+  { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', keywords: ['tests', 'datasets'] },
+
+  // ── MANAGE · Insights — how it is going ─────────────────────────────────
+  { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },
+  { url: '/dashboard/activity', title: 'Activity', group: 'Insights', icon: Activity, i18nKey: 'activity', keywords: ['runs', 'logs', 'history'] },
+  { url: '/dashboard/observability', title: 'Observability', group: 'Insights', icon: LineChart, i18nKey: 'observability', keywords: ['langfuse', 'traces', 'spend'] },
+  { url: '/dashboard/autonomy', title: 'Autonomy', group: 'Insights', icon: TrendingUp, i18nKey: 'autonomy', keywords: ['ladder', 'trust', 'promote'] },
+  { url: '/dashboard/adoption', title: 'Adoption', group: 'Insights', icon: BarChart3, i18nKey: 'adoption', adminOnly: true, keywords: ['usage', 'logins'] },
+
+  // ── MANAGE · Organization — the account itself ──────────────────────────
+  { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
+  { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs'] },
+  { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, i18nKey: 'system', keywords: ['status', 'admin', 'settings', 'health'] },
+
+  // ── YOU — personal, not the workspace's ─────────────────────────────────
+  { url: '/dashboard/profile', title: 'Profile', group: 'You', icon: Users, i18nKey: 'profile', keywords: ['account', 'password', 'name'] },
+];
+
+/** The route registered at exactly this path, if any. */
+export function dashboardRoute(url: string): DashboardRoute | undefined {
+  return DASHBOARD_ROUTES.find(r => r.url === url);
+}
+
+/** Routes a person may see: admin-only rows drop out for members. */
+function visibleRoutes(isAdmin: boolean): DashboardRoute[] {
+  return DASHBOARD_ROUTES.filter(r => isAdmin || !r.adminOnly);
+}
+
+/** The WORK view's rows, in order. Palette-only aliases are not rows. */
+export function workRoutes(): DashboardRoute[] {
+  return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly);
+}
+
+/** The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order. */
+export function manageNavGroups(isAdmin: boolean): Array<{ group: DashboardGroup; routes: DashboardRoute[] }> {
+  return DASHBOARD_GROUPS
+    .filter(g => g.manage)
+    .map(group => ({ group, routes: visibleRoutes(isAdmin).filter(r => r.group === group.id && !r.tabOf) }));
+}
+
+/** Every MANAGE row a person can pin — top-level pages AND their tabs (a tab is a destination too). */
+export function manageRoutes(isAdmin: boolean): DashboardRoute[] {
+  const manageIds = new Set(DASHBOARD_GROUPS.filter(g => g.manage).map(g => g.id));
+  return visibleRoutes(isAdmin).filter(r => manageIds.has(r.group));
+}
+
+/** The tabs of a combined page, owner first, in registry order. Empty when `url` owns no tabs. */
+export function tabsOf(url: string): DashboardRoute[] {
+  const owner = dashboardRoute(url);
+  const tabs = DASHBOARD_ROUTES.filter(r => r.tabOf === url);
+  return owner && tabs.length > 0 ? [owner, ...tabs] : [];
 }
 
 /**

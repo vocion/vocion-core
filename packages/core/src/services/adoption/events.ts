@@ -57,6 +57,14 @@ export const ADOPTION_EVENTS = {
   'chat.conversation_created': { agent: true },
   'chat.message_sent': { agent: true },
   /**
+   * A conversation turn opened FROM a record via an "Ask about this"
+   * affordance (briefing section, inbox ask, team-report row, record page) —
+   * distinct from the hotkey. `recordType` says which surface hands work to
+   * the agent; the count against `chat.message_sent` is how much of the chat
+   * starts in context rather than cold.
+   */
+  'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
+  /**
    * A thumb on one assistant turn in the chat (0094). `rating` null = the
    * person cleared their thumb. The note itself never travels here — it goes
    * to the feedback classifier — only whether there was one.
@@ -68,14 +76,6 @@ export const ADOPTION_EVENTS = {
       hasNote: z.boolean().optional(),
     }),
   },
-  /**
-   * A conversation turn opened FROM a record via an "Ask about this"
-   * affordance (briefing section, inbox ask, team-report row, record page) —
-   * distinct from the hotkey. `recordType` says which surface hands work to
-   * the agent; the count against `chat.message_sent` is how much of the chat
-   * starts in context rather than cold.
-   */
-  'chat.opened_from_context': { agent: true, meta: z.object({ recordType: z.string().max(40) }) },
   /**
    * One event for every HITL approval surface; the run kind travels in
    * metadata. `decision` is the TYPED triage signal — approve/edit/reject are
@@ -154,6 +154,20 @@ export const ADOPTION_EVENTS = {
       suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
     }),
   },
+  /**
+   * A person edited an artifact in the pane — a save, or a restore of an
+   * older version. Agent edits are NOT tracked here: adoption measures what
+   * humans do, and an agent's own version is already in artifact_version.
+   * `action` separates a normal edit from a restore, which is the signal
+   * that the agent's last change was not wanted.
+   */
+  'artifact.edited': {
+    meta: z.object({
+      kind: z.string().max(20),
+      action: z.enum(['edited', 'restored']),
+      version: z.number().int().positive(),
+    }),
+  },
   'learning.added': { agent: true },
   /**
    * Feedback proposed a rule nobody had proposed before, so a candidate is
@@ -201,6 +215,20 @@ export const ADOPTION_EVENTS = {
       kind: z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate']),
       status: z.enum(['approved', 'rejected', 'done', 'superseded']),
     }),
+  },
+  /**
+   * An action kind moved on the autonomy ladder. `automatic` is a demotion
+   * the system made itself (a rejected auto-execution, or a rejection on a
+   * high-risk kind) as opposed to a person's promote/demote. System events
+   * exist for the audit trail; adoption keeps measuring humans.
+   */
+  'autonomy.promoted': {
+    system: true,
+    meta: z.object({ actionId: z.string(), from: z.string(), to: z.string(), automatic: z.boolean() }),
+  },
+  'autonomy.demoted': {
+    system: true,
+    meta: z.object({ actionId: z.string(), from: z.string(), to: z.string(), automatic: z.boolean() }),
   },
   /**
    * One assessed call = one event, whoever ordered it (scheduled mission

@@ -14,18 +14,19 @@ import {
 } from './AnchoredComments';
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
 import {
-  exportCanvasRoute,
+  folders as artifactFoldersRoute,
+  exportPage as exportArtifactPageRoute,
   get as getArtifactRoute,
-  getCanvasRoute,
+  version as getArtifactVersionRoute,
   listForConversation as listArtifactsForConversationRoute,
-  listCanvasesRoute,
-  placeTiles as placeArtifactTilesRoute,
+  list as listArtifactsRoute,
+  versions as listArtifactVersionsRoute,
   remove as removeArtifactRoute,
-  removeCanvasRoute,
-  saveCanvasRoute,
-  setPinned as setArtifactPinnedRoute,
-  updateSpec as updateArtifactSpecRoute,
+  restore as restoreArtifactVersionRoute,
+  setFolder as setArtifactFolderRoute,
+  update as updateArtifactRoute,
 } from './Artifacts';
+import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
 import {
@@ -111,6 +112,7 @@ import {
   snoozeActionRoute,
   submitFeedback,
 } from './Review';
+import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
@@ -175,6 +177,17 @@ export const router = {
     list: listTeamsRoute,
     seedSample: seedSampleTeamsRoute,
   },
+  teamReport: {
+    lineage: teamReportLineageRoute,
+    planConfig: planTeamReportConfigRoute,
+    applyConfig: applyTeamReportConfigRoute,
+  },
+  autonomy: {
+    list: listAutonomyRoute,
+    promote: promoteAutonomyRoute,
+    demote: demoteAutonomyRoute,
+    acknowledgeFlag: acknowledgeAutonomyFlagRoute,
+  },
   apiTokens: {
     list: listTokensRoute,
     create: createTokenRoute,
@@ -203,17 +216,15 @@ export const router = {
   artifacts: {
     listForConversation: listArtifactsForConversationRoute,
     get: getArtifactRoute,
-    updateSpec: updateArtifactSpecRoute,
-    placeTiles: placeArtifactTilesRoute,
-    setPinned: setArtifactPinnedRoute,
+    list: listArtifactsRoute,
+    folders: artifactFoldersRoute,
+    update: updateArtifactRoute,
+    setFolder: setArtifactFolderRoute,
+    versions: listArtifactVersionsRoute,
+    version: getArtifactVersionRoute,
+    restore: restoreArtifactVersionRoute,
     remove: removeArtifactRoute,
-    canvases: {
-      save: saveCanvasRoute,
-      list: listCanvasesRoute,
-      get: getCanvasRoute,
-      remove: removeCanvasRoute,
-      exportPage: exportCanvasRoute,
-    },
+    exportPage: exportArtifactPageRoute,
   },
   conversations: {
     list: listConvs,

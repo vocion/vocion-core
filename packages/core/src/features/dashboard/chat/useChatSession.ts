@@ -1,5 +1,6 @@
 'use client';
 
+import type { TurnOutcome } from './queueReducer';
 import type {
   AgentOption,
   AgentRun,
@@ -18,6 +19,7 @@ import { client } from '@/libs/Orpc';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { defaultAgentSlug, parseSearchCommand, routeTurn, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
+import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
 
 /* ----------------------------------------------------------------- */
@@ -349,6 +351,30 @@ export function useChatSession({
   // Neutral composer (the ChatComposer default, "Ask anything…").
   const composerPlaceholder = undefined;
   const isStreaming = phase !== 'idle';
+  /**
+   * The same answer as `isStreaming`, readable SYNCHRONOUSLY.
+   *
+   * ⌘⏎ stops the turn and sends in one handler; `isStreaming` is still the
+   * pre-stop value in that closure, so a guard reading it would refuse the
+   * send. The ref is set at the three moments the turn's liveness actually
+   * changes, so both readers agree.
+   */
+  const streamingRef = useRef(false);
+  /**
+   * How the last turn ENDED — what the send queue flushes on. Only
+   * `completed` releases queued messages; `stopped` and `error` hold them and
+   * tell the person they were not sent (queueReducer.ts).
+   */
+  const [turnOutcome, setTurnOutcome] = useState<TurnOutcome>('idle');
+  /**
+   * The controller `handleStop` already finalized, so the aborted fetch's
+   * catch block does not close a DIFFERENT assistant message: ⌘⏎ pushes the
+   * next turn's rows the moment it stops this one, and `appendToLatestAgent`
+   * would otherwise rewrite that new empty row with the stopped turn's tail.
+   * Held as the controller, not a boolean, because the next turn starts before
+   * the aborted one's catch runs.
+   */
+  const stoppedControllerRef = useRef<AbortController | null>(null);
 
   /* --------------------------------------------------------------- */
   /* SSE event reducer — folds streaming events into the messages    */
@@ -431,8 +457,7 @@ export function useChatSession({
   }, []);
 
   const handleEvent = useCallback((evt: { type: string; [k: string]: unknown }) => {
-    // Extension seam first: a surface that knows a new event type (the
-    // canvas's `artifact`) claims it here; everything else falls through.
+    // Extension seam first (R2/R3): a claimed event skips the built-in cases.
     // Strict `=== true`: an extension that only observes returns undefined.
     if (onEventRef.current?.(evt, { appendToLatestAgent, flushDeltas, setActivity }) === true) {
       return;
@@ -684,7 +709,9 @@ export function useChatSession({
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
     setMessages(prev => [...prev, { role: 'assistant', content: '', runs: [] }]);
+    streamingRef.current = true;
     setPhase('thinking');
+    setTurnOutcome('running');
     setActivity('Reconnecting to the running turn…');
     streamStashRef.current = stash;
     try {
@@ -732,11 +759,16 @@ export function useChatSession({
         trace: finalizeTrace(m.trace),
       }));
       void stampLastAssistantId();
+      // A turn that finished while we were away still counts as landed, so a
+      // queue that survived the reload (sessionStorage) goes out.
+      setTurnOutcome('completed');
     } catch (error) {
       // Expired/unreachable — drop the placeholder; rehydrate covers the rest.
       console.warn('useChatSession: could not re-attach to the running turn', error);
       setMessages(prev => (prev[prev.length - 1]?.role === 'assistant' && !prev[prev.length - 1]?.content ? prev.slice(0, -1) : prev));
+      setTurnOutcome('error');
     } finally {
+      streamingRef.current = false;
       setPhase('idle');
       setActivity(null);
       streamStashRef.current = null;
@@ -904,9 +936,13 @@ export function useChatSession({
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, bootTarget]);
 
   const sendMessage = useCallback(async (raw: string) => {
-    if ((!raw.trim() && !pastedText) || isStreaming) {
+    // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
+    // sendMessage in the same handler, before React has re-rendered.
+    if ((!raw.trim() && !pastedText) || streamingRef.current) {
       return;
     }
+    streamingRef.current = true;
+    setTurnOutcome('running');
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual
     // search entry, reached by command rather than as a persona.
     const command = parseSearchCommand(raw);
@@ -1032,24 +1068,37 @@ export function useChatSession({
           .join('\n\n'),
         trace: finalizeTrace(m.trace),
       }));
+      streamingRef.current = false;
       setPhase('idle');
       setActivity(null);
+      setTurnOutcome('completed');
       streamStashRef.current = null;
       writeStreamStash(null);
       void stampLastAssistantId();
     } catch (err) {
-      flushDeltas();
-      setPhase('idle');
-      setActivity(null);
-      streamStashRef.current = null;
       // User-initiated Stop (AbortError) is not an error — just finalize the
       // partial turn cleanly, no error breadcrumb and nothing to resume.
       const aborted = (err as Error).name === 'AbortError';
+      if (aborted && stoppedControllerRef.current === controller) {
+        // `handleStop` already flushed, closed THIS turn's rows and cleared
+        // the phase + stash. Touching anything here would land on whatever
+        // message is last NOW, which under ⌘⏎ is the NEXT turn's freshly
+        // pushed assistant row.
+        stoppedControllerRef.current = null;
+        setTurnOutcome('stopped');
+        return;
+      }
+      flushDeltas();
+      streamingRef.current = false;
+      setPhase('idle');
+      setActivity(null);
+      streamStashRef.current = null;
       if (aborted) {
         writeStreamStash(null);
       } else {
         console.warn('useChatSession: the streaming turn failed', err);
       }
+      setTurnOutcome(aborted ? 'stopped' : 'error');
       appendToLatestAgent(m => ({
         ...m,
         content: m.content || (m.runs ?? [])
@@ -1065,18 +1114,53 @@ export function useChatSession({
       // NOTE: the stream stash is NOT cleared here — on a reload the fetch
       // rejects during unload and this finally raced the navigation, wiping
       // the resume handle. It clears on normal completion / Stop instead.
-      abortRef.current = null;
+      //
+      // Only clear the handle if it is still OURS: ⌘⏎ starts the next turn
+      // before this one's reader has finished rejecting, and clearing then
+      // would leave that turn's Stop with nothing to abort.
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
     }
-  }, [agent, agents, messages, isStreaming, pastedText, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
+  }, [agent, agents, messages, pastedText, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
   const handleStop = useCallback(() => {
+    if (!streamingRef.current) {
+      return;
+    }
+    streamingRef.current = false;
+    stoppedControllerRef.current = abortRef.current;
     abortRef.current?.abort();
     flushDeltas();
+    // Close this turn's rows HERE rather than in the abort catch, so a
+    // stop-and-send lands the tail on the turn that was stopped.
+    appendToLatestAgent(m => ({
+      ...m,
+      content: m.content || (m.runs ?? [])
+        .filter((run): run is Extract<AgentRun, { type: 'text' }> => run.type === 'text')
+        .map(run => run.text)
+        .join('\n\n'),
+      trace: finalizeTrace(m.trace),
+    }));
     setPhase('idle');
     setActivity(null);
-  }, [flushDeltas]);
+    setTurnOutcome('stopped');
+    // A stopped turn has nothing to resume.
+    streamStashRef.current = null;
+    writeStreamStash(null);
+  }, [flushDeltas, appendToLatestAgent]);
+
+  /**
+   * ⌘⏎ / the queued-row "send now": end the running turn and put this message
+   * in immediately, rather than waiting behind it. Enter alone never does
+   * this — killing a turn somebody wanted is not a thing to do by surprise.
+   */
+  const sendNow = useCallback(async (text: string) => {
+    handleStop();
+    await sendMessage(text);
+  }, [handleStop, sendMessage]);
 
   const handlePickSuggestion = useCallback((prompt: string) => {
     setComposerValue(prompt);
@@ -1282,6 +1366,35 @@ export function useChatSession({
     }
   }, []);
 
+  /**
+   * The send queue (P0 of the steering work): Enter mid-turn appends here
+   * instead of being swallowed by a disabled box, and the queue drains itself
+   * the moment the turn lands. See `queueReducer.ts` for the contract.
+   */
+  const sendQueue = useSendQueue({
+    conversationId,
+    streaming: isStreaming,
+    outcome: turnOutcome,
+    send: sendMessage,
+  });
+
+  /**
+   * Enter while a turn is running. Queues rather than sends — the running turn
+   * is not interrupted, and nothing the person typed is lost.
+   */
+  const queueMessage = useCallback((text: string) => {
+    sendQueue.enqueue(text);
+    setComposerValue('');
+  }, [sendQueue]);
+
+  /** Clicking a queued row: it leaves the queue and goes back in the box. */
+  const editQueued = useCallback((id: string) => {
+    const text = sendQueue.edit(id);
+    if (text !== null) {
+      setComposerValue(prev => (prev.trim() ? `${text}\n${prev}` : text));
+    }
+  }, [sendQueue]);
+
   return {
     /** The agent this chat is talking to right now. */
     agent,
@@ -1317,6 +1430,22 @@ export function useChatSession({
     conversationId,
     sendMessage,
     handleStop,
+    /** How the last turn ended — `stopped`/`error` hold the queue instead of flushing it. */
+    turnOutcome,
+    /** Queued messages waiting for the running turn to land, oldest first. */
+    queuedMessages: sendQueue.items,
+    /** True when a stopped or failed turn left the queue unsent. */
+    queueHeld: sendQueue.held,
+    /** Enter mid-turn — append to the queue. */
+    queueMessage,
+    /** The ✕ on a queued row. */
+    dropQueued: sendQueue.drop,
+    /** Click a queued row to pull it back into the composer. */
+    editQueued,
+    /** Acknowledge the "not sent" notice. */
+    releaseQueueNotice: sendQueue.release,
+    /** ⌘⏎ — stop the running turn and send this message right now. */
+    sendNow,
     handlePickSuggestion,
     handleApproveHitl,
     handleRejectHitl,

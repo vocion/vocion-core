@@ -184,7 +184,7 @@ export function WorkspaceSwitcher(props: WorkspaceSwitcherProps) {
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground transition-colors hover:bg-surface-hover"
             >
               <Settings2 className="size-4 text-muted-foreground" aria-hidden />
-              {t('manage_workspace')}
+              {t('workspace_settings')}
             </button>
           </div>
         )}

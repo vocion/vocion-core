@@ -47,6 +47,14 @@ export type AgentSurfaceRequest = {
   /** Prefer this agent for the turn (a briefing's team lead, a team's lead). */
   agentSlug?: string;
   /**
+   * Treat the request as a toggle: a mounted surface that is already open,
+   * and has no intent to apply, collapses instead of re-focusing. The
+   * titlebar control sends this so one button both opens and closes the rail
+   * (the same semantics as ⌘J). A surface that IS the page (the full-page
+   * chat) ignores it — there is nothing to collapse.
+   */
+  toggle?: boolean;
+  /**
    * Long-form text the fallback path carries into the first message when no
    * surface claims the request (the briefing body today). A mounted surface
    * ignores it — the model reaches the record through `page_context`.

@@ -8,14 +8,16 @@ import { MessageSquare, PanelRightClose, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
 import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
-import { Link } from '@/libs/I18nNavigation';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
+import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
+import { useComposerQueueProps } from './composerQueue';
 import { publishDockOpen } from './dockState';
 import { EmptyState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
@@ -24,6 +26,7 @@ import { MessageList } from './MessageList';
 import {
   clampRailWidth,
   defaultRailWidth,
+  RAIL_COMPACT_HEADER_WIDTH,
   RAIL_MAX_FRACTION,
   RAIL_MIN_WIDTH,
   RAIL_SHEET_BREAKPOINT,
@@ -170,6 +173,10 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   // person collapses or opens one; that choice persists per browser (and per
   // user, server-side) and applies on every page (058, §9).
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  // The surface listener is bound once; it reads collapse state through a ref
+  // so a toggle request always sees the rail's current state.
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
   const [width, setWidth] = useState<number>(() => defaultRailWidth(1440));
   // Intent a page affordance handed us (R4): a prompt to prefill and the
   // record / passage it is about. Cleared once a turn goes out. The record
@@ -195,6 +202,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     };
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
+  const queueProps = useComposerQueueProps(session);
   const tagSearch = useTagSearch(agents);
   // Latest session for the request listener (registered once, on mount).
   const sessionRef = useRef(session);
@@ -238,12 +246,22 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   useEffect(() => {
     function onRequest(e: Event) {
       e.preventDefault();
+      const req = agentSurfaceRequestOf(e);
+      // A toggle request with nothing to apply closes an open rail, so the
+      // titlebar control is one button that both opens and collapses. A
+      // request carrying intent always opens — someone asking about a record
+      // means to talk, never to close.
+      if (req.toggle && !collapsedRef.current && req.prompt === undefined && !req.context) {
+        setCollapsed(true);
+        writeCollapsed(true);
+        sessionRef.current.persistRail({ railOpen: false });
+        return;
+      }
       setCollapsed(false);
       writeCollapsed(false);
       sessionRef.current.persistRail({ railOpen: true });
       // Intent (R4): prefill the composer and attach the record / passage the
       // affordance named — one surface, never a second input on the page.
-      const req = agentSurfaceRequestOf(e);
       if (req.prompt !== undefined || req.context) {
         setIntent(req);
         setRecordDismissed(false);
@@ -418,6 +436,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     askHint: t('autonomy_ask_hint'),
     actHint: t('autonomy_act_hint'),
   };
+  // Below this the header has room for the title and four 32px controls, but
+  // not for the rung's label beside them — the chip drops to its icon and the
+  // tooltip carries the words. Read from the width the rail already tracks
+  // rather than a media query, because the rail's width is not the
+  // viewport's; the phone sheet is always compact.
+  const compact = narrow || width < RAIL_COMPACT_HEADER_WIDTH;
 
   // ONE identity (§9.10): unscoped, the rail is titled by the workspace's
   // name with its initial as the mark; scoped, by the record it is about.
@@ -426,37 +450,28 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
 
   const body = (
     <>
-      {/* Scope header — names what this conversation is about, with the one
-          link back to everything (032 §3.1), the history, and the collapse. */}
-      <div className="flex items-center gap-1 border-b border-border px-3 py-2.5 pl-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {!scopeRef && (
-              <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-md bg-foreground text-[10px] font-semibold text-background">
-                {headerName.slice(0, 1).toUpperCase()}
-              </span>
-            )}
-            <span className="truncate text-sm font-semibold">{headerName}</span>
-            {session.autonomy === 'act-within-bounds' && (
-              <span data-testid="autonomy-chip" title={autonomyCopy.actHint} className="shrink-0 rounded-full border border-brand-amber/40 bg-brand-amber-tint px-1.5 py-0.5 text-[10px] font-medium text-brand-amber-deep">
-                {autonomyCopy.act}
-              </span>
-            )}
-          </div>
-          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {/* Scoped: the workspace agent is who answers about this record.
-                Unscoped the header already IS the workspace — no agent name
-                ever appears here (§9.10). */}
-            {scopeRef && workspaceKnown && (
-              <>
-                <span className="truncate">{session.workspaceName}</span>
-                <span>·</span>
-              </>
-            )}
-            <Link href="/dashboard/chat" className="truncate underline underline-offset-2 hover:text-foreground">
-              {t('all_conversations')}
-            </Link>
-          </div>
+      {/* ONE hairline-separated row, 48px tall (2026-09-15): the workspace
+          mark + its name as the title, then four equal 32px ghost controls —
+          history, the autonomy rung, the ⋯ menu, collapse. The underlined
+          "All conversations" link that used to sit under the title read as an
+          error; it is a row in the ⋯ menu now, and the history icon carries
+          the job it was doing. */}
+      {/* In the sheet the close control is absolutely positioned in this
+          corner, so the row keeps clear of it rather than stacking under it. */}
+      <div className={`flex h-12 shrink-0 items-center gap-1 border-b border-border pl-3 ${narrow ? 'pr-11' : 'pr-1.5'}`}>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {!scopeRef && (
+            <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-md bg-brand-amber-tint text-[11px] font-semibold text-brand-amber-deep">
+              {headerName.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className="truncate text-sm font-semibold">{headerName}</span>
+          {/* Scoped: the workspace agent is who answers about this record.
+              Unscoped the header already IS the workspace — no agent name
+              ever appears here (§9.10). */}
+          {scopeRef && workspaceKnown && !compact && (
+            <span className="truncate text-xs text-muted-foreground">{session.workspaceName}</span>
+          )}
         </div>
         {!scopeRef && (
           <HistoryPopover
@@ -467,17 +482,33 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             search={session.searchConversations}
           />
         )}
-        {/* New chat. History has its own popover; there is no agent to pick (§9.10). */}
+        {/* The conversation's rung — a setting, so it lives beside the
+            conversation's name and not inside the composer (§9.7). */}
+        <AutonomyControl
+          value={session.autonomy}
+          onChange={session.setAutonomy}
+          copy={autonomyCopy}
+          label={t('autonomy')}
+        />
+        {/* New chat + all conversations. There is no agent to pick (§9.10). */}
         <ChatMenu onNewChat={session.handleNewChat} />
-        <button
-          type="button"
-          onClick={() => setCollapsedPersisted(true)}
-          aria-label={t('collapse_rail')}
-          title={t('collapse_rail')}
-          className="rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        >
-          <PanelRightClose className="size-4" aria-hidden="true" />
-        </button>
+        {/* The sheet carries its own close control in this corner; a second
+            one underneath it was two buttons in one 32px square. */}
+        {!narrow && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setCollapsedPersisted(true)}
+                aria-label={t('collapse_rail')}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+              >
+                <PanelRightClose className="size-4" aria-hidden="true" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="end" collisionPadding={8}>{t('collapse_rail')}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -580,8 +611,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           value={session.composerValue}
           onChange={session.setComposerValue}
           onSubmit={() => void sendWithComments()}
-          disabled={session.isStreaming || !session.booted}
+          // Streaming no longer disables anything — Enter queues instead.
+          // Boot still does: a message sent before the thread resolves would
+          // be discarded when the restored transcript lands.
+          disabled={!session.booted}
           streaming={session.isStreaming}
+          {...queueProps}
           onStop={session.handleStop}
           placeholder={session.composerPlaceholder}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
@@ -593,9 +628,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onAddTag={session.addContextRef}
           onRemoveTag={session.removeContextRef}
           tagSearch={tagSearch}
-          autonomy={session.autonomy}
-          onAutonomyChange={session.setAutonomy}
-          autonomyCopy={autonomyCopy}
         />
       </div>
     </>

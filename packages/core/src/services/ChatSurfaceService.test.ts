@@ -4,20 +4,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { agentSchema, chatChannelBindingSchema, conversationMessageSchema, conversationSchema } = await import('@/models/Schema');
+const { agentSchema, chatChannelBindingSchema, conversationMessageSchema, conversationSchema, slackPostSchema } = await import('@/models/Schema');
 const svc = await import('@/services/ChatSurfaceService');
 
 const ORG = 'org_chat';
 
-function fakeAdapter(): ChatSurfaceAdapter & { replies: { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string }[] } {
-  const replies: { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string }[] = [];
+type FakeReply = { channelId: string; threadRef?: string; displayName?: string; iconUrl?: string; text: string; images?: { url: string; caption: string }[] };
+
+function fakeAdapter(): ChatSurfaceAdapter & { replies: FakeReply[] } {
+  const replies: FakeReply[] = [];
+  let seq = 0;
   return {
     id: 'slack',
     replies,
     verify: () => ({ ok: true }),
     parse: () => ({ kind: 'ignore', reason: 'n/a' }),
-    reply: async (target, text) => {
-      replies.push({ ...target, text });
+    reply: async (target, message) => {
+      const msg = typeof message === 'string' ? { text: message } : message;
+      replies.push({ ...target, text: msg.text, ...(msg.images ? { images: msg.images } : {}) });
+      seq += 1;
+      return { channelId: target.channelId, ts: `900.${seq}`, ...(target.threadRef ? { threadRef: target.threadRef } : {}), media: 'none' as const };
     },
   };
 }
@@ -36,6 +42,7 @@ async function seedAgent(slug: string, persona?: { displayName?: string; iconUrl
 }
 
 beforeEach(async () => {
+  await db.delete(slackPostSchema);
   await db.delete(conversationMessageSchema);
   await db.delete(conversationSchema);
   await db.delete(chatChannelBindingSchema);
@@ -108,7 +115,9 @@ describe('handleInbound', () => {
 
     expect(first.outcome).toBe('replied');
     expect(adapter.replies).toEqual([{ channelId: 'C1', threadRef: '100.1', text: 'history=0' }]);
-    expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({ orgId: ORG, agentSlug: 'revenue-lead', userId: 'slack:U42', message: 'how is the quarter?' }));
+    // The question travels with a "where I am" note now (thread context), so
+    // the assertion is on the question rather than on the whole message.
+    expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({ orgId: ORG, agentSlug: 'revenue-lead', userId: 'slack:U42', message: expect.stringContaining('how is the quarter?') }));
 
     const second = await svc.handleInbound(adapter, { ...inbound, messageRef: '100.2', text: 'and next quarter?' }, deps);
 
@@ -182,5 +191,36 @@ describe('handleInbound', () => {
 
     expect(out).toMatchObject({ outcome: 'failed', error: 'model down' });
     expect(adapter.replies[0]!.text).toMatch(/Something went wrong/);
+  });
+});
+
+describe('postAnnouncementToChannel', () => {
+  it('posts the announcement WITH its screenshots and remembers what it was announcing', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+
+    const out = await svc.postAnnouncementToChannel(adapter, {
+      orgId: ORG,
+      channelId: 'C1',
+      teamId: 'T1',
+      text: 'Release 2.80.1 is out.',
+      images: [{ url: 'https://cdn.example.test/inbox.png', caption: 'the inbox, now one list' }],
+      announcedLabel: 'Release 2.80.1',
+      announcedUrl: 'https://example.test/releases/2-80-1',
+    });
+
+    expect(out).toMatchObject({ outcome: 'posted', recorded: true });
+    // The screenshots ride in the ORIGINAL post, which is the whole point.
+    expect(adapter.replies[0]!.images).toEqual([{ url: 'https://cdn.example.test/inbox.png', caption: 'the inbox, now one list' }]);
+
+    const [row] = await db.select().from(slackPostSchema);
+
+    expect(row).toMatchObject({ kind: 'announcement', channelId: 'C1', announcedLabel: 'Release 2.80.1', announcedUrl: 'https://example.test/releases/2-80-1' });
+    // A reply to this post can now resolve "this" with no Slack scope at all.
+    expect(row!.images).toHaveLength(1);
+  });
+
+  it('refuses a channel this org has not bound', async () => {
+    expect(await svc.postAnnouncementToChannel(fakeAdapter(), { orgId: ORG, channelId: 'CNOPE', text: 'hi' })).toEqual({ outcome: 'unbound' });
   });
 });

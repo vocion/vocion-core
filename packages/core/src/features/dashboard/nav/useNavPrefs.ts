@@ -38,7 +38,7 @@ export function useNavPrefs() {
     // (the server render has no storage), not a cascading update.
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore
     setPins(readList(PINS_KEY));
-    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- SSR-safe restore
     setDismissed(readList(DISMISSED_KEY));
     let cancelled = false;
     client.nav.getPrefs()

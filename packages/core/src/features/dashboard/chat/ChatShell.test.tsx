@@ -21,11 +21,15 @@ const { ChatShell } = await import('./ChatShell');
 
 /**
  * The chat surfaces read their copy from the `Chat` namespace; tests render inside the provider the shell supplies.
+ *
+ * ChatShell puts its whole control cluster — the speaker chip, History, the
+ * autonomy rung and the ⋯ menu — through `ShellBarActionsPortal` into the
+ * dashboard's top bar, so a bare render drops all of it on the floor: the
+ * portal returns `null` until an outlet has registered a node. The real
+ * layout supplies both; so must the test wrapper.
  * @param ui
  */
 function wrap(ui: React.ReactNode) {
-  // ChatShell portals its ⋯ menu and history popover into the shell bar, so a
-  // bare render has nowhere to put them — supply the provider and its outlet.
   return (
     <NextIntlClientProvider locale="en" messages={en}>
       <ShellBarActionsProvider>
@@ -41,11 +45,7 @@ const AGENTS = [
   { slug: 'specialist', name: 'Pipeline Analyst', icon: 'bot' as const, placeholder: 'Ask…', role: 'specialist' as const },
 ];
 
-beforeEach(async () => {
-  // The rail is a side-by-side column only above RAIL_SHEET_BREAKPOINT (1200px);
-  // vitest's browser viewport defaults to 414px, where the dock is a Sheet and
-  // there is no `complementary` landmark to assert against.
-  await page.viewport(1440, 900);
+beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);
@@ -57,9 +57,10 @@ beforeEach(async () => {
 });
 
 describe('ChatShell', () => {
-  it('names the workspace on the empty state once boot settles', async () => {
-    // §9.10: the surface speaks as the workspace, never as the agent — the
-    // greeting is "Ask <workspace>" and agent names stay out of it.
+  it('names the workspace on the empty state once boot settles, never the agent (§9.10)', async () => {
+    // The surface has one identity and it is the workspace: the greeting is
+    // "Ask <workspace>", and the lead agent that actually answers is not
+    // named anywhere on the page. This test used to assert the opposite.
     await render(wrap(<ChatShell agents={AGENTS} greeting={{ workspace: 'GTM Workspace' }} />));
 
     await expect.element(page.getByText('GTM Workspace').first()).toBeInTheDocument();
@@ -87,7 +88,7 @@ describe('ChatShell', () => {
     expect(client.chatWidget.getState).not.toHaveBeenCalled();
   });
 
-  it('holds a boot skeleton and a disabled composer until the saved-thread lookup settles', async () => {
+  it('holds a boot skeleton and an unarmed Send until the saved-thread lookup settles', async () => {
     // Control exactly when `useLastViewedConversation`'s server round-trip
     // resolves, so we can assert the pre-boot state mid-flight instead of
     // only after everything has already settled. No persisted conversation
@@ -102,15 +103,16 @@ describe('ChatShell', () => {
     await render(wrap(<ChatShell agents={AGENTS} suggestions={[{ label: 'Try this', prompt: 'Do the thing' }]} />));
 
     // Boot is still in flight — the skeleton stands in for the transcript, so
-    // there are no suggestion chips to click yet, and the composer stays
-    // disabled so a message can't be sent (and then silently discarded when
-    // the restored transcript lands).
-    await expect.element(page.getByPlaceholder('Ask anything…')).toBeDisabled();
+    // there are no suggestion chips to click yet, and Send is not armed, so a
+    // message can't be sent (and then silently discarded when the restored
+    // transcript lands). The BOX itself never locks (2026-09-15): people type
+    // their thought while the app catches up.
+    await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
+    await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
     expect(page.getByRole('button', { name: 'Try this' }).elements()).toHaveLength(0);
 
     resolveGetState(null);
 
-    await expect.element(page.getByPlaceholder('Ask anything…')).not.toBeDisabled();
     await expect.element(page.getByRole('button', { name: 'Try this' })).not.toBeDisabled();
   });
 });

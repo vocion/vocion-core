@@ -1,0 +1,22 @@
+-- 0100 — team measures: the outcome/measurement model with provenance
+-- (docs/specs/team-report-v2.md §1–§3). Hand-written, like every migration
+-- since 0066.
+--
+-- Numbered 0100 on purpose: 0094–0099 are claimed by other PRs at the time
+-- of writing, and drizzle applies by journal order.
+--
+-- `team.measures` replaces `team.kpis`. A measure carries a dimension
+-- (outcome / quality / velocity / economics), a target, a window, a
+-- direction, and a `source` that says where the reading comes from —
+-- verified (a system of record through a connector), observed (Vocion saw
+-- the action execute), human-confirmed (a person approved it), or
+-- agent-reported (the worker said so). Attainment, trend, cost per outcome
+-- and human load are derived at read time, never stored.
+--
+-- `team.kpis` stays for one release as the legacy column: apply no longer
+-- writes it, and the report folds its rows in as agent-reported measures
+-- when `measures` is empty. Expand now, contract in a later migration.
+--
+-- Adding a column with a constant default to an existing table is a
+-- catalog-only change in Postgres 11+; no index is built here.
+ALTER TABLE "team" ADD COLUMN IF NOT EXISTS "measures" jsonb DEFAULT '[]'::jsonb NOT NULL;

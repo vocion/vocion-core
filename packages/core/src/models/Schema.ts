@@ -758,6 +758,37 @@ export type TeamKpi = {
   window?: '24h' | '7d' | 'all';
 };
 
+/**
+ * Where a measure's reading comes from (`docs/specs/team-report-v2.md` §2).
+ * Mirrors `MeasureSourceSchema` in `libs/workspace/schemas.ts`; stored as
+ * authored, read by `services/team-report/provenance.ts`.
+ */
+export type TeamMeasureSource
+  = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string } }
+    | { kind: 'verified'; connector: 'web-analytics'; query: { metric: 'sessions' | 'users' | 'conversions' | 'signups'; filter: { pathPrefix?: string; channel?: string; event?: string } } }
+    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' }
+    | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
+    | { kind: 'agent-reported'; counts: string };
+
+/**
+ * One team measure as stored on `team.measures` — the outcome contract's
+ * measurement half. Attainment, trend, cost per outcome and human load are
+ * DERIVED from readings at report time and never stored (manifesto #2).
+ */
+export type TeamMeasure = {
+  key: string;
+  label: string;
+  dimension: 'outcome' | 'quality' | 'velocity' | 'economics';
+  target: number;
+  baseline?: number;
+  unit?: string;
+  window: '24h' | '7d' | '30d' | 'quarter';
+  direction: 'higher' | 'lower';
+  source: TeamMeasureSource;
+  contributesTo?: 'workspace-goal';
+  weight?: number;
+};
+
 export const teamSchema = pgTable(
   'team',
   {
@@ -783,11 +814,18 @@ export const teamSchema = pgTable(
     /** The team's standing goal, authored as `goal:` in teams/<slug>.yaml. */
     goal: text('goal'),
     /**
-     * The measures the team is graded on (F3). Each reads a `worker_run.counts`
-     * key summed over the team's agents, so progress is computed at read
-     * time from what the workers report — never stored. Authored as `kpis:`.
+     * @deprecated Legacy `kpis:` (F3) — worker-reported counts only. Kept for
+     * one release so rows applied before `measures` existed still read; the
+     * report folds them in as `agent-reported` measures when `measures` is
+     * empty. No longer written by apply.
      */
     kpis: jsonb('kpis').$type<TeamKpi[]>().default([]).notNull(),
+    /**
+     * The measures the team is graded on, with provenance (migration 0100).
+     * Authored as `measures:` in teams/<slug>.yaml; a legacy `kpis:` block is
+     * folded in at parse. Readings are computed at report time — never stored.
+     */
+    measures: jsonb('measures').$type<TeamMeasure[]>().default([]).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1267,6 +1305,14 @@ export const conversationSchema = pgTable(
      */
     surface: text('surface').default('app').notNull(),
     /**
+     * Where the conversation STARTED: the page context of its first turn
+     * (path, title, the record the page was about, the highlighted passage).
+     * Set once; later turns carry their own context on the wire only. Null
+     * for threads opened from the hotkey or the full-page chat with nothing
+     * in view. Shape: `PageContext` in services/chat/pageContext.ts.
+     */
+    contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
+    /**
      * How recommended actions behave in this thread (0094): `ask` — each
      * recommendation is a card the person taps into the review queue;
      * `act-within-bounds` — recommendations are proposed as they arrive and
@@ -1276,13 +1322,6 @@ export const conversationSchema = pgTable(
      */
     autonomy: text('autonomy').default('ask').notNull(),
     /**
-     * Where the conversation STARTED: the page context of its first turn
-     * (path, title, the record the page was about, the highlighted passage).
-     * Set once; later turns carry their own context on the wire only. Null
-     * for threads opened from the hotkey or the full-page chat with nothing
-     * in view. Shape: `PageContext` in services/chat/pageContext.ts.
-     */
-    contextJson: jsonb('context_json').$type<import('@/services/chat/pageContext').PageContext>(),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -2039,6 +2078,14 @@ export const learningCandidateSchema = pgTable(
      * human decision covers the whole compaction.
      */
     replacesKeys: jsonb('replaces_keys').$type<string[]>(),
+    /**
+     * Where this came from when it did not come from a `feedback_job` (0102):
+     * a Slack permalink, an ask ref, a conversation. Free text, because the
+     * provenance of "someone told us something" is a URL more often than it is
+     * a row id, and a candidate whose origin is unfindable teaches nobody why
+     * the rule exists.
+     */
+    sourceRef: text('source_ref'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -2471,6 +2518,104 @@ export const trustRuleSchema = pgTable(
   },
   table => [
     uniqueIndex('trust_rule_org_action_idx').on(table.orgId, table.actionId),
+  ],
+);
+
+/**
+ * The autonomy ladder as a first-class object — one row per (org, action id),
+ * the manifesto's "Automation is earned" made into a record. `rung` is where
+ * the action kind stands today (`services/autonomy/rungs.ts`); `risk_tier`
+ * decides how much evidence the next rung takes; `min_confidence` is the
+ * proposal confidence an auto-execution needs once the rung allows one.
+ *
+ * `trust_rule` stays the EXECUTION record ActionService reads. This table is
+ * the POLICY behind it: a promotion to `execute-within-bounds` or above writes
+ * an enabled trust rule at `min_confidence`; any rung below leaves the rule
+ * disabled. `evidence` freezes the alignment numbers the promotion was earned
+ * on, so a later reader can see why. `flagged` marks an automatic demotion
+ * (a rejected auto-execution, or a rejection on a high-risk kind) that a
+ * person has not yet looked at.
+ *
+ * `source` says who last wrote the row: `trust.yaml` on apply, `app` from the
+ * dashboard or the API, `system` for an automatic demotion.
+ */
+export const autonomyPolicySchema = pgTable(
+  'autonomy_policy',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    actionId: text('action_id').notNull(),
+    /** observe | recommend | assist | execute-with-approval | execute-within-bounds | autonomous */
+    rung: text('rung').default('execute-with-approval').notNull(),
+    /** low | medium | high */
+    riskTier: text('risk_tier').notNull(),
+    /** Proposal confidence (0-1) an auto-execution needs; null = the tier default. */
+    minConfidence: real('min_confidence'),
+    promotedAt: timestamp('promoted_at', { mode: 'date' }),
+    promotedBy: text('promoted_by'),
+    /** The alignment numbers the last rung change was decided on. */
+    evidence: jsonb('evidence').$type<Record<string, unknown>>(),
+    flagged: boolean('flagged').default(false).notNull(),
+    flagReason: text('flag_reason'),
+    /** trust.yaml | app | system */
+    source: text('source').default('app').notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('autonomy_policy_org_action_idx').on(table.orgId, table.actionId),
+  ],
+);
+
+/**
+ * The alignment ledger — one row per human decision on something an agent
+ * recommended, so every approve, reject and "other" counts as evidence and not
+ * only as a way to get unblocked (manifesto #6, #8).
+ *
+ * `subject_kind` is `action` (an `action_run`, keyed by action id) or `ask`
+ * (an `ask`, keyed by ask kind). `recommended` is what the agent advised — the
+ * proposal's `suggestedDecision`, or the ask option marked `recommended` — and
+ * `agreed` whether the person chose it. An action proposed with no explicit
+ * recommendation carries an `implicit` approve: an agent only proposes work it
+ * wants run, and the autonomy question is "had this executed without you,
+ * would you have let it", which that answers. The adoption agreement metric
+ * deliberately leaves those out; this ledger deliberately keeps them, labelled.
+ *
+ * `auto_executed` is set when the run had already executed under a trust rule
+ * before the person saw it — a rejection there is the strongest demotion signal
+ * there is. Append-only; the unique index makes a re-decided run idempotent.
+ */
+export const decisionAlignmentSchema = pgTable(
+  'decision_alignment',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** action | ask */
+    subjectKind: text('subject_kind').notNull(),
+    /** The action id, or the ask kind. */
+    subjectKey: text('subject_key').notNull(),
+    /** action_run.id or ask.id */
+    subjectId: integer('subject_id').notNull(),
+    agentSlug: text('agent_slug'),
+    /** approved | edited | rejected | done | other | <option id> */
+    decision: text('decision').notNull(),
+    /** approve | reject | snooze | <option id>; null when nothing was recommended. */
+    recommended: text('recommended'),
+    /** True when `recommended` was inferred (an action proposed without a suggestedDecision). */
+    implicit: boolean('implicit').default(false).notNull(),
+    /** Whether the decision matched the recommendation; null when nothing was recommended. */
+    agreed: boolean('agreed'),
+    /** The recommendation's confidence (0-1) when the agent gave one. */
+    confidence: real('confidence'),
+    autoExecuted: boolean('auto_executed').default(false).notNull(),
+    hasNote: boolean('has_note').default(false).notNull(),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('decision_alignment_subject_decision_idx').on(table.orgId, table.subjectKind, table.subjectId, table.decision),
+    index('decision_alignment_org_key_decided_idx').on(table.orgId, table.subjectKey, table.decidedAt),
+    index('decision_alignment_org_agent_decided_idx').on(table.orgId, table.agentSlug, table.decidedAt),
   ],
 );
 
@@ -3012,6 +3157,12 @@ export type AskOption = {
   label: string;
   description?: string;
   recommended?: boolean;
+  /**
+   * How sure the asker is that this option is the right answer, 0-1. Meant
+   * for the recommended option, so an ask exposes the same confidence +
+   * alignment shape as an action proposal on the sheet. Advisory only.
+   */
+  confidence?: number;
 };
 
 /**
@@ -3115,6 +3266,177 @@ export const chatChannelBindingSchema = pgTable(
   ],
 );
 
+/** An image a Slack post carries: a URL Slack (or a reader) can open, and what it shows. */
+export type SlackPostImage = { url: string; caption: string };
+
+/**
+ * Every message Vocion PUTS INTO Slack (migration 0102) — an announcement, a
+ * reply in a thread, the channel introduction.
+ *
+ * It exists because the `app_mention` payload carries the mention and nothing
+ * else: not the message it replies to. Reading that parent back out of Slack
+ * needs `channels:history` / `groups:history`, and a workspace may never grant
+ * them. When the parent is OUR OWN post — a release announcement somebody
+ * replied "any screenshots to go with this?" to — Vocion should not need a
+ * scope to remember what it said. This table is that memory, and
+ * `announced_label` / `announced_url` are what "this" resolves to.
+ *
+ * Deliberately not folded into `email_thread`: that table is keyed by RFC 5322
+ * Message-ID and requires a `conversation_id`, and an announcement has neither.
+ */
+export const slackPostSchema = pgTable(
+  'slack_post',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id'),
+    /** Slack workspace (`team_id`), when the poster knew it. */
+    teamId: text('team_id'),
+    channelId: text('channel_id').notNull(),
+    /** This message's own Slack timestamp id. */
+    ts: text('ts').notNull(),
+    /** The thread it landed in; null for a post that starts one. */
+    threadTs: text('thread_ts'),
+    /** `announcement` | `reply` | `introduction` */
+    kind: text('kind').default('reply').notNull(),
+    agentSlug: text('agent_slug'),
+    text: text('text').notNull(),
+    /** What the post was announcing — the thing "this" refers to in a reply. */
+    announcedLabel: text('announced_label'),
+    announcedUrl: text('announced_url'),
+    images: jsonb('images').$type<SlackPostImage[]>().default([]).notNull(),
+    /**
+     * True when this post already named the missing Slack scope out loud, so
+     * the sentence is said once per thread instead of on every reply.
+     */
+    degradedNotice: boolean('degraded_notice').default(false).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('slack_post_channel_ts_uq').on(table.channelId, table.ts),
+    index('slack_post_channel_thread_idx').on(table.channelId, table.threadTs),
+    index('slack_post_org_created_idx').on(table.orgId, table.createdAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Artifacts — rendered output as data (0095), live + versioned (0101) */
+/* ------------------------------------------------------------------ */
+
+/**
+ * canvas — DEAD as of migration 0101. The tile grid it saved was replaced by
+ * one live artifact beside the conversation, so nothing reads or writes this
+ * table any more. The declaration stays only so drizzle's model matches the
+ * database until the DROP lands in a later release (CONVENTIONS.md rule 2:
+ * dropping is a contract step). Do not add readers.
+ * @deprecated Unused since 0101; slated for DROP.
+ */
+export const canvasSchema = pgTable(
+  'canvas',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    layout: jsonb('layout').$type<Array<{ artifactId: number; slot: number; span: 1 | 2 | 3 }>>().default([]).notNull(),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    index('canvas_org_updated_idx').on(table.orgId, table.updatedAt),
+  ],
+);
+
+/**
+ * artifact — one live, versioned thing: a data table, a markdown note, a
+ * chart, a record card, a link, or a file. `spec` is the typed card payload
+ * that `libs/cards` renders on the chat and artifact surfaces (validated by
+ * whichever tool or human edit wrote it). `title`/`spec` always mirror the
+ * head `artifact_version` row named by `headVersionId` / `currentVersion`;
+ * `folder` groups it in the log. Files (the `create_artifact` path) keep
+ * their served `url`.
+ *
+ * `canvasId`, `tile` and `pinned` are dead columns from the 0095 tile grid,
+ * kept until the contract migration drops them. Nothing reads them.
+ */
+export const artifactSchema = pgTable(
+  'artifact',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
+    messageId: integer('message_id'),
+    canvasId: integer('canvas_id').references(() => canvasSchema.id, { onDelete: 'set null' }),
+    /** 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
+    url: text('url'),
+    tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
+    pinned: boolean('pinned').default(true).notNull(),
+    /** Head version number (0101). Starts at 1; every edit increments it. */
+    currentVersion: integer('current_version').default(1).notNull(),
+    /** `artifact_version.id` of the head. Nullable only in the instant between the two inserts. */
+    headVersionId: integer('head_version_id'),
+    /** Path-like grouping for the log, e.g. `revenue/weekly`. Flat text, not a tree. */
+    folder: text('folder'),
+    /** Denormalised head author, so the log lists "last editor" without a join. */
+    lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
+    lastAuthorId: text('last_author_id'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  table => [
+    index('artifact_org_conversation_idx').on(table.orgId, table.conversationId, table.createdAt),
+    index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
+    // Built concurrently in production — see concurrent/0101_artifact_org_updated_index.sql.
+    index('artifact_org_updated_idx').on(table.orgId, table.updatedAt),
+  ],
+);
+
+/**
+ * artifact_version — one immutable row per edit of an artifact (0101).
+ *
+ * Both halves of the product write through it: an agent tool call and a
+ * person's Save land the same way, so "who changed this and why" is one
+ * query and one audit trail. Restoring an older version writes a NEW head
+ * version carrying that content; history is never rewritten. Rapid saves by
+ * the same human within ~30s collapse into the head row rather than filling
+ * the menu with keystroke-sized versions.
+ */
+export const artifactVersionSchema = pgTable(
+  'artifact_version',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    artifactId: integer('artifact_id').notNull().references(() => artifactSchema.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    /** Copied from the artifact so a version row reads on its own. */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
+    /** Who wrote it: an agent turn, a person in the pane, or the system (backfill/import). */
+    authorKind: text('author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
+    /** `agent:<slug>` or a user id. */
+    authorId: text('author_id'),
+    /** The agent run this version came out of, when there was one. */
+    runId: text('run_id'),
+    messageId: integer('message_id'),
+    /** One line the version menu shows: "made the third column currency". */
+    changeSummary: text('change_summary'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex('artifact_version_artifact_version_idx').on(table.artifactId, table.version),
+    index('artifact_version_org_artifact_idx').on(table.orgId, table.artifactId, table.createdAt),
+  ],
+);
+
 /**
  * Email threading for the mailbox surface (migration 0097). One row per mail
  * in or out of a conversation, keyed by RFC 5322 Message-ID, so a reply
@@ -3141,67 +3463,5 @@ export const emailThreadSchema = pgTable(
     uniqueIndex('email_thread_org_message_id_uq').on(table.orgId, table.messageId),
     uniqueIndex('email_thread_received_email_id_uq').on(table.receivedEmailId).where(sql`${table.receivedEmailId} IS NOT NULL`),
     index('email_thread_conversation_idx').on(table.conversationId),
-  ],
-);
-
-/* ------------------------------------------------------------------ */
-/* Canvas — rendered output as data (migration 0095)                   */
-/* ------------------------------------------------------------------ */
-
-/**
- * canvas — a named, saved arrangement of artifacts beside a conversation.
- * `layout` mirrors each pinned artifact's `tile` at save time so a canvas can
- * be reopened even after tiles move on the live conversation. Exportable as a
- * workspace page (`libs/canvas/exportPage.ts`).
- */
-export const canvasSchema = pgTable(
-  'canvas',
-  {
-    id: serial('id').primaryKey(),
-    orgId: text('org_id').notNull(),
-    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
-    name: text('name').notNull(),
-    layout: jsonb('layout').$type<Array<{ artifactId: number; slot: number; span: 1 | 2 | 3 }>>().default([]).notNull(),
-    createdBy: text('created_by'),
-    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
-  },
-  table => [
-    index('canvas_org_updated_idx').on(table.orgId, table.updatedAt),
-  ],
-);
-
-/**
- * artifact — one thing an agent rendered: a data table, a markdown note, a
- * chart, a record card, a link, or a file. `spec` is the typed card payload
- * that `libs/cards` renders on the chat and canvas surfaces (validated by the
- * `render_*` tool that wrote it). `tile` is its slot/span on the
- * conversation's canvas; `pinned` = shown there. Files (the pre-0095
- * `create_artifact` path) keep their served `url`.
- */
-export const artifactSchema = pgTable(
-  'artifact',
-  {
-    id: serial('id').primaryKey(),
-    orgId: text('org_id').notNull(),
-    projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
-    conversationId: integer('conversation_id').references(() => conversationSchema.id, { onDelete: 'set null' }),
-    messageId: integer('message_id'),
-    canvasId: integer('canvas_id').references(() => canvasSchema.id, { onDelete: 'set null' }),
-    /** 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' */
-    kind: text('kind').notNull(),
-    title: text('title').notNull(),
-    spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
-    url: text('url'),
-    tile: jsonb('tile').$type<{ slot: number; span: 1 | 2 | 3 }>(),
-    pinned: boolean('pinned').default(true).notNull(),
-    createdBy: text('created_by'),
-    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
-  },
-  table => [
-    index('artifact_org_conversation_idx').on(table.orgId, table.conversationId, table.createdAt),
-    index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
   ],
 );

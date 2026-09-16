@@ -56,7 +56,7 @@ function isNumeric(type: DataTableSpec['columns'][number]['type']): boolean {
 }
 
 export function DataTableCardView({ data, surface }: { data: DataTableSpec; surface: string }) {
-  const dense = surface !== 'canvas';
+  const dense = surface !== 'artifact';
   const [sorting, setSorting] = useState<SortingState>(
     data.sortBy ? [{ id: data.sortBy, desc: data.sortDir !== 'asc' }] : [],
   );
@@ -160,7 +160,7 @@ export const dataTableCard = defineCard({
   slug: DATA_TABLE_SLUG,
   name: 'Data table',
   description: 'Renders rows and typed columns (text, number, currency, percent, date, badge, link) as a sortable table. Use for any list the agent assembled — open deals, runs, contacts — where a person wants to scan and re-sort. Chat shows the first eight rows; the canvas shows all of them.',
-  surfaces: ['chat', 'canvas', 'workflow-run', 'review-queue', 'activity-feed'],
+  surfaces: ['chat', 'artifact', 'workflow-run', 'review-queue', 'activity-feed'],
   dataSchema: dataTableSpecSchema,
   Renderer: ({ data, surface }) => <DataTableCardView data={data} surface={surface} />,
 });

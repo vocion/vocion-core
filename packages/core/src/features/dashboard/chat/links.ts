@@ -22,6 +22,8 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/teams\/([^/?#]+)/, 'team'],
   [/^\/dashboard\/missions\/runs\/([^/?#]+)/, 'mission-run'],
   [/^\/dashboard\/missions\/(?!new$)([^/?#]+)/, 'mission'],
+  [/^\/dashboard\/inbox\/proposal-(\d+)/, 'review'],
+  [/^\/dashboard\/inbox\?kind=proposal/, 'review'],
   [/^\/dashboard\/inbox\/(?:g\/)?([^/?#]+)/, 'ask'],
   [/^\/dashboard\/briefings(?:\/([^/?#]+))?/, 'briefing'],
   [/^\/dashboard\/objects\/(?!type(?:\/|$))([^/?#]+)/, 'object'],

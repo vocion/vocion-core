@@ -112,6 +112,8 @@ export async function getCandidate(orgId: string, id: number): Promise<LearningC
  * @param opts.scopeRef
  * @param opts.sourceFeedbackJobId
  * @param opts.sourceRunId
+ * @param opts.projectId
+ * @param opts.sourceRef
  */
 export async function createCandidate(opts: {
   orgId: string;
@@ -130,6 +132,14 @@ export async function createCandidate(opts: {
   scopeRef?: string | null;
   sourceFeedbackJobId?: number | null;
   sourceRunId?: number | null;
+  /** The workspace this rule belongs to, when the caller knows it. */
+  projectId?: string | null;
+  /**
+   * Where it came from when it came from something other than a feedback job
+   * (0102): a Slack permalink, an ask ref. "Why does this rule exist" is a
+   * question a queue should be able to answer with a link.
+   */
+  sourceRef?: string | null;
 }): Promise<LearningCandidate> {
   const ruleText = opts.ruleText.trim();
   if (!ruleText) {
@@ -147,6 +157,8 @@ export async function createCandidate(opts: {
       scopeRef: opts.scopeRef ?? null,
       sourceFeedbackJobId: opts.sourceFeedbackJobId ?? null,
       sourceRunId: opts.sourceRunId ?? null,
+      projectId: opts.projectId ?? null,
+      sourceRef: opts.sourceRef ?? null,
       status: 'pending',
     })
     .returning();

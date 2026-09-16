@@ -64,7 +64,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             Your session points at a workspace that no longer exists (the database
             was reset or restored). Sign in again to continue.
           </p>
-          { }
+          {/* eslint-disable-next-line next/no-html-link-for-pages -- an Auth.js route handler, not a page */}
           <a
             href="/api/auth/signout"
             className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"

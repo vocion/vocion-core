@@ -44,9 +44,27 @@ export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn' | 'extr
  *
  * Bedrock ids decorate the model name (`us.anthropic.claude-sonnet-5-v1:0`),
  * so the match is deliberately a substring rather than an exact id.
+ * @param model
  */
 export function anthropicOmitsSampling(model: string): boolean {
   return /claude-(?:opus-4-[78]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
+}
+
+/**
+ * Whether this Anthropic model takes ADAPTIVE thinking rather than a token
+ * budget.
+ *
+ * From 4.6 the API's thinking control is `{ type: 'adaptive' }`: the model
+ * decides how much to think per request. `budget_tokens` is deprecated on
+ * 4.6 and answered with a 400 from 4.7 up, and so is the `temperature: 1`
+ * the budgeted form used to require. Older models still need the budgeted
+ * form. The 4.6 line here is deliberately one generation earlier than
+ * `anthropicOmitsSampling`'s 4.7: adaptive is *supported* on 4.6, so there
+ * is no reason to keep sending it a deprecated shape.
+ * @param model
+ */
+export function anthropicAdaptiveThinking(model: string): boolean {
+  return /claude-(?:sonnet-4-6|opus-4-[678]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
 }
 
 export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
@@ -283,10 +301,25 @@ export function buildChatModel(
         throw new Error(`ANTHROPIC_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
       const thinkingBudget = resolveThinkingBudget(role);
+      if (thinkingBudget !== null && anthropicAdaptiveThinking(model)) {
+        // 4.6+: the switch is still VOCION_THINKING_BUDGET (set = on), but the
+        // number is not sent — the model sizes its own thinking. No
+        // `temperature` either: 4.7+ reject it, and thinking never took a
+        // value other than the default anyway. This branch was `enabled` +
+        // `budget_tokens` + `temperature: 1` until 2026-09-15, all three of
+        // which 4.7+ answer with a 400.
+        return withReplay(new ChatAnthropic({
+          model,
+          streaming,
+          apiKey,
+          thinking: { type: 'adaptive' },
+          ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        }));
+      }
       if (thinkingBudget !== null) {
         return withReplay(new ChatAnthropic({
           model,
-          // Extended thinking requires temperature 1 — override the
+          // Pre-4.6: budgeted thinking requires temperature 1 — override the
           // deterministic default 0 ONLY on this opt-in path.
           temperature: 1,
           streaming,

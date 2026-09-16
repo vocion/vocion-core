@@ -349,7 +349,7 @@ export const writeFile = os
  * neither the map nor WORKSPACE_PATH is configured.
  * @param projectId
  */
-async function workspacePathForProject(projectId: string): Promise<string | null> {
+export async function workspacePathForProject(projectId: string): Promise<string | null> {
   const [proj] = await db
     .select({ slug: projectSchema.slug })
     .from(projectSchema)

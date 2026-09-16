@@ -48,7 +48,7 @@ export const RECORD_ROUTES: RegExp[] = [
 
 /**
  * The full-page chat IS the conversation; no dock, no button (058 §6). That
- * includes one conversation expanded beside its canvas
+ * includes one conversation expanded beside its artifact
  * (`/dashboard/chat/<id>`), which carries its own transcript and composer.
  * @param pathname
  */
@@ -86,6 +86,8 @@ function routeOf(pathname: string): string {
 export function PageDock({ agents }: { agents: AgentOption[] }) {
   const pathname = routeOf(usePathname());
   const [title, setTitle] = useState('');
+  // The record the page declared (R4) — travels as `page_context.record`.
+  const { record } = usePageRecord();
   // `?conversation=<id>` names a thread to resume (§9) — one of the two
   // intentional returns. Read from the location rather than
   // `useSearchParams` so the shell needs no Suspense boundary.
@@ -94,8 +96,6 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
     setResumeId(parseConversationParam(new URLSearchParams(window.location.search).get('conversation')));
   }, [pathname]);
-  // The record the page declared (R4) — travels as `page_context.record`.
-  const { record } = usePageRecord();
 
   // The document title settles after the route commits; read it then, and
   // again if the page changes it (a record page titles itself after loading).

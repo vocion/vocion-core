@@ -10,8 +10,13 @@ export type PinnableItem = {
   url: string;
   icon: LucideIcon;
   /** Where the item came from — decides which group it sits in when unpinned. */
-  origin: 'page' | 'canvas' | 'manage';
+  origin: 'page' | 'manage';
   badge?: number;
+  /**
+   * The tabs of a combined page (Teams & agents → Agents). Shown as sub-rows
+   * beneath the item while that page is open; each is pinnable on its own.
+   */
+  tabs?: PinnableItem[];
 };
 
 /**

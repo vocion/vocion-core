@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anthropicOmitsSampling } from './langchain';
+import { anthropicAdaptiveThinking, anthropicOmitsSampling } from './langchain';
 
 describe('anthropicOmitsSampling', () => {
   it('omits for the 5 family, which answers a sampling parameter with a 400', () => {
@@ -32,5 +32,30 @@ describe('anthropicOmitsSampling', () => {
     expect(anthropicOmitsSampling('us.anthropic.claude-sonnet-5-v1:0')).toBe(true);
     expect(anthropicOmitsSampling('us.anthropic.claude-opus-4-8-v1:0')).toBe(true);
     expect(anthropicOmitsSampling('us.anthropic.claude-sonnet-4-6-v1:0')).toBe(false);
+  });
+});
+
+describe('anthropicAdaptiveThinking', () => {
+  it('is adaptive from 4.6 up, one generation before sampling parameters are refused', () => {
+    // 4.6 deprecated budget_tokens and supports adaptive, so there is no
+    // reason to keep sending it the deprecated shape.
+    expect(anthropicAdaptiveThinking('claude-sonnet-4-6')).toBe(true);
+    expect(anthropicAdaptiveThinking('claude-opus-4-6')).toBe(true);
+    expect(anthropicAdaptiveThinking('claude-opus-4-7')).toBe(true);
+    expect(anthropicAdaptiveThinking('claude-sonnet-5')).toBe(true);
+    expect(anthropicAdaptiveThinking('claude-fable-5-1')).toBe(true);
+    expect(anthropicAdaptiveThinking('us.anthropic.claude-opus-5-v1:0')).toBe(true);
+  });
+
+  it('keeps the budgeted form for older Claude, which has no adaptive mode', () => {
+    expect(anthropicAdaptiveThinking('claude-3-7-sonnet-20250219')).toBe(false);
+    expect(anthropicAdaptiveThinking('claude-haiku-4-5-20251001')).toBe(false);
+  });
+
+  it('every model that refuses sampling parameters is also adaptive — never budget_tokens on 4.7+', () => {
+    for (const m of ['claude-opus-4-7', 'claude-opus-4-8', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5-1', 'claude-mythos-5-1']) {
+      expect(anthropicOmitsSampling(m)).toBe(true);
+      expect(anthropicAdaptiveThinking(m)).toBe(true);
+    }
   });
 });

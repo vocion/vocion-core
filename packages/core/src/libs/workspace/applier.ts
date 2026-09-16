@@ -226,6 +226,13 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
           enabled: String(r.enabled),
         })));
       }
+      // The autonomy ladder behind those rules: rung + risk per authored
+      // action (`rung:` / `risk:` on a rule, or the top-level `risk:` map).
+      // In-app promotions of kinds the file does not name are left alone.
+      const { syncPoliciesFromManifest } = await import('@/services/autonomy/AutonomyService');
+      for (const problem of await syncPoliciesFromManifest(orgId, loaded.trust)) {
+        errors.push({ resource: 'trustRule', slug: problem.action, message: problem.message });
+      }
     } catch (err) {
       errors.push({ resource: 'trustRule', slug: 'trust.yaml', message: (err as Error).message });
     }
@@ -652,9 +659,10 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     // workspace default is inherited at read time, never baked in here.
     accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
     goal: team.goal ?? null,
-    // Declarative like the rest: authored KPIs land wholesale, an omitted
-    // block clears the column.
-    kpis: team.kpis,
+    // Declarative like the rest: authored measures land wholesale (a legacy
+    // `kpis:` block is already folded in by the schema), an omitted block
+    // clears the column. The deprecated `kpis` column is no longer written.
+    measures: team.measures,
   };
 
   if (!existing) {
@@ -670,7 +678,7 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
     && (existing.goal ?? null) === payload.goal
-    && JSON.stringify(existing.kpis ?? []) === JSON.stringify(payload.kpis)
+    && JSON.stringify(existing.measures ?? []) === JSON.stringify(payload.measures)
   ) {
     return 'unchanged';
   }

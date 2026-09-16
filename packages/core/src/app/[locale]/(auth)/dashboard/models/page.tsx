@@ -1,8 +1,10 @@
+import type { Metadata } from 'next';
 import { Cpu, ExternalLink } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
+import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { visionModelsReport } from '@/services/VisionModelService';
 
@@ -12,9 +14,13 @@ import { visionModelsReport } from '@/services/VisionModelService';
  * status, F1, per-label precision/recall, training time), its datasets,
  * the training set on disk per template, and usage of both engines from the
  * tool-call record. Read-only except the start/stop switch.
+ *
+ * The Vision models tab of "Skills & tools" — a tool provider, not a
+ * top-level concept (nav sweep, 2026-09-15).
  */
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: combinedPageTitle('/dashboard/models') };
 
 const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : '—');
 const pct = (n: number | null | undefined) => (typeof n === 'number' ? `${Math.round(n * 100)}%` : '—');
@@ -38,7 +44,7 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
-    return <TitleBar title="Vision models" description="Sign in to an organization to see its models." />;
+    return <CombinedPageHeader active="/dashboard/models" description="Sign in to an organization to see its models." />;
   }
   const r = await visionModelsReport(orgId);
   const consoleUrl = r.classifier.projectArn
@@ -47,7 +53,7 @@ export default async function ModelsPage(props: { params: Promise<{ locale: stri
 
   return (
     <>
-      <TitleBar title="Vision models" description="The engines behind Analyze — what is trained, on what, how it scored, and how much each has been used." />
+      <CombinedPageHeader active="/dashboard/models" description="The engines behind Analyze — what is trained, on what, how it scored, and how much each has been used." />
 
       <div className="mt-4 space-y-6">
         <VisionEngineControl />

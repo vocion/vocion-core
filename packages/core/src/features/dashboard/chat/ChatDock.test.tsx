@@ -39,11 +39,7 @@ const AGENTS = [
 const SCOPE = 'contacts:9412';
 const COLLAPSE_KEY = 'vocion_chat_dock_collapsed';
 
-beforeEach(async () => {
-  // The rail is a side-by-side column only above RAIL_SHEET_BREAKPOINT (1200px);
-  // vitest's browser viewport defaults to 414px, where the dock is a Sheet and
-  // there is no `complementary` landmark to assert against.
-  await page.viewport(1440, 900);
+beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   vi.mocked(client.chatWidget.getState).mockReset().mockResolvedValue(null);
@@ -148,7 +144,9 @@ describe('ChatDock', () => {
 
     await userEvent.keyboard('{Escape}');
 
-    await userEvent.click(page.getByRole('button', { name: 'History' }));
+    // The history trigger is named "Conversations" since #345 — it is the
+    // way to the thread list, not a label for the icon.
+    await userEvent.click(page.getByRole('button', { name: 'Conversations' }));
 
     await expect.element(page.getByRole('button', { name: /Earlier about the queue/ })).toBeVisible();
   });
@@ -215,12 +213,22 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('complementary')).not.toBeInTheDocument();
   });
 
-  it('defaults to open, with the scope in the header and the back-to-everything link', async () => {
+  it('defaults to open, with the scope as the header title and no underlined link under it', async () => {
     await render(wrap(<ChatDock agents={AGENTS} scopeRef={SCOPE} scopeLabel="Pete Laverick" />));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation about Pete Laverick' })).toBeInTheDocument();
     await expect.element(page.getByText('Pete Laverick')).toBeInTheDocument();
-    await expect.element(page.getByRole('link', { name: 'All conversations' })).toBeInTheDocument();
+    // The back-to-everything link left the header on 2026-09-15 — it read as
+    // an error and cost the header a second line. It is a row in the ⋯ menu.
+    await expect.element(page.getByRole('link', { name: 'All conversations' })).not.toBeInTheDocument();
+  });
+
+  it('puts the autonomy rung in the header, not in the composer', async () => {
+    await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" />));
+
+    // The chip names the current rung; the composer has one action left.
+    await expect.element(page.getByTestId('autonomy-chip')).toBeInTheDocument();
+    await expect.element(page.getByRole('radiogroup', { name: 'Autonomy' })).not.toBeInTheDocument();
   });
 
   it('resumes the user\'s scoped conversation instead of the global pointer', async () => {

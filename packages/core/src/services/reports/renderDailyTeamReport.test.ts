@@ -1,7 +1,7 @@
 import type { DailyTeamReportData } from './dailyTeamReportShape';
 import { describe, expect, it } from 'vitest';
 import { shapeDailyTeamReport } from './dailyTeamReportShape';
-import { compactTokens, renderDailyTeamReport, reportSections, subjectFor, usd } from './renderDailyTeamReport';
+import { compactTokens, performanceLine, renderDailyTeamReport, reportSections, reviewTime, subjectFor, usd } from './renderDailyTeamReport';
 
 const T0 = new Date('2026-09-15T13:00:00Z');
 const T_MINUS_24H = new Date('2026-09-14T13:00:00Z');
@@ -40,6 +40,38 @@ function fixture(): DailyTeamReportData {
     workspace: { id: 'proj-x', name: 'Vocion Workforce', slug: 'vocion-workforce', accountableEmail: 'chris@example.com' },
     window: { since: T_MINUS_24H, until: T0 },
     ...shaped,
+    performance: {
+      goal: 'Be found first for AI-workforce-in-production.',
+      setupNeeded: false,
+      teamsOnTarget: { onTarget: 1, measured: 2 },
+      goalProgress: 0.875,
+      humanReviewMs: 138 * 60_000,
+      autoCompletedRate: 0.78,
+      needsAttention: 3,
+      teams: [
+        {
+          slug: 'executive',
+          name: 'Executive',
+          mission: 'Ship the record every cycle.',
+          primary: { label: 'Merged PRs', value: 8, target: 10, unit: 'PRs', attainment: 0.8, met: false, provenance: 'human-confirmed', trend: 'up', delta: 3, window: '7d' },
+          humanLoad: { interventions: 12, reviewMs: 17 * 60_000, interventionRate: 0.14, autonomousCompletionRate: 0.5 },
+          cents: 4_912,
+          costPerOutcomeCents: 614,
+          needsYou: 2,
+        },
+        {
+          slug: 'content',
+          name: 'Content',
+          mission: 'Posts that rank.',
+          primary: { label: 'Posts published', value: 3, target: 3, unit: 'posts', attainment: 1, met: true, provenance: 'agent-reported', trend: 'flat', delta: 0, window: '7d' },
+          humanLoad: { interventions: 0, reviewMs: 0, interventionRate: 0, autonomousCompletionRate: null },
+          cents: 1_400,
+          costPerOutcomeCents: 1_400 / 3,
+          needsYou: 0,
+        },
+        { slug: 'board', name: 'Board', mission: null, primary: null, humanLoad: { interventions: 0, reviewMs: 0, interventionRate: null, autonomousCompletionRate: null }, cents: 3_130, costPerOutcomeCents: null, needsYou: 1 },
+      ],
+    },
     needsYou: { pendingActions: 2, runsAwaitingReview: 1, runsPaused: 0, pendingLearningCandidates: 3, openAsks: 7, total: 13 },
     rollup: {
       id: 41,
@@ -105,9 +137,9 @@ describe('renderDailyTeamReport', () => {
     expect(subjectFor(fixture())).toBe('Team report — Vocion Workforce — Tuesday, Sep 15');
   });
 
-  it('answers the manifesto\'s four questions, in order, before the table and the evidence', () => {
+  it('leads with performance, then answers the manifesto\'s four questions, before the table and the evidence', () => {
     const r = renderDailyTeamReport(fixture());
-    const order = ['What changed', 'What needs me', 'Are we on track', 'What happens next', 'From the workspace briefing', 'Teams and members', 'Evidence']
+    const order = ['Performance', 'What changed', 'What needs me', 'Are we on track', 'What happens next', 'From the workspace briefing', 'Teams and members', 'Evidence']
       .map(h => r.markdown.indexOf(`## ${h}`));
 
     expect(order.every(i => i >= 0)).toBe(true);
@@ -115,6 +147,40 @@ describe('renderDailyTeamReport', () => {
     // tokens / cents are evidence, not the lead
     expect(r.markdown.indexOf('7.2M')).toBeGreaterThan(r.markdown.indexOf('## Evidence'));
     expect(r.markdown.indexOf('$140')).toBeGreaterThan(r.markdown.indexOf('## Evidence'));
+    // no file paths in the mail
+    expect(r.markdown).not.toContain('kpis:');
+    expect(r.markdown).not.toContain('.yaml');
+  });
+
+  it('performance: goal attainment per team with provenance, human load, cost per outcome, needs-attention count', () => {
+    const s = reportSections(fixture());
+
+    expect(s.performance.setup).toBeNull();
+    expect(s.performance.headline).toEqual([
+      'Goal: Be found first for AI-workforce-in-production.',
+      '**1 / 2** teams on target · **88%** goal progress · **2h 18m** human review · **78%** of work needed nobody · **3** need attention',
+    ]);
+    expect(s.performance.teams[0]).toBe('**Executive** — 8 / 10 Merged PRs · 80% of weekly target · ↑3 vs prior · human-confirmed · 17 min review over 12 interventions · $6.14/PR · **2 items need you**');
+    expect(s.performance.teams[1]).toBe('**Content** — 3 / 3 Posts published · 100% of weekly target ✓ · agent-reported — the worker\'s own count · no human interventions · $4.67/post');
+    expect(s.performance.teams[2]).toBe('**Board** — no measure yet · no human interventions · $31.30 operating cost · **1 item needs you**');
+    expect(performanceLine({ slug: 'q', name: 'Quiet', mission: null, primary: null, humanLoad: { interventions: 0, reviewMs: 0, interventionRate: null, autonomousCompletionRate: null }, cents: 0, costPerOutcomeCents: null, needsYou: 0 })).toBe('**Quiet** — no measure yet · no human interventions · no spend in the window');
+    expect(reviewTime(0)).toBe('0');
+    expect(reviewTime(20_000)).toBe('<1 min');
+    expect(reviewTime(46 * 60_000)).toBe('46 min');
+    expect(performanceLine({ slug: 'x', name: 'X', mission: null, primary: { label: 'Pipeline', value: 417_000, target: 1_500_000, unit: '$', attainment: 0.278, met: false, provenance: 'verified', trend: null, delta: null, window: 'quarter' }, humanLoad: { interventions: 1, reviewMs: 60_000, interventionRate: null, autonomousCompletionRate: null }, cents: 38_400, costPerOutcomeCents: null, needsYou: 0 }))
+      .toBe('**X** — $417,000 / $1,500,000 Pipeline · 28% of quarterly target · verified · 1 min review over 1 intervention · $384 operating cost');
+  });
+
+  it('performance: setup copy when the workspace is not measured, and when the read failed', () => {
+    const d = fixture();
+    d.performance = { ...d.performance!, setupNeeded: true, goal: null };
+
+    expect(reportSections(d).performance.setup).toMatch(/state the workspace outcome/);
+
+    delete d.performance;
+
+    expect(reportSections(d).performance.setup).toBe('Team performance could not be read for this window.');
+    expect(renderDailyTeamReport(d).markdown).toContain('_Team performance could not be read for this window._');
   });
 
   it('derives outcome-first sections from the data', () => {
@@ -132,7 +198,7 @@ describe('renderDailyTeamReport', () => {
       '29% of runs failed or went lost (2 of 7).',
       '1 run is stalled on a person — work is waiting, not moving.',
       'CEO carried 66.4% of the spend — one role is most of the bill.',
-      'KPI targets appear here once the workspace declares them (`kpis:` on a team).',
+      '1 team is under target — Executive.',
     ]);
     expect(s.next[0]).toContain('[inbox](https://agents.example.com/w/vocion-workforce/dashboard/inbox)');
     expect(s.next[1]).toContain('next report lands in 24 hours');
@@ -145,6 +211,7 @@ describe('renderDailyTeamReport', () => {
     quiet.teams = quiet.teams.map(t => ({ ...t, members: t.members.map(m => ({ ...m, failed: 0, weightPct: 20 })) }));
     quiet.totals = { ...quiet.totals, failed: 0 };
     quiet.needsYou = { pendingActions: 0, runsAwaitingReview: 0, runsPaused: 0, pendingLearningCandidates: 0, openAsks: 0, total: 0 };
+    quiet.performance = { ...quiet.performance!, teams: quiet.performance!.teams.map(t => (t.primary ? { ...t, primary: { ...t.primary, met: true } } : t)) };
     const s = reportSections(quiet);
 
     expect(s.onTrack.status).toBe('on-track');

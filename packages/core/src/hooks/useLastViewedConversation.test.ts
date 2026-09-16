@@ -27,7 +27,10 @@ afterEach(() => {
 });
 
 describe('useLastViewedConversation', () => {
-  it('resolves the server value and mirrors it into localStorage', async () => {
+  // The pointer carries the rail's saved geometry as well as the thread
+  // (0094): the hook spreads the whole server row, so `railWidth`/`railOpen`
+  // reach both hook state and the localStorage mirror.
+  it('resolves the server value and mirrors it into localStorage, rail geometry included', async () => {
     const updatedAt = new Date('2026-08-06T12:00:00.000Z');
     vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'gtm-orchestrator', conversationId: 42, updatedAt, railWidth: null, railOpen: null });
 

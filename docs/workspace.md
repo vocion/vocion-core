@@ -38,7 +38,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 ```
 <workspace-dir>/
 ├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin
-├── trust.yaml                    # which actions may auto-execute, and above what confidence
+├── trust.yaml                    # which actions may auto-execute, above what confidence, at which rung / risk tier
 ├── agents/
 │   ├── <agent>.yaml              # agent metadata + refs
 │   └── <agent>.system-prompt.md  # long-form system prompt
