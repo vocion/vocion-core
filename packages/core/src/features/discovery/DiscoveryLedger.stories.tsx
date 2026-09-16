@@ -209,6 +209,7 @@ const ENTRIES: DiscoveryEntry[] = [
     when: '2026-09-13T13:00:00.000Z',
     matchedAt: '2026-09-13T13:30:00.000Z',
     classifiedAt: '2026-09-13T13:31:00.000Z',
+    matchReason: 'Attendee domain matches HubSpot company companies:77',
     classifierVersion: 'claude-haiku-4-5-20251001#discovery-v1',
     route: 'confirm',
     recommendedAction: 'continue-discovery',

@@ -2,9 +2,11 @@
 
 # Discovery Ledger v2 — CEO product review (Chris Fitkin, 2026-09-16)
 
-Verbatim, with customer names, people and email addresses replaced by fixtures:
-Plutus Health → Northwind Health · Gauge Capital → Kestrel Capital · Project Ranger → Project Ranger (kept, generic)
-Sam Smith / ssmith@gaugecapital.com → Dana Reyes / dreyes@kestrelcapital.example · Metacto → Acme
+Verbatim, except that every customer, company, person and email address below
+is a fixture. The review as written named two real accounts, a real contact and
+their real email address; the mapping from those to the fixtures is deliberately
+NOT recorded here, because writing it down would put the originals back in the
+repository — which is the one thing the substitution exists to prevent.
 
 ## Core diagnosis
 
