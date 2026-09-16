@@ -54,7 +54,7 @@ ListPage ───────────────────────�
   ListToolbar ─────────────────────────────────────────────────────────
   Review 12   Hand off 3   Held 1   Sent 40   All 56   [🔍 Find…] Sort ▾ ↓
   ───────────────────────────────────────────────────────────────────── (hairline)
-  [chip · n] [chip · n] [chip · n]            (chips: category filter, optional)
+  [All · n] [chip · n] [chip · n] [+3 more ▾]  (chips: ONE line, always)
 
   ListRows (divide-y hairlines)
   ┌ ListRow (44px) ────────────────────────────────────────────────────┐
@@ -78,15 +78,82 @@ ListPage ───────────────────────�
   (hover/focus-revealed; always visible on touch). A `href` makes it a link
   with a chevron; `onClick` makes it a button.
 - `Column` + `COLUMN` — the width convention. `score` (w-32, "speculative
-  0.42"), `number` (w-16), `date` (w-24), `status` (w-28), `chip` (w-24).
-  Pick by meaning so a score here sits where a score there does; numbers
-  are `tabular-nums` and right-aligned.
+  0.42"), `number` (w-16), `amount` (w-20), `date` (w-24), `status` (w-28),
+  `chip` (w-24). Pick by meaning so a score here sits where a score there
+  does; numbers are `tabular-nums` and right-aligned.
+- `ChipRow` — the category chips, on ONE line. It measures the real widths
+  and folds the overflow into a "+N more" menu; pinned ("All") and active
+  chips are laid out first, so a chip you turned on never hides. `fitChips`
+  is the pure rule and is unit-tested. `ListToolbar.chips` renders through
+  it; nothing hand-rolls a chip.
 - `ListEmpty` — `page` (icon, title, one action) when the list is empty;
   `inline` (one muted line) when the filter is.
 
-`components/ui/list-row` stays the catalog row (icon · title · meta ·
-chevron) for Skills, Tools, Learnings; it shares the container, height and
-tokens with the pattern row.
+## One list
+
+> Chris, 2026-09-15: "it feels like we're getting a lot of different
+> row/table/record treatments. One of the underlying principles of our
+> manifesto is unified UI/UX and simplicity through shared components. THIS
+> SHOULD FEEL LIKE ONE APPLICATION NOT FIVE."
+
+**Every list in the dashboard renders its records through one `ListRow`.**
+There is no second row component: `components/ui/list-row` is gone, and its
+consumers (Artifacts, Learnings) render through `patterns/ListRow` like
+everything else. Two lists should read as the same component with different
+data, not as two treatments.
+
+This is Manifesto **§4 (simple beats flexible)** — one row with a few props
+beats five bespoke row layouts — and **§19 (extend the core; keep specifics
+at the edge)**: a page that needs something the row does not do *extends the
+row*, in `components/patterns`, where every other page gets it too. It does
+not fork one locally.
+
+### Row anatomy
+
+```
+┌ ListRow — at least 44px, hairline above and below, no border of its own ─┐
+│ [icon] Title                    [risk]     col    col    col   ● Chip  ⟨acts⟩ │
+│        segment · segment · segment                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **icon** — optional, 32px soft tile. The kind of thing, not decoration.
+- **title** — one line, truncated, `text-sm font-medium`.
+- **subline** — a `<Subline>`: segments joined by `›` (a hierarchy) or `·`
+  (a list of facts). Empty segments are dropped, so a missing fact leaves no
+  dangling separator. One line, truncated.
+- **columns** — right-aligned `<Column>`s at the `COLUMN` widths, in a fixed
+  order per page, `tabular-nums`, hidden below `sm` unless `always`.
+- **chip** — the row's state, always visible.
+- **actions** — hover- and focus-revealed verbs. Always visible on touch.
+  When a row both navigates and has actions, the link covers the record and
+  the verbs sit beside it — never a button inside an anchor.
+
+### Header and filter anatomy
+
+Every list page is a `ListPage` + a `ListToolbar`:
+
+```
+Title                                                          [actions]
+One context line — what this list is and where it comes from.
+─────────────────────────────────────────────────────────────────────────
+Lane 12   Lane 3   Lane 40      [🔍 Find…]  Sort ▾  ↓      trailing
+[All · 56] [chip · 12] [chip · 9] [+4 more ▾]
+```
+
+- ONE title line and ONE context line. No second description paragraph.
+- ONE row of chips, never two. The overflow is a measured "+N more" menu
+  (`ChipRow`), not a wrap.
+- Search is the toolbar's search box. Client-filtered lists pair it with
+  `useListUrlState`; a server-filtered list (Search) makes the same box
+  navigate instead — same control, same place.
+
+### The rule
+
+**A new page renders its rows through `ListRow`, or its PR says why not.**
+"Why not" is a real answer for a matrix of numbers a person scans across
+(the adoption and autonomy tables), or for a canvas. It is not an answer for
+"this list needed one more column".
 
 ## Detail
 
@@ -221,14 +288,29 @@ and `useListUrlState`.
 9. Add a story under the page's feature folder; keep the existing tests
    passing (they assert text, not chrome).
 
-### Remaining pages, in order
+### Where every list stands
 
-| Page | Archetype | Notes |
+Audited 2026-09-16. "On `ListRow`" means the page renders its records through
+`patterns/ListRow`; anything else is a treatment we still owe the rule above.
+
+| Surface | Renders today | Status |
 |---|---|---|
-| Needs you detail (`/dashboard/inbox/<ref>`) | Detail | `ReviewFocusView` already follows the shape; adopt `DetailPage` + `useReviewDecision`, and `ReviewActionCard` drops its copy of the decide wiring |
-| Agents (`/dashboard/agents`) | List → Detail | Rows: name › team; columns: runs, last active; chip: status |
-| Missions (`/dashboard/missions`) | List → Detail | Columns: KPI, target, last run; the mission page is a Detail with a Ledger section of runs |
-| Artifacts (`/dashboard/artifacts`) | List | Rows with a kind icon; columns: updated |
-| Activity (`/dashboard/activity`) | Ledger | Day groups; verdict = event kind; provenance = agent · run |
-| Team report evidence (`/dashboard/team-report`) | Ledger | Each cited row is an entry with its score chips and a link to the source |
-| Inbox (`/dashboard/inbox`) | List | Already hairline rows (#335); align its columns to `COLUMN` |
+| Search (`/dashboard/search`) | `ListPage` + `ListToolbar` + `ListRow` | **On `ListRow`** |
+| Search document (`/dashboard/search/[documentId]`) | `DetailPage` | **On Detail** |
+| Needs you (`/dashboard/inbox`) | `ListRows` + `ListRow` | **On `ListRow`** |
+| Artifacts (`/dashboard/artifacts`) | `ListRows` + `ListRow` | **On `ListRow`** |
+| Learnings (`/dashboard/learnings`) | `ListRows` + `ListRow` | **On `ListRow`** (the "Recent decisions" block below it is still cards) |
+| Personalization (`/gtm/personalization`) | `ListPage` + `ListToolbar` + `ListRow` | **On `ListRow`** |
+| Discovery (`/gtm/discovery`) | Ledger (`LedgerEntry`) | **On Ledger** — a richer read-mostly row by design |
+| Conversations | day-bucketed hairline rows inside a bordered card | Owed — List; day buckets stay, the card goes |
+| Activity | hairline rows inside one bordered box, three chip rows | Owed — Ledger; the chip rows become one `ChipRow` |
+| Briefings | bordered cards for previous briefs | Owed — List for the archive; the brief itself is prose |
+| Skills / Tools / Models | hairline rows in a bordered box (Skills); card grids (Tools); raw tables (Models) | Owed — List |
+| Teams / Agents / Missions / Workflows / Objects / Evals / Automation | card grids | Owed — List; a card grid hides the columns that let you compare |
+| Connectors | 2-col card grid (`SourcesPanel`) | Owed — List; the largest single migration (one 2,800-line component) |
+| Members | shadcn `Table` | Owed — List; the only shadcn `Table` left |
+| Team report roster (`MemberTable`) | raw `<table>`, 8 columns | **Left as a table.** A per-member cost/usage matrix is scanned across columns, not down rows; §4 says one obvious reading, and for this the reading is the grid |
+| Adoption, Autonomy, Automation runs | raw `<table>`s | **Left as tables**, same reason: they are matrices with sortable columns, not queues of records |
+
+The owed migrations are one follow-up PR each, in that order; nothing in the
+list needs a pattern the library does not already have.

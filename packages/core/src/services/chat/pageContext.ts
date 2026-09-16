@@ -34,6 +34,8 @@ export const RECORD_TYPES = [
   'conversation',
   /** The artifact open beside the conversation — what "this table"/"the doc" means. */
   'artifact',
+  /** An ingested knowledge document — a Search result opened on its own page. */
+  'document',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

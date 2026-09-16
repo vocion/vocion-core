@@ -1,10 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import type { Chip } from './ChipRow';
 import type { SortDirection } from './listUrlState';
 import { ArrowDown, ArrowUp, Search } from 'lucide-react';
 import { useId } from 'react';
 import { cn } from '@/utils/Helpers';
+import { ChipRow } from './ChipRow';
 import { flipDirection, toggleChip } from './listUrlState';
 
 /**
@@ -19,38 +21,53 @@ import { flipDirection, toggleChip } from './listUrlState';
  * Tabs are buttons with `aria-pressed` rather than ARIA tabs: they filter one
  * list in place, they do not switch panels, and a test can name them
  * "Review 2" by role button.
+ *
+ * The chips are ONE line, always: `ChipRow` measures and folds the rest into
+ * a "+N more" menu (the shape Needs you set in #348). No list wraps chips to
+ * a second row.
  */
 
 export type ToolbarTab = { key: string; label: string; count?: number };
 export type ToolbarSort = { key: string; label: string };
 export type ToolbarChip = { key: string; label: string; count?: number; title?: string };
 
-const CHIP = 'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] transition focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none';
-const CHIP_ON = 'bg-action text-action-foreground';
-const CHIP_OFF = 'text-foreground/80 hover:bg-surface-hover';
+type ChipsProp = {
+  items: readonly ToolbarChip[];
+  active: readonly string[];
+  onChange: (next: string[]) => void;
+  all?: boolean;
+  allLabel?: string;
+  label?: string;
+};
 
 /**
- * A category chip with its count: "drop · 12". `aria-pressed` carries the
- * state, so the count is in the accessible name and a test can read it.
- * @param props
- * @param props.on
- * @param props.label
- * @param props.count
- * @param props.title
- * @param props.onClick
+ * The toolbar's chips as `ChipRow` wants them: a pinned "All" that clears the
+ * selection, then one per category. `ChipRow` reorders (pinned, then active)
+ * and folds the overflow, so an active chip never hides.
+ * @param chips
  */
-export function FilterChip(props: { on: boolean; label: string; count?: number; title?: string; onClick: () => void }) {
-  return (
-    <button type="button" aria-pressed={props.on} title={props.title} onClick={props.onClick} className={cn(CHIP, props.on ? CHIP_ON : CHIP_OFF)}>
-      {props.label}
-      {props.count !== undefined && (
-        <>
-          <span aria-hidden className={props.on ? 'opacity-50' : 'text-muted-foreground/60'}>·</span>
-          <span className={cn('tabular-nums', props.on ? 'opacity-70' : 'text-muted-foreground')}>{props.count}</span>
-        </>
-      )}
-    </button>
-  );
+function chipList(chips: ChipsProp): Chip[] {
+  const all: Chip[] = chips.all === false
+    ? []
+    : [{
+        key: '__all__',
+        label: chips.allLabel ?? 'All',
+        count: chips.items.reduce((n, c) => n + (c.count ?? 0), 0),
+        active: chips.active.length === 0,
+        pinned: true,
+        onToggle: () => chips.onChange([]),
+      }];
+  return [
+    ...all,
+    ...chips.items.map(c => ({
+      key: c.key,
+      label: c.label,
+      count: c.count,
+      title: c.title,
+      active: chips.active.includes(c.key),
+      onToggle: () => chips.onChange(toggleChip(chips.active, c.key)),
+    })),
+  ];
 }
 
 export function ListToolbar(props: {
@@ -78,15 +95,8 @@ export function ListToolbar(props: {
     value: SortDirection;
     onChange: (dir: SortDirection) => void;
   };
-  chips?: {
-    items: readonly ToolbarChip[];
-    active: readonly string[];
-    onChange: (next: string[]) => void;
-    /** Leading "All · n" chip that clears the selection. Default on. */
-    all?: boolean;
-    allLabel?: string;
-    label?: string;
-  };
+  /** Categories, on one line; the overflow folds into "+N more". */
+  chips?: ChipsProp;
   /** Anything else on the right of the row — a reset control, a count. */
   trailing?: ReactNode;
   className?: string;
@@ -167,26 +177,12 @@ export function ListToolbar(props: {
       )}
 
       {chips && (
-        <div role="group" aria-label={chips.label ?? 'Filter'} className="flex flex-wrap items-center gap-1.5 py-3">
-          {chips.all !== false && (
-            <FilterChip
-              on={chips.active.length === 0}
-              label={chips.allLabel ?? 'All'}
-              count={chips.items.reduce((n, c) => n + (c.count ?? 0), 0)}
-              onClick={() => chips.onChange([])}
-            />
-          )}
-          {chips.items.map(c => (
-            <FilterChip
-              key={c.key}
-              on={chips.active.includes(c.key)}
-              label={c.label}
-              count={c.count}
-              title={c.title}
-              onClick={() => chips.onChange(toggleChip(chips.active, c.key))}
-            />
-          ))}
-        </div>
+        <ChipRow
+          chips={chipList(chips)}
+          size="md"
+          label={chips.label ?? 'Filter'}
+          className="py-3"
+        />
       )}
     </div>
   );

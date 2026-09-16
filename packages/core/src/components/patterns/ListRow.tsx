@@ -1,24 +1,38 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { ListRows } from '@/components/ui/list-row';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
 /**
- * ListRow — the data row of the List archetype. One record per row: a title,
- * a subline of segments, right-aligned columns of fixed width so numbers line
- * up down the list, a status or verdict chip, and actions that appear on
- * hover or focus. 44px tall, hairline-divided by `<ListRows>` (from
- * `components/ui/list-row`), hover a soft fill, keyboard-focusable.
+ * ListRow — THE row. Every list in the dashboard renders its records through
+ * this one component: an optional icon, a title, a subline of segments,
+ * right-aligned columns of fixed width so numbers line up down the list, a
+ * status or verdict chip, and actions that appear on hover or focus. At least
+ * 44px tall, hairline-divided by `<ListRows>`, hover a soft fill,
+ * keyboard-focusable.
  *
- * `components/ui/list-row`'s `ListRow` stays the catalog row (icon · title ·
- * meta · chevron) for Skills, Tools, Learnings. This one is for records with
- * numbers and a state — leads, runs, entries. They share the container, the
- * tokens and the height, so a page mixing them reads as one list.
+ * Chris, 2026-09-15: "it feels like we're getting a lot of different
+ * row/table/record treatments… THIS SHOULD FEEL LIKE ONE APPLICATION NOT
+ * FIVE." There used to be a second row component in `components/ui/list-row`
+ * for catalog pages; it is gone, and its consumers render through this. A new
+ * page that wants a different row shape extends this one (manifesto §19) or
+ * says why in its PR. See `docs/design/patterns.md` § One list.
  */
 
-export { ListRows };
+/**
+ * The rows' container: it draws the hairlines between them and nothing else.
+ * @param props
+ * @param props.children
+ * @param props.className
+ */
+export function ListRows(props: { children: ReactNode; className?: string }) {
+  return (
+    <div data-slot="list-rows" data-pattern="list-rows" className={cn('divide-y divide-border/70', props.className)}>
+      {props.children}
+    </div>
+  );
+}
 
 /**
  * The column widths every list uses, so a score on the personalization list
@@ -31,6 +45,8 @@ export const COLUMN = {
   score: 'w-32',
   /** A count or a percentage. */
   number: 'w-16',
+  /** Money with its currency: "$12,500". */
+  amount: 'w-20',
   /** "Aug 24", "Sep 1, 2026". */
   date: 'w-24',
   /** A short status word. */
@@ -40,6 +56,10 @@ export const COLUMN = {
 } as const;
 
 export type ColumnKind = keyof typeof COLUMN;
+
+const SUBLINE = 'mt-0.5 block truncate text-[13px] text-muted-foreground';
+
+const ROW = 'group flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none';
 
 /**
  * One right column. Hidden below `sm` unless `always`, because a phone has
@@ -95,10 +115,10 @@ export function Subline(props: { segments: ReadonlyArray<ReactNode | null | unde
   const sep = ` ${props.separator ?? '›'} `;
   // Strings join into one node so a test (or a screen reader) reads one line.
   if (parts.every(p => typeof p === 'string' || typeof p === 'number')) {
-    return <span className={cn('block truncate text-[13px] text-muted-foreground', props.className)}>{parts.join(sep)}</span>;
+    return <span className={cn(SUBLINE, props.className)}>{parts.join(sep)}</span>;
   }
   return (
-    <span className={cn('block truncate text-[13px] text-muted-foreground', props.className)}>
+    <span className={cn(SUBLINE, props.className)}>
       {parts.map((p, i) => (
         // eslint-disable-next-line react/no-array-index-key
         <span key={i}>
@@ -117,7 +137,7 @@ export type ListRowProps = {
   'onClick'?: () => void;
   'icon'?: LucideIcon;
   'title': ReactNode;
-  /** `<Subline>` or any one-line node under the title. */
+  /** `<Subline>` or any one-line node under the title. Raw nodes get the subline's type and spacing. */
   'subline'?: ReactNode;
   /** `<Column>`s, right-aligned, in a fixed order per page. */
   'columns'?: ReactNode;
@@ -134,7 +154,7 @@ export type ListRowProps = {
 export function ListRow(props: ListRowProps) {
   const Icon = props.icon;
   const chevron = props.chevron ?? Boolean(props.href);
-  const body = (
+  const content = (
     <>
       {Icon && (
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-soft text-muted-foreground">
@@ -147,26 +167,57 @@ export function ListRow(props: ListRowProps) {
       </span>
       {props.columns}
       {props.chip && <span className="shrink-0">{props.chip}</span>}
-      {props.actions && (
-        <span
-          data-slot="row-actions"
-          className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
-        >
-          {props.actions}
-        </span>
-      )}
+    </>
+  );
+  const actions = props.actions && (
+    <span
+      data-slot="row-actions"
+      className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+    >
+      {props.actions}
+    </span>
+  );
+  const tail = (
+    <>
+      {actions}
       {chevron && <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5" aria-hidden />}
     </>
   );
-  const classes = cn(
-    'group flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
-    props.className,
-  );
+  const classes = cn(ROW, props.className);
+
+  // A row with actions cannot put them inside its link — a button nested in an
+  // anchor is invalid, and the click would navigate. The link covers the
+  // record (icon, title, columns, chip); the verbs sit beside it.
+  if (props.href && props.actions) {
+    return (
+      <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
+        <Link href={props.href} aria-label={typeof props.title === 'string' ? props.title : undefined} className="flex min-w-0 flex-1 items-center gap-3 outline-none">
+          {content}
+        </Link>
+        {tail}
+      </div>
+    );
+  }
   if (props.href) {
-    return <Link href={props.href} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>{body}</Link>;
+    return (
+      <Link href={props.href} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
+        {content}
+        {tail}
+      </Link>
+    );
   }
   if (props.onClick) {
-    return <button type="button" onClick={props.onClick} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>{body}</button>;
+    return (
+      <button type="button" onClick={props.onClick} data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
+        {content}
+        {tail}
+      </button>
+    );
   }
-  return <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>{body}</div>;
+  return (
+    <div data-pattern="list-row" data-testid={props['data-testid']} className={classes}>
+      {content}
+      {tail}
+    </div>
+  );
 }
