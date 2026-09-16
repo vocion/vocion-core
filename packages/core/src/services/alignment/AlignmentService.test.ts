@@ -114,6 +114,36 @@ describe('review-queue decisions', () => {
     expect(score.agreementRate).toBe(1);
   });
 
+  it('leaves the old implicit-approve rows out of the rate entirely', async () => {
+    // Rows written before silence stopped counting as approval still say
+    // `recommended: approve, implicit: true`. Counting them would mix two
+    // different questions in one number, and the answer would shift the day
+    // this shipped rather than the day an agent changed.
+    await recordDecision({
+      orgId: ORG,
+      subjectKind: 'action',
+      subjectKey: 'test.alignment',
+      subjectId: 9001,
+      agentSlug: 'closer',
+      decision: 'rejected',
+      recommended: 'approve',
+      implicit: true,
+      outcome: 'reject',
+      confidence: null,
+      autoExecuted: false,
+      hasNote: false,
+      decidedBy: 'usr_chris',
+    });
+    await decide({ kind: 'action', id: await seedRun({ suggestedDecision: 'approve' }) }, 'approve', ORG, { reviewedBy: 'usr_chris' });
+
+    const score = await scoreFor({ orgId: ORG, subjectKey: 'test.alignment' });
+
+    // Two decided rows, one stated recommendation, and it was agreed with.
+    expect(score.decided).toBe(2);
+    expect(score.n).toBe(1);
+    expect(score.agreementRate).toBe(1);
+  });
+
   it('edit-then-approve agrees; agreeing with a recommended rejection agrees too', async () => {
     const edited = await seedRun({ suggestedDecision: 'approve' });
     const rejectAdvised = await seedRun({ suggestedDecision: 'reject' });

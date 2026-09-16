@@ -40,8 +40,11 @@ async function agreedDecisions(n: number, actionId = 'hubspot.update', startId =
       subjectId: startId + i,
       agentSlug: 'crm-agent',
       decision: 'approved',
+      // Stated, not inferred. Evidence for a promotion has to be approvals of
+      // something the agent actually recommended — an inferred `approve` is
+      // the ledger's old reading of silence, and it no longer counts towards
+      // the rate the ladder reads.
       recommended: 'approve',
-      implicit: true,
       outcome: 'approve',
       confidence: 0.92,
       at: new Date(NOW.getTime() - i * 3_600_000),

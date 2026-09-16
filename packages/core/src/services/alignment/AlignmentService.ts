@@ -244,8 +244,8 @@ export async function recordAskAlignment(opts: {
 async function proposeReinforceCandidate(input: AlignmentDecision): Promise<void> {
   const [row] = await db
     .select({
-      agreed: sql<number>`count(*) filter (where ${decisionAlignmentSchema.agreed})::int`,
-      n: sql<number>`count(*) filter (where ${decisionAlignmentSchema.recommended} is not null)::int`,
+      agreed: sql<number>`count(*) filter (where ${decisionAlignmentSchema.agreed} and not ${decisionAlignmentSchema.implicit})::int`,
+      n: sql<number>`count(*) filter (where ${decisionAlignmentSchema.recommended} is not null and not ${decisionAlignmentSchema.implicit})::int`,
     })
     .from(decisionAlignmentSchema)
     .where(and(
@@ -280,9 +280,15 @@ async function proposeReinforceCandidate(input: AlignmentDecision): Promise<void
 /* Read                                                                */
 /* ------------------------------------------------------------------ */
 
+// Rows written before silence stopped counting as approval carry
+// `implicit = true` and a `recommended` of `approve` nobody ever stated. They
+// are excluded from both halves of the rate, so the number means the same
+// thing across the boundary: of the recommendations an agent actually made,
+// how many did a person agree with. Excluded from `agreed` as well as `n` —
+// dropping them from only the denominator would push the rate above 1.
 const aggregate = {
-  n: sql<number>`count(*) filter (where ${decisionAlignmentSchema.recommended} is not null)::int`,
-  agreed: sql<number>`count(*) filter (where ${decisionAlignmentSchema.agreed})::int`,
+  n: sql<number>`count(*) filter (where ${decisionAlignmentSchema.recommended} is not null and not ${decisionAlignmentSchema.implicit})::int`,
+  agreed: sql<number>`count(*) filter (where ${decisionAlignmentSchema.agreed} and not ${decisionAlignmentSchema.implicit})::int`,
   decided: sql<number>`count(*)::int`,
   rejected: sql<number>`count(*) filter (where ${decisionAlignmentSchema.decision} in ('rejected', 'reject'))::int`,
   withNote: sql<number>`count(*) filter (where ${decisionAlignmentSchema.hasNote})::int`,
