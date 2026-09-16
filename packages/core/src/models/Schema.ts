@@ -1606,6 +1606,28 @@ export const evalRunSchema = pgTable('eval_run', {
    * is what every run before this column existed used.
    */
   model: text('model'),
+  /**
+   * Which scorer produced this run's scores — `vocion` for our own judge,
+   * `agentcore` for AWS. One execution can be graded by several providers,
+   * one run row each, so their histories stay separate while the transcript
+   * they graded is the same one.
+   */
+  provider: text('provider').default('vocion').notNull(),
+  /**
+   * The dataset's `version` at the moment this run happened. A trend line
+   * that blends runs taken against different item sets is lying about
+   * improvement, and `workspaceSha` only catches prompt drift. NULL on runs
+   * recorded before this column existed — they genuinely do not know which
+   * items they used, and saying so is better than guessing.
+   */
+  datasetVersion: integer('dataset_version'),
+  /**
+   * The one execution a set of provider runs share. Set by the refresh
+   * workflow and unique per provider, so a retried activity collides instead
+   * of adding a second trend point for work that only happened once. NULL for
+   * a run started outside a workflow.
+   */
+  runGroupId: text('run_group_id'),
   /** running | succeeded | failed */
   status: text('status').default('running').notNull(),
   metrics: jsonb('metrics').$type<{
@@ -1656,8 +1678,113 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
     turns: number;
     toolCalls: number;
   }>(),
+  /**
+   * The tool names this case called, in the order it called them. AgentCore's
+   * trajectory evaluators compare this against an expected sequence, and that
+   * comparison is the one thing AgentCore scores without a model call. Before
+   * this column only the count survived, in `usage.toolCalls`, which cannot
+   * tell "looked up the order then refunded" from "refunded then looked up".
+   * Empty array on a case whose agent run threw; NULL on rows written before
+   * the column existed.
+   */
+  trajectory: text('trajectory').array(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
+
+/**
+ * One evaluator's opinion of one run, or of one case within it.
+ *
+ * Separate from `eval_case_result` because a case graded by AgentCore comes
+ * back as an array — one result per evaluator, on scales that do not compare
+ * to each other. "Tool selection was 0.8" and "the answer was Perfectly
+ * Correct" are both true of the same case and neither is the score.
+ *
+ * `runId` rather than `caseResultId` alone: a transcript belongs to exactly
+ * one run, so a second provider's run row would have no case children and
+ * nothing could join its scores back to it.
+ *
+ * `caseResultId` is nullable because TRACE- and SESSION-level evaluators
+ * judge a whole run rather than one case, and forcing those onto a case would
+ * leave them nowhere to go.
+ *
+ * Rows are append-only. A score measures one execution at one moment;
+ * overwriting it to show "the latest" destroys the history the trend line is
+ * made of. Re-scoring means a new run.
+ */
+export const evalScoreSchema = pgTable('eval_score', {
+  id: serial('id').primaryKey(),
+  runId: integer('run_id').notNull().references(() => evalRunSchema.id, { onDelete: 'cascade' }),
+  /** NULL for a score about the whole run rather than one case. */
+  caseResultId: integer('case_result_id').references(() => evalCaseResultSchema.id, { onDelete: 'cascade' }),
+  /** `vocion` | `agentcore`. Open text so a third provider needs no migration. */
+  provider: text('provider').notNull(),
+  /** Our evaluator name, or AWS's id such as `Builtin.ToolSelectionAccuracy`. */
+  evaluatorSlug: text('evaluator_slug').notNull(),
+  /** The provider's own display name, when it gives one. */
+  evaluatorName: text('evaluator_name'),
+  evaluatorArn: text('evaluator_arn'),
+  /** TOOL_CALL | TRACE | SESSION — the grain this evaluator judges at. */
+  level: text('level').default('TRACE').notNull(),
+  /** Numeric score, normally 0..1. NULL when the evaluator only returns a label. */
+  value: real('value'),
+  /**
+   * The provider's own categorical verdict, stored exactly as it came back.
+   * Never coerced to pass/fail: "Perfectly Correct" and "Yes" come from
+   * different rating scales, and only the evaluator's name gives one meaning.
+   */
+  label: text('label'),
+  explanation: text('explanation'),
+  /** What the judging itself cost, when the provider reports it. */
+  tokenUsage: jsonb('token_usage').$type<{
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  }>(),
+  /** Set when this evaluator failed. A failure is recorded, never scored as zero. */
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => [
+  index('eval_score_run_idx').on(table.runId),
+  index('eval_score_run_evaluator_idx').on(table.runId, table.provider, table.evaluatorSlug),
+  index('eval_score_case_idx').on(table.caseResultId),
+]);
+
+/**
+ * An evaluator a workspace authored, and where it lives remotely once synced.
+ *
+ * Workspace apply writes the desired state here and stops. The AWS call that
+ * creates the remote evaluator happens later, in a Temporal activity, because
+ * apply makes no external calls today and must not start failing for every
+ * other resource in the file when AWS is unreachable.
+ *
+ * `remoteId` is what makes the sync idempotent — reusing it turns the second
+ * sync into an update instead of a duplicate evaluator in the AWS account.
+ */
+export const evalEvaluatorSchema = pgTable('eval_evaluator', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  datasetSlug: text('dataset_slug').notNull(),
+  provider: text('provider').notNull(),
+  slug: text('slug').notNull(),
+  /** TOOL_CALL | TRACE | SESSION. NULL for a built-in, which carries its own. */
+  level: text('level'),
+  /** Instructions, rating scale and model for a judge; or a Lambda ARN. */
+  config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
+  /** The provider's id for this evaluator. NULL until the first sync lands. */
+  remoteId: text('remote_id'),
+  remoteArn: text('remote_arn'),
+  syncedAt: timestamp('synced_at', { mode: 'date' }),
+  /** Why the last sync failed. Kept so the UI can say so rather than look synced. */
+  syncError: text('sync_error'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  uniqueIndex('eval_evaluator_org_dataset_slug_idx').on(table.orgId, table.datasetSlug, table.provider, table.slug),
+]);
 
 export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
   runs: many(evalRunSchema),
@@ -1668,6 +1795,18 @@ export const evalRunRelations = relations(evalRunSchema, ({ one, many }) => ({
     references: [evalDatasetSchema.id],
   }),
   results: many(evalCaseResultSchema),
+  scores: many(evalScoreSchema),
+}));
+
+export const evalScoreRelations = relations(evalScoreSchema, ({ one }) => ({
+  run: one(evalRunSchema, {
+    fields: [evalScoreSchema.runId],
+    references: [evalRunSchema.id],
+  }),
+  caseResult: one(evalCaseResultSchema, {
+    fields: [evalScoreSchema.caseResultId],
+    references: [evalCaseResultSchema.id],
+  }),
 }));
 
 /* ------------------------------------------------------------------ */

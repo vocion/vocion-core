@@ -18,39 +18,19 @@
  * token usage and cost so that comparison is a read over stored rows.
  */
 
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { EvalScoreProvider } from './evals/providers/types';
+import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
+import type { EvalDatasetItem } from './evals/types';
 import type { LangChainProvider } from '@/libs/llm';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { and, asc, desc, eq } from 'drizzle-orm';
-import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
-import { FEATURES } from '@/libs/Langfuse/features';
-import { buildChatModelForOrg } from '@/libs/llm';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalRunSchema } from '@/models/Schema';
-import { runAgentDeep } from './AgentService';
+import { getProvider, listAvailableProviders } from './evals/providers/registry';
+import { scoreWithProvider } from './evals/scoring';
+import { persistTranscripts, produceTranscripts } from './evals/transcripts';
 
-const JUDGE_SYSTEM = `You are an evaluation judge for AI agent outputs.
-
-Given:
-  - The user's input.
-  - The agent's response.
-  - An optional rubric describing what "good" looks like.
-  - An optional expected output (treat as guidance, not a literal match — substantive equivalence is fine).
-
-Return STRICT JSON:
-  {"verdict": "pass" | "fail" | "error", "score": 0.0..1.0, "rationale": "..."}
-
-Pass when the response satisfies the rubric and is substantively equivalent to the expected output (when given). Score reflects quality within the verdict (0.6+ for pass, <0.5 for fail). The rationale should be one tight sentence the engineer can act on.`;
-
-const JudgeOutputZ = z.object({
-  verdict: z.enum(['pass', 'fail', 'error']),
-  score: z.number().min(0).max(1),
-  rationale: z.string(),
-});
-
-export type JudgeOutput = z.infer<typeof JudgeOutputZ>;
+export type { ProviderRunResult };
 
 /* ------------------------------------------------------------------ */
 /* Catalog reads                                                       */
@@ -117,250 +97,213 @@ export type RunDatasetOptions = {
 };
 
 export async function runDataset(opts: RunDatasetOptions): Promise<{ runId: number; metrics: typeof evalRunSchema.$inferSelect['metrics'] }> {
+  const result = await runDatasetWithProviders({ ...opts, providerIds: ['vocion'] });
+  const primary = result.providerRuns[0];
+  if (!primary) {
+    throw new Error(`no provider scored ${opts.datasetSlug}`);
+  }
+  const [row] = await db
+    .select({ metrics: evalRunSchema.metrics })
+    .from(evalRunSchema)
+    .where(eq(evalRunSchema.id, primary.runId));
+  return { runId: primary.runId, metrics: row?.metrics ?? {} };
+}
+
+export type RunDatasetWithProvidersOptions = RunDatasetOptions & {
+  /**
+   * Which providers grade this execution. Defaults to every provider the org
+   * can actually use. `runDataset` pins this to `['vocion']` so its five
+   * existing callers — the CLI, the oRPC procedure, the HTTP route, the
+   * model-upgrade test and the automatic learning-candidate check — keep
+   * behaving exactly as they did and never make a paid AWS call nobody asked
+   * for.
+   */
+  providerIds?: string[];
+  /**
+   * Ties every provider's run to the one execution they scored. Set by the
+   * refresh workflow; a retry reuses it and so reuses the run rows instead of
+   * adding a second point to the trend line.
+   */
+  runGroupId?: string | null;
+  /** How many cases to execute at once. Defaults to `DEFAULT_CASE_CONCURRENCY`. */
+  concurrency?: number;
+};
+
+export type RunDatasetWithProvidersResult = {
+  runGroupId: string | null;
+  providerRuns: ProviderRunResult[];
+};
+
+/**
+ * Execute a dataset once and let every named provider grade the same run.
+ *
+ * Executing once and scoring N times is what keeps the scores comparable: if
+ * each provider ran the agent itself, a disagreement between them could be the
+ * agent behaving differently rather than the graders disagreeing, and a trend
+ * line built on that cannot answer the only question it exists for.
+ * @param opts - The dataset, who grades it, and how hard to push.
+ */
+export async function runDatasetWithProviders(
+  opts: RunDatasetWithProvidersOptions,
+): Promise<RunDatasetWithProvidersResult> {
   const dataset = await getDataset(opts.orgId, opts.datasetSlug);
   if (!dataset) {
     throw new Error(`dataset ${opts.datasetSlug} not found for org ${opts.orgId}`);
   }
   const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
-
-  const [run] = await db
-    .insert(evalRunSchema)
-    .values({
-      orgId: opts.orgId,
-      datasetId: dataset.id,
-      agentSlug: dataset.agentSlug,
-      workspaceSha: workspaceSha ?? null,
-      model: opts.modelOverride ?? null,
-      status: 'running',
-    })
-    .returning();
-  if (!run) {
-    throw new Error('failed to create eval_run row');
+  const providers = await resolveProviders(opts.orgId, opts.providerIds);
+  if (providers.length === 0) {
+    throw new Error(`no score provider is available for ${opts.orgId}`);
   }
 
-  const judge = await buildChatModelForOrg('classifier', opts.orgId, { temperature: 0 });
-  const items = dataset.items ?? [];
-  const latencies: number[] = [];
+  const items = (dataset.items ?? []) as EvalDatasetItem[];
   const modelOverride = opts.modelOverride
     ? { model: opts.modelOverride, ...(opts.providerOverride ? { provider: opts.providerOverride } : {}) }
     : undefined;
-  let toolCallCount = 0;
-  let passed = 0;
-  let failed = 0;
-  let totalCents = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let totalTurns = 0;
-  let casesWithUsage = 0;
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]!;
-    const startedAt = Date.now();
-    let agentResp = '';
-    let traceId = '';
-    let errored = false;
-    let errorMessage = '';
-    let caseUsage: CaseUsage | null = null;
+  const transcripts = await produceTranscripts({
+    orgId: opts.orgId,
+    agentSlug: dataset.agentSlug,
+    items,
+    modelOverride,
+    concurrency: opts.concurrency,
+  });
 
-    try {
-      const result = await runAgentDeep({
-        orgId: opts.orgId,
-        agentSlug: dataset.agentSlug,
-        message: item.input,
-        userId: 'eval-runner',
-        modelOverride,
-      });
-      agentResp = result.response;
-      traceId = result.traceId;
-      toolCallCount += result.toolCalls.length;
-      if (result.usage) {
-        caseUsage = { ...result.usage, toolCalls: result.toolCalls.length };
-        totalCents += result.usage.cents;
-        totalInputTokens += result.usage.inputTokens;
-        totalOutputTokens += result.usage.outputTokens;
-        totalTurns += result.usage.turns;
-        casesWithUsage += 1;
-      }
-    } catch (err) {
-      errored = true;
-      errorMessage = (err as Error).message ?? 'agent run failed';
-    }
-
-    const latencyMs = Date.now() - startedAt;
-    latencies.push(latencyMs);
-
-    let verdict: JudgeOutput['verdict'] = 'error';
-    let score = 0;
-    let rationale = errorMessage || 'no judgment';
-
-    if (!errored) {
-      const judgeOutput = await scoreOne(judge, {
-        input: item.input,
-        response: agentResp,
-        rubric: item.rubric,
-        expectedOutput: item.expectedOutput,
-        orgId: opts.orgId,
-        datasetSlug: dataset.slug,
-        itemIndex: i,
-      });
-      verdict = judgeOutput.verdict;
-      score = judgeOutput.score;
-      rationale = judgeOutput.rationale;
-    }
-
-    if (verdict === 'pass') {
-      passed++;
-    } else {
-      failed++;
-    }
-
-    await db.insert(evalCaseResultSchema).values({
-      runId: run.id,
-      itemIndex: i,
-      input: item.input,
-      output: errored ? null : agentResp,
-      score: score.toFixed(3),
-      verdict,
-      rationale,
-      traceId: traceId || null,
-      latencyMs,
-      usage: caseUsage,
-    });
-  }
-
-  const metrics = {
-    passRate: items.length > 0 ? passed / items.length : 0,
-    toolCallCount,
-    medianLatencyMs: median(latencies),
-    failed,
-    passed,
-    totalCents: round4(totalCents),
-    totalInputTokens,
-    totalOutputTokens,
-    meanTurns: casesWithUsage > 0 ? round4(totalTurns / casesWithUsage) : 0,
-    costPerPassedCaseCents: passed > 0 ? round4(totalCents / passed) : null,
+  // The first provider's run owns the transcripts, because eval_case_result
+  // belongs to exactly one run. Every other provider points its scores at the
+  // same case rows rather than storing a second copy of the same text.
+  const [primaryProvider, ...secondaryProviders] = providers;
+  const shared = {
+    orgId: opts.orgId,
+    datasetId: dataset.id,
+    datasetSlug: dataset.slug,
+    datasetVersion: dataset.version ?? null,
+    agentSlug: dataset.agentSlug,
+    workspaceSha: workspaceSha ?? null,
+    model: opts.modelOverride ?? null,
+    runGroupId: opts.runGroupId ?? null,
+    transcripts,
   };
 
-  const [updated] = await db
-    .update(evalRunSchema)
-    .set({
-      status: 'succeeded',
-      metrics,
-      completedAt: new Date(),
-    })
-    .where(eq(evalRunSchema.id, run.id))
-    .returning();
+  const primaryRunId = await createPrimaryRun(shared, primaryProvider!.id);
+  await persistTranscripts(primaryRunId, transcripts);
 
-  // Eval outcomes are episodes too — raw, TTL'd material the consolidation
-  // job mines. Fire-and-forget; a failed episode must never fail the run.
+  const primaryResult = await scoreWithProvider({
+    ...shared,
+    provider: primaryProvider!,
+    existingRunId: primaryRunId,
+  });
+
+  // Providers are independent once the transcripts exist, so they grade at the
+  // same time rather than one after another.
+  const secondaryResults = await Promise.all(
+    secondaryProviders.map(provider => scoreWithProvider({ ...shared, provider })),
+  );
+
+  const providerRuns = [primaryResult, ...secondaryResults];
+  await recordEvalEpisode(opts.orgId, dataset.slug, dataset.agentSlug, primaryResult);
+
+  return { runGroupId: opts.runGroupId ?? null, providerRuns };
+}
+
+/**
+ * Which providers should grade this run.
+ *
+ * Named ids are looked up and used as given; an unknown one is an error rather
+ * than a silent skip, because a caller that asked for AgentCore and quietly got
+ * only our own judge would believe it had AWS scores it does not have. With no
+ * ids named, every provider the org can actually use grades the run.
+ * @param orgId - Whose credentials decide availability.
+ * @param providerIds - Explicit ids, or undefined for "whatever is available".
+ */
+async function resolveProviders(orgId: string, providerIds?: string[]): Promise<EvalScoreProvider[]> {
+  if (!providerIds) {
+    return listAvailableProviders(orgId);
+  }
+  const providers: EvalScoreProvider[] = [];
+  for (const id of providerIds) {
+    const provider = getProvider(id);
+    if (!provider) {
+      throw new Error(`unknown eval score provider: ${id}`);
+    }
+    providers.push(provider);
+  }
+  return providers;
+}
+
+/**
+ * The run that owns the transcripts. Reused on a retry via the run group.
+ * @param shared
+ * @param providerId
+ */
+async function createPrimaryRun(
+  shared: Omit<ScoreWithProviderOptions, 'provider' | 'existingRunId'>,
+  providerId: string,
+): Promise<number> {
+  if (shared.runGroupId) {
+    const [existing] = await db
+      .select({ id: evalRunSchema.id })
+      .from(evalRunSchema)
+      .where(and(eq(evalRunSchema.runGroupId, shared.runGroupId), eq(evalRunSchema.provider, providerId)));
+    if (existing) {
+      return existing.id;
+    }
+  }
+  const [run] = await db
+    .insert(evalRunSchema)
+    .values({
+      orgId: shared.orgId,
+      datasetId: shared.datasetId,
+      agentSlug: shared.agentSlug,
+      workspaceSha: shared.workspaceSha,
+      model: shared.model,
+      provider: providerId,
+      datasetVersion: shared.datasetVersion,
+      runGroupId: shared.runGroupId,
+      status: 'running',
+    })
+    .returning({ id: evalRunSchema.id });
+  if (!run) {
+    throw new Error('failed to create eval_run row');
+  }
+  return run.id;
+}
+
+/**
+ * File the run as an episode for the consolidation job to mine.
+ *
+ * Fire-and-forget, and a failure here is logged rather than propagated: the
+ * run really happened, and losing a memory record must not turn a successful
+ * eval into a failed one.
+ * @param orgId - Whose workspace.
+ * @param datasetSlug - What ran.
+ * @param agentSlug - Who was tested.
+ * @param result - The primary provider's run.
+ */
+async function recordEvalEpisode(
+  orgId: string,
+  datasetSlug: string,
+  agentSlug: string,
+  result: ProviderRunResult,
+): Promise<void> {
+  const [row] = await db
+    .select({ metrics: evalRunSchema.metrics })
+    .from(evalRunSchema)
+    .where(eq(evalRunSchema.id, result.runId));
+  const metrics = row?.metrics ?? {};
   void (async () => {
     const { recordEpisode } = await import('@/services/MemoryService');
     await recordEpisode({
-      orgId: opts.orgId,
+      orgId,
       runKind: 'eval_run',
-      runId: run.id,
-      agentSlug: dataset.agentSlug,
-      text: `Eval "${dataset.slug}" on ${dataset.agentSlug}: ${passed} passed, ${failed} failed (pass rate ${metrics.passRate ?? 'n/a'}).`,
+      runId: result.runId,
+      agentSlug,
+      text: `Eval "${datasetSlug}" on ${agentSlug}: ${metrics.passed ?? 0} passed, ${metrics.failed ?? 0} failed (pass rate ${metrics.passRate ?? 'n/a'}).`,
     });
   })().catch((error) => {
-    console.error(`[EvalService] could not record an episode for eval run ${run.id}`, error);
+    console.error(`[EvalService] could not record an episode for eval run ${result.runId}`, error);
   });
-
-  return { runId: run.id, metrics: updated?.metrics ?? metrics };
-}
-
-/* ------------------------------------------------------------------ */
-/* Internals                                                           */
-/* ------------------------------------------------------------------ */
-
-async function scoreOne(
-  judge: BaseChatModel,
-  ctx: {
-    input: string;
-    response: string;
-    rubric?: string;
-    expectedOutput?: string;
-    orgId: string;
-    datasetSlug: string;
-    itemIndex: number;
-  },
-): Promise<JudgeOutput> {
-  const user = [
-    `User input: ${ctx.input}`,
-    `Agent response: ${ctx.response.slice(0, 4000)}`,
-    ctx.rubric ? `Rubric: ${ctx.rubric}` : '',
-    ctx.expectedOutput ? `Expected (guidance): ${ctx.expectedOutput.slice(0, 1000)}` : '',
-  ].filter(Boolean).join('\n\n');
-
-  const trace = traceFor({
-    feature: FEATURES.EVAL_JUDGE,
-    slug: ctx.datasetSlug,
-    orgId: ctx.orgId,
-    userId: 'eval-runner',
-    input: { input: ctx.input, itemIndex: ctx.itemIndex },
-    metadata: { itemIndex: ctx.itemIndex },
-  });
-  const generation = trace.generation({
-    name: 'judge',
-    model: 'classifier',
-    input: user,
-  });
-
-  const res = await judge.invoke([
-    new SystemMessage(JUDGE_SYSTEM),
-    new HumanMessage(user),
-  ]);
-  const raw = typeof res.content === 'string'
-    ? res.content
-    : Array.isArray(res.content)
-      ? res.content.map(c => (c as { text?: string }).text ?? '').join('')
-      : '';
-
-  const usage = (res as unknown as { usage_metadata?: { input_tokens?: number; output_tokens?: number; input_token_details?: { cache_read?: number } } }).usage_metadata;
-  generation.end({
-    output: raw,
-    usageDetails: usage
-      ? cleanUsageDetails({
-          input: usage.input_tokens,
-          output: usage.output_tokens,
-          cache_read_input_tokens: usage.input_token_details?.cache_read,
-        })
-      : undefined,
-  });
-
-  const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripped);
-  } catch {
-    const fallback = { verdict: 'error' as const, score: 0, rationale: 'judge returned non-JSON' };
-    trace.update({ output: fallback });
-    return fallback;
-  }
-  const validated = JudgeOutputZ.safeParse(parsed);
-  if (!validated.success) {
-    const fallback = { verdict: 'error' as const, score: 0, rationale: 'judge output failed schema validation' };
-    trace.update({ output: fallback });
-    return fallback;
-  }
-  trace.update({ output: validated.data });
-  return validated.data;
 }
 
 /** The per-case usage record stored on `eval_case_result.usage`. */
 export type CaseUsage = NonNullable<typeof evalCaseResultSchema.$inferSelect['usage']>;
-
-function round4(n: number): number {
-  return Math.round(n * 10_000) / 10_000;
-}
-
-function median(values: number[]): number {
-  if (values.length === 0) {
-    return 0;
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? Math.round((sorted[mid - 1]! + sorted[mid]!) / 2)
-    : sorted[mid]!;
-}

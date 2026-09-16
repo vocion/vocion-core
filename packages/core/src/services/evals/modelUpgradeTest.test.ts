@@ -55,6 +55,9 @@ function run(id: number, model: string | null, cases: Array<Partial<Result> & { 
     agentSlug: 'proposal-writer',
     workspaceSha: null,
     model,
+    provider: 'vocion',
+    datasetVersion: dataset.version,
+    runGroupId: null,
     status: 'succeeded',
     metrics: {},
     startedAt: new Date(),
@@ -71,6 +74,7 @@ function run(id: number, model: string | null, cases: Array<Partial<Result> & { 
       traceId: null,
       latencyMs: c.latencyMs ?? 1000,
       usage: c.usage === undefined ? { model: model ?? 'x', inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, cents: 2, turns: 3, toolCalls: 2 } : c.usage,
+      trajectory: null,
       createdAt: new Date(),
     })),
   };
