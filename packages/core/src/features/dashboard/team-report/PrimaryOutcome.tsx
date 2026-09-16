@@ -49,7 +49,15 @@ export function PrimaryOutcome({ teamSlug, reading, now = new Date() }: { teamSl
                 {reading.met ? ' · on target' : ''}
               </span>
             )
-          : <span className="text-muted-foreground">{reading.unavailableReason ?? 'No reading yet'}</span>}
+          : (
+              // Never "0 of weekly target" for a source nobody read. The
+              // figure is already an em dash; this says why, in the words the
+              // reader needs to not treat the dash as a zero.
+              <span className="text-muted-foreground">
+                {reading.unavailableKind === 'unconfigured' ? 'Not connected — showing nothing. ' : ''}
+                {reading.unavailableReason ?? 'No reading yet'}
+              </span>
+            )}
         {delta !== null && (
           <span className={`inline-flex items-center gap-0.5 ${trendTone}`} title={`vs the prior ${windowAdjective(m.window)} window`}>
             <Trend className="size-3.5" aria-hidden />

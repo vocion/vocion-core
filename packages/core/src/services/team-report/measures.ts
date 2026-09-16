@@ -70,6 +70,32 @@ export type Freshness = {
 
 export type TrendDirection = 'up' | 'down' | 'flat';
 
+/**
+ * Why a reading has no value. Every one of these renders as a STATE, never as
+ * a zero — "a zero that means we did not ask" is the dishonesty the whole
+ * provenance model exists to prevent (spec §2).
+ *
+ * `unconfigured`  nothing is connected: no credential for the connector, no
+ *                 synced source. Nobody has asked the system of record
+ *                 anything yet. The report says "not connected".
+ * `error`         the read was attempted against a configured source and
+ *                 failed — a refused credential, an HTTP error, a vault that
+ *                 will not open. Transient or not, it is not a number.
+ * `unsupported`   the source is connected and the read ran, but it cannot
+ *                 answer what the measure asked: a filter naming values the
+ *                 system does not have, an aggregate the mirror cannot
+ *                 compute, a source arm with nothing named.
+ */
+export const MEASURE_UNAVAILABLE_KINDS = ['unconfigured', 'error', 'unsupported'] as const;
+export type MeasureUnavailableKind = typeof MEASURE_UNAVAILABLE_KINDS[number];
+
+/** The short words the chip appends, per unavailable kind. */
+export const UNAVAILABLE_LABEL: Record<MeasureUnavailableKind, string> = {
+  unconfigured: 'not connected',
+  error: 'read failed',
+  unsupported: 'cannot be read',
+};
+
 /** One measure, read. Everything past `measure` is derived. */
 export type MeasureReading = {
   measure: TeamMeasure;
@@ -93,6 +119,12 @@ export type MeasureReading = {
   improving: boolean | null;
   /** Why `value` is null, for a person. */
   unavailableReason: string | null;
+  /**
+   * WHICH no-value state this is, for a surface to render differently from a
+   * number. Null exactly when `value` is not null — the two always agree, so
+   * no caller has to decide whether a missing value counts as zero.
+   */
+  unavailableKind: MeasureUnavailableKind | null;
 };
 
 /** The chip text, per provenance kind. */
@@ -113,7 +145,7 @@ export const PROVENANCE_MEANING: Record<ProvenanceKind, string> = {
 
 /**
  * Strongest first — `verified` is 0.
- * @param kind
+ * @param kind - The provenance kind.
  */
 export function provenanceRank(kind: ProvenanceKind): number {
   return ['verified', 'observed', 'human-confirmed', 'agent-reported'].indexOf(kind);

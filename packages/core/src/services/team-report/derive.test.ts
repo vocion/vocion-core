@@ -13,7 +13,7 @@ const higher: TeamMeasure = { key: 'referrals', label: 'Qualified referrals', di
 const lower: TeamMeasure = { key: 'turnaround', label: 'Turnaround', dimension: 'velocity', target: 30, unit: 'min', window: '7d', direction: 'lower', source: { kind: 'agent-reported', counts: 'turnaround' } };
 
 function reading(measure: TeamMeasure, value: number | null, previous: number | null = null, extra: Partial<TeamMeasure> = {}): MeasureReading {
-  return deriveReading({ measure: { ...measure, ...extra }, value, previous, provenance: measure.source.kind, sourceLabel: 'test', asOf: NOW, freshness: { asOf: NOW, ageMs: 0, stale: false, note: null }, unavailableReason: null });
+  return deriveReading({ measure: { ...measure, ...extra }, value, previous, provenance: measure.source.kind, sourceLabel: 'test', asOf: NOW, freshness: { asOf: NOW, ageMs: 0, stale: false, note: null }, unavailableReason: null, unavailableKind: null });
 }
 
 describe('attainment + targetMet', () => {

@@ -55,7 +55,8 @@ the rest ([Team performance](../guides/team-performance.md)).
 | `kind` | Fields | Reading |
 |---|---|---|
 | `verified` | `connector: hubspot`, `query: { object: deals \| contacts \| companies, filter: {…}, aggregate: count \| sum(amount) }` | A query against the synced HubSpot mirror: records created in the window matching the filter (`dealStages`, `pipelines`, `dealStatus`, `lifecycleStages`, `industries`, `ownerIds`). Carries the mirror's freshness — "verified (synced 25m ago)". |
-| `observed` | `actions: [gmail.send, …]` **or** `counts: <key>` | Vocion saw it happen: `action_run` rows that reached `done` for those action ids, or completed `worker_run`s carrying that `counts` key. |
+| `verified` | `connector: web-analytics`, `query: { metric: sessions \| users \| conversions \| signups, filter: { pathPrefix?, channel?, event? } }` | A report the analytics provider runs over the window. Needs a **Google Analytics** credential on the workspace; with none, the measure reads "not connected" and shows nothing — never 0. See [wiring web analytics](../guides/web-analytics-measures.md). |
+| `observed` | `actions: [gmail.send, …]`, `counts: <key>` **or** `rows: workspace-members` | Vocion saw it happen in our own tables: `action_run` rows that reached `done` for those action ids, completed `worker_run`s carrying that `counts` key, or `account_membership` rows created in the window for the account that owns this workspace. Exactly one of the three. |
 | `human-confirmed` | `actions: […]` and/or `askKinds: [ruling, approval, …]` | A person approved it: approve / edit decisions on those action ids, and asks of those kinds decided with anything but a reject. |
 | `agent-reported` | `counts: <key>` | Σ `worker_run.counts.<key>` over the team's agents. The worker grades itself — the report labels it as the weakest kind. |
 
@@ -98,6 +99,24 @@ measures:
         object: deals
         filter: {dealStages: [Qualified]}
         aggregate: sum(amount)
+  - key: qualified_traffic
+    label: Qualified sessions on the docs
+    target: 500
+    unit: sessions
+    window: 30d
+    source:
+      kind: verified
+      connector: web-analytics
+      query:
+        metric: sessions
+        filter: {pathPrefix: /docs, channel: Organic Search}
+  - key: signups
+    label: Signups
+    target: 20
+    window: 30d
+    source:
+      kind: observed
+      rows: workspace-members
 ```
 
 ## Outcome contract

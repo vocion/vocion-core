@@ -31,7 +31,7 @@ const teamRow = (slug: string, extra: Partial<Parameters<typeof buildTeamReport>
 const measure = { key: 'k', label: 'K', dimension: 'outcome' as const, target: 10, window: '7d' as const, direction: 'higher' as const, source: { kind: 'agent-reported' as const, counts: 'k' } };
 
 function reading(value: number | null, previous: number | null = null): MeasureReading {
-  return deriveReading({ measure, value, previous, provenance: 'agent-reported', sourceLabel: 'worker reports', asOf: NOW, freshness: { asOf: NOW, ageMs: 0, stale: false, note: null }, unavailableReason: null });
+  return deriveReading({ measure, value, previous, provenance: 'agent-reported', sourceLabel: 'worker reports', asOf: NOW, freshness: { asOf: NOW, ageMs: 0, stale: false, note: null }, unavailableReason: null, unavailableKind: null });
 }
 
 const base = () => ({
