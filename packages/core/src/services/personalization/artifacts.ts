@@ -38,18 +38,18 @@
  *   does this look like now*.
  */
 
-import type { ArtifactRow } from '@/services/ArtifactService';
-import type { SequenceSpec } from '@/libs/cards/specs';
-import type { RecordRef } from '@/services/chat/pageContext';
 import type { BriefClaim, BriefSection } from './brief';
 import type { ConfidenceDimensions } from './confidence';
 import type { CurrentSequence, RecommendedSequence } from './sequenceState';
+import type { SequenceSpec } from '@/libs/cards/specs';
+import type { ArtifactRow } from '@/services/ArtifactService';
+import type { RecordRef } from '@/services/chat/pageContext';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, leadBriefSchema } from '@/models/Schema';
 import { listArtifactsForRecord, upsertRecordArtifact } from '@/services/ArtifactService';
 import { briefMarkdown, reduceBrief } from './brief';
-import { recommendedPosture } from './confidence';
+import { computeConfidenceDimensions, recommendedPosture } from './confidence';
 import { resolveSequenceState } from './sequenceState';
 
 /** What each artifact IS to the lead. One artifact per role. */
@@ -134,7 +134,10 @@ export function recommendationMarkdown(lead: LeadArtifactSource): string {
   return lines.join('\n\n');
 }
 
-/** The typed sequence artifact's spec. */
+/**
+ * The typed sequence artifact's spec.
+ * @param lead
+ */
 export function sequenceSpecFor(lead: LeadArtifactSource): SequenceSpec {
   return {
     ...(lead.recommendedSequence?.id ? { sequenceId: lead.recommendedSequence.id } : {}),
@@ -327,4 +330,80 @@ export async function pinLeadArtifactsForRun(orgId: string, runId: number): Prom
     return [];
   }
   return pinDecisionArtifacts(orgId, runId, await leadArtifacts(orgId, lead.id));
+}
+
+/**
+ * Read one lead row and materialise its three artifacts from it.
+ *
+ * `lead_brief` stays the LEDGER — the row is the record that the pass
+ * happened — and the artifacts are what a person reads, edits and cites. This
+ * is the one function that keeps the two in step, and it is called from both
+ * ends deliberately:
+ *
+ * - from the pipeline writes (`saveLeadBrief`, `saveDraftSequence`), which is
+ *   where a new version genuinely belongs;
+ * - from the lead page's read, as a backfill, so a lead briefed before this
+ *   shipped has its artifacts the first time somebody opens it rather than
+ *   only after the next sweep.
+ *
+ * Idempotent by construction: `upsertRecordArtifact` writes nothing when the
+ * content is identical, so the read path costs three selects on a lead that is
+ * already in step.
+ * @param orgId - The project id.
+ * @param leadId - `lead_brief.id`.
+ * @param by - Who wrote this version, and why.
+ * @param only - Restrict to these roles.
+ */
+export async function ensureLeadArtifacts(
+  orgId: string,
+  leadId: number,
+  by: ArtifactAuthorship = { author: { kind: 'system' } },
+  only?: readonly LeadArtifactRole[],
+): Promise<LeadArtifactRef[]> {
+  const [row] = await db
+    .select()
+    .from(leadBriefSchema)
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.id, leadId)))
+    .limit(1);
+  if (!row) {
+    return [];
+  }
+  // Nothing has been researched yet: a lead on the queue with no brief has no
+  // artifacts to write, and writing three empty ones would be the empty-state
+  // branch the reduction pass exists to delete.
+  if (row.sections.length === 0 && row.draftSequence.length === 0) {
+    return [];
+  }
+  const dimensions = row.confidenceDimensions
+    ? row.confidenceDimensions as unknown as ConfidenceDimensions
+    : computeConfidenceDimensions({
+        contactName: row.contactName,
+        contactTitle: row.contactTitle,
+        companyName: row.companyName,
+        entranceSource: row.entranceSource,
+        utmCampaign: row.utmCampaign,
+        mqlAt: row.mqlAt,
+        arrivedAt: row.arrivedAt,
+        engagementSent: row.engagementSent,
+        engagementOpened: row.engagementOpened,
+        claims: row.claims,
+        missing: row.missing,
+      });
+
+  await syncLeadArtifacts(orgId, {
+    id: row.id,
+    contactName: row.contactName,
+    contactTitle: row.contactTitle,
+    companyName: row.companyName,
+    sections: row.sections,
+    claims: row.claims,
+    missing: row.missing,
+    confidence: row.confidence,
+    dimensions,
+    draftSequence: row.draftSequence.map((s, i) => ({ ...s, step: s.step ?? i + 1 })),
+    recommendedSequence: row.recommendedSequence ?? null,
+    currentSequence: row.currentSequence ?? null,
+  }, by, only);
+
+  return leadArtifacts(orgId, leadId);
 }

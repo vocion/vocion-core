@@ -5,7 +5,7 @@ import { Column, ListEmpty, ListRow, ListRows, ListToolbar, Subline, useListUrlS
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { confidenceLevel } from './confidence';
-import { entranceLabel, LANE_PILL, shortDate } from './LeadContext';
+import { entranceLabel, LANE_PILL, shortDate } from './leadFormat';
 
 /**
  * The personalization queue — a pure list, and the reference implementation

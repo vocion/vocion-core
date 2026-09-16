@@ -94,7 +94,10 @@ const clamp = (n: number): number => Math.max(0, Math.min(1, Math.round(n * 100)
 
 const present = (v: unknown): boolean => typeof v === 'string' ? v.trim().length > 0 : v != null;
 
-/** A claim sourced from the web, not from the CRM mirror. */
+/**
+ * A claim sourced from the web, not from the CRM mirror.
+ * @param source
+ */
 const isExternal = (source: string): boolean => /^https?:\/\//i.test(source);
 
 /**
@@ -229,7 +232,10 @@ export function headlineConfidence(d: ConfidenceDimensions): number {
   return clamp(graded.reduce((a, b) => a + b, 0) / graded.length);
 }
 
-/** Dimensions the evidence could not grade at all — named once, for the brief. */
+/**
+ * Dimensions the evidence could not grade at all — named once, for the brief.
+ * @param d
+ */
 export function unavailableDimensions(d: ConfidenceDimensions): ConfidenceDimension[] {
   return CONFIDENCE_DIMENSIONS.filter(k => d[k].value === null);
 }

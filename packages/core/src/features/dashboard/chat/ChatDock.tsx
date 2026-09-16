@@ -585,6 +585,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             </span>
           )}
           <span className="truncate text-sm font-semibold">{headerName}</span>
+          {/* The drawer's scope, when an affordance opened it with one
+              (`docs/specs/personalization-v2.md`): one line naming the
+              subject, so an ask has an unambiguous referent. Not a panel and
+              not a second conversation — the same rail, said out loud. */}
+          {intent?.scope && (
+            <span className="truncate rounded-full bg-surface-soft px-2 py-0.5 text-[11px] text-muted-foreground" data-testid="rail-scope">
+              {intent.scope.label}
+            </span>
+          )}
           {/* Scoped: the workspace agent is who answers about this record.
               Unscoped the header already IS the workspace — no agent name
               ever appears here (§9.10). */}
@@ -696,6 +705,21 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   onFocus={comments.focusComment}
                   onRemove={id => void comments.removeComment(id)}
                 />
+              )}
+              {/* "Working with:" — the artifacts this turn will carry, listed
+                  because they are ATTACHED, not because the rail is drawing
+                  them. Grounding the person can see; the content itself
+                  travels server-side (`services/chat/grounding.ts`), and #378
+                  still forbids the rail re-rendering what the page shows. */}
+              {(effectiveContext?.artifacts?.length ?? 0) > 0 && (
+                <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground" data-testid="dock-working-with">
+                  <span className="shrink-0">{t('working_with')}</span>
+                  {effectiveContext!.artifacts!.map(a => (
+                    <span key={`${a.type}:${a.id}`} className="inline-flex max-w-full items-center rounded-full bg-surface-soft px-2 py-0.5">
+                      <span className="truncate text-foreground/85">{a.label ?? `artifact ${a.id}`}</span>
+                    </span>
+                  ))}
+                </div>
               )}
               {effectiveContext?.record && (
                 <div className="mb-1.5 flex flex-wrap items-center gap-1.5" data-testid="dock-context-chips">

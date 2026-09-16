@@ -480,6 +480,8 @@ function stableJson(value: unknown): string {
  * @param opts - The org and the record.
  * @param opts.orgId - The project id.
  * @param opts.record - `{ type, id }` of the record; `role` is ignored here.
+ * @param opts.record.type
+ * @param opts.record.id
  */
 export async function listArtifactsForRecord(opts: {
   orgId: string;

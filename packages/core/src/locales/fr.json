@@ -202,7 +202,8 @@
     "attach": "Ajouter à ce tour",
     "tag_artifact": "Document",
     "tag_page": "Cette page",
-    "tag_change": "Modifier le brouillon"
+    "tag_change": "Modifier le brouillon",
+    "working_with": "Travaille avec :"
   },
   "Inbox": {
     "title": "À traiter",

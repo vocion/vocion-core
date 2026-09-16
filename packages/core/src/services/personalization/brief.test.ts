@@ -143,6 +143,7 @@ describe('briefMarkdown', () => {
     const md = briefMarkdown(reduced, 'Dana Reyes — research brief');
 
     expect(md.startsWith('# Dana Reyes — research brief')).toBe(true);
+
     for (const section of reduced.brief) {
       expect(md).toContain(`## ${section.heading}`);
     }

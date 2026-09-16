@@ -56,7 +56,7 @@ describe('syncLeadArtifacts', () => {
     const refs = await leadArtifacts(ORG, 901);
 
     expect(refs.map(r => r.role)).toEqual(['brief', 'recommendation', 'sequence']);
-    expect(refs[0]!.ref).toMatchObject({ type: 'artifact', href: '/dashboard/artifacts/' + refs[0]!.id });
+    expect(refs[0]!.ref).toMatchObject({ type: 'artifact', href: `/dashboard/artifacts/${refs[0]!.id}` });
   });
 
   it('a sync that changes nothing writes no version — the menu is not filled with non-changes', async () => {
@@ -64,6 +64,7 @@ describe('syncLeadArtifacts', () => {
     const again = await syncLeadArtifacts(ORG, lead(902), { author: AGENT });
 
     expect(again.every(s => s.unchanged)).toBe(true);
+
     const [brief] = await leadArtifacts(ORG, 902);
 
     expect(brief!.version).toBe(1);

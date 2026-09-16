@@ -109,7 +109,7 @@ export function absenceKey(text: string): string {
   return norm(text)
     .replace(/[^a-z0-9\s]+/g, ' ')
     // The ways of saying "we did not get it" carry no distinguishing content.
-    .replace(/\b(?:we|i|it|the|a|an|this|that|there|its|their|his|her|for|of|to|in|on|at|is|was|were|are|be|been|has|have|had|no|not|none|any|could|couldn|cannot|can|t|unable|failed|nothing|known|know|dont|don|found|find|retrieve|retrieved|fetch|fetched|reach|reached|establish|established|confirm|confirmed|verify|verified|publish|published|available|unavailable|unknown|outside|record|records)\b/g, ' ')
+    .replace(/\b(?:we|[ia]|it|the|an|this|that|there|its|their|his|her|for|of|to|in|on|at|is|was|were|are|be|been|has|have|had|no|not|none|any|could|couldn|cannot|can|t|unable|failed|nothing|known|know|dont|don|found|find|retrieve|retrieved|fetch|fetched|reach|reached|establish|established|confirm|confirmed|verify|verified|publish|published|available|unavailable|unknown|outside|record|records)\b/g, ' ')
     .replace(/\b(\w+?)s\b/g, '$1')
     .split(/\s+/)
     .filter(Boolean)
@@ -181,7 +181,10 @@ export type ReduceBriefInput = {
   confidence?: number | null;
 };
 
-/** The unique source hosts behind the claims — the Sources chips. */
+/**
+ * The unique source hosts behind the claims — the Sources chips.
+ * @param claims
+ */
 export function briefSources(claims: readonly BriefClaim[]): Array<{ source: string; kind: string }> {
   const seen = new Map<string, string>();
   for (const c of claims) {

@@ -24,6 +24,7 @@ const THIN = {
 describe('computeConfidenceDimensions', () => {
   it('grades the five dimensions separately instead of one collapsed number', () => {
     const d = computeConfidenceDimensions(THIN);
+
     expect(Object.keys(d).sort()).toEqual([...CONFIDENCE_DIMENSIONS].sort());
     // Identity and acquisition are genuinely high; the old single score was
     // dragging them down to meet the absent ones.
@@ -34,6 +35,7 @@ describe('computeConfidenceDimensions', () => {
 
   it('marks engagement UNAVAILABLE rather than low when the CRM returned no fields', () => {
     const d = computeConfidenceDimensions(THIN);
+
     expect(d.engagement.value).toBeNull();
     expect(d.engagement.basis).toContain('no engagement fields');
     expect(unavailableDimensions(d)).toEqual(['engagement']);
@@ -41,6 +43,7 @@ describe('computeConfidenceDimensions', () => {
 
   it('a zero is a fact, not an absence — zero sent grades, it does not read as unavailable', () => {
     const d = computeConfidenceDimensions({ ...THIN, engagementSent: 0, engagementOpened: 0 });
+
     expect(d.engagement.value).not.toBeNull();
   });
 
@@ -52,6 +55,7 @@ describe('computeConfidenceDimensions', () => {
         { kind: 'signal', source: 'https://kestrel.example/blog/ops' },
       ],
     });
+
     expect(d.company.value!).toBeGreaterThan(0.5);
     expect(d.personalizationFit.value!).toBeGreaterThan(0.4);
   });
@@ -62,6 +66,7 @@ describe('headlineConfidence', () => {
     const d = computeConfidenceDimensions(THIN);
     const withAbsence = headlineConfidence(d);
     const graded = CONFIDENCE_DIMENSIONS.map(k => d[k].value).filter((v): v is number => v !== null);
+
     expect(withAbsence).toBeCloseTo(Math.round(graded.reduce((a, b) => a + b, 0) / graded.length * 100) / 100, 2);
     // And it is materially higher than counting the absence as a zero would give.
     expect(withAbsence).toBeGreaterThan(graded.reduce((a, b) => a + b, 0) / 5);

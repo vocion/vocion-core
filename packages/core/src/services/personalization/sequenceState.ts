@@ -48,21 +48,21 @@ export type RecommendedSequence = {
  * Which of the review's four cases this lead is in — plus the two the data
  * settles cleanly and the one it cannot.
  */
-export type SequenceCase =
+export type SequenceCase
   /** Not in anything. Enrolling adds the recommended sequence and nothing else. */
-  | 'none'
+  = | 'none'
   /** Already in the recommended sequence. There is nothing to approve. */
-  | 'already-enrolled'
+    | 'already-enrolled'
   /** Was in a sequence; it finished. Enrolling is unambiguous. */
-  | 'finished'
+    | 'finished'
   /** In an automated CRM sequence Vocion proposes replacing. */
-  | 'replace-automated'
+    | 'replace-automated'
   /** In another sequence, and the recommendation says which way it goes. */
-  | 'replace-other'
+    | 'replace-other'
   /** In another sequence, and the recommendation says to leave it running. */
-  | 'add-alongside'
+    | 'add-alongside'
   /** The data cannot distinguish the cases. No one-click Enroll. */
-  | 'ambiguous';
+    | 'ambiguous';
 
 export type SequenceResolution = {
   case: SequenceCase;
@@ -86,7 +86,10 @@ const named = (s?: string | null): string | null => {
   return t.length > 0 ? t : null;
 };
 
-/** "active · step 1 of 3" from whatever parts the mirror carried. */
+/**
+ * "active · step 1 of 3" from whatever parts the mirror carried.
+ * @param current
+ */
 function describeCurrent(current: CurrentSequence | null | undefined): string {
   if (!current || current.status === 'unknown') {
     return 'Not established — the CRM did not say whether this contact is in a sequence';
