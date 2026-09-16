@@ -191,35 +191,16 @@ describe('getReviewDetail', () => {
 });
 
 describe('listAutoExecuted', () => {
-  it('returns only proposals the gate approved on its own', async () => {
-    await makePendingAction(ORG, { status: 'done', proposal: { confidence: 0.99, autoApproved: true } });
-    await makePendingAction(ORG, { proposal: { confidence: 0.4, autoApproved: false } });
+  it('returns only the runs an agent approved on its own', async () => {
+    await makePendingAction(ORG, {
+      status: 'done',
+      approvedByAgent: true,
+      decidedBy: 'agent:event-scout',
+      decidedAt: new Date(),
+      proposal: { confidence: 0.99, autoApproved: true },
+    });
+    await makePendingAction(ORG, { approvedByAgent: false, proposal: { confidence: 0.4 } });
     await makePendingAction();
-
-    const out = await listAutoExecuted(ORG);
-
-    expect(out.total).toBe(1);
-    expect(out.items[0]!.proposal).toMatchObject({ autoApproved: true });
-  });
-
-  it('is scoped to the org', async () => {
-    await makePendingAction(OTHER_ORG, { status: 'done', proposal: { autoApproved: true } });
-
-    expect((await listAutoExecuted(ORG)).total).toBe(0);
-  });
-
-  it('pages', async () => {
-    await makePendingAction(ORG, { status: 'done', proposal: { autoApproved: true } });
-    await makePendingAction(ORG, { status: 'done', proposal: { autoApproved: true } });
-
-    const page = await listAutoExecuted(ORG, { limit: 1, offset: 0 });
-
-    expect(page.items).toHaveLength(1);
-    expect(page.total).toBe(2);
-  });
-
-  it('finds runs marked on the column, not just ones carrying the old envelope key', async () => {
-    await makePendingAction(ORG, { status: 'done', approvedByAgent: true, proposal: { confidence: 0.99 } });
 
     const out = await listAutoExecuted(ORG);
 
@@ -227,18 +208,58 @@ describe('listAutoExecuted', () => {
     expect(out.items[0]!.approvedByAgent).toBe(true);
   });
 
-  it('still finds pre-migration runs, whose column is null but whose envelope says auto-approved', async () => {
-    // Narrowing this list to the column alone would silently empty the audit
-    // trail of everything decided before the column shipped.
-    await makePendingAction(ORG, { status: 'done', approvedByAgent: null, proposal: { autoApproved: true } });
+  it('is scoped to the org', async () => {
+    await makePendingAction(OTHER_ORG, { status: 'done', approvedByAgent: true });
 
-    expect((await listAutoExecuted(ORG)).total).toBe(1);
+    expect((await listAutoExecuted(ORG)).total).toBe(0);
+  });
+
+  it('pages', async () => {
+    await makePendingAction(ORG, { status: 'done', approvedByAgent: true });
+    await makePendingAction(ORG, { status: 'done', approvedByAgent: true });
+
+    const page = await listAutoExecuted(ORG, { limit: 1, offset: 0 });
+
+    expect(page.items).toHaveLength(1);
+    expect(page.total).toBe(2);
+  });
+
+  it('puts the most recent decision first, and a run with no decision time last', async () => {
+    // The order the index is built in, and the order an audit list has to
+    // read in: page one must be the newest work the agent took on. A
+    // backfilled row carries no `decided_at` — we never knew when it was
+    // decided — so it belongs at the bottom rather than the top, which is
+    // where a plain `DESC` would put a NULL.
+    const older = await makePendingAction(ORG, {
+      status: 'done',
+      approvedByAgent: true,
+      decidedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    const newer = await makePendingAction(ORG, {
+      status: 'done',
+      approvedByAgent: true,
+      decidedAt: new Date('2026-06-01T00:00:00Z'),
+    });
+    const undated = await makePendingAction(ORG, { status: 'done', approvedByAgent: true });
+
+    const out = await listAutoExecuted(ORG);
+
+    expect(out.items.map(item => item.id)).toEqual([newer, older, undated]);
   });
 
   it('leaves out a run a person decided, even when the old envelope key is set on it', async () => {
     // The column is the system of record: an explicit `false` beats a stale
     // envelope, or a human decision would be reported as the agent's work.
     await makePendingAction(ORG, { status: 'done', approvedByAgent: false, proposal: { autoApproved: true } });
+
+    expect((await listAutoExecuted(ORG)).total).toBe(0);
+  });
+
+  it('leaves out a run whose column is null, envelope key or not', async () => {
+    // Pre-column runs the ladder released were backfilled to `true` by
+    // migration 0108, so a null here means undecided — and reading the jsonb
+    // key instead would cost this list its index and scan the whole table.
+    await makePendingAction(ORG, { status: 'done', approvedByAgent: null, proposal: { autoApproved: true } });
 
     expect((await listAutoExecuted(ORG)).total).toBe(0);
   });

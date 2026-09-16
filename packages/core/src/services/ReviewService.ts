@@ -697,31 +697,27 @@ export async function listAutoExecuted(
 ): Promise<{ items: Array<typeof actionRunSchema.$inferSelect>; total: number; limit: number; offset: number }> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
+  // `approved_by_agent` is the whole question, and it is the whole question on
+  // purpose: migration 0108 backfilled every pre-column run whose proposal
+  // envelope said `autoApproved`, so there is no older population left to read
+  // a jsonb key for. That matters for more than tidiness — an `OR` over a
+  // jsonb expression cannot use `action_run_approved_by_agent_idx`, so the
+  // fallback this replaced turned a one-page audit read into a scan of every
+  // action run the org has ever recorded.
   const autoApproved = and(
     eq(actionRunSchema.orgId, orgId),
-    // `approved_by_agent` is the system of record. Runs decided before that
-    // column shipped have it null and are still auto-executed, so the proposal
-    // key it replaced is read as a fallback: narrowing to the column alone
-    // would silently empty this audit trail of everything before the migration.
-    //
-    // The first arm is what `action_run_approved_by_agent_idx` serves. The
-    // fallback arm scans, and is meant to — it shrinks as pre-migration rows
-    // age out, and indexing a jsonb key to read a closed set of old rows would
-    // cost more than it saves.
-    or(
-      eq(actionRunSchema.approvedByAgent, true),
-      and(
-        isNull(actionRunSchema.approvedByAgent),
-        sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
-      ),
-    ),
+    eq(actionRunSchema.approvedByAgent, true),
   );
   const [items, [counted]] = await Promise.all([
     db
       .select()
       .from(actionRunSchema)
       .where(autoApproved)
-      .orderBy(desc(actionRunSchema.id))
+      // Newest decision first, and in the index's own order so a page is read
+      // off it rather than sorted out of the org's whole history. Backfilled
+      // rows have no `decided_at` — we never knew when they were decided — and
+      // sort last, where an undated row belongs; `id` only breaks ties.
+      .orderBy(sql`${actionRunSchema.decidedAt} DESC NULLS LAST`, desc(actionRunSchema.id))
       .limit(limit)
       .offset(offset),
     db.select({ total: sql<number>`count(*)::int` }).from(actionRunSchema).where(autoApproved),

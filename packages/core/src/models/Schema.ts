@@ -2789,11 +2789,14 @@ export const actionRunSchema = pgTable(
       .on(table.orgId, sql`(${table.proposal} ->> 'suggestedDecision')`)
       .where(sql`${table.status} IN ('pending', 'failed')`),
     // The auto-approved list asks for exactly the rows where an agent took the
-    // decision. Partial on true because those are a small fraction of every
-    // run ever decided, and indexing the false and null rows too would be most
-    // of the table to answer a question nobody asks of it.
+    // decision, newest first. Partial on true because those are a small
+    // fraction of every run ever decided, and indexing the false and null rows
+    // too would be most of the table to answer a question nobody asks of it.
+    // The direction matches `listAutoExecuted`'s ORDER BY so a page is read
+    // off the index rather than sorted out of the org's whole history;
+    // changing either one without the other loses the index quietly.
     index('action_run_approved_by_agent_idx')
-      .on(table.orgId, table.decidedAt)
+      .on(table.orgId, sql`${table.decidedAt} DESC NULLS LAST`)
       .where(sql`${table.approvedByAgent}`),
   ],
 );
