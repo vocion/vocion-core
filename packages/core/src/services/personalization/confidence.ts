@@ -239,3 +239,68 @@ export function headlineConfidence(d: ConfidenceDimensions): number {
 export function unavailableDimensions(d: ConfidenceDimensions): ConfidenceDimension[] {
   return CONFIDENCE_DIMENSIONS.filter(k => d[k].value === null);
 }
+
+/**
+ * ## Coverage, not probability
+ *
+ * The five dimensions are a COVERAGE grade — how much of the evidence we
+ * wanted did we actually get — and coverage is not a calibrated probability.
+ * Printing it as `Company understanding 5%` claims a precision nothing behind
+ * it earns, and the reader has no way to check it.
+ *
+ * Chris, 2026-09-16: *"Those numbers do not tell a coherent story… I would
+ * stop presenting these as percentages unless you have genuinely calibrated
+ * probabilities behind them. Use coverage/state instead… You can retain
+ * numeric scoring internally for routing and evals."*
+ *
+ * So the number stays — `recommendedPosture` and the evals read it, and it is
+ * the thing that would be calibrated if we ever calibrate it — and the SCREEN
+ * gets a state. One ladder, same cut point as the posture call, so a
+ * dimension that reads "Partial" is exactly a dimension the posture logic
+ * treats as not established.
+ */
+export type SignalState = 'verified' | 'partial' | 'weak' | 'unavailable';
+
+/** Above this a dimension is not merely established but corroborated. */
+export const CORROBORATED = 0.85;
+
+export const SIGNAL_STATE_LABEL: Record<SignalState, string> = {
+  verified: 'Verified',
+  partial: 'Partial',
+  weak: 'Weak',
+  unavailable: 'Unavailable',
+};
+
+/**
+ * One dimension's state. `null` is UNAVAILABLE and is never a low score — the
+ * evidence could not be read, which is a different fact from reading it and
+ * finding little.
+ * @param score - The dimension's raw value, or null.
+ */
+export function dimensionState(score: number | null): SignalState {
+  if (score === null) {
+    return 'unavailable';
+  }
+  if (score >= CORROBORATED) {
+    return 'verified';
+  }
+  if (score >= ESTABLISHED) {
+    return 'partial';
+  }
+  return 'weak';
+}
+
+/**
+ * The headline state — "Research: Partial".
+ *
+ * Reads the same ladder off the same mean the headline number used, so the
+ * word and any number kept for an operator can never disagree. All-unavailable
+ * is its own answer rather than a zero.
+ * @param d - The computed dimensions.
+ */
+export function researchState(d: ConfidenceDimensions): SignalState {
+  if (unavailableDimensions(d).length === CONFIDENCE_DIMENSIONS.length) {
+    return 'unavailable';
+  }
+  return dimensionState(headlineConfidence(d));
+}

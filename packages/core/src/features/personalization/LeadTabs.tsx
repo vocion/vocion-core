@@ -8,8 +8,9 @@ import { EvidenceList, FactList, Section } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { EvidenceRef } from '@/features/preview/EvidenceRefs';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { readerFailure } from '@/libs/chat/redact';
 import { reduceBrief } from '@/services/personalization/brief';
-import { CONFIDENCE_DIMENSIONS, DIMENSION_LABEL } from '@/services/personalization/confidence';
+import { CONFIDENCE_DIMENSIONS, DIMENSION_LABEL, dimensionState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { ArtifactRegenerateControl } from './ArtifactRegenerateControl';
 import { fullDate, HANDOFF_TRIGGER_LABEL, shortDate } from './leadFormat';
 
@@ -113,7 +114,7 @@ export const BriefTab = ({ row, artifact }: { row: LeadDossier; artifact?: LeadA
       {reduced.brief.length === 0 && row.briefError
         ? (
             <Section eyebrow={<span className="text-destructive">{`No brief. Briefing failed ${row.briefAttempts} ${row.briefAttempts === 1 ? 'time' : 'times'}`}</span>} commentField="Briefing failed">
-              <p className="whitespace-pre-line">{row.briefError}</p>
+              <p className="whitespace-pre-line">{readerFailure(row.briefError)}</p>
               <p className="mt-2 text-[13px] text-muted-foreground">
                 The retries have stopped. Regenerate to put this lead back in line for another pass.
               </p>
@@ -141,20 +142,37 @@ export const BriefTab = ({ row, artifact }: { row: LeadDossier; artifact?: LeadA
                         // each drawn by `ConfidenceBars`, which carries its
                         // own subject, so there is no label column repeating
                         // the word beside it.
+                        // Coverage states, not percentages. `Company
+                        // understanding 5%` claims a precision nothing behind
+                        // it earns and the reader cannot check it; "Partial ·
+                        // first-party sources" is the same fact, honest about
+                        // what kind of fact it is. The raw number still drives
+                        // the bars and still decides the posture — it is the
+                        // SCREEN that stops quoting it.
                         <ul className="flex flex-col gap-1.5">
                           {dimensions
-                            ? CONFIDENCE_DIMENSIONS.map(k => (
-                                <li key={k}>
-                                  {dimensions[k].value === null
-                                    ? (
-                                        <span className="text-muted-foreground" title={dimensions[k].basis}>
-                                          {`${DIMENSION_LABEL[k]} unavailable — nothing can be inferred`}
-                                        </span>
-                                      )
-                                    : <ConfidenceBars value={dimensions[k].value} subject={DIMENSION_LABEL[k]} note={dimensions[k].basis} />}
-                                </li>
-                              ))
-                            : <li><ConfidenceBars value={row.confidence} subject="Research" /></li>}
+                            ? CONFIDENCE_DIMENSIONS.map((k) => {
+                                const state = dimensionState(dimensions[k].value);
+                                return (
+                                  <li key={k}>
+                                    {state === 'unavailable'
+                                      ? (
+                                          <span className="text-muted-foreground" title={dimensions[k].basis}>
+                                            {`${DIMENSION_LABEL[k]} — Unavailable · nothing can be inferred`}
+                                          </span>
+                                        )
+                                      : (
+                                          <ConfidenceBars
+                                            value={dimensions[k].value}
+                                            subject={DIMENSION_LABEL[k]}
+                                            reading={`${SIGNAL_STATE_LABEL[state]} · ${dimensions[k].basis}`}
+                                            note={dimensions[k].basis}
+                                          />
+                                        )}
+                                  </li>
+                                );
+                              })
+                            : <li><ConfidenceBars value={row.confidence} subject="Research" reading={SIGNAL_STATE_LABEL[dimensionState(row.confidence)]} /></li>}
                         </ul>
                       )
                     : <Prose body={section.body} field={section.heading} />}

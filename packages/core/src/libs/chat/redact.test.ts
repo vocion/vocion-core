@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { failureReport, isEmptyWorkspaceFailure, redactInternalIds } from './redact';
+import { failureReport, isEmptyWorkspaceFailure, readerFailure, redactInternalIds } from './redact';
 
 /**
  * The rule: a user-facing error never shows an internal identifier, and the
@@ -62,5 +62,45 @@ describe('failureReport', () => {
     expect(block).toContain('conversation: unknown');
     expect(block).toContain('when:         unknown');
     expect(block).toContain('delegate:     none');
+  });
+});
+
+/**
+ * A configuration identifier is ours, not theirs.
+ *
+ * Chris, 2026-09-16, reading `TAVILY_API_KEY not configured` on a lead review:
+ * "That belongs in admin observability, logs, or developer tooling. It should
+ * never leak into a revenue review UX."*
+ */
+describe('configuration identifiers', () => {
+  it('takes the environment variable out of a message a reader will see', () => {
+    expect(redactInternalIds('web search provider "tavily" is not configured — set TAVILY_API_KEY.'))
+      .not
+      .toContain('TAVILY_API_KEY');
+  });
+
+  it('leaves a shouted word alone — an underscore is what makes it config', () => {
+    expect(redactInternalIds('The MQL never arrived.')).toBe('The MQL never arrived.');
+  });
+
+  it('names the capability and never the provider or the variable', () => {
+    const reader = readerFailure('web search provider "tavily" is not configured — set TAVILY_API_KEY.');
+
+    expect(reader).toBe('Web search was unavailable for this run.');
+    expect(reader).not.toContain('tavily');
+    expect(reader).not.toContain('TAVILY_API_KEY');
+  });
+
+  it('says "for this run", because thin evidence today is retryable and not a property of the lead', () => {
+    expect(readerFailure('browse provider "firecrawl" is not configured — set FIRECRAWL_API_KEY.'))
+      .toMatch(/for this run\.$/);
+  });
+
+  it('still redacts, rather than inventing a sentence, for a failure it does not recognise', () => {
+    const reader = readerFailure('write failed for org proj-2df61364-aaaa in __search__');
+
+    expect(reader).not.toContain('proj-2df61364');
+    expect(reader).not.toContain('__search__');
+    expect(reader).toContain('write failed');
   });
 });

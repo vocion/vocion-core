@@ -3,7 +3,7 @@ import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
-import { computeConfidenceDimensions } from '@/services/personalization/confidence';
+import { computeConfidenceDimensions, researchState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { publishDraftRevision } from './draftRevision';
 import { LeadDetail } from './LeadDetail';
 
@@ -119,13 +119,62 @@ describe('the lead workspace — three zones, three tabs', () => {
     await expect.element(page.getByRole('link', { name: 'Open in HubSpot ↗' })).toBeVisible();
     await expect.element(page.getByText('Paid social')).toBeVisible();
     await expect.element(page.getByText('MQL Sep 1')).toBeVisible();
-    // Never a bare score: the subject travels with the number (#379).
-    await expect.element(page.getByText('Research 60%').first()).toBeVisible();
+    // A coverage STATE, never a percentage: the five dimensions grade how much
+    // of the evidence we got, which is not a calibrated probability, and
+    // quoting it as one claims a precision nothing behind it earns. The
+    // subject still travels with the reading (#379).
+    // A coverage STATE, never a percentage, and derived from the SAME
+    // dimensions the brief lists — so the headline and the per-signal rows
+    // cannot tell different stories. The fixture stores `confidence: 0.6`
+    // while its dimensions actually average below the established cut, and
+    // the old header quoted the stored number: "Research 60%" over a brief
+    // whose signals were weak. That disagreement is what the CEO could not
+    // account for, and it is now unrepresentable.
+    await expect.element(page.getByText(/Research\s+Weak/).first()).toBeVisible();
+    expect(page.getByText('Research 60%').elements()).toHaveLength(0);
 
     // The permanent metadata column is gone — the timeline and the CRM
     // context moved into Evidence, not a rail beside the page.
     expect(page.getByRole('complementary').elements()).toHaveLength(0);
     expect(page.getByText('Reference articles').elements()).toHaveLength(0);
+  });
+
+  it('reads the headline off the same dimensions as the rows, so the two cannot disagree', async () => {
+    const dimensions = computeConfidenceDimensions({ contactName: 'Rowan Pike', contactTitle: 'CEO', companyName: 'Tideline Gaming Marketing Inc', claims: CLAIMS });
+
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88213, contactName: 'Rowan Pike', confidence: 0.95, confidenceDimensions: dimensions })}
+        contactHref={null}
+        runState={NO_RUN}
+      />,
+    );
+
+    // `confidence` says 0.95; the dimensions say otherwise. The header follows
+    // the dimensions, because those are the thing the brief shows its working
+    // for. A stored number nobody can trace is what "42%" was.
+    const expected = SIGNAL_STATE_LABEL[researchState(dimensions)];
+
+    await expect.element(page.getByText(new RegExp(`Research\\s+${expected}`)).first()).toBeVisible();
+  });
+
+  it('grades each signal as a state with what it rests on, and quotes no percentage', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88201,
+          contactName: 'Rowan Pike',
+          confidenceDimensions: computeConfidenceDimensions({ contactName: 'Rowan Pike', contactTitle: 'CEO', companyName: 'Tideline Gaming Marketing Inc', claims: CLAIMS }),
+        })}
+        contactHref={null}
+        runState={NO_RUN}
+      />,
+    );
+
+    await expect.element(page.getByText('Identity', { exact: false }).first()).toBeVisible();
+    // Chris, 2026-09-16: *"I would stop presenting these as percentages unless
+    // you have genuinely calibrated probabilities behind them."*
+    expect(page.getByText('%').elements()).toHaveLength(0);
   });
 
   it('collapses the brief to the five sections and states each absence ONCE', async () => {
@@ -155,7 +204,7 @@ describe('the lead workspace — three zones, three tabs', () => {
       />,
     );
 
-    await expect.element(page.getByText('Engagement unavailable — nothing can be inferred')).toBeVisible();
+    await expect.element(page.getByText('Engagement — Unavailable · nothing can be inferred')).toBeVisible();
   });
 
   it('puts the timeline, the claims and the run details under Evidence', async () => {
