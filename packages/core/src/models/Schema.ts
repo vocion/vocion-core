@@ -1321,7 +1321,6 @@ export const conversationSchema = pgTable(
      * enum, so a new rung is a code change.
      */
     autonomy: text('autonomy').default('ask').notNull(),
-    /**
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
