@@ -1,11 +1,12 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { MessageSquare } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { PreviewPane } from '@/features/preview/PreviewPane';
 import { useOpenPreviewRef } from '@/features/preview/previewState';
 import { cn } from '@/utils/Helpers';
-import { claimColumn, columnOwner, publishDockOpen, RAIL_INSET_VAR, subscribeColumnOwner } from './dockState';
+import { claimColumn, columnOwner, openChatPane, publishDockOpen, RAIL_INSET_VAR, subscribeColumnOwner } from './dockState';
 import { clampRailSplit, RAIL_MAX_FRACTION, RAIL_MIN_WIDTH, RAIL_SPLIT_DEFAULT, RAIL_SPLIT_MIN, readStoredRailSplit, writeStoredRailSplit } from './railState';
 
 /**
@@ -96,13 +97,19 @@ export function RailColumn(props: RailColumnProps) {
 
   // The column never covers the record it is about: the shell's page gutter
   // pads by exactly this much while it stands beside the page.
+  //
+  // Two cases do not inset, and neither is an exception to that rule. A sheet
+  // (`frame`, below the breakpoint) is a modal overlay by design. And a column
+  // with no room left to reflow into — wider than half the viewport — would
+  // pad the page by its own width and leave a column of nothing.
   useEffect(() => {
     if (!owns) {
       return;
     }
-    publishDockOpen(open && !props.narrow, props.width);
+    const roomLeft = !props.frame && props.width > 0 && props.width < window.innerWidth / 2;
+    publishDockOpen(open && roomLeft, props.width);
     return () => publishDockOpen(false);
-  }, [owns, open, props.narrow, props.width]);
+  }, [owns, open, props.frame, props.width]);
 
   const onDividerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const rect = column.current?.getBoundingClientRect();
@@ -187,7 +194,29 @@ export function RailColumn(props: RailColumnProps) {
             </>
           )
         : hasPreview
-          ? preview
+          ? (
+              <>
+                {preview}
+                {/* The preview holds the column on its own, so the rail's edge
+                    tab is not on screen to open chat with. Without this the
+                    only way back to the conversation is ⌘J, which is a
+                    shortcut, not an affordance — and asking about what you are
+                    reading is the reason the preview exists. Only where a dock
+                    is actually mounted: on a page with no rail there is
+                    nothing to open. */}
+                {props.priority === 'dock' && !props.narrow && (
+                  <button
+                    type="button"
+                    onClick={openChatPane}
+                    data-testid="rail-open-chat"
+                    className="flex h-10 shrink-0 items-center justify-center gap-2 border-t border-border text-[13px] text-muted-foreground transition hover:bg-surface-soft hover:text-foreground"
+                  >
+                    <MessageSquare className="size-3.5" aria-hidden />
+                    Ask about this
+                  </button>
+                )}
+              </>
+            )
           : <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>}
     </div>
   );

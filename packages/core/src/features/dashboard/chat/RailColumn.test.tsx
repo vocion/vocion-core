@@ -170,3 +170,29 @@ describe('the right column', () => {
     await expect.element(page.getByTestId('preview-close')).toHaveAttribute('aria-label', 'Back to chat');
   });
 });
+
+describe('getting back to the conversation', () => {
+  it('offers a way to open chat when the preview holds the column alone', async () => {
+    const opened: boolean[] = [];
+    window.addEventListener('vocion:rail-set', (e) => {
+      opened.push(Boolean((e as CustomEvent<{ open?: boolean }>).detail?.open));
+    }, { once: true });
+    render(<Harness />);
+    await page.getByTestId('close-chat').click();
+    openPreview(REF, null);
+
+    await expect.element(page.getByTestId('preview-panel')).toBeVisible();
+
+    await page.getByTestId('rail-open-chat').click();
+
+    expect(opened).toEqual([true]);
+  });
+
+  it('does not offer it where no rail is mounted to open', async () => {
+    render(<RailColumn priority="preview" chat={null} width={420} aria-label="Preview" />);
+    openPreview(REF, null);
+
+    await expect.element(page.getByTestId('preview-panel')).toBeVisible();
+    expect(page.getByTestId('rail-open-chat').elements()).toHaveLength(0);
+  });
+});
