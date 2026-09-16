@@ -1,5 +1,5 @@
 /**
- * One decision surface, one URL shape. Every row on "Needs you" opens at
+ * One decision surface, one URL shape. Every row on "Review queue" opens at
  * `/dashboard/inbox/<ref>`, and the ref says which kind of thing it is so
  * the detail route can render the right screen for it:
  *

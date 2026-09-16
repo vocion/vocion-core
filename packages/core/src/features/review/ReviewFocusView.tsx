@@ -28,7 +28,7 @@ import { UpNextMenu } from './UpNextMenu';
  * Shape (Chris, 2026-09-15): breadcrumb + item title, one meta row, then the
  * item as hairline-divided sections with the decision in a sticky bar. No
  * outer card, no persistent Up-next rail. Since the two decision surfaces
- * became one, this is the `proposal` kind's detail on "Needs you": the
+ * became one, this is the `proposal` kind's detail on "Review queue": the
  * crumbs say so, the Up-next walks the filtered inbox, and the kind chips are
  * the list's job (pass `types` only where a standalone queue wants them).
  */
@@ -80,7 +80,7 @@ export type ReviewFocusViewProps = {
   types?: readonly ReviewType[];
   activeTypes?: readonly string[];
   onChangeTypes?: (next: string[]) => void;
-  /** Breadcrumb override; defaults to Workspace › Needs you › Proposals › record. */
+  /** Breadcrumb override; defaults to Workspace › Review queue › Proposals › record. */
   crumbs?: Array<{ label: string; href?: string }>;
   current: ActionRun | null;
   /** Index of `current` in the working queue, 0-based; -1 when unknown. */
@@ -164,7 +164,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {p.decided > 0 ? `${p.decided} handled this session. ` : ''}
-            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on Needs you for your decision.'}
+            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on the review queue for your decision.'}
           </p>
         </div>
       </div>

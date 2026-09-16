@@ -7,7 +7,7 @@ import { SearchResults } from './SearchResults';
 /**
  * Search on the List archetype: one title, one context line, ONE row of
  * connector chips with "+N more", and results as `ListRow`s in the same
- * density as Artifacts and Needs you.
+ * density as Artifacts and Review queue.
  */
 const meta: Meta<typeof SearchResults> = {
   title: 'Search/Results',

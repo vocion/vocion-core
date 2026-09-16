@@ -42,7 +42,7 @@ export async function queueExternalWorkerTurn(opts: {
     },
   });
   return {
-    response: `Queued as worker run #${run.id} for "${opts.agentSlug}". A worker will claim it; progress and results appear on the run, and anything it proposes lands on Needs you.`,
+    response: `Queued as worker run #${run.id} for "${opts.agentSlug}". A worker will claim it; progress and results appear on the run, and anything it proposes lands on the review queue.`,
     traceId: `worker-run-${run.id}`,
     toolCalls: [],
   };

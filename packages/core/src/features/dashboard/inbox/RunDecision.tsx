@@ -141,7 +141,7 @@ export function RunDecision({ run }: { run: RunSummary }) {
         : (
             <StickyActionBar
               primary={{ label: run.openLabel, onClick: () => router.push(run.openHref), icon: ArrowUpRight }}
-              secondary={[{ 'label': 'Back to Needs you', 'onClick': () => router.push('/dashboard/inbox?kind=run'), 'icon': ArrowLeft, 'data-testid': 'run-back' }]}
+              secondary={[{ 'label': 'Back to the review queue', 'onClick': () => router.push('/dashboard/inbox?kind=run'), 'icon': ArrowLeft, 'data-testid': 'run-back' }]}
             />
           )}
     </div>

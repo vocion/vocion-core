@@ -28,7 +28,7 @@ export type DecidedProposal = {
  * "just now"; and when nothing is left the sheet says so and offers a button
  * back. Nothing navigates on its own, and nothing depends on a `router.refresh`
  * landing before the reader looks up — the page already holds everything it
- * needs to be right (Chris, 2026-09-16: "It redirected me back to Needs you
+ * needs to be right (Chris, 2026-09-16: "It redirected me back to the review queue
  * list with no context").
  * @param props
  * @param props.open - The record's open proposals, as sheet questions.

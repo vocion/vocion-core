@@ -37,9 +37,9 @@ describe('readPageContext', () => {
   });
 
   it('drops a malformed record without dropping the page', () => {
-    const ctx = readPageContext({ path: '/dashboard/inbox', title: 'Needs you', record: { type: 'ask' } });
+    const ctx = readPageContext({ path: '/dashboard/inbox', title: 'Review queue', record: { type: 'ask' } });
 
-    expect(ctx).toEqual({ path: '/dashboard/inbox', title: 'Needs you' });
+    expect(ctx).toEqual({ path: '/dashboard/inbox', title: 'Review queue' });
   });
 
   it('only lets in-app relative hrefs through on a ref', () => {

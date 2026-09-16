@@ -6,7 +6,7 @@ import { AutonomyReadings } from './AutonomyReadings';
 
 /**
  * A member's contract as a flat definition grid — Mission · Accountable
- * owner · Control · Needs you — for the member detail page. Vocabulary per
+ * owner · Control · Review queue — for the member detail page. Vocabulary per
  * the spec; a field the workspace has not authored says so in plain text,
  * with no file path in the copy.
  * @param props
@@ -40,7 +40,7 @@ export function ContractGrid({ contract, escalationHref, purposeFallback }: {
             )
           : <AutonomyReadings readings={contract.autonomy} />}
       </Field>
-      <Field label="Needs you">
+      <Field label="Review queue">
         <Link href={escalationHref} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
           Open this agent's inbox items
           <ArrowUpRight className="size-3.5" aria-hidden />

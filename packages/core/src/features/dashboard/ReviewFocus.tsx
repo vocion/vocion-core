@@ -15,7 +15,7 @@ import { decisionCrumbs } from './inbox/inboxMeta';
 import { withMinimumPending } from './inbox/pending';
 
 /**
- * The `proposal` kind's decision screen on "Needs you" — the data half. The
+ * The `proposal` kind's decision screen on "Review queue" — the data half. The
  * server page (`/dashboard/inbox/proposal-:id`) loads the run with its card
  * and alignment, plus the working queue: every open proposal in the order
  * and under the filters the list showed them. This container owns what
@@ -120,7 +120,7 @@ export function ReviewFocus(props: {
   const onSave = () => {
     signal('save');
     setDecided(d => d + 1);
-    toast.info(`Saved for later · ${describeAction(run).title}`, { description: 'Still pending; it stays on Needs you.' });
+    toast.info(`Saved for later · ${describeAction(run).title}`, { description: 'Still pending; it stays on the review queue.' });
     leave();
   };
 
@@ -141,7 +141,7 @@ export function ReviewFocus(props: {
       const editedInput = decision === 'approve' ? buildEditedInput() : undefined;
       const outcome = await withMinimumPending(client.review.decideAction({ id: run.id, decision, ...(editedInput ? { editedInput } : {}) }));
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
-        toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'The action threw. It stays on Needs you; Approve again to retry.' });
+        toast.error(`Approved, but it failed to run · ${title}`, { description: outcome.execution.error ?? 'The action threw. It stays on the review queue; Approve again to retry.' });
         router.refresh();
         return;
       }
@@ -165,7 +165,7 @@ export function ReviewFocus(props: {
       await withMinimumPending(client.review.snoozeAction({ id: run.id, until: until.toISOString() }));
       setSnoozeOpen(false);
       setDecided(d => d + 1);
-      toast.info(`Snoozed · ${title}`, { description: `Back on Needs you ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
+      toast.info(`Snoozed · ${title}`, { description: `Back on the review queue ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
       leave();
     } catch (err) {
       toast.error(`Could not snooze · ${title}`, { description: err instanceof Error ? err.message : String(err) });
@@ -242,7 +242,7 @@ export function ReviewFocus(props: {
         <ReviewHeader crumbs={decisionCrumbs('proposal', record)} title="Queue clear" system="Proposals" status="done" position={`${decided} decided this visit`} />
         <p className="mt-3 text-sm text-muted-foreground">Nothing else in this queue is waiting on you.</p>
         <p className="mt-4">
-          <Link href={listHref} className="text-sm text-primary underline-offset-2 hover:underline" data-testid="review-cleared-back">Back to Needs you</Link>
+          <Link href={listHref} className="text-sm text-primary underline-offset-2 hover:underline" data-testid="review-cleared-back">Back to the review queue</Link>
         </p>
       </div>
     );

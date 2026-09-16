@@ -1,6 +1,6 @@
 /**
  * The "illusion of work" (Chris, 2026-09-15): a decision that lands in 30ms
- * reads as nothing having happened. Every submitting control on "Needs you"
+ * reads as nothing having happened. Every submitting control on "Review queue"
  * — approve, decline, snooze, resume, adopt, the sheet's Submit and Next —
  * holds its pending state for at least this long, and exactly as long as the
  * server takes when that is longer. Nothing advances optimistically.

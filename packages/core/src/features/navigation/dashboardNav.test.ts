@@ -36,7 +36,7 @@ describe('dashboardNav registry', () => {
     expect(work).not.toContain('/dashboard/team-report');
     expect(work).not.toContain('/dashboard/activity');
     expect(work).not.toContain('/dashboard/developers');
-    // Review folded into Needs you: no sidebar row, no route of its own.
+    // Review folded into the review queue: no sidebar row, no route of its own.
     expect(work).not.toContain('/dashboard/review');
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/review')).toBe(false);
   });
@@ -44,7 +44,7 @@ describe('dashboardNav registry', () => {
   it('keeps the review alias in the palette only — the muscle memory, not a second door', () => {
     const alias = DASHBOARD_ROUTES.find(r => r.paletteOnly)!;
 
-    expect(alias).toMatchObject({ url: '/dashboard/inbox?kind=proposal', title: 'Needs you · Proposals', group: 'Workspace' });
+    expect(alias).toMatchObject({ url: '/dashboard/inbox?kind=proposal', title: 'Review · Proposals', group: 'Workspace' });
     expect(alias.keywords).toContain('review');
     expect(workRoutes().map(r => r.url)).not.toContain(alias.url);
     // It is a Workspace row, so it never reaches a MANAGE section or the pinnable list either.

@@ -114,9 +114,13 @@ const RUN = {
     subject: { name: 'Rowan Pike', role: 'CEO', company: 'Tideline Gaming Marketing Inc', href: HUBSPOT },
     provenance: [],
     recommendation: { headline: 'Enroll in Ebook Inbound Sequence · 2 sends', detail: 'Identity and company context are established, but nothing specific enough to open on — lead with the category.', ref: 'seq-311' },
+    // `Day N`, not `Send N` — `personalization-enroll.ts` labels a send by its
+    // day offset whenever it has one, and every seeded send has one. A story
+    // that hand-writes a different label shows a product that does not exist,
+    // which is how the two send-label paths drifted unnoticed.
     content: [
-      { kind: 'email', id: 'send-1', label: 'Send 1', subject: 'The ebook you pulled', body: 'Following up on the ebook — the state-by-state compliance section is the one most agencies act on first.' },
-      { kind: 'email', id: 'send-2', label: 'Send 2', subject: 'One level deeper', body: 'The compliance tracker walkthrough, if useful.' },
+      { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'The ebook you pulled', body: 'Following up on the ebook — the state-by-state compliance section is the one most agencies act on first.' },
+      { kind: 'email', id: 'send-2', label: 'Day 4', subject: 'One level deeper', body: 'The compliance tracker walkthrough, if useful.' },
     ],
     fields: [],
     verbs: { approve: 'Enroll', reject: 'Decline' },

@@ -284,7 +284,7 @@ describe('"Approving will" states the effect, not the scores', () => {
 
     const card = await discoveryReviewProposalAction.reviewCard!(ctx, proposalInput({ candidateId }) as never);
 
-    expect(card.nextAction).toBe('Create a draft proposal from this meeting and add it to Needs you for your review. Nothing is sent.');
+    expect(card.nextAction).toBe('Create a draft proposal from this meeting and add it to the review queue for your review. Nothing is sent.');
     expect(card.nextAction).not.toMatch(/%|0\.\d/);
   });
 

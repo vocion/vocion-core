@@ -44,7 +44,7 @@ type Outcome = { ok: true } | { ok: false; error: string };
 /** Where the sheet offers to go once nothing on it is waiting any more. */
 export type SheetExit = { label: string; href: string };
 
-const DEFAULT_EXIT: SheetExit = { label: 'Back to Needs you', href: '/dashboard/inbox' };
+const DEFAULT_EXIT: SheetExit = { label: 'Back to the review queue', href: '/dashboard/inbox' };
 
 /**
  * What happens next, for the toast — an answer is read by the team; an approved proposal runs.
@@ -69,7 +69,7 @@ function nextFor(endpoint: 'ask' | 'review', decision: string): string {
  * end lists every Question → Answer with its outcome and a Retry for anything
  * that failed. A single ask is the same screen with Submit in place of Next.
  *
- * Wears the same chrome as every other decision on "Needs you": the
+ * Wears the same chrome as every other decision on "Review queue": the
  * `ReviewHeader` (breadcrumb › kind › record, one meta row with the asker,
  * the recommendation's confidence and how often you agreed with this asker)
  * and the `StickyActionBar` for Submit / Next. The option rows ARE the verbs
@@ -77,7 +77,7 @@ function nextFor(endpoint: 'ask' | 'review', decision: string): string {
  *
  * **Deciding never navigates.** Answering the last question used to
  * `router.push` back to the list, which threw the reviewer out of the record
- * they were working (Chris, 2026-09-16: "It redirected me back to Needs you
+ * they were working (Chris, 2026-09-16: "It redirected me back to the review queue
  * list with no context"). The toast survived that navigation — it renders
  * bottom-right and lives its full five seconds — but a toast in the corner of
  * a page you did not ask for is not context. So the sheet stays put: the

@@ -23,7 +23,7 @@ import { flipDirection, toggleChip } from './listUrlState';
  * "Review 2" by role button.
  *
  * The chips are ONE line, always: `ChipRow` measures and folds the rest into
- * a "+N more" menu (the shape Needs you set in #348). No list wraps chips to
+ * a "+N more" menu (the shape Review queue set in #348). No list wraps chips to
  * a second row.
  */
 

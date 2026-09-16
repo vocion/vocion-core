@@ -363,7 +363,7 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
     { label: 'Tokens', value: compactTokens(totals.tokens) },
     { label: 'Board runs', value: totals.kindsKnown ? `${totals.boardRuns}` : '—' },
     { label: 'Red-team runs', value: totals.kindsKnown ? `${totals.redTeamRuns}` : '—' },
-    { label: 'Needs you', value: `${needsYou.total}` },
+    { label: 'Review queue', value: `${needsYou.total}` },
   ];
 
   return { performance, changed, needsMe: { total: needsYou.total, lines: needsLines }, onTrack: { status, lines: trackLines }, next, rollup, evidence };

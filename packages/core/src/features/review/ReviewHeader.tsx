@@ -10,8 +10,8 @@ import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
 /**
- * The decision-screen header every kind on "Needs you" shares: a breadcrumb
- * with context (Workspace › Needs you › kind › record), the item as the H1
+ * The decision-screen header every kind on "Review queue" shares: a breadcrumb
+ * with context (Workspace › Review queue › kind › record), the item as the H1
  * ("Enroll MQL in sequence — Dev Okonkwo · Vantage Automation"), and ONE meta row —
  * system · status · who proposed or asked · confidence as an inline meter ·
  * how often people agreed with this agent on this kind · what the agent

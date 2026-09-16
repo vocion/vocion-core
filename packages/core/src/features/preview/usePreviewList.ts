@@ -10,7 +10,7 @@ import { openPreview, useOpenPreviewRef } from './previewState';
  *
  * `docs/design/patterns.md` § *A row is a reference, or it is the task*: a
  * list you are scanning to choose from previews (search, artifacts, evidence),
- * a list that IS your work navigates (Needs you). The list declares which, and
+ * a list that IS your work navigates (Review queue). The list declares which, and
  * this hook is how it declares "preview".
  *
  * What it gives a list, so no list re-derives any of it:

@@ -252,7 +252,7 @@ export function ReviewActionCard(props: {
         until: until.toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
       }));
-      toast.info(`Snoozed · ${card.title}`, { description: `Back on Needs you ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
+      toast.info(`Snoozed · ${card.title}`, { description: `Back on the review queue ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
       onDecided?.('snooze');
     } catch (err) {
       toast.error(`Could not snooze · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });

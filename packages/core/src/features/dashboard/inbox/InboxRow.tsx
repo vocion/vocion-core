@@ -105,10 +105,17 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
         columns={(
           <>
             <Column kind="score" className="hidden sm:inline-block">
-              {/* Was a bare `85%`. One renderer, and the class the number is
-                  about travels with it (MANIFESTO §19 + §12). */}
+              {/* Was a bare `85%`, then `Recommendation 72%` — and the subject
+                  is a constant, so the same word printed once per row down the
+                  whole column. Chris, 2026-09-16: *"why is 'recommendation'
+                  listed over and over and over?"* A word that never varies
+                  carries no information in a column; the COLUMN HEADER says it
+                  once, the bars carry the magnitude, and the reading rides the
+                  tooltip with its class and level. Native `title` on purpose:
+                  a queue is hundreds of rows and mounting a portal tooltip on
+                  each is not worth a hover. */}
               {item.confidence !== undefined && item.confidence !== null
-                ? <ConfidenceBars value={item.confidence} subject="Recommendation" />
+                ? <ConfidenceBars value={item.confidence} subject="Recommendation" readingHidden />
                 : null}
             </Column>
             <Column kind="amount" className="hidden sm:inline-block">
