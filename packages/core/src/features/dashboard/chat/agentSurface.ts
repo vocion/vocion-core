@@ -63,6 +63,18 @@ export type AgentSurfaceRequest = {
    */
   toggle?: boolean;
   /**
+   * What the drawer is scoped to, in the person's own words: *Ask about
+   * brief*, *Editing Send 2*, *Discuss recommendation*
+   * (`docs/specs/personalization-v2.md`).
+   *
+   * Scope is not a second panel and not a second conversation — it is one
+   * line in the rail's header naming the subject, so "make this less salesy"
+   * has an unambiguous referent instead of the person hoping the model knows
+   * which of three artifacts they meant. It is cleared by the turn that
+   * consumes it, exactly as the rest of the intent is.
+   */
+  scope?: { label: string };
+  /**
    * Long-form text the fallback path carries into the first message when no
    * surface claims the request (the briefing body today). A mounted surface
    * ignores it — the model reaches the record through `page_context`.

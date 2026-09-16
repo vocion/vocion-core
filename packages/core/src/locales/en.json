@@ -202,7 +202,8 @@
     "attach": "Add to this turn",
     "tag_artifact": "Artifact",
     "tag_page": "This page",
-    "tag_change": "Change the draft"
+    "tag_change": "Change the draft",
+    "working_with": "Working with:"
   },
   "Inbox": {
     "title": "Needs you",

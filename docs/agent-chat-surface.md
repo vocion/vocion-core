@@ -395,6 +395,40 @@ Three fixes, all structural:
    into `runs_json` as a failed step, and `ConversationRun.state` is persisted
    so a reload still tells a step that failed from one that worked.
 
+## The page's artifacts are canonical (2026-09-16)
+
+`PageContext` gained two fields, and one of them closes a trust hole rather
+than adding a convenience:
+
+- **`artifacts`** — the artifacts the page is SHOWING, as `RecordRef`s of type
+  `artifact`. Not `record` (what the page is *about*) and not `refs` (what the
+  person *tagged*): neither said what was on screen, which is how the rail came
+  to answer *"there's no brief or proposal to review here"* beside a page
+  rendering a brief, and to assert engagement facts on a brief that marked
+  those fields **unavailable** (`docs/specs/personalization-v2.md`).
+- **`state`** — the user-visible state as short label/value pairs: which tab is
+  open, whether a decision is waiting, what the sequence state resolved to.
+
+`services/chat/grounding.ts` resolves the ids **server-side, under the caller's
+org**, flattens each artifact to text (a typed sequence keeps its numbered
+sends, so "make Send 2 less salesy" has a referent), and appends one block to
+the turn after the where-I-am note. The client names what it is showing; the
+server decides what that says. Nothing a client sends becomes a fact.
+
+The block declares the artifacts canonical and names four epistemic classes the
+answer has to keep apart — **CRM fact, research finding, inference, and
+unavailable** — with the last spelled out, because it is the one that was being
+silently converted into a finding: *unavailable is not zero and not a finding;
+if the brief says engagement data was unavailable, you may not say the contact
+has not engaged.* Written in code, like `describeThread`'s gap sentence, for the
+same reason: a model told to "use the page context" writes "there's no brief
+here"; a model handed the brief does not.
+
+This is **grounding, not rendering.** What the rail may DRAW is unchanged — the
+rule that it never re-renders what the page shows (`docs/design/patterns.md`)
+and its predicate `pageShowsRecord` are untouched. The person sees only the
+*Working with:* chips naming what the turn carries.
+
 ## Slack → feedback → ask → work (2026-09-15)
 
 The surface is not only the dock. An agent answering in a Slack thread is on

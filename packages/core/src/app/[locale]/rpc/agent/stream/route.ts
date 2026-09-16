@@ -55,6 +55,14 @@ export async function POST(request: Request): Promise<Response> {
   // `@` tags (§9.10): besides routing the turn's `agent_slug`, the tagged
   // records reach the model as a note under the message.
   const contextRefs = readContextRefs(body.context_refs);
+  // P0 (personalization-v2): the ARTIFACTS the page is showing travel with the
+  // turn, resolved from the store under this org rather than described by the
+  // client, and declared canonical. This is what stops the rail answering
+  // "there's no brief or proposal to review here" beside a page rendering one.
+  // Grounding, not rendering: #378's rule that the rail never re-draws the
+  // page is untouched.
+  const { buildGrounding } = await import('@/services/chat/grounding');
+  const grounding = await buildGrounding(orgId, pageContext);
   // What the turn OWES (0102): the composer's `@artifact` tag, sent as a typed
   // field so "did this turn produce an artifact" is a contract the harness
   // enforces rather than something the model decided while it was busy.
@@ -213,7 +221,7 @@ export async function POST(request: Request): Promise<Response> {
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext, contextRefs),
+          message: withPageContext(message, pageContext, contextRefs, grounding.text),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,

@@ -59,6 +59,19 @@ const LEADS: Seed[] = [
       { step: 2, day: 4, subject: 'Following up', body: 'Circling back on this. If the timing is wrong, say so and I\'ll leave it.' },
     ],
     recommendedSequence: { id: 'seq-demo-1', name: 'MSP Triage Nurture', reason: 'The triage ebook is the entrance path, and this nurture is built around it.', senderEmail: 'chris@metacto.com', verified: false },
+    // The resolvable case: an automated CRM nurture enrolled them minutes
+    // after the MQL, and the recommendation replaces it. The page states the
+    // transaction rather than offering a bare Enroll.
+    currentSequence: {
+      id: 'seq-auto-mql',
+      name: 'MQL Auto-Nurture',
+      status: 'active',
+      step: 1,
+      totalSteps: 3,
+      kind: 'automated',
+      observedAt: new Date(Date.now() - 2 * HOURS).toISOString(),
+      source: 'hubspot',
+    },
     mqlAt: new Date(Date.now() - 8 * 24 * HOURS),
     briefedAt: new Date(Date.now() - 2 * HOURS),
   },
@@ -241,6 +254,63 @@ const LEADS: Seed[] = [
     briefError: 'web_search returned "search provider unconfigured" on every query.',
     draftSequence: [],
     briefedAt: new Date(Date.now() - 12 * HOURS),
+  },
+  {
+    // The lead behind the CEO's review (`docs/specs/personalization-v2.md`):
+    // Vocion knows four facts, the company site never rendered, the CRM
+    // returned no engagement fields at all, and the contact is already in a
+    // sequence somebody chose. Every part of the rebuild is visible on it —
+    // the collapsed brief, engagement as UNAVAILABLE rather than low, and an
+    // Enroll that is HELD because the data cannot say whether the
+    // recommendation adds to that sequence or replaces it.
+    contactRef: 'contacts:88211',
+    contactName: 'Dana Reyes',
+    contactTitle: 'Director of Operations',
+    companyName: 'Kestrel Capital',
+    triggerType: 'new',
+    entranceSource: 'PAID_SOCIAL',
+    utmCampaign: 'ops-ebook',
+    // Null, not zero: the mirror returned nothing, and nothing can be
+    // inferred from the absence.
+    engagementSent: 0,
+    engagementOpened: 0,
+    status: 'ready_for_review',
+    confidence: 0.2,
+    claims: [
+      { text: 'Director of Operations at Kestrel Capital.', kind: 'company', source: 'hubspot:contacts/88211', date: '2026-09-01' },
+      { text: 'Converted on the operations ebook.', kind: 'engagement', source: 'hubspot:contacts/88211', date: '2026-09-01' },
+    ],
+    missing: [
+      'The company website could not be retrieved — the page is client-rendered and the fetch returned an empty document.',
+      'No engagement fields were returned by the CRM, so nothing can be inferred about opens, clicks or page views.',
+    ],
+    sections: [
+      { heading: 'Prospect', body: 'Dana Reyes, Director of Operations at Kestrel Capital. Arrived through a paid-social operations ebook.' },
+      { heading: 'Research That Matters', body: 'We could not establish what this company does. The website could not be retrieved.' },
+      { heading: 'Recommended Angle', body: 'Ask one honest question about how operations reporting is handled today, rather than inventing a specific hook.' },
+      { heading: 'Opening Question', body: 'How are you handling operations reporting across the portfolio today?' },
+      { heading: 'CRM Context', body: 'Enrolled in a sequence within minutes of becoming an MQL.' },
+      { heading: 'Brief Confidence', body: 'Low — we do not know what this company does, so the angle is generic.' },
+    ],
+    draftSequence: [
+      { step: 1, day: 0, subject: 'A question about reporting', body: 'You pulled the operations ebook last week, so I will skip the pitch.\n\nOne question: how are you handling operations reporting today?' },
+      { step: 2, day: 4, subject: 'Following up', body: 'Circling back once. If the timing is wrong, say so and I will leave it.' },
+    ],
+    recommendedSequence: { id: 'seq-demo-3', name: 'Curiosity Nurture', reason: 'We could not establish what this company does, so an honest question beats fabricated personalization.', verified: false },
+    // The ambiguous case: a sequence somebody chose, and nothing says whether
+    // the recommendation replaces it or runs alongside it.
+    currentSequence: {
+      id: 'seq-inbound',
+      name: 'Inbound Follow-up',
+      status: 'active',
+      step: 1,
+      totalSteps: 3,
+      kind: 'manual',
+      observedAt: new Date(Date.now() - 3 * HOURS).toISOString(),
+      source: 'hubspot',
+    },
+    mqlAt: new Date(Date.now() - 1 * 24 * HOURS),
+    briefedAt: new Date(Date.now() - 3 * HOURS),
   },
   {
     // Drafting failed after the brief landed: the page's outreach zone

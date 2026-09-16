@@ -958,6 +958,15 @@ export async function decide(
         // after it, so this is the last moment the values the proposer wrote
         // still exist anywhere.
         labels = await labelVerdicts(item.id, orgId, opts?.editedInput);
+        // Pin what the human actually approved (0112). Written BEFORE the
+        // execution, because the artifacts on screen at the moment of the
+        // click are what was authorised; a regeneration landing a second
+        // later must not be able to rewrite the answer to "what did they
+        // approve". Best-effort: a decision must never fail on its audit
+        // trail, and a run with no artifacts simply pins nothing.
+        await (await import('@/services/personalization/artifacts'))
+          .pinLeadArtifactsForRun(orgId, item.id)
+          .catch(() => []);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
