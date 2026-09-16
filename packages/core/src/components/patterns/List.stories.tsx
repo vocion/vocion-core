@@ -29,9 +29,9 @@ export default meta;
 type Story = StoryObj;
 
 const ROWS = [
-  { id: 1, name: 'Jamie Smith', title: 'Managing Partner', company: 'Redpoint IT', arrived: 'Aug 24', source: 'Ebook', level: 'confident', score: 0.88, lane: 'Review', status: 'pending' as const },
+  { id: 1, name: 'Jamie Smith', title: 'Managing Partner', company: 'Contoso Supply', arrived: 'Aug 24', source: 'Ebook', level: 'confident', score: 0.88, lane: 'Review', status: 'pending' as const },
   { id: 2, name: 'Rosa Lindqvist', title: 'VP Operations', company: 'Meridian Group', arrived: 'Aug 26', source: 'Paid social', level: 'uncertain', score: 0.64, lane: 'Review', status: 'pending' as const },
-  { id: 3, name: 'Pete Laverick', title: 'CEO', company: 'Incline Gaming Marketing', arrived: 'Sep 1', source: 'Paid social', level: 'speculative', score: 0.42, lane: 'Review', status: 'pending' as const },
+  { id: 3, name: 'Rowan Pike', title: 'CEO', company: 'Tideline Gaming Marketing', arrived: 'Sep 1', source: 'Paid social', level: 'speculative', score: 0.42, lane: 'Review', status: 'pending' as const },
   { id: 4, name: 'Marta Kovac', title: 'Head of RevOps', company: 'Orlin Health', arrived: 'Aug 19', source: 'Organic search', level: 'confident', score: 0.84, lane: 'Sent', status: 'completed' as const },
 ];
 

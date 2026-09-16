@@ -389,7 +389,7 @@ describe('feed discovery', () => {
 
 /**
  * A feed declared in the head of every page on a site describes the site, not
- * the listing. Higher Ground's `/calendar/` declares the WordPress blog feed
+ * the listing. Bellwater Hall's `/calendar/` declares the WordPress blog feed
  * at `/feed/`, and taking it replaced 60-odd shows with 1,460 characters of
  * blog posts. A calendar is exempt: it cannot be about anything but events.
  */

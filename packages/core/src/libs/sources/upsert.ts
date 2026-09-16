@@ -3,7 +3,7 @@
  *
  * There are two, and they must not drift: `libs/workspace/applier.ts` writes
  * the sources a workspace manifest declares, and `POST /api/v1/sources` writes
- * the sources a tenant's own system of record declares (Veerio's Strapi mirrors
+ * the sources a tenant's own system of record declares (Larkfield's Strapi mirrors
  * every ingestable venue through it). Both mean the same thing by "upsert",
  * find by `(orgId, slug)`, validate the connector's config and the processor's,
  * REPLACE the stored blob including the `_connector` / `_processor` stamps, then
@@ -34,7 +34,7 @@ import { agentSchema, knowledgeSourceSchema, memoryNamespaceSchema } from '@/mod
  *
  * Same reserved-key convention as `_connector`, `_manifestDir` and
  * `_processor`, and here for the same reason: a tenant mirroring its own
- * records wants the panel to say "Higher Ground", not `veerio-higher-ground`,
+ * records wants the panel to say "Bellwater Hall", not `larkfield-bellwater-hall`,
  * and `knowledge_source` has no name column. A workspace manifest declares no
  * name at all, so a manifest-written source simply carries no key and reads
  * back as its slug, which is what it displayed before this existed.

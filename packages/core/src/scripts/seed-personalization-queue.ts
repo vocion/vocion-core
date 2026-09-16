@@ -35,7 +35,7 @@ const LEADS: Seed[] = [
     contactRef: 'contacts:88201',
     contactName: 'Jamie Smith',
     contactTitle: 'Managing Partner',
-    companyName: 'Redpoint IT',
+    companyName: 'Contoso Supply',
     triggerType: 'new',
     entranceSource: 'ebook',
     utmCampaign: 'msp-triage',
@@ -44,18 +44,18 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.88,
     claims: [
-      { text: 'Runs a 14-person MSP serving mid-market legal and healthcare clients.', kind: 'company', source: 'https://redpointit.com/about', date: '2026-08-24' },
+      { text: 'Runs a 14-person MSP serving mid-market legal and healthcare clients.', kind: 'company', source: 'https://contoso.example/about', date: '2026-08-24' },
       { text: 'Downloaded the MSP triage ebook, then opened both follow-ups within a day.', kind: 'engagement', source: 'hubspot:contacts/88201', date: '2026-08-25' },
       { text: 'Posted twice this month about ticket volume outpacing headcount.', kind: 'signal', source: 'https://www.linkedin.com/in/jamiesmith-msp', date: '2026-08-19' },
     ],
     missing: [],
     sections: [
-      { heading: 'Prospect', body: '**Name:** Jamie Smith\n**Role:** Managing Partner\n**Company:** Redpoint IT, a 14-person MSP serving mid-market legal and healthcare clients.' },
+      { heading: 'Prospect', body: '**Name:** Jamie Smith\n**Role:** Managing Partner\n**Company:** Contoso Supply, a 14-person MSP serving mid-market legal and healthcare clients.' },
       { heading: 'Research That Matters', body: 'Two LinkedIn posts this month about ticket volume outpacing headcount, and the triage ebook was the entrance path. The pain is named in their own words.' },
       { heading: 'Recommended Angle', body: 'Lead with the ticket-triage wall: volume climbs, the team does not. Offer the 12-person-shop walkthrough.' },
     ],
     draftSequence: [
-      { step: 1, day: 0, subject: 'Ticket volume at Redpoint', body: 'You grabbed the triage ebook last week, so I\'ll skip the pitch.\n\nMost MSPs your size hit the same wall: volume climbs, the team doesn\'t. Worth 20 minutes to walk through what we did for a 12-person shop in the same spot?' },
+      { step: 1, day: 0, subject: 'Ticket volume at Contoso', body: 'You grabbed the triage ebook last week, so I\'ll skip the pitch.\n\nMost MSPs your size hit the same wall: volume climbs, the team doesn\'t. Worth 20 minutes to walk through what we did for a 12-person shop in the same spot?' },
       { step: 2, day: 4, subject: 'Following up', body: 'Circling back on this. If the timing is wrong, say so and I\'ll leave it.' },
     ],
     recommendedSequence: { id: 'seq-demo-1', name: 'MSP Triage Nurture', reason: 'The triage ebook is the entrance path, and this nurture is built around it.', senderEmail: 'chris@metacto.com', verified: false },
@@ -64,9 +64,9 @@ const LEADS: Seed[] = [
   },
   {
     contactRef: 'contacts:88202',
-    contactName: 'Sean Parno',
+    contactName: 'Sam Parry',
     contactTitle: 'Co-founder & President',
-    companyName: 'GLR Inc',
+    companyName: 'Halstead Inc',
     triggerType: 'new',
     entranceSource: 'ebook',
     utmCampaign: 'ai-construction',
@@ -75,7 +75,7 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.86,
     claims: [
-      { text: 'Co-founded GLR, a commercial construction firm with roughly 60 field staff.', kind: 'company', source: 'https://glrinc.com', date: '2026-08-22' },
+      { text: 'Co-founded Halstead, a commercial construction firm with roughly 60 field staff.', kind: 'company', source: 'https://halstead.example', date: '2026-08-22' },
       { text: 'Entered through the AI-in-construction ebook and opened both sends.', kind: 'engagement', source: 'hubspot:contacts/88202', date: '2026-08-25' },
     ],
     missing: ['No recent public statements on technology plans.'],
@@ -97,7 +97,7 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.82,
     claims: [
-      { text: 'COO at Civic Grid, a municipal infrastructure contractor.', kind: 'company', source: 'https://civicgrid.com/leadership', date: '2026-08-20' },
+      { text: 'COO at Civic Grid, a municipal infrastructure contractor.', kind: 'company', source: 'https://civicgrid.example/leadership', date: '2026-08-20' },
       { text: 'Opened the first send, not the second.', kind: 'engagement', source: 'hubspot:contacts/88203', date: '2026-08-24' },
     ],
     missing: ['Company size not published.'],
@@ -210,7 +210,7 @@ const LEADS: Seed[] = [
     status: 'sent',
     confidence: 0.84,
     claims: [
-      { text: 'Chief of Staff at a 300-bed regional health system.', kind: 'company', source: 'https://orlinhealth.org/leadership', date: '2026-08-12' },
+      { text: 'Chief of Staff at a 300-bed regional health system.', kind: 'company', source: 'https://orlinhealth.example/leadership', date: '2026-08-12' },
     ],
     missing: [],
     draftSequence: [
@@ -257,7 +257,7 @@ const LEADS: Seed[] = [
     status: 'ready_for_review',
     confidence: 0.74,
     claims: [
-      { text: 'Heads revenue operations at a 40-person analytics consultancy.', kind: 'company', source: 'https://tidewateranalytics.com/team', date: '2026-08-28' },
+      { text: 'Heads revenue operations at a 40-person analytics consultancy.', kind: 'company', source: 'https://tidewateranalytics.example/team', date: '2026-08-28' },
     ],
     missing: ['No stated tooling stack.'],
     sections: [

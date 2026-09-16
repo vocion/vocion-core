@@ -96,7 +96,7 @@ export function scrubSeriesNote(value: unknown): string {
  * conclusion: `proposeAction` is about to refresh that same row from this
  * record, which would leave the card carrying "possible duplicate of <its own
  * run id>" and, through `propose.ts`, a `suggestedDecision: 'reject'` against
- * itself. The fourth dev shadow (2026-09-16, Higher Ground) answered that way
+ * itself. The fourth dev shadow (2026-09-16, Bellwater Hall) answered that way
  * for 58 of its records.
  *
  * Identity decides it, not the id: the record has no run id yet, so the only

@@ -378,7 +378,7 @@ export function matchMeeting(
   // Name-in-title match — the rescue for meetings with NO attendee metadata.
   // Zoom stamps only the host; with no calendar event sharing the meeting id
   // the recording carries zero emails and every rule above is blind to it,
-  // even when the title literally names the prospect ("Brayden Cruz: intro")
+  // even when the title literally names the prospect ("Riley Nakamura: intro")
   // and that person is in the CRM. Gated on empty attendees so a call whose
   // participants ARE known (e.g. an internal debrief titled with a prospect's
   // name) keeps the strict email/domain rules. Contacts only, full names only.

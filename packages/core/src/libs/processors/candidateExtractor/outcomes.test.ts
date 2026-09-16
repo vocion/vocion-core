@@ -30,7 +30,7 @@ const dryRunLines = vi.mocked(logger.info);
 const ORG = 'org_outcomes';
 
 /** The key the whole pipeline turns on, as one literal string. */
-const EXPECTED_DEDUP_KEY = 'objects.propose_candidate:event-candidate|the-music-of-hey-arnold-live|2026-11-01|higher-ground';
+const EXPECTED_DEDUP_KEY = 'objects.propose_candidate:event-candidate|the-music-of-moonrise-live|2026-11-01|bellwater-hall';
 
 const config = candidateExtractorConfigSchema.parse({
   objectType: 'event-candidate',
@@ -50,19 +50,19 @@ const dryConfig = candidateExtractorConfigSchema.parse({
 });
 
 const document = {
-  externalId: 'https://highergroundmusic.com/events',
-  content: 'The Music of Hey Arnold! Live, 1 November, Higher Ground.',
+  externalId: 'https://bellwaterhall.example/events',
+  content: 'The Music of Moonrise Live, 1 November, Bellwater Hall.',
   title: 'Upcoming shows',
-  uri: 'https://highergroundmusic.com/events',
+  uri: 'https://bellwaterhall.example/events',
 };
 
 function record(over: Record<string, unknown> = {}) {
   const { fields, ...rest } = over as { fields?: Record<string, unknown> };
   return {
     fields: {
-      title: 'The Music of Hey Arnold! Live',
+      title: 'The Music of Moonrise Live',
       startDate: '2026-11-01',
-      venueName: 'Higher Ground',
+      venueName: 'Bellwater Hall',
       ...fields,
     },
     confidence: 0.86,
@@ -74,7 +74,7 @@ function record(over: Record<string, unknown> = {}) {
 function propose(records: ReturnType<typeof record>[], over: Partial<Parameters<typeof proposeRecords>[0]> = {}) {
   return proposeRecords({
     orgId: ORG,
-    sourceSlug: 'higher-ground',
+    sourceSlug: 'bellwater-hall',
     config,
     records,
     document,
@@ -143,7 +143,7 @@ describe('candidate extractor outcomes', () => {
 
     expect(byTitle['Open Mic Night']?.proposal).toMatchObject({ suggestedDecision: 'reject' });
     expect(byTitle['Open Mic Night']?.status).toBe('pending');
-    expect((byTitle['The Music of Hey Arnold! Live']?.proposal as { suggestedDecision?: string }).suggestedDecision).toBeUndefined();
+    expect((byTitle['The Music of Moonrise Live']?.proposal as { suggestedDecision?: string }).suggestedDecision).toBeUndefined();
   });
 
   it('links the document to the candidate it created', async () => {
@@ -154,7 +154,7 @@ describe('candidate extractor outcomes', () => {
     expect(links).toHaveLength(1);
     expect(links[0]).toMatchObject({
       onyxDocumentId: document.externalId,
-      sourceType: 'higher-ground',
+      sourceType: 'bellwater-hall',
       role: 'source',
     });
 
@@ -193,12 +193,12 @@ describe('candidate extractor outcomes', () => {
     expect(line).toMatchObject({
       dedupKey: EXPECTED_DEDUP_KEY,
       fields: {
-        title: 'The Music of Hey Arnold! Live',
+        title: 'The Music of Moonrise Live',
         startDate: '2026-11-01',
-        venueName: 'Higher Ground',
+        venueName: 'Bellwater Hall',
       },
-      title: 'The Music of Hey Arnold! Live',
-      identity: ['The Music of Hey Arnold! Live', '2026-11-01', 'Higher Ground'],
+      title: 'The Music of Moonrise Live',
+      identity: ['The Music of Moonrise Live', '2026-11-01', 'Bellwater Hall'],
     });
   });
 

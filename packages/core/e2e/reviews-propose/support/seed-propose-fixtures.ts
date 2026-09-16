@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * seed-propose-fixtures — real data for the VEERIO-262 propose-outcome E2E
+ * seed-propose-fixtures — real data for the LARK-262 propose-outcome E2E
  * spec (`e2e/reviews-propose/propose-outcomes.spec.ts`).
  *
  * Builds, in the database the running app is actually pointed at:

@@ -15,7 +15,7 @@
  *
  * An earlier version of this tool capped the response at 12,000 characters
  * and silently dropped everything past that, with no way to read the rest.
- * That is VEERIO-258: a long listing page got cut off mid-list with no
+ * That is LARK-258: a long listing page got cut off mid-list with no
  * signal anything was missing, and the fix is exactly this — stop cutting
  * it off.
  */

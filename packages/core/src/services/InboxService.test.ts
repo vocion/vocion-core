@@ -34,7 +34,7 @@ async function seedActions() {
     // Three proposals about one deal → one sheet row, oldest age wins.
     { orgId: ORG, actionId: 'hubspot.update', status: 'pending', invokedBy: 'agent:deal-desk', createdAt: new Date(now - 4 * day), input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Northwind renewal', dealstage: 'contractsent', amount: '48000' } }, proposal: { confidence: 0.82, agentSlug: 'deal-desk' } },
     { orgId: ORG, actionId: 'hubspot.update', status: 'pending', invokedBy: 'agent:deal-desk', createdAt: new Date(now - 2 * day), input: { objectType: 'deals', objectId: '7781', properties: { dealname: 'Northwind renewal', hs_next_step: 'Send MSA' } }, proposal: { confidence: 0.6, agentSlug: 'deal-desk' } },
-    { orgId: ORG, actionId: 'gmail.send', status: 'pending', invokedBy: 'agent:follow-up-coordinator', createdAt: new Date(now - 1 * day), input: { to: 'ops@spinutech.com', subject: 'MSA attached', body: 'x' }, proposal: { confidence: 0.9, agentSlug: 'follow-up-coordinator' } },
+    { orgId: ORG, actionId: 'gmail.send', status: 'pending', invokedBy: 'agent:follow-up-coordinator', createdAt: new Date(now - 1 * day), input: { to: 'ops@northwind.example', subject: 'MSA attached', body: 'x' }, proposal: { confidence: 0.9, agentSlug: 'follow-up-coordinator' } },
     // One enrollment on its own.
     { orgId: ORG, actionId: 'personalization.enroll', status: 'pending', invokedBy: 'agent:personalization', createdAt: new Date(now - 3 * day), input: { contactRef: 'contacts:1', contactName: 'Jamie Smith', companyName: 'Contoso Supply', sequenceName: 'MSP nurture' }, proposal: { confidence: 0.88, agentSlug: 'personalization' } },
     // Decided, another org, expired: none of these are open rows.

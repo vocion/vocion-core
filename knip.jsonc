@@ -28,6 +28,10 @@
         "!src/**/*.test.{ts,tsx}"
       ],
       "ignore": [
+        // The banned-names list is consumed only by its own guard test, and
+        // tests are excluded from `project` above. It is not dead code — it is
+        // the reason the guard can fail. See realDataGuard.ts.
+        "src/libs/fixtures/**",
         "src/components/ui/**",
         "src/features/dashboard/chat/**",
         "src/features/auth/ProtectFallback.tsx",

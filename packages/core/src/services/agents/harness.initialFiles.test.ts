@@ -51,11 +51,11 @@ beforeEach(async () => {
 
 describe('buildInitialFiles', () => {
   it('mounts the agent\'s files when every workspace token resolves', async () => {
-    mockMountSkills.mockResolvedValue({ '/skills/ingest-sources/SKILL.md': 'Fetch https://api-dev.veerio.app/api/sources.' });
+    mockMountSkills.mockResolvedValue({ '/skills/ingest-sources/SKILL.md': 'Fetch https://api-dev.larkfield.example/api/sources.' });
 
     const files = await buildInitialFiles(ORG, AGENT);
 
-    expect(files['/skills/ingest-sources/SKILL.md']?.content).toBe('Fetch https://api-dev.veerio.app/api/sources.');
+    expect(files['/skills/ingest-sources/SKILL.md']?.content).toBe('Fetch https://api-dev.larkfield.example/api/sources.');
     expect(mockLoggerError).not.toHaveBeenCalled();
   });
 

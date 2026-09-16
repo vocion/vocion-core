@@ -33,7 +33,7 @@ type Story = StoryObj<typeof InboxList>;
 function item(over: Partial<InboxItem> & Pick<InboxItem, 'key' | 'kind' | 'title'>): InboxItem {
   return {
     shape: 'single',
-    subline: 'Redpoint IT › hubspot.update › proposed by revenue-lead',
+    subline: 'Contoso Supply › hubspot.update › proposed by revenue-lead',
     agentSlug: 'revenue-lead',
     teamSlug: 'revenue',
     risk: null,

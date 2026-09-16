@@ -86,7 +86,7 @@ Apache 2.0 runtime. Postgres for state. Pluggable retrieval + LLM providers. No 
 | **What Vocion did** (skill runs, workflow runs, drafts, approvals) | DB — append-only, audit-trail-friendly |
 | **Plugins** (typed code, packaged) | npm packages or local paths via `CORECONTEXT_PLUGINS` env |
 | **Secrets** (OAuth tokens, API keys) | `.env` + secret managers — never in workspace-as-code |
-| **Per-instance business data** (NINJIO Account row, specific discovery call) | DB business_object — runtime state, not config |
+| **Per-instance business data** (a customer Account row, a specific discovery call) | DB business_object — runtime state, not config |
 
 ## What's out of scope (today)
 

@@ -55,11 +55,11 @@ export const ChartChat: Story = { render: () => <div className="max-w-md"><Chart
 export const ChartCanvasLine: Story = { render: () => <ChartCardView data={{ ...chart, type: 'line', stacked: false }} surface="canvas" /> };
 export const ChartCanvasArea: Story = { render: () => <ChartCardView data={{ ...chart, type: 'area' }} surface="canvas" /> };
 
-const md = { title: 'Lerner call — prep', md: '## Goal\nDecide whether this is a services deal or an acquisition conversation.\n\n- [x] Data room sent\n- [ ] Confirm TTM\n- [ ] Ask about the board timeline\n\n| Topic | Owner |\n|---|---|\n| Valuation frame | Chris |\n| Integration | Jamie |' };
+const md = { title: 'Halford call — prep', md: '## Goal\nDecide whether this is a services deal or an acquisition conversation.\n\n- [x] Data room sent\n- [ ] Confirm TTM\n- [ ] Ask about the board timeline\n\n| Topic | Owner |\n|---|---|\n| Valuation frame | Chris |\n| Integration | Jamie |' };
 export const MarkdownChat: Story = { render: () => <div className="max-w-md"><MarkdownCardView data={md} surface="chat" /></div> };
 export const MarkdownCanvas: Story = { render: () => <MarkdownCardView data={md} surface="canvas" /> };
 
-const record = { type: 'Deal', id: '61111439370', label: 'Northbeam — Operational AI', href: '/dashboard/objects/61111439370', status: 'Contract sent', fields: [{ k: 'Amount', v: '$110,000' }, { k: 'Close', v: 'Sep 19' }, { k: 'Owner', v: 'Chris' }, { k: 'Last touch', v: '3 days ago' }] };
+const record = { type: 'Deal', id: '61000000000', label: 'Northbeam — Operational AI', href: '/dashboard/objects/61000000000', status: 'Contract sent', fields: [{ k: 'Amount', v: '$110,000' }, { k: 'Close', v: 'Sep 19' }, { k: 'Owner', v: 'Chris' }, { k: 'Last touch', v: '3 days ago' }] };
 export const RecordChat: Story = { render: () => <div className="max-w-md"><RecordCardView data={record} surface="chat" /></div> };
 export const RecordCanvas: Story = { render: () => <RecordCardView data={record} surface="canvas" /> };
 

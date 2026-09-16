@@ -31,7 +31,7 @@ The call looks like this:
     "fields": {
       "title": "Open Mic Night",
       "start": "2026-09-19T19:30",
-      "venue": "The Flynn",
+      "venue": "The Corvina",
       "price": "Free"
     },
     "dedupOn": ["title", "start", "venue"],
@@ -67,7 +67,7 @@ queue item.
 - Same name, different night → two records. Same name, same night, same
   venue → one record, seen twice.
 - Order does not matter and neither does punctuation or capitalisation —
-  "The Flynn" and "the flynn" are the same value.
+  "The Corvina" and "the corvina" are the same value.
 - `dedupOn` is required — always at the top level of `action_input`, never
   nested inside `fields`. A proposal that leaves it empty, omits it, or nests
   it in `fields` is refused outright: there is no "every proposal stands

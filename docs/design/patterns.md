@@ -172,9 +172,9 @@ Lane 12   Lane 3   Lane 40      [🔍 Find…]  Sort ▾  ↓      trailing
 
 ```
 DetailPage ─────────────────────────────────────────────────────────────
-  Workspace › Personalization › Pete Laverick                 [actions]
-  Pete Laverick                                    (H1, 22px)
-  CEO · Incline Gaming Marketing Inc
+  Workspace › Personalization › Rowan Pike                    [actions]
+  Rowan Pike                                       (H1, 22px)
+  CEO · Tideline Gaming Marketing Inc
   PERSONALIZATION · ● Ready for review · proposed by revenue-lead ·
   ▮▮▮▯▯ uncertain 0.60 · Paid social · MQL Sep 1 · Open in HubSpot ↗   (DetailMeta)
   ───────────────────────────────────────────────────────────────────── (hairline)
@@ -186,11 +186,11 @@ DetailPage ───────────────────────
   ───────────────────────────────────────────  │ TIMELINE
   PROSPECT FACTS                               │ Arrived      Aug 29
   Role         CEO                             │ Became MQL   Sep 1
-  Company      Incline Gaming Marketing        │
+  Company      Tideline Gaming Marketing       │
   ───────────────────────────────────────────  │ CRM CONTEXT
   RESEARCH THAT MATTERS                        │ …
   Claim.                                       │
-  [FACT] incline.bet/about · 2026-08-30        │
+  [FACT] tideline.example/about · 2026-08-30   │
   ───────────────────────────────────────────  │
   OUTREACH · 2 SENDS                 [Edit all]│
   › Day 0 · The ebook you pulled               │

@@ -40,9 +40,9 @@ function processorConfig(over: Record<string, unknown> = {}) {
  */
 function apply(config: Record<string, unknown>) {
   return upsertSourceRow(ORG, {
-    slug: 'higher-ground',
+    slug: 'bellwater-hall',
     kind: 'web',
-    config: { urls: ['https://highergroundmusic.com/events'] },
+    config: { urls: ['https://bellwaterhall.example/events'] },
     enabled: true,
     processor: { slug: 'candidate-extractor', config },
   }, { known, dryRun: true });

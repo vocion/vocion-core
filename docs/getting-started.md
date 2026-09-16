@@ -504,7 +504,7 @@ description: HubSpot deals for the revenue org.
 kind: hubspot
 config:
   objectType: deals # one object type per source
-  portalId: '48210773' # enables record deep links on review cards
+  portalId: '12345678' # enables record deep links on review cards
 schedule: '*/30 * * * *' # incremental sync every 30 minutes
 reconcileSchedule: '0 4 * * 0' # weekly full pass to catch upstream deletions
 enabled: true

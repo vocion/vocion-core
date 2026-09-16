@@ -12,7 +12,7 @@ import { cn } from '@/utils/Helpers';
 /**
  * The decision-screen header every kind on "Needs you" shares: a breadcrumb
  * with context (Workspace › Needs you › kind › record), the item as the H1
- * ("Enroll MQL in sequence — Dale Heim · Agentix"), and ONE meta row —
+ * ("Enroll MQL in sequence — Dev Okonkwo · Vantage Automation"), and ONE meta row —
  * system · status · who proposed or asked · confidence as an inline meter ·
  * how often people agreed with this agent on this kind · what the agent
  * suggests · where you are in the queue — with Back and "Next: …" on the

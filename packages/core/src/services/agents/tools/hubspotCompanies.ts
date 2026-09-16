@@ -4,7 +4,7 @@
  * closed-lost one with its loss reason → read the activity timeline.
  *
  *   - `hubspot_search_companies`: name/domain lookup, de-spaced variant +
- *     broaden-once ("Terra Clear" also matches "TerraClear").
+ *     broaden-once ("Sun Fleet" also matches "SunFleet").
  *   - `hubspot_get_company`: one account's firmographics.
  *   - `hubspot_company_deals`: every deal on the account, closed included,
  *     with `loss_reason` on closed-lost rows.
@@ -120,15 +120,15 @@ export function hubspotSearchCompaniesTool(ctx: RuntimeContext) {
       }
       const cap = clampLimit(limit, 5, 25);
       // CONTAINS_TOKEN AND-matches a query's tokens, so a spaced query
-      // ("Terra Clear") won't match a single-token name ("TerraClear").
+      // ("Sun Fleet") won't match a single-token name ("SunFleet").
       // Search the query AND its de-spaced variant in one call.
       const variants = [...new Set([query, query.replaceAll(' ', '')])].filter(Boolean);
       let broadened = false;
       let wildcard = false;
       let res = await companySearch(resolved.client, variants, cap);
       if (res.ok && (res.data.results ?? []).length === 0) {
-        // CONTAINS_TOKEN is whole-token: "WalkEZ" cannot match a company
-        // tokenized as "walkezstore". A trailing wildcard makes each variant
+        // CONTAINS_TOKEN is whole-token: "TrailFix" cannot match a company
+        // tokenized as "trailfixstore". A trailing wildcard makes each variant
         // a prefix match (verified against the live API).
         wildcard = true;
         res = await companySearch(resolved.client, variants.map(v => `${v}*`), cap);
@@ -162,7 +162,7 @@ export function hubspotSearchCompaniesTool(ctx: RuntimeContext) {
     },
     {
       name: 'hubspot_search_companies',
-      description: 'Reads HubSpot LIVE, current as of this call: find a COMPANY (account) by name or domain — the entry point for any account-level question ("what happened with X", "why did we lose X"). A spaced query is also searched de-spaced ("Terra Clear" matches "TerraClear"), and a multi-word miss broadens ONCE to its most distinctive word (broadened: true). Feed the returned id into hubspot_get_company / hubspot_company_deals / hubspot_company_activity. Routing: people (not accounts) → hubspot_search_contacts; "how many companies / by industry" → hubspot_count_companies on the synced mirror.',
+      description: 'Reads HubSpot LIVE, current as of this call: find a COMPANY (account) by name or domain — the entry point for any account-level question ("what happened with X", "why did we lose X"). A spaced query is also searched de-spaced ("Sun Fleet" matches "SunFleet"), and a multi-word miss broadens ONCE to its most distinctive word (broadened: true). Feed the returned id into hubspot_get_company / hubspot_company_deals / hubspot_company_activity. Routing: people (not accounts) → hubspot_search_contacts; "how many companies / by industry" → hubspot_count_companies on the synced mirror.',
       schema: z.object({
         name: z.string().min(1).describe('Company name or domain fragment (token-matched on both name and domain).'),
         limit: z.number().int().positive().optional().describe('Max companies to return (default 5, max 25).'),

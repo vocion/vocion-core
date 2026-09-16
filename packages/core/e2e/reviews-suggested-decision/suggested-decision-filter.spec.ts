@@ -64,7 +64,7 @@ function candidateProposal(title: string, suggestedDecision?: string) {
   const fields = {
     title,
     start: '2026-09-19T19:30',
-    venue: 'The Flynn',
+    venue: 'The Corvina',
     price: 'Free',
   };
   return {

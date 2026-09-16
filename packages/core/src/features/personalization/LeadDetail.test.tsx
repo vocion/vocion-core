@@ -26,7 +26,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
  */
 
 const SECTIONS = [
-  { heading: 'Prospect', body: 'Pete Laverick, CEO at Incline Gaming Marketing Inc.' },
+  { heading: 'Prospect', body: 'Rowan Pike, CEO at Tideline Gaming Marketing Inc.' },
   { heading: 'Recommended Angle', body: 'Ask about the affiliate compliance workload.' },
 ];
 
@@ -43,7 +43,7 @@ const PENDING_RUN: ReviewCardRun = {
   card: {
     title: 'New MQL ready to enroll',
     system: 'Personalization',
-    subject: { name: 'Pete Laverick', role: 'CEO', company: 'Incline Gaming Marketing Inc' },
+    subject: { name: 'Rowan Pike', role: 'CEO', company: 'Tideline Gaming Marketing Inc' },
     recommendation: { headline: 'Enroll in: LinkedIn Ebook Inbound Sequence · 2 sends' },
     content: [
       { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'The ebook you pulled', body: 'Pete, following up on the ebook.' },
@@ -58,7 +58,7 @@ function lead(over: Partial<LeadRow> & Pick<LeadRow, 'id' | 'contactName'>): Lea
   return {
     contactRef: `contacts:${over.id}`,
     contactTitle: 'CEO',
-    companyName: 'Incline Gaming Marketing Inc',
+    companyName: 'Tideline Gaming Marketing Inc',
     entranceSource: 'PAID_SOCIAL',
     utmCampaign: 'LinkedIn',
     engagementSent: 2,
@@ -67,8 +67,8 @@ function lead(over: Partial<LeadRow> & Pick<LeadRow, 'id' | 'contactName'>): Lea
     confidence: 0.6,
     sections: SECTIONS,
     claims: [
-      { text: 'Runs an iGaming marketing agency.', kind: 'Fact', source: 'https://incline.bet/about', date: '2026-08-30' },
-      { text: 'Compliance is the likely pain point.', kind: 'Inference', source: 'https://incline.bet/about' },
+      { text: 'Runs an iGaming marketing agency.', kind: 'Fact', source: 'https://tideline.example/about', date: '2026-08-30' },
+      { text: 'Compliance is the likely pain point.', kind: 'Inference', source: 'https://tideline.example/about' },
     ],
     missing: ['No public team size.'],
     briefError: null,
@@ -94,10 +94,10 @@ const HUBSPOT = 'https://app.hubspot.com/contacts/12345/record/0-1/88201';
 
 describe('LeadDetail', () => {
   it('renders the full record: identity, chips, brief, reference articles, claims, missing, confidence, timeline', async () => {
-    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={HUBSPOT} runState={NO_RUN} />);
+    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Rowan Pike' })} contactHref={HUBSPOT} runState={NO_RUN} />);
 
     // Header: who, where they work, the CRM door, provenance chips, the lane.
-    await expect.element(page.getByRole('heading', { name: 'Pete Laverick' })).toBeVisible();
+    await expect.element(page.getByRole('heading', { name: 'Rowan Pike' })).toBeVisible();
     await expect.element(page.getByRole('link', { name: 'Open in HubSpot ↗' })).toBeVisible();
     await expect.element(page.getByText('Paid social')).toBeVisible();
     await expect.element(page.getByText('MQL Sep 1')).toBeVisible();
@@ -106,12 +106,12 @@ describe('LeadDetail', () => {
     await expect.element(page.getByText('Brief 60%').first()).toBeVisible();
 
     // The brief, at readable width, with its Regenerate control.
-    await expect.element(page.getByText('Pete Laverick, CEO at Incline Gaming Marketing Inc.')).toBeVisible();
+    await expect.element(page.getByText('Rowan Pike, CEO at Tideline Gaming Marketing Inc.')).toBeVisible();
     await expect.element(page.getByRole('button', { name: 'Regenerate' })).toBeVisible();
 
     // The rail: what the research read, claimed, could not reach, and scored.
     await expect.element(page.getByText('Reference articles')).toBeVisible();
-    await expect.element(page.getByRole('link', { name: 'incline.bet/about ↗' })).toBeVisible();
+    await expect.element(page.getByRole('link', { name: 'tideline.example/about ↗' })).toBeVisible();
     await expect.element(page.getByText('Runs an iGaming marketing agency.')).toBeVisible();
     await expect.element(page.getByText('No public team size.')).toBeVisible();
     await expect.element(page.getByText('Brief 60%').nth(1)).toBeVisible();
@@ -131,7 +131,7 @@ describe('LeadDetail', () => {
       <LeadDetail
         lead={lead({
           id: 88201,
-          contactName: 'Pete Laverick',
+          contactName: 'Rowan Pike',
           status: 'handed_off',
           handoffSections: [
             { heading: 'Where the thread stands', body: 'Two sends, one reply on Day 4.' },
@@ -152,26 +152,26 @@ describe('LeadDetail', () => {
     await expect.element(zone.getByText('Two sends, one reply on Day 4.')).toBeVisible();
     await expect.element(zone.getByText('Affiliate compliance is manual today. Medium.')).toBeVisible();
     // The review brief is still above it, and no decision surface appears.
-    await expect.element(page.getByText('Pete Laverick, CEO at Incline Gaming Marketing Inc.')).toBeVisible();
+    await expect.element(page.getByText('Rowan Pike, CEO at Tideline Gaming Marketing Inc.')).toBeVisible();
     expect(page.getByRole('button', { name: 'Enroll' }).elements()).toHaveLength(0);
   });
 
   it('shows no handoff zone until a handoff brief exists', async () => {
-    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={null} runState={NO_RUN} />);
+    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Rowan Pike' })} contactHref={null} runState={NO_RUN} />);
 
     expect(page.getByRole('region', { name: 'Handoff brief' }).elements()).toHaveLength(0);
   });
 
   it('lists each reference article once, however many claims cite it', async () => {
-    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Pete Laverick' })} contactHref={null} runState={NO_RUN} />);
+    await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Rowan Pike' })} contactHref={null} runState={NO_RUN} />);
 
-    expect(page.getByRole('link', { name: 'incline.bet/about ↗' }).elements()).toHaveLength(1);
+    expect(page.getByRole('link', { name: 'tideline.example/about ↗' }).elements()).toHaveLength(1);
   });
 
   it('renders the shared review card when the lead has a pending enroll run — same run, same verbs', async () => {
     await render(
       <LeadDetail
-        lead={lead({ id: 88201, contactName: 'Pete Laverick', reviewActionRunId: 501 })}
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501 })}
         contactHref={HUBSPOT}
         runState={{ ...NO_RUN, run: PENDING_RUN }}
       />,
@@ -188,7 +188,7 @@ describe('LeadDetail', () => {
   it('a rewrite asked for in the conversation lands HERE, marked edited — the rail reports it, the record shows it', async () => {
     await render(
       <LeadDetail
-        lead={lead({ id: 88201, contactName: 'Pete Laverick', reviewActionRunId: 501 })}
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501 })}
         contactHref={HUBSPOT}
         runState={{ ...NO_RUN, run: PENDING_RUN }}
         guided
@@ -207,7 +207,7 @@ describe('LeadDetail', () => {
   it('ignores a rewrite announced for a different run', async () => {
     await render(
       <LeadDetail
-        lead={lead({ id: 88201, contactName: 'Pete Laverick', reviewActionRunId: 501 })}
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501 })}
         contactHref={HUBSPOT}
         runState={{ ...NO_RUN, run: PENDING_RUN }}
         guided
@@ -226,7 +226,7 @@ describe('LeadDetail', () => {
       <LeadDetail
         lead={lead({
           id: 88201,
-          contactName: 'Pete Laverick',
+          contactName: 'Rowan Pike',
           status: 'handed_off',
           reviewActionRunId: 999,
           recommendedSequence: { id: 'seq-1', name: 'LinkedIn Ebook Inbound Sequence' },
@@ -249,7 +249,7 @@ describe('LeadDetail', () => {
       <LeadDetail
         lead={lead({
           id: 88201,
-          contactName: 'Pete Laverick',
+          contactName: 'Rowan Pike',
           status: 'held',
           decidedAt: '2026-09-01T16:00:00.000Z',
           decidedBy: 'jamie@metacto.com',
@@ -268,7 +268,7 @@ describe('LeadDetail', () => {
       <LeadDetail
         lead={lead({
           id: 88201,
-          contactName: 'Pete Laverick',
+          contactName: 'Rowan Pike',
           reviewActionRunId: 777,
           draftSequence: [{ step: 1, subject: 'The ebook you pulled', body: 'Pete, following up.' }],
         })}
@@ -286,7 +286,7 @@ describe('LeadDetail', () => {
       <LeadDetail
         lead={lead({
           id: 88201,
-          contactName: 'Pete Laverick',
+          contactName: 'Rowan Pike',
           reviewActionRunId: 777,
           draftSequence: [{ step: 1, subject: 'The ebook you pulled', body: 'Pete, following up.' }],
         })}

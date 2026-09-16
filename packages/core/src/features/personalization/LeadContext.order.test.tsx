@@ -14,10 +14,10 @@ vi.mock('next/navigation', () => ({
 
 const ROW: LeadDossier = {
   id: 1,
-  contactName: 'Pete Laverick',
+  contactName: 'Rowan Pike',
   confidence: 0.72,
   sections: [
-    { heading: 'Prospect', body: 'Pete Laverick, CEO.' },
+    { heading: 'Prospect', body: 'Rowan Pike, CEO.' },
     { heading: 'CRM Context', body: '- Arrived via paid social\n- 2 emails delivered' },
     { heading: 'Research That Matters', body: '- Publishes compliance updates' },
     { heading: 'Recommended Angle', body: 'Ask about compliance.' },

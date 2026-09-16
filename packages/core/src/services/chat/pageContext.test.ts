@@ -55,7 +55,7 @@ describe('readPageContext', () => {
 
 describe('mergeScopeRef', () => {
   it('folds a scoped dock ref into the context instead of excluding it', () => {
-    const merged = mergeScopeRef({ path: '/gtm/lead/9412', title: 'Carlo' }, 'contacts:9412');
+    const merged = mergeScopeRef({ path: '/gtm/lead/9412', title: 'Nadia' }, 'contacts:9412');
 
     expect(merged?.refs).toEqual([{ type: 'object', id: 'contacts:9412' }]);
   });
@@ -96,13 +96,13 @@ describe('withPageContext', () => {
       path: '/dashboard/briefings',
       title: 'Briefings',
       record: { type: 'briefing', id: '61', label: 'Revenue Briefing — Mon', href: '/dashboard/briefings' },
-      refs: [{ type: 'deal', id: 'deals:611', label: 'Spinutech' }],
-      selection: { text: 'Spinutech – $216K\nstalling', quote: true },
+      refs: [{ type: 'deal', id: 'deals:611', label: 'Northwind' }],
+      selection: { text: 'Northwind – $216K\nstalling', quote: true },
     });
 
     expect(out).toContain('This page is about the briefing "Revenue Briefing — Mon" (/dashboard/briefings).');
-    expect(out).toContain('I mentioned: deal "Spinutech".');
-    expect(out).toContain('> Spinutech – $216K\n> stalling');
+    expect(out).toContain('I mentioned: deal "Northwind".');
+    expect(out).toContain('> Northwind – $216K\n> stalling');
     expect(out).toContain('`page_context` tool');
   });
 });

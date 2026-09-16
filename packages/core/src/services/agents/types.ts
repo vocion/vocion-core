@@ -49,7 +49,7 @@ export type RecommendedActionPayload = {
   actionId: string;
   /** Pre-filled payload for that action (draft to/subject/body, CRM props, …). */
   input: Record<string, unknown>;
-  /** Short button label, e.g. "Draft the note to Carlo Marcelino". */
+  /** Short button label, e.g. "Draft the note to Nadia Brandt". */
   label: string;
   /** One-line why. */
   rationale?: string;

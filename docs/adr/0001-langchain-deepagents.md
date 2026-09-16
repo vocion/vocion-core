@@ -8,7 +8,7 @@
 
 ## Context
 
-The current `AgentService.ts` (864 lines) is a hand-rolled tool-calling loop over `openai.chat.completions.create`. It works but is OpenAI-only, capped at 5 iterations, has no subagents, no virtual filesystem, no `write_todos` middleware, and no SSE keepalives — features that the internal rev-ai project (`/var/www/metacto/spinutech/kickoff-demo`) demonstrates are decisive for a usable agent experience.
+The current `AgentService.ts` (864 lines) is a hand-rolled tool-calling loop over `openai.chat.completions.create`. It works but is OpenAI-only, capped at 5 iterations, has no subagents, no virtual filesystem, no `write_todos` middleware, and no SSE keepalives — features that the internal rev-ai prototype demonstrates are decisive for a usable agent experience.
 
 We need a runtime that:
 
@@ -41,7 +41,7 @@ Streaming via `agent.streamEvents(input, { version: 'v3' })`. **This is a deepag
    - `classifier` → `claude-haiku-4-5-20251001`.
    - OpenAI provider remains available behind the role registry but is no longer the hardcoded default anywhere in `AgentService`.
 
-2. **Streaming wire format**: switch the chat route from newline-delimited JSON to **true SSE** (`text/event-stream`). 15-second keepalive comment lines (`: keepalive\n\n`) defeat proxy idle drops (Tailscale Funnel, Cloudflare, mobile carriers, iOS Safari). Implementation pattern ports from `/var/www/metacto/spinutech/kickoff-demo/server/main.py:1285-1379` (multiplex agent events + timer into one queue, flush whichever fires first).
+2. **Streaming wire format**: switch the chat route from newline-delimited JSON to **true SSE** (`text/event-stream`). 15-second keepalive comment lines (`: keepalive\n\n`) defeat proxy idle drops (Tailscale Funnel, Cloudflare, mobile carriers, iOS Safari). Implementation pattern ports from rev-ai's `server/main.py:1285-1379` (multiplex agent events + timer into one queue, flush whichever fires first).
 
 3. **No LangGraph checkpointer**. Conversation history is replayed from `conversation_message.runs_json` per turn (matches rev-ai's explicit design choice in `server/conversations.py:14-17`). The agent's virtual FS (todos, files) is rebuilt fresh each turn from `initialFiles`. If we later need persistent agent memory across turns, swap `StateBackend` for `StoreBackend` (Postgres-backed) — defer until forced by a use case.
 

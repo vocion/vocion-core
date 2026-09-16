@@ -17,7 +17,7 @@ import 'dotenv/config';
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const orgId = args.org ?? process.env.SEED_ORG_ID ?? 'org_3B7f6cPKTKnJOExO55asDaUVAay';
+  const orgId = args.org ?? process.env.SEED_ORG_ID ?? 'org_2ExampleFixtureOrgId000000';
   const name = args.name ?? 'metacto';
   const outRoot = args.out ?? 'context';
   const outDir = join(process.cwd(), outRoot, name);

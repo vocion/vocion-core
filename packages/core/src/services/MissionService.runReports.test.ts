@@ -1,6 +1,6 @@
 /**
  * The mission-run report helpers behind `/api/v1/missions/:slug/runs` and
- * `/api/v1/mission-runs/:id` (VEERIO-252). Before this route existed, the
+ * `/api/v1/mission-runs/:id` (LARK-252). Before this route existed, the
  * agent's own report of what a task did — or why it proposed nothing — sat
  * only in `mission_run.plan.tasks[].output`, unreachable except by psql.
  * These tests pin the shape and the org/mission scoping, against PGlite.
@@ -69,17 +69,17 @@ afterAll(async () => {
 
 describe('getMissionRunReport', () => {
   it('resolves the mission slug through the mission template', async () => {
-    const missionId = await makeMission('veerio-event-ingestion');
+    const missionId = await makeMission('larkfield-event-ingestion');
     const runId = await makeRun({
       missionId,
-      tasks: [{ id: 't1', title: 'Ingest events', status: 'failed', error: 'no matching skill', output: 'File \'/playbooks/veerio-event-ingestion/SKILL.md\' not found ... 0 proposals' }],
+      tasks: [{ id: 't1', title: 'Ingest events', status: 'failed', error: 'no matching skill', output: 'File \'/playbooks/larkfield-event-ingestion/SKILL.md\' not found ... 0 proposals' }],
     });
 
     const report = await getMissionRunReport(runId, ORG);
 
     expect(report).toMatchObject({
       id: runId,
-      missionSlug: 'veerio-event-ingestion',
+      missionSlug: 'larkfield-event-ingestion',
       status: 'completed',
       error: null,
       invokedBy: 'user_drew',
@@ -198,28 +198,28 @@ describe('listMissionRunReportsForMission', () => {
   });
 
   it('lists only this mission\'s runs, newest first, with plan.tasks[0].output populated', async () => {
-    const missionId = await makeMission('veerio-event-ingestion');
+    const missionId = await makeMission('larkfield-event-ingestion');
     const otherMissionId = await makeMission('unrelated-mission');
     const olderRunId = await makeRun({ missionId, tasks: [{ id: 't1', title: 'first pass', status: 'completed', output: 'found 3, refreshed 3, failed 0' }] });
     await new Promise(resolve => setTimeout(resolve, 5));
     const newerRunId = await makeRun({ missionId, tasks: [{ id: 't1', title: 'second pass', status: 'completed', output: 'found 5, refreshed 2, failed 1' }] });
     await makeRun({ missionId: otherMissionId });
 
-    const reports = await listMissionRunReportsForMission(ORG, 'veerio-event-ingestion', 50);
+    const reports = await listMissionRunReportsForMission(ORG, 'larkfield-event-ingestion', 50);
 
     expect(reports).not.toBeNull();
     expect(reports!.map(r => r.id)).toEqual([newerRunId, olderRunId]);
-    expect(reports!.every(r => r.missionSlug === 'veerio-event-ingestion')).toBe(true);
+    expect(reports!.every(r => r.missionSlug === 'larkfield-event-ingestion')).toBe(true);
     expect(reports![0]!.plan.tasks[0]!.output).toBe('found 5, refreshed 2, failed 1');
   });
 
   it('clamps to the requested limit', async () => {
-    const missionId = await makeMission('veerio-event-ingestion');
+    const missionId = await makeMission('larkfield-event-ingestion');
     for (let i = 0; i < 3; i++) {
       await makeRun({ missionId });
     }
 
-    const reports = await listMissionRunReportsForMission(ORG, 'veerio-event-ingestion', 2);
+    const reports = await listMissionRunReportsForMission(ORG, 'larkfield-event-ingestion', 2);
 
     expect(reports).toHaveLength(2);
   });

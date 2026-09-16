@@ -89,7 +89,7 @@ has no equivalent for.
 It is kept for the case it fits: an agent that only needs to answer questions
 over ingested knowledge, with no procedure and no write surface, on
 infrastructure we do not have to deploy or patch.
-`Veerio-Life/veerio-vocion` runs `event-ingestion-lead` on it. **Do not delete
+`Larkfield-Systems/larkfield-vocion` runs `event-ingestion-lead` on it. **Do not delete
 this target on the grounds that core has no agent on it** — the users are in
 parent projects, along with `infra/aws/agentcore-harness-role.sh` and an
 `apply-workspace.sh` that hard-fails without `VOCION_AGENTCORE_REGION`.
@@ -305,7 +305,7 @@ of running in this process.
 
 | Repo | File | Currently | Action |
 |---|---|---|---|
-| `Veerio-Life/veerio-vocion` | `workspace/veerio/agents/event-ingestion-lead.yaml` | `provider: agentcore` | Optional rename to `runsOn: aws-managed-harness`. Behaviour is unchanged either way. |
+| `Larkfield-Systems/larkfield-vocion` | `workspace/larkfield/agents/event-ingestion-lead.yaml` | `provider: agentcore` | Optional rename to `runsOn: aws-managed-harness`. Behaviour is unchanged either way. |
 | `Meta-CTO/metacto-vocion-agents` | two agents with a `harness` block | no target named | Nothing. Check whether either is on Bedrock — if so, it moves to the container on next apply. |
 
 ## `external-worker` — a process Vocion does not host

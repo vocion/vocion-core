@@ -19,8 +19,8 @@
 # never share a runtime by accident.
 #
 # Usage:
-#   TRUSTED_REPO=Veerio-Life/veerio-vocion \
-#   AWS_PROFILE=veerio REGION=us-west-2 \
+#   TRUSTED_REPO=Larkfield-Systems/larkfield-vocion \
+#   AWS_PROFILE=larkfield REGION=us-west-2 \
 #     bash infra/agentcore/provision-ci-role.sh
 #
 # Environment:
@@ -48,7 +48,7 @@ aws() { if [ -n "$PROFILE" ]; then command aws --region "$REGION" --profile "$PR
 TRUSTED_REPO="${TRUSTED_REPO:-}"
 if [ -z "${TRUSTED_REPO}" ]; then
   echo "ERROR: set TRUSTED_REPO to the <owner>/<repo> whose CI should be allowed to deploy." >&2
-  echo "       e.g. TRUSTED_REPO=Veerio-Life/veerio-vocion AWS_PROFILE=veerio bash $0" >&2
+  echo "       e.g. TRUSTED_REPO=Larkfield-Systems/larkfield-vocion AWS_PROFILE=larkfield bash $0" >&2
   exit 2
 fi
 TRUSTED_REF="${TRUSTED_REF:-refs/heads/main}"

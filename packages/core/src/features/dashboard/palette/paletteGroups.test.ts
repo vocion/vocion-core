@@ -4,10 +4,10 @@ import { buildPaletteGroups, ROUTE_GROUP_ORDER } from './paletteGroups';
 
 describe('buildPaletteGroups', () => {
   it('leads with Ask when the query is free text, and hides it when empty', () => {
-    const withQuery = buildPaletteGroups({ query: 'why is spinutech stale', routes: DASHBOARD_ROUTES, isAdmin: false });
+    const withQuery = buildPaletteGroups({ query: 'why is northwind stale', routes: DASHBOARD_ROUTES, isAdmin: false });
 
     expect(withQuery[0]?.heading).toBe('Ask');
-    expect(withQuery[0]?.rows[0]?.label).toBe('Ask Vocion: why is spinutech stale');
+    expect(withQuery[0]?.rows[0]?.label).toBe('Ask Vocion: why is northwind stale');
     expect(withQuery[0]?.rows[0]?.action).toBe('ask');
 
     const empty = buildPaletteGroups({ query: '   ', routes: DASHBOARD_ROUTES, isAdmin: false });

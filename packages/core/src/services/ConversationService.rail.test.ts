@@ -37,12 +37,12 @@ async function seedThread(title: string, turns: Array<[role: 'user' | 'assistant
 
 describe('searchConversations', () => {
   it('finds threads by title and by message content, with a snippet for content hits', async () => {
-    await seedThread('Spinutech retainer', [['user', 'is spinutech dead?'], ['assistant', 'The deal is Spinutech – Continuous AI, $216K, Proposal Sent.']]);
+    await seedThread('Northwind retainer', [['user', 'is northwind dead?'], ['assistant', 'The deal is Northwind – Continuous AI, $216K, Proposal Sent.']]);
     await seedThread('Lucent walkthrough', [['user', 'prep me for the walkthrough'], ['assistant', 'Peter Lutz confirmed; the MSA is still unsigned.']]);
 
-    const byTitle = await svc.searchConversations({ orgId: ORG, q: 'spinutech' });
+    const byTitle = await svc.searchConversations({ orgId: ORG, q: 'northwind' });
 
-    expect(byTitle.map(h => h.title)).toEqual(['Spinutech retainer']);
+    expect(byTitle.map(h => h.title)).toEqual(['Northwind retainer']);
 
     const byContent = await svc.searchConversations({ orgId: ORG, q: 'unsigned' });
 

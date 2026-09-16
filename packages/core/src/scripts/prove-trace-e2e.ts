@@ -12,7 +12,7 @@ import { chromium } from '@playwright/test';
 const BASE = process.env.E2E_BASE ?? 'https://dev.agents.metacto.com';
 const EMAIL = 'chris@metacto.com';
 const PW = process.env.E2E_PW ?? 'Vocion-Dogfood-2026!';
-const MSG = process.env.E2E_MSG ?? 'Audit my Gauge follow-ups and have a specialist rank them by ROI, then give me the top 3.';
+const MSG = process.env.E2E_MSG ?? 'Audit my Kestrel follow-ups and have a specialist rank them by ROI, then give me the top 3.';
 const SHOT = '/Users/chrisfitkin/trace-proof.png';
 
 async function main(): Promise<void> {

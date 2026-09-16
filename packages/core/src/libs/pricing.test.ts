@@ -24,7 +24,7 @@ const ONE_M_INPUT = { inputTokens: 1_000_000 };
 /** Bedrock `DEFAULTS` chat ids (`libs/llm/langchain.ts`, bedrock block). */
 const BEDROCK_MAIN = 'us.anthropic.claude-sonnet-4-6';
 const BEDROCK_CLASSIFIER = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
-/** The id the Veerio workspace pins for its agents. */
+/** The id the Larkfield workspace pins for its agents. */
 const WORKSPACE_MAIN = 'global.anthropic.claude-sonnet-4-6';
 
 describe('canonicalModelId', () => {

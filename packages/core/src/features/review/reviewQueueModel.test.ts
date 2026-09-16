@@ -43,8 +43,8 @@ describe('queuePosition', () => {
 
 describe('itemTitle', () => {
   it('leads with the type and names the subject and company', () => {
-    expect(itemTitle({ label: 'Enroll MQL in sequence', title: 'New MQL ready to enroll', subject: { name: 'Dale Heim', company: 'Agentix' } }))
-      .toBe('Enroll MQL in sequence — Dale Heim · Agentix');
+    expect(itemTitle({ label: 'Enroll MQL in sequence', title: 'New MQL ready to enroll', subject: { name: 'Dev Okonkwo', company: 'Vantage Automation' } }))
+      .toBe('Enroll MQL in sequence — Dev Okonkwo · Vantage Automation');
   });
 
   it('omits the company when absent and falls back to the card title without a subject', () => {
