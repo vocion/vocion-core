@@ -184,6 +184,17 @@ describe('the sync budget', () => {
     }).limits?.modelTimeoutMs).toBe(30_000);
   });
 
+  it('sizes the sync caps for one model call per document, and still only lets a source lower them', () => {
+    // A document is one feed entry or one detail page now, not one listing
+    // page, so the cap is per document. The second dev shadow (2026-09-15)
+    // crawled 59 detail pages on one source, spent all 25 calls and skipped 44
+    // documents, and measured 3,330 input tokens on an average call.
+    expect(SYNC_BUDGET_DEFAULTS.maxModelCalls).toBe(150);
+    expect(SYNC_BUDGET_DEFAULTS.maxInputTokensPerSync).toBe(400_000);
+    expect(createSyncBudget({ limits: { maxModelCalls: 40 } }).caps.maxModelCalls).toBe(40);
+    expect(createSyncBudget({ limits: { maxInputTokensPerSync: 1_000_000 } }).caps.maxInputTokensPerSync).toBe(400_000);
+  });
+
   it('ignores a limits value that is not a number at all', () => {
     // The blob is read back from the database, where an older writer may have
     // left anything at all.

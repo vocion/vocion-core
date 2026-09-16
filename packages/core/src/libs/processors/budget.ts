@@ -43,10 +43,19 @@ export type SyncBudgetCaps = {
  * The ceilings. A manifest's `limits` block may lower any of these and can
  * never raise one, see `createSyncBudget`.
  *
- * `maxModelCalls` is 25 because the agent run that motivated this pipeline
- * spent 26 calls on five sources; `maxInputTokensPerSync` is 120,000, which is
- * twelve full-size calls and binds before `maxModelCalls` when every call is
- * at its own 10,000-token ceiling.
+ * `maxModelCalls` is 150 and `maxInputTokensPerSync` is 400,000, and both are
+ * sized for ONE CALL PER DOCUMENT, because a document is now one feed entry or
+ * one detail page rather than one listing page. 25 and 120,000 came from the
+ * agent run that motivated this pipeline, which spent 26 calls on five listing
+ * pages, and the second dev shadow (2026-09-15, three Veerio sources) showed
+ * what that costs at the new granularity: Dorothy Alling crawled 59 detail
+ * pages, spent all 25 calls, hit a cap 34 times and SKIPPED 44 documents, and
+ * Brownell skipped 1 of its 26. The same run measured what a call actually
+ * carries: 51 Bedrock invocations, 169,831 input tokens, 3,330 average, 6,150
+ * at the worst, well under the 10,000-token per-call ceiling. So 150 calls
+ * covers the largest source seen with room above it, and 400,000 tokens is
+ * 150 calls at about 2,700 each, which puts the two caps at roughly the same
+ * place instead of letting the token cap cut a run short of the call cap.
  *
  * `modelTimeoutMs` is 60,000 because it was 20,000 and that number came from
  * nowhere: the first dev shadow of this pipeline (2026-09-15) measured six
@@ -58,10 +67,10 @@ export type SyncBudgetCaps = {
 export const SYNC_BUDGET_DEFAULTS: SyncBudgetCaps = {
   maxPages: 60,
   maxDetailHops: 40,
-  maxModelCalls: 25,
+  maxModelCalls: 150,
   maxInputTokensPerCall: 10_000,
   modelTimeoutMs: 60_000,
-  maxInputTokensPerSync: 120_000,
+  maxInputTokensPerSync: 400_000,
   maxProposalsPerSync: 120,
   maxWallClockMs: 600_000,
 };

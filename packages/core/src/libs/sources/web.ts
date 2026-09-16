@@ -198,7 +198,7 @@ async function* smallestSource(
     return;
   }
 
-  for (const candidate of discoverFeeds(listing)) {
+  for (const candidate of discoverFeeds(listing, ctx)) {
     const docs = await readFeed(candidate, ctx);
     if (!docs) {
       continue;
@@ -733,9 +733,13 @@ const SQUARESPACE_MARKERS = ['static1.squarespace.com', 'squarespace-cdn.com', '
 /**
  * What feeds this listing page advertises, best first. Nothing is fetched
  * here, these are candidates, and the caller probes them silently.
+ *
+ * Candidates are scoped to the listing, see `describesTheListing`, because a
+ * feed declared in the head of every page on a site is about the site.
  * @param page - the fetched listing page.
+ * @param ctx - the sync context, for the note naming a candidate the scope rule dropped.
  */
-function discoverFeeds(page: FetchedPage): FeedCandidate[] {
+function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
   if (!page.isHtml) {
     return [];
   }
@@ -768,8 +772,62 @@ function discoverFeeds(page: FetchedPage): FeedCandidate[] {
     add(withFormatJson(page.url), 'json');
   }
 
+  const eligible = found.filter((candidate) => {
+    if (describesTheListing(candidate, page.url)) {
+      return true;
+    }
+    runNote(ctx, candidate.url, `source: skipped ${candidate.kind} feed outside the listing path ${candidate.url}`);
+    return false;
+  });
+
   // Stable sort: same kind keeps document order.
-  return found.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+  return eligible.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+}
+
+/**
+ * A trailing `index`, `index.html`, `index.php` on a listing path: the file
+ * that IS the directory, so scoping keeps the directory rather than the file.
+ */
+const INDEX_SEGMENT_RE = /(^|\/)index(?:\.\w+)?$/i;
+
+/**
+ * Whether a discovered feed describes THIS listing rather than the whole site.
+ *
+ * The test is the URL path and nothing else: a feed counts when it sits at the
+ * listing's own path or under it, on the same origin. Higher Ground's calendar
+ * at `/calendar/` declares `https://highergroundmusic.com/feed/` in its head,
+ * the WordPress blog feed every page on that site declares, and the second dev
+ * shadow (2026-09-15) took it: the whole source became ONE document of 1,460
+ * characters of blog posts and zero events, while the shows sat unread on the
+ * listing. Brownell declares `/feed/` and `/comments/feed/` the same way.
+ *
+ * An `ics` candidate is exempt, `webcal:` included, since that is rewritten to
+ * `https:` and reaches here as `ics`. A calendar feed is a calendar wherever a
+ * site parks it, it cannot be about anything but events, and it is the kind
+ * worth most: Brownell's `/events/?ical=1` is the 26 events the run takes.
+ * A Squarespace `?format=json` candidate is the listing URL itself, so it
+ * passes on the paths being equal.
+ * @param candidate - the discovered feed.
+ * @param listingUrl - the listing it was discovered on, as actually fetched.
+ */
+function describesTheListing(candidate: FeedCandidate, listingUrl: string): boolean {
+  if (candidate.kind === 'ics') {
+    return true;
+  }
+  let feed: URL;
+  let listing: URL;
+  try {
+    feed = new URL(candidate.url);
+    listing = new URL(listingUrl);
+  } catch {
+    return false;
+  }
+  if (feed.origin !== listing.origin) {
+    return false;
+  }
+  const path = listing.pathname.replace(INDEX_SEGMENT_RE, '$1');
+  const directory = path.endsWith('/') ? path : `${path}/`;
+  return feed.pathname === path || feed.pathname.startsWith(directory);
 }
 
 /**

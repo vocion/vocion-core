@@ -20,6 +20,7 @@ type Progress = { kind: string; uri?: string; message?: string };
 
 const ICS_URL = 'https://venue.test/events.ics';
 const LISTING_URL = 'https://venue.test/shows/';
+const CALENDAR_URL = 'https://venue.test/calendar/';
 
 const TWO_EVENT_ICS = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -291,15 +292,17 @@ describe('feed discovery', () => {
   it('prefers the calendar over an RSS alternate declared first', async () => {
     stubFetch((url) => {
       if (url === LISTING_URL) {
+        // Under the listing path, so the scope rule keeps it and the only
+        // thing deciding between the two is KIND_ORDER.
         return listing(
-          '<link rel="alternate" type="application/rss+xml" href="/feed.xml">'
+          '<link rel="alternate" type="application/rss+xml" href="/shows/feed.xml">'
           + '<link rel="alternate" type="text/calendar" href="/events.ics">',
         );
       }
       if (url === ICS_URL) {
         return typed(TWO_EVENT_ICS, 'text/calendar');
       }
-      return url === 'https://venue.test/feed.xml' ? typed(RSS, 'application/rss+xml') : undefined;
+      return url === 'https://venue.test/shows/feed.xml' ? typed(RSS, 'application/rss+xml') : undefined;
     });
 
     const { events } = await run({ crawl: { startUrl: LISTING_URL } });
@@ -381,5 +384,75 @@ describe('feed discovery', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(docs).toHaveLength(2);
     expect(events.some(e => e.message === 'source: configured feed')).toBe(true);
+  });
+});
+
+/**
+ * A feed declared in the head of every page on a site describes the site, not
+ * the listing. Higher Ground's `/calendar/` declares the WordPress blog feed
+ * at `/feed/`, and taking it replaced 60-odd shows with 1,460 characters of
+ * blog posts. A calendar is exempt: it cannot be about anything but events.
+ */
+describe('feed discovery is scoped to the listing path', () => {
+  it('a site-wide rss feed is not a candidate for a listing under /calendar/', async () => {
+    const fetchFn = stubFetch(url => url === CALENDAR_URL
+      ? listing('<link rel="alternate" type="application/rss+xml" href="/feed/">', '<p>Tonight: Opening Night.</p>')
+      : undefined);
+
+    const { docs, events } = await run({ crawl: { startUrl: CALENDAR_URL, maxDepth: 0 } });
+
+    expect(events.some(e => e.message === 'source: skipped rss feed outside the listing path https://venue.test/feed/')).toBe(true);
+    // Not even probed: the rule is decided on the URL, before any fetch.
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([CALENDAR_URL]);
+    expect(docs.map(d => d.externalId)).toEqual([CALENDAR_URL]);
+  });
+
+  it('an rss feed under the listing path is a candidate', async () => {
+    stubFetch((url) => {
+      if (url === CALENDAR_URL) {
+        return listing('<link rel="alternate" type="application/rss+xml" href="/calendar/feed/">');
+      }
+      return url === 'https://venue.test/calendar/feed/' ? typed(RSS, 'application/rss+xml') : undefined;
+    });
+
+    const { docs, events } = await run({ crawl: { startUrl: CALENDAR_URL } });
+
+    expect(events.some(e => e.message === 'source: discovered rss feed, 1 document')).toBe(true);
+    expect(docs.map(d => d.externalId)).toEqual(['https://venue.test/calendar/feed/']);
+  });
+
+  it('an ics feed anywhere on the origin is a candidate', async () => {
+    stubFetch((url) => {
+      if (url === CALENDAR_URL) {
+        return listing('<link rel="alternate" type="text/calendar" href="/events.ics">');
+      }
+      return url === ICS_URL ? typed(TWO_EVENT_ICS, 'text/calendar') : undefined;
+    });
+
+    const { docs, events } = await run({ crawl: { startUrl: CALENDAR_URL } });
+
+    expect(events.some(e => e.message === 'source: discovered ics feed, 2 documents')).toBe(true);
+    expect(events.some(e => e.message?.includes('outside the listing path'))).toBe(false);
+    expect(docs).toHaveLength(2);
+  });
+
+  it('with no eligible feed the listing falls back to listing plus crawl', async () => {
+    const fetchFn = stubFetch((url) => {
+      if (url === CALENDAR_URL) {
+        return listing(
+          '<link rel="alternate" type="application/rss+xml" href="/feed/">'
+          + '<link rel="alternate" type="application/rss+xml" href="/comments/feed/">',
+          '<p><a href="/calendar/opening">Opening Night</a></p>',
+        );
+      }
+      return url === 'https://venue.test/calendar/opening' ? listing('', '<p>Opening Night, 7:30pm.</p>') : undefined;
+    });
+
+    const { docs, events } = await run({ crawl: { startUrl: CALENDAR_URL, maxDepth: 1 } });
+
+    expect(errors(events)).toEqual([]);
+    expect(docs.map(d => d.externalId)).toEqual([CALENDAR_URL, 'https://venue.test/calendar/opening']);
+    expect(events.some(e => e.message?.startsWith('source: listing + depth-1 crawl'))).toBe(true);
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([CALENDAR_URL, 'https://venue.test/calendar/opening']);
   });
 });

@@ -193,6 +193,26 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
 }
 
 /**
+ * The key one candidate would be stored under, or undefined when it names no
+ * identity at all.
+ *
+ * Exported for the extractor's DRY RUN, which is the first rollout step and
+ * whose log line is the only thing a shadow comparison has to diff: to be
+ * worth reading it has to print the key the live run would write, byte for
+ * byte. Recomputing it there would be a second implementation that drifts the
+ * day either one gains a rule, which is the same argument `normaliseForKey`
+ * is exported under.
+ * @param input - Anything carrying the three values a key is built from.
+ */
+export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fields' | 'dedupOn'>): string | undefined {
+  const values = identityValues(input);
+  if (values.length === 0) {
+    return undefined;
+  }
+  return dedupKeyFrom(input.objectType, values);
+}
+
+/**
  * The identity values for a candidate, in the order `dedupOn` names them.
  * A named field that the extractor did not fill still takes a slot, so a
  * missing venue cannot silently merge two different candidates.
@@ -203,7 +223,7 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
  * test, for instance).
  * @param input - The parsed action input.
  */
-function identityValues(input: CandidateInput): string[] {
+function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'>): string[] {
   const values: string[] = [];
   for (const fieldName of input.dedupOn ?? []) {
     values.push(normaliseForKey(input.fields[fieldName]));
@@ -687,11 +707,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   // applies: no identity, no key, and never a constant in its place, which
   // would collapse every candidate of a type into one queue item.
   dedupKeyFor(input) {
-    const values = identityValues(input);
-    if (values.length === 0) {
-      return undefined;
-    }
-    return dedupKeyFrom(input.objectType, values);
+    return candidateDedupKey(input);
   },
 
   // A candidate is one record a person judges once, and the same listing page
