@@ -2806,6 +2806,23 @@ export const actionRunSchema = pgTable(
       at: string;
       by?: string;
     }>>(),
+    /**
+     * The exact artifact VERSIONS this decision approved (0112).
+     *
+     * Once the research brief, the outreach recommendation and the draft
+     * sequence are separate artifacts, "what did the human approve" and "what
+     * does this look like now" stop being the same question — a regeneration
+     * writes a new `artifact_version` and the page moves on. The pin is
+     * written at decide time and never rewritten, so the audit answers the
+     * first question (MANIFESTO §3, §12).
+     */
+    pinnedArtifacts: jsonb('pinned_artifacts').$type<Array<{
+      artifactId: number;
+      /** `brief` | `recommendation` | `sequence`. */
+      role: string;
+      version: number;
+      title: string;
+    }>>(),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
@@ -3115,6 +3132,48 @@ export const leadBriefSchema = pgTable(
       hubspotUserId?: string;
       verified?: boolean;
     }>(),
+    /**
+     * The contact's CURRENT sequence enrollment, as last observed on the CRM
+     * mirror (0112). The page must resolve this against `recommendedSequence`
+     * BEFORE it offers an Enroll button: the CEO's review found a page
+     * recommending enrollment on a contact the CRM said was enrolled in a
+     * sequence minutes after becoming an MQL, with no way to tell whether
+     * approving would add, replace, or duplicate.
+     *
+     * `status: 'unknown'` — and the column being null — is the honest fourth
+     * answer, and `resolveSequenceState` refuses a one-click Enroll on it
+     * rather than guessing which it meant.
+     */
+    currentSequence: jsonb('current_sequence').$type<{
+      id?: string;
+      name?: string;
+      /** 'active' | 'completed' | 'none' | 'unknown' */
+      status: string;
+      /** 1-based position in the running sequence, when the mirror carries it. */
+      step?: number;
+      totalSteps?: number;
+      /** 'automated' (a CRM workflow enrolled them) | 'manual' | 'unknown' */
+      kind?: string;
+      /** What the agent proposes doing to it: 'replace' | 'add'. Absent = it did not say. */
+      disposition?: string;
+      observedAt?: string;
+      source?: string;
+    }>(),
+    /**
+     * Research confidence per dimension (0112). One global 0.20 collapsed five
+     * different questions; separately computed, the recommendation engine can
+     * reason "identity known, company context insufficient, engagement
+     * unavailable → curiosity nurture, not fabricated personalization".
+     *
+     * A `value` of null means UNAVAILABLE, which is not the same as low:
+     * engagement fields the CRM never returned cannot be graded, and a brief
+     * that grades them anyway is the contradiction the chat repeated.
+     * `confidence` stays as the headline reading.
+     */
+    confidenceDimensions: jsonb('confidence_dimensions').$type<Record<string, {
+      value: number | null;
+      basis: string;
+    }>>(),
     /** HubSpot's stage-entry date. Null = the mirror had nothing; display falls back to `arrivedAt`, labeled "Arrived", never as stage timing. */
     mqlAt: timestamp('mql_at', { mode: 'date' }),
     /** Drafting tries so far — same three-try budget as the briefs. */
@@ -3470,6 +3529,22 @@ export const artifactSchema = pgTable(
     /** Denormalised head author, so the log lists "last editor" without a join. */
     lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
     lastAuthorId: text('last_author_id'),
+    /**
+     * The RECORD this artifact belongs to (0112), as a flat `RecordRef`
+     * (`services/chat/pageContext.ts`). Artifacts were conversation-scoped;
+     * a research brief belongs to a lead, not to whichever conversation
+     * happened to produce it. Null for a conversation-only artifact.
+     */
+    recordType: text('record_type'),
+    recordId: text('record_id'),
+    /**
+     * What this artifact IS to that record — `brief`, `recommendation`,
+     * `sequence`. One artifact per (record, role), enforced in
+     * `ArtifactService.upsertRecordArtifact` rather than by a unique index,
+     * because `artifact` is populated and CONVENTIONS.md rule 1 sends its
+     * index builds to `concurrent/`, where UNIQUE is refused.
+     */
+    recordRole: text('record_role'),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
@@ -3479,6 +3554,8 @@ export const artifactSchema = pgTable(
     index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
     // Built concurrently in production — see concurrent/0101_artifact_org_updated_index.sql.
     index('artifact_org_updated_idx').on(table.orgId, table.updatedAt),
+    // Built concurrently in production — see concurrent/0112_artifact_record_index.sql.
+    index('artifact_org_record_idx').on(table.orgId, table.recordType, table.recordId, table.recordRole),
   ],
 );
 

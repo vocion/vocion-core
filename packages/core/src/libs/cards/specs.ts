@@ -90,7 +90,32 @@ export const fileSpecSchema = z.object({
 });
 export type FileSpec = z.infer<typeof fileSpecSchema>;
 
-export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file'] as const;
+/**
+ * A drafted outreach sequence — the sends, in order, with their cadence.
+ *
+ * TYPED, not markdown, and that is the point: the draft sequence is one of the
+ * three artifacts the personalization lead page is built from
+ * (`docs/specs/personalization-v2.md`), and its editor is the sequence editor
+ * rather than a textarea. Adding it cost this descriptor plus one card —
+ * MANIFESTO §7, "the next content type costs a descriptor, not a subsystem".
+ */
+export const sequenceSpecSchema = z.object({
+  /** The CRM sequence the sends will be enrolled into, when one is chosen. */
+  sequenceId: z.string().optional(),
+  sequenceName: z.string().optional(),
+  /** One sentence: why this sequence, given what the research found. */
+  rationale: z.string().optional(),
+  sends: z.array(z.object({
+    step: z.number().int().positive(),
+    /** Offset in days from enrollment, when the cadence is known. */
+    day: z.number().int().nonnegative().optional(),
+    subject: z.string(),
+    body: z.string(),
+  })).max(24),
+});
+export type SequenceSpec = z.infer<typeof sequenceSpecSchema>;
+
+export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Card slug per artifact kind — the `__card` the canvas/chat resolve with. */
@@ -101,6 +126,7 @@ export const CARD_SLUG_FOR_KIND: Record<ArtifactKind, string> = {
   record: 'record',
   link: 'link',
   file: 'link',
+  sequence: 'sequence',
 };
 
 export const SPEC_SCHEMA_FOR_KIND = {
@@ -110,6 +136,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
   record: recordSpecSchema,
   link: linkSpecSchema,
   file: fileSpecSchema,
+  sequence: sequenceSpecSchema,
 } as const;
 
 /**
