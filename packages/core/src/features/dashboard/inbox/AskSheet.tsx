@@ -9,6 +9,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { kindForAsk } from '@/services/inbox/kinds';
 import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
@@ -28,6 +29,8 @@ export type SheetAsk = {
   options: AskOption[];
   contextUrl: string | null;
   contextMd: string | null;
+  /** Citations behind the proposal — each opens in the preview panel. */
+  evidence?: string[];
   agentSlug: string | null;
   teamSlug: string | null;
   risk: string | null;
@@ -314,7 +317,8 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
   // the long-form markdown and the context link all live in one Details fold.
   const body = splitBody(current.body);
   const paragraph = firstParagraph(current.body);
-  const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl);
+  const evidence = current.evidence ?? [];
+  const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl || evidence.length > 0);
   const canAdvance = done || complete(answer);
   const outcome = outcomes[current.id];
   const locked = pending || done;
@@ -408,6 +412,12 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
             {body.rest ? 'Show details' : 'Details'}
           </summary>
           <div className="space-y-3 border-t border-border px-3 py-3">
+            {evidence.length > 0 && (
+              <section aria-label="Evidence">
+                <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Evidence</h3>
+                <EvidenceRefs sources={evidence} />
+              </section>
+            )}
             {body.rest && (
               <div className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
                 <Markdown remarkPlugins={[remarkGfm]}>{body.rest}</Markdown>

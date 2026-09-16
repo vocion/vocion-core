@@ -1,4 +1,5 @@
 import { dashboardRoute, humanizeSegment } from '@/features/navigation/dashboardNav';
+import { parseRecordKeyParam, recordKeyLabel } from '@/services/inbox/recordKey';
 
 /**
  * Pure crumb builder for the shell-bar breadcrumb, kept away from React so
@@ -6,7 +7,17 @@ import { dashboardRoute, humanizeSegment } from '@/features/navigation/dashboard
  * title; a route that is one TAB of a combined page gets that page inserted
  * before it ("Teams & agents › Agents"); deeper segments (slugs, ids) take
  * the page's own `<title>` when it has one, else a humanised slug.
+ *
+ * The decision sheets are the exception the generic rule cannot get right on
+ * its own: `/dashboard/inbox/r/<key>` carries an escaped record key, and a
+ * crumb reading `email~3Asomeone~40exampl…` is an internal identifier shown
+ * to a person (§ *A user-facing error never shows an internal identifier*).
+ * The `r` / `g` shim is not a place either, so it is dropped and the key is
+ * read back into the record's name.
  */
+
+/** The routing shims under `inbox` that are not places a person can stand. */
+const SHEET_SEGMENTS = new Set(['r', 'g']);
 
 export type Crumb = { url: string; label: string };
 
@@ -26,6 +37,13 @@ export function buildCrumbs(input: { pathname: string; docTitle: string; workspa
   const pageCrumbs: Crumb[] = [];
   segments.forEach((seg, i) => {
     const url = `/dashboard/${segments.slice(0, i + 1).join('/')}`;
+    if (segments[0] === 'inbox' && i === 1 && SHEET_SEGMENTS.has(seg)) {
+      return;
+    }
+    if (segments[0] === 'inbox' && i === 2 && SHEET_SEGMENTS.has(segments[1] ?? '')) {
+      pageCrumbs.push({ url, label: recordKeyLabel(parseRecordKeyParam(seg)) });
+      return;
+    }
     const registered = dashboardRoute(url);
     if (registered) {
       const owner = registered.tabOf ? dashboardRoute(registered.tabOf) : undefined;

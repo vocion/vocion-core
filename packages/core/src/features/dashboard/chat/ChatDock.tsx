@@ -24,11 +24,12 @@ import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
-import { publishDockOpen, RAIL_SET_EVENT } from './dockState';
+import { RAIL_SET_EVENT } from './dockState';
 import { EmptyState, NoAgentsState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { RailColumn } from './RailColumn';
 import {
   clampRailWidth,
   defaultRailWidth,
@@ -370,35 +371,18 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
   }, []);
 
-  // Another surface asked for the rail's slot (`dockState.yieldRail()` /
-  // `restoreRail()`): the preview panel stacks over the rail and puts it back
-  // on close. Handled here because the rail owns its own state; `persist:
-  // false` means the borrow is not recorded as the person's preference, and
-  // `restore` is why the rail remembers what it yielded from — a caller
-  // cannot know that.
-  const yieldedFromRef = useRef<boolean | null>(null);
+  // Someone outside asked for the chat pane to open or close
+  // (`dockState.openChatPane()` / `closeChatPane()`). Handled here because the
+  // chat pane owns its own state; a `persist: false` request changes it
+  // without teaching this browser a preference nobody expressed.
   useEffect(() => {
     function onSet(e: Event) {
-      const req = (e as CustomEvent<{ open?: boolean; restore?: boolean; persist?: boolean }>).detail ?? {};
-      if (req.restore) {
-        const was = yieldedFromRef.current;
-        yieldedFromRef.current = null;
-        if (was === null) {
-          return;
-        }
-        setCollapsed(!was);
-        return;
-      }
+      const req = (e as CustomEvent<{ open?: boolean; persist?: boolean }>).detail ?? {};
       const next = !req.open;
+      setCollapsed(next);
       if (req.persist === false) {
-        if (yieldedFromRef.current === null) {
-          yieldedFromRef.current = !collapsedRef.current;
-        }
-        setCollapsed(next);
         return;
       }
-      yieldedFromRef.current = null;
-      setCollapsed(next);
       writeCollapsed(next);
       sessionRef.current.persistRail({ railOpen: !next });
     }
@@ -545,15 +529,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       await comments?.applyComments(pendingNotes.map(c => c.id));
     }
   };
-
-  // Tell the page beside the rail how much room it is taking: the shell's
-  // gutter pads itself by that much while the rail is open, so an overlay
-  // never sits on top of the record, and the page is full width again the
-  // moment the rail closes. Closed again on unmount.
-  useEffect(() => {
-    publishDockOpen(!collapsed && !narrow, width);
-    return () => publishDockOpen(false);
-  }, [collapsed, narrow, width]);
 
   const showCards = run && railOwnsReview && (!guided.state.decided || guided.outcome);
   // Beside a record page the rail carries a POINTER instead: one line naming
@@ -806,73 +781,76 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     return null;
   }
 
-  if (collapsed) {
-    // The edge tab: a slim handle on the right edge, not a floating bubble
-    // (§9). Click or ⌘J opens.
-    return createPortal(
-      <button
-        type="button"
-        onClick={() => setCollapsedPersisted(false)}
-        aria-label={t('open_rail')}
-        title={t('open_rail')}
-        data-testid="rail-edge-tab"
-        className="fixed top-1/2 right-0 z-40 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-xl border border-r-0 border-border bg-background px-1.5 py-3 text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-      >
-        <MessageSquare className="size-4" aria-hidden="true" />
-        <span className="text-[10px] font-medium tracking-wide [writing-mode:vertical-rl]">Chat</span>
-      </button>,
-      document.body,
-    );
-  }
-
-  if (narrow) {
-    // Below the breakpoint the rail covers the page as a sheet instead of
-    // narrowing it (032 §3.2).
-    return (
-      <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
-        <SheetContent side="right" className="flex w-full max-w-[28rem] flex-col gap-0 p-0 sm:max-w-[28rem]" aria-label={ariaLabel}>
-          <SheetHeader className="sr-only">
-            <SheetTitle>{ariaLabel}</SheetTitle>
-            {/* One identity (§9.10): the sheet is described as the workspace, never an agent. */}
-            <SheetDescription>{headerName}</SheetDescription>
-          </SheetHeader>
-          <div ref={asideRef as React.RefObject<HTMLDivElement>} className="flex min-h-0 flex-1 flex-col">
-            {body}
-          </div>
-        </SheetContent>
-      </Sheet>
-    );
-  }
-
-  return createPortal(
-    <aside
-      ref={asideRef}
-      aria-label={ariaLabel}
-      data-testid="agent-rail"
-      style={{ width }}
-      // Fixed under the 4rem header, flush to the viewport's right edge: the
-      // composer is always the bottom edge of the pane (058), on any page,
-      // at any scroll position.
-      className="fixed top-16 right-0 z-40 flex h-[calc(100dvh-4rem)] flex-col border-l border-border bg-background shadow-(--shadow-pop)"
+  const edgeTab = (
+    <button
+      type="button"
+      onClick={() => setCollapsedPersisted(false)}
+      aria-label={t('open_rail')}
+      title={t('open_rail')}
+      data-testid="rail-edge-tab"
+      className="fixed top-1/2 right-0 z-40 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-xl border border-r-0 border-border bg-background px-1.5 py-3 text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
     >
-      {/* The resize handle on the rail's left edge (§9): drag, or arrow keys
-          when focused. */}
-      <div
-        role="slider"
-        aria-label={t('resize_rail')}
-        aria-valuemin={RAIL_MIN_WIDTH}
-        aria-valuemax={Math.floor((typeof window === 'undefined' ? 1440 : window.innerWidth) * RAIL_MAX_FRACTION)}
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={onResizeStart}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeEnd}
-        onPointerCancel={onResizeEnd}
-        onKeyDown={onResizeKey}
-        className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none transition select-none hover:bg-brand-amber/30 focus-visible:bg-brand-amber/40 focus-visible:outline-none"
-      />
-      {body}
-    </aside>,
-    document.body,
+      <MessageSquare className="size-4" aria-hidden="true" />
+      <span className="text-[10px] font-medium tracking-wide [writing-mode:vertical-rl]">Chat</span>
+    </button>
   );
+
+  // The resize handle on the column's left edge (§9): drag, or arrow keys
+  // when focused. One width for the column, never one per pane.
+  const resizeHandle = (
+    <div
+      role="slider"
+      aria-label={t('resize_rail')}
+      aria-valuemin={RAIL_MIN_WIDTH}
+      aria-valuemax={Math.floor((typeof window === 'undefined' ? 1440 : window.innerWidth) * RAIL_MAX_FRACTION)}
+      aria-valuenow={width}
+      tabIndex={0}
+      onPointerDown={onResizeStart}
+      onPointerMove={onResizeMove}
+      onPointerUp={onResizeEnd}
+      onPointerCancel={onResizeEnd}
+      onKeyDown={onResizeKey}
+      className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none transition select-none hover:bg-brand-amber/30 focus-visible:bg-brand-amber/40 focus-visible:outline-none"
+    />
+  );
+
+  // The chat pane, or null when the person closed it — the column may still
+  // be standing with a preview in it.
+  const chatPane = collapsed
+    ? null
+    : (
+        <div ref={asideRef as React.RefObject<HTMLDivElement>} className="flex min-h-0 flex-1 flex-col">
+          {body}
+        </div>
+      );
+
+  // Below the breakpoint the column covers the page as a sheet instead of
+  // narrowing it (032 §3.2), and shows one pane at a time.
+  const column = (
+    <RailColumn
+      priority="dock"
+      chat={chatPane}
+      closed={edgeTab}
+      narrow={narrow}
+      width={width}
+      resizeHandle={resizeHandle}
+      aria-label={ariaLabel}
+      frame={narrow
+        ? content => (
+          <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
+            <SheetContent side="right" className="flex w-full max-w-[28rem] flex-col gap-0 p-0 sm:max-w-[28rem]" aria-label={ariaLabel}>
+              <SheetHeader className="sr-only">
+                <SheetTitle>{ariaLabel}</SheetTitle>
+                {/* One identity (§9.10): the sheet is described as the workspace, never an agent. */}
+                <SheetDescription>{headerName}</SheetDescription>
+              </SheetHeader>
+              {content}
+            </SheetContent>
+          </Sheet>
+        )
+        : undefined}
+    />
+  );
+
+  return narrow ? column : createPortal(column, document.body);
 }

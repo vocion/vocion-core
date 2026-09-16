@@ -31,7 +31,10 @@ export function workspaceSwitchHref(input: { slug: string; pathname: string; sea
   return `${prefix}${workspaceUrl(input.slug, `${input.pathname}${search}`)}`;
 }
 
-/** A project with no agents is a seed/empty row — hidden unless asked for. */
+/**
+ * A project with no agents is a seed/empty row — hidden unless asked for.
+ * @param p
+ */
 export function isEmptyProject(p: SwitcherProject): boolean {
   return (p.agentCount ?? 0) === 0;
 }
@@ -55,7 +58,11 @@ export function filterProjects<T extends SwitcherProject>(projects: T[], opts: {
   });
 }
 
-/** Number of projects hidden by the empty-project rule (for the toggle's label). */
+/**
+ * Number of projects hidden by the empty-project rule (for the toggle's label).
+ * @param projects
+ * @param activeId
+ */
 export function countHiddenEmpty(projects: SwitcherProject[], activeId?: string | null): number {
   return projects.filter(p => isEmptyProject(p) && p.id !== activeId).length;
 }
@@ -64,6 +71,12 @@ export function countHiddenEmpty(projects: SwitcherProject[], activeId?: string 
  * Whether a bare `F` keypress should open Find (Vercel's rule): only when
  * nothing is being typed into and no modifier is held.
  * @param e - A keyboard-event-like object.
+ * @param e.key
+ * @param e.metaKey
+ * @param e.ctrlKey
+ * @param e.altKey
+ * @param e.defaultPrevented
+ * @param e.target
  */
 export function shouldTriggerFindHotkey(e: {
   key: string;
@@ -95,7 +108,10 @@ export function shouldTriggerFindHotkey(e: {
 
 const ACCENTS = ['oklch(0.62 0.17 65)', 'oklch(0.58 0.1 187)', 'oklch(0.55 0.15 280)', 'oklch(0.55 0.15 330)', 'oklch(0.55 0.13 145)', 'oklch(0.6 0.15 25)'];
 
-/** A stable accent per workspace slug for its avatar initial. */
+/**
+ * A stable accent per workspace slug for its avatar initial.
+ * @param slug
+ */
 export function projectAccent(slug: string): string {
   let h = 0;
   for (const ch of slug) {

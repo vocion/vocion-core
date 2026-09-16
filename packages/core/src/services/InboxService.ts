@@ -8,6 +8,7 @@ import { changeSummaryLine, summariseChanges } from '@/services/inbox/changeSumm
 import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRun';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
+import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
 
 /**
@@ -124,14 +125,6 @@ export type Inbox = {
 const RECENT_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The URL for one record's decision sheet.
- * @param recordKey
- */
-export function recordSheetHref(recordKey: string): string {
-  return `/dashboard/inbox/r/${encodeURIComponent(recordKey)}`;
-}
-
-/**
  * One row from one proposal.
  * @param r
  * @param tab
@@ -243,7 +236,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       risk: group.some(a => a.risk === 'high') ? 'high' : group.some(a => a.risk === 'medium') ? 'medium' : oldest.risk,
       status: 'open',
       at: oldest.createdAt,
-      href: `/dashboard/inbox/g/${encodeURIComponent(groupKey)}`,
+      href: askGroupHref(groupKey),
       detail: `${group.length} questions`,
       groupKey,
       count: group.length,
@@ -595,7 +588,7 @@ export async function listProposalQueue(orgId: string, query: InboxQuery = {}): 
   const out: ProposalQueueEntry[] = [];
   for (const item of items) {
     const members = item.shape === 'sheet'
-      ? rows.filter(r => (r.described.record?.key ?? `run:${r.id}`) === item.groupKey).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      ? rows.filter(r => recordKeyOf(r) === item.groupKey).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       : [byId.get(item.reviewId!)!];
     for (const r of members) {
       out.push({ id: r.id, title: r.described.title, typeLabel: humaniseActionId(r.actionId), actionId: r.actionId });

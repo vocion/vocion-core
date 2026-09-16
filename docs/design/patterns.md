@@ -580,11 +580,15 @@ decision, not about a record; read that way, both asks hold. The rule lives in
 opens *onto* beside a record changed on 2026-09-16 — see *The rail is the
 conversation, never a second copy of the page* — but the geometry did not.
 
-**Seams:** `yieldRail()` / `restoreRail()` (`features/dashboard/chat/dockState.ts`)
-— a surface that needs the rail's slot borrows it and gives it back in the
-state it found it, without recording the borrow as the person's preference and
-without holding a reference to the rail's internals. `useDockOpen()` reads the
-state; `--rail-inset` is the room an open rail is taking.
+**Seams:** `dockState.ts` owns the column's geometry and nothing holds a
+reference to anything else's internals. `openChatPane()` / `closeChatPane()`
+(and the low-level `requestRail`) open and close the chat pane from outside it;
+`claimColumn` settles which component draws the column when both `ChatDock` and
+the preview's own host are mounted — the dock wins, because it is the one that
+can hold both panes. `useDockOpen()` reads the state; `--rail-inset` is the
+room the open column is taking. The old `yieldRail()` / `restoreRail()` borrow
+is gone: nothing takes the column's slot any more, so there is nothing to
+borrow and nothing to restore.
 
 **Where it came from.** Chris, 2026-09-16: *"can we use full width by default
 here?"*
@@ -688,13 +692,121 @@ A reference to a record — a citation, an evidence chip, a linked row — opens
 that record in a panel over the page rather than navigating to it, so reading
 one thing to understand another costs no place in the history.
 
-Landing in `workforce/2026-09-16-evidence-preview`: preview as a capability
-declared per record type on `RecordRef`, one panel, opened from any reference.
-It is the third member of this family and it is the one that has to cooperate
-with the other two, so it takes the rail's slot through `yieldRail()` /
-`restoreRail()` and stands the selection control down through
-`dismissSelectionControl()` rather than sitting beside it. Both seams are named
-above; neither reaches into another surface's state.
+**The test that separates this from *Select → talk*: is the content already
+rendered on this page?** If yes it is a selection, never a preview and never an
+inline expansion. If it lives elsewhere it is a preview, never an inline
+expansion here.
+
+### When
+
+- **Preview** when a person is mid-task and needs to *confirm* a reference
+  without losing their place: deciding on a proposal, reading a brief, in a
+  chat turn, scanning a list. It answers "is this the right thing, and what
+  does it say".
+- **Navigate** when the reference *becomes* the task. The preview always
+  carries the link to the full page; it never replaces it.
+- **Do not preview** something already fully visible in place, and do not
+  preview an action. A decision is a detail page, not a peek — an `inbox`
+  reference on a briefing card stays a link.
+
+### A row is a reference, or it is the task
+
+A list you are *scanning to choose from* previews: search results, artifacts,
+evidence, linked records. A list that *is your work* navigates: Needs you,
+where the row is a decision and the detail is where you make it. **A list
+declares which it is; it is never decided per row**, and there is no
+per-row heuristic.
+
+`ListRow` says it: `href` alone navigates, `href` + `onSelect` previews. The
+row stays a real link either way, so ⌘/Ctrl-click, middle-click, *Open in new
+tab* and a copied address always go to the page — the preview only takes the
+plain click. `usePreviewList(items, navigate)` gives a previewing list the rest
+of the contract at once: the selection read out of the URL, `j`/`k` and the
+arrows walking the rows with the preview following, and Enter opening the
+detail page. Scanning without clicking is what makes preview-by-default better
+than navigation rather than merely different.
+
+| List | Click | Why |
+|---|---|---|
+| Search | preview | You are finding which result you meant. |
+| Artifacts | preview | You are choosing which artifact you wanted; an artifact's home is beside the conversation that made it, so you preview to find it and open it properly to work in it. |
+| Needs you | navigate | The row IS the work; the detail is where the decision gets made. |
+
+Nothing in the list's own state moves when a preview opens, so the query, the
+filters and the scroll position survive opening and closing one.
+
+**The preview is read-only, always.** An artifact is editable and the editing
+happens on the artifact — a preview that sometimes writes is a different
+component.
+
+### The contract
+
+- **One column, two stacked panes.** Chris, 2026-09-16: *"I don't want to have
+  more than 1 sidebar at a time."* There is ONE right column
+  (`features/dashboard/chat/RailColumn`) with one width and one resize handle.
+  The preview stands **above** chat in it, separated by a divider you can drag:
+
+  ```text
+  ┌──────────────┐  preview — what you are looking at
+  ├─ ─ ─ ─ ─ ─ ─ ┤  a divider you can drag; its position persists
+  └──────────────┘  chat — what you are doing about it
+  ```
+
+  **Stacked, not tabbed**, and the reason is the point of both features: you
+  open a preview in order to ask about it. A tab would make you choose between
+  the evidence and the question, and hide the evidence at exactly the moment
+  you want to talk about it.
+
+  Opening a preview while chat is open SPLITS the column; chat keeps its
+  transcript and its composer. Either pane closes on its own — closing the
+  preview gives the column back to chat, closing chat leaves the preview full
+  height, closing both closes the column to its edge tab. One width for the
+  column, never one per pane. Below `RAIL_SHEET_BREAKPOINT` the column is a
+  sheet and shows one pane at a time: the preview replaces its content and its
+  close control becomes *Back to chat*, because halving a phone helps nobody.
+  Opening a preview also stands the selection control down
+  (`dismissSelectionControl()`). The column publishes `--rail-inset` while it
+  stands beside the page, so the peek never covers the record it is about.
+- **Same keyboard.** Escape closes and returns focus to whatever opened it.
+  The page's own shortcuts — the decision verbs, `j`/`k` — keep working
+  underneath, because the panel never takes focus: a reviewer must still be
+  able to approve with `a` while reading the evidence they are approving on.
+  That is the difference between a peek and a dialog.
+- **Same anatomy.** Header with the source chip and the link out, then the
+  body. Nothing else. A preview never carries actions that belong to the
+  detail page, and it renders **no `Section`** — a comment anchored in a peek
+  would be filed against the page you are standing on rather than the record
+  you are reading, so a selection inside a preview raises nothing and the way
+  to talk about what you found is the link out.
+- **A preview is a place.** It lives in the URL (`?preview=<type>:<id>`), so it
+  is linkable, survives a reload, and Back closes it.
+
+### Adding a type
+
+The seam is `RecordRef` (`services/chat/pageContext.ts`). Everything that
+points at a thing already is one: evidence items, `@` mentions, inbox rows,
+search results, artifact links, briefing claims, CRM subjects. A record type
+opts in by adding **one descriptor** to `services/preview/registry.ts` —
+`{ sourceLabel, href?, resolve }` — the way a vendor opts in by adding one to
+`libs/platforms/registry.ts`. Nothing in the panel, the router or any calling
+surface enumerates types, so the descriptor is the whole change and every
+surface that renders a ref gets it for free.
+
+Resolvers read **mirrors** (`knowledge_document`, first-party tables), never
+the external system: a peek must cost a query, not someone else's rate limit.
+A type with no descriptor, or a reference with no synced copy, renders the raw
+reference and its link with the reason — never a crash, never a blank panel.
+**Never a raw id as a label**: `granola:<uuid>` reads as *Granola meeting*
+until the resolver answers with the real title.
+
+A surface consumes it by rendering `<EvidenceRefs sources={…} />` (citations)
+or `<PreviewRef recordRef={…} />` (a typed ref) from `features/preview`. Render
+the panel anywhere; only the first mounted host paints.
+
+Live on: the proposal decision sheet's Evidence (`AskSheet`), the lead brief's
+Claims (`LeadContext`, through `EvidenceList`'s `renderSource` slot), the
+briefing decision cards' evidence (`DecisionCards`), and — as whole lists —
+Search (`SearchResults`) and Artifacts (`ArtifactLog`).
 
 ---
 

@@ -37,7 +37,17 @@ export function SourceChip(props: { kind: string; className?: string }) {
   );
 }
 
-export function EvidenceList(props: { items: readonly EvidenceItem[]; empty?: ReactNode; className?: string }) {
+/**
+ * `renderSource` lets a page make its citations openable — see
+ * `features/preview`. The pattern stays pure: it decides the layout, the page
+ * decides whether a citation is a link, a peek, or just text.
+ * @param props
+ * @param props.items
+ * @param props.empty
+ * @param props.renderSource - Render one citation; falls back to the label.
+ * @param props.className
+ */
+export function EvidenceList(props: { items: readonly EvidenceItem[]; empty?: ReactNode; renderSource?: (source: string) => ReactNode; className?: string }) {
   if (props.items.length === 0) {
     return props.empty ? <p className="text-muted-foreground">{props.empty}</p> : null;
   }
@@ -48,13 +58,15 @@ export function EvidenceList(props: { items: readonly EvidenceItem[]; empty?: Re
           <div className="text-sm leading-relaxed text-foreground">{item.text}</div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
             <SourceChip kind={item.kind} />
-            {isCitationUrl(item.source)
-              ? (
-                  <a href={item.source} target="_blank" rel="noopener noreferrer" className="truncate underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">
-                    {citationLabel(item.source)}
-                  </a>
-                )
-              : <span className="truncate">{citationLabel(item.source)}</span>}
+            {props.renderSource
+              ? props.renderSource(item.source)
+              : isCitationUrl(item.source)
+                ? (
+                    <a href={item.source} target="_blank" rel="noopener noreferrer" className="truncate underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">
+                      {citationLabel(item.source)}
+                    </a>
+                  )
+                : <span className="truncate">{citationLabel(item.source)}</span>}
             {item.date && <span className="tabular-nums">{item.date}</span>}
           </div>
         </li>

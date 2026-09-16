@@ -145,12 +145,18 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/profile', title: 'Profile', group: 'You', icon: Users, i18nKey: 'profile', keywords: ['account', 'password', 'name'] },
 ];
 
-/** The route registered at exactly this path, if any. */
+/**
+ * The route registered at exactly this path, if any.
+ * @param url
+ */
 export function dashboardRoute(url: string): DashboardRoute | undefined {
   return DASHBOARD_ROUTES.find(r => r.url === url);
 }
 
-/** Routes a person may see: admin-only rows drop out for members. */
+/**
+ * Routes a person may see: admin-only rows drop out for members.
+ * @param isAdmin
+ */
 function visibleRoutes(isAdmin: boolean): DashboardRoute[] {
   return DASHBOARD_ROUTES.filter(r => isAdmin || !r.adminOnly);
 }
@@ -160,20 +166,29 @@ export function workRoutes(): DashboardRoute[] {
   return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly);
 }
 
-/** The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order. */
+/**
+ * The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order.
+ * @param isAdmin
+ */
 export function manageNavGroups(isAdmin: boolean): Array<{ group: DashboardGroup; routes: DashboardRoute[] }> {
   return DASHBOARD_GROUPS
     .filter(g => g.manage)
     .map(group => ({ group, routes: visibleRoutes(isAdmin).filter(r => r.group === group.id && !r.tabOf) }));
 }
 
-/** Every MANAGE row a person can pin — top-level pages AND their tabs (a tab is a destination too). */
+/**
+ * Every MANAGE row a person can pin — top-level pages AND their tabs (a tab is a destination too).
+ * @param isAdmin
+ */
 export function manageRoutes(isAdmin: boolean): DashboardRoute[] {
   const manageIds = new Set(DASHBOARD_GROUPS.filter(g => g.manage).map(g => g.id));
   return visibleRoutes(isAdmin).filter(r => manageIds.has(r.group));
 }
 
-/** The tabs of a combined page, owner first, in registry order. Empty when `url` owns no tabs. */
+/**
+ * The tabs of a combined page, owner first, in registry order. Empty when `url` owns no tabs.
+ * @param url
+ */
 export function tabsOf(url: string): DashboardRoute[] {
   const owner = dashboardRoute(url);
   const tabs = DASHBOARD_ROUTES.filter(r => r.tabOf === url);

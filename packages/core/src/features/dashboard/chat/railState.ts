@@ -85,3 +85,46 @@ export function writeCollapsed(collapsed: boolean): void {
     /* storage unavailable — state still holds for this session */
   }
 }
+
+/**
+ * The split between the column's two panes: preview on top, chat below.
+ *
+ * Stored as the preview pane's fraction of the column, not a pixel height, so
+ * the same memory survives a window resize and a different screen. Neither
+ * pane may be dragged into uselessness — a pane you cannot read is a pane you
+ * would have closed.
+ */
+export const RAIL_SPLIT_DEFAULT = 0.5;
+/** Neither pane goes below this fraction of the column. */
+export const RAIL_SPLIT_MIN = 0.2;
+
+const SPLIT_KEY = 'vocion_rail_split';
+
+/**
+ * Keep a requested split inside [0.2, 0.8].
+ * @param fraction - The preview pane's share of the column height.
+ */
+export function clampRailSplit(fraction: number): number {
+  if (!Number.isFinite(fraction)) {
+    return RAIL_SPLIT_DEFAULT;
+  }
+  return Math.min(1 - RAIL_SPLIT_MIN, Math.max(RAIL_SPLIT_MIN, fraction));
+}
+
+export function readStoredRailSplit(): number | null {
+  try {
+    const raw = localStorage.getItem(SPLIT_KEY);
+    const n = raw ? Number.parseFloat(raw) : Number.NaN;
+    return Number.isFinite(n) && n > 0 && n < 1 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredRailSplit(fraction: number): void {
+  try {
+    localStorage.setItem(SPLIT_KEY, clampRailSplit(fraction).toFixed(3));
+  } catch {
+    /* storage unavailable — the split still holds for this session */
+  }
+}

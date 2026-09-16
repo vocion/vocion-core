@@ -5,6 +5,7 @@ import type { DiscoveryLedgerEntry } from '@/services/discovery/ledger';
 import { useMemo } from 'react';
 import { LedgerEntry, LedgerGroup, ListEmpty, ListToolbar, ProvenanceLine, useListUrlState } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
+import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { Link } from '@/libs/I18nNavigation';
 import {
   DISCOVERY_CLASS_LABEL,
@@ -291,13 +292,16 @@ function Entry({ e }: { e: DiscoveryEntry }) {
             )}
           </dl>
           {cls?.reasoning && <p className="max-w-3xl leading-relaxed">{cls.reasoning}</p>}
-          {/*
-            TODO(workforce/2026-09-16-evidence-preview): transcript evidence
-            items belong in the preview panel that branch is building
-            (`RecordRef` + one panel, opened from any reference). Deliberately
-            NOT a second panel here — `docs/design/patterns.md` § Preview where
-            you are.
-          */}
+          {/* The meeting this verdict was read from, openable in the SHARED
+              preview panel rather than a second panel of this page's own —
+              `docs/design/patterns.md` § Preview where you are. The external
+              id IS a citation (`granola:<id>`, `zoom:<uuid>`, `gcal:<id>`), so
+              the registry resolves it with no work here. */}
+          {e.meetingExternalId && (
+            <div className="max-w-md">
+              <EvidenceRefs sources={[e.meetingExternalId]} />
+            </div>
+          )}
           <ProvenanceLine
             items={[
               e.classifierVersion && { value: e.classifierVersion, title: 'Model + prompt version' },

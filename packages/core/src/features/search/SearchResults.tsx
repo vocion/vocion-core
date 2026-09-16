@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, ListToolbar, Subline } from '@/components/patterns';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { usePreviewList } from '@/features/preview/usePreviewList';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 
 /**
@@ -13,6 +15,14 @@ import { usePathname, useRouter } from '@/libs/I18nNavigation';
  * with the ranked set. The shape is the same as every other list — one title,
  * one context line, ONE row of chips with "+N more", hairline rows in the
  * artifacts density. Only the data is different.
+ *
+ * **A row here is a reference, not the task.** You are scanning results to
+ * find the right one, so a plain click PREVIEWS (`docs/design/patterns.md`
+ * § *A row is a reference, or it is the task*). `j`/`k` walk the results with
+ * the preview following, Enter opens the document's page, and ⌘-click,
+ * middle-click and the preview's own header link all still take you there —
+ * the row stays a real link. The query, the filter and the scroll survive,
+ * because the preview lives in a URL parameter and nothing else moves.
  */
 
 export type SearchResult = {
@@ -91,6 +101,14 @@ export function SearchResults(props: {
 
   const total = sources.reduce((n, s) => n + s.count, 0);
 
+  const items = useMemo(
+    () => results.filter(r => r.openable).map(r => ({ ref: { type: 'document' as const, id: r.id }, href: `/dashboard/search/${r.id}` })),
+    [results],
+  );
+  const goTo = useCallback((href: string) => router.push(href), [router]);
+  const preview = usePreviewList(items, goTo);
+  const indexOf = useCallback((id: string) => items.findIndex(i => i.ref.id === id), [items]);
+
   return (
     <>
       <ListToolbar
@@ -144,6 +162,8 @@ export function SearchResults(props: {
                     key={r.id}
                     data-testid="search-result"
                     href={r.openable ? `/dashboard/search/${r.id}` : undefined}
+                    onSelect={r.openable ? () => preview.select(indexOf(r.id)) : undefined}
+                    selected={r.openable && preview.selected >= 0 && preview.selected === indexOf(r.id)}
                     title={r.title}
                     subline={(
                       <Subline
@@ -158,6 +178,7 @@ export function SearchResults(props: {
                 ))}
               </ListRows>
             )}
+      <PreviewPanel />
     </>
   );
 }

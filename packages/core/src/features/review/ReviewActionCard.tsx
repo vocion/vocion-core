@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 import { contentKindRenderer } from './contentKinds';
@@ -47,7 +48,7 @@ export type ReviewCardRun = {
   status: string;
   input: Record<string, unknown>;
   invokedBy: string | null;
-  proposal: { confidence?: number; rationale?: string; suggestedDecision?: SuggestedDecision } | null;
+  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: SuggestedDecision } | null;
   card: ReviewCard;
   /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
   regeneratingSince?: Date | string | null;
@@ -309,6 +310,10 @@ export function ReviewActionCard(props: {
   const rejectVerb = card.verbs?.reject ?? 'Reject';
   // The summary repeats the rationale on most cards; show it once.
   const why = run.proposal?.rationale;
+  // Citations behind the recommendation. Each opens in the preview panel, so a
+  // reviewer can check what it rests on without leaving the decision — and the
+  // decision shortcuts keep working while it is open (features/preview).
+  const evidence = run.proposal?.evidence ?? [];
   const summaryDiffers = card.summary !== undefined && card.summary !== why;
 
   // On the page, a field that is also an editable property is shown once — in
@@ -472,6 +477,13 @@ export function ReviewActionCard(props: {
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {evidence.length > 0 && (
+          <section className="border-b border-rule py-4" aria-label="Evidence">
+            <div className="mb-1 text-[11px] font-medium text-muted-foreground">Evidence</div>
+            <EvidenceRefs sources={evidence} />
           </section>
         )}
 

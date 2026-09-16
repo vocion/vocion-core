@@ -3,67 +3,57 @@
 import { useEffect, useState } from 'react';
 
 /**
- * The rail's open/collapse state, and the two ways to ask it to change —
- * the whole contract between the rail and anything that shares its edge.
+ * THE right column: one width, one resize handle, and the two panes that can
+ * stand in it.
  *
- * The dock publishes its state on the document (`data-dock-open`) and as a
- * window event whenever it opens or collapses; a page that wants to make room
- * reads it through `useDockOpen`. Going the other way, a surface that needs
- * the slot calls `yieldRail()` and later `restoreRail()`. No shared store, no
- * provider, and — the point — no other surface holding a reference to
- * `ChatDock`'s internals: this module is the seam, so the rail can be
- * rebuilt without breaking whoever borrows its edge.
+ * Chris, 2026-09-16: *"I don't want to have more than 1 sidebar at a time.
+ * Find a way to unify the Chat/Preview sidebars?"* There is now one column
+ * holding zero, one or two stacked panes separated by a draggable divider:
+ *
+ *   preview   on top — what you are looking at
+ *   chat      below  — what you are doing about it
+ *
+ * **Stacked, not tabbed**, and the reason is the whole point of both features:
+ * you open a preview in order to ask about it. A tab would make you choose
+ * between the evidence and the question, and hide the evidence at exactly the
+ * moment you want to talk about it.
+ *
+ * This module is the seam. The dock publishes the column's state on the
+ * document (`data-dock-open`) and as a window event; a page that wants to make
+ * room reads `useDockOpen`. Going the other way, anything that wants a pane
+ * opened or closed sends an event. No shared store, no provider, and no other
+ * surface holding a reference to `ChatDock`'s internals, so the column can be
+ * rebuilt without breaking whoever stands in it.
  */
 
 export const DOCK_STATE_EVENT = 'vocion:dock';
 const ATTR = 'dockOpen';
 
 /**
- * Ask the rail to collapse or open, from OUTSIDE the rail.
+ * Ask the column to open or close the CHAT pane, from outside the column.
  *
- * Another surface that wants the rail's slot — the preview panel, which
- * stacks over the rail and restores it on close — sends this instead of
- * reaching into `ChatDock`'s state or synthesising a ⌘J. `restore: true`
- * says "put it back the way it was", which is the half a caller cannot
- * compute for itself: only the rail knows whether it was open before you
- * took the slot.
+ * Replaces the old `yieldRail()` / `restoreRail()` borrow, which existed only
+ * because a second panel had to take the rail's slot. Nothing takes the slot
+ * any more — the preview stands beside chat in the same column — so there is
+ * nothing to borrow and nothing to restore.
  *
- * The rail is the only listener. Nothing else may claim this event.
+ * The column is the only listener. Nothing else may claim this event.
  */
 export const RAIL_SET_EVENT = 'vocion:rail-set';
 
 export type RailSetRequest = {
-  /** True to open the rail, false to collapse it. Ignored when `restore` is set. */
+  /** True to open the chat pane, false to close it. */
   open?: boolean;
-  /** Put the rail back to whatever it was before the last `yieldRail()`. */
-  restore?: boolean;
   /**
-   * Whether the change should be remembered as the PERSON's choice. A panel
-   * borrowing the slot passes false: a rail collapsed by the preview opening
-   * must not teach the browser that this person likes it collapsed.
+   * Whether the change is remembered as the PERSON's choice. A chat pane
+   * closed by something other than the person passes false, so the browser
+   * does not learn a preference nobody expressed.
    */
   persist?: boolean;
 };
 
 /**
- * Take the rail's slot: collapse it, without recording the collapse as a
- * preference, and remember whether it was open so `restoreRail()` can undo
- * exactly that.
- * @returns Whether the rail was open when you took the slot.
- */
-export function yieldRail(): boolean {
-  const wasOpen = typeof document !== 'undefined' && document.documentElement.dataset[ATTR] === 'true';
-  requestRail({ open: false, persist: false });
-  return wasOpen;
-}
-
-/** Give the rail its slot back, in the state it was in before `yieldRail()`. */
-export function restoreRail(): void {
-  requestRail({ restore: true });
-}
-
-/**
- * The low-level form of the two above — open or collapse the rail.
+ * Open or close the chat pane.
  * @param req - What to do.
  */
 export function requestRail(req: RailSetRequest): void {
@@ -71,6 +61,67 @@ export function requestRail(req: RailSetRequest): void {
     return;
   }
   window.dispatchEvent(new CustomEvent<RailSetRequest>(RAIL_SET_EVENT, { detail: req }));
+}
+
+/** Close the chat pane, leaving whatever else is in the column. */
+export function closeChatPane(): void {
+  requestRail({ open: false, persist: true });
+}
+
+/** Open the chat pane beside whatever else is in the column. */
+export function openChatPane(): void {
+  requestRail({ open: true, persist: true });
+}
+
+/**
+ * Who is drawing the column right now.
+ *
+ * Two components can: `ChatDock`, wherever a rail is mounted, and the preview's
+ * own host on the pages that have no rail (the decision sheets). Exactly one
+ * draws, and the dock wins, because the dock is the one that can hold both
+ * panes. This is a claim rather than a provider for the same reason as the
+ * rest of this module: no surface holds a reference to another.
+ */
+const owners = new Set<string>();
+const ownerListeners = new Set<() => void>();
+
+function ownerEmit(): void {
+  ownerListeners.forEach(l => l());
+}
+
+/**
+ * @param id - A stable id for the claimant.
+ * @param priority - `dock` beats `preview`.
+ */
+export function claimColumn(id: string, priority: 'dock' | 'preview'): () => void {
+  const key = `${priority === 'dock' ? '0' : '1'}:${id}`;
+  owners.add(key);
+  ownerEmit();
+  return () => {
+    owners.delete(key);
+    ownerEmit();
+  };
+}
+
+/**
+ * Whether `id` is the claimant that should draw the column.
+ * @param id
+ * @param priority
+ */
+export function columnOwner(id: string, priority: 'dock' | 'preview'): boolean {
+  const key = `${priority === 'dock' ? '0' : '1'}:${id}`;
+  return [...owners].sort()[0] === key;
+}
+
+/**
+ * Subscribe to changes in who owns the column.
+ * @param listener
+ */
+export function subscribeColumnOwner(listener: () => void): () => void {
+  ownerListeners.add(listener);
+  return () => {
+    ownerListeners.delete(listener);
+  };
 }
 
 /**
@@ -88,8 +139,9 @@ export function requestRail(req: RailSetRequest): void {
 export const RAIL_INSET_VAR = '--rail-inset';
 
 /**
- * Called by the dock whenever its open state settles.
- * @param open - True while the dock is expanded beside the page.
+ * Called by whoever draws the column whenever its state settles. `open` means
+ * the COLUMN is standing beside the page — either pane is enough.
+ * @param open - True while the column is expanded beside the page.
  * @param width - Its current width in px; ignored when closed.
  */
 export function publishDockOpen(open: boolean, width = 0): void {
