@@ -39,6 +39,7 @@ const GUIDANCE = [
   'They are requirements, not suggestions: apply every rule relevant to this turn.',
   'You cannot edit these files; approval is the only write path.',
   'When feedback in this conversation is worth keeping as a rule, propose it (add_learning where available) — a person decides.',
+  'The one exception: when the user explicitly asks you to remember a personal preference, save it with remember_preference — it applies to them alone and notifies a reviewer.',
 ].join(' ');
 
 type FileLike = { content?: unknown } | string;

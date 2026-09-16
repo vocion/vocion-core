@@ -156,24 +156,33 @@ export async function listNamespaces(orgId: string) {
     .orderBy(asc(memoryNamespaceSchema.id));
 
   const counts = await db
-    .select({ key: memorySchema.key })
+    .select({ key: memorySchema.key, lastUsedAt: memorySchema.lastUsedAt })
     .from(memorySchema)
     .where(and(
       eq(memorySchema.orgId, orgId),
       sql`(${memorySchema.expiresAt} is null or ${memorySchema.expiresAt} > now())`,
     ));
 
-  return namespaces.map(ns => ({
-    name: ns.name,
-    scopeKind: ns.scopeKind,
-    scopeRef: ns.scopeRef,
-    path: ns.path,
-    title: ns.title,
-    description: ns.description,
-    preamble: ns.preamble,
-    agentSlugs: ns.agentSlugs,
-    ruleCount: counts.filter(c => c.key.startsWith(namespaceFilePrefix(ns.path))).length,
-  }));
+  return namespaces.map((ns) => {
+    const mine = counts.filter(c => c.key.startsWith(namespaceFilePrefix(ns.path)));
+    const lastUsedAt = mine.reduce<Date | null>(
+      (max, c) => (c.lastUsedAt && (!max || c.lastUsedAt > max) ? c.lastUsedAt : max),
+      null,
+    );
+    return {
+      name: ns.name,
+      scopeKind: ns.scopeKind,
+      scopeRef: ns.scopeRef,
+      path: ns.path,
+      title: ns.title,
+      description: ns.description,
+      preamble: ns.preamble,
+      agentSlugs: ns.agentSlugs,
+      ruleCount: mine.length,
+      /** Staleness: when an agent last had this namespace mounted. */
+      lastUsedAt,
+    };
+  });
 }
 
 /**

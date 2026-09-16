@@ -847,6 +847,17 @@ export type AdoptionAgentDetail = {
    * (`learning.added`), so cause can sit next to effect on the chart.
    */
   approvalTrend: Array<{ day: string; decisions: number; ratePct: number; adoptions: number }>;
+  /**
+   * Does the agent know what it doesn't know? Its stated proposal confidence
+   * (action_run.proposal.confidence, the grounding-quality score every
+   * proposal already carries) joined with what reviewers actually decided.
+   * The misalignment row — confident yet rejected, last 7 days — is where the
+   * next learning candidate is hiding.
+   */
+  confidenceAlignment: {
+    buckets: Array<{ label: string; proposals: number; approvedPct: number | null }>;
+    confidentRejectedLast7: number;
+  };
   topUsers: Array<{ userId: string; name: string | null; email: string | null; messages: number; decisions: number }>;
 };
 
@@ -862,7 +873,7 @@ export type AdoptionAgentDetail = {
  */
 export async function getAgentDetail(orgId: string, accountId: string | null, slug: string, days: AdoptionWindow): Promise<AdoptionAgentDetail> {
   const since = windowStart(days);
-  const [agents, daily, decisionsDaily, topUsers] = await Promise.all([
+  const [agents, daily, decisionsDaily, confidenceRows, topUsers] = await Promise.all([
     getAgentRows(orgId, days),
     rows(sql`
       SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
@@ -881,6 +892,17 @@ export async function getAgentDetail(orgId: string, accountId: string | null, sl
       WHERE org_id = ${orgId} AND agent_slug = ${slug} AND created_at >= ${since}
         AND event_type IN ('review.decided', 'learning.added')
       GROUP BY 1 ORDER BY 1
+    `),
+    rows(sql`
+      SELECT (proposal ->> 'confidence')::float AS confidence,
+        status,
+        decided_at
+      FROM action_run
+      WHERE org_id = ${orgId}
+        AND invoked_by = ${`agent:${slug}`}
+        AND proposal ->> 'confidence' IS NOT NULL
+        AND (decided_at IS NOT NULL OR status IN ('done', 'rejected'))
+        AND created_at >= ${since}
     `),
     rows(sql`
       SELECT e.user_id, u.name, u.email,
@@ -919,10 +941,35 @@ export async function getAgentDetail(orgId: string, accountId: string | null, sl
     });
   }
 
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+  const bucketDefs = [
+    { label: 'Agent confident (≥ 0.9)', min: 0.9, max: Infinity },
+    { label: 'Agent unsure (0.6 – 0.9)', min: 0.6, max: 0.9 },
+    { label: 'Agent hesitant (< 0.6)', min: -Infinity, max: 0.6 },
+  ];
+  const buckets = bucketDefs.map(({ label, min, max }) => {
+    const mine = confidenceRows.filter((r) => {
+      const c = Number(r.confidence);
+      return c >= min && c < max;
+    });
+    const approved = mine.filter(r => String(r.status) !== 'rejected').length;
+    return {
+      label,
+      proposals: mine.length,
+      approvedPct: mine.length > 0 ? Math.round((approved / mine.length) * 100) : null,
+    };
+  });
+  const confidentRejectedLast7 = confidenceRows.filter(r =>
+    Number(r.confidence) >= 0.9
+    && String(r.status) === 'rejected'
+    && r.decided_at != null
+    && date(r.decided_at)!.getTime() >= weekAgo.getTime()).length;
+
   return {
     agent: agents.find(a => a.agentSlug === slug) ?? null,
     reachTrend,
     approvalTrend,
+    confidenceAlignment: { buckets, confidentRejectedLast7 },
     topUsers: topUsers.map(r => ({
       userId: String(r.user_id),
       name: (r.name as string | null) ?? null,

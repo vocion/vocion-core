@@ -127,3 +127,40 @@ export function removeLearningTool(ctx: RuntimeContext) {
     },
   );
 }
+
+/**
+ * remember_preference — the preference fast lane.
+ *
+ * The one write that skips waiting on a reviewer: an explicit "remember
+ * this" from the person in the conversation is applied immediately at USER
+ * scope (their own /memories/users/<id>/preferences bucket) and lands on the
+ * review queue already-approved, so a reviewer is notified and can revoke.
+ * Structurally incapable of changing anyone else's behavior.
+ * @param ctx
+ */
+export function rememberPreferenceTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const { recordFastLanePreference } = await import('@/services/LearningCandidateService');
+      const r = await recordFastLanePreference({
+        orgId: ctx.orgId,
+        userId: ctx.userId,
+        text: args.preference,
+        agentSlug: ctx.agentSlug,
+      });
+      if (!r.ok) {
+        return JSON.stringify(r.error === 'no_user'
+          ? { ok: false, error: 'no_user', detail: 'This turn has no signed-in user; preferences can only be remembered for a person.' }
+          : r);
+      }
+      return JSON.stringify({ ok: true, ruleKey: r.ruleKey, note: 'Saved to this user\'s preferences; a reviewer is notified and can revoke.' });
+    },
+    {
+      name: 'remember_preference',
+      description: 'Save a PERSONAL preference the current user explicitly asked you to remember ("remember that I…", "always address me as…"). Applies immediately, for THIS user only, and notifies a reviewer. For team-wide rules or facts, use add_learning / the feedback loop instead.',
+      schema: z.object({
+        preference: z.string().describe('The preference as a standalone instruction, naming no other people.'),
+      }),
+    },
+  );
+}

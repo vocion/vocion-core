@@ -9,7 +9,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { learningFeedbackOccurrenceSchema } from '@/models/Schema';
-import { listCandidates } from '@/services/LearningCandidateService';
+import { listCandidates, listDecidedWithEvidence } from '@/services/LearningCandidateService';
 import { listNamespaces } from '@/services/MemoryService';
 import { PendingCandidates } from './PendingCandidates';
 
@@ -34,9 +34,10 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
   }
 
   const CANDIDATE_PAGE_SIZE = 20;
-  const [steps, pending] = await Promise.all([
+  const [steps, pending, decided] = await Promise.all([
     listNamespaces(orgId),
     listCandidates(orgId, { status: 'pending', limit: CANDIDATE_PAGE_SIZE }),
+    listDecidedWithEvidence(orgId),
   ]);
 
   // Scope options per candidate: the agent whose output drew the feedback and
@@ -105,7 +106,19 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
                   title={s.title}
                   meta={(
                     <>
-                      <code className="font-mono">{s.name}</code>
+                      <code className="font-mono">{s.path}</code>
+                      {s.scopeKind !== 'workspace' && (
+                        <>
+                          {' '}
+                          ·
+                          {' '}
+                          <span className="text-primary/80">
+                            {s.scopeKind}
+                            {' '}
+                            scope
+                          </span>
+                        </>
+                      )}
                       {s.description && (
                         <>
                           {' '}
@@ -114,6 +127,12 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
                           {s.description}
                         </>
                       )}
+                      {' '}
+                      ·
+                      {' '}
+                      <span title="When an agent last had this namespace mounted">
+                        {s.lastUsedAt ? `used ${s.lastUsedAt.toISOString().slice(0, 10)}` : 'never used'}
+                      </span>
                     </>
                   )}
                   trailing={(
@@ -139,6 +158,67 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
               ))}
             </ListRows>
           )}
+
+      {decided.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-base font-semibold">Recent decisions</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            What reviewers decided, with the eval score movement where an adoption triggered the agent's dataset.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {decided.map(c => (
+              <li key={c.id} className="rounded-lg border border-border bg-background px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className={c.status === 'approved' ? 'font-medium text-emerald-700' : 'font-medium text-red-700'}>
+                    {c.status}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <code className="font-mono">{c.scopeKind && c.scopeKind !== 'workspace' ? `${c.scopeKind}:${c.scopeRef}` : c.stepName}</code>
+                  {c.memoryType && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{c.memoryType}</span>
+                    </>
+                  )}
+                  {c.decidedBy && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>
+                        by
+                        {' '}
+                        {c.decidedBy}
+                      </span>
+                    </>
+                  )}
+                  {c.evalAfterPct !== null && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span
+                        className="font-medium text-foreground"
+                        title="The agent's eval dataset pass rate before and after this adoption"
+                      >
+                        eval
+                        {' '}
+                        {c.evalBeforePct !== null ? `${c.evalBeforePct}% → ` : ''}
+                        {c.evalAfterPct}
+                        %
+                      </span>
+                    </>
+                  )}
+                </div>
+                <p className="mt-1 line-clamp-2">{c.ruleText}</p>
+                {c.rejectedReason && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Reason:
+                    {' '}
+                    {c.rejectedReason}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

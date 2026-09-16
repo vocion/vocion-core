@@ -43,6 +43,7 @@ import {
   checkLearningDedupTool,
   getLearningsTool,
   listLearningStepsTool,
+  rememberPreferenceTool,
   removeLearningTool,
   updateLearningTool,
 } from './learnings';
@@ -115,6 +116,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     addLearningTool(ctx),
     updateLearningTool(ctx),
     removeLearningTool(ctx),
+    rememberPreferenceTool(ctx),
     listRecentRunsTool(ctx),
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),

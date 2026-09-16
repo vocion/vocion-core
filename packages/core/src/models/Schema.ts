@@ -2028,6 +2028,11 @@ export const learningCandidateSchema = pgTable(
     decidedAt: timestamp('decided_at', { mode: 'date' }),
     /** The store entry created on approval (its key), so a candidate and its rule stay linked. */
     createdMemoryKey: text('created_memory_key'),
+    /**
+     * The eval run an approval kicked off on the affected agent's dataset —
+     * the card's before/after evidence. Null when the agent has no dataset.
+     */
+    evalRunId: integer('eval_run_id'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

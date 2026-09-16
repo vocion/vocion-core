@@ -75,9 +75,58 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
       <div className="rounded-md border border-border p-4">
         <div className="mb-1 text-sm font-semibold">Approval rate over time</div>
         <p className="mb-2 text-xs text-muted-foreground">
-          Cumulative approval rate over the window, over daily judged decisions. Same definition as the stat card: approved as-is ÷ judged; an edited or rewritten draft counts against.
+          Cumulative approval rate over the window, over daily judged decisions. Same definition as the stat card: approved as-is ÷ judged; an edited or rewritten draft counts against. Diamonds mark days a rule was adopted — cause next to effect, adjacency not causality.
         </p>
-        <TrendChart data={detail.approvalTrend} areaKey="decisions" areaLabel="Decisions" lineKey="ratePct" lineLabel="Approval % (cumulative)" />
+        <TrendChart
+          data={detail.approvalTrend}
+          areaKey="decisions"
+          areaLabel="Decisions"
+          lineKey="ratePct"
+          lineLabel="Approval % (cumulative)"
+          markers={detail.approvalTrend.filter(p => p.adoptions > 0).map(p => ({ day: p.day, label: p.adoptions === 1 ? 'rule adopted' : `${p.adoptions} rules adopted` }))}
+        />
+      </div>
+
+      <div className="rounded-md border border-border p-4">
+        <div className="mb-1 text-sm font-semibold">Confidence alignment</div>
+        <p className="mb-2 text-xs text-muted-foreground">
+          The agent's stated confidence per proposal against what reviewers decided. An aligned agent knows what it doesn't know; the misalignment row is where the next learning candidate is hiding.
+        </p>
+        <table className="w-full text-sm">
+          <tbody>
+            {detail.confidenceAlignment.buckets.map(bucket => (
+              <tr key={bucket.label} className="border-t border-border/50 text-xs">
+                <td className="py-2 pr-3">{bucket.label}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">
+                  {bucket.proposals}
+                  {' '}
+                  proposal
+                  {bucket.proposals === 1 ? '' : 's'}
+                </td>
+                <td className="py-2 text-right tabular-nums">
+                  {bucket.approvedPct === null ? '—' : `${bucket.approvedPct}% approved`}
+                </td>
+              </tr>
+            ))}
+            {detail.confidenceAlignment.confidentRejectedLast7 > 0 && (
+              <tr className="border-t border-border/50 text-xs text-amber-700 dark:text-amber-400">
+                <td className="py-2 pr-3" colSpan={2}>
+                  ⚠
+                  {' '}
+                  {detail.confidenceAlignment.confidentRejectedLast7}
+                  {' '}
+                  confident proposal
+                  {detail.confidenceAlignment.confidentRejectedLast7 === 1 ? '' : 's'}
+                  {' '}
+                  rejected this week
+                </td>
+                <td className="py-2 text-right">
+                  <Link href="/dashboard/inbox" className="hover:underline">review the notes</Link>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div>

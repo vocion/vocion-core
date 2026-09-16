@@ -11,12 +11,18 @@ vi.mock('@/libs/DB');
 const trackMock = vi.fn();
 
 vi.mock('@/services/adoption/track', () => ({ track: (...args: unknown[]) => trackMock(...args) }));
+
+const runDatasetMock = vi.fn();
+
+vi.mock('@/services/EvalService', () => ({ runDataset: (...args: unknown[]) => runDatasetMock(...args) }));
 vi.mock('@/services/adoption/attribution', () => ({ agentSlugFromPrincipal: () => null }));
 
 const { db } = await import('@/libs/DB');
 const {
   learningCandidateSchema,
   learningFeedbackOccurrenceSchema,
+  evalDatasetSchema,
+  evalRunSchema,
   memoryNamespaceSchema,
   memorySchema,
 } = await import('@/models/Schema');
@@ -75,6 +81,9 @@ beforeEach(async () => {
   await db.delete(memorySchema);
   await db.delete(memoryNamespaceSchema);
   trackMock.mockReset();
+  runDatasetMock.mockReset();
+  await db.delete(evalRunSchema);
+  await db.delete(evalDatasetSchema);
 });
 
 describe('decideCandidate', () => {
@@ -179,5 +188,35 @@ describe('decideCandidate — typed, scoped adoption (Phase 2)', () => {
     const [rule] = await db.select().from(memorySchema);
 
     expect(rule!.key.startsWith(`/workspace/${STEP}/`)).toBe(true);
+  });
+});
+
+describe('decideCandidate — eval evidence (Phase 3)', () => {
+  const settle = () => new Promise(resolve => setTimeout(resolve, 25));
+
+  it('runs the affected agent dataset on adoption and stamps the run on the card', async () => {
+    await makeStep();
+    await db.insert(evalDatasetSchema).values({ orgId: ORG, slug: 'lead-quality', name: 'Lead quality', agentSlug: 'pipeline-analyst', items: [{ input: 'x' }] });
+    runDatasetMock.mockResolvedValue({ runId: 4242, metrics: { passRate: 0.9 } });
+    const candidateId = await makeCandidate({ agentSlug: 'pipeline-analyst' });
+
+    await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+    await settle();
+
+    expect(runDatasetMock).toHaveBeenCalledWith({ orgId: ORG, datasetSlug: 'lead-quality' });
+
+    const [candidate] = await db.select().from(learningCandidateSchema);
+
+    expect(candidate!.evalRunId).toBe(4242);
+  });
+
+  it('skips the eval quietly when the agent has no dataset', async () => {
+    await makeStep();
+    const candidateId = await makeCandidate({ agentSlug: 'pipeline-analyst' });
+
+    await decideCandidate({ orgId: ORG, id: candidateId, decision: 'approve', decidedBy: REVIEWER });
+    await settle();
+
+    expect(runDatasetMock).not.toHaveBeenCalled();
   });
 });
