@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { RAIL_INSET_VAR } from '@/features/dashboard/chat/dockState';
-import { RAIL_SHEET_BREAKPOINT } from '@/features/dashboard/chat/railState';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { cn } from '@/utils/Helpers';
@@ -95,13 +94,18 @@ function Panel(props: { ref_: Pick<RecordRef, 'type' | 'id'> }) {
   const panel = useRef<HTMLElement>(null);
 
   // The rail's rule, inherited: an open panel over the text is still an open
-  // panel over the text. Below the sheet breakpoint it overlays, as the rail
-  // does, and insets nothing.
+  // panel over the text, so the shell's gutter pads by exactly this much and
+  // the page reflows out from under the peek.
+  //
+  // The exception is a viewport with no room left to reflow into — a phone,
+  // where the panel is the full width. There it overlays, as the rail's sheet
+  // does below `RAIL_SHEET_BREAKPOINT`, and insets nothing: padding a page by
+  // its own width leaves a column of nothing.
   useEffect(() => {
     const publish = () => {
-      const wide = window.innerWidth >= RAIL_SHEET_BREAKPOINT;
-      const width = wide ? Math.round(panel.current?.getBoundingClientRect().width ?? 0) : 0;
-      document.documentElement.style.setProperty(RAIL_INSET_VAR, `${width}px`);
+      const width = Math.round(panel.current?.getBoundingClientRect().width ?? 0);
+      const roomLeft = width > 0 && width < window.innerWidth / 2;
+      document.documentElement.style.setProperty(RAIL_INSET_VAR, roomLeft ? `${width}px` : '0px');
     };
     publish();
     window.addEventListener('resize', publish);

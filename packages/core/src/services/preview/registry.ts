@@ -1,5 +1,6 @@
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RecordRef, RecordType } from '@/services/chat/pageContext';
+import { evidenceRef } from '@/libs/preview/evidenceRef';
 
 /**
  * THE list of record types that can be previewed, and the only one.
@@ -66,10 +67,14 @@ export function previewTypes(): RecordType[] {
  */
 export async function resolvePreview(ref: RecordRef, ctx: PreviewContext): Promise<PreviewDoc> {
   const descriptor = REGISTRY.get(ref.type);
+  // Even unresolved, the reference names a system and a kind of thing — the
+  // same reading the list already put on the row. Say that rather than
+  // "Document", and never fall back to the id as the title.
+  const read = evidenceRef(ref.id);
   const fallback = (reason: string): PreviewDoc => ({
     ref,
-    title: ref.label ?? ref.id,
-    sourceLabel: descriptor?.sourceLabel ?? 'Reference',
+    title: ref.label ?? read.label,
+    sourceLabel: read.sourceLabel === 'Note' ? descriptor?.sourceLabel ?? 'Reference' : read.sourceLabel,
     href: ref.href ?? descriptor?.href?.(ref) ?? undefined,
     unresolved: { reason, reference: ref.id },
   });

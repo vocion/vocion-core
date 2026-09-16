@@ -69,6 +69,7 @@ export function looksLikeId(s: string): boolean {
   }
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t) // uuid
     || /^\d+$/.test(t) // bare number
+    || /^[0-9a-f]{6,}$/i.test(t) // hex handle, e.g. a short contract id
     || /^[\w+/=-]{16,}$/.test(t); // long opaque token / base64-ish
 }
 

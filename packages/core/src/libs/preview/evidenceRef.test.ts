@@ -89,3 +89,19 @@ describe('looksLikeId', () => {
     expect(looksLikeId(s)).toBe(false);
   });
 });
+
+describe('the no-raw-id rule, all the way to the panel', () => {
+  it.each([
+    'granola:9f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f',
+    'docuseal:7c9a11f4',
+    'deals:4021',
+    'gmail:18c4f0a9b7d3e2f1',
+    'zoom:11112222-3333-4444-5555-666677778888',
+  ])('%s never reads as its own handle', (source) => {
+    const item = evidenceRef(source);
+    const tail = source.slice(source.indexOf(':') + 1);
+
+    expect(item.label).not.toContain(tail);
+    expect(item.label).not.toBe(source);
+  });
+});

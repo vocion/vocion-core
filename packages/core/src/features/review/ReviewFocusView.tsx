@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
 import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
@@ -39,7 +40,7 @@ export type ActionRun = {
   input: Record<string, unknown>;
   invokedBy: string | null;
   createdAt: string | Date;
-  proposal: { confidence?: number; rationale?: string; suggestedDecision?: 'approve' | 'reject' | 'snooze' } | null;
+  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze' } | null;
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
   error?: string | null;
@@ -238,6 +239,15 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
                   Why
                 </div>
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.rationale}</p>
+              </section>
+            )}
+            {/* What the recommendation rests on. Each citation opens in the
+                preview panel, so the evidence can be checked without leaving
+                the decision — and `a` still approves while it is open. */}
+            {(current.proposal?.evidence?.length ?? 0) > 0 && (
+              <section className="border-b border-rule py-6" aria-label="Evidence">
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">Evidence</div>
+                <EvidenceRefs sources={current.proposal!.evidence!} />
               </section>
             )}
             {/* The alignment score: confidence is how sure the agent is; this is
