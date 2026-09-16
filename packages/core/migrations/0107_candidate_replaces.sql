@@ -1,4 +1,4 @@
--- 0103 — consolidation proposals (scoped-memory plan, Phase 4).
+-- 0107 — consolidation proposals (scoped-memory plan, Phase 4).
 --
 -- replaces_keys: when the consolidation job proposes one stronger rule that
 -- covers several existing ones, approval must also retire the originals —

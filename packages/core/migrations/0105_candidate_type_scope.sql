@@ -1,4 +1,4 @@
--- 0101 — typed, scoped candidates (scoped-memory plan, Phase 2).
+-- 0105 — typed, scoped candidates (scoped-memory plan, Phase 2).
 --
 -- memory_type: what KIND of memory the rule is — 'preference' | 'knowledge'
 --   | 'procedure' (episodes never pass through the candidate queue). Proposed

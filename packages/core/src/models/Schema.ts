@@ -1145,7 +1145,7 @@ export const workspaceVersionSchema = pgTable(
 /**
  * The namespace manifest — the whitelist of memory buckets, seeded by
  * `workspace:apply` (successor of `learning_step`, which it replaced in
- * migration 0099/0100). A namespace is a scoped shelf in the memory store:
+ * migration 0103/0104). A namespace is a scoped shelf in the memory store:
  * `workspace/<name>` for org-wide buckets today; agent / object / user /
  * workflow / mission / run scopes arrive in Phase 2 of the scoped-memory
  * plan. Rules live in the `memory` table under the namespace's `path`.
@@ -2090,7 +2090,7 @@ export const learningFeedbackOccurrenceSchema = pgTable(
     index('learning_feedback_occurrence_memory_idx').on(table.orgId, table.memoryKey),
     // A row with neither target is an orphan nothing would ever read; a row
     // with both would be counted twice. Declared here as well as in migration
-    // 0100 so `drizzle-kit generate` does not later propose dropping it.
+    // 0104 so `drizzle-kit generate` does not later propose dropping it.
     check(
       'learning_feedback_occurrence_target_ck',
       sql`(

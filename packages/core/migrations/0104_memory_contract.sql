@@ -1,11 +1,11 @@
--- 0100 — scoped memory, contract step (pairs with 0099's expand).
+-- 0104 — scoped memory, contract step (pairs with 0103's expand).
 --
--- Drops `learning` and `learning_step` after 0099 copied every rule into the
+-- Drops `learning` and `learning_step` after 0103 copied every rule into the
 -- store: keeping them would be a dual-write with no reader (the audit trail
 -- already lives in learning_candidate + learning_feedback_occurrence, and
 -- runtime reads moved to `memory`). The integer back-links go with them:
 -- occurrences and candidates now reference store entries by key, backfilled
--- in 0099.
+-- in 0103.
 --
 -- The target CHECK is re-created around (candidate_id XOR memory_key) so an
 -- occurrence still always names exactly one thing. Column drops on existing

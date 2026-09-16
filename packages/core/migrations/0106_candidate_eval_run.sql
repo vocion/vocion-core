@@ -1,4 +1,4 @@
--- 0102 — eval evidence on the candidate card (scoped-memory plan, Phase 3).
+-- 0106 — eval evidence on the candidate card (scoped-memory plan, Phase 3).
 --
 -- eval_run_id: when approving a rule triggers the affected agent's eval
 -- dataset, the run lands here so the card can show the before/after score
