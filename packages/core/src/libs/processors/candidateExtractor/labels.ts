@@ -26,6 +26,10 @@
  * counted, the counter is what makes the fallback's quality measurable
  * instead of assumed.
  *
+ * Before either labeller runs, one answer is dropped rather than acted on: a
+ * SELF-MATCH, the model naming the queued card this very record is about to
+ * refresh. See `isOwnCard`.
+ *
  * Alongside the sentence, and only when the tenant configures a field for it,
  * the record is stamped with the GROUP it belongs to: the run id of the first
  * card of the series, as a bare decimal string. It is root-normalised at write
@@ -35,9 +39,9 @@
  */
 
 import type { CandidateExtractorConfig } from './config';
-import type { KnownCards } from './knownCards';
+import type { KnownCard, KnownCards } from './knownCards';
 import type { ValidatedRecord } from './validate';
-import { candidateKeySegments, findSimilarCandidates, LABELLED_RUN_ID, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
+import { candidateDedupKey, candidateKeySegments, findSimilarCandidates, LABELLED_RUN_ID, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
 import { defangText, seriesKeyOf } from './knownCards';
 import { scrubMarkers, SERIES_NOTE_CAP } from './prompt';
 
@@ -80,6 +84,35 @@ export function scrubSeriesNote(value: unknown): string {
     scrubbed = scrubbed.replace(LABELLED_RUN_ID, ' ').replace(/\s+/g, ' ');
   } while (scrubbed !== previous);
   return scrubbed.trim().slice(0, SERIES_NOTE_CAP);
+}
+
+/**
+ * Whether the card the model named is the record's own.
+ *
+ * The `<known>` block lists the venue's queued cards, and a sync's whole job
+ * is to re-read the pages behind them. So the card for the very event this
+ * record was extracted from is usually IN that block, and a model answering
+ * `duplicateOf` for it has read the list correctly and drawn the wrong
+ * conclusion: `proposeAction` is about to refresh that same row from this
+ * record, which would leave the card carrying "possible duplicate of <its own
+ * run id>" and, through `propose.ts`, a `suggestedDecision: 'reject'` against
+ * itself. The fourth dev shadow (2026-09-16, Higher Ground) answered that way
+ * for 58 of its records.
+ *
+ * Identity decides it, not the id: the record has no run id yet, so the only
+ * comparison available is the key the refresh would write against the key the
+ * card is stored under. Both sides come from `candidateDedupKey`, so a rule
+ * added to the key is added to this check on the same day.
+ *
+ * The prompt is deliberately left alone. The block is rendered once per call,
+ * before any record exists, so nothing there can name the card a record has
+ * not been extracted into yet, and a general warning would cost tokens on
+ * every call to catch what one comparison catches for free.
+ * @param card - The known card the model named, or undefined when it named none.
+ * @param ownKey - The key this record would be stored under.
+ */
+function isOwnCard(card: KnownCard | undefined, ownKey: string | undefined): boolean {
+  return card !== undefined && ownKey !== undefined && card.dedupKey === ownKey;
 }
 
 /**
@@ -152,6 +185,25 @@ export async function labelRecords(opts: {
   };
 
   for (const record of opts.records) {
+    // First, and before anything is written: an answer that names this
+    // record's own card says nothing about the queue, so it is dropped and
+    // noted rather than labelled. The record keeps its ordinary key, so the
+    // refresh it was always going to be still happens.
+    const ownKey = candidateDedupKey({
+      objectType: opts.config.objectType,
+      fields: record.fields,
+      dedupOn: opts.config.dedupOn,
+    });
+    for (const field of ['duplicateOf', 'seriesOf'] as const) {
+      const id = record[field];
+      if (id === undefined || !isOwnCard(opts.known.cards.find(card => card.runId === id), ownKey)) {
+        continue;
+      }
+      record[field] = undefined;
+      record.issues.push(`${field}: the model matched the card this record refreshes (#${id}), so it was not labelled`);
+      bump('self_match');
+    }
+
     // A duplicate is a stronger statement than a series membership, and the
     // model is the only thing that can make it, so it short-circuits. No key
     // is written: a duplicate is not a member of a series, and the `continue`
