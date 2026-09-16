@@ -1,0 +1,54 @@
+packages/core/src/features/adoption/TrendChart.tsx
+  s_7aea99fa9ec114::t_2f8a508d72896e 19
+  s_7aea99fa9ec114::t_fe1e39e95ff1de 30-34,72,85-90,142-159
+packages/core/src/services/adoption/AdoptionService.ts
+  s_7aea99fa9ec114::t_62d17a984c4ff3 850-860,876,896-906,944-967,972
+packages/core/src/features/adoption/AgentDetailPanel.tsx
+  s_7aea99fa9ec114::t_2f8a508d72896e 78,80-129
+packages/core/src/services/LearningCandidateService.ts
+  s_7aea99fa9ec114::t_8b3099166b4fe9 325-332,336-358
+  s_7aea99fa9ec114::t_b335c8f8764a7e 434-510
+  s_7aea99fa9ec114::t_4196177596f881 359,511-589
+  s_7aea99fa9ec114::t_0cf1c07bb57295 360
+packages/core/src/services/agents/tools/learnings.ts
+  s_7aea99fa9ec114::t_88231d30d28a9c 130-166
+packages/core/src/services/agents/tools/registry.ts
+  s_7aea99fa9ec114::t_88231d30d28a9c 46,119
+packages/core/src/app/[locale]/(auth)/dashboard/learnings/page.tsx
+  s_7aea99fa9ec114::t_4c0c6830053ecd 12,37,40,109-121,130-135,161-221
+packages/core/src/models/Schema.ts
+  s_7aea99fa9ec114::t_8b3099166b4fe9 2031-2035
+packages/core/src/services/MemoryService.ts
+  s_7aea99fa9ec114::t_785a9d4ee9ce4f 159,166-185
+packages/agent-runtime/src/memoryDigest.ts
+  s_7aea99fa9ec114::t_73b0041069edbf 42
+packages/core/src/services/LearningCandidateService.fastLane.test.ts
+  s_7aea99fa9ec114::t_237b3568cf91a2 1-79
+packages/core/migrations/meta/_journal.json
+  s_7aea99fa9ec114::t_73b0041069edbf 718-724
+packages/core/src/services/adoption/AdoptionService.confidenceAlignment.test.ts
+  s_7aea99fa9ec114::t_456fa08acf6872 1-93
+packages/core/migrations/0102_candidate_eval_run.sql
+  s_7aea99fa9ec114::t_73b0041069edbf 1-8
+packages/core/src/services/LearningCandidateService.decisions.test.ts
+  s_7aea99fa9ec114::t_5c5495b917ccae 14-17,24-25,84-86,193-221
+  s_7aea99fa9ec114::t_980b5b531829e1 222
+packages/core/src/services/agents/memoryDigest.ts
+  s_7aea99fa9ec114::t_73b0041069edbf 42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "537a78e413b43681896b3e91f26a96c01ec760f6",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
