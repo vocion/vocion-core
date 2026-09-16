@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { EvalRefreshNotStartedError, startEvalRefresh } from '@/services/evals/refresh';
-import { getDataset } from '@/services/EvalService';
+import { getDataset, UnknownEvalProviderError } from '@/services/EvalService';
 import { authApi, jsonError } from '../../../_shared';
 
 /**
@@ -49,6 +49,9 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof UnknownEvalProviderError) {
+      return jsonError('UNKNOWN_PROVIDER', message, 400);
+    }
     if (error instanceof EvalRefreshNotStartedError) {
       // The scheduler is down. Worth retrying, and not the caller's fault.
       return jsonError('EVAL_REFRESH_NOT_STARTED', message, 503);

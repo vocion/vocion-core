@@ -178,6 +178,9 @@ async function pushEvaluator(client: BedrockAgentCoreControlClient, row: Evaluat
     const level = (row.level ?? 'TRACE') as 'TOOL_CALL' | 'TRACE' | 'SESSION';
 
     if (row.remoteId) {
+      // The update's token folds in `updatedAt`, so a retry of THIS edit
+      // reuses it while the next edit gets a fresh one — the create's token,
+      // which must never change, is derived from identity alone.
       await client.send(new UpdateEvaluatorCommand({
         evaluatorId: row.remoteId,
         evaluatorConfig: config,

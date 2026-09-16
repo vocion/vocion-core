@@ -81,6 +81,12 @@ function configuredRegions(): string[] {
  * no AgentCore Evaluations looks available, then fails on every single case —
  * which a person reads as their agent being broken rather than their setup
  * being wrong. One honest sentence up front beats fifty error rows.
+ *
+ * The region is the deployment's, not the org's: `bedrockRegion()` reads the
+ * process environment, which is how every other Bedrock call in this repo
+ * resolves it. A deployment serving orgs whose AWS accounts live in different
+ * regions would need a per-org region before this answer is right for all of
+ * them.
  * @param orgId - Whose credentials to look for.
  */
 async function isAvailable(orgId: string): Promise<ProviderAvailability> {
@@ -129,7 +135,7 @@ async function evaluatorIdsFor(
 
 /**
  * AgentCore's level strings, defaulting to TRACE when it says nothing.
- * @param evaluatorId
+ * @param evaluatorId - The evaluator AWS returned this score for.
  */
 function levelOf(evaluatorId: string): EvalScoreLevel {
   if (evaluatorId.includes('Trajectory') || evaluatorId.includes('GoalSuccess')) {

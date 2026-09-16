@@ -60,7 +60,7 @@ export function EvalTrendChart(props: {
         {boundaries.length > 0 && (
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3 w-0 border-l border-dashed border-current opacity-60" />
-            dataset edited
+            {`dataset edited (now v${boundaries[boundaries.length - 1]!.version}) — scores either side measure different cases`}
           </span>
         )}
         {hover && (
@@ -80,7 +80,7 @@ export function EvalTrendChart(props: {
           return (
             <g key={fraction}>
               <line x1={PAD.left} y1={gridY} x2={WIDTH - PAD.right} y2={gridY} stroke="currentColor" strokeOpacity="0.08" />
-              <text x={PAD.left - 6} y={gridY + 3} textAnchor="end" fontSize="9" fill="currentColor" fillOpacity="0.45">
+              <text x={PAD.left - 6} y={gridY + 3} textAnchor="end" fontSize="13" fill="currentColor" fillOpacity="0.45">
                 {`${Math.round(fraction * 100)}%`}
               </text>
             </g>
@@ -100,7 +100,7 @@ export function EvalTrendChart(props: {
             >
               <title>{`Dataset changed to v${boundary.version} — scores before and after are measuring different cases`}</title>
             </line>
-            <text x={x(boundary.at) + 3} y={PAD.top + 8} fontSize="9" fill="currentColor" fillOpacity="0.5">
+            <text x={x(boundary.at) + 3} y={PAD.top + 8} fontSize="13" fill="currentColor" fillOpacity="0.5">
               {`v${boundary.version}`}
             </text>
           </g>
@@ -117,13 +117,29 @@ export function EvalTrendChart(props: {
             />
             {line.points.map(point => (
               <circle
-                key={point.runId}
+                key={`dot-${point.runId}`}
                 cx={x(Date.parse(point.startedAt))}
                 cy={y(point.passRate)}
                 r="3.5"
                 style={{ fill: line.color }}
+              />
+            ))}
+            {line.points.map(point => (
+              <circle
+                key={point.runId}
+                cx={x(Date.parse(point.startedAt))}
+                cy={y(point.passRate)}
+                // Big enough to hit with a thumb; the visible dot is smaller.
+                r="7"
+                fillOpacity="0.001"
+                style={{ fill: line.color }}
+                tabIndex={0}
+                role="img"
+                aria-label={`${line.label}, run ${point.runId}, ${Math.round(point.passRate * 100)} percent pass`}
                 onMouseEnter={() => setHover(point)}
                 onMouseLeave={() => setHover(null)}
+                onFocus={() => setHover(point)}
+                onBlur={() => setHover(null)}
               >
                 <title>{`${line.label} · #${point.runId} · ${Math.round(point.passRate * 100)}% pass`}</title>
               </circle>
@@ -131,10 +147,10 @@ export function EvalTrendChart(props: {
           </g>
         ))}
 
-        <text x={PAD.left} y={height - 6} fontSize="9" fill="currentColor" fillOpacity="0.45">
+        <text x={PAD.left} y={height - 6} fontSize="13" fill="currentColor" fillOpacity="0.45">
           {new Date(minTime).toLocaleDateString()}
         </text>
-        <text x={WIDTH - PAD.right} y={height - 6} textAnchor="end" fontSize="9" fill="currentColor" fillOpacity="0.45">
+        <text x={WIDTH - PAD.right} y={height - 6} textAnchor="end" fontSize="13" fill="currentColor" fillOpacity="0.45">
           {new Date(maxTime).toLocaleDateString()}
         </text>
       </svg>

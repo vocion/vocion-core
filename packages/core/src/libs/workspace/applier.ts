@@ -1047,6 +1047,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
  */
 async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promise<void> {
   const authored = ds.evaluators ?? [];
+  const authoredSlugs: string[] = [];
   for (const evaluator of authored) {
     // A built-in is named, not defined: there is nothing to create remotely,
     // so each id becomes its own row and carries no config to sync.
@@ -1054,6 +1055,7 @@ async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promi
       ? evaluator.builtin
       : [evaluator.slug].filter((slug): slug is string => Boolean(slug));
     for (const slug of slugs) {
+      authoredSlugs.push(slug);
       const config = evaluator.builtin?.length
         ? {}
         : {
@@ -1083,6 +1085,19 @@ async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promi
         });
     }
   }
+
+  // An evaluator taken out of the file stops grading. Left behind, it would
+  // keep being sent to AWS on every run, so the scores would quietly disagree
+  // with what the workspace says it measures. Same sweep the workflows above
+  // do, and for the same reason.
+  const { notInArray } = await import('drizzle-orm');
+  await db
+    .delete(evalEvaluatorSchema)
+    .where(and(
+      eq(evalEvaluatorSchema.orgId, orgId),
+      eq(evalEvaluatorSchema.datasetSlug, ds.slug),
+      authoredSlugs.length > 0 ? notInArray(evalEvaluatorSchema.slug, authoredSlugs) : undefined,
+    ));
 }
 
 /**

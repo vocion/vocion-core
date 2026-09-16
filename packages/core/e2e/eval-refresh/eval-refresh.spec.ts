@@ -26,6 +26,11 @@ import { expect, test } from '@playwright/test';
  * blocking on the whole dataset the way the older `/runs` route did, or
  * writing a run row that nothing ever resolves.
  *
+ * The seeded dataset has no cases on purpose. The route really does start a
+ * real workflow, and on a machine with a Temporal worker running that workflow
+ * would execute every case against a real model and a real judge. With nothing
+ * to execute, the whole path is exercised and no model is ever called.
+ *
  * Uses Playwright's `request` fixture only — no browser — since every
  * assertion is on a status code and a JSON body.
  *
@@ -87,8 +92,8 @@ test.describe('POST /api/v1/evals/:slug/refresh', () => {
     const elapsedMs = Date.now() - startedAt;
     const body = await response.json();
 
-    // Two cases against a real agent and a real judge is tens of seconds. The
-    // old route awaited exactly that; this one must not.
+    // The old route awaited the whole execution — tens of seconds for a real
+    // dataset. This one answers before any case runs.
     expect(elapsedMs).toBeLessThan(15_000);
 
     if (response.status() === 202) {

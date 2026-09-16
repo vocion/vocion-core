@@ -53,7 +53,7 @@ export function RunDatasetButton({ slug }: { slug: string }) {
           : (
               <>
                 <PlayCircle className="mr-2 size-4" />
-                Run dataset
+                Run evals now
               </>
             )}
       </button>

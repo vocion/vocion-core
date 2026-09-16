@@ -29,9 +29,10 @@ vi.mock('@/libs/temporal/client', async () => {
 // Availability is a credential question that has nothing to do with this
 // route; pinning it keeps the test from depending on whether the machine
 // running it happens to have AWS credentials in its environment.
+const getProvider = vi.fn((id: string) => ({ id, label: id }) as { id: string; label: string } | undefined);
 vi.mock('@/services/evals/providers/registry', () => ({
   listAvailableProviders: vi.fn(async () => [{ id: 'vocion', label: 'Vocion' }]),
-  getProvider: vi.fn((id: string) => ({ id, label: id })),
+  getProvider,
 }));
 
 const { db } = await import('@/libs/DB');
@@ -53,10 +54,11 @@ function tokenPrincipal(orgId: string) {
   };
 }
 
-function post(slug: string): Request {
+function post(slug: string, body?: unknown): Request {
   return new Request(`https://vocion.test/api/v1/evals/${slug}/refresh`, {
     method: 'POST',
-    headers: { authorization: 'Bearer vcn_live_fake_token' },
+    headers: { 'authorization': 'Bearer vcn_live_fake_token', 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
 
@@ -133,6 +135,21 @@ describe('POST /api/v1/evals/:slug/refresh', () => {
 
     expect(run?.status).toBe('failed');
     expect(run?.completedAt).not.toBeNull();
+  });
+
+  it('answers 400, not 500, when the caller names a grader that does not exist', async () => {
+    // A typo in a provider id is the caller's mistake. A 5xx would page
+    // whoever watches the error rate for it.
+    getProvider.mockReturnValueOnce(undefined);
+
+    const res = await POST(post('pw-refresh', { providerIds: ['azure'] }), paramsFor('pw-refresh'));
+
+    expect(res.status).toBe(400);
+
+    const body = await res.json();
+
+    expect(body.error.code).toBe('UNKNOWN_PROVIDER');
+    expect(startWorkflow).not.toHaveBeenCalled();
   });
 
   it('answers 404 for another org\'s dataset, never 403', async () => {

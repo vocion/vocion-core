@@ -95,15 +95,17 @@ async function main(): Promise<void> {
   const primaryOrgId = await createProject(PRIMARY_ACCOUNT_SLUG, PRIMARY_PROJECT_SLUG, 'E2E Eval Refresh');
   console.error(`[seed-eval-refresh-fixtures] primary org: ${primaryOrgId}`);
 
+  // Deliberately no cases. The spec drives the real refresh route, which
+  // starts a real workflow — and on a machine where a Temporal worker happens
+  // to be running, that workflow would execute every case against a real model
+  // and a real judge. A dataset with nothing in it exercises the whole path
+  // (route, run row, workflow, activity) and cannot spend a cent.
   await db.insert(evalDatasetSchema).values({
     orgId: primaryOrgId,
     slug: DATASET_SLUG,
     name: 'Refund quality (e2e fixture)',
     agentSlug: 'support-agent',
-    items: [
-      { input: 'I want a refund for order 1182.', expectedOutput: 'Confirms the refund and names the order.' },
-      { input: 'Where is my order?', expectedOutput: 'Gives the status without promising a date.' },
-    ],
+    items: [],
   });
 
   const otherOrgId = await createProject(CROSS_ORG_ACCOUNT_SLUG, CROSS_ORG_PROJECT_SLUG, 'E2E Cross-Org (eval refresh)');

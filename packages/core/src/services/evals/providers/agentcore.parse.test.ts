@@ -21,7 +21,7 @@ function transcript(itemIndex = 0): CaseTranscript {
 
 /**
  * A well-formed result, as the SDK types it.
- * @param overrides
+ * @param overrides - Fields to change on the otherwise valid result.
  */
 function result(overrides: Partial<EvaluationResultContent> = {}): EvaluationResultContent {
   return {

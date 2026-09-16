@@ -117,6 +117,34 @@ describe('getAgentRows evalScores', () => {
     expect(row?.evalScores[0]?.passRate).toBe(0.75);
   });
 
+  it('never shows another workspace\'s eval score', async () => {
+    // Same agent slug in both workspaces, which is ordinary — the slug is
+    // scoped to a workspace, so a score must not cross that line.
+    const otherOrg = 'proj_evalscore_other';
+    await db.insert(projectSchema).values({ id: otherOrg, accountId: ACCT, slug: 'evalscore-b', name: 'B' });
+    const [otherDataset] = await db.insert(evalDatasetSchema).values({
+      orgId: otherOrg,
+      slug: 'their-dataset',
+      name: 'Theirs',
+      agentSlug: AGENT,
+      items: [{ input: 'x' }],
+    }).returning({ id: evalDatasetSchema.id });
+    await db.insert(evalRunSchema).values({
+      orgId: otherOrg,
+      datasetId: otherDataset!.id,
+      agentSlug: AGENT,
+      provider: 'vocion',
+      status: 'succeeded',
+      metrics: { passRate: 0.11 },
+      startedAt: daysAgo(1),
+    });
+    await insertRun({ datasetId, provider: 'vocion', status: 'succeeded', passRate: 0.99, startedAt: daysAgo(2) });
+
+    const [row] = await getAgentRows(ORG, 30);
+
+    expect(row?.evalScores.map(score => score.passRate)).toEqual([0.99]);
+  });
+
   it('leaves the list empty for an agent that has never been evaluated', async () => {
     const [row] = await getAgentRows(ORG, 30);
 

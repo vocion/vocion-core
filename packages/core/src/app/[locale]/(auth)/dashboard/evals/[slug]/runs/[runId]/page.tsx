@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { langfuseConfig } from '@/libs/Langfuse';
+import { browserProjectId } from '@/libs/Langfuse/config';
 import { usd } from '@/services/evals/modelUpgradeTest';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { getDataset, getRun, listRunGroup, listScoresForRun } from '@/services/EvalService';
@@ -47,6 +49,15 @@ export default async function EvalRunDetailPage(props: Props) {
     run.runGroupId ? listRunGroup(orgId, run.runGroupId, run.id) : Promise.resolve([]),
   ]);
   const labelFor = (id: string) => providers.find(p => p.id === id)?.label ?? id;
+
+  // The trace link opens in the reader's browser, so it needs the externally
+  // reachable Langfuse URL rather than the internal hostname the app posts to.
+  // Null when tracing is off — there is nothing to link to, and a link to
+  // localhost from a deployed app is a dead end dressed up as a feature.
+  const langfuse = langfuseConfig();
+  const traceBaseUrl = langfuse.enabled
+    ? `${langfuse.browserBaseUrl}/project/${browserProjectId(langfuse)}/traces`
+    : null;
 
   // A score with no case belongs to the run as a whole — AgentCore's
   // session-level evaluators grade the conversation, not any one turn.
@@ -203,7 +214,9 @@ export default async function EvalRunDetailPage(props: Props) {
         {sortedResults.length === 0
           ? (
               <p className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                {run.status === 'running' ? 'Cases still streaming — refresh in a moment.' : 'No case results recorded.'}
+                {run.status === 'running'
+                  ? 'Still running — this page updates itself as cases finish.'
+                  : 'No case results recorded.'}
               </p>
             )
           : (
@@ -247,9 +260,9 @@ export default async function EvalRunDetailPage(props: Props) {
                             </span>
                           )}
                         </div>
-                        {r.traceId && (
+                        {r.traceId && traceBaseUrl && (
                           <a
-                            href={`http://localhost:3200/trace/${r.traceId}`}
+                            href={`${traceBaseUrl}/${r.traceId}`}
                             target="_blank"
                             rel="noreferrer"
                             className="text-xs text-muted-foreground underline hover:text-foreground"

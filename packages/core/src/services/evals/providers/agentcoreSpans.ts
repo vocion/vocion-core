@@ -49,9 +49,9 @@ function spanIdFor(caseIndex: number, suffix: string): string {
 
 /**
  * Arguments as attributes, JSON-encoded, since attribute values are scalars.
- * @param toolName
- * @param input
- * @param output
+ * @param toolName - The tool the agent called.
+ * @param input - The arguments it called the tool with.
+ * @param output - What the tool returned.
  */
 function toolAttributes(toolName: string, input: Record<string, unknown>, output: string): Record<string, unknown> {
   return {

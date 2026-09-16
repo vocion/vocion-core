@@ -53,6 +53,15 @@ describe('runRefreshEvalsJob', () => {
     expect(result.datasets.map(d => d.datasetSlug).sort()).toEqual(['refund-quality', 'tone-check']);
   });
 
+  it('does nothing, quietly, for a workspace with no datasets', async () => {
+    await db.delete(evalDatasetSchema);
+
+    const result = await runRefreshEvalsJob(ORG, {});
+
+    expect(result).toEqual({ started: 0, failed: 0, datasets: [] });
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
   it('never reaches into another workspace', async () => {
     await runRefreshEvalsJob(ORG, {});
 

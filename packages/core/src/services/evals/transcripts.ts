@@ -21,6 +21,7 @@
 
 import type { EvalDatasetItem } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import { eq } from 'drizzle-orm';
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { db } from '@/libs/DB';
 import { evalCaseResultSchema } from '@/models/Schema';
@@ -163,6 +164,17 @@ export async function produceTranscripts(options: ProduceTranscriptsOptions): Pr
 /**
  * Write the transcripts as `eval_case_result` rows and remember their ids.
  *
+ * Clears the run's existing case rows first, because this can run twice. A
+ * Temporal activity is at-least-once, and a retry reuses the same run through
+ * its run group — so a blind insert would leave that run holding two rows per
+ * case, and the run page reads every row by run id with nothing to tell the
+ * copies apart. Deleting first is safe: the rows being replaced belong to the
+ * attempt that died, and the scores that pointed at them died with it.
+ *
+ * One delete and one insert inside a transaction, rather than a statement per
+ * case: a crash partway through used to leave a run holding half its cases
+ * with no way to roll back.
+ *
  * The grade columns (`score`, `verdict`, `rationale`) stay empty here. They are
  * filled by the Vocion provider, which still writes them so `modelUpgradeTest`
  * — which reads those columns directly — keeps working untouched.
@@ -170,10 +182,15 @@ export async function produceTranscripts(options: ProduceTranscriptsOptions): Pr
  * @param transcripts - Mutated in place to record each row's id.
  */
 export async function persistTranscripts(runId: number, transcripts: CaseTranscript[]): Promise<void> {
-  for (const transcript of transcripts) {
-    const [row] = await db
+  if (transcripts.length === 0) {
+    return;
+  }
+
+  const rows = await db.transaction(async (tx) => {
+    await tx.delete(evalCaseResultSchema).where(eq(evalCaseResultSchema.runId, runId));
+    return tx
       .insert(evalCaseResultSchema)
-      .values({
+      .values(transcripts.map(transcript => ({
         runId,
         itemIndex: transcript.itemIndex,
         input: transcript.item.input,
@@ -182,8 +199,14 @@ export async function persistTranscripts(runId: number, transcripts: CaseTranscr
         latencyMs: transcript.latencyMs,
         usage: transcript.usage,
         trajectory: transcript.trajectory,
-      })
-      .returning({ id: evalCaseResultSchema.id });
-    transcript.caseResultId = row?.id ?? null;
+      })))
+      .returning({ id: evalCaseResultSchema.id, itemIndex: evalCaseResultSchema.itemIndex });
+  });
+
+  // Matched on itemIndex rather than position: `returning` gives no ordering
+  // guarantee, and a score pointed at the wrong case is worse than no score.
+  const idByItemIndex = new Map(rows.map(row => [row.itemIndex, row.id]));
+  for (const transcript of transcripts) {
+    transcript.caseResultId = idByItemIndex.get(transcript.itemIndex) ?? null;
   }
 }

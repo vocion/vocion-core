@@ -225,7 +225,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
                 {activeFilter
                   ? `No runs graded by ${labelFor(activeFilter)} yet.`
-                  : 'No runs yet. Press Run dataset to start one.'}
+                  : 'No runs yet. Press Run evals now to start one.'}
               </div>
             )
           : (
@@ -238,7 +238,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
                         href={`/dashboard/evals/${dataset.slug}/runs/${run.id}`}
                         className="flex items-center justify-between px-4 py-3 hover:bg-muted/40"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                           <span className="font-mono text-xs text-muted-foreground">
                             #
                             {run.id}
@@ -359,6 +359,7 @@ function ProviderFilterLink(props: { slug: string; label: string; provider: stri
   return (
     <Link
       href={href}
+      aria-current={props.active ? 'page' : undefined}
       className={props.active
         ? 'rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'
         : 'rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/60'}

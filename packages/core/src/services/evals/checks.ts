@@ -111,7 +111,7 @@ function checkTurnsUnder(transcript: CaseTranscript, budget: number): CheckOutco
 
 /**
  * Readable tool list for a failure message.
- * @param transcript
+ * @param transcript - The case whose tool calls to describe.
  */
 function describeTrajectory(transcript: CaseTranscript): string {
   return transcript.trajectory.length > 0 ? transcript.trajectory.join(' → ') : 'none';

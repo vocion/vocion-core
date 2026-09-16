@@ -56,7 +56,7 @@ export type JudgeRequest = {
 
 /**
  * Everything the judge is told about one case, as one prompt.
- * @param transcript
+ * @param transcript - The case the judge is being asked to score.
  */
 function buildJudgePrompt(transcript: CaseTranscript): string {
   const { item } = transcript;
@@ -71,7 +71,7 @@ function buildJudgePrompt(transcript: CaseTranscript): string {
 
 /**
  * The model's reply as plain text, whatever content shape it used.
- * @param content
+ * @param content - The message content the model returned.
  */
 function textOf(content: unknown): string {
   if (typeof content === 'string') {

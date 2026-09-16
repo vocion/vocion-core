@@ -157,6 +157,20 @@ export async function getRun(orgId: string, runId: number) {
 /* Run a dataset                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Someone asked for a grader that does not exist.
+ *
+ * Its own type so the HTTP layer can answer 400 rather than 500: a typo in a
+ * provider id is the caller's mistake, and a 5xx would page whoever watches
+ * the error rate for it.
+ */
+export class UnknownEvalProviderError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnknownEvalProviderError';
+  }
+}
+
 export type RunDatasetOptions = {
   orgId: string;
   datasetSlug: string;
@@ -247,7 +261,14 @@ export async function runDatasetWithProviders(
   // The first provider's run owns the transcripts, because eval_case_result
   // belongs to exactly one run. Every other provider points its scores at the
   // same case rows rather than storing a second copy of the same text.
-  const [primaryProvider, ...secondaryProviders] = providers;
+  //
+  // Which one is first is pinned to the run group, not re-decided: a retry
+  // re-asks who is available, and a credential that appeared or lapsed between
+  // attempts could otherwise hand the transcripts to a different provider than
+  // the one that already owns them — a second primary run, and every case
+  // executed again at real model cost.
+  const providersByOwner = await primaryFirst(providers, opts.runGroupId ?? null);
+  const [primaryProvider, ...secondaryProviders] = providersByOwner;
   const shared = {
     orgId: opts.orgId,
     datasetId: dataset.id,
@@ -299,11 +320,44 @@ async function resolveProviders(orgId: string, providerIds?: string[]): Promise<
   for (const id of providerIds) {
     const provider = getProvider(id);
     if (!provider) {
-      throw new Error(`unknown eval score provider: ${id}`);
+      throw new UnknownEvalProviderError(`unknown eval score provider: ${id}`);
     }
     providers.push(provider);
   }
   return providers;
+}
+
+/**
+ * Put whichever provider already owns this run group's transcripts first.
+ *
+ * Only matters on a retry, and only when the set of available providers
+ * changed between attempts. Leaves the order alone when nothing in the group
+ * has run yet, which is every first attempt.
+ * @param providers - Who is grading, in registry order.
+ * @param runGroupId - The group this execution belongs to, or null.
+ */
+async function primaryFirst(
+  providers: EvalScoreProvider[],
+  runGroupId: string | null,
+): Promise<EvalScoreProvider[]> {
+  if (!runGroupId || providers.length < 2) {
+    return providers;
+  }
+  const existing = await db
+    .select({ provider: evalRunSchema.provider })
+    .from(evalRunSchema)
+    .where(eq(evalRunSchema.runGroupId, runGroupId))
+    .orderBy(asc(evalRunSchema.id))
+    .limit(1);
+  const owner = existing[0]?.provider;
+  if (!owner) {
+    return providers;
+  }
+  const ownerProvider = providers.find(provider => provider.id === owner);
+  if (!ownerProvider) {
+    return providers;
+  }
+  return [ownerProvider, ...providers.filter(provider => provider.id !== owner)];
 }
 
 /**

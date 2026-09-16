@@ -53,8 +53,8 @@ export type ScoreWithProviderOptions = {
 
 /**
  * Map a case index back to the row id its transcript was stored as.
- * @param transcripts
- * @param itemIndex
+ * @param transcripts - The cases this run stored, each carrying its row id.
+ * @param itemIndex - Which case the score belongs to, if it belongs to one.
  */
 function caseResultIdFor(transcripts: CaseTranscript[], itemIndex: number | undefined): number | null {
   if (itemIndex === undefined) {
@@ -152,9 +152,13 @@ export async function scoreWithProvider(options: ScoreWithProviderOptions): Prom
  * Create the run row this provider's scores hang off.
  *
  * When a `runGroupId` is set, a retried workflow activity finds the run it
- * already created instead of making a second one — the unique index on
- * (run_group_id, provider) is what stops an at-least-once retry adding a
- * phantom point to the trend line.
+ * already created instead of making a second one, which is what stops an
+ * at-least-once retry adding a phantom point to the trend line.
+ *
+ * This lookup is the whole guarantee. The index on (run_group_id, provider) is
+ * deliberately NOT unique — see `migrations/concurrent/0108_...` for why it
+ * cannot be — so two attempts running at the same moment could still both
+ * insert. That costs one duplicate point on a chart, not lost data.
  * @param options - Everything identifying the run.
  */
 async function createProviderRun(options: ScoreWithProviderOptions): Promise<number> {
@@ -233,23 +237,27 @@ async function persistScores(
   if (providerId !== 'vocion') {
     return;
   }
-  for (const score of scores) {
+
+  // Independent single-row updates, so they go together rather than one after
+  // another: a fifty-case dataset was fifty sequential round trips.
+  const mirrors = scores.flatMap((score) => {
     if (score.evaluatorSlug !== 'vocion:judge') {
-      continue;
+      return [];
     }
     const caseResultId = caseResultIdFor(transcripts, score.itemIndex);
     if (!caseResultId) {
-      continue;
+      return [];
     }
-    await db
+    return [db
       .update(evalCaseResultSchema)
       .set({
         score: (score.value ?? 0).toFixed(3),
         verdict: score.label ?? 'error',
         rationale: score.explanation ?? null,
       })
-      .where(eq(evalCaseResultSchema.id, caseResultId));
-  }
+      .where(eq(evalCaseResultSchema.id, caseResultId))];
+  });
+  await Promise.all(mirrors);
 }
 
 function round4(value: number): number {
