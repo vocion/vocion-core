@@ -30,6 +30,11 @@ export default antfu(
     // Ignored paths
     ignores: [
       'packages/core/migrations/**/*',
+      // Playwright writes traces and reports beside the tests; they are
+      // gitignored, but a local `npm run lint` after an E2E run picked up
+      // 1,500 "errors" in generated JSON until they were excluded here too.
+      '**/test-results/**',
+      '**/playwright-report/**',
       // Agent skill docs (Claude Code skills) — markdown for agents, not shipped code.
       '.claude/**/*',
     ],

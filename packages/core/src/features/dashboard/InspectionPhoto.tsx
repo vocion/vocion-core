@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useVisionModel } from '@/features/dashboard/VisionEngineControl';
+import { Link } from '@/libs/I18nNavigation';
 
 /**
  * The photo-backed object view, side by side: the picture (pinned) on the
@@ -664,7 +665,7 @@ export function InspectionPhoto(props: Props) {
                               {fb.signal === 'agree' ? <ThumbsUp className="size-3" aria-hidden /> : <ThumbsDown className="size-3" aria-hidden />}
                               {fb.signal === 'agree' ? 'Agreed' : 'Disagreed'}
                               {fb.note ? ` — “${fb.note}”` : ''}
-                              {fb.signal === 'disagree' && <a href="/dashboard/learnings" className="ml-1 underline">proposed as a learning</a>}
+                              {fb.signal === 'disagree' && <Link href="/dashboard/learnings" className="ml-1 underline">proposed as a learning</Link>}
                             </span>
                           )
                         : (
@@ -852,7 +853,7 @@ export function InspectionPhoto(props: Props) {
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     Adopted rules are injected into the system prompt on every check. Pending candidates are decided at
                     {' '}
-                    <a href="/dashboard/learnings" className="underline">Learnings</a>
+                    <Link href="/dashboard/learnings" className="underline">Learnings</Link>
                     .
                   </p>
                 </>

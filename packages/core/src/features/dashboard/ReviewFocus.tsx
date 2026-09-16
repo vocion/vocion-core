@@ -46,6 +46,7 @@ export function ReviewFocus(props: {
   const router = useRouter();
   const { run, queue, search, listHref } = props;
   const [busy, setBusy] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [steering, setSteering] = useState(false);
   const [steer, setSteer] = useState('');
   const [edited, setEdited] = useState<Record<string, string>>({});
@@ -147,6 +148,23 @@ export function ReviewFocus(props: {
     }
   };
 
+  const onSnooze = async (days: number) => {
+    setBusy(true);
+    const title = describeAction(run).title;
+    const until = new Date(Date.now() + days * 86_400_000);
+    try {
+      await withMinimumPending(client.review.snoozeAction({ id: run.id, until: until.toISOString() }));
+      setSnoozeOpen(false);
+      setDecided(d => d + 1);
+      toast.info(`Snoozed · ${title}`, { description: `Back on Needs you ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
+      leave();
+    } catch (err) {
+      toast.error(`Could not snooze · ${title}`, { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // The card owns its own decide/snooze; this just moves on. A regenerate is
   // NOT a decision: the card holds its place and the page re-reads the run.
   const onCardDecided = (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => {
@@ -196,6 +214,9 @@ export function ReviewFocus(props: {
         } else if (action === 'decline') {
           e.preventDefault();
           void onDecide('reject');
+        } else if (action === 'snooze') {
+          e.preventDefault();
+          setSnoozeOpen(o => !o);
         }
       }
     };
@@ -229,6 +250,9 @@ export function ReviewFocus(props: {
       steering={steering}
       busy={busy}
       onDecide={d => void onDecide(d)}
+      snoozeOpen={snoozeOpen}
+      onToggleSnooze={() => setSnoozeOpen(o => !o)}
+      onSnooze={d => void onSnooze(d)}
       decided={decided}
       showHelp={showHelp}
       onToggleHelp={() => setShowHelp(h => !h)}

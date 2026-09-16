@@ -4,8 +4,9 @@ import type { ReviewType } from './reviewQueueModel';
 import type { ReviewShortcut } from './reviewShortcuts';
 import type { UpNextEntry } from './UpNextMenu';
 import type { ReviewCard } from '@/libs/actions/types';
-import { Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { Button } from '@/components/ui/button';
 import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
 import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
@@ -103,6 +104,15 @@ export type ReviewFocusViewProps = {
   steering: boolean;
   busy: boolean;
   onDecide: (decision: 'approve' | 'reject') => void;
+  /**
+   * Snooze, on the generic (card-less) proposal. The card owns its own
+   * snooze; this is the same verb for everything else. The bar dropped it
+   * when the sticky bar replaced the action row (2026-09-15), so `s` did
+   * nothing and the E2E spec that snoozes from here timed out.
+   */
+  snoozeOpen: boolean;
+  onToggleSnooze: () => void;
+  onSnooze: (days: number) => void;
   decided: number;
   showHelp: boolean;
   onToggleHelp: () => void;
@@ -114,6 +124,13 @@ const INLINE_FIELD = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm trans
 
 const VERBS = DECISION_VERBS.proposal;
 const verb = (id: string) => [VERBS.primary, ...VERBS.secondary].find(v => v.id === id)!;
+
+/** The same three revisit horizons the card offers. */
+const SNOOZES = [
+  { label: 'Tomorrow', days: 1 },
+  { label: '3 days', days: 3 },
+  { label: 'Next week', days: 7 },
+];
 
 export function ReviewFocusView(p: ReviewFocusViewProps) {
   const t = useTranslations('Review');
@@ -251,9 +268,19 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
               }}
               secondary={[
                 { 'label': verb('reject').label, 'onClick': () => p.onDecide('reject'), 'disabled': held, 'icon': X, 'shortcut': verb('reject').shortcut, 'tone': 'danger', 'data-testid': 'decide-reject' },
+                { 'label': verb('snooze').label, 'onClick': p.onToggleSnooze, 'disabled': held, 'icon': AlarmClock, 'shortcut': verb('snooze').shortcut, 'data-testid': 'decide-snooze' },
                 { label: verb('save').label, onClick: p.onSave, disabled: held, icon: Bookmark },
                 { label: verb('skip').label, onClick: p.onSkip, disabled: held, icon: SkipForward, shortcut: verb('skip').shortcut },
               ]}
+              aside={p.snoozeOpen && (
+                <div className="flex gap-1" role="group" aria-label="Snooze until">
+                  {SNOOZES.map(sn => (
+                    <Button key={sn.days} size="sm" variant="ghost" onClick={() => p.onSnooze(sn.days)} disabled={held}>
+                      {sn.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
               field={{
                 label: 'Steer the agent',
                 placeholder: 'Steer the agent — e.g. shorter, mention the July 20 call, firmer ask',
