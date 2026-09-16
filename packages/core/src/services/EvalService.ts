@@ -25,7 +25,7 @@ import type { LangChainProvider } from '@/libs/llm';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
-import { evalCaseResultSchema, evalDatasetSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
+import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
 import { getProvider, listAvailableProviders } from './evals/providers/registry';
 import { scoreWithProvider } from './evals/scoring';
 import { persistTranscripts, produceTranscripts } from './evals/transcripts';
@@ -77,6 +77,30 @@ export async function listRuns(orgId: string, datasetId?: number, provider?: str
     .where(and(...filters))
     .orderBy(desc(evalRunSchema.startedAt))
     .limit(50);
+}
+
+/**
+ * Evaluators this dataset declared that could not be set up.
+ *
+ * Read by the dataset page so a judge that AWS refused says so, instead of
+ * quietly never running and leaving someone to wonder why the score they
+ * authored never appears.
+ * @param orgId - Whose workspace.
+ * @param datasetSlug - Which dataset.
+ */
+export async function listEvaluatorProblems(orgId: string, datasetSlug: string) {
+  const rows = await db
+    .select({
+      slug: evalEvaluatorSchema.slug,
+      provider: evalEvaluatorSchema.provider,
+      syncError: evalEvaluatorSchema.syncError,
+    })
+    .from(evalEvaluatorSchema)
+    .where(and(
+      eq(evalEvaluatorSchema.orgId, orgId),
+      eq(evalEvaluatorSchema.datasetSlug, datasetSlug),
+    ));
+  return rows.filter(row => row.syncError !== null);
 }
 
 /**

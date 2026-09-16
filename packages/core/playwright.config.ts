@@ -199,6 +199,15 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/reviews-propose',
       timeout: 60 * 1000,
     },
+    // #343 — the eval refresh route, real HTTP against a real running app.
+    // No browser: uses the `request` fixture only, so it never depends on the
+    // `setup` project.
+    // Run with: npx playwright test --project=eval-refresh
+    {
+      name: 'eval-refresh',
+      testDir: './e2e/eval-refresh',
+      timeout: 60 * 1000,
+    },
     // #320 — querying the queue by what the agent recommended (approve /
     // reject / snooze), over real HTTP against a real running app. No browser:
     // uses the `request` fixture only, so it never depends on `setup`.

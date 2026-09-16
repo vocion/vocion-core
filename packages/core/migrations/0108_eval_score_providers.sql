@@ -77,13 +77,6 @@ CREATE INDEX IF NOT EXISTS "eval_score_run_evaluator_idx" ON "eval_score" ("run_
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "eval_score_case_idx" ON "eval_score" ("case_result_id");
 --> statement-breakpoint
--- One run per provider per execution. This is what makes a retried Temporal
--- activity idempotent: the retry's insert collides instead of adding a phantom
--- point to the trend line. Partial, because run_group_id is NULL for every run
--- recorded before this migration and for any run started outside a workflow.
-CREATE UNIQUE INDEX IF NOT EXISTS "eval_run_group_provider_idx"
-  ON "eval_run" ("run_group_id","provider") WHERE "run_group_id" IS NOT NULL;
---> statement-breakpoint
 -- Evaluator definitions authored in our workspace YAML, plus where they live
 -- remotely once synced. Desired state is written by workspace apply; the AWS
 -- call that gives us remote_id happens later, in a Temporal activity, because

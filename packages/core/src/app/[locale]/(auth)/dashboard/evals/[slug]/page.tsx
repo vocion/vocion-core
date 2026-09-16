@@ -6,7 +6,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
-import { getDataset, listRuns } from '@/services/EvalService';
+import { getDataset, listEvaluatorProblems, listRuns } from '@/services/EvalService';
 import { CompareModelsForm } from './CompareModelsForm';
 import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
@@ -30,8 +30,11 @@ export default async function EvalDatasetDetailPage(props: Props) {
     notFound();
   }
 
-  const allRuns = await listRuns(orgId, dataset.id);
-  const providers = await describeProviders(orgId);
+  const [allRuns, providers, evaluatorProblems] = await Promise.all([
+    listRuns(orgId, dataset.id),
+    describeProviders(orgId),
+    listEvaluatorProblems(orgId, dataset.slug),
+  ]);
 
   // Which graders this dataset has ever had, plus the ones it could use now.
   // A provider nobody has ever run and cannot run stays invisible — an org
@@ -122,6 +125,22 @@ export default async function EvalDatasetDetailPage(props: Props) {
           .
         </p>
       </div>
+
+      {evaluatorProblems.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+          <div className="mb-1 font-semibold">Some evaluators this dataset declares could not be set up</div>
+          <ul className="space-y-1">
+            {evaluatorProblems.map(problem => (
+              <li key={`${problem.provider}-${problem.slug}`}>
+                <code className="font-mono">{problem.slug}</code>
+                {' — '}
+                {problem.syncError}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">Runs go ahead without them rather than failing, so scores here are missing those checks.</p>
+        </div>
+      )}
 
       {brokenProviders.map(provider => (
         <div

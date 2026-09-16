@@ -72,6 +72,8 @@ function needsPush(row: EvaluatorRow): boolean {
   if (!row.syncedAt) {
     return true;
   }
+  // Strictly greater, and the sync writes both stamps to the same instant, so
+  // an unchanged file re-applied does not push an update to AWS every run.
   return row.updatedAt.getTime() > row.syncedAt.getTime();
 }
 
@@ -182,9 +184,13 @@ async function pushEvaluator(client: BedrockAgentCoreControlClient, row: Evaluat
         level,
         clientToken: clientTokenFor(row.orgId, row.datasetSlug, `${row.slug}:${row.updatedAt.getTime()}`),
       }));
+      // `updatedAt` is written explicitly rather than left to its auto-update:
+      // otherwise this very write bumps it past `syncedAt`, and the row looks
+      // out of date the moment it is brought up to date.
+      const syncedAt = new Date();
       await db
         .update(evalEvaluatorSchema)
-        .set({ syncedAt: new Date(), syncError: null })
+        .set({ syncedAt, updatedAt: syncedAt, syncError: null })
         .where(eq(evalEvaluatorSchema.id, row.id));
       return row.remoteId;
     }
@@ -198,12 +204,14 @@ async function pushEvaluator(client: BedrockAgentCoreControlClient, row: Evaluat
     if (!created.evaluatorId) {
       throw new Error('AWS created the evaluator but returned no id');
     }
+    const syncedAt = new Date();
     await db
       .update(evalEvaluatorSchema)
       .set({
         remoteId: created.evaluatorId,
         remoteArn: created.evaluatorArn ?? null,
-        syncedAt: new Date(),
+        syncedAt,
+        updatedAt: syncedAt,
         syncError: null,
       })
       .where(eq(evalEvaluatorSchema.id, row.id));

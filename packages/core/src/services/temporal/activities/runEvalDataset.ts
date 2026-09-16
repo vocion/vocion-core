@@ -11,10 +11,14 @@
  * set — a phantom point on a trend line, for work that happened once. The
  * group id is unique per provider in the database, so the retry finds the run
  * it already created instead of making another.
+ *
+ * Both imports are deferred. `EvalService` reaches LangChain and a Bedrock
+ * client through the agent it runs, and the worker boots every activity module
+ * eagerly — so a static import here would cost seconds of startup and megabytes
+ * of module graph on a worker that may never run an eval. The same split the
+ * processor registry already uses, and `temporal-worker.imports.test.ts`
+ * asserts it holds.
  */
-
-import { listAvailableProviders } from '@/services/evals/providers/registry';
-import { runDatasetWithProviders } from '@/services/EvalService';
 
 export type RunEvalDatasetInput = {
   orgId: string;
@@ -52,6 +56,7 @@ export type RunEvalDatasetOutput = {
  * @param input - Which dataset, under which run group.
  */
 export async function runEvalDatasetActivity(input: RunEvalDatasetInput): Promise<RunEvalDatasetOutput> {
+  const { runDatasetWithProviders } = await import('@/services/EvalService');
   const result = await runDatasetWithProviders({
     orgId: input.orgId,
     datasetSlug: input.datasetSlug,
@@ -79,6 +84,7 @@ export async function runEvalDatasetActivity(input: RunEvalDatasetInput): Promis
  * @param orgId - Whose credentials to check.
  */
 export async function listEvalProvidersActivity(orgId: string): Promise<string[]> {
+  const { listAvailableProviders } = await import('@/services/evals/providers/registry');
   const providers = await listAvailableProviders(orgId);
   return providers.map(provider => provider.id);
 }

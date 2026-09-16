@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server';
-import {
-  EVAL_REFRESH_WORKFLOW,
-  evalRefreshWorkflowIdFor,
-  getTemporalClient,
-  VOCION_WORKFLOWS_TASK_QUEUE,
-} from '@/libs/temporal/client';
-import { createRefreshRun, failEvalRun, getDataset } from '@/services/EvalService';
+import { EvalRefreshNotStartedError, startEvalRefresh } from '@/services/evals/refresh';
+import { getDataset } from '@/services/EvalService';
 import { authApi, jsonError } from '../../../_shared';
 
 /**
@@ -44,52 +39,33 @@ export async function POST(req: Request, context: { params: Promise<{ slug: stri
 
   const body = await readBody(req);
 
-  const workflowId = evalRefreshWorkflowIdFor(auth.orgId, dataset.slug, Date.now());
-
-  let run: { runId: number; providerIds: string[] };
+  let started;
   try {
-    run = await createRefreshRun({
+    started = await startEvalRefresh({
       orgId: auth.orgId,
       datasetSlug: dataset.slug,
-      runGroupId: workflowId,
       providerIds: body.providerIds,
+      concurrency: body.concurrency,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof EvalRefreshNotStartedError) {
+      // The scheduler is down. Worth retrying, and not the caller's fault.
+      return jsonError('EVAL_REFRESH_NOT_STARTED', message, 503);
+    }
+    // The run could not be prepared at all — no grader available, say. That is
+    // a configuration problem, and retrying it changes nothing.
     console.error(`[evals] could not open a refresh run for ${slug}`, error);
     return jsonError('EVAL_REFRESH_FAILED', message, 500);
   }
 
-  try {
-    const client = await getTemporalClient();
-    await client.workflow.start(EVAL_REFRESH_WORKFLOW, {
-      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
-      workflowId,
-      args: [{
-        orgId: auth.orgId,
-        datasetSlug: dataset.slug,
-        providerIds: body.providerIds,
-        concurrency: body.concurrency,
-      }],
-    });
-  } catch (error) {
-    // The row exists and nothing is going to fill it in. Closing it out here
-    // is the difference between a run that reads failed and one that spins
-    // forever on a worker that was never told to do anything.
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[evals] could not start the refresh workflow for ${slug}`, error);
-    await failEvalRun(run.runId).catch(closeError =>
-      console.error(`[evals] could not mark run ${run.runId} failed`, closeError));
-    return jsonError('EVAL_REFRESH_NOT_STARTED', message, 503);
-  }
-
   return NextResponse.json(
     {
-      runId: run.runId,
-      runGroupId: workflowId,
-      workflowId,
+      runId: started.runId,
+      runGroupId: started.runGroupId,
+      workflowId: started.runGroupId,
       status: 'running',
-      providers: run.providerIds,
+      providers: started.providerIds,
     },
     { status: 202 },
   );
