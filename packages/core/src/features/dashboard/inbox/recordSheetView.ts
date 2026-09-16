@@ -1,4 +1,5 @@
 import type { ReviewRow } from '@/services/inbox/reviewRows';
+import { recordTitle } from '@/services/inbox/describeActionRun';
 import { recordKeyLabel } from '@/services/inbox/recordKey';
 
 /**
@@ -26,7 +27,12 @@ export function recordSheetView(recordKey: string, rows: { open: ReviewRow[]; de
   if (open.length === 0 && decided.length === 0) {
     return { state: 'empty', label: recordKeyLabel(recordKey) };
   }
-  const name = (open[0] ?? decided[0])!.described.record?.name ?? recordKeyLabel(recordKey);
+  // One namer for the sheet: `recordTitle` is what the rest of the inbox uses
+  // (it is the one that says "name not synced" rather than passing an id off
+  // as a name); the key's own reading is the last resort, for a row that is
+  // about nothing.
+  const record = (open[0] ?? decided[0])!.described.record;
+  const name = record ? recordTitle(record) : recordKeyLabel(recordKey);
   return {
     state: 'sheet',
     name,

@@ -228,3 +228,39 @@ describe('first-party records', () => {
     expect(doc.href).toBe('/dashboard/briefings/999999');
   });
 });
+
+describe('CRM names come from the one record namer', () => {
+  it('titles a deal with the mirror name #380 resolves, not the document title', async () => {
+    // The mirrored row's own title is the id spelled out — the non-answer
+    // `resolveRecordLabels` exists to refuse — while `metadata.name` carries
+    // what the record is really called.
+    await seedDocument({
+      slug: 'hubspot',
+      kind: 'hubspot',
+      externalId: 'deals:7781',
+      title: 'deals 7781',
+      metadata: { objectType: 'deals', hubspotId: '7781', name: 'Northwind renewal' },
+      content: 'Deal stage: contract sent.',
+    });
+
+    const doc = await resolvePreview({ type: 'deal', id: 'deals:7781' }, CTX);
+
+    expect(doc.title).toBe('Northwind renewal');
+    expect(doc.sourceLabel).toBe('HubSpot');
+  });
+
+  it('accepts the inbox spelling of the same key', async () => {
+    await seedDocument({
+      slug: 'hubspot',
+      kind: 'hubspot',
+      externalId: 'companies:4410',
+      title: 'companies 4410',
+      metadata: { objectType: 'companies', name: 'Fixture Industries' },
+      content: 'Company record.',
+    });
+
+    const doc = await resolvePreview({ type: 'object', id: 'hubspot:companies:4410' }, CTX);
+
+    expect(doc.title).toBe('Fixture Industries');
+  });
+});

@@ -8,7 +8,6 @@ import { recordSheetView } from '@/features/dashboard/inbox/recordSheetView';
 import { reviewRowToSheetAsk } from '@/features/dashboard/inbox/reviewRowToSheetAsk';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { recordTitle } from '@/services/inbox/describeActionRun';
 import { parseRecordKeyParam } from '@/services/inbox/recordKey';
 import { listReviewRowsForRecord } from '@/services/inbox/reviewRows';
 
@@ -52,9 +51,7 @@ export default async function RecordSheetPage(props: { params: Promise<{ locale:
       </div>
     );
   }
-  const { open, decided } = view;
-  const record = (open[0] ?? decided[0])!.described.record;
-  const name = record ? recordTitle(record) : view.label;
+  const { open, decided, name } = view;
 
   return (
     <RecordSheet

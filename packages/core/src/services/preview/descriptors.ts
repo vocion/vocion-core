@@ -120,12 +120,34 @@ async function resolveDocument(ref: RecordRef, ctx: { orgId: string; userId: str
 
 registerPreview('document', { sourceLabel: 'Document', resolve: resolveDocument });
 
-// A CRM subject is a mirrored HubSpot record; `deals:123` / `contacts:9412`
-// are exactly the external ids the connector wrote, so the same resolver
-// answers both. `object` also carries non-CRM business objects, which have
-// their own page and no ingested copy — those fall through to unresolved.
-registerPreview('deal', { sourceLabel: 'HubSpot', resolve: resolveDocument });
-registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveDocument });
+/**
+ * A CRM subject is a mirrored HubSpot record; `deals:123` / `contacts:9412`
+ * are exactly the external ids the connector wrote, so the document resolver
+ * answers the body. The NAME comes from `services/records/recordLabel`, which
+ * #380 wrote as a `label(ref)` resolver for exactly this: it reads the same
+ * mirror in one indexed, batched, org-scoped query and knows which mirrored
+ * titles are really just the id again. Growing a second namer here would be
+ * the defect §19 names.
+ *
+ * `object` also carries non-CRM business objects, which have their own page
+ * and no ingested copy — those fall through to unresolved.
+ * @param ref
+ * @param ctx
+ * @param ctx.orgId
+ * @param ctx.userId
+ */
+async function resolveCrmRecord(ref: RecordRef, ctx: { orgId: string; userId: string | null }): Promise<PreviewDoc | null> {
+  const doc = await resolveDocument(ref, ctx);
+  if (!doc) {
+    return null;
+  }
+  const { resolveRecordLabels } = await import('@/services/records/recordLabel');
+  const named = (await resolveRecordLabels(ctx.orgId, [ref.id])).get(ref.id);
+  return named ? { ...doc, title: named } : doc;
+}
+
+registerPreview('deal', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
+registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
 
 registerPreview('artifact', {
   sourceLabel: 'Artifact',
