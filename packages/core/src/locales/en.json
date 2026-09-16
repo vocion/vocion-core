@@ -198,7 +198,10 @@
     "queue_more": "+{count} more",
     "queue_action": "Queue message",
     "queue_held": "The turn ended early — these were not sent.",
-    "queue_dismiss": "Dismiss"
+    "queue_dismiss": "Dismiss",
+    "attach": "Add to this turn",
+    "tag_artifact": "Artifact",
+    "tag_page": "This page"
   },
   "Inbox": {
     "title": "Needs you",

@@ -1,9 +1,26 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
+import { agentSkillsNameError } from '@/libs/skills/name';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
+});
+
+/**
+ * A slug for a SKILL.md folder — stricter than {@link SlugSchema} because the
+ * folder is mounted as an Agent Skill and that specification validates the
+ * name: lowercase letters, digits and SINGLE hyphens only, never leading or
+ * trailing, at most 64 characters. See `libs/skills/name.ts`.
+ */
+export const AgentSkillSlugSchema = SlugSchema.superRefine((slug, ctx) => {
+  const problem = agentSkillsNameError(slug);
+  if (problem) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `skill folder slugs must follow the Agent Skills specification — ${problem}. Rename the folder and every reference to it.`,
+    });
+  }
 });
 
 const FewShotExampleSchema = z.object({
@@ -916,8 +933,17 @@ export const LearningStepManifestSchema = z.object({
 export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 
 export const PlaybookManifestSchema = z.object({
-  slug: SlugSchema,
-  name: z.string().describe('Human-readable name for catalog UI.'),
+  /**
+   * The folder slug, and — because deepagents mounts this folder as an Agent
+   * Skill — the name that specification validates. Stricter than `SlugSchema`
+   * on purpose: underscores, doubled hyphens and trailing hyphens are legal
+   * Vocion slugs and illegal skill names, and a workspace that ships one makes
+   * the runtime log a spec warning on every single turn. Failing here, once,
+   * at `workspace:check`, is the whole point (CLAUDE.md — fail loudly at apply
+   * time rather than warn at runtime).
+   */
+  slug: AgentSkillSlugSchema,
+  name: z.string().describe('Human-readable name for catalog UI. Mounted as `title`; the mounted `name` is the slug, per the Agent Skills spec — see libs/skills/name.ts.'),
   description: z.string().describe('One-line summary the agent reads to decide when to activate this skill or playbook.'),
   /**
    * Playbook slugs this skill attaches (skill folders only). A playbook

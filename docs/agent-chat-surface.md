@@ -148,7 +148,11 @@ agent is doing, and able to be talked back to.
     routes its first turn the same way) and the tagged records ride along as
     `context_refs`, which the stream route validates (`services/chat/
     pageContext.ts#readContextRefs`) and notes under the message for the
-    model — a tag is context, not only a router; `/search <query>` runs the
+    model — a tag is context, not only a router. The same popover also offers
+    `@page` (the page in view and the record it is about) and `@artifact`
+    (this turn owes a document — *Deliverables* below), and a `(+)` at the
+    left of the box types any of them into the draft at the caret for people
+    who would rather point than remember the word; `/search <query>` runs the
     retrieval-only path (listed in the composer's `?` shortcuts sheet; a
     "Search only" pill shows while it is armed). `conversation.agent_slug`
     keeps the lead. The rail's header is the workspace name too — scoped, the
@@ -226,6 +230,122 @@ assumption) and a `POST /rpc/agent/steer` to post into it. Until that decision
 is made, the transcript would have to pretend a tool said it — so it is not
 built, and the queue is the honest behaviour.
 
+## Deliverables — "this turn produces an artifact" is a contract (2026-09-16)
+
+Somebody typed *draft a pipeline report* and expected a document to open in the
+pane. What they got was a "Tool error" badge, one "Delegating to …" line, a
+paragraph of narration, and nothing beside the conversation. Their question was
+the right one: **how do we make that opt-in deterministic?**
+
+Whether a turn ended in an artifact used to be a judgement the main model made
+while it was also doing the work, steered by prompt wording. That is exactly
+the failure mode `CLAUDE.md`'s *Structural over prompting* bullet describes, so
+the answer is the same one: a typed contract, deterministic post-processing,
+and a gated backstop — in that order.
+
+### The contract
+
+`deliverable` is a field on the turn request (`/rpc/agent/stream`), carried
+into `runAgentDeep` and into the `agentcore-container` payload
+(`packages/agent-runtime` `InvocationRequest`), so it reaches all three
+harnesses that run a loop:
+
+| Value | What it means |
+|---|---|
+| `artifact` | This turn MUST end with an artifact beside the conversation. |
+| `answer` | The reply is the whole deliverable. |
+| absent | Same as `answer`. |
+
+The definition is `libs/chat/deliverable.ts` — pure, no React, no database, so
+the composer, the route and the harness read one file. `readDeliverable` is the
+wire parser: anything that is not one of the two values is `undefined`, so a
+typo can never arm the backstop by accident.
+
+### Arming it: `@artifact`, and the `(+)` beside the box
+
+The person types `@artifact`. That is the whole opt-in.
+
+It rides the composer's **existing** `@`-mention (§9): `@artifact` appears in
+the same popover as `@page`, `@team` and the record in view, resolves into the
+same chip, and is read by the same reader — so arming the contract is the same
+gesture as pointing a turn at a team, not a second mechanism beside it
+(Manifesto §19). Like every other ref, the tag never travels as text: the chip
+carries it, and it is stripped out of `context_refs` before the wire, because
+it points at no record — it states what the turn owes
+(`libs/chat/deliverable.ts#deliverableFromRefs`).
+
+A **`(+)`** at the left of the box is the pointer path to the same list. It
+opens *Add to this turn* — `@artifact`, `@page`, and the record the page is
+about — and choosing one **types the tag into the draft at the caret**. Nothing
+else: no store, no event, no flag of its own. The `@` reader then offers the
+chip exactly as if the word had been typed. The list is built once per surface
+(`composerTags.ts`, pure; `tagSearch.ts` adds the fetched half) so the keyboard
+path and the pointer path can never drift.
+
+It knows nothing about sending. The composer's send handler, key handling and
+queue behaviour (§12) are untouched — Enter still queues mid-turn, ⌘⏎ still
+interrupts, the box never locks. The tag is per MESSAGE: it clears with the
+rest of the refs when the turn goes out.
+
+**Why not a chip that arms itself.** The first cut was an icon chip beside send
+that a pure classifier pre-armed from what was being typed. Chris killed it
+(2026-09-16): *"not sure I love this. Maybe start it as something that we can
+tag in the chat. or in a (+) button menu that let's me pull in tools explicitly
+(by injecting the tag into the text)."* He is right, and the reason generalises:
+**explicit and discoverable beats inferred.** An opt-in that arms itself is one
+you have to notice and undo, and a person who never looks at the chip cannot
+learn it exists; a word you type is a thing you meant, and a menu that types it
+for you is how you find out the word. The classifier is gone, not disabled.
+
+### The backstop
+
+`services/agents/deliverableBackstop.ts`, applied by `applyTurnGuarantees` in
+`AgentService` for every harness target. It fires only when the turn was sent
+with `deliverable: 'artifact'` **and** called no `render_*` /
+`create_artifact` / `update_artifact`:
+
+- **Long-form answer** (headings, a markdown table, or ≥120 words) → wrapped
+  verbatim into a markdown artifact, author `system`. No model, nothing
+  invented: the pane shows exactly what the agent wrote.
+- **Short answer** (the narration case) → ONE gated model pass over the turn's
+  transcript and tool results, in the pattern of
+  `harnessConfig.recommendActionBackstop`. It returns the document, or an
+  explicit stub — *"Pipeline report — not completed"*, with what failed and
+  what is needed. A model that is unavailable, or that answers with something
+  unusable, falls through to the same stub built deterministically.
+
+**A stub is a legitimate artifact; a silent nothing is not.** Either way the
+answer gains one sentence saying an artifact was created and why — an artifact
+that appears unannounced reads as the agent having decided to make one, which
+is the ambiguity this whole mechanism removes.
+
+See [artifacts.md](./artifacts.md#guaranteeing-an-artifact-when-one-was-asked-for).
+
+## Failures reach the person (2026-09-16)
+
+The same turn also proved that a **failed delegation was invisible**. The
+specialist's `task` call threw; the trace emitter had no case for either shape
+a tool failure arrives in, so the persisted `trace_json` held exactly one node
+— `{ kind: 'delegate', status: 'start' }` — with no terminal node of any kind.
+From the transcript, a specialist that died was indistinguishable from one
+still working.
+
+Three fixes, all structural:
+
+1. **Both failure shapes are read.** LangGraph's `ToolNode` catches a throwing
+   tool and returns a ToolMessage with `status: 'error'` (an ordinary
+   `on_tool_end`); when nothing catches it, LangChain emits `on_tool_error` and
+   no end event at all. `traceEmitter.ts` handles both, and a run that dies
+   mid-delegation closes every open delegation as an error
+   (`closeDelegations`).
+2. **The answer says so.** `delegationFailureNotice` appends one sentence when
+   a hand-off failed and the answer did not own up to it — prompting the model
+   to mention it is not the mechanism, it is the optimisation.
+3. **The persisted turn carries it.** `RunCollector` (now
+   `services/chat/runCollector.ts`, so it can be tested) folds `tool_error`
+   into `runs_json` as a failed step, and `ConversationRun.state` is persisted
+   so a reload still tells a step that failed from one that worked.
+
 ## Slack → feedback → ask → work (2026-09-15)
 
 The surface is not only the dock. An agent answering in a Slack thread is on
@@ -266,6 +386,9 @@ might read.
 | Feedback | `MessageFeedback.tsx`, `services/ConversationService.ts#setMessageFeedback`, adoption event `chat.feedback` |
 | History + search | `HistoryPopover.tsx`, `services/ConversationService.ts#searchConversations` |
 | Autonomy | `conversation.autonomy`, `AutonomyControl.tsx` + `autonomyOptions.ts` (the header chip), `RecommendedActionCard.tsx` (`autoPropose`) |
+| Deliverable contract | `libs/chat/deliverable.ts` (the type + the parse), `features/dashboard/chat/composerTags.ts` + `tagSearch.ts` (`@artifact` and the `(+)` list), `ChatComposer.tsx` (the `(+)`), `services/agents/deliverableBackstop.ts` + `AgentService#applyTurnGuarantees` (the guarantee) |
+| Persisted turn | `services/chat/runCollector.ts` — what a reloaded transcript says, including failed steps |
+| Recommendation boundary | `features/dashboard/chat/recommendedAction.ts` — a payload that cannot produce a valid `review.propose` never becomes a card |
 | Routing | `features/dashboard/chat/routing.ts` (default agent, `@` routing, `/search`, workspace chips), `services/agents/delegationRoster.ts` (roster, id-ordered; authored `subagents` win a slug collision in `harness.ts`), `rpc/agent/stream/route.ts` (server default = workspace lead; `context_refs` → `pageContext.ts`) |
 | Entry function | `features/dashboard/chat/agentSurface.ts` |
 | Schema | migration `0094_conversation_feedback_search.sql` (+ `concurrent/0094_conversation_search_idx.sql`) |

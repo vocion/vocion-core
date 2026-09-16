@@ -268,3 +268,142 @@ describe('ChatComposer queued rows', () => {
     await expect.element(page.getByTestId('queue-held')).toHaveTextContent('were not sent');
   });
 });
+
+/**
+ * `@artifact` and the `(+)` menu.
+ *
+ * The first cut of the deliverable contract was an icon chip beside send that
+ * a classifier pre-armed from the draft. Chris killed it: an opt-in you have
+ * to notice and undo is worse than one you ask for. What replaced it is a tag
+ * on the composer's EXISTING `@`-mention — so there is one interaction here,
+ * not two — and a `(+)` that types that tag into the box for people who would
+ * rather point than remember the word.
+ *
+ * Two things matter: the tag must reach `onAddTag` as an ordinary chip, and
+ * none of it may touch the send path. The queue and interrupt behaviour (#352)
+ * is the composer's hardest-won contract, and a new control beside the box is
+ * exactly how that kind of thing gets broken.
+ */
+const ARTIFACT_TAG_REF = { type: 'deliverable' as const, id: 'artifact', label: 'Artifact' };
+const PAGE_TAG_REF = { type: 'page' as const, id: '/dashboard/deals/12', label: 'Acme renewal' };
+// Stable identity: `tagSearch` is an effect dependency, and an inline arrow
+// would re-resolve the popover on every render.
+const TAG_SEARCH = async (q: string) =>
+  [ARTIFACT_TAG_REF, PAGE_TAG_REF].filter(r => r.label.toLowerCase().includes(q.toLowerCase()));
+
+describe('ChatComposer @artifact and the (+) menu', () => {
+  it('has no (+) unless the surface offers something, so a bare composer is unchanged', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
+
+    expect(page.getByTestId('composer-attach').elements()).toHaveLength(0);
+  });
+
+  it('lists what can be pulled into the turn, with the tag each one types', async () => {
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} attachable={[ARTIFACT_TAG_REF, PAGE_TAG_REF]} />,
+    );
+
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    const items = page.getByTestId('composer-attach-item');
+
+    await expect.element(items.nth(0)).toHaveTextContent('Artifact');
+    await expect.element(items.nth(0)).toHaveTextContent('@artifact');
+    await expect.element(items.nth(1)).toHaveTextContent('Acme renewal');
+    await expect.element(items.nth(1)).toHaveTextContent('@page');
+  });
+
+  it('injects the tag into the text at the caret — no hidden state, no new event', async () => {
+    const onChange = vi.fn();
+    await render(
+      <ChatComposer value="summarise this" onChange={onChange} onSubmit={() => {}} attachable={[ARTIFACT_TAG_REF]} />,
+    );
+
+    // Caret between "summarise" and " this".
+    const box = page.getByRole('textbox').element() as HTMLTextAreaElement;
+    box.setSelectionRange(9, 9);
+    box.dispatchEvent(new Event('select', { bubbles: true }));
+
+    await userEvent.click(page.getByTestId('composer-attach'));
+    await userEvent.click(page.getByTestId('composer-attach-item').first());
+
+    expect(onChange).toHaveBeenCalledWith('summarise @artifact this');
+  });
+
+  it('offers the tag in the same popover `@` opens, and picking it makes the same chip', async () => {
+    const onAddTag = vi.fn();
+    const onChange = vi.fn();
+    await render(
+      <ChatComposer
+        value="@artifa"
+        onChange={onChange}
+        onSubmit={() => {}}
+        onAddTag={onAddTag}
+        tagSearch={TAG_SEARCH}
+      />,
+    );
+
+    // Listed in the same listbox `@team` uses, and picked the same way.
+    await expect.element(page.getByRole('listbox', { name: 'Tag a record' })).toBeInTheDocument();
+    await expect.element(page.getByRole('option', { name: /Artifact/ })).toHaveAttribute('aria-selected', 'true');
+
+    await userEvent.click(page.getByRole('textbox'));
+    await userEvent.keyboard('{Enter}');
+
+    expect(onAddTag).toHaveBeenCalledWith(ARTIFACT_TAG_REF);
+    // The mention never reaches the model as text — the chip carries it, the
+    // way every other ref does.
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+
+  it('renders a picked tag as the same chip every other ref gets', async () => {
+    await render(
+      <ChatComposer value="" onChange={() => {}} onSubmit={() => {}} tags={[ARTIFACT_TAG_REF]} onRemoveTag={() => {}} />,
+    );
+
+    await expect.element(page.getByTestId('composer-tag')).toHaveTextContent('Artifact');
+  });
+
+  it('leaves Enter-sends alone with the tag on (#352)', async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <ChatComposer
+        value="ship it"
+        onChange={() => {}}
+        onSubmit={onSubmit}
+        tags={[ARTIFACT_TAG_REF]}
+        attachable={[ARTIFACT_TAG_REF]}
+      />,
+    );
+
+    await userEvent.click(page.getByRole('textbox'));
+    await userEvent.keyboard('{Enter}');
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it('leaves Enter-queues-mid-turn alone with the tag on, and never disables the box (#352)', async () => {
+    const onSubmit = vi.fn();
+    const onQueue = vi.fn();
+    await render(
+      <ChatComposer
+        value="and skip the closed ones"
+        onChange={() => {}}
+        onSubmit={onSubmit}
+        streaming
+        onQueue={onQueue}
+        onStop={() => {}}
+        tags={[ARTIFACT_TAG_REF]}
+        attachable={[ARTIFACT_TAG_REF]}
+      />,
+    );
+
+    await expect.element(page.getByRole('textbox')).toBeEnabled();
+
+    await userEvent.click(page.getByRole('textbox'));
+    await userEvent.keyboard('{Enter}');
+
+    expect(onQueue).toHaveBeenCalledWith('and skip the closed ones');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

@@ -15,7 +15,9 @@ import type {
 import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
+import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { client } from '@/libs/Orpc';
+import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { defaultAgentSlug, parseSearchCommand, routeTurn, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
@@ -138,7 +140,9 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
   const messages: ChatMessage[] = rows.map((row) => {
     const runsRaw = Array.isArray(row.runsJson) ? (row.runsJson as AgentRun[]) : [];
     const runs = runsRaw.length > 0
-      ? runsRaw.map(run => (run.type === 'tool' ? { ...run, state: 'done' as const } : run))
+      // A stored `state` wins: a step that failed must still read as failed
+      // after a reload. Only a step that stored none is assumed to have landed.
+      ? runsRaw.map(run => (run.type === 'tool' ? { ...run, state: run.state ?? ('done' as const) } : run))
       : (row.role === 'assistant' && row.content ? [{ type: 'text' as const, text: row.content }] : undefined);
     const docs = Array.isArray(row.documentsJson) ? (row.documentsJson as IndexedDocument[]) : undefined;
     if (docs) {
@@ -584,9 +588,24 @@ export function useChatSession({
       case 'recommended_action': {
         // A2UI: attach a clickable action card to the current answer. No side
         // effect yet — the gated review item is created only if the user taps.
+        //
+        // Checked HERE, at the boundary, because a card is one tap (or, at
+        // act-within-bounds, zero taps) from an RPC: a payload with no
+        // actionId used to reach the card and fire `review.propose` with
+        // `undefined`, which the server rejected as a 400. An invalid
+        // recommendation now becomes a visible failed step in the trace and
+        // never becomes a card.
         flushDeltas();
-        const recommendation = evt.recommendation as NonNullable<ChatMessage['recommendations']>[number];
-        appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), recommendation] }));
+        const checked = readRecommendedAction(evt.recommendation);
+        if (!checked.ok) {
+          console.warn(`useChatSession: dropped an invalid recommended_action — ${checked.reason}`);
+          appendToLatestAgent(m => ({
+            ...m,
+            runs: [...(m.runs ?? []), { type: 'tool', name: 'recommend_action', state: 'error', output: checked.reason }],
+          }));
+          return;
+        }
+        appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), checked.rec] }));
         return;
       }
       case 'done':
@@ -967,12 +986,18 @@ export function useChatSession({
 
     const refs = contextRefs;
     setContextRefs([]);
+    // What the NEXT message owes (0102), read off the tags the person put on
+    // it: `@artifact` arms the contract, nothing else does. The tag is not a
+    // record, so it is stripped before `context_refs` travels — the model is
+    // never handed "a record called Artifact".
+    const deliverable = deliverableFromRefs(refs);
+    const recordRefs = refs.filter(r => !isArtifactTag(r));
     // `@agent` / `@team` routes THIS turn to a specialist; the conversation
     // stays with its own agent and the reply is rendered under the
     // specialist's name (§9).
     const onceSlug = routeOnceRef.current;
     routeOnceRef.current = null;
-    const routed = searchAgent ?? routeTurn(refs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
+    const routed = searchAgent ?? routeTurn(recordRefs, agents) ?? (onceSlug ? agents.find(a => a.slug === onceSlug) ?? null : null);
     const turnAgent = routed ?? agent;
     if (routed && routed.slug !== agent.slug) {
       appendToLatestAgent(m => ({ ...m, agentSlug: routed.slug, agentName: routed.name }));
@@ -1004,11 +1029,14 @@ export function useChatSession({
         body: JSON.stringify({
           message: text,
           agent_slug: turnAgent.slug,
+          // The turn's deliverable contract (0102) — a typed field, decided
+          // before the turn runs, not a judgement the model makes during it.
+          deliverable,
           // R4: page context travels on every surface; a scoped dock also sends
           // its scope so the server folds it in as a ref (mergeScopeRef).
           ...(pageContextRef.current ? { page_context: pageContextRef.current } : {}),
           ...(scopeRef ? { scope_ref: scopeRef } : {}),
-          ...(refs.length > 0 ? { context_refs: refs } : {}),
+          ...(recordRefs.length > 0 ? { context_refs: recordRefs } : {}),
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),

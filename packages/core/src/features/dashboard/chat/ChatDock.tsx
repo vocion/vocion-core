@@ -36,7 +36,7 @@ import {
   writeStoredRailWidth,
 } from './railState';
 import { parseSearchCommand } from './routing';
-import { useTagSearch } from './tagSearch';
+import { useComposerTags } from './tagSearch';
 import { useChatSession } from './useChatSession';
 
 export type ChatDockProps = {
@@ -208,7 +208,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
   const queueProps = useComposerQueueProps(session);
-  const tagSearch = useTagSearch(agents);
+  // The rail IS on a page, so `(+)` offers `@page` and the record in view
+  // beside `@artifact` — the same list `@` resolves against.
+  const tagProps = useComposerTags(agents, effectiveContext);
   // Latest session for the request listener (registered once, on mount).
   const sessionRef = useRef(session);
   useEffect(() => {
@@ -622,6 +624,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           disabled={!session.booted}
           streaming={session.isStreaming}
           {...queueProps}
+          {...tagProps}
           onStop={session.handleStop}
           placeholder={session.composerPlaceholder}
           commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
@@ -632,7 +635,6 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           tags={session.contextRefs}
           onAddTag={session.addContextRef}
           onRemoveTag={session.removeContextRef}
-          tagSearch={tagSearch}
         />
       </div>
     </>

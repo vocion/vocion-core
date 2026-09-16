@@ -177,3 +177,91 @@ describe('traceEmitter — delegation + nested specialist work', () => {
     expect(del[0]?.label).toBe('Delegating to GTM ROI Analyst');
   });
 });
+
+/**
+ * A delegation that FAILS. Until 2026-09-16 the emitter had no case for either
+ * shape a failure arrives in, so a turn whose hand-off blew up persisted a
+ * trace with exactly one node — `{ kind: 'delegate', status: 'start' }` — and
+ * no terminal node of any kind. From the transcript, a specialist that died
+ * was indistinguishable from one still working.
+ */
+describe('traceEmitter — a delegation that fails', () => {
+  function delegate(em: TraceEmitter) {
+    return em.handle({
+      event: 'on_tool_start',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Full pipeline health report for today' }) } },
+    });
+  }
+
+  it('closes the node as an error when nothing caught the failure (on_tool_error)', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+
+    const failed = em.handle({
+      event: 'on_tool_error',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { error: new Error('the specialist could not be reached') },
+    });
+
+    expect(failed[0]).toMatchObject({ id: TASK_ID, kind: 'delegate', status: 'error' });
+    expect(failed[0]?.label).toBe('Pipeline Analyst could not finish');
+    expect(failed[0]?.result).toContain('could not be reached');
+    // Nothing is left hanging.
+    expect(em.openDelegationNames()).toEqual([]);
+  });
+
+  it('closes the node as an error when the graph caught it and returned an error ToolMessage', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+
+    const failed = em.handle({
+      event: 'on_tool_end',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { output: { status: 'error', content: 'Error: subagent "pipeline-analyst" not found\n Please fix your mistakes.' } },
+    });
+
+    expect(failed[0]).toMatchObject({ kind: 'delegate', status: 'error' });
+    // The boilerplate the tool node wraps around a thrown error is stripped.
+    expect(failed[0]?.result).toBe('subagent "pipeline-analyst" not found');
+  });
+
+  it('marks an ordinary tool that failed as failed, not as used', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    em.handle({ event: 'on_tool_start', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:t9' }, data: { input: { input: '{"type_slug":"deal"}' } } });
+    const failed = em.handle({
+      event: 'on_tool_end',
+      name: 'lookup_objects',
+      metadata: { checkpoint_ns: 'tools:t9' },
+      data: { output: { status: 'error', content: 'Error: object type not found' } },
+    });
+
+    expect(failed[0]).toMatchObject({ kind: 'tool', status: 'error' });
+    expect(failed[0]?.label).toContain('failed');
+  });
+
+  it('closes still-open delegations when the run itself dies', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+
+    expect(em.openDelegationNames()).toEqual(['Pipeline Analyst']);
+
+    const closed = em.closeDelegations('agent run failed');
+
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({ id: TASK_ID, kind: 'delegate', status: 'error', result: 'agent run failed' });
+    expect(em.openDelegationNames()).toEqual([]);
+  });
+
+  it('leaves a delegation that succeeded alone', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+    const done = em.handle({ event: 'on_tool_end', name: 'task', metadata: { checkpoint_ns: `tools:${TASK_ID}` }, data: { output: { status: 'success', content: 'here is the summary' } } });
+
+    expect(done[0]).toMatchObject({ status: 'done' });
+    expect(em.closeDelegations('never mind')).toHaveLength(0);
+  });
+});

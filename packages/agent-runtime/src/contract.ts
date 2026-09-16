@@ -124,6 +124,20 @@ export type InvocationRequest = {
   version: 1;
   agent: AgentDefinition;
   message: string;
+  /**
+   * What this turn owes the person, decided by core BEFORE the turn runs and
+   * carried here as a typed field rather than as prompt wording:
+   *
+   *   `artifact`  the turn must end with an artifact beside the conversation —
+   *               call a `render_*` tool. Core guarantees one either way (it
+   *               wraps or stubs the answer when the loop produced none), so a
+   *               loop that renders its own is strictly better than one that
+   *               gets wrapped.
+   *   `answer`    the reply is the whole deliverable.
+   *
+   * Absent means `answer`. See vocion-core `libs/chat/deliverable.ts`.
+   */
+  deliverable?: 'artifact' | 'answer';
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Playbooks + learnings, pre-rendered by core (deepagents FileData shape). */
   files?: Record<string, MountedFile>;

@@ -34,6 +34,25 @@ const PLAYBOOK_BODY = '# House style\n\nWrite plainly.\n';
 mkdirSync(join(WORKSPACE, 'skills', 'write-lead-brief'), { recursive: true });
 writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'SKILL.md'), SKILL_BODY);
 writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'examples.md'), 'an example');
+// A skill authored the way every Vocion workspace (and this repo's own base
+// pack) authors one: `slug` is the identity, `name` is a human label. The
+// Agent Skills spec deepagents enforces expects `name` to BE the identity, so
+// the mount rewrites it — see libs/skills/name.ts.
+const NAMED_SKILL_BODY = [
+  '---',
+  'slug: queue-health',
+  'name: Queue Health',
+  'description: >-',
+  '  Report on the review queue as a process.',
+  'version: 1',
+  '---',
+  '',
+  '# Queue health',
+  '',
+  'Read the queue.',
+].join('\n');
+mkdirSync(join(WORKSPACE, 'skills', 'queue-health'), { recursive: true });
+writeFileSync(join(WORKSPACE, 'skills', 'queue-health', 'SKILL.md'), NAMED_SKILL_BODY);
 mkdirSync(join(WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
 writeFileSync(join(WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'), PLAYBOOK_BODY);
 // Two awkward but perfectly legal filenames living inside the playbook
@@ -95,6 +114,16 @@ beforeEach(async () => {
     },
     {
       orgId: ORG,
+      slug: 'queue-health',
+      name: 'Queue Health',
+      description: 'Report on the review queue as a process.',
+      kind: 'skill',
+      origin: 'workspace',
+      contentSha: 'sha-queue-health',
+      sourceFiles: [],
+    },
+    {
+      orgId: ORG,
       slug: 'house-style',
       name: 'House style',
       description: 'How we write.',
@@ -151,6 +180,22 @@ describe('mountSkills', () => {
 
     expect(files['/skills/write-lead-brief/SKILL.md']).toBe(SKILL_BODY);
     expect(files['/skills/write-lead-brief/examples.md']).toBe('an example');
+  });
+
+  it('hands deepagents a spec-compliant `name` without touching the body', async () => {
+    process.env.WORKSPACE_PATH = WORKSPACE;
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['queue-health'], playbookSlugs: [] });
+    const mounted = files['/skills/queue-health/SKILL.md']!;
+
+    // `name` is the slug, which is what the Agent Skills validator reads and
+    // what stopped it warning on every turn.
+    expect(mounted).toContain('name: queue-health');
+    // The human label survives, so nothing that reads the catalog loses it.
+    expect(mounted).toContain('title: Queue Health');
+    // Everything else, including the markdown, is byte-for-byte as authored.
+    expect(mounted).toContain('description: >-');
+    expect(mounted).toContain('# Queue health\n\nRead the queue.');
   });
 
   it('a mounted skill pulls its attached playbooks along', async () => {

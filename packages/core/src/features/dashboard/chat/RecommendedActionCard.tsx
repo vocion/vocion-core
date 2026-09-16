@@ -58,6 +58,14 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   const autoFiredRef = useRef(rec.runId !== undefined);
 
   const prepare = async () => {
+    // Belt and braces behind `readRecommendedAction` (the event boundary): a
+    // card with no action names nothing to propose, and firing the RPC anyway
+    // is how two 400s reached production. Nothing here recovers from it —
+    // this is the last place that can refuse to make the call.
+    if (!rec.actionId) {
+      setPhase({ status: 'error', message: 'This recommendation named no action, so there is nothing to prepare.' });
+      return;
+    }
     setPhase({ status: 'working' });
     try {
       const res = await client.review.propose({
@@ -90,7 +98,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   };
 
   useEffect(() => {
-    if (autoPropose && !autoFiredRef.current) {
+    if (autoPropose && !autoFiredRef.current && rec.actionId) {
       autoFiredRef.current = true;
       // Proposing IS the effect here: the thread runs at act-within-bounds,
       // so the card fires its one network call the moment it appears.

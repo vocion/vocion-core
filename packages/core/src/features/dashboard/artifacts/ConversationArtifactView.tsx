@@ -30,6 +30,7 @@ import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
+import { useComposerTags } from '@/features/dashboard/chat/tagSearch';
 import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
 import { useChatSession } from '@/features/dashboard/chat/useChatSession';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
@@ -106,6 +107,11 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   // and the rail, so it takes the same queue props — a queue that worked on
   // two surfaces out of three would read as a bug.
   const queueProps = useComposerQueueProps(session);
+  // The open artifact is this surface's record, so `(+)` offers it alongside
+  // `@artifact` and `@page` — and the `@` popover resolves the same list. All
+  // three surfaces get the tags, because one that only worked on two of them
+  // would read as a bug.
+  const tagProps = useComposerTags(props.agents, pageContext);
 
   // Open THIS conversation (the hook boots on the last-viewed pointer).
   useEffect(() => {
@@ -201,11 +207,15 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
               disabled={!session.booted}
               streaming={session.isStreaming}
               {...queueProps}
+              {...tagProps}
               onStop={session.handleStop}
               placeholder={session.composerPlaceholder}
               pastedText={session.pastedText}
               onPasteText={session.setPastedText}
               onClearPasted={() => session.setPastedText(null)}
+              tags={session.contextRefs}
+              onAddTag={session.addContextRef}
+              onRemoveTag={session.removeContextRef}
             />
           </div>
         </div>
