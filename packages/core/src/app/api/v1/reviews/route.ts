@@ -33,6 +33,14 @@ import { authApi, isErrorResponse, readPagination, writeApiErrorResponse } from 
  *   item nobody has decided is exactly what a paused workflow is. Composes
  *   with `actionIds`, `suggestedDecision` and `assignedTo`. Any other value is
  *   a 400, never a silent whole-queue read.
+ * - `include` — `input`, `proposal` or both, comma-separated, to have those
+ *   payloads inlined on each item rather than fetched one detail request at a
+ *   time. A client that buckets the queue by something inside the payload —
+ *   a date, a venue, whether the record is complete — otherwise makes one
+ *   request per item to build a single screen. Opt-in because the payload is
+ *   unbounded: a page of thin rows is a few KB and the same page carrying
+ *   inputs can be a megabyte. Only action items have either payload to give.
+ *   An unrecognised value is a 400, never a silent fall back to thin rows.
  * - `assignedTo` — a user id for that person's queue, or `unassigned` for triage.
  * - `includeSnoozed` — `true` to include items delayed into the future.
  * - `limit`, `offset` — the page window. The response carries the real total.
@@ -49,6 +57,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const { limit, offset } = readPagination(url);
   const actionIds = url.searchParams.get('actionIds');
+  const include = url.searchParams.get('include');
   try {
     if (url.searchParams.get('types') === '1') {
       return NextResponse.json({ types: await apiListReviewTypes(caller) });
@@ -57,6 +66,7 @@ export async function GET(req: Request) {
       assignedTo: url.searchParams.get('assignedTo') ?? undefined,
       kind: url.searchParams.get('kind') ?? undefined,
       actionIds: actionIds === null ? undefined : actionIds.split(',').map(s => s.trim()).filter(Boolean),
+      include: include === null ? undefined : include.split(',').map(s => s.trim()).filter(Boolean),
       suggestedDecision: url.searchParams.get('suggestedDecision') ?? undefined,
       approvedByAgent: url.searchParams.get('approvedByAgent') ?? undefined,
       includeSnoozed: url.searchParams.get('includeSnoozed') === 'true',
