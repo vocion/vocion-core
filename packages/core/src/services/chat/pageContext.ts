@@ -36,6 +36,8 @@ export const RECORD_TYPES = [
   'artifact',
   /** An ingested knowledge document — a Search result opened on its own page. */
   'document',
+  /** A researched lead brief (`lead_brief`), the GTM review queue's unit. */
+  'lead',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

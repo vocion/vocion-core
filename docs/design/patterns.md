@@ -316,6 +316,73 @@ confidence is not comparable; the raw number goes behind Evidence, labelled.
 An audit ledger that asserts a probability it cannot justify is worse than one
 that admits it does not know.
 
+## Staying put — select, preview, rail
+
+Three mechanisms in this app exist for one reason: *do not make me leave this
+page.* They must read as one system, not three products, so they share one
+surface, one keyboard and one anatomy.
+
+| | The thing is… | The gesture | Lives in |
+|---|---|---|---|
+| **Select → talk** | **on this page**, in the text I am reading | select it, ask about it | `features/comments` (`AnchoredComments`), the rail |
+| **Preview** | **on another page** | click the reference, peek | `features/preview` |
+| **The rail** | the conversation itself | ⌘J, always one keystroke away | `features/dashboard/chat` |
+
+**The test that separates the first two: is the content already rendered on
+this page?** If yes, it is a selection — never a preview, and never an inline
+expansion of something already visible. If it lives elsewhere, it is a
+preview — never an inline expansion here.
+
+### When to preview
+
+- **Preview** when a person is mid-task and needs to *confirm* a reference
+  without losing their place: deciding on a proposal, reading a brief, in a
+  chat turn, scanning a list. It answers "is this the right thing, and what
+  does it say".
+- **Navigate** when the reference *becomes* the task. The preview always
+  carries the link to the full page; it never replaces it.
+- **Do not preview** something already fully visible in place, and do not
+  preview an action. A decision is a detail page, not a peek.
+
+### The contract
+
+- **One at a time, on the right.** The preview takes the rail's slot and
+  stacks over it; the rail keeps its state and comes back when the preview
+  closes. Never two panels, never a third column. Opening a preview while a
+  selection control is up dismisses the control.
+- **Same keyboard everywhere.** Escape closes and returns focus to whatever
+  opened it. The page's own shortcuts — the decision verbs, `j`/`k` — keep
+  working underneath: the panel never takes focus, because a reviewer must
+  still be able to approve with `a` while reading the evidence they are
+  approving on. That is the difference between a peek and a dialog.
+- **Same anatomy.** Header with the source chip and the link out, then the
+  body. Nothing else. A preview never carries actions that belong to the
+  detail page.
+- **Same entry gesture.** Click a reference to preview it; the header link (or
+  ⌘-click) goes there properly.
+- **A preview is a place.** It lives in the URL (`?preview=<type>:<id>`), so it
+  is linkable, survives a reload, and Back closes it.
+
+### Adding a type
+
+The seam is `RecordRef` (`services/chat/pageContext.ts`). Everything that
+points at a thing already is one: evidence items, `@` mentions, inbox rows,
+search results, artifact links, briefing claims, CRM subjects. A record type
+opts into preview by adding **one descriptor** to
+`services/preview/registry.ts` — `{ sourceLabel, href?, resolve }` — the way a
+vendor opts in by adding one to `libs/platforms/registry.ts`. Nothing in the
+panel, the router or any calling surface enumerates types, so the descriptor is
+the whole change and every surface that renders a ref gets it for free.
+
+Resolvers read **mirrors** (`knowledge_document`, first-party tables), never
+the external system: a peek must cost a query, not someone else's rate limit.
+A type with no descriptor, or a reference with no synced copy, renders the raw
+reference and its link with the reason — never a crash, never a blank panel.
+
+A surface consumes it by rendering `<EvidenceRefs sources={…} />` (citations)
+or `<PreviewRef recordRef={…} />` (a typed ref) from `features/preview`. Render
+the panel anywhere; only the first mounted host paints.
+
 ## Do / don't
 
 - **Do** draw hairlines (`border-rule`, `divide-rule`) between things. **Don't**

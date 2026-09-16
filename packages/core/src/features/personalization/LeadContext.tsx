@@ -4,6 +4,8 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DetailColumns, EvidenceList, RightColumn, Section } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
+import { EvidenceRef } from '@/features/preview/EvidenceRefs';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { confidenceLevel } from './confidence';
 import { RegenerateBriefControl } from './RegenerateBriefControl';
 
@@ -154,7 +156,9 @@ const BriefZone = ({ row }: { row: LeadDossier }) => (
       <EvidenceList
         items={row.claims.map(c => ({ text: c.text, kind: c.kind, source: c.source, date: c.date, key: `${c.kind}-${c.source}-${c.text}` }))}
         empty="No claims recorded."
+        renderSource={source => <EvidenceRef source={source} className="w-auto py-0" />}
       />
+      <PreviewPanel />
     </Section>
 
     {/* A ghost verb, not the page's primary: sending the brief back is rare. */}

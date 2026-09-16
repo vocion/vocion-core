@@ -21,6 +21,7 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   conversation: () => '/dashboard/chat',
   artifact: id => `/dashboard/artifacts/${encodeURIComponent(id)}`,
   document: id => `/dashboard/search/${encodeURIComponent(id)}`,
+  lead: id => `/gtm/lead/${encodeURIComponent(id.split(':').pop() ?? id)}`,
   // A `@page` tag points at wherever the person already is — no record route.
   page: () => undefined,
 };

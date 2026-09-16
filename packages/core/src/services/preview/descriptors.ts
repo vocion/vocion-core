@@ -1,0 +1,284 @@
+import type { PreviewDoc, PreviewFact } from '@/libs/preview/types';
+import type { RecordRef } from '@/services/chat/pageContext';
+import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
+import { and, asc, desc, eq } from 'drizzle-orm';
+import { db } from '@/libs/DB';
+import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema } from '@/models/Schema';
+import { findDocumentForCitation } from './documentRef';
+import { registerPreview } from './registry';
+
+/**
+ * Every record type that can be previewed today, one descriptor each.
+ *
+ * Importing this module registers them. `routers/Preview.ts` is the only
+ * importer, because registration must happen exactly once and on the server.
+ *
+ * All of these read a first-party table or the `knowledge_document` mirror.
+ * None makes an outbound call: the connectors already synced this data, and a
+ * peek must not cost a round trip to someone else's API or spend a rate limit
+ * on a glance.
+ */
+
+/** Long bodies are cut; the panel links to the page that holds the rest. */
+const BODY_LIMIT = 6000;
+
+function body(text: string | null | undefined): { body?: string; truncated?: boolean } {
+  const t = (text ?? '').trim();
+  if (!t) {
+    return {};
+  }
+  return t.length > BODY_LIMIT ? { body: `${t.slice(0, BODY_LIMIT)}…`, truncated: true } : { body: t };
+}
+
+function when(date: Date | null | undefined): string | null {
+  return date ? date.toISOString().slice(0, 16).replace('T', ' ') : null;
+}
+
+function facts(...items: Array<PreviewFact | null | false | undefined | ''>): PreviewFact[] {
+  return items.filter((f): f is PreviewFact => typeof f === 'object' && f !== null && Boolean(f.value));
+}
+
+/**
+ * How a mirrored document names itself, per the connector that ingested it.
+ * @param doc
+ */
+function documentSourceLabel(doc: KnowledgeDocumentDetail): string {
+  const kind = String(doc.metadata.kind ?? '');
+  if (kind === 'granola-note') {
+    return 'Granola';
+  }
+  if (kind === 'zoom-recording') {
+    return 'Zoom';
+  }
+  if (kind === 'gmail-thread' || kind === 'gmail-message') {
+    return 'Gmail';
+  }
+  if (kind === 'calendar-event') {
+    return 'Calendar';
+  }
+  if (doc.metadata.objectType) {
+    return 'HubSpot';
+  }
+  const slug = doc.sourceSlug.split('-')[0] ?? doc.sourceSlug;
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
+}
+
+/**
+ * A mirrored document as a preview. The shape every source kind lands in.
+ * @param ref
+ * @param doc
+ */
+function documentPreview(ref: RecordRef, doc: KnowledgeDocumentDetail): PreviewDoc {
+  const meta = doc.metadata;
+  const str = (k: string) => (typeof meta[k] === 'string' && meta[k] ? meta[k] : null);
+  const participants = Array.isArray(meta.participants)
+    ? meta.participants.filter((p): p is string => typeof p === 'string').join(', ')
+    : str('participants');
+  return {
+    ref,
+    // Never the external id: a document with no title says what it is.
+    title: doc.title?.trim() || `${documentSourceLabel(doc)} document`,
+    sourceLabel: documentSourceLabel(doc),
+    subtitle: str('summary') ?? undefined,
+    facts: facts(
+      str('from') && { label: 'From', value: str('from')! },
+      str('to') && { label: 'To', value: str('to')! },
+      participants && { label: 'Participants', value: participants },
+      str('startTime') && { label: 'Started', value: str('startTime')! },
+      { label: 'Updated', value: when(doc.lastModifiedAt ?? doc.ingestedAt) ?? '' },
+      { label: 'Source', value: doc.sourceSlug },
+      str('objectType') && { label: 'Object', value: str('objectType')! },
+    ),
+    ...body(doc.content),
+    href: `/dashboard/search/${doc.id}`,
+    externalHref: doc.uri ?? str('recordingUrl') ?? undefined,
+  };
+}
+
+/**
+ * Resolve any citation that names ingested content — the evidence kinds
+ * (granola / zoom / gmail / docuseal / …) and the Search detail page's own
+ * numeric document ids, which arrive here as `document:<n>`.
+ * @param ref
+ * @param ctx
+ * @param ctx.orgId
+ * @param ctx.userId
+ */
+async function resolveDocument(ref: RecordRef, ctx: { orgId: string; userId: string | null }): Promise<PreviewDoc | null> {
+  const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
+  const { getDocument } = await import('@/services/SourceSyncService');
+  const allowed = ctx.userId ? await allowedSourceSlugsForUser(ctx.orgId, ctx.userId) : undefined;
+  const numeric = /^\d+$/.test(ref.id) ? Number.parseInt(ref.id, 10) : null;
+  const hit = numeric === null ? await findDocumentForCitation(ctx.orgId, ref.id, allowed) : null;
+  const id = numeric ?? hit?.id ?? null;
+  if (id === null) {
+    return null;
+  }
+  const doc = await getDocument(ctx.orgId, id, allowed ? { allowedSourceSlugs: allowed } : {});
+  return doc ? documentPreview(ref, doc) : null;
+}
+
+registerPreview('document', { sourceLabel: 'Document', resolve: resolveDocument });
+
+// A CRM subject is a mirrored HubSpot record; `deals:123` / `contacts:9412`
+// are exactly the external ids the connector wrote, so the same resolver
+// answers both. `object` also carries non-CRM business objects, which have
+// their own page and no ingested copy — those fall through to unresolved.
+registerPreview('deal', { sourceLabel: 'HubSpot', resolve: resolveDocument });
+registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveDocument });
+
+registerPreview('artifact', {
+  sourceLabel: 'Artifact',
+  href: ref => `/dashboard/artifacts/${ref.id}`,
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const [row] = await db
+      .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, spec: artifactSchema.spec, url: artifactSchema.url, folder: artifactSchema.folder, version: artifactSchema.currentVersion, updatedAt: artifactSchema.updatedAt, author: artifactSchema.lastAuthorId })
+      .from(artifactSchema)
+      .where(and(eq(artifactSchema.orgId, ctx.orgId), eq(artifactSchema.id, id)))
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    const spec = row.spec as Record<string, unknown>;
+    const text = typeof spec.markdown === 'string' ? spec.markdown : typeof spec.text === 'string' ? spec.text : null;
+    return {
+      ref,
+      title: row.title,
+      sourceLabel: 'Artifact',
+      subtitle: row.folder ?? undefined,
+      facts: facts(
+        { label: 'Kind', value: row.kind },
+        { label: 'Version', value: String(row.version) },
+        row.author && { label: 'Last edited by', value: row.author },
+        { label: 'Updated', value: when(row.updatedAt) ?? '' },
+      ),
+      ...body(text),
+      externalHref: row.url ?? undefined,
+    };
+  },
+});
+
+registerPreview('briefing', {
+  sourceLabel: 'Briefing',
+  href: ref => `/dashboard/briefings/${ref.id}`,
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const [row] = await db
+      .select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, teamSlug: briefingSchema.teamSlug, agentSlug: briefingSchema.agentSlug, createdAt: briefingSchema.createdAt })
+      .from(briefingSchema)
+      .where(and(eq(briefingSchema.orgId, ctx.orgId), eq(briefingSchema.id, id)))
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    return {
+      ref,
+      title: row.title,
+      sourceLabel: 'Briefing',
+      facts: facts(
+        { label: 'Scope', value: row.teamSlug ?? 'Workspace rollup' },
+        row.agentSlug && { label: 'Published by', value: row.agentSlug },
+        { label: 'Published', value: when(row.createdAt) ?? '' },
+      ),
+      ...body(row.content),
+    };
+  },
+});
+
+registerPreview('conversation', {
+  sourceLabel: 'Conversation',
+  href: ref => `/dashboard/chat?c=${encodeURIComponent(ref.id)}`,
+  resolve: async (ref, ctx) => {
+    const id = Number.parseInt(ref.id, 10);
+    if (!Number.isSafeInteger(id)) {
+      return null;
+    }
+    const [row] = await db
+      .select({ id: conversationSchema.id, title: conversationSchema.title, agentSlug: conversationSchema.agentSlug, surface: conversationSchema.surface, createdBy: conversationSchema.createdBy, createdAt: conversationSchema.createdAt })
+      .from(conversationSchema)
+      .where(and(eq(conversationSchema.orgId, ctx.orgId), eq(conversationSchema.id, id)))
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    const messages = await db
+      .select({ role: conversationMessageSchema.role, content: conversationMessageSchema.content })
+      .from(conversationMessageSchema)
+      .where(eq(conversationMessageSchema.conversationId, id))
+      .orderBy(asc(conversationMessageSchema.id))
+      .limit(12);
+    return {
+      ref,
+      title: row.title,
+      sourceLabel: 'Conversation',
+      facts: facts(
+        { label: 'Agent', value: row.agentSlug },
+        { label: 'Surface', value: row.surface },
+        row.createdBy && { label: 'Started by', value: row.createdBy },
+        { label: 'Started', value: when(row.createdAt) ?? '' },
+      ),
+      ...body(messages.map(m => `**${m.role}**\n\n${m.content}`).join('\n\n')),
+    };
+  },
+});
+
+registerPreview('lead', {
+  sourceLabel: 'Lead',
+  resolve: async (ref, ctx) => {
+    // Addressed either by row id or by the CRM ref the brief was built for.
+    const id = /^\d+$/.test(ref.id) ? Number.parseInt(ref.id, 10) : null;
+    const [row] = await db
+      .select()
+      .from(leadBriefSchema)
+      .where(and(eq(leadBriefSchema.orgId, ctx.orgId), id === null ? eq(leadBriefSchema.contactRef, ref.id) : eq(leadBriefSchema.id, id)))
+      .orderBy(desc(leadBriefSchema.id))
+      .limit(1);
+    if (!row) {
+      return null;
+    }
+    const hubspotId = row.contactRef.split(':').pop() ?? row.contactRef;
+    return {
+      ref,
+      title: row.contactName,
+      sourceLabel: 'Lead',
+      subtitle: [row.contactTitle, row.companyName].filter(Boolean).join(' · ') || undefined,
+      facts: facts(
+        { label: 'Status', value: row.status },
+        { label: 'Trigger', value: row.triggerType },
+        row.entranceSource && { label: 'Source', value: row.entranceSource },
+        row.confidence !== null && { label: 'Confidence', value: `${Math.round(row.confidence * 100)}%` },
+        { label: 'Claims', value: String(row.claims.length) },
+      ),
+      ...body(row.sections.map(s => `**${s.heading}**\n\n${s.body}`).join('\n\n')),
+      href: `/gtm/lead/${encodeURIComponent(hubspotId)}`,
+    };
+  },
+});
+
+/**
+ * A plain external link. Nothing to resolve — the panel shows where it goes
+ * and hands over the link, labelled as leaving Vocion.
+ */
+registerPreview('page', {
+  sourceLabel: 'Link',
+  resolve: async (ref) => {
+    if (!/^https?:\/\//i.test(ref.id)) {
+      return null;
+    }
+    const url = new URL(ref.id);
+    return {
+      ref,
+      title: ref.label ?? url.hostname.replace(/^www\./, ''),
+      sourceLabel: 'Link',
+      facts: facts({ label: 'Address', value: ref.id }),
+      externalHref: ref.id,
+    };
+  },
+});

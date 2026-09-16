@@ -26,7 +26,6 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
     d.rationale ? `_${d.rationale}_` : null,
     facts || null,
   ].filter(Boolean).join('\n\n');
-  const evidence = d.evidence.length > 0 ? d.evidence.map(e => `- ${/^https?:\/\//.test(e) ? `<${e}>` : e}`).join('\n') : null;
   const raw = `\`\`\`json\n${JSON.stringify(row.input, null, 2)}\n\`\`\``;
 
   return {
@@ -40,7 +39,11 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
       { id: 'reject', label: 'Reject', description: 'Do not do this. Add a note and the team learns from it.', recommended: isRecommended(row, 'reject') },
     ],
     contextUrl: inboxHref('proposal', row.id),
-    contextMd: [evidence ? `**Evidence**\n\n${evidence}` : null, `**Payload**\n\n${raw}`].filter(Boolean).join('\n\n'),
+    // Evidence travels structurally, not as markdown bullets: each citation
+    // is a reference the reviewer can open in the preview panel without
+    // leaving the decision. See features/preview.
+    evidence: d.evidence,
+    contextMd: `**Payload**\n\n${raw}`,
     agentSlug: d.agentSlug,
     teamSlug: null,
     risk: null,

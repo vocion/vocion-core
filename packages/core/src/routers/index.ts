@@ -93,6 +93,7 @@ import {
 } from './Missions';
 import { dismiss as dismissNavPrompt, getPrefs as getNavPrefs, setPins as setNavPins } from './Nav';
 import { get as getPlaybook, list as listPlaybooks } from './Playbooks';
+import { getRoute as getPreviewRoute } from './Preview';
 import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile';
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
@@ -142,6 +143,9 @@ export const router = {
     writeFile,
     driftStatus: workspaceDriftStatus,
     applyNow: applyWorkspaceNow,
+  },
+  preview: {
+    get: getPreviewRoute,
   },
   playbooks: {
     list: listPlaybooks,
