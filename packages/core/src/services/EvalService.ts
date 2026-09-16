@@ -270,6 +270,69 @@ async function createPrimaryRun(
 }
 
 /**
+ * Create the run row a refresh will fill in, before the work starts.
+ *
+ * The refresh button needs somewhere to send the browser the moment it is
+ * pressed, and "somewhere" is a run page that says running. Creating the row
+ * here rather than inside the workflow is what makes that possible: the
+ * workflow is handed the same `runGroupId`, so its own `createPrimaryRun`
+ * finds this row and fills it in instead of opening a second one.
+ *
+ * Only the primary provider's row is created. A secondary provider's run is
+ * created when it starts scoring, because until the transcripts exist there is
+ * nothing for it to be running against.
+ * @param opts - Which dataset, under which run group, graded by whom.
+ * @param opts.orgId
+ * @param opts.datasetSlug
+ * @param opts.runGroupId
+ * @param opts.providerIds
+ */
+export async function createRefreshRun(opts: {
+  orgId: string;
+  datasetSlug: string;
+  runGroupId: string;
+  providerIds?: string[];
+}): Promise<{ runId: number; providerIds: string[] }> {
+  const dataset = await getDataset(opts.orgId, opts.datasetSlug);
+  if (!dataset) {
+    throw new Error(`dataset ${opts.datasetSlug} not found for org ${opts.orgId}`);
+  }
+  const providers = await resolveProviders(opts.orgId, opts.providerIds);
+  if (providers.length === 0) {
+    throw new Error(`no score provider is available for ${opts.orgId}`);
+  }
+  const workspaceSha = await getCurrentWorkspaceSha(opts.orgId).catch(() => null);
+
+  const runId = await createPrimaryRun({
+    orgId: opts.orgId,
+    datasetId: dataset.id,
+    datasetSlug: dataset.slug,
+    datasetVersion: dataset.version ?? null,
+    agentSlug: dataset.agentSlug,
+    workspaceSha: workspaceSha ?? null,
+    model: null,
+    runGroupId: opts.runGroupId,
+    transcripts: [],
+  }, providers[0]!.id);
+
+  return { runId, providerIds: providers.map(provider => provider.id) };
+}
+
+/**
+ * Mark a run failed when it could not be started at all.
+ *
+ * Used by the refresh route when Temporal is unreachable: the row already
+ * exists and saying running forever would be a lie the UI cannot recover from.
+ * @param runId - The row to close out.
+ */
+export async function failEvalRun(runId: number): Promise<void> {
+  await db
+    .update(evalRunSchema)
+    .set({ status: 'failed', completedAt: new Date() })
+    .where(eq(evalRunSchema.id, runId));
+}
+
+/**
  * File the run as an episode for the consolidation job to mine.
  *
  * Fire-and-forget, and a failure here is logged rather than propagated: the

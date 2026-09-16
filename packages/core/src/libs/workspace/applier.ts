@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -1006,6 +1006,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
   if (!existing) {
     if (!dryRun) {
       await db.insert(evalDatasetSchema).values(payload);
+      await upsertEvalEvaluators(orgId, ds);
     }
     return 'created';
   }
@@ -1017,12 +1018,71 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     && existing.version === payload.version
     && canonical(existing.items) === canonical(payload.items)
   ) {
+    if (!dryRun) {
+      await upsertEvalEvaluators(orgId, ds);
+    }
     return 'unchanged';
   }
   if (!dryRun) {
     await db.update(evalDatasetSchema).set(payload).where(eq(evalDatasetSchema.id, existing.id));
+    await upsertEvalEvaluators(orgId, ds);
   }
   return 'updated';
+}
+
+/**
+ * Record which evaluators this dataset wants, and nothing more.
+ *
+ * Apply writes desired state and stops. Creating a custom evaluator in the
+ * customer's AWS account is a network call, and apply makes none today — one
+ * unreachable AWS endpoint must not stop a workspace file landing its agents,
+ * its playbooks and everything else in the same pass. The remote create
+ * happens later in a Temporal activity, the same split `libs/sources/upsert.ts`
+ * and `SourceSyncService` already use.
+ *
+ * Rows keep any `remoteId` they already have, so re-applying an unchanged file
+ * never makes the next sync create a second evaluator in AWS.
+ * @param orgId - Whose workspace.
+ * @param ds - The dataset as authored, including any `evaluators` block.
+ */
+async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promise<void> {
+  const authored = ds.evaluators ?? [];
+  for (const evaluator of authored) {
+    // A built-in is named, not defined: there is nothing to create remotely,
+    // so each id becomes its own row and carries no config to sync.
+    const slugs = evaluator.builtin?.length
+      ? evaluator.builtin
+      : [evaluator.slug].filter((slug): slug is string => Boolean(slug));
+    for (const slug of slugs) {
+      const config = evaluator.builtin?.length
+        ? {}
+        : {
+            instructions: evaluator.instructions,
+            ratingScale: evaluator.ratingScale,
+            model: evaluator.model,
+            lambdaArn: evaluator.lambdaArn,
+          };
+      await db
+        .insert(evalEvaluatorSchema)
+        .values({
+          orgId,
+          datasetSlug: ds.slug,
+          provider: evaluator.provider,
+          slug,
+          level: evaluator.level ?? null,
+          config,
+        })
+        .onConflictDoUpdate({
+          target: [
+            evalEvaluatorSchema.orgId,
+            evalEvaluatorSchema.datasetSlug,
+            evalEvaluatorSchema.provider,
+            evalEvaluatorSchema.slug,
+          ],
+          set: { level: evaluator.level ?? null, config, updatedAt: new Date() },
+        });
+    }
+  }
 }
 
 /**

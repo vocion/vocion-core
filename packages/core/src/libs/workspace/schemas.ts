@@ -872,20 +872,104 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  * Eval dataset authoring schema (v0.2). Each
  * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
+/**
+ * One deterministic check we run ourselves.
+ *
+ * A closed list, deliberately. Arbitrary code in a manifest would need a
+ * sandbox and a timeout and would be a way out of the app; this covers what
+ * people mean by "check it actually did the thing", and the escape hatch for
+ * anything beyond it is an AgentCore `codeBased` evaluator — a Lambda the
+ * customer owns and deploys.
+ */
+const EvalCheckSchema = z.union([
+  z.object({ toolCalled: z.string() }),
+  z.object({ toolNotCalled: z.string() }),
+  z.object({ outputMatches: z.string().describe('regular expression the answer must match') }),
+  z.object({ outputContains: z.string() }),
+  z.object({ outputNotContains: z.string() }),
+  z.object({ latencyUnderMs: z.number().int().positive() }),
+  z.object({ turnsUnder: z.number().int().positive() }),
+]);
+
+/** A rating scale for a custom judge. Mirrors AgentCore's `RatingScale` union. */
+const RatingScaleSchema = z.union([
+  z.object({
+    categorical: z.array(z.object({
+      label: z.string(),
+      value: z.number(),
+      description: z.string().optional(),
+    })).min(1),
+  }),
+  z.object({
+    numerical: z.array(z.object({
+      value: z.number(),
+      description: z.string().optional(),
+    })).min(1),
+  }),
+]);
+
+/**
+ * Who grades this dataset, and with what.
+ *
+ * Three shapes, because the providers genuinely differ:
+ *
+ * - `provider: vocion` — our own judge and the `checks` on each case. Nothing
+ *   else to configure.
+ * - `provider: agentcore` with `builtin` — AWS's own evaluators, named by id.
+ *   `TrajectoryInOrderMatch` and friends cost no tokens; the rest are judges
+ *   and do.
+ * - `provider: agentcore` with `instructions` — a custom judge we create in
+ *   the customer's AWS account, so AgentCore stays the single place those run.
+ *
+ * `lambdaArn` is accepted and stored but nothing in this repo deploys it: a
+ * `codeBased` evaluator is a Lambda the customer builds themselves, and we
+ * only reference it. See `docs/guides/agentcore-evals.md`.
+ */
+const EvalEvaluatorManifestSchema = z.object({
+  provider: z.string().describe('vocion | agentcore'),
+  slug: SlugSchema.optional().describe('name for a custom evaluator; omit for built-ins'),
+  builtin: z.array(z.string()).optional().describe('AWS evaluator ids, e.g. Builtin.ToolSelectionAccuracy'),
+  level: z.enum(['TOOL_CALL', 'TRACE', 'SESSION']).optional(),
+  instructions: z.string().optional().describe('grading prompt for a custom judge'),
+  ratingScale: RatingScaleSchema.optional(),
+  model: z.string().optional().describe('which model judges; the provider default when omitted'),
+  lambdaArn: z.string().optional().describe('an existing Lambda the customer deployed; referenced, never created'),
+});
+
 export const EvalDatasetManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string(),
   description: z.string().optional(),
   agentSlug: z.string().describe('which agent slug this dataset evaluates'),
   version: z.number().int().positive().default(1),
+  /**
+   * Who grades this dataset. Omitted means our own judge alone, which is what
+   * every dataset authored before this field existed gets.
+   */
+  evaluators: z.array(EvalEvaluatorManifestSchema).optional(),
   items: z.array(z.object({
     input: z.string().describe('the user message to send to the agent'),
     expectedOutput: z.string().optional().describe('substantive-equivalence guidance, not literal match'),
     rubric: z.string().optional().describe('per-case rubric the judge uses'),
     tags: z.array(z.string()).optional(),
+    /**
+     * The tools this case should call, in order. Ground truth for AgentCore's
+     * trajectory evaluators, which are the only scoring it does without a
+     * model call.
+     */
+    expectedTrajectory: z.array(z.string()).optional(),
+    /**
+     * Facts the answer must state. Read by a judge model, not string-matched —
+     * these make the judge's task well defined, they do not replace it. For a
+     * real string comparison use `checks`.
+     */
+    assertions: z.array(z.string()).optional(),
+    /** Deterministic checks run in this process. No model, no AWS account. */
+    checks: z.array(EvalCheckSchema).optional(),
   })).min(1),
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
+export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;
 
 export const LearningStepManifestSchema = z.object({
   name: SlugSchema,
