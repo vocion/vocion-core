@@ -32,7 +32,11 @@ const DEFAULT_POLL_MS = 6_000;
 type FlowSummary = { id: string; name?: string };
 type FlowsPage = { results?: FlowSummary[]; paging?: { next?: { after?: string } } };
 
-/** The contact's portal-wide enrollment flag — true across every user's sequence library. */
+/**
+ * The contact's portal-wide enrollment flag — true across every user's sequence library.
+ * @param client
+ * @param contactId
+ */
 export async function readSequenceEnrollmentState(
   client: HubspotClient,
   contactId: string,

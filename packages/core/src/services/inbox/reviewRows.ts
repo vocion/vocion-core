@@ -4,6 +4,7 @@ import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema } from '@/models/Schema';
 import { resolveRecordLabels } from '@/services/records/recordLabel';
 import { describeActionRun } from './describeActionRun';
+import { recordKeyOf } from './recordKey';
 
 /**
  * The action plane of the review queue, read for the inbox: every column the
@@ -153,7 +154,7 @@ export type ReviewGroup = {
 export function groupByRecord(rows: ReviewRow[]): ReviewGroup[] {
   const groups = new Map<string, ReviewGroup>();
   for (const row of rows) {
-    const key = row.described.record?.key ?? `run:${row.id}`;
+    const key = recordKeyOf(row);
     const g = groups.get(key);
     if (g) {
       g.rows.push(row);
@@ -172,6 +173,6 @@ export function groupByRecord(rows: ReviewRow[]): ReviewGroup[] {
  */
 export async function listReviewRowsForRecord(orgId: string, recordKey: string): Promise<{ open: ReviewRow[]; decided: ReviewRow[] }> {
   const [open, decided] = await Promise.all([listReviewRows(orgId, 'open'), listReviewRows(orgId, 'decided', { limit: 500 })]);
-  const match = (r: ReviewRow) => (r.described.record?.key ?? `run:${r.id}`) === recordKey;
+  const match = (r: ReviewRow) => recordKeyOf(r) === recordKey;
   return { open: open.filter(match), decided: decided.filter(match) };
 }
