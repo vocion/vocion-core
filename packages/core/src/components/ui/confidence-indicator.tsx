@@ -1,5 +1,8 @@
+'use client';
+
 import type { ComponentProps } from 'react';
 import type { ConfidenceLevel } from '@/types/Status';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/utils/Helpers';
 
 /**
@@ -167,27 +170,40 @@ export function ConfidenceBars({
 
   const bar = size === 'md' ? 'h-3 w-[3px]' : 'h-2.5 w-[3px]';
 
+  // A REAL tooltip, not `title`. The native one is slow to appear, cannot be
+  // styled, and on a queue where the reading is hidden it is the ONLY way to
+  // see the number — which makes it part of the interface rather than a
+  // nicety. Chris, 2026-09-16: *"give percentage on hover over, tooltip…
+  // and not title text"*. Radix renders the content only while open, so the
+  // cost on a long list is the trigger, not a panel per row.
   return (
-    <span
-      data-slot="confidence-bars"
-      data-level={level}
-      data-value={scored ? value : undefined}
-      className={cn('inline-flex items-center gap-1.5 whitespace-nowrap', className)}
-      title={note ? `${accessible} · ${note}` : accessible}
-      {...rest}
-    >
-      <span className="inline-flex items-end gap-[2px]" role="img" aria-label={accessible}>
-        {Array.from({ length: BARS }, (_, i) => (
-          <span
-            key={i}
-            className={cn('inline-block rounded-[1px]', bar, i < filled ? spec.fill : spec.track)}
-          />
-        ))}
-      </span>
-      <span className={cn('text-[12px] font-medium tabular-nums', spec.fg, readingHidden && 'sr-only')}>
-        {visible}
-      </span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          data-slot="confidence-bars"
+          data-level={level}
+          data-value={scored ? value : undefined}
+          className={cn('inline-flex items-center gap-1.5 whitespace-nowrap', className)}
+          {...rest}
+        >
+          <span className="inline-flex items-end gap-[2px]" role="img" aria-label={accessible}>
+            {Array.from({ length: BARS }, (_, i) => (
+              <span
+                key={i}
+                className={cn('inline-block rounded-[1px]', bar, i < filled ? spec.fill : spec.track)}
+              />
+            ))}
+          </span>
+          <span className={cn('text-[12px] font-medium tabular-nums', spec.fg, readingHidden && 'sr-only')}>
+            {visible}
+          </span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" collisionPadding={8} className="max-w-72">
+        <span className="font-medium">{accessible}</span>
+        {note ? <span className="mt-0.5 block opacity-80">{note}</span> : null}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
