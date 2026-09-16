@@ -262,8 +262,7 @@ const LeadFrame = (props: {
                   <ConfidenceMeter
                     key="confidence"
                     value={lead.confidence}
-                    label={level}
-                    format="score"
+                    label="Brief"
                     rationale={run?.proposal?.rationale ?? 'How well the evidence supports this brief and its angle — the agent\'s own reading, not a prediction that the lead replies.'}
                   />
                 )

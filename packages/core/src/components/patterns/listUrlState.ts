@@ -24,17 +24,31 @@ export type ListState = {
   sort: string;
   dir: SortDirection;
   chips: string[];
+  /**
+   * Extra single-value filters a list declares (`facets` on the config). A
+   * ledger filters on three independent dimensions — classification, human
+   * disposition, reason — and collapsing them into the chip row would be
+   * exactly the "three different kinds of thing in one control" the Discovery
+   * Ledger v2 spec is about. Empty string means "all".
+   */
+  facets: Record<string, string>;
 };
 
 export type ListStateConfig = {
-  /** The state a clean URL means. */
-  defaults: ListState;
+  /** The state a clean URL means. `facets` default to '' (all) when omitted. */
+  defaults: Omit<ListState, 'facets'> & { facets?: Record<string, string> };
   /** Accepted tab keys; an unknown tab in the URL falls back to the default. */
   tabs?: readonly string[];
   /** Accepted sort keys; an unknown sort falls back to the default. */
   sorts?: readonly string[];
   /** Accepted chip keys; unknown chips are dropped. */
   chips?: readonly string[];
+  /**
+   * Single-value filters this list owns, as `{ name: accepted values }`. Each
+   * lives in the URL under its own name (prefixed like the rest); a value not
+   * in the list falls back to the default, so a stale link still opens.
+   */
+  facets?: Record<string, readonly string[]>;
   /**
    * Parameter prefix, for two lists on one page (`prefix: 'ledger'` reads
    * `ledger.tab`, `ledger.q`, …). Empty by default: `tab`, `q`, `sort`,
@@ -64,12 +78,20 @@ export function parseListState(search: string, config: ListStateConfig): ListSta
   const dir = params.get(key(config, 'dir'));
   const chips = params.getAll(key(config, 'chips')).flatMap(v => v.split(',')).filter(Boolean);
 
+  const facets: Record<string, string> = {};
+  for (const [name, accepted] of Object.entries(config.facets ?? {})) {
+    const def = config.defaults.facets?.[name] ?? '';
+    const raw = params.get(config.prefix ? `${config.prefix}.${name}` : name);
+    facets[name] = raw && accepted.includes(raw) ? raw : def;
+  }
+
   return {
     tab: tab && (!config.tabs || config.tabs.includes(tab)) ? tab : defaults.tab,
     q: params.get(key(config, 'q')) ?? defaults.q,
     sort: sort && (!config.sorts || config.sorts.includes(sort)) ? sort : defaults.sort,
     dir: dir === 'asc' || dir === 'desc' ? dir : defaults.dir,
     chips: config.chips ? chips.filter(c => config.chips!.includes(c)) : chips,
+    facets,
   };
 }
 
@@ -82,7 +104,11 @@ export function parseListState(search: string, config: ListStateConfig): ListSta
  * @param config - The list's defaults and prefix.
  * @returns The new search string, `''` or `?…`.
  */
-export function applyListState(search: string, state: ListState, config: ListStateConfig): string {
+export function applyListState(
+  search: string,
+  state: Omit<ListState, 'facets'> & { facets?: Record<string, string> },
+  config: ListStateConfig,
+): string {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   const { defaults } = config;
 
@@ -97,6 +123,16 @@ export function applyListState(search: string, state: ListState, config: ListSta
   set('q', state.q, defaults.q);
   set('sort', state.sort, defaults.sort);
   set('dir', state.dir, defaults.dir);
+
+  for (const name of Object.keys(config.facets ?? {})) {
+    const param = config.prefix ? `${config.prefix}.${name}` : name;
+    const value = state.facets?.[name] ?? '';
+    if (value === (config.defaults.facets?.[name] ?? '')) {
+      params.delete(param);
+    } else {
+      params.set(param, value);
+    }
+  }
 
   params.delete(key(config, 'chips'));
   const chips = [...state.chips].sort();

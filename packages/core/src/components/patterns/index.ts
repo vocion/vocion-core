@@ -32,7 +32,7 @@ export { type EvidenceItem, EvidenceList, SourceChip } from './EvidenceList';
 export { LedgerEntry, LedgerGroup, type ProvenanceItem, ProvenanceLine, ScoreChip, type ScoreChipProps, type Verdict, VerdictBadge } from './Ledger';
 export { ListEmpty, ListPage } from './ListPage';
 export { Column, COLUMN, type ColumnKind, ListRow, type ListRowProps, ListRows, Subline } from './ListRow';
-export { ListToolbar, type ToolbarChip, type ToolbarSort, type ToolbarTab } from './ListToolbar';
+export { ListToolbar, type ToolbarChip, type ToolbarFacet, type ToolbarSort, type ToolbarTab } from './ListToolbar';
 export { applyListState, flipDirection, type ListState, type ListStateConfig, parseListState, type SortDirection, toggleChip, useListUrlState } from './listUrlState';
 
 export { formatScore, scorePercent, type ScoreVerdict, scoreVerdict } from './scoreChip';

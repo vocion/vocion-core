@@ -14,8 +14,12 @@
  * The funnel enforces that structurally, not by convention:
  *   Stage 0  buildEligibleSet   — who the seller is selling to (CRM only)
  *   Stage 1  matchMeeting       — meetings ↔ eligible parties, METADATA ONLY
- *   Stage 2  classifyTranscript — read + score, ONLY via the content gate
+ *   Stage 2  classifyTranscript — read + classify, ONLY via the content gate
  *   Stage 3  routeClassification— generate / confirm / drop
+ *
+ * The classifier's output contract — what a class is, what a confidence means,
+ * the closed reason-code set, and how a row written before that contract
+ * existed is read — lives in `services/discovery/classification.ts`.
  *
  * `readMatchedTranscript` is the SOLE place this feature reads transcript body
  * (knowledge_chunk.content). It refuses unless a discovery_candidate row exists,
@@ -34,6 +38,11 @@
  *                     replaces the loop's visit-every-meeting guarantee.
  */
 
+import type {
+  ReadClassification,
+  Route,
+  StatedClassClassification,
+} from '@/services/discovery/classification';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -44,12 +53,35 @@ import {
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
 } from '@/models/Schema';
+import {
+  DISCOVERY_CLASSES,
+  normaliseReasonCode,
+  readClassification,
+  READINESS_CLASSES,
+  routeClassification as routeReadClassification,
+} from '@/services/discovery/classification';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+export {
+  DISCOVERY_CLASS_LABEL,
+  readClassification,
+  REASON_CODE_LABEL,
+  REASON_CODES,
+} from '@/services/discovery/classification';
+
+export type {
+  DiscoveryClass,
+  ReadClassification,
+  ReadinessClass,
+  ReasonCode,
+  Route,
+  StatedClassClassification,
+  StoredClassification,
+} from '@/services/discovery/classification';
+
 export type PartyType = 'hubspot-contact' | 'hubspot-company' | 'hubspot-deal';
 export type MatchType = PartyType | 'calendly-external';
-export type Route = 'generate' | 'confirm' | 'drop';
 
 /** A CRM party the seller owns and is actively working — the allow-list. */
 export type EligibleParty = {
@@ -79,14 +111,12 @@ export type Match = {
   matchReason: string;
 };
 
-export type Classification = {
-  isDiscovery: boolean;
-  isDiscoveryConfidence: number;
-  proposalReady: boolean;
-  proposalReadyConfidence: number;
-  reasoning: string;
-  model?: string;
-};
+/**
+ * What `classifyTranscript` returns and what `classification` holds from here
+ * on. Both confidences are confidence IN THE STATED CLASS — see
+ * `services/discovery/classification.ts` for the one definition.
+ */
+export type Classification = StatedClassClassification;
 
 export type EligibleFilter = {
   /** HubSpot owner ids the meeting's records must belong to (empty = any owner). */
@@ -123,8 +153,13 @@ export const DEFAULT_READY_THRESHOLD = 0.75;
  * The classifier prompt's version stamp. Bump on ANY change to
  * `CLASSIFIER_SYSTEM` or the output schema — scores are only comparable
  * within one version, and calibration (020) reports per version.
+ *
+ * `discovery-v2` is the version that DEFINES what a confidence means
+ * (confidence in the stated class) and adds the closed reason-code set.
+ * Nothing stamped `discovery-v1` is comparable to it, which is exactly why
+ * those rows are read as `confidenceSemantics: 'legacy'` rather than converted.
  */
-export const DISCOVERY_CLASSIFIER_PROMPT_VERSION = 'discovery-v1';
+export const DISCOVERY_CLASSIFIER_PROMPT_VERSION = 'discovery-v2';
 
 /** Model id + prompt version — the `classifier_version` audit stamp. */
 export function discoveryClassifierVersion(): string {
@@ -426,22 +461,52 @@ export async function readMatchedTranscript(orgId: string, meetingExternalId: st
 }
 
 const ClassificationZ = z.object({
-  is_discovery: z.boolean(),
-  is_discovery_confidence: z.number().min(0).max(1),
-  proposal_ready: z.boolean(),
-  proposal_ready_confidence: z.number().min(0).max(1),
+  classification: z.enum(DISCOVERY_CLASSES),
+  classification_confidence: z.number().min(0).max(1),
+  proposal_readiness: z.enum(READINESS_CLASSES),
+  proposal_readiness_confidence: z.number().min(0).max(1),
+  reason_code: z.string(),
+  reason_summary: z.string(),
   reasoning: z.string(),
 });
 
-const CLASSIFIER_SYSTEM = `You classify a sales call transcript on two independent axes.
+/**
+ * The classifier prompt. The one sentence that was missing in v1 is the
+ * CONFIDENCE DEFINITION, with a worked example of each class, because a
+ * confidence with two defensible readings is a defect in the contract rather
+ * than a wording problem — see `services/discovery/classification.ts`.
+ */
+const CLASSIFIER_SYSTEM = `You classify a sales call transcript on two independent axes, and you pick one reason code from a closed list.
 
-1. is_discovery: is this a first/early discovery call with a prospect (understanding needs, scoping a problem) — as opposed to an internal meeting, a delivery/status call, a negotiation, or a support call?
-2. proposal_ready: does the call give enough — a clear problem, scope, and buying intent — to draft a proposal now, versus needing another conversation first?
+AXIS 1 — classification: what kind of call is this?
+  "discovery"      a first or early sales conversation with a prospect: understanding needs, scoping a problem, qualifying fit.
+  "not-discovery"  anything else: an internal meeting, a delivery or status call with an existing customer, a negotiation, diligence on a deal already in flight, a support call.
+  "uncertain"      the transcript does not give you enough to say either way. Use this rather than guessing; a person reviews it.
 
-Score each with an independent confidence 0..1. A call can be clearly a discovery call yet not be proposal-ready.
+AXIS 2 — proposal_readiness: could a proposal be drafted from this call now?
+  "proposal-ready"      a clear problem, a scope, and buying intent are all present.
+  "not-proposal-ready"  another conversation is needed first.
+  "uncertain"           you cannot tell.
+
+CONFIDENCE — READ THIS CAREFULLY.
+Each confidence is HOW SURE YOU ARE OF THE CLASS YOU JUST STATED. It is NOT the probability that the call is a discovery call, and it is NOT the probability of any fixed class. It always refers to the class in the field beside it.
+  Example A — a first call with a new prospect, obviously discovery:
+    {"classification":"discovery","classification_confidence":0.94}   means 94% sure it IS discovery.
+  Example B — an internal pipeline review with no customer on the line:
+    {"classification":"not-discovery","classification_confidence":0.96}  means 96% sure it is NOT discovery.
+  Example C — three minutes of small talk and nothing else:
+    {"classification":"uncertain","classification_confidence":0.40}   means you are not sure, and only 40% sure even of being unsure.
+A high number never means "discovery". It only ever means "sure about what I said".
+
+REASON CODE — pick EXACTLY ONE of these strings, and nothing else:
+  first-sales-conversation · existing-opportunity · internal-meeting · customer-delivery-call · follow-up-discovery · diligence · no-buyer-present · insufficient-evidence
+If none fits, use insufficient-evidence. Never invent a code.
+
+reason_summary: ONE sentence, at most about 20 words, that supports the reason code. This is what a revenue leader reads on the row.
+reasoning: two or three sentences of the fuller explanation. This sits behind "Evidence"; do not put the whole story in reason_summary.
 
 Return STRICT JSON, no prose, no code fences:
-{"is_discovery":bool,"is_discovery_confidence":number,"proposal_ready":bool,"proposal_ready_confidence":number,"reasoning":"one or two sentences"}`;
+{"classification":"discovery"|"not-discovery"|"uncertain","classification_confidence":number,"proposal_readiness":"proposal-ready"|"not-proposal-ready"|"uncertain","proposal_readiness_confidence":number,"reason_code":string,"reason_summary":string,"reasoning":string}`;
 
 function textOf(content: unknown): string {
   if (typeof content === 'string') {
@@ -477,21 +542,34 @@ export async function classifyTranscript(transcript: string, meta: { title?: str
   try {
     parsed = ClassificationZ.parse(JSON.parse(stripped));
   } catch {
-    // Fail safe: an unreadable classifier result is treated as low-signal, so
-    // it routes to human review rather than silently auto-proceeding.
+    // Fail safe: an unreadable classifier result is `uncertain` at zero
+    // confidence, which routes to a person rather than silently proceeding —
+    // and, unlike the old `isDiscovery: false`, does not assert a verdict the
+    // model never gave.
     return {
-      isDiscovery: false,
-      isDiscoveryConfidence: 0,
-      proposalReady: false,
-      proposalReadyConfidence: 0,
+      confidenceSemantics: 'stated-class',
+      classification: 'uncertain',
+      classificationConfidence: 0,
+      proposalReadiness: 'uncertain',
+      proposalReadinessConfidence: 0,
+      reasonCode: 'insufficient-evidence',
+      reasonCodeFallback: false,
+      reasonSummary: 'The classifier returned nothing readable.',
       reasoning: 'classifier output could not be parsed; routed to review',
     };
   }
+  // An unmatched reason falls back to insufficient-evidence AND says so. The
+  // set is closed precisely so a code is never invented to fit an answer.
+  const reason = normaliseReasonCode(parsed.reason_code);
   return {
-    isDiscovery: parsed.is_discovery,
-    isDiscoveryConfidence: parsed.is_discovery_confidence,
-    proposalReady: parsed.proposal_ready,
-    proposalReadyConfidence: parsed.proposal_ready_confidence,
+    confidenceSemantics: 'stated-class',
+    classification: parsed.classification,
+    classificationConfidence: parsed.classification_confidence,
+    proposalReadiness: parsed.proposal_readiness,
+    proposalReadinessConfidence: parsed.proposal_readiness_confidence,
+    reasonCode: reason.code,
+    reasonCodeFallback: reason.fallback,
+    reasonSummary: parsed.reason_summary.trim(),
     reasoning: parsed.reasoning,
     model: resolvedModelId('classifier'),
   };
@@ -500,26 +578,23 @@ export async function classifyTranscript(transcript: string, meta: { title?: str
 // ── Stage 3 · routing (pure) ─────────────────────────────────────────────────
 
 /**
- * Pick a path from the two scores.
- *  - Not clearly a discovery call → 'drop' (surfaced for feedback in supervised mode).
- *  - Discovery + confidently proposal-ready → 'generate'.
- *  - Discovery but not confidently ready → 'confirm' ("should I create a proposal?").
- * @param c
- * @param opts
+ * Stage 3, as the service exposes it: route a classification of either
+ * vintage. The rule itself — and why a confidence below the threshold now
+ * means "ask a person" rather than "drop" — is in
+ * `services/discovery/classification.ts`.
+ * @param c - A fresh classification, or one read back off a row.
+ * @param opts - The thresholds in force.
  * @param opts.discoveryThreshold
  * @param opts.readyThreshold
  */
 export function routeClassification(
-  c: Classification,
+  c: Classification | ReadClassification,
   opts: { discoveryThreshold: number; readyThreshold: number },
 ): Route {
-  if (!c.isDiscovery || c.isDiscoveryConfidence < opts.discoveryThreshold) {
-    return 'drop';
-  }
-  if (c.proposalReady && c.proposalReadyConfidence >= opts.readyThreshold) {
-    return 'generate';
-  }
-  return 'confirm';
+  const read: ReadClassification = 'semantics' in c
+    ? c
+    : readClassification(c)!;
+  return routeReadClassification(read, opts);
 }
 
 // ── DB loaders ───────────────────────────────────────────────────────────────
@@ -913,10 +988,14 @@ export type ClassifyCallResult = {
   candidateId: number;
   meetingExternalId: string;
   meetingTitle: string | null;
-  isDiscovery: boolean;
-  isDiscoveryConfidence: number;
-  proposalReady: boolean;
-  proposalReadyConfidence: number;
+  /** The class, and the confidence IN THAT CLASS. Never a fixed-class probability. */
+  classification: Classification['classification'];
+  classificationConfidence: number;
+  proposalReadiness: Classification['proposalReadiness'];
+  proposalReadinessConfidence: number;
+  reasonCode: Classification['reasonCode'];
+  reasonCodeFallback: boolean;
+  reasonSummary: string;
   reasoning: string;
   route: Route;
   thresholds: { discovery: number; ready: number };
@@ -1018,6 +1097,11 @@ export async function classifyCall(
     .set({
       status: 'classified',
       classification,
+      // The stamp that tells the UI this row's numbers are readable. Rows
+      // written before the contract keep 'legacy' and render their verdict
+      // without a percentage.
+      confidenceSemantics: 'stated-class',
+      reasonCode: classification.reasonCode,
       classifiedAt: now,
       route,
       transcriptHash: doc?.contentHash ?? null,
@@ -1042,7 +1126,12 @@ export async function classifyCall(
     {
       agentSlug: opts.assessedBy.agentSlug ?? null,
       resource: ['discovery_candidate', candidate.id],
-      meta: { route, isDiscovery: classification.isDiscovery, proposalReady: classification.proposalReady },
+      meta: {
+        route,
+        classification: classification.classification,
+        proposalReadiness: classification.proposalReadiness,
+        reasonCode: classification.reasonCode,
+      },
     },
   );
 
@@ -1050,10 +1139,13 @@ export async function classifyCall(
     candidateId: candidate.id,
     meetingExternalId: candidate.meetingExternalId,
     meetingTitle: candidate.meetingTitle,
-    isDiscovery: classification.isDiscovery,
-    isDiscoveryConfidence: classification.isDiscoveryConfidence,
-    proposalReady: classification.proposalReady,
-    proposalReadyConfidence: classification.proposalReadyConfidence,
+    classification: classification.classification,
+    classificationConfidence: classification.classificationConfidence,
+    proposalReadiness: classification.proposalReadiness,
+    proposalReadinessConfidence: classification.proposalReadinessConfidence,
+    reasonCode: classification.reasonCode,
+    reasonCodeFallback: classification.reasonCodeFallback,
+    reasonSummary: classification.reasonSummary,
     reasoning: classification.reasoning,
     route,
     thresholds,

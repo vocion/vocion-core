@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useEffect } from 'react';
+import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
@@ -194,25 +195,16 @@ export function StatusDot(props: { tone: DotTone; label: ReactNode; className?: 
   );
 }
 
-function meterTone(c: number): string {
-  if (c >= 0.8) {
-    return 'bg-brand-pass';
-  }
-  if (c >= 0.55) {
-    return 'bg-brand-borderline';
-  }
-  return 'bg-muted-foreground/60';
-}
-
 /**
- * ConfidenceMeter — a 48px meter with the reading beside it, in the meta
- * row. The cut points match `features/personalization/confidence.ts`
- * (0.8 confident, 0.55 uncertain). Hover (or focus) opens the model's
- * rationale when there is one; an alignment score, when the workspace
- * measures one, renders as a second reading after the first.
+ * ConfidenceMeter — the meta row's confidence, drawn by the one component that
+ * draws every confidence (`components/ui/ConfidenceBars`). This is the
+ * Detail-archetype wrapper: it adds the rationale tooltip and the optional
+ * second reading (alignment), and nothing else — the bars, the colours and the
+ * ladder all come from the shared component, so a change there changes every
+ * surface at once.
  * @param props
  * @param props.value - 0..1.
- * @param props.label - The word for the reading — "uncertain". Default: the percentage.
+ * @param props.label - What the confidence is IN — the class, the verdict. Shown before the reading.
  * @param props.format - `score` renders "0.60", `percent` renders "60%". Default percent.
  * @param props.rationale - The model's reason, shown in the tooltip.
  * @param props.alignment - A second 0..1 reading ("alignment 0.91"), when measured.
@@ -226,18 +218,12 @@ export function ConfidenceMeter(props: {
   alignment?: { value: number; label?: string } | null;
   className?: string;
 }) {
-  const pct = Math.round(Math.min(1, Math.max(0, props.value)) * 100);
-  const reading = props.format === 'score' ? props.value.toFixed(2) : `${pct}%`;
-  const text = props.label ? `${props.label} ${reading}` : `${reading} confidence`;
   const body = (
     <>
-      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-muted" aria-hidden>
-        <span className={cn('block h-full rounded-full', meterTone(props.value))} style={{ width: `${pct}%` }} />
-      </span>
-      <span className="text-[13px] text-foreground/80 tabular-nums">{text}</span>
+      <ConfidenceBars value={props.value} subject={props.label} format={props.format} size="md" />
       {props.alignment && (
         <span className="text-[13px] text-muted-foreground tabular-nums">
-          {` · ${props.alignment.label ?? 'alignment'} ${props.alignment.value.toFixed(2)}`}
+          {`· ${props.alignment.label ?? 'alignment'} ${Math.round(props.alignment.value * 100)}%`}
         </span>
       )}
     </>
@@ -248,7 +234,7 @@ export function ConfidenceMeter(props: {
   }
   // The rationale opens on hover and on focus; a button so the keyboard reaches it.
   const meter = (
-    <button type="button" className={cn(classes, 'cursor-help rounded-sm focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none')} data-pattern="confidence-meter" data-testid="confidence-meter" aria-label={`${text} — why`}>
+    <button type="button" className={cn(classes, 'cursor-help rounded-sm focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none')} data-pattern="confidence-meter" data-testid="confidence-meter">
       {body}
     </button>
   );

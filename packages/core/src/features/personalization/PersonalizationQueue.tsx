@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, ListToolbar, Subline, useListUrlState } from '@/components/patterns';
+import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { confidenceLevel } from './confidence';
 import { entranceLabel, LANE_PILL, shortDate } from './LeadContext';
@@ -104,9 +105,9 @@ const BriefListRow = ({ row }: { row: BriefRow }) => {
       )}
       columns={level && (
         <Column kind="score">
-          {level}
-          {' '}
-          {row.confidence?.toFixed(2)}
+          {/* One confidence renderer everywhere (MANIFESTO §19): the same bars
+              the ledger, the inbox and the review detail draw. */}
+          <ConfidenceBars value={row.confidence} subject="Brief" />
         </Column>
       )}
       chip={<StatusPill status={pill.status} label={pill.label} size="sm" />}

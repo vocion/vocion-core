@@ -1,24 +1,19 @@
-import type { DiscoveryEntry } from '@/features/discovery/DiscoveryLedger';
-import { desc, eq } from 'drizzle-orm';
 import { Radar } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { ListEmpty, ListPage } from '@/components/patterns';
 import { DiscoveryLedger } from '@/features/discovery/DiscoveryLedger';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { db } from '@/libs/DB';
-import { actionRunSchema, discoveryCandidateSchema } from '@/models/Schema';
+import { loadDiscoveryLedger } from '@/services/discovery/ledger';
 
 /**
- * Discovery ledger — somewhere to look. Every call the system assessed, with
- * what it read and how it decided: meeting, match reason, both scores, the
- * route, the thresholds in force, the classifier version, who ordered it, and
- * the eventual human decision. Dropped calls are rows here too — a call
- * classified as not-discovery has its scores and reasoning, not an absence —
- * and matched-but-not-assessed calls show their `skipped_reason`.
+ * Discovery ledger — the operational record of every call the detection agent
+ * assessed: the meeting, who it was with, what Vocion decided, why, and what a
+ * person did with that. The model's internals (thresholds, prompt version, run
+ * id, transcript hash) sit behind a disclosure on each row.
  *
- * The reference implementation of the Ledger archetype
- * (`components/patterns`, `docs/design/patterns.md`). This file reads; the
- * ledger itself is `features/discovery/DiscoveryLedger`.
+ * This file reads (`services/discovery/ledger.ts` assembles the three
+ * dimensions); the ledger itself is `features/discovery/DiscoveryLedger`.
+ * Spec: `docs/specs/discovery-ledger-v2.md`.
  * @param props
  * @param props.params
  */
@@ -32,49 +27,17 @@ export default async function DiscoveryLedgerPage(props: {
     return null;
   }
 
-  const rows = await db
-    .select({
-      candidate: discoveryCandidateSchema,
-      reviewStatus: actionRunSchema.status,
-    })
-    .from(discoveryCandidateSchema)
-    .leftJoin(actionRunSchema, eq(actionRunSchema.id, discoveryCandidateSchema.reviewActionRunId))
-    .where(eq(discoveryCandidateSchema.orgId, orgId))
-    .orderBy(desc(discoveryCandidateSchema.matchedAt))
-    .limit(200);
-
-  // Dates cross the server/client boundary as ISO strings.
-  const entries: DiscoveryEntry[] = rows.map(({ candidate: c, reviewStatus }) => ({
-    id: c.id,
-    title: c.meetingTitle ?? c.meetingExternalId,
-    when: c.meetingStart?.toISOString() ?? null,
-    matchedAt: c.matchedAt.toISOString(),
-    matchReason: c.matchReason,
-    status: c.status,
-    route: c.route,
-    classification: c.classification
-      ? {
-          isDiscovery: c.classification.isDiscovery,
-          isDiscoveryConfidence: c.classification.isDiscoveryConfidence,
-          proposalReady: c.classification.proposalReady,
-          proposalReadyConfidence: c.classification.proposalReadyConfidence,
-          reasoning: c.classification.reasoning,
-        }
-      : null,
-    thresholds: c.thresholds,
-    skippedReason: c.skippedReason,
-    classifierVersion: c.classifierVersion,
-    assessedBy: c.assessedBy,
-    transcriptHash: c.transcriptHash,
-    workspaceSha: c.workspaceSha,
-    reviewActionRunId: c.reviewActionRunId,
-    reviewStatus: reviewStatus ?? null,
-  }));
+  // The seller's own domain is an argument the RevOps Lead passes per match
+  // run (`services/agents/tools/discovery.ts`), not something the workspace
+  // stores, so the ledger has nothing to read it from. Without it every
+  // attendee reads as external, which is the safe direction: the row says who
+  // was on the call and claims nothing about which side they are on.
+  const entries = await loadDiscoveryLedger(orgId);
 
   return (
     <ListPage
       title="Discovery ledger"
-      description="Every call the detection agent assessed — what it read, how it scored, the thresholds it decided under, and what a human did with it."
+      description="Every call the detection agent assessed — what it decided, why, and what you did with it."
     >
       {entries.length === 0
         ? (

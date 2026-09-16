@@ -9,6 +9,9 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
  * The bottom-left workspace row and its popover: one, three and eight
  * workspaces (with a hidden empty seed project behind the toggle), open and
  * closed, expanded and as the icon-rail avatar. Navigation is stubbed.
+ * @param slug
+ * @param name
+ * @param agentCount
  */
 const mk = (slug: string, name: string, agentCount = 5): SwitcherProject => ({ id: `p-${slug}`, slug, name, agentCount });
 const ONE = [mk('revenue', 'Revenue Team', 10)];

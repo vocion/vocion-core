@@ -27,6 +27,7 @@ export const FIXED_ROWS: AskOption[] = [
 /**
  * The human label for a recorded decision on this ask.
  * @param ask - Anything carrying the ask's options.
+ * @param ask.options
  * @param decision - The stored decision id.
  */
 export function labelFor(ask: { options: AskOption[] }, decision: string): string {

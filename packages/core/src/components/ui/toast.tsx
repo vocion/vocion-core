@@ -16,7 +16,7 @@ import { cn } from '@/utils/Helpers';
  *
  * A toast reports what the system DID, in the person's words, right after
  * they did it (Manifesto §11 *make the important things obvious*, and
- * *hide complexity, never hide truth*). It is not a place for progress, for
+ * hide complexity, never hide truth*). It is not a place for progress, for
  * anything the person has to read to continue, or for errors that belong on
  * the form that produced them.
  *
@@ -98,9 +98,19 @@ export const toast = {
   success: (title: string, opts?: ToastOptions) => show('success', title, opts),
   error: (title: string, opts?: ToastOptions) => show('error', title, opts),
   info: (title: string, opts?: ToastOptions) => show('info', title, opts),
-  /** A toast that stays until you resolve it with `toast.success`/`toast.error` on the same id. */
+  /**
+   * A toast that stays until you resolve it with `toast.success`/`toast.error` on the same id.
+   * @param title
+   * @param opts
+   */
   pending: (title: string, opts?: ToastOptions) => show('pending', title, opts),
-  /** Rewrite an existing toast in place — the id comes from any of the above. */
+  /**
+   * Rewrite an existing toast in place — the id comes from any of the above.
+   * @param id
+   * @param tone
+   * @param title
+   * @param opts
+   */
   update: (id: number, tone: ToastTone, title: string, opts?: ToastOptions) => show(tone, title, opts, id),
   dismiss,
   /**

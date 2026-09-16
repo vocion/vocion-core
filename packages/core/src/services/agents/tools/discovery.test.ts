@@ -108,10 +108,12 @@ beforeEach(async () => {
   invokeMock.mockReset();
   invokeMock.mockResolvedValue({
     content: JSON.stringify({
-      is_discovery: true,
-      is_discovery_confidence: 0.9,
-      proposal_ready: false,
-      proposal_ready_confidence: 0.4,
+      classification: 'discovery',
+      classification_confidence: 0.9,
+      proposal_readiness: 'not-proposal-ready',
+      proposal_readiness_confidence: 0.4,
+      reason_code: 'first-sales-conversation',
+      reason_summary: 'First conversation; needs one more before a proposal.',
       reasoning: 'discovery call, needs one more conversation',
     }),
   });
@@ -186,7 +188,7 @@ describe('no tool anywhere returns transcript body', () => {
     // And the classification is real: scores came back, route derived.
     const verdict = JSON.parse(outputs[1]!) as Record<string, unknown>;
 
-    expect(verdict).toMatchObject({ isDiscovery: true, route: 'confirm' });
+    expect(verdict).toMatchObject({ classification: 'discovery', classificationConfidence: 0.9, route: 'confirm' });
   });
 });
 
@@ -201,7 +203,7 @@ describe('prompt-injection probe', () => {
 
     // Normal classification — one fixed call, structured result.
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(verdict).toMatchObject({ isDiscovery: true, route: 'confirm' });
+    expect(verdict).toMatchObject({ classification: 'discovery', classificationConfidence: 0.9, route: 'confirm' });
 
     // The injected instruction never enters agent-steered context, so there is
     // nothing for the agent to obey — the structural form of "zero additional
