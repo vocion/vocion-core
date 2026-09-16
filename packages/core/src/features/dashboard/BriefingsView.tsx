@@ -6,20 +6,26 @@ import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ListRow, ListRows } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
+import { Surface } from '@/components/ui/surface';
+import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { MAX_HISTORY_ENTRIES } from '@/services/briefings/budget';
 import { BRIEFING_ARCHIVE_HREF, briefingHref } from '@/services/briefings/links';
+import { recordRef } from '@/services/chat/recordContext';
 import { BriefingChatStarter } from './BriefingChatStarter';
 import { BriefingSections } from './BriefingSections';
 
 /**
  * Briefings — BY TEAM. Tabs: the workspace ROLLUP first, then one per team.
- * Each tab shows the latest brief (rendered), a history explorer of previous
- * briefs, and Regenerate (background run of the owning lead). The floating
- * chat pill is scoped to the ACTIVE tab's brief + lead — submitting moves to
- * /chat with the brief as visible context.
+ * Each tab shows the latest brief (rendered), links to the previous ones, and
+ * Regenerate (background run of the owning lead).
+ *
+ * Asking about the brief is the SELECTION path and nothing else: the brief
+ * sits in a `CommentLayerProvider`, so highlighting a passage raises the
+ * platform's one selection control (`docs/design/patterns.md` § Select →
+ * talk). There is no pill, no prefilled prompt and no second composer.
  */
 
 export type BriefRow = {
@@ -178,17 +184,32 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
       )}
       {regen === 'failed' && <p className="mt-1 text-xs text-destructive">Regeneration didn't land — check the lead agent's activity or try again.</p>}
 
-      {viewing && (viewing.document
-        ? (
-            <div className="mt-2">
-              <BriefingView doc={viewing.document} liveDecisions={liveDecisions} />
-            </div>
-          )
-        : (
-            <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">
-              <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
-            </div>
-          ))}
+      {/* The brief is a commentable document: highlight any passage and the
+          platform's one selection control offers *Ask about this*
+          (docs/design/patterns.md § Select → talk). The regions are the
+          Detail archetype's own `Section`s — the typed document's rendered
+          sections — so nothing here traverses headings and nothing here
+          invents a control. No `changeIntent`: a briefing has no draft to
+          rewrite, so *Add change* is not offered. */}
+      {viewing && (
+        <CommentLayerProvider
+          key={viewing.id}
+          targetRef={`briefing:${viewing.id}`}
+          record={recordRef('briefing', viewing.id, viewing.title)}
+        >
+          {viewing.document
+            ? (
+                <div className="mt-2 min-w-0 flex-1" data-briefing-root>
+                  <BriefingView doc={viewing.document} liveDecisions={liveDecisions} />
+                </div>
+              )
+            : (
+                <Surface name="brief" as="article" data-briefing-root className="prose prose-sm mt-4 max-w-none p-5 dark:prose-invert">
+                  <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
+                </Surface>
+              )}
+        </CommentLayerProvider>
+      )}
 
       {/* Section 9: the last few briefs, then the archive — never the archive
           itself (docs/specs/briefing-v2.md §10). */}
@@ -207,14 +228,13 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
         </div>
       )}
 
-      {/* Floating "chat with this brief" pill — scoped to the active tab. */}
+      {/* No UI: it declares the brief as the page's record so the rail files
+          the turn against it. */}
       {viewing && (
         <BriefingChatStarter
           key={`${g.teamSlug ?? 'rollup'}-${viewing.id}`}
           briefingId={viewing.id}
           briefingTitle={viewing.title}
-          briefingContent={viewing.content}
-          agentSlug={g.leadSlug ?? undefined}
         />
       )}
     </div>

@@ -16,10 +16,12 @@ import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
+import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { client } from '@/libs/Orpc';
+import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
-import { defaultAgentSlug, parseSearchCommand, routeTurn, workspaceChips } from './routing';
+import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
 import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
@@ -960,12 +962,25 @@ export function useChatSession({
     if ((!raw.trim() && !pastedText) || streamingRef.current) {
       return;
     }
-    streamingRef.current = true;
-    setTurnOutcome('running');
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual
     // search entry, reached by command rather than as a persona.
     const command = parseSearchCommand(raw);
-    const searchAgent = command.searchOnly ? agents.find(a => a.slug === '__search__') : undefined;
+    // An empty workspace is a STATE, not an error (2026-09-16). Sending would
+    // route the turn to the `__search__` sentinel and come back as
+    // `agent __search__ not found in org proj-…`; the person gets the sentence
+    // that tells them what to do instead, and the composer stays live.
+    if (!hasWorkspaceAgents(agents) && !command.searchOnly) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: raw.trim() },
+        { role: 'assistant', content: NO_AGENTS_MESSAGE },
+      ]);
+      setComposerValue('');
+      return;
+    }
+    streamingRef.current = true;
+    setTurnOutcome('running');
+    const searchAgent = command.searchOnly ? agents.find(a => a.slug === SEARCH_ONLY_SLUG) : undefined;
     // Pasted material rides along under the instruction, clearly fenced, so
     // the instruction stays readable in the transcript and the agent still
     // receives the full text.
@@ -991,7 +1006,9 @@ export function useChatSession({
     // record, so it is stripped before `context_refs` travels — the model is
     // never handed "a record called Artifact".
     const deliverable = deliverableFromRefs(refs);
-    const recordRefs = refs.filter(r => !isArtifactTag(r));
+    // `@artifact` says what the turn OWES, `@change` says what it must DO.
+    // Neither points at a record, so neither travels as one.
+    const recordRefs = refs.filter(r => !isArtifactTag(r) && !isIntentTag(r));
     // `@agent` / `@team` routes THIS turn to a specialist; the conversation
     // stays with its own agent and the reply is rendered under the
     // specialist's name (§9).

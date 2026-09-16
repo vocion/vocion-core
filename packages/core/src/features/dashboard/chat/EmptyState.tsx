@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
+import { NO_AGENTS_HREF } from '@/libs/chat/redact';
+import { Link } from '@/libs/I18nNavigation';
 
 /**
  * Empty state — "insert quarter, shoot aliens".
@@ -138,6 +140,29 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * What the conversation says in a workspace that has no agents yet.
+ *
+ * Said BEFORE a turn runs, not after one fails: the person who opens a chat
+ * on a fresh database has a next step, and it is not "type something and find
+ * out". The composer stays live beside it — somebody may still want to ask
+ * what to do, and `useChatSession` answers that question with this same
+ * sentence rather than with the server's not-found error.
+ */
+export function NoAgentsState() {
+  return (
+    <div data-testid="no-agents-state" className="flex min-h-0 flex-1 flex-col justify-end px-4 pb-7 sm:px-6">
+      <p className="max-w-md text-[15px] leading-relaxed text-foreground/80">
+        This workspace has no agents yet.
+        {' '}
+        <Link href={NO_AGENTS_HREF} className="font-medium text-brand-amber-deep underline underline-offset-2">
+          Apply a workspace or add one under Manage → Teams &amp; agents.
+        </Link>
+      </p>
     </div>
   );
 }

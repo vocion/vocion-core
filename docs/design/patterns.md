@@ -1,10 +1,23 @@
-# Dashboard patterns — List, Detail, Ledger
+# Dashboard patterns — the archetypes, and the rules that hold across them
 
-`packages/core/src/components/patterns/` is the UI pattern library every
-dashboard page composes from. Three archetypes cover every page the dashboard
-has or is likely to get; a change to a pattern changes every page that uses
-it, which is the point. **New dashboard pages use `components/patterns`;
-nobody hand-rolls a list, a detail or a ledger layout.**
+Two things live here, and they are the same thing seen from two sides.
+
+**The archetypes** — `packages/core/src/components/patterns/` is the UI
+pattern library every dashboard page composes from. Three archetypes cover
+every page the dashboard has or is likely to get; a change to a pattern
+changes every page that uses it, which is the point. **New dashboard pages use
+`components/patterns`; nobody hand-rolls a list, a detail or a ledger layout.**
+
+**The rules** — a handful of things that are true on every surface, whichever
+archetype it is: what may never be drawn ([Never](#never)), and how a person
+gets what they need without leaving the page they are on
+([Do not make me leave](#do-not-make-me-leave)). Each is enforced by a
+component, not restated per screen — a rule a reviewer has to remember is a
+rule the next page breaks.
+
+A rule arrives here the second time the same note comes back on a different
+page. A note that comes back twice is not feedback about a page; it is a
+missing rule.
 
 The bar these patterns are held to is `docs/MANIFESTO.md`:
 
@@ -198,7 +211,11 @@ DetailPage ───────────────────────
   `alignment` adds a second reading), plain strings, a queue position.
 - `Section` — eyebrow label, optional right-aligned ghost `action`, content;
   sections are hairline-divided and have no border of their own. `tone="quiet"`
-  for the right column.
+  for the right column. **A section is also a commentable region**: it carries
+  `data-comment-field`, named by its eyebrow, which is the entire opt-in for
+  [Select → talk](#select--talk). `commentField` renames it (a composed
+  eyebrow, or two sections that would collide); `commentField={null}` opts
+  out.
 - `FactList` — label/value pairs as hairline `rows` (content column) or a
   stacked `column` (right column).
 - `EvidenceList` — one claim per row with a `SourceChip` (`Fact` green,
@@ -253,7 +270,8 @@ and `useListUrlState`.
 
 - **Do** draw hairlines (`border-rule`, `divide-rule`) between things. **Don't**
   put a box in a box: no bordered card inside a page, no rounded panel
-  holding a list.
+  holding a list. This one is enforced in code — see
+  [Never: a bordered surface never contains another bordered surface](#a-bordered-surface-never-contains-another-bordered-surface).
 - **Do** give a page one primary action, in ink, in the sticky bar. **Don't**
   put a primary in the header and another in the body.
 - **Do** right-align numbers in a fixed `Column`, `tabular-nums`. **Don't**
@@ -314,3 +332,231 @@ Audited 2026-09-16. "On `ListRow`" means the page renders its records through
 
 The owed migrations are one follow-up PR each, in that order; nothing in the
 list needs a pattern the library does not already have.
+
+---
+
+# Never
+
+Two things that may not be drawn, whichever archetype the page is. Both are
+enforced by a component, because a rule with no component behind it is a note
+in a PR that the next PR does not read.
+
+## A bordered surface never contains another bordered surface
+
+Nest with **hairlines, spacing and eyebrow labels** instead.
+
+A border says *this is a thing*. A border inside a border says it twice and
+means it once, and the reader pays for the second frame in noise. Grouping
+inside a surface is a job for the `--rule` hairline, a gap, and a small
+uppercase label — all three of which carry the structure without adding a box.
+This is the enforced form of the *Don't put a box in a box* bullet above, and
+of step 8 of the migration checklist.
+
+- **MANIFESTO §4 — Simple beats flexible.** "Prefer one obvious action over
+  five possible actions." A stack of cards inside a card offers five framings
+  of one thing.
+- **MANIFESTO §16 — Beautiful is functional.** "Every screen should have
+  hierarchy. Every object should have space." Hierarchy comes from *space*.
+  Chrome that repeats at every level conveys no hierarchy at all — it is
+  "complexity disguised as sophistication", named in that section as a thing
+  to avoid.
+
+**Where it came from.** Chris, on the Review detail: *"boxes in boxes"*. Then
+again, on the personalization lead page, 2026-09-16: *"tell me about the cards
+in chat on the right (why cards in cards, that should be a NEVER ALLOW)."* The
+second time is what made it a rule instead of a fix.
+
+**How it is enforced.** `components/ui/surface.tsx`:
+
+```text
+<Surface name="brief" className="p-5">          the ONE box
+  <SurfaceSection first eyebrow="Sequence overview" title=… >…</SurfaceSection>
+  <SurfaceSection eyebrow="Send 1 of 4 · Day 0" title=… actions=… >…</SurfaceSection>
+</Surface>
+```
+
+`Surface` publishes its depth through React context. In development, a
+`Surface` that renders inside another one prints the rule to the console,
+naming both. It is a **warning, never a throw** — a design rule must not be
+able to take a page down — and it fires once per name, so a list of forty rows
+prints one line, not forty.
+
+Inside the archetypes this is already true by construction: a Detail page has
+no outer card and its `Section`s are hairline-divided. `Surface` is for the
+surfaces that are not a whole page — the rail, a panel, a document rendered
+inside one.
+
+**Not covered by the rule**, deliberately:
+
+- `border-t` / `border-b` **hairline rows in a list**. That IS the pattern.
+- A **control** with its own border — `<input>`, `<textarea>`, a button. A
+  control is not a surface.
+- A **floating layer** over the page — dialog, popover, sheet, dropdown,
+  tooltip, command palette. It is not inside anything; it is above everything.
+
+## A user-facing error never shows an internal identifier
+
+`proj-…`, `org-…`, `usr-…`, `acct-…`, `__sentinel__` slugs. They mean nothing
+to the reader, they look like a leak, and they are exactly the string that ends
+up in a screenshot in a Slack channel.
+
+Redaction happens **at the render boundary**, once, for every tool
+(`libs/chat/redact.ts#redactInternalIds`) — not in each thrower, where the next
+thrower forgets. The raw text is kept and travels in *Copy details*, which is
+what that control is for: the operator gets the id, the reader does not. This
+is §12 *hide complexity, never hide truth* read carefully — the truth is what
+failed, not which row it failed on.
+
+**Where it came from.** The CEO's preview on a fresh database, 2026-09-16,
+rendered `Error  agent __search__ not found in org proj-2df61364-…` verbatim.
+
+A related rule with the same shape: **an empty state is a state, not an
+error.** A workspace with no agents says so *before* a turn runs, with the next
+step and a link — not after one fails with whatever the server threw. The
+composer stays live: somebody may still want to ask what to do, and the answer
+is the same sentence.
+
+---
+
+# Do not make me leave
+
+Three mechanisms, one intent: **the thing you need arrives where you are
+standing.** A person reading a record should not have to navigate away to ask
+about it, should not have the record taken away to make room for the asking,
+and should not lose the page to look at something it references.
+
+They are one family because they share one screen and therefore have to
+cooperate — which is a contract, not a convention. The seams are named under
+each.
+
+## Select → talk
+
+**The one thing that happens when a person highlights words, anywhere.**
+
+`features/comments/AnchoredComments.tsx` + `features/comments/CommentLayer.tsx`
+are the standard. A selection inside a commentable region raises a small
+control at the selection whose default action is **Ask about this**: the
+passage goes to the agent surface as `PageContext.selection` and the composer
+takes focus, empty, for the person to say what they want. No special semantics,
+no note required, the same motion on every Detail page.
+
+**How a page opts in** — a provider, and regions:
+
+```text
+<CommentLayerProvider targetRef="briefing:61" record=… >
+  <Section eyebrow="Needs your decision">…</Section>
+  <Section eyebrow="Changed since the last brief">…</Section>
+</CommentLayerProvider>
+```
+
+- `targetRef` — the document notes are stored against (`lead_brief:412`,
+  `briefing:61`).
+- **The regions are the archetype's own `Section`s.** `Section` emits
+  `data-comment-field` from its eyebrow, so a Detail page opts in by being
+  wrapped, not by annotating itself. A page outside the archetype marks its
+  own regions with the same attribute. The field's *rendered* text is the text
+  of record: a reviewer commented on what they saw, so anchors resolve against
+  the DOM, not against the markdown behind it.
+- `record` — what the passage is about, carried with it so the turn is filed
+  against the right thing.
+
+Live on: the personalization lead page (`LeadContext`'s brief sections and CRM
+context) and the **Briefing detail** (every rendered section of the typed
+document, through `Section`). The briefing's own bespoke "Ask Vocion" pill is
+gone; two selection controls on two pages doing the same job was the defect,
+per MANIFESTO §19.
+
+**Seam:** `dismissSelectionControl()` (`features/comments/AnchoredComments.tsx`)
+— a surface that opens over the page dismisses the control rather than sitting
+beside it. Two floating things about two different pieces of the page, one of
+which the person did not ask for, is the state that avoids.
+
+### …and a tag is what makes it act
+
+On the personalization lead page the same gesture has one special outcome: the
+ask must **alter the sequence draft**, not be answered. That outcome is a
+**tag**, not a second control.
+
+The selection control offers a second action, *Add change*, where — and only
+where — the page declares `changeIntent`. It stores the anchored note and puts
+**`@change`** in the composer beside the quoted passage. The rail's send path
+reads the tag and routes to `ReviewService.rewriteDraft({ runId, hint,
+contentId })` with the content the anchor named; the send comes back rewritten
+and re-presented. Without the tag, the same words are a question.
+
+`@change` is a `ContextRef` of type `intent`, id `change`
+(`features/dashboard/chat/composerTags.ts`) — it rides the composer's existing
+`@` mention exactly as `@artifact` does, appears in the same popover, is
+inserted by the same `(+)` menu, and is stripped from `context_refs` before the
+wire because it points at no record. The `(+)` lists it only where a sequence
+draft is in view: a menu entry that cannot act is a menu entry that lies.
+
+So the person learns **one** thing — select, then talk — and the tag is the
+visible reason a particular ask did something more. Full detail in
+`docs/agent-chat-surface.md` § Intents.
+
+## Record pages are full width; the rail is a keystroke away
+
+A record page renders at full width. The conversation rail is an **overlay** on
+the right edge, collapsed to its edge tab when you arrive, opened by ⌘J, the
+header toggle, *Ask about this*, or a selection. The choice persists per
+browser, as the rail's width already does.
+
+Two reasons it is an overlay rather than a column that opens:
+
+1. **The document must not move.** Anchored highlights and the selection
+   control above them are positioned from a rectangle measured in the page. A
+   rail that reflows the page moves both — the rail would fight the mechanism
+   above it in this list.
+2. **Geometry belongs to the viewport.** As a column the rail was a child of
+   whatever mounted it; the lead page mounts its own, inside the shell's page
+   gutter, whose `@container` makes it the containing block for anything
+   `fixed` inside it. The rail therefore measured itself against a padded,
+   1180px-capped column, and its bottom edge — the composer — sat below the
+   fold until you scrolled. The rail portals to `document.body` now, so every
+   rail is in the same frame whatever page mounted it.
+
+**And it still does not cover the record.** While open the rail publishes
+`--rail-inset` and the shell's page gutter pads itself by exactly that much, so
+nothing is occluded; the page is full width again the moment the rail closes.
+Overlay is the rail's *geometry*, not a licence to sit on the text.
+
+**The one exception to collapsed-by-default**: a record with a **decision
+waiting**. The guided review lives in the rail, and hiding the decision behind
+a tab on a page whose masthead reads "Ready for review" is not a thing to make
+somebody discover. 058's *"the decision is the point"* is about a pending
+decision, not about a record; read that way, both asks hold. The rule lives in
+`ChatDock` (`defaultCollapsed ?? !run`), not in each caller.
+
+**Seams:** `yieldRail()` / `restoreRail()` (`features/dashboard/chat/dockState.ts`)
+— a surface that needs the rail's slot borrows it and gives it back in the
+state it found it, without recording the borrow as the person's preference and
+without holding a reference to the rail's internals. `useDockOpen()` reads the
+state; `--rail-inset` is the room an open rail is taking.
+
+**Where it came from.** Chris, 2026-09-16: *"can we use full width by default
+here?"*
+
+## Preview where you are, from any reference
+
+A reference to a record — a citation, an evidence chip, a linked row — opens
+that record in a panel over the page rather than navigating to it, so reading
+one thing to understand another costs no place in the history.
+
+Landing in `workforce/2026-09-16-evidence-preview`: preview as a capability
+declared per record type on `RecordRef`, one panel, opened from any reference.
+It is the third member of this family and it is the one that has to cooperate
+with the other two, so it takes the rail's slot through `yieldRail()` /
+`restoreRail()` and stands the selection control down through
+`dismissSelectionControl()` rather than sitting beside it. Both seams are named
+above; neither reaches into another surface's state.
+
+---
+
+# Everything stacked above a composer shares its column
+
+Context chips, queued messages, `@` tag chips, anchored-comment chips, the
+pasted-text chip. One padding rule, expressed in the composer container
+(`ChatComposer`'s `above` slot), never per child — a child that guesses at the
+inset is a child that ends up flush against the rail edge while the box beside
+it is inset.

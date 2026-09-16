@@ -82,9 +82,14 @@ describe('PageDock', () => {
     await expect.element(page.getByText('Everything')).toBeVisible();
   });
 
-  it('opens by default on a single record', async () => {
+  it('is collapsed on a single record too — the record page is full width on arrival (2026-09-16)', async () => {
     pathname = '/dashboard/missions/runs/42';
     await render(wrap(<PageDock agents={AGENTS} />));
+
+    await expect.element(page.getByTestId('rail-edge-tab')).toBeVisible();
+    expect(page.getByRole('complementary').elements()).toHaveLength(0);
+
+    await page.getByTestId('rail-edge-tab').click();
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
   });
@@ -92,6 +97,8 @@ describe('PageDock', () => {
   it('reads the route the same under a locale prefix', async () => {
     pathname = '/en/dashboard/missions/runs/42';
     await render(wrap(<PageDock agents={AGENTS} />));
+
+    await page.getByTestId('rail-edge-tab').click();
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
   });

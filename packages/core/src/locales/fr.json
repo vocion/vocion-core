@@ -201,7 +201,8 @@
     "queue_dismiss": "Fermer",
     "attach": "Ajouter à ce tour",
     "tag_artifact": "Document",
-    "tag_page": "Cette page"
+    "tag_page": "Cette page",
+    "tag_change": "Modifier le brouillon"
   },
   "Inbox": {
     "title": "À traiter",

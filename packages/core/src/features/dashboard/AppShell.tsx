@@ -64,7 +64,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             Your session points at a workspace that no longer exists (the database
             was reset or restored). Sign in again to continue.
           </p>
-          {/* eslint-disable-next-line next/no-html-link-for-pages -- an Auth.js route handler, not a page */}
+          { }
           <a
             href="/api/auth/signout"
             className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
@@ -116,15 +116,19 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         <ShellBarActionsProvider>
           <AppSidebarHeader workspace={workspace} usage={usage} />
 
-          {/* The page and, beside it, the one conversation surface (058): the
-              dock as a third column at a third of the screen, collapsed to a
-              button until opened. Record pages that mount their own scoped
-              dock inside `children` are skipped by PageDock. */}
+          {/* The page, full width, and the one conversation surface (058) as
+              an overlay on its right edge — collapsed to an edge tab until
+              opened, on a record page too (2026-09-16, docs/design/patterns.md).
+              `--rail-inset` is the room an OPEN rail is taking: the gutter
+              pads itself by that much so the panel never covers the record,
+              and the page is full width again the moment it closes. Record
+              pages that mount their own scoped dock inside `children` are
+              skipped by PageDock. */}
           <PageContextProvider>
             <div className="flex flex-1 items-stretch">
               {/* Page gutter (B-034b §3): 24px → 40px, 32px vertical, reading
                   width capped so prose never runs the whole monitor. */}
-              <div className="@container min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+              <div className="@container min-w-0 flex-1 px-4 py-6 pr-[calc(1rem+var(--rail-inset,0px))] transition-[padding] duration-200 sm:px-6 sm:pr-[calc(1.5rem+var(--rail-inset,0px))] lg:px-10 lg:py-8 lg:pr-[calc(2.5rem+var(--rail-inset,0px))]">
                 <div className="mx-auto w-full max-w-[1180px]">
                   {props.children}
                 </div>

@@ -39,7 +39,14 @@ export function BriefingSections(props: { briefingId: number; briefingTitle: str
   return (
     <>
       {sections.map(sec => (
-        <section key={sec.heading ?? '__preamble__'} data-briefing-section={sec.heading ? slug(sec.heading) : 'preamble'}>
+        // The legacy renderer's equivalent of the archetype's `Section`:
+        // `data-comment-field` is the select-to-talk opt-in, so a pre-v2
+        // brief keeps the pattern the typed one gets from `Section`.
+        <section
+          key={sec.heading ?? '__preamble__'}
+          data-briefing-section={sec.heading ? slug(sec.heading) : 'preamble'}
+          data-comment-field={sec.heading ?? 'Summary'}
+        >
           {sec.heading && (
             <div className="not-prose mt-6 mb-2 flex flex-wrap items-baseline justify-between gap-2 first:mt-0">
               <h2 className="text-base font-semibold tracking-tight">{sec.heading}</h2>

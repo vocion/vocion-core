@@ -407,3 +407,26 @@ describe('ChatComposer @artifact and the (+) menu', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe('one alignment rule above the box (2026-09-16)', () => {
+  it('renders the surface\'s own stack inside the composer column, so it shares the box\'s left edge', async () => {
+    const screen = await render(
+      <ChatComposer
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        above={<div data-testid="about-chip">About: a briefing</div>}
+        tags={[{ type: 'intent', id: 'change', label: 'Change the draft' }]}
+      />,
+    );
+    const chip = screen.container.querySelector('[data-testid="about-chip"]')!;
+    const tag = screen.container.querySelector('[data-testid="composer-tag"]')!;
+    const form = screen.container.querySelector('form')!;
+    const column = form.closest('.max-w-3xl')!;
+
+    // One column owns the left edge; no child carries padding of its own.
+    expect(column.contains(chip)).toBe(true);
+    expect(column.contains(tag)).toBe(true);
+    expect(chip.parentElement).toBe(column);
+  });
+});

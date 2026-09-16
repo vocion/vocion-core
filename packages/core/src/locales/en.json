@@ -201,7 +201,8 @@
     "queue_dismiss": "Dismiss",
     "attach": "Add to this turn",
     "tag_artifact": "Artifact",
-    "tag_page": "This page"
+    "tag_page": "This page",
+    "tag_change": "Change the draft"
   },
   "Inbox": {
     "title": "Needs you",
