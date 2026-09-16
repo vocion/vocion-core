@@ -45,6 +45,14 @@ const KNOWN_STATUSES = ['pending', 'failed', 'done'] as const;
 /** One card, as the block prints it. */
 export type KnownCard = {
   runId: number;
+  /**
+   * The key this card is stored under. Never rendered into the block, and the
+   * one thing that tells a record which NAMES this card apart from the record
+   * which IS it: a sync re-reads the page behind every queued card, so the
+   * card for the very record being extracted is in this list, and matching it
+   * is a refresh rather than a duplicate. Read by `labels.ts`.
+   */
+  dedupKey: string;
   /** Calendar date as stored, for ordering and for the line. */
   date: string;
   title: string;
@@ -239,7 +247,11 @@ async function queryKnownCards(opts: {
 
   const cards: KnownCard[] = [];
   for (const row of rows) {
-    const segments = candidateKeySegments(row.dedupKey);
+    // `?? ''` rather than a guard of its own: `candidateKeySegments` already
+    // rejects a keyless row on the next line, and the coalesce is what lets
+    // the key ride onto the card as a plain string.
+    const dedupKey = row.dedupKey ?? '';
+    const segments = candidateKeySegments(dedupKey);
     if (!segments || segments.objectType !== wantedType) {
       continue;
     }
@@ -253,6 +265,7 @@ async function queryKnownCards(opts: {
     }
     cards.push({
       runId: row.id,
+      dedupKey,
       date: day,
       title: scrubCardText(row.input?.title ?? fields[opts.config.titleFrom]),
       evidence: evidenceField ? scrubCardText(fields[evidenceField]) : '',

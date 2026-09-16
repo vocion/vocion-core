@@ -55,12 +55,24 @@ function noKnown(): KnownCards {
 }
 
 /**
- * A call whose prompt carried these cards, as `knownCards.ts` built them.
- * @param cards - The cards the block listed, id and group key only.
+ * The key `objects.propose_candidate` stores a card of the default shape
+ * under. Written out rather than derived so a change to the key's shape fails
+ * the self-match tests loudly instead of moving both sides at once.
+ * @param startDate - The card's date segment.
  */
-function knownWith(cards: Array<{ runId: number; seriesKey?: string | null }>): KnownCards {
+function keyFor(startDate: string): string {
+  return `objects.propose_candidate:event-candidate|open-mic-night|${startDate}|higher-ground`;
+}
+
+/**
+ * A call whose prompt carried these cards, as `knownCards.ts` built them.
+ * @param cards - The cards the block listed: id, group key, and the key the
+ * card is stored under, which defaults to another date of the same event.
+ */
+function knownWith(cards: Array<{ runId: number; seriesKey?: string | null; dedupKey?: string }>): KnownCards {
   const built: KnownCard[] = cards.map(card => ({
     runId: card.runId,
+    dedupKey: card.dedupKey ?? keyFor('2026-11-12'),
     date: '2026-11-12',
     title: 'Open Mic Night',
     evidence: 'every Thursday',
@@ -101,7 +113,13 @@ async function seedCard(opts: {
 
 function record(over: Record<string, unknown> = {}) {
   const { fields, ...rest } = over as { fields?: Record<string, unknown> };
-  const built: { fields: Record<string, unknown>; confidence: number; issues: string[] } = {
+  const built: {
+    fields: Record<string, unknown>;
+    confidence: number;
+    issues: string[];
+    duplicateOf?: number;
+    seriesOf?: number;
+  } = {
     fields: {
       title: 'Open Mic Night',
       startDate: '2026-11-19',
@@ -137,6 +155,57 @@ describe('series and duplicate labels', () => {
     expect(records[0]?.fields.seriesMatch).toBe('possible duplicate of 77');
     expect(counts.duplicate_flagged).toBe(1);
     expect(counts.series_labeled).toBeUndefined();
+  });
+
+  it('does not label a record as a duplicate of the card it refreshes', async () => {
+    // The block lists the card this record is about to refresh, and the model
+    // answered honestly about the list. Labelling it would stamp the card
+    // "possible duplicate of <itself>" and recommend rejecting it.
+    const records = [record({ duplicateOf: 88 })];
+
+    const counts = await labelRecords({
+      orgId: ORG,
+      config,
+      records,
+      known: knownWith([{ runId: 88, dedupKey: keyFor('2026-11-19') }]),
+    });
+
+    expect(records[0]?.fields.seriesMatch).toBeUndefined();
+    expect(records[0]?.duplicateOf).toBeUndefined();
+    expect(counts.duplicate_flagged).toBeUndefined();
+    expect(counts.self_match).toBe(1);
+    expect(records[0]?.issues[0]).toContain('the model matched the card this record refreshes');
+  });
+
+  it('does not point a record at itself as a series anchor', async () => {
+    const records = [record({ seriesOf: 88, seriesNote: 'a Sunday this time' })];
+
+    const counts = await labelRecords({
+      orgId: ORG,
+      config,
+      records,
+      known: knownWith([{ runId: 88, dedupKey: keyFor('2026-11-19') }]),
+    });
+
+    expect(records[0]?.fields.seriesMatch).toBeUndefined();
+    expect(records[0]?.fields.seriesKey).toBeUndefined();
+    expect(counts.series_labeled).toBeUndefined();
+    expect(counts.self_match).toBe(1);
+  });
+
+  it('still labels a different card with the same title on another day', async () => {
+    const records = [record({ seriesOf: 88 })];
+
+    const counts = await labelRecords({
+      orgId: ORG,
+      config,
+      records,
+      known: knownWith([{ runId: 88, dedupKey: keyFor('2026-11-12') }]),
+    });
+
+    expect(records[0]?.fields.seriesMatch).toBe('part of series 88');
+    expect(counts.series_labeled).toBe(1);
+    expect(counts.self_match).toBeUndefined();
   });
 
   it('falls back to the sibling rule when the model said nothing', async () => {

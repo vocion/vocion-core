@@ -245,7 +245,20 @@ describe('extraction prompt containment', () => {
       orgId: 'org_hostile',
       config: seriesConfig,
       records: validated.records,
-      known: { cards: [{ runId: 41, date: '2026-11-12', title: 'Open Mic Night', evidence: 'every Thursday', seriesKey: null }], text: '', ids: new Set([41]) },
+      known: {
+        cards: [{
+          runId: 41,
+          // Another date of the same event, so the card is an anchor rather
+          // than the one this record refreshes.
+          dedupKey: 'objects.propose_candidate:event-candidate|open-mic-night|2026-11-12|higher-ground',
+          date: '2026-11-12',
+          title: 'Open Mic Night',
+          evidence: 'every Thursday',
+          seriesKey: null,
+        }],
+        text: '',
+        ids: new Set([41]),
+      },
     });
 
     const fields = validated.records[0]!.fields;
