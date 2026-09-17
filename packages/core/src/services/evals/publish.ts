@@ -18,16 +18,16 @@
  * - **One publisher at a time per dataset.** While AWS is applying a change
  *   the dataset is `UPDATING` and every other write is refused, so a schedule
  *   firing next to a hand-pressed run would leave a half-applied Draft. The
- *   advisory lock below makes the second one skip publishing and run anyway
- *   rather than queue behind an AWS round trip.
+ *   lease below makes the second one skip publishing and run anyway rather
+ *   than queue behind an AWS round trip.
  */
 
 import type { EvalScoreProvider } from './providers/types';
 import type { EvalDatasetItem } from './types';
-import { and, eq, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { evalDatasetRemoteSchema } from '@/models/Schema';
-import { casesHashFor } from './providers/agentcoreDatasets';
 
 /** What the run records about where its cases live. */
 export type DatasetSyncResult = {
@@ -51,14 +51,38 @@ export type PublishableDataset = {
 };
 
 /**
- * A lock key Postgres can hold for one dataset.
+ * How long one publisher may hold a dataset before another may take it.
  *
- * `hashtext` rather than the id itself, so the advisory lock space cannot
- * collide with another feature that happens to lock on a small integer.
- * @param datasetId - Which dataset.
+ * Long enough for AWS to apply a large diff and settle a version, short enough
+ * that a process killed mid-publish does not keep a dataset from ever being
+ * republished. A lease that expires under a publisher still working is the
+ * case AWS itself refuses, which is the outcome the lease was avoiding anyway.
  */
-function lockKeyFor(datasetId: number): string {
-  return `eval-dataset-publish:${datasetId}`;
+const PUBLISH_LEASE_MS = 15 * 60 * 1000;
+
+/**
+ * What the grader is holding, as one string, whoever the grader is.
+ *
+ * Covers the cases and the slug they are addressed by, and nothing else, so
+ * renaming a dataset's description does not cut a new version in someone's
+ * account while changing a single expected answer does.
+ *
+ * Deliberately not the provider's own serialization: this module decides
+ * whether anything needs republishing for every grader, and reaching into one
+ * grader's request shape to answer that would make the next grader either
+ * adopt AWS's wire format or add a branch here.
+ * @param items - The authored cases.
+ * @param slug - The dataset they belong to.
+ */
+export function casesFingerprint(items: EvalDatasetItem[], slug: string): string {
+  const cases = items.map(item => ({
+    input: item.input,
+    expectedOutput: item.expectedOutput ?? null,
+    expectedTrajectory: item.expectedTrajectory ?? [],
+    assertions: item.assertions ?? [],
+    rubric: item.rubric ?? null,
+  }));
+  return createHash('sha256').update(JSON.stringify({ slug, cases })).digest('hex');
 }
 
 /**
@@ -68,21 +92,45 @@ function lockKeyFor(datasetId: number): string {
  * @param providerId - Which grader.
  */
 async function remoteRowFor(orgId: string, datasetId: number, providerId: string) {
-  const [existing] = await db
-    .select()
-    .from(evalDatasetRemoteSchema)
-    .where(and(
-      eq(evalDatasetRemoteSchema.datasetId, datasetId),
-      eq(evalDatasetRemoteSchema.provider, providerId),
-    ));
+  const [existing] = await selectRemoteRow(orgId, datasetId, providerId);
   if (existing) {
     return existing;
   }
+  // A schedule and a hand-pressed run reach this together on a dataset nobody
+  // has published yet: both read nothing, both insert, and one loses the unique
+  // index on (dataset, provider). Losing that race is not an error worth
+  // raising — the row the winner wrote is the row this caller wanted.
   const [created] = await db
     .insert(evalDatasetRemoteSchema)
     .values({ orgId, datasetId, provider: providerId })
+    .onConflictDoNothing()
     .returning();
-  return created!;
+  if (created) {
+    return created;
+  }
+  const [winner] = await selectRemoteRow(orgId, datasetId, providerId);
+  return winner!;
+}
+
+/**
+ * The publish row for one dataset and grader, scoped to the org that owns it.
+ *
+ * The org filter is belt and braces: every caller has already resolved the
+ * dataset through an org-scoped read. It costs nothing and means a future
+ * caller that forgets cannot read across tenants.
+ * @param orgId - Whose workspace.
+ * @param datasetId - Which dataset.
+ * @param providerId - Which grader.
+ */
+async function selectRemoteRow(orgId: string, datasetId: number, providerId: string) {
+  return db
+    .select()
+    .from(evalDatasetRemoteSchema)
+    .where(and(
+      eq(evalDatasetRemoteSchema.orgId, orgId),
+      eq(evalDatasetRemoteSchema.datasetId, datasetId),
+      eq(evalDatasetRemoteSchema.provider, providerId),
+    ));
 }
 
 /**
@@ -103,8 +151,21 @@ export async function syncDatasetToProvider(
     return null;
   }
 
-  const row = await remoteRowFor(orgId, dataset.id, provider.id);
-  const hash = casesHashFor(dataset.items, dataset.slug);
+  // Everything before the publish call can fail too — the row may lose an
+  // insert race, and a case with no input has no fingerprint — and this whole
+  // function exists on the promise that a publish problem never costs a run.
+  // So the preparation is guarded exactly like the AWS call is.
+  let row: Awaited<ReturnType<typeof remoteRowFor>>;
+  let hash: string;
+  try {
+    row = await remoteRowFor(orgId, dataset.id, provider.id);
+    hash = casesFingerprint(dataset.items, dataset.slug);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[evals] could not work out what ${dataset.slug} owes ${provider.id}`, error);
+    return { remoteId: null, remoteVersion: null, syncError: message, published: false };
+  }
+
   if (row.remoteId && row.casesHash === hash && !row.syncError) {
     return {
       remoteId: row.remoteId,
@@ -114,9 +175,8 @@ export async function syncDatasetToProvider(
     };
   }
 
-  const key = lockKeyFor(dataset.id);
-  const locked = await takeLock(key);
-  if (!locked) {
+  const leased = await takePublishLease(row.id);
+  if (!leased) {
     // Another run is publishing this dataset right now. Waiting would hold a
     // run open behind someone else's AWS round trip for a mirror the scoring
     // does not read.
@@ -171,39 +231,54 @@ export async function syncDatasetToProvider(
       published: false,
     };
   } finally {
-    await releaseLock(key);
+    await releasePublishLease(row.id);
   }
 }
 
 /**
  * Try to become the one publisher for this dataset.
  *
- * Session-level rather than transactional, because the work it guards is a
- * sequence of AWS calls and no transaction may be held open across those.
- * @param key - The lock key.
+ * One conditional UPDATE, so two runs racing cannot both win it whichever
+ * pooled connection each of them lands on. A Postgres advisory lock cannot do
+ * this job here: it belongs to the connection that took it, and the release
+ * would usually run on a different one and free nothing.
+ * @param rowId - The publish row for this dataset and grader.
  */
-async function takeLock(key: string): Promise<boolean> {
+async function takePublishLease(rowId: number): Promise<boolean> {
+  const now = new Date();
   try {
-    const result = await db.execute(sql`select pg_try_advisory_lock(hashtext(${key})) as locked`);
-    const rows = ((result as { rows?: Array<{ locked?: boolean }> }).rows ?? result) as Array<{ locked?: boolean }>;
-    return rows[0]?.locked !== false;
+    const claimed = await db
+      .update(evalDatasetRemoteSchema)
+      .set({ publishLeaseUntil: new Date(now.getTime() + PUBLISH_LEASE_MS) })
+      .where(and(
+        eq(evalDatasetRemoteSchema.id, rowId),
+        or(
+          isNull(evalDatasetRemoteSchema.publishLeaseUntil),
+          lt(evalDatasetRemoteSchema.publishLeaseUntil, now),
+        ),
+      ))
+      .returning({ id: evalDatasetRemoteSchema.id });
+    return claimed.length > 0;
   } catch (error) {
-    // A database without advisory locks must not stop evals running; the worst
-    // case is the collision this was avoiding, which AWS itself then refuses.
-    console.error('[evals] could not take the publish lock', error);
+    // A database that cannot take the lease must not stop evals running; the
+    // worst case is the collision this was avoiding, which AWS itself refuses.
+    console.error('[evals] could not take the publish lease', error);
     return true;
   }
 }
 
 /**
  * Let the next publisher in.
- * @param key - The lock key.
+ * @param rowId - The publish row for this dataset and grader.
  */
-async function releaseLock(key: string): Promise<void> {
+async function releasePublishLease(rowId: number): Promise<void> {
   try {
-    await db.execute(sql`select pg_advisory_unlock(hashtext(${key}))`);
+    await db
+      .update(evalDatasetRemoteSchema)
+      .set({ publishLeaseUntil: null })
+      .where(eq(evalDatasetRemoteSchema.id, rowId));
   } catch (error) {
-    console.error('[evals] could not release the publish lock', error);
+    console.error('[evals] could not release the publish lease', error);
   }
 }
 
@@ -236,24 +311,20 @@ export type DatasetSyncState = {
  * Returns null when this grader has never been asked to hold this dataset —
  * either because it keeps no dataset of its own, or because nothing has run
  * yet. The page tells those two apart from the provider, not from here.
+ * @param orgId - Whose workspace.
  * @param datasetId - Which dataset.
  * @param providerId - Which grader.
  * @param items - The cases the dataset declares right now.
  * @param slug - The dataset's slug, which is part of the published content.
  */
 export async function describeDatasetSync(
+  orgId: string,
   datasetId: number,
   providerId: string,
   items: EvalDatasetItem[],
   slug: string,
 ): Promise<DatasetSyncState | null> {
-  const [row] = await db
-    .select()
-    .from(evalDatasetRemoteSchema)
-    .where(and(
-      eq(evalDatasetRemoteSchema.datasetId, datasetId),
-      eq(evalDatasetRemoteSchema.provider, providerId),
-    ));
+  const [row] = await selectRemoteRow(orgId, datasetId, providerId);
   if (!row) {
     return null;
   }
@@ -264,6 +335,6 @@ export async function describeDatasetSync(
     status: row.status,
     syncError: row.syncError,
     syncedAt: row.syncedAt,
-    drifted: row.casesHash !== casesHashFor(items, slug),
+    drifted: row.casesHash !== casesFingerprint(items, slug),
   };
 }

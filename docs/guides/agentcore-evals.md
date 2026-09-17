@@ -76,9 +76,14 @@ What it does, in order:
   version is immutable, so a run can always say which cases it measured.
 - Requests are split at AWS's ceilings of 1,000 examples and 5 MB, so a large
   dataset lands in several calls and one version.
-- Only one publisher per dataset at a time, held by a Postgres advisory lock. A
-  schedule firing next to a hand-pressed run makes the second one skip the copy
-  and run anyway, rather than queue behind an AWS round trip.
+- Only one publisher per dataset at a time, held by a lease on the publish row
+  (`eval_dataset_remote.publish_lease_until`). A schedule firing next to a
+  hand-pressed run makes the second one skip the copy and run anyway, rather
+  than queue behind an AWS round trip. The lease expires after fifteen minutes,
+  so a process that dies mid-publish does not lock the dataset out for good.
+  (It is a lease rather than a Postgres advisory lock because every query here
+  comes off a connection pool: the lock and its release would usually land on
+  different connections, and the release would free nothing.)
 
 **A failed copy does not stop the eval.** Scoring never reads the published
 dataset — each `Evaluate` call carries that case's expected answer, assertions
@@ -273,6 +278,15 @@ Three things the UI does on purpose:
 - **A dashed line marks the run where the dataset version changed.** Scores
   either side of it are measuring different cases. Without the mark, editing
   the cases to be easier looks exactly like the agent getting better.
+- **Each evaluator gets its own line under its grader's pass rate.** An agent
+  whose answers improve while its tool use rots holds a flat pass rate the
+  whole way; only the per-evaluator lines show which half moved. Evaluators
+  that return a label rather than a number are not plotted, because they have
+  no honest position on a 0–1 axis.
+- **A run a grader refused says why, on the run page.** AWS denying the
+  credential and a case failing on its merits are different problems, and
+  `eval_run.error_message` keeps the reason where the person who pressed the
+  button will look for it.
 - **A provider you have never used and cannot use is not mentioned at all.** No
   AWS credential means no AgentCore section, no empty chart, no invitation to
   set something up you did not ask about.

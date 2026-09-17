@@ -39,7 +39,9 @@ const {
   UpdateDatasetExamplesCommand,
 } = await import('@aws-sdk/client-bedrock-agentcore-control');
 const {
+  awsDatasetName,
   casesHashFor,
+  chunkScenarios,
   EvalDatasetPublishError,
   publishAgentcoreDataset,
   toScenario,
@@ -335,5 +337,61 @@ describe('publishAgentcoreDataset', () => {
       .toThrow(EvalDatasetPublishError);
 
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('awsDatasetName', () => {
+  it('turns an org and a slug into something AWS will accept', () => {
+    const name = awsDatasetName('org_2abcDEF', 'refund-quality');
+
+    // Letters, digits and underscores only, and it must start with a letter.
+    expect(name).toMatch(/^[a-z]\w*$/i);
+    expect(name).toContain('refund_quality');
+  });
+
+  it('keeps two orgs with the same dataset slug apart', () => {
+    // The name is immutable in AWS, so a collision here means one workspace
+    // silently grading against another's cases.
+    expect(awsDatasetName('org_aaa', 'refund-quality')).not.toBe(awsDatasetName('org_bbb', 'refund-quality'));
+  });
+
+  it('still produces a legal name when the slug starts with a digit', () => {
+    expect(awsDatasetName('2024', '9-lives')).toMatch(/^[a-z]/i);
+  });
+
+  it('falls back to a hashed name when nothing usable survives', () => {
+    const name = awsDatasetName('!!!', '???');
+
+    expect(name).toMatch(/^eval_[a-f0-9]{8}$/);
+  });
+
+  it('stays inside the length AWS allows', () => {
+    const name = awsDatasetName('org_'.padEnd(80, 'x'), 'a-very-long-dataset-slug-indeed');
+
+    expect(name.length).toBeLessThanOrEqual(48);
+  });
+});
+
+describe('chunkScenarios', () => {
+  it('refuses a single case too large for any request', () => {
+    const huge = { scenario_id: 'big', turns: [{ input: 'x'.repeat(6 * 1024 * 1024) }] };
+
+    // Sending it would come back as AWS's own 4xx with AWS's wording, which
+    // names neither the dataset nor the case.
+    expect(() => chunkScenarios([huge as never], SLUG)).toThrow(EvalDatasetPublishError);
+    expect(() => chunkScenarios([huge as never], SLUG)).toThrow(/5 MB/);
+  });
+
+  it('splits at AWS\'s thousand-example ceiling', () => {
+    const scenarios = Array.from({ length: 2001 }, (_, index) => ({
+      scenario_id: `case-${index}`,
+      turns: [{ input: 'short' }],
+    }));
+
+    const batches = chunkScenarios(scenarios as never, SLUG);
+
+    expect(batches).toHaveLength(3);
+    expect(batches[0]).toHaveLength(1000);
+    expect(batches[2]).toHaveLength(1);
   });
 });

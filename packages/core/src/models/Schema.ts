@@ -1658,6 +1658,13 @@ export const evalRunSchema = pgTable('eval_run', {
   runGroupId: text('run_group_id'),
   /** running | succeeded | failed */
   status: text('status').default('running').notNull(),
+  /**
+   * Why the run failed, in the grader's own words. A run that died because AWS
+   * refused the whole request is a different problem from one whose cases
+   * failed on their merits, and a bare "failed" badge tells a reader neither.
+   * NULL while a run is running and on every run that finished.
+   */
+  errorMessage: text('error_message'),
   metrics: jsonb('metrics').$type<{
     passRate?: number;
     toolCallCount?: number;
@@ -1871,7 +1878,19 @@ export const evalDatasetRemoteSchema = pgTable('eval_dataset_remote', {
   status: text('status'),
   /** Why the last publish failed. Kept so the page can say so rather than look synced. */
   syncError: text('sync_error'),
+  /** When the last publish was attempted, whether or not it landed. */
   syncedAt: timestamp('synced_at', { mode: 'date' }),
+  /**
+   * Held by whoever is publishing this dataset right now, until this moment.
+   *
+   * A lease rather than a Postgres advisory lock because the work it guards is
+   * a sequence of AWS calls: an advisory lock is tied to one connection, and
+   * every query here comes off a pool, so the unlock would usually land on a
+   * different connection and free nothing. A row that outlives the process
+   * holding it is the other half of the same problem — hence an expiry rather
+   * than a flag, so a crashed publish does not lock the dataset forever.
+   */
+  publishLeaseUntil: timestamp('publish_lease_until', { mode: 'date' }),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { mode: 'date' })
     .defaultNow()

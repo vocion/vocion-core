@@ -22,7 +22,7 @@ import type { EvalScoreProvider } from './evals/providers/types';
 import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
 import type { EvalDatasetItem } from './evals/types';
 import type { LangChainProvider } from '@/libs/llm';
-import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, avg, desc, eq, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { evalCaseResultSchema, evalDatasetSchema, evalEvaluatorSchema, evalRunSchema, evalScoreSchema } from '@/models/Schema';
@@ -277,6 +277,63 @@ export async function listScoresForRun(runId: number) {
     .from(evalScoreSchema)
     .where(eq(evalScoreSchema.runId, runId))
     .orderBy(asc(evalScoreSchema.id));
+}
+
+/**
+ * One number per run per evaluator, for the trend lines.
+ *
+ * The aggregate pass rate answers "is this dataset getting better"; this
+ * answers "which part of it is". An agent whose answers improve while its tool
+ * use gets worse holds a flat pass rate the whole way, and only a line per
+ * evaluator shows that.
+ *
+ * Only evaluators that return a number are here: a categorical verdict like
+ * "Perfectly Correct" has no position on a 0–1 axis, and inventing one would
+ * put a made-up number on a chart people read for trends.
+ * @param orgId - Whose workspace.
+ * @param datasetId - Which dataset.
+ */
+export async function listEvaluatorTrend(orgId: string, datasetId: number) {
+  const rows = await db
+    .select({
+      runId: evalRunSchema.id,
+      provider: evalRunSchema.provider,
+      evaluatorSlug: evalScoreSchema.evaluatorSlug,
+      startedAt: evalRunSchema.startedAt,
+      datasetVersion: evalRunSchema.datasetVersion,
+      meanValue: avg(evalScoreSchema.value),
+    })
+    .from(evalScoreSchema)
+    .innerJoin(evalRunSchema, eq(evalScoreSchema.runId, evalRunSchema.id))
+    .where(and(
+      eq(evalRunSchema.orgId, orgId),
+      eq(evalRunSchema.datasetId, datasetId),
+      eq(evalRunSchema.status, 'succeeded'),
+      isNotNull(evalScoreSchema.value),
+    ))
+    .groupBy(
+      evalRunSchema.id,
+      evalRunSchema.provider,
+      evalScoreSchema.evaluatorSlug,
+      evalRunSchema.startedAt,
+      evalRunSchema.datasetVersion,
+    )
+    .orderBy(asc(evalRunSchema.startedAt));
+
+  // `avg` comes back as a string from both drivers, and a NULL average would
+  // mean a group with no numbers in it — which the NOT NULL filter rules out,
+  // so a row that still has none is dropped rather than plotted as zero.
+  return rows
+    .filter(row => row.meanValue !== null)
+    .map(row => ({
+      runId: row.runId,
+      provider: row.provider,
+      evaluatorSlug: row.evaluatorSlug,
+      startedAt: row.startedAt,
+      datasetVersion: row.datasetVersion,
+      meanValue: Number(row.meanValue),
+    }))
+    .filter(row => Number.isFinite(row.meanValue));
 }
 
 export async function getRun(orgId: string, runId: number) {

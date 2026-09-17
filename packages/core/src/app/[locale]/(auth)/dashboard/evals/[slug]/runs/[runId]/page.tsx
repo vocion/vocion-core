@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { langfuseConfig } from '@/libs/Langfuse';
@@ -10,7 +11,6 @@ import { browserProjectId } from '@/libs/Langfuse/config';
 import { usd } from '@/services/evals/modelUpgradeTest';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { getDataset, getRun, listRunGroup, listScoresForRun } from '@/services/EvalService';
-import { describeProvider } from '../../../providerCopy';
 import { RunAutoRefresh } from './RunAutoRefresh';
 
 type Props = {
@@ -155,6 +155,22 @@ export default async function EvalRunDetailPage(props: Props) {
       />
 
       <RunAutoRefresh running={run.status === 'running'} />
+
+      {run.status === 'failed' && run.errorMessage && (
+        // A grader that refused the whole run says why here. Cases that failed
+        // on their merits are not this: those have scores, and read below.
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+          <div className="mb-1 font-semibold">
+            {labelFor(run.provider)}
+            {' '}
+            could not grade this run
+          </div>
+          <p>{run.errorMessage}</p>
+          <p className="mt-1">
+            The transcripts were produced and are listed below; only the scoring failed. Earlier runs keep their scores.
+          </p>
+        </div>
+      )}
 
       {siblingRuns.length > 0 && (
         <div className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/10 px-4 py-3 text-xs text-muted-foreground">

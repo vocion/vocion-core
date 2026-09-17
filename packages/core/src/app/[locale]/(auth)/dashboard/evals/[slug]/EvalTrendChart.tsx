@@ -83,8 +83,11 @@ export function EvalTrendChart(props: {
     <div className="relative">
       <div className="mb-2 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
         {series.map(line => (
-          <span key={line.provider} className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-0.5 w-3 rounded" style={{ backgroundColor: line.color }} />
+          <span key={line.key} className="inline-flex items-center gap-1.5">
+            <span
+              className={line.dashed ? 'inline-block h-0.5 w-3 rounded opacity-60' : 'inline-block h-0.5 w-3 rounded'}
+              style={{ backgroundColor: line.color }}
+            />
             {line.label}
           </span>
         ))}
@@ -96,7 +99,9 @@ export function EvalTrendChart(props: {
         )}
         {hover && (
           <span className="ml-auto tabular-nums">
-            {`#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${Math.round(hover.passRate * 100)}% pass`}
+            {hover.evaluatorSlug
+              ? `#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${hover.evaluatorSlug} ${Math.round(hover.passRate * 100)}%`
+              : `#${hover.runId} · ${new Date(hover.startedAt).toLocaleString()} · ${Math.round(hover.passRate * 100)}% pass`}
           </span>
         )}
       </div>
@@ -149,13 +154,14 @@ export function EvalTrendChart(props: {
           ))}
 
           {series.map(line => (
-            <g key={line.provider}>
+            <g key={line.key}>
               <path
                 d={line.points.map((point, index) =>
                   `${index === 0 ? 'M' : 'L'} ${x(Date.parse(point.startedAt))} ${y(point.passRate)}`).join(' ')}
                 fill="none"
                 style={{ stroke: line.color }}
-                strokeWidth="1.5"
+                strokeWidth={line.dashed ? 1 : 1.5}
+                strokeDasharray={line.dashed ? '4 3' : undefined}
               />
               {line.points.map(point => (
                 <circle

@@ -219,6 +219,26 @@ describe('runDatasetAndScore', () => {
     expect(remote?.syncError).toContain('AWS refused the dataset');
   });
 
+  it('records why a grader refused the run, not just that it failed', async () => {
+    const provider = fakeProvider('agentcore', 'AgentCore');
+    await seedDataset([{ input: 'one' }], 'agentcore');
+    getProvider.mockReturnValue({
+      ...provider,
+      score: vi.fn(async () => {
+        throw new Error('The security token included in the request is invalid');
+      }),
+    });
+
+    await runDatasetAndScore({ orgId: ORG, datasetSlug: SLUG });
+
+    const [run] = await db.select().from(evalRunSchema);
+
+    // "failed" on its own does not say whether to fix a credential or a case,
+    // and whoever pressed the button reads this page, not the server logs.
+    expect(run?.status).toBe('failed');
+    expect(run?.errorMessage).toContain('security token');
+  });
+
   it('runs no agent at all for a dataset with no cases', async () => {
     await seedDataset([]);
     getProvider.mockReturnValue(fakeProvider('vocion'));

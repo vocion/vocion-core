@@ -205,7 +205,7 @@ describe('describeDatasetSync', () => {
   it('says nothing at all for a dataset nobody has tried to publish', async () => {
     const dataset = await seedDataset([{ input: 'one' }]);
 
-    const state = await describeDatasetSync(dataset.id, 'agentcore', dataset.items, dataset.slug);
+    const state = await describeDatasetSync(ORG, dataset.id, 'agentcore', dataset.items, dataset.slug);
 
     // The page turns this into "not copied yet", which is true; inventing a
     // row here would make it read as a failed copy instead.
@@ -217,7 +217,7 @@ describe('describeDatasetSync', () => {
     const { provider } = publishingProvider();
     await syncDatasetToProvider(ORG, dataset, provider as never);
 
-    const state = await describeDatasetSync(dataset.id, 'agentcore', dataset.items, dataset.slug);
+    const state = await describeDatasetSync(ORG, dataset.id, 'agentcore', dataset.items, dataset.slug);
 
     expect(state?.drifted).toBe(false);
     expect(state?.remoteId).toBe('ds-1');
@@ -230,7 +230,7 @@ describe('describeDatasetSync', () => {
     await syncDatasetToProvider(ORG, dataset, provider as never);
 
     const edited = [{ input: 'one', expectedOutput: 'a refund is on the way' }];
-    const state = await describeDatasetSync(dataset.id, 'agentcore', edited, dataset.slug);
+    const state = await describeDatasetSync(ORG, dataset.id, 'agentcore', edited, dataset.slug);
 
     // Between someone editing the workspace file and the next run, the
     // version number AgentCore holds is measuring other cases.
@@ -245,9 +245,99 @@ describe('describeDatasetSync', () => {
     const { provider } = publishingProvider(failing as never);
     await syncDatasetToProvider(ORG, dataset, provider as never);
 
-    const state = await describeDatasetSync(dataset.id, 'agentcore', dataset.items, dataset.slug);
+    const state = await describeDatasetSync(ORG, dataset.id, 'agentcore', dataset.items, dataset.slug);
 
     expect(state?.syncError).toContain('AWS refused the dataset');
     expect(state?.remoteId).toBeNull();
+  });
+
+  it('lets a second publisher run rather than wait behind the first', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const { provider, publish } = publishingProvider();
+    await syncDatasetToProvider(ORG, dataset, provider as never);
+    // Someone else is mid-publish: the lease is held and has not expired.
+    await db
+      .update(evalDatasetRemoteSchema)
+      .set({ publishLeaseUntil: new Date(Date.now() + 60_000), casesHash: 'stale' })
+      .where(eq(evalDatasetRemoteSchema.datasetId, dataset.id));
+
+    const result = await syncDatasetToProvider(ORG, dataset, provider as never);
+
+    // Waiting would hold a run open behind someone else's AWS round trip for a
+    // copy the scoring never reads, so this run measures and moves on.
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(result?.published).toBe(false);
+    expect(result?.remoteId).toBe('ds-1');
+  });
+
+  it('takes a lease another publisher let expire', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const { provider, publish } = publishingProvider();
+    await syncDatasetToProvider(ORG, dataset, provider as never);
+    // A process that died mid-publish leaves its lease behind. Once it lapses
+    // the dataset must be publishable again, or it is locked out forever.
+    await db
+      .update(evalDatasetRemoteSchema)
+      .set({ publishLeaseUntil: new Date(Date.now() - 60_000), casesHash: 'stale' })
+      .where(eq(evalDatasetRemoteSchema.datasetId, dataset.id));
+
+    const result = await syncDatasetToProvider(ORG, dataset, provider as never);
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(result?.published).toBe(true);
+  });
+
+  it('gives the lease back when the publish fails', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const failing = vi.fn(async () => {
+      throw new Error('AWS refused the dataset');
+    });
+    const { provider } = publishingProvider(failing as never);
+
+    await syncDatasetToProvider(ORG, dataset, provider as never);
+
+    // A failure that kept the lease would lock the dataset out for the whole
+    // lease window — exactly when someone is retrying to fix it.
+    expect((await remoteRow(dataset.id))?.publishLeaseUntil).toBeNull();
+  });
+
+  // Note on what this can and cannot prove: the test database runs one
+  // connection, so these two calls interleave rather than truly collide. It
+  // holds the invariant — one row, nobody throws — while the insert's
+  // conflict handling is what makes it hold under real concurrency.
+  it('keeps one row when two publishes start on a dataset nobody has published', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const { provider } = publishingProvider();
+
+    const [first, second] = await Promise.all([
+      syncDatasetToProvider(ORG, dataset, provider as never),
+      syncDatasetToProvider(ORG, dataset, provider as never),
+    ]);
+
+    // Both read no row and both insert; the loser of the unique index must not
+    // throw, because nothing above catches it and the whole run would die.
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+
+    const rows = await db
+      .select()
+      .from(evalDatasetRemoteSchema)
+      .where(eq(evalDatasetRemoteSchema.datasetId, dataset.id));
+
+    expect(rows).toHaveLength(1);
+  });
+
+  it('records a failure rather than throwing when the cases cannot be fingerprinted', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const { provider, publish } = publishingProvider();
+    const unreadable = { ...dataset, items: null as never };
+
+    const result = await syncDatasetToProvider(ORG, unreadable, provider as never);
+
+    // The promise this module makes is that a publish problem never costs a
+    // run. Preparation is part of the publish.
+    expect(result?.published).toBe(false);
+    expect(result?.syncError).toBeTruthy();
+    expect(publish).not.toHaveBeenCalled();
   });
 });

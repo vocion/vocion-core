@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { describeProvider } from './providerCopy';
+import { describeProvider } from '@/features/evals/providerCopy';
 
 /**
  * The grader behind a score, named and explained.

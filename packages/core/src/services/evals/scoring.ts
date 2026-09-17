@@ -127,9 +127,12 @@ export async function scoreWithProvider(options: ScoreWithProviderOptions): Prom
   } catch (error) {
     const message = (error as Error).message ?? `${options.provider.id} scoring failed`;
     console.error(`[evals] ${options.provider.id} could not score ${options.datasetSlug}`, error);
+    // The reason is stored, not only logged: whoever pressed "Run evals now"
+    // reads the run page, not the server logs, and a bare "failed" does not
+    // tell them whether to fix a credential or a case.
     await db
       .update(evalRunSchema)
-      .set({ status: 'failed', completedAt: new Date() })
+      .set({ status: 'failed', errorMessage: message, completedAt: new Date() })
       .where(eq(evalRunSchema.id, runId));
     return { providerId: options.provider.id, runId, scoreCount: 0, error: message };
   }

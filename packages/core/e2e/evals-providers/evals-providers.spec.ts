@@ -45,6 +45,8 @@ type SeedFixtures = {
   oneGraderSlug: string;
   changedGradersSlug: string;
   notCopiedSlug: string;
+  copyFailedSlug: string;
+  inStepSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -228,7 +230,7 @@ test.describe('the eval section, with more than one grader', () => {
     // so the version AWS holds is measuring something else.
     await expect(shownText(page, 'copy is behind this workspace', { exact: false })).toBeVisible();
     // Both versions, because "v7 here, v2 there" is the whole point.
-    await expect(shownText(page, 'Workspace v2', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'Workspace version 2', { exact: false })).toBeVisible();
     // The id support needs to find the dataset in the AWS console.
     await expect(shownText(page, 'ds-e2e-fixture', { exact: false })).toBeVisible();
   });
@@ -240,6 +242,27 @@ test.describe('the eval section, with more than one grader', () => {
 
     await expect(shownText(page, 'Not copied to AgentCore yet', { exact: false })).toBeVisible();
     await expect(shownText(page, 'Could not copy', { exact: false })).toHaveCount(0);
+  });
+
+  test('a copy AWS refused says so, and says the run was still scored', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.copyFailedSlug}`);
+
+    // The distinction the whole panel exists for: the copy failed, the
+    // measurement did not.
+    await expect(shownText(page, 'Could not copy these cases to AgentCore', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'Rate exceeded.', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'Runs still go ahead and are still scored', { exact: false })).toBeVisible();
+    // A failed attempt must not read as a successful copy.
+    await expect(shownText(page, 'last attempt', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'last copied', { exact: false })).toHaveCount(0);
+  });
+
+  test('a copy that is current says so without claiming anything else', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.inStepSlug}`);
+
+    await expect(shownText(page, 'In step with AgentCore', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'ds-e2e-in-step', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'behind this workspace', { exact: false })).toHaveCount(0);
   });
 
   test('a Vocion eval is not offered a copy it will never have', async ({ page }) => {

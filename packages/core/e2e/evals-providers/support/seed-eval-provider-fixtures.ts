@@ -46,6 +46,7 @@ import {
   userActivityEventSchema,
   userSchema,
 } from '@/models/Schema';
+import { casesFingerprint } from '@/services/evals/publish';
 import 'dotenv/config';
 
 const AGENT_SLUG = 'e2e-eval-agent';
@@ -53,7 +54,9 @@ const UNTOUCHED = 'e2e-untouched';
 const ONE_GRADER = 'e2e-one-grader';
 const CHANGED_GRADERS = 'e2e-changed-graders';
 const NOT_COPIED = 'e2e-not-copied';
-const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED];
+const COPY_FAILED = 'e2e-copy-failed';
+const IN_STEP = 'e2e-in-step';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED, COPY_FAILED, IN_STEP];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -181,20 +184,25 @@ async function createRun(values: {
  * @param values.orgId - Whose workspace.
  * @param values.datasetId - Which dataset was published.
  * @param values.casesHash - The content hash of the cases last published.
+ * @param values.remoteId
+ * @param values.syncError
  */
 async function createRemoteCopy(values: {
   orgId: string;
   datasetId: number;
   casesHash: string;
+  remoteId?: string;
+  syncError?: string;
 }): Promise<void> {
   await db.insert(evalDatasetRemoteSchema).values({
     orgId: values.orgId,
     datasetId: values.datasetId,
     provider: 'agentcore',
-    remoteId: 'ds-e2e-fixture',
+    remoteId: values.remoteId ?? 'ds-e2e-fixture',
     remoteVersion: '2',
     casesHash: values.casesHash,
-    status: 'ACTIVE',
+    status: values.syncError ? 'error' : 'ACTIVE',
+    syncError: values.syncError ?? null,
     syncedAt: daysAgo(3),
   });
 }
@@ -226,6 +234,29 @@ async function main(): Promise<void> {
   // like until its first run.
   await createDataset(orgId, NOT_COPIED, 1, 'agentcore');
 
+  // A copy AWS refused. The run still happened and still has scores, which is
+  // the distinction the page has to hold.
+  // No run row of its own: the agent's adoption card reads the newest run per
+  // grader across every dataset, and a run here would quietly become the number
+  // that card shows.
+  const copyFailed = await createDataset(orgId, COPY_FAILED, 1, 'agentcore');
+  await createRemoteCopy({
+    orgId,
+    datasetId: copyFailed,
+    casesHash: 'hash-of-an-earlier-version',
+    syncError: 'Rate exceeded',
+  });
+
+  // A copy that is current: the fixture hashes the cases the same way the
+  // service does, because a hand-written hash would only ever test drift.
+  const inStep = await createDataset(orgId, IN_STEP, 4, 'agentcore');
+  await createRemoteCopy({
+    orgId,
+    datasetId: inStep,
+    casesHash: casesFingerprint([{ input: 'Does the refund go through?' }], IN_STEP),
+    remoteId: 'ds-e2e-in-step',
+  });
+
   const [user] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email));
   await db.insert(userActivityEventSchema).values({
     orgId,
@@ -244,6 +275,8 @@ async function main(): Promise<void> {
     oneGraderSlug: ONE_GRADER,
     changedGradersSlug: CHANGED_GRADERS,
     notCopiedSlug: NOT_COPIED,
+    copyFailedSlug: COPY_FAILED,
+    inStepSlug: IN_STEP,
   })}\n`);
 }
 

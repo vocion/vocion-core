@@ -60,6 +60,7 @@ function run(id: number, model: string | null, cases: Array<Partial<Result> & { 
     datasetVersion: dataset.version,
     runGroupId: null,
     status: 'succeeded',
+    errorMessage: null,
     metrics: {},
     startedAt: new Date(),
     completedAt: new Date(),

@@ -53,6 +53,32 @@ export type DatasetSyncFacts = {
 };
 
 /**
+ * A grader's own error, ready to have a sentence follow it.
+ *
+ * AWS messages rarely end in punctuation — "Rate exceeded", "Deadline
+ * exceeded" — and the sentence after this one explains that the run was still
+ * scored. Run together they read as one confusing clause.
+ * @param message - Whatever the grader said.
+ */
+function asSentence(message: string): string {
+  const trimmed = message.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/**
+ * How to name the version the grader is holding, including when it has no name.
+ *
+ * A row written before the version column existed has a remote id and no
+ * version. "AgentCore version unknown" both reads badly and claims to know
+ * something; "a copy" says what is true.
+ * @param graderLabel - What to call the grader.
+ * @param remoteVersion - The version it reported, when it reported one.
+ */
+function graderVersionPhrase(graderLabel: string, remoteVersion: string | null): string {
+  return remoteVersion ? `${graderLabel} version ${remoteVersion}` : `the copy ${graderLabel} holds`;
+}
+
+/**
  * Sum up where a dataset's cases stand with its grader.
  * @param facts - The grader, the workspace version, and the publish row.
  */
@@ -60,7 +86,7 @@ export function summariseDatasetSync(facts: DatasetSyncFacts): DatasetSyncSummar
   if (!facts.keepsDataset) {
     return {
       tone: 'local',
-      headline: `Defined in your workspace file, stored in Vocion (v${facts.workspaceVersion})`,
+      headline: `Defined in your workspace file, stored in Vocion (version ${facts.workspaceVersion})`,
       detail: `${facts.graderLabel} reads the cases straight from Vocion, so there is no second copy to keep in step.`,
       remoteId: null,
       remoteVersion: null,
@@ -88,7 +114,7 @@ export function summariseDatasetSync(facts: DatasetSyncFacts): DatasetSyncSummar
       // run sends each case's expected answer with the case, so the scores are
       // as good as any other run's — only the copy in the grader's account is
       // stale.
-      detail: `${state.syncError} Runs still go ahead and are still scored; only ${facts.graderLabel}'s own copy of the cases is out of date.`,
+      detail: `${asSentence(state.syncError)} Runs still go ahead and are still scored; only ${facts.graderLabel}'s own copy of the cases is out of date.`,
       remoteId: state.remoteId,
       remoteVersion: state.remoteVersion,
       syncedAt: state.syncedAt,
@@ -99,7 +125,7 @@ export function summariseDatasetSync(facts: DatasetSyncFacts): DatasetSyncSummar
     return {
       tone: 'behind',
       headline: `${facts.graderLabel}'s copy is behind this workspace`,
-      detail: `Workspace v${facts.workspaceVersion} against ${facts.graderLabel} version ${state.remoteVersion ?? 'unknown'}. The cases here have been edited since the last copy; the next run publishes them.`,
+      detail: `Workspace version ${facts.workspaceVersion} against ${graderVersionPhrase(facts.graderLabel, state.remoteVersion)}. The cases here have been edited since the last copy; the next run publishes them.`,
       remoteId: state.remoteId,
       remoteVersion: state.remoteVersion,
       syncedAt: state.syncedAt,
@@ -109,7 +135,7 @@ export function summariseDatasetSync(facts: DatasetSyncFacts): DatasetSyncSummar
   return {
     tone: 'in-step',
     headline: `In step with ${facts.graderLabel}`,
-    detail: `Workspace v${facts.workspaceVersion} and ${facts.graderLabel} version ${state.remoteVersion ?? 'unknown'} hold the same cases.`,
+    detail: `Workspace version ${facts.workspaceVersion} matches ${graderVersionPhrase(facts.graderLabel, state.remoteVersion)}: the same cases either way.`,
     remoteId: state.remoteId,
     remoteVersion: state.remoteVersion,
     syncedAt: state.syncedAt,

@@ -960,7 +960,10 @@ export const EvalDatasetManifestSchema = z.object({
    */
   evaluators: z.array(EvalEvaluatorManifestSchema).optional(),
   items: z.array(z.object({
-    input: z.string().describe('the user message to send to the agent'),
+    // A case with nothing to say has nothing to measure: the agent is never
+    // called, and a grader that keeps its own copy of the dataset refuses the
+    // whole file. Refusing it here names the file and the case instead.
+    input: z.string().trim().min(1, 'an eval case needs an input to send the agent').describe('the user message to send to the agent'),
     expectedOutput: z.string().optional().describe('substantive-equivalence guidance, not literal match'),
     rubric: z.string().optional().describe('per-case rubric the judge uses'),
     tags: z.array(z.string()).optional(),

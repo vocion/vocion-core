@@ -19,6 +19,7 @@ function point(overrides: {
   startedAt: string;
   passRate?: number;
   datasetVersion?: number | null;
+  evaluatorSlug?: string | null;
 }) {
   return {
     runId: overrides.runId,
@@ -26,6 +27,7 @@ function point(overrides: {
     startedAt: overrides.startedAt,
     passRate: overrides.passRate ?? 0.5,
     datasetVersion: overrides.datasetVersion === undefined ? 1 : overrides.datasetVersion,
+    evaluatorSlug: overrides.evaluatorSlug ?? null,
   };
 }
 
@@ -99,5 +101,43 @@ describe('buildSeries', () => {
     ], PROVIDERS);
 
     expect(onlyVocion[0]?.color).toBe(both[0]?.color);
+  });
+});
+
+describe('buildSeries, per evaluator', () => {
+  it('gives every evaluator its own line under the grader that ran it', () => {
+    const series = buildSeries([
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.5 }),
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.9, evaluatorSlug: 'trajectory' }),
+      point({ runId: 1, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', passRate: 0.2, evaluatorSlug: 'helpfulness' }),
+    ], PROVIDERS);
+
+    // An agent whose answers rot while its tool use improves holds one flat
+    // pass rate the whole way; only the evaluator lines show which moved.
+    expect(series.map(line => line.key)).toEqual(['agentcore', 'agentcore:helpfulness', 'agentcore:trajectory']);
+    expect(series.map(line => line.label)).toEqual(['AgentCore', 'AgentCore · helpfulness', 'AgentCore · trajectory']);
+    expect(series.filter(line => line.dashed)).toHaveLength(2);
+  });
+
+  it('keeps a grader with only evaluator scores on the chart', () => {
+    const series = buildSeries([
+      point({ runId: 7, provider: 'agentcore', startedAt: '2026-09-01T00:00:00.000Z', evaluatorSlug: 'trajectory' }),
+    ], PROVIDERS);
+
+    // A run whose own pass rate never landed still measured something, and
+    // dropping the line would read as the grader never having run.
+    expect(series).toHaveLength(1);
+    expect(series[0]?.evaluatorSlug).toBe('trajectory');
+  });
+
+  it('draws one boundary for a run, however many lines pass through it', () => {
+    const boundaries = versionBoundaries([
+      point({ runId: 1, startedAt: '2026-09-01T00:00:00.000Z', datasetVersion: 1 }),
+      point({ runId: 2, startedAt: '2026-09-02T00:00:00.000Z', datasetVersion: 2 }),
+      point({ runId: 2, startedAt: '2026-09-02T00:00:00.000Z', datasetVersion: 2, evaluatorSlug: 'trajectory' }),
+      point({ runId: 2, startedAt: '2026-09-02T00:00:00.000Z', datasetVersion: 2, evaluatorSlug: 'helpfulness' }),
+    ]);
+
+    expect(boundaries).toEqual([{ at: Date.parse('2026-09-02T00:00:00.000Z'), version: 2 }]);
   });
 });

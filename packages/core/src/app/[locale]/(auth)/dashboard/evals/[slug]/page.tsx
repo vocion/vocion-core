@@ -5,13 +5,13 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
 import { describeDatasetSync } from '@/services/evals/publish';
-import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listRuns, listRunsPage } from '@/services/EvalService';
+import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRuns, listRunsPage } from '@/services/EvalService';
 import { ProviderChip } from '../ProviderChip';
-import { describeProvider } from '../providerCopy';
 import { summariseDatasetSync } from './datasetSync';
 import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
@@ -56,7 +56,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
     listEvaluatorProblems(orgId, dataset.slug),
     // The column's declared shape is looser than the one the eval code reads;
     // `EvalService` narrows it the same way for the same reason.
-    describeDatasetSync(dataset.id, dataset.provider, (dataset.items ?? []) as EvalDatasetItem[], dataset.slug),
+    describeDatasetSync(orgId, dataset.id, dataset.provider, (dataset.items ?? []) as EvalDatasetItem[], dataset.slug),
   ]);
 
   // One grader per dataset, named in the workspace file. Runs from before a
@@ -89,7 +89,7 @@ export default async function EvalDatasetDetailPage(props: Props) {
 
   // Only finished runs carry a pass rate; a running or failed one has nothing
   // to plot and must not be drawn as a zero.
-  const trendPoints = chartRuns
+  const runTrendPoints = chartRuns
     .filter(run => run.status === 'succeeded' && typeof run.metrics?.passRate === 'number')
     .map(run => ({
       runId: run.id,
@@ -97,7 +97,21 @@ export default async function EvalDatasetDetailPage(props: Props) {
       startedAt: new Date(run.startedAt).toISOString(),
       passRate: run.metrics!.passRate as number,
       datasetVersion: run.datasetVersion ?? null,
+      evaluatorSlug: null,
     }));
+
+  // One line per evaluator under each grader's own. The pass rate says whether
+  // the dataset is passing; these say which part of it moved, which is the
+  // question a flat pass rate hides.
+  const evaluatorTrendPoints = (await listEvaluatorTrend(orgId, dataset.id)).map(row => ({
+    runId: row.runId,
+    provider: row.provider,
+    startedAt: new Date(row.startedAt).toISOString(),
+    passRate: row.meanValue,
+    datasetVersion: row.datasetVersion ?? null,
+    evaluatorSlug: row.evaluatorSlug,
+  }));
+  const trendPoints = [...runTrendPoints, ...evaluatorTrendPoints];
   return (
     <>
       <div className="mb-4">
@@ -169,7 +183,10 @@ export default async function EvalDatasetDetailPage(props: Props) {
             <code className="font-mono">{sync.remoteId}</code>
             {sync.syncedAt && (
               <>
-                {' · last copied '}
+                {/* The same column records the last attempt whether it landed
+                    or not, so a failed copy must not read "last copied" under
+                    a headline saying the copy failed. */}
+                {sync.tone === 'failed' ? ' · last attempt ' : ' · last copied '}
                 {new Date(sync.syncedAt).toLocaleString()}
               </>
             )}

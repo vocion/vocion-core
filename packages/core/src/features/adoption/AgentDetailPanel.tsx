@@ -2,9 +2,11 @@
 
 import type { AdoptionAgentDetail, AdoptionWindow } from '@/services/adoption/AdoptionService';
 import { useEffect, useState } from 'react';
+import { describeProvider } from '@/features/evals/providerCopy';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { PeriodPicker } from './AdoptionDashboard';
+import { pickTechnicalEvalScore } from './evalScore';
 import { formatPercent } from './format';
 import { StatCard } from './StatCard';
 import { TrendChart } from './TrendChart';
@@ -42,6 +44,11 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
   }
 
   const a = detail.agent;
+  // One card, and possibly several graders. AgentCore is the one this card is
+  // for — it grades the tool trajectory, which is the thing no reviewer votes
+  // on — and taking whichever score sorted first would show a different
+  // grader's number as soon as a third one existed.
+  const evalScore = pickTechnicalEvalScore(a?.evalScores ?? []);
 
   return (
     <div className="space-y-6">
@@ -65,9 +72,9 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
         <StatCard label="Label agreement" value={formatPercent(a?.labelAgreement.keptRate ?? null)} hint={a && a.labelAgreement.judged > 0 ? `${a.labelAgreement.kept} of ${a.labelAgreement.judged}` : undefined} definition="Of the fields this agent labelled itself, a series or a group, how many the reviewer left exactly as written. Counts only labelled fields on decided items, so an agent that labels nothing has no score." />
         <StatCard
           label="Eval pass rate"
-          value={formatPercent(a?.evalScores[0]?.passRate ?? null)}
-          hint={a?.evalScores[0] ? `${a.evalScores[0].datasetSlug} · ${new Date(a.evalScores[0].ranAt).toLocaleDateString()}` : undefined}
-          definition="The last finished eval run for this agent, scored by its first grader. The only number on this row nobody voted on — a team that approves everything still scores badly here if the agent is wrong."
+          value={formatPercent(evalScore?.passRate ?? null)}
+          hint={evalScore ? `${describeProvider(evalScore.provider).label} · ${evalScore.datasetSlug} · ${new Date(evalScore.ranAt).toLocaleDateString()}` : undefined}
+          definition="The last finished eval run for this agent, from the grader named under the number. The only number on this row nobody voted on — a team that approves everything still scores badly here if the agent is wrong."
         />
         <StatCard label="Snoozes" value={a?.snoozes ?? 0} definition="Items deferred instead of decided — a snooze leaves the item pending, so it never moves the approval rate" />
         <StatCard label="Feedback" value={a ? `↑${a.feedbackUp} ↓${a.feedbackDown}` : '—'} />

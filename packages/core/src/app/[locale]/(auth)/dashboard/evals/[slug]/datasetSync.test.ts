@@ -35,7 +35,7 @@ describe('summariseDatasetSync', () => {
     // looking for a sync that is never coming.
     expect(summary.tone).toBe('local');
     expect(summary.remoteId).toBeNull();
-    expect(summary.headline).toContain('v4');
+    expect(summary.headline).toContain('version 4');
   });
 
   it('calls a dataset that has never been published pending, not broken', () => {
@@ -99,7 +99,7 @@ describe('summariseDatasetSync', () => {
     });
 
     expect(summary.tone).toBe('behind');
-    expect(summary.detail).toContain('v7');
+    expect(summary.detail).toContain('Workspace version 7');
     expect(summary.detail).toContain('version 3');
   });
 
@@ -115,5 +115,32 @@ describe('summariseDatasetSync', () => {
     // Support's first question is "which dataset in the console?" — that id is
     // the only way to answer it.
     expect(summary.remoteId).toBe('ds-abc123');
+  });
+
+  it('ends the grader\'s own error before the sentence that follows it', () => {
+    const summary = summariseDatasetSync({
+      graderLabel: 'AgentCore',
+      keepsDataset: true,
+      workspaceVersion: 2,
+      state: state({ syncError: 'Rate exceeded' }),
+    });
+
+    // AWS messages rarely end in punctuation, and run together with the
+    // reassurance after them they read as one confused sentence.
+    expect(summary.detail).toContain('Rate exceeded. Runs still go ahead');
+  });
+
+  it('does not claim to know a version the grader never named', () => {
+    const summary = summariseDatasetSync({
+      graderLabel: 'AgentCore',
+      keepsDataset: true,
+      workspaceVersion: 2,
+      state: state({ remoteVersion: null }),
+    });
+
+    // A row written before versions were recorded knows there is a copy and
+    // not which one. "version unknown" claims a fact and reads as broken.
+    expect(summary.detail).not.toContain('unknown');
+    expect(summary.detail).toContain('the copy AgentCore holds');
   });
 });
