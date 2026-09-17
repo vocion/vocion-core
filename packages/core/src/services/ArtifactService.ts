@@ -161,6 +161,16 @@ export type CreateArtifactInput = {
   record?: ArtifactRecordScope | null;
   author: Author;
   changeSummary?: string | null;
+  /**
+   * `user` (the default) is what a person opens. `system` is work output that
+   * belongs in the audit trail rather than the list — a mission check report,
+   * or a recommendation already rendered on its decision card.
+   *
+   * Decided by PROVENANCE at the call site, never by asking the model to
+   * classify its own output: an artifact produced inside an unattended mission
+   * run is system output whatever it is called.
+   */
+  visibility?: 'user' | 'system';
 };
 
 /**
@@ -198,6 +208,7 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
       recordId: input.record?.id ?? null,
       recordRole: input.record?.role ?? null,
       currentVersion: 1,
+      visibility: input.visibility ?? 'user',
       lastAuthorKind: input.author.kind,
       lastAuthorId: authorId(input.author),
       createdBy: authorId(input.author),
@@ -571,6 +582,15 @@ export type ArtifactListFilter = {
   kinds?: string[] | null;
   folder?: string | null;
   limit?: number;
+  /**
+   * Which artifacts to list. Defaults to `user` — the log is the things a
+   * person would go looking for. Pass `all` for an audit view.
+   *
+   * In production before this existed, 13 of 39 artifacts were mission check
+   * reports and 7 were outreach recommendations: more than half the list was
+   * something nobody would open on purpose.
+   */
+  visibility?: 'user' | 'all';
 };
 
 /**
@@ -580,6 +600,9 @@ export type ArtifactListFilter = {
  */
 export async function listArtifacts(filter: ArtifactListFilter): Promise<ArtifactListItem[]> {
   const where = [eq(artifactSchema.orgId, filter.orgId)];
+  if ((filter.visibility ?? 'user') === 'user') {
+    where.push(eq(artifactSchema.visibility, 'user'));
+  }
   const search = filter.search?.trim();
   if (search) {
     where.push(ilike(artifactSchema.title, `%${search}%`));

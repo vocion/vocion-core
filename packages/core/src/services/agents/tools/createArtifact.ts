@@ -79,6 +79,12 @@ export function createArtifactTool(ctx: RuntimeContext) {
             spec: { filename: artifact.filename, contentType: artifact.contentType, bytes: artifact.bytes, url: artifact.url },
             url: artifact.url,
             author: authorOf(ctx),
+            // Provenance decides, not the title: an artifact produced inside
+            // an unattended mission run is work output, and belongs in the
+            // audit trail rather than in the list a person browses. Asking the
+            // model to classify its own output would be the weakest lever
+            // available (CLAUDE.md, structural over prompting).
+            visibility: ctx.missionRunId ? 'system' : 'user',
             changeSummary: 'Created',
           });
           ctx.emit({ type: 'artifact', artifact: toPayload(row) });

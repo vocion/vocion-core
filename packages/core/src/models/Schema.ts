@@ -3936,6 +3936,17 @@ export const artifactSchema = pgTable(
     headVersionId: integer('head_version_id'),
     /** Path-like grouping for the log, e.g. `revenue/weekly`. Flat text, not a tree. */
     folder: text('folder'),
+    /**
+     * Who this artifact is FOR (0119). `user` is what a person opens — briefs,
+     * docs, tables, charts, files, sequences. `system` is produced as part of
+     * the work and read only when someone is auditing: mission check reports,
+     * outreach recommendations already rendered on their decision card.
+     *
+     * A flag rather than a deletion, because `action_run.pinned_artifacts`
+     * records the exact versions a human approved; dropping a recommendation
+     * would move the audit answer.
+     */
+    visibility: text('visibility').$type<'user' | 'system'>().default('user').notNull(),
     /** Denormalised head author, so the log lists "last editor" without a join. */
     lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
     lastAuthorId: text('last_author_id'),

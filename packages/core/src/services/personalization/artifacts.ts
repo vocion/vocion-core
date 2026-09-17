@@ -196,6 +196,12 @@ export async function syncLeadArtifacts(
       author: by.author,
       changeSummary: by.changeSummary ?? null,
       runId: by.runId ?? null,
+      // The recommendation is already rendered on the decision card it belongs
+      // to, so a second copy in the artifacts log is a duplicate of something
+      // the person has already read. It stays an artifact rather than being
+      // deleted because `action_run.pinned_artifacts` pins the exact versions
+      // a human approved — the audit answer must not move.
+      visibility: role === 'recommendation' ? 'system' : 'user',
     });
     out.push({
       role,

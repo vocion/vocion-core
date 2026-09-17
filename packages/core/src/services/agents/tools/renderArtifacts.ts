@@ -85,6 +85,10 @@ async function persistAndEmit(
       spec,
       folder,
       author: authorOf(ctx),
+      // Same provenance rule as create_artifact: a table or chart rendered
+      // inside an unattended mission run is work output, not something a
+      // person went looking for.
+      visibility: ctx.missionRunId ? 'system' : 'user',
       changeSummary: 'Created',
     });
     ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
