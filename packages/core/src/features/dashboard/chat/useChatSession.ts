@@ -1,17 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type {
-  AgentOption,
-  AgentRun,
-  ChatMessage,
-  ContextRef,
-  ConversationAutonomy,
-  HitlGatePayload,
-  IndexedDocument,
-  StreamingPhase,
-  TraceNode,
-} from './types';
+import type { AgentOption, AgentRun, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
@@ -610,6 +600,40 @@ export function useChatSession({
         appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), checked.rec] }));
         return;
       }
+      case 'artifact': {
+        // The chip under the message saying what this turn produced.
+        //
+        // `ChatMessageArtifact`, `ArtifactChips` and the render in
+        // `AgentMessage` all existed; nothing ever set `message.artifacts`, on
+        // this path or the transcript's. So `render_chart` wrote a real
+        // artifact, the agent said "chart's up", and the transcript showed
+        // nothing — Chris, 2026-09-17: *"why didn't I get an artifact here?"*
+        //
+        // A pending shell carries no content yet and is skipped; the real event
+        // that follows replaces it. Keyed by id so a turn that updates the same
+        // artifact twice leaves one chip at the latest version, not two.
+        if (evt.pending) {
+          return;
+        }
+        // The reducer takes untyped events off the wire, so narrow here rather
+        // than trusting the shape.
+        const a = evt.artifact as { id?: unknown; title?: unknown; kind?: unknown; version?: unknown } | undefined;
+        if (!a || typeof a.id !== 'number' || typeof a.title !== 'string') {
+          return;
+        }
+        const chip: ChatMessageArtifact = {
+          id: a.id,
+          title: a.title,
+          kind: (a.kind ?? 'markdown') as ChatMessageArtifact['kind'],
+          version: typeof a.version === 'number' ? a.version : 1,
+        };
+        appendToLatestAgent(m => ({
+          ...m,
+          artifacts: [...(m.artifacts ?? []).filter(x => x.id !== chip.id), chip],
+        }));
+        return;
+      }
+
       case 'done':
         flushDeltas();
         // Backfill `content` from the streamed text runs. Streaming only

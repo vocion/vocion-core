@@ -7,11 +7,20 @@
  * nothing to say which turn made which thing, and scrolling back through a
  * long conversation stops answering "where did this come from".
  *
- * Clicking one opens it in the pane.
+ * Clicking one opens it: in the artifact PANE where a surface has one, and in
+ * the preview panel everywhere else.
+ *
+ * That fallback is the point. The pane only exists on the expanded
+ * conversation route, so on the plain chat page the chip had no handler, came
+ * up disabled, and an artifact the turn had genuinely produced was
+ * unreachable — Chris, 2026-09-17: *"it's still not triggering the artifact
+ * sidebar."* The preview panel resolves an artifact ref on any surface, so it
+ * is the honest default rather than a dead control.
  */
 
 import type { ChatMessageArtifact } from './types';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL } from '@/features/dashboard/artifacts/kinds';
+import { openPreview } from '@/features/preview/previewState';
 
 export function ArtifactChips({ artifacts, onOpen }: {
   artifacts: ChatMessageArtifact[];
@@ -29,10 +38,11 @@ export function ArtifactChips({ artifacts, onOpen }: {
           <li key={`${a.id}-${a.version}`}>
             <button
               type="button"
-              onClick={() => onOpen?.(a.id)}
-              disabled={!onOpen}
+              onClick={ev => (onOpen
+                ? onOpen(a.id)
+                : openPreview({ type: 'artifact', id: String(a.id) }, ev.currentTarget))}
               data-artifact-chip={a.id}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[12px] font-medium text-foreground/85 transition hover:border-brand-amber/40 hover:text-foreground disabled:cursor-default disabled:opacity-70"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-[12px] font-medium text-foreground/85 transition hover:border-brand-amber/40 hover:text-foreground"
               title={`${ARTIFACT_KIND_LABEL[a.kind]} · ${label}`}
             >
               <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
