@@ -22,17 +22,54 @@
  * now", "Today", "Now").
  */
 
-/** A trailing date/time the model wrote, in the shapes it produces. Anchored at the end. */
-const TRAILING_STAMP
-  = /[\s—–\-(:,]*(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]{0,6},?\s*)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]{0,6}\.?\s*\d{1,2}(?:,?\s*\d{4})?(?:,?\s*\d{1,2}:\d{2}\s*(?:am|pm)?(?:\s*[A-Z]{2,4})?)?\)?$|[\s—–\-(:,]*\d{1,2}:\d{2}\s*(?:am|pm)?(?:\s*[A-Z]{2,4})?\)?$/i;
+/**
+ * A trailing date/time the model wrote, in the shapes it produces: "— Sep 17,
+ * 4:50 PM UTC", "(Wed Sep 16)", "- Sep 16, 2026", "— 4:50 PM". Anchored at
+ * the end; every optional part carries its own separator so no two quantifiers
+ * can trade characters (regexp/no-super-linear-backtracking).
+ */
+const TRAILING_DATE
+  = /[\s—–\-(:,]*(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:,\s\d{4}|\s\d{4}|,\d{4})?(?:,?\s\d{1,2}:\d{2}(?:\s?[ap]m)?(?:\s[A-Z]{2,4})?)?\)?$/i;
+const TRAILING_TIME = /[\s—–\-(:,]*\d{1,2}:\d{2}(?:\s?[ap]m)?(?:\s[A-Z]{2,4})?\)?$/i;
 
 const GENERIC = new Set([
-  'right now', 'now', 'today', 'tomorrow', 'yesterday', 'this morning', 'this afternoon', 'tonight',
-  'update', 'updated', 'response', 'answer', 'result', 'results', 'output', 'summary',
-  'document', 'doc', 'artifact', 'note', 'notes', 'draft', 'report', 'sample document', 'untitled',
-  'requested', 'requested document', 'here you go', 'done',
+  'right now',
+  'now',
+  'today',
+  'tomorrow',
+  'yesterday',
+  'this morning',
+  'this afternoon',
+  'tonight',
+  'update',
+  'updated',
+  'response',
+  'answer',
+  'result',
+  'results',
+  'output',
+  'summary',
+  'document',
+  'doc',
+  'artifact',
+  'note',
+  'notes',
+  'draft',
+  'report',
+  'sample document',
+  'untitled',
+  'requested',
+  'requested document',
+  'here you go',
+  'done',
   // The kind, echoed back as the name.
-  'table', 'chart', 'record', 'markdown', 'file', 'list', 'data',
+  'table',
+  'chart',
+  'record',
+  'markdown',
+  'file',
+  'list',
+  'data',
 ]);
 
 /** Max length of a derived title. */
@@ -46,7 +83,7 @@ export function stripStamp(title: string): string {
   let out = (title ?? '').trim();
   // Two passes: "Today — Sep 17, 2026" strips the date, then "Today" is judged weak below.
   for (let i = 0; i < 2; i++) {
-    out = out.replace(TRAILING_STAMP, '').trim().replace(/[\s—–\-,:(]+$/, '').trim();
+    out = out.replace(TRAILING_DATE, '').replace(TRAILING_TIME, '').trim().replace(/[\s—–\-,:(]+$/, '').trim();
   }
   return out;
 }
