@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -13,7 +13,7 @@
     "dev": "run-p db-server:file dev:*",
     "build:next": "next build --webpack",
     "build-local": "run-p db-server:memory build:next --race",
-    "build": "run-s db:migrate build:next docs:index",
+    "build": "run-s db:migrate version:write build:next docs:index",
     "docs:index": "pagefind --site .next/server/app --output-path public/pagefind",
     "docs:lint": "dotenv -c -- tsx src/scripts/audit-doc-links.ts",
     "docs:ingest": "dotenv -c -- tsx src/scripts/ingest-docs.ts",
@@ -68,7 +68,8 @@
     "e2e:demo": "dotenv -c -- tsx src/scripts/e2e-demo.ts",
     "connectors:backfill-credentials": "dotenv -c -- tsx src/scripts/backfill-connector-credentials.ts",
     "user:create": "dotenv -c -- tsx src/scripts/create-local-user.ts",
-    "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts"
+    "consolidate:run": "dotenv -c -- tsx src/scripts/run-consolidation.ts",
+    "version:write": "node scripts/write-version.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

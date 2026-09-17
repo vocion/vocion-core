@@ -1,0 +1,11 @@
+{
+  "version": "dev",
+  "commit": "unknown",
+  "shortCommit": "dev",
+  "subject": "running from source, not a build",
+  "committedAt": "unknown",
+  "branch": "unknown",
+  "builtAt": "unknown",
+  "pin": null,
+  "agentRuntimeImage": null
+}
