@@ -10,6 +10,121 @@ answers nothing: to compare the graders, point two datasets at the same agent
 and read them side by side, where it is obvious that they are two
 measurements.
 
+## Set one up, start to finish
+
+Five steps. Nothing here needs an AWS console visit except making the key.
+
+**1. Make an IAM key AWS will accept.** AgentCore Evaluations needs an access
+key pair — long-lived (`AKIA…`) or temporary (`ASIA…`) — whose policy allows
+the calls Vocion makes:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "bedrock-agentcore:Evaluate",
+      "bedrock-agentcore:CreateDataset",
+      "bedrock-agentcore:GetDataset",
+      "bedrock-agentcore:CreateDatasetVersion",
+      "bedrock-agentcore:ListDatasetExamples",
+      "bedrock-agentcore:AddDatasetExamples",
+      "bedrock-agentcore:UpdateDatasetExamples",
+      "bedrock-agentcore:DeleteDatasetExamples"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+Add `bedrock-agentcore:CreateEvaluator` and `UpdateEvaluator` only if you plan
+to write a custom judge. Built-in evaluators need neither — they are named, not
+created.
+
+**2. Connect it to the workspace.** `/dashboard/developers` → **API
+credentials** → add a credential on the **AWS** platform. It takes two fields,
+`accessKeyId` and `secretAccessKey`. One AWS credential per workspace; saving a
+second replaces the first.
+
+**3. Check the region.** The deployment's `AWS_REGION` decides where the calls
+go, and AgentCore Evaluations does not exist everywhere. Vocion ships the list
+it knows — `us-east-1`, `us-west-2`, `eu-central-1`, `ap-southeast-2` — and
+refuses the run with one sentence rather than failing every case if you are
+somewhere else. When AWS adds a region, set `VOCION_AGENTCORE_EVAL_REGIONS`
+rather than waiting for a Vocion release.
+
+**4. Write the dataset.** `evals/<slug>.yaml` in your workspace. The smallest
+thing that works:
+
+```yaml
+# evals/refund-quality.yaml — one dataset per file, no wrapping key
+slug: refund-quality
+name: Refund handling
+agentSlug: support-agent
+provider: agentcore
+items:
+  - input: I want a refund for order 1182.
+    expectedTrajectory: [lookup_order, issue_refund]
+```
+
+`provider: agentcore` is the whole switch. With no `evaluators` block you get
+`Builtin.TrajectoryInOrderMatch`, which runs no model and so costs nothing per
+case — a deliberate default, because the alternative is turning on a judge
+somebody has to pay for without being asked. Add an `evaluators` block when you
+want more, as below.
+
+**5. Apply and run.** `./scripts/apply-workspace.sh` (or whatever your
+deployment runs on push), then open `/dashboard/evals/refund-quality` and press
+refresh. The page shows the copy landing in AWS — including AWS's own dataset
+id, which is what you search for in the Bedrock console — and then the scores,
+each with the explanation AWS wrote.
+
+A run that finds nothing to score is the usual first result, and the usual
+cause is `expectedTrajectory` naming tools the agent does not have. The tool
+names are the agent's own, spelled exactly.
+
+## Field reference
+
+On the dataset:
+
+| Field | What it does for AgentCore |
+|---|---|
+| `provider: agentcore` | Sends this dataset's transcripts to AWS. Omitted, you get `vocion`. |
+| `evaluators` | Which AgentCore evaluators run. Each entry must repeat `provider: agentcore`; a mismatch is refused when the workspace is applied. |
+
+On each case:
+
+| Field | Read by | Notes |
+|---|---|---|
+| `input` | always | The message sent to the agent. Cannot be blank — the file is refused. |
+| `expectedTrajectory` | SESSION evaluators | The tools this case should call, in order. The only ground truth scored without a model. |
+| `expectedOutput` | TRACE and TOOL_CALL evaluators | What a good answer contains, not the exact words. |
+| `assertions` | every level | Facts the answer must state. Handed to a judge model as instructions — not string-matched. |
+| `rubric` | judges | Per-case grading criteria. |
+| `checks` | **`vocion` only** | Refused on an AgentCore dataset, because they would be written, applied and then silently never run. |
+
+On each evaluator:
+
+| Field | Notes |
+|---|---|
+| `builtin` | A list of AWS evaluator ids, e.g. `Builtin.TrajectoryInOrderMatch`. Named, never created. |
+| `slug` | Names a custom evaluator. Vocion creates it in your account on first use and updates it when you edit the file. |
+| `level` | `SESSION`, `TRACE` or `TOOL_CALL`. Decides which ground truth AWS will accept — see below. |
+| `instructions` | The grading prompt for a custom judge. |
+| `ratingScale` | What that judge may return: `categorical` labels, each with a `label`, a numeric `value` and an optional `description`, or a `numerical` list of values. The value is what gets plotted, so a label with no number would have no position on the chart. |
+| `model` | Which model judges. The provider's default when omitted. |
+| `lambdaArn` | An existing Lambda of yours. Wins over `instructions` on the same evaluator. |
+
+**The level is not cosmetic.** AWS validates the ground truth against it and
+refuses the whole request for a field that does not belong: a SESSION-level
+evaluator accepts `expectedTrajectory` and `assertions` and rejects
+`expectedOutput`; TRACE and TOOL_CALL are the other way round. Vocion sends
+only the fields the level accepts, so a case that authors both is fine — but it
+does mean an expected answer is invisible to a trajectory evaluator, and a
+trajectory is invisible to a judge. If you want both graded, name both
+evaluators.
+
 ## What AgentCore actually does
 
 AgentCore never runs your agent. Vocion runs the dataset, produces a
@@ -132,20 +247,20 @@ first one is usually right.
 Vocion runs its own `checks` in-process. No model, no AWS account, no deploy:
 
 ```yaml
-evals:
-  - slug: refund-quality
-    name: Refund handling
-    agentSlug: support-agent
-    items:
-      - input: I want a refund for order 1182.
-        expectedTrajectory: [lookup_order, issue_refund]
-        checks:
-          - toolCalled: issue_refund
-          - toolNotCalled: escalate_to_human
-          - outputContains: '1182'
-          - outputNotContains: as an AI
-          - latencyUnderMs: 8000
-          - turnsUnder: 4
+# evals/refund-quality.yaml
+slug: refund-quality
+name: Refund handling
+agentSlug: support-agent
+items:
+  - input: I want a refund for order 1182.
+    expectedTrajectory: [lookup_order, issue_refund]
+    checks:
+      - toolCalled: issue_refund
+      - toolNotCalled: escalate_to_human
+      - outputContains: '1182'
+      - outputNotContains: as an AI
+      - latencyUnderMs: 8000
+      - turnsUnder: 4
 ```
 
 The vocabulary is closed — `toolCalled`, `toolNotCalled`, `outputMatches`,
@@ -173,26 +288,32 @@ name the dataset's own provider — a mismatch is refused when the workspace is
 applied, rather than applied and left waiting for a score that cannot arrive.
 
 ```yaml
-evals:
-  - slug: refund-quality
-    name: Refund handling
-    agentSlug: support-agent
-    provider: agentcore
-    evaluators:
-      - provider: agentcore
-        builtin: [Builtin.TrajectoryInOrderMatch, Builtin.ToolSelectionAccuracy]
-      - provider: agentcore
-        slug: tone-check
-        level: TRACE
-        instructions: |
-          Grade whether the reply stays warm and plain-spoken. A reply that is
-          correct but reads like a policy document fails.
-        ratingScale:
-          categorical:
-            - label: pass
-              description: Warm, plain, no jargon.
-            - label: fail
-              description: Correct but cold, or full of jargon.
+# evals/refund-quality.yaml
+slug: refund-quality
+name: Refund handling
+agentSlug: support-agent
+provider: agentcore
+evaluators:
+  - provider: agentcore
+    builtin: [Builtin.TrajectoryInOrderMatch, Builtin.ToolSelectionAccuracy]
+  - provider: agentcore
+    slug: tone-check
+    level: TRACE
+    instructions: |
+      Grade whether the reply stays warm and plain-spoken. A reply that is
+      correct but reads like a policy document fails.
+    ratingScale:
+      categorical:
+        - label: pass
+          value: 1
+          description: Warm, plain, no jargon.
+        - label: fail
+          value: 0
+          description: Correct but cold, or full of jargon.
+items:
+  - input: I want a refund for order 1182.
+    expectedTrajectory: [lookup_order, issue_refund]
+    expectedOutput: Confirms the refund and names the amount.
 ```
 
 Built-ins are named, not defined — nothing is created in your AWS account for
@@ -230,6 +351,7 @@ To use one:
 3. **Reference it from the manifest:**
 
    ```yaml
+   # in evals/<slug>.yaml, alongside slug / name / agentSlug / provider
    evaluators:
      - provider: agentcore
        slug: refund-rules
@@ -257,10 +379,10 @@ For a cadence, write an automation — the same place every other recurring thin
 in a workspace lives:
 
 ```yaml
-automations:
-  - slug: nightly-evals
-    when: {schedule: '0 6 * * *'}
-    do: {job: refresh-evals}
+# automations/nightly-evals.yaml
+slug: nightly-evals
+when: {schedule: '0 6 * * *'}
+do: {job: refresh-evals}
 ```
 
 With no input, that refreshes every dataset in the workspace. Narrow it with
@@ -295,6 +417,26 @@ Three things the UI does on purpose:
 - **A provider you have never used and cannot use is not mentioned at all.** No
   AWS credential means no AgentCore section, no empty chart, no invitation to
   set something up you did not ask about.
+
+## When AWS refuses the request
+
+These are real messages from `Evaluate`, with what each one means. All of them
+are things Vocion now gets right — they are here because a workspace, a Lambda
+or a hand-built integration can still produce them, and the wording gives no
+hint on its own.
+
+| Message | What it means |
+|---|---|
+| `Fields {'expectedResponse'} are not valid for SESSION-level context` | Ground truth was sent that this evaluator's level does not accept. See the level note above. |
+| `Provided input has no spans with supported scope` | The spans did not name an instrumentation AWS knows how to parse. AWS reads a fixed set of scopes; anything else is not merely ignored, it fails the call. |
+| `The evaluationReferenceInputs contain contexts that do not match any session` | The expected answers were addressed to a session id that no span carries. |
+| `Session span data is incomplete … missing a corresponding log event` | The conversation was in span attributes. AWS reads the prompt from a `gen_ai.user.message` event and the reply from a `gen_ai.choice` event. |
+| `Failed to parse tool_output from tool-span` | A tool span carried its result where its arguments belong. Arguments go in `gen_ai.tool.message`; the result goes in that span's `gen_ai.choice`. |
+
+Every one of these fails the whole case rather than scoring it low, which is
+the behaviour you want — but it does mean a misconfigured setup looks like an
+agent that cannot be measured rather than an agent that is bad. The dataset
+page says which it is.
 
 ## Requirements and limits
 
