@@ -19,6 +19,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { artifactTitle } from '@/services/artifacts/title';
 import { ArtifactError, createArtifact, toPayload } from '@/services/ArtifactService';
 
 /**
@@ -49,11 +50,23 @@ export function authorOf(ctx: RuntimeContext): { kind: 'agent' | 'human'; id: st
 async function persistAndEmit(
   ctx: RuntimeContext,
   kind: 'table' | 'markdown' | 'chart' | 'record',
-  title: string,
+  modelTitle: string,
   spec: unknown,
   summary: string,
   folder?: string,
 ): Promise<string> {
+  // The model names the artifact; the content decides when the name is not
+  // one. "Right now — Sep 17, 4:50 PM UTC" was filed as a title today
+  // (`services/artifacts/title.ts`). The spec keeps the derived title too, so
+  // the pane and the list agree.
+  const s = (spec ?? {}) as Record<string, unknown>;
+  const title = artifactTitle(modelTitle, {
+    ...(typeof s.md === 'string' ? { md: s.md } : {}),
+    ...(typeof s.caption === 'string' ? { caption: s.caption } : {}),
+  }, kind === 'markdown' ? 'Document' : kind.charAt(0).toUpperCase() + kind.slice(1));
+  if (title !== modelTitle && typeof s.title === 'string') {
+    spec = { ...s, title };
+  }
   try {
     // A pending shell first, so the pane shows the title and a filling body
     // while a long write lands rather than nothing at all.

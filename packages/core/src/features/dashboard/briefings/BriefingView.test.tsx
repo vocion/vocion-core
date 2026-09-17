@@ -148,12 +148,11 @@ describe('the briefing page', () => {
     await expect.element(page.getByRole('link', { name: /Revenue Briefing — Thu, Sep 17, 2026/ })).toHaveAttribute('href', '/dashboard/briefings/90');
 
     const rows = document.querySelectorAll('[data-testid="briefing-history"] [data-pattern="list-row"]');
+    // The snapshot's rows are not drawn beside the live ones.
+    const snapshotRows = FIXTURE_BRIEFING.history!.entries.map(e => document.querySelector(`[data-testid="briefing-history"] a[href="${e.href}"]`));
 
     expect(rows.length).toBe(1);
-    // The snapshot's rows are not drawn beside the live ones.
-    for (const e of FIXTURE_BRIEFING.history!.entries) {
-      expect(document.querySelector(`[data-testid="briefing-history"] a[href="${e.href}"]`)).toBeNull();
-    }
+    expect(snapshotRows.every(r => r === null)).toBe(true);
     // Who wrote it, on the date line and on the row.
     expect(document.body.textContent ?? '').toContain('by Revenue Director');
     expect(rows[0]!.textContent).toContain('Revenue Director');

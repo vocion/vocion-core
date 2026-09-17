@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
@@ -257,6 +258,13 @@ function ChatShellInner({
           />
         </div>
 
+        {/* An artifact chip opens its preview in the one right column. On
+            this route nothing else hosts that column — the dock is not
+            mounted here — so the click wrote the URL param and nothing drew
+            it (Chris, 2026-09-17: *"clicking on 'Right now…' doesn't open
+            anything"*). PreviewPanel paints only when no dock owns the
+            column and only while a preview is open. */}
+        <PreviewPanel />
         <SourcesPanel
           documents={session.allDocuments}
           open={session.sourcesOpen && session.allDocuments.length > 0}
