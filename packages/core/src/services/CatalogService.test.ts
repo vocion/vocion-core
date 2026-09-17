@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { AgentManifestSchema } from '@/libs/workspace/schemas';
-import { catalogRoot, getCatalogEntry, listCatalog, readCatalogSkill } from '@/services/CatalogService';
+import { catalogRoot, getCatalogEntry, listCatalog, listCatalogTeams, readCatalogSkill } from '@/services/CatalogService';
 
 /**
  * The catalog's own integrity, checked against the real schema rather than a
@@ -159,6 +159,55 @@ describe('requires names categories, never vendors', () => {
     for (const entry of listCatalog(ROOT)) {
       expect(entry.requires.length, entry.slug).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('every entry belongs to a team', () => {
+  it('each agent names a team that exists in teams/', () => {
+    // `assertTeams` only validates team refs once a workspace defines teams,
+    // so an unresolvable ref here would pass the loader and surface later as
+    // an agent stranded in the "not on a team yet" strip.
+    const teams = listCatalogTeams(ROOT);
+    const dangling = listCatalog(ROOT)
+      .filter(e => !e.team || !teams.has(e.team))
+      .map(e => `${e.slug} → ${e.team ?? '(none)'}`);
+
+    expect(dangling).toEqual([]);
+  });
+
+  it('every team has at least one member', () => {
+    const claimed = new Set(listCatalog(ROOT).map(e => e.team));
+    const empty = [...listCatalogTeams(ROOT).keys()].filter(t => !claimed.has(t));
+
+    expect(empty).toEqual([]);
+  });
+
+  it('every team\'s lead is an agent in the catalog, on that team', () => {
+    const bySlug = new Map(listCatalog(ROOT).map(e => [e.slug, e]));
+    const bad: string[] = [];
+    for (const team of listCatalogTeams(ROOT).values()) {
+      if (!team.lead) {
+        continue;
+      }
+      const lead = bySlug.get(team.lead);
+      if (!lead) {
+        bad.push(`${team.slug}: lead "${team.lead}" is not a catalog agent`);
+      } else if (lead.team !== team.slug) {
+        bad.push(`${team.slug}: lead "${team.lead}" is on team "${lead.team}"`);
+      }
+    }
+
+    expect(bad).toEqual([]);
+  });
+
+  it('carries the team name, which is what the card renders', () => {
+    for (const entry of listCatalog(ROOT)) {
+      expect(entry.teamName, entry.slug).toBeTruthy();
+    }
+  });
+
+  it('a missing teams directory reads as no teams, not a throw', () => {
+    expect(listCatalogTeams('/tmp/definitely-not-a-catalog-dir').size).toBe(0);
   });
 });
 

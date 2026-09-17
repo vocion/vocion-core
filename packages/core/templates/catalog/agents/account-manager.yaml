@@ -3,7 +3,7 @@ name: Account Manager
 description: 'Owns a relationship across time — who matters, what the plan is, and what would make it slip before it does.'
 icon: handshake
 accent: rose
-eyebrow: Relationships
+team: revenue
 agentType: mission
 active: true
 

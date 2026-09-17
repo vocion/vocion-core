@@ -1,11 +1,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { parse as parseYaml } from 'yaml';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { AgentManifestSchema } from '@/libs/workspace/schemas';
-import { agentSchema } from '@/models/Schema';
+import { AgentManifestSchema, TeamManifestSchema } from '@/libs/workspace/schemas';
+import { agentSchema, teamSchema } from '@/models/Schema';
 
 /**
  * The agent catalog — the library a workspace hires from.
@@ -38,7 +38,10 @@ export type CatalogEntry = {
   description: string;
   icon: string | null;
   accent: string | null;
-  eyebrow: string | null;
+  /** Slug of the team this entry belongs to — resolves to a file in `teams/`. */
+  team: string | null;
+  /** That team's display name, which is what the card shows under the role. */
+  teamName: string | null;
   /** The agent's system prompt in full — the thing actually being hired. */
   systemPrompt: string;
   /** Skill slugs this entry composes — resolved from the library, not inlined. */
@@ -49,9 +52,40 @@ export type CatalogEntry = {
   optional: string[];
 };
 
+/** One catalog team — the group a role belongs to, and what the card labels it. */
+export type CatalogTeam = {
+  slug: string;
+  name: string;
+  description: string;
+  /** Slug of the agent that leads it, when the manifest names one. */
+  lead: string | null;
+};
+
 /** Absolute path of the catalog tree. Overridable for tests. */
 export function catalogRoot(): string {
   return fromRepoRoot('packages/core/templates/catalog');
+}
+
+/**
+ * Every team in the catalog, keyed by slug.
+ *
+ * The slug comes from the filename, exactly as the workspace loader does it,
+ * so a team can never disagree with its own path.
+ * @param root - catalog directory; defaults to the shipped one.
+ */
+export function listCatalogTeams(root: string = catalogRoot()): Map<string, CatalogTeam> {
+  const dir = join(root, 'teams');
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter(f => f.endsWith('.yaml'));
+  } catch {
+    return new Map();
+  }
+  return new Map(files.map((file) => {
+    const slug = file.replace(/\.yaml$/, '');
+    const m = TeamManifestSchema.parse(parseYaml(readFileSync(join(dir, file), 'utf8')));
+    return [slug, { slug, name: m.name, description: m.description ?? '', lead: m.lead ?? null }] satisfies [string, CatalogTeam];
+  }));
 }
 
 /**
@@ -74,6 +108,8 @@ export function listCatalog(root: string = catalogRoot()): CatalogEntry[] {
     return [];
   }
 
+  const teams = listCatalogTeams(root);
+
   return files
     .map((file) => {
       const raw = parseYaml(readFileSync(join(dir, file), 'utf8')) as unknown;
@@ -84,7 +120,8 @@ export function listCatalog(root: string = catalogRoot()): CatalogEntry[] {
         description: manifest.description ?? '',
         icon: manifest.icon ?? null,
         accent: manifest.accent ?? null,
-        eyebrow: manifest.eyebrow ?? null,
+        team: manifest.team ?? null,
+        teamName: manifest.team ? (teams.get(manifest.team)?.name ?? null) : null,
         systemPrompt: (manifest.systemPrompt ?? '').trim(),
         skills: manifest.skills,
         requires: manifest.requires.connectors,
@@ -177,6 +214,34 @@ export async function hire(
     parseYaml(readFileSync(join(root, 'agents', `${slug}.yaml`), 'utf8')),
   );
 
+  // The team comes with the hire. Without this the org chart would show an
+  // agent pointing at a team that does not exist, which renders as an
+  // orphan strip rather than a team — so create the team row first when
+  // this org does not have it yet. The lead is only claimed if the leading
+  // agent is the one being hired; otherwise the team waits for its lead.
+  if (entry.team) {
+    const team = listCatalogTeams(root).get(entry.team);
+    const existing = await db
+      .select({ slug: teamSchema.slug })
+      .from(teamSchema)
+      .where(eq(teamSchema.orgId, orgId));
+    if (team && !existing.some(t => t.slug === team.slug)) {
+      await db.insert(teamSchema).values({
+        orgId,
+        projectId: orgId,
+        slug: team.slug,
+        name: team.name,
+        description: team.description || null,
+        leadAgentSlug: team.lead === slug ? slug : null,
+      });
+    } else if (team && team.lead === slug) {
+      await db
+        .update(teamSchema)
+        .set({ leadAgentSlug: slug })
+        .where(and(eq(teamSchema.orgId, orgId), eq(teamSchema.slug, team.slug)));
+    }
+  }
+
   await db.insert(agentSchema).values({
     orgId,
     projectId: orgId,
@@ -189,7 +254,7 @@ export async function hire(
     connectorSources: manifest.connectorSources,
     icon: manifest.icon ?? null,
     accent: manifest.accent ?? null,
-    eyebrow: manifest.eyebrow ?? null,
+    teamSlug: entry.team,
   });
 
   return { status: 'hired', entry };
