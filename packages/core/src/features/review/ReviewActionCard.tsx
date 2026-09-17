@@ -441,21 +441,27 @@ export function ReviewActionCard(props: {
             <div>
               {card.content.map((item, i) => {
                 const Renderer = contentKindRenderer(item.kind);
+                // `data-comment-field`: the send is a region the selection
+                // control can anchor to, so highlighting a sentence in it
+                // offers *Ask about this* / *Add change* like a passage in a
+                // brief does (docs/design/patterns.md § Select → talk). The
+                // page had no such regions, so a highlight raised nothing.
                 return (
-                  <Renderer
-                    key={item.id}
-                    item={item}
-                    position={i + 1}
-                    defaultExpanded={i === 0}
-                    expanded={editAll ? true : undefined}
-                    inline
-                    changed={Boolean(justChanged[item.id])}
-                    edit={contentEdits[item.id]}
-                    onEdit={item.kind === 'email'
-                      ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
-                      : undefined}
-                    disabled={held}
-                  />
+                  <div key={item.id} data-comment-field={`Send ${i + 1}`}>
+                    <Renderer
+                      item={item}
+                      position={i + 1}
+                      defaultExpanded={i === 0}
+                      expanded={editAll ? true : undefined}
+                      inline
+                      changed={Boolean(justChanged[item.id])}
+                      edit={contentEdits[item.id]}
+                      onEdit={item.kind === 'email'
+                        ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
+                        : undefined}
+                      disabled={held}
+                    />
+                  </div>
                 );
               })}
             </div>
