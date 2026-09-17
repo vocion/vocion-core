@@ -34,6 +34,13 @@ export type DocumentedResponse = {
    * `jsonError(...)` calls. Empty for success responses.
    */
   errorCodes: string[];
+  /**
+   * The media type this response carries, or null when it carries no body — a
+   * redirect, or a 204. Not every endpoint answers with JSON: one streams
+   * NDJSON and one redirects to a signed URL, and a client told they were JSON
+   * would try to parse them.
+   */
+  contentType: string | null;
 };
 
 /** Everything the generator could learn about one exported handler. */
@@ -52,6 +59,12 @@ export type RouteOperation = {
   parameters: DocumentedParameter[];
   /** True when the handler parses a JSON request body. */
   requiresBody: boolean;
+  /**
+   * True when the handler works with no body at all — it checks
+   * `content-length`, or defaults the parsed body with `?? {}`. The spec then
+   * says the body is optional rather than required.
+   */
+  bodyOptional: boolean;
   /** Body fields the handler reads by name. Sorted; may be empty. */
   requestBodyFields: string[];
   /** Capability strings passed to `requireCapability`, sorted. */

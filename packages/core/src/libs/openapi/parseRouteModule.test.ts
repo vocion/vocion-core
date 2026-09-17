@@ -257,3 +257,102 @@ export async function GET(req: Request) {
     expect(operation?.parameters.map(parameter => parameter.name)).toEqual(['limit']);
   });
 });
+
+/**
+ * A route file written the awkward ways real ones are written: a handler
+ * assigned to a `const`, a redirect instead of a JSON body, a query parameter
+ * the prose never mentions, and a body the handler is happy to do without.
+ * Each of these silently published something untrue before.
+ */
+const REDIRECT_ROUTE = `
+import { NextResponse } from 'next/server';
+import { authApi, isErrorResponse, jsonError } from '../_shared';
+
+/**
+ * GET /api/v1/s3/object
+ *
+ * Redirects to a presigned URL for a private object.
+ * @param req - Request.
+ */
+export const GET = async (req: Request) => {
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  const url = new URL(req.url);
+  const bucket = url.searchParams.get('bucket') ?? '';
+  const flavour = url.searchParams.get('flavour');
+  if (!bucket) {
+    return jsonError('BAD_REQUEST', 'bucket is required', 400);
+  }
+  return NextResponse.redirect('https://example.test/signed', { status: 302 });
+};
+`;
+
+describe('a handler exported as a const, answering with a redirect', () => {
+  const [operation] = parseRouteModule(REDIRECT_ROUTE, '/api/v1/s3/object');
+
+  it('reads `export const GET = …`, which Next.js accepts and the parser used to skip', () => {
+    expect(operation?.method).toBe('get');
+    expect(operation?.summary).toBe('Redirects to a presigned URL for a private object.');
+  });
+
+  it('publishes the redirect with no body, rather than claiming a JSON one', () => {
+    const redirect = operation?.responses.find(response => response.status === 302);
+
+    expect(redirect?.contentType).toBeNull();
+    expect(operation?.responses.map(response => response.status)).not.toContain(200);
+  });
+
+  it('documents a query parameter the prose never mentioned, and marks the guarded one required', () => {
+    const parameters = operation?.parameters ?? [];
+
+    expect(parameters.map(parameter => parameter.name).sort()).toEqual(['bucket', 'flavour']);
+    expect(parameters.find(parameter => parameter.name === 'bucket')?.required).toBe(true);
+    expect(parameters.find(parameter => parameter.name === 'flavour')?.required).toBe(false);
+  });
+});
+
+const STREAMING_ROUTE = `
+import { NextResponse } from 'next/server';
+import { authApi, isErrorResponse } from '../_shared';
+
+/**
+ * POST /api/v1/objects/analyze
+ *
+ * Streams the analysis as it happens.
+ * @param req - Request.
+ */
+export async function POST(req: Request) {
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  const body = (await readJsonBody(req)) ?? {};
+  if (req.headers.get('content-length') === '0') {
+    return NextResponse.json({ queued: true }, { status: 202 });
+  }
+  const parsed = body as { hint?: string };
+  if (parsed.hint === 'none') {
+    return NextResponse.json({ ok: true });
+  }
+  return new Response(stream, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8' } });
+}
+`;
+
+describe('a handler that streams, and runs with no body', () => {
+  const [operation] = parseRouteModule(STREAMING_ROUTE, '/api/v1/objects/analyze');
+
+  it('keeps the plain 200 alongside the explicit 202 — an explicit status used to hide it', () => {
+    expect(operation?.responses.map(response => response.status)).toEqual([200, 202, 400, 401]);
+  });
+
+  it('names the media type the stream really carries', () => {
+    expect(operation?.responses.find(response => response.status === 200)?.contentType).toBe('application/x-ndjson');
+  });
+
+  it('marks the body optional, because the handler checks `content-length` before parsing', () => {
+    expect(operation?.requiresBody).toBe(true);
+    expect(operation?.bodyOptional).toBe(true);
+  });
+});

@@ -14,10 +14,11 @@ So the document is read out of the code. Nothing here is a list to maintain.
 | In the document | Read from |
 |---|---|
 | path, path parameters | where the route file sits on disk |
-| methods | the `export async function GET` declarations |
+| methods | the exported handlers, written either way — `export async function GET` or `export const GET = …` |
 | summary, description | each handler's own doc comment |
-| query parameters | the doc comment's `Query parameters:` bullets, plus `readPagination` |
-| request body | whether the handler calls `readJsonBody`, and the field names it reads |
+| query parameters | every `searchParams.get('…')` the handler makes, described by the doc comment's `Query parameters:` bullets, plus `readPagination`. A name the handler guards with `if (!name)` publishes as required |
+| response media type | `NextResponse.json` (JSON), `NextResponse.redirect` (no body) and the `content-type` header on a `new Response(…)` |
+| request body | whether the handler calls `readJsonBody`, and the field names it reads. A handler that checks `content-length` or defaults the body with `?? {}` publishes an optional body |
 | statuses and error codes | the handler's `jsonError(...)` calls, and the shared helpers it uses |
 | required capability | the string passed to `requireCapability` |
 
@@ -45,9 +46,16 @@ still required — `api-docs` is in the proxy's protected segments — and the p
 links back to Developers.
 
 Swagger UI renders in the browser only (`ssr: false`); it reads `window` as it
-mounts. "Try it out" calls this same deployment, so a signed-in reader's
-requests carry their own session and act as them; a tenant token goes in the
-Authorize button instead.
+mounts, and fetches the document from `/api/v1/openapi` with the reader's own
+cookie rather than being handed it — the document is around 200 KB, and passing
+it into a client component would ship every byte twice.
+
+**"Try it out" is limited to GET.** The document's server is `/`, so an Execute
+runs against this very deployment carrying the reader's session and acting as
+them: a POST or DELETE fired from a page someone opened to read would be a real
+write against real records. A GET is safe to fire by accident, so that is all
+the page will send; a tenant token goes in the Authorize button, and anything
+that writes is called from the reader's own client.
 
 ## Regenerating
 

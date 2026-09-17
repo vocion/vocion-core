@@ -181,7 +181,11 @@ function requestBodyObject(operation: RouteOperation): Record<string, unknown> {
     properties[field] = { description: 'Read by this endpoint; see the description for what it must contain.' };
   }
   return {
-    required: true,
+    // A handler that runs fine with no body at all — it checks
+    // `content-length`, or defaults the parsed body — publishes an optional
+    // body, because telling a caller to send `{}` when sending nothing is the
+    // intended call is a documentation bug that costs a support round trip.
+    required: !operation.bodyOptional,
     content: {
       'application/json': {
         schema: {
@@ -205,16 +209,36 @@ function responsesObject(operation: RouteOperation): Record<string, unknown> {
   const responses: Record<string, unknown> = {};
   for (const response of operation.responses) {
     const isError = response.status >= 400;
-    responses[String(response.status)] = {
+    const described: Record<string, unknown> = {
       description: isError ? describeErrorResponse(response.description, response.errorCodes) : response.description,
-      content: {
-        'application/json': {
-          schema: isError ? { $ref: '#/components/schemas/Error' } : { type: 'object' },
-        },
-      },
     };
+    // A redirect and a 204 carry no body; a stream carries one that is not
+    // JSON. Publishing either as `application/json` tells a caller to parse
+    // something that is not there, which is worse than saying nothing.
+    if (response.contentType !== null) {
+      described.content = {
+        [response.contentType]: {
+          schema: isError
+            ? { $ref: '#/components/schemas/Error' }
+            : bodySchemaFor(response.contentType),
+        },
+      };
+    }
+    responses[String(response.status)] = described;
   }
   return responses;
+}
+
+/**
+ * The schema to publish for a successful body of a given media type.
+ *
+ * Only JSON has a shape worth stating here; a stream or a file is described by
+ * its media type and nothing more, because a `type: object` over `text/event-stream`
+ * would be a claim the endpoint never makes.
+ * @param contentType - The media type the response carries.
+ */
+function bodySchemaFor(contentType: string): Record<string, unknown> {
+  return contentType === 'application/json' ? { type: 'object' } : { type: 'string' };
 }
 
 /**

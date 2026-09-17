@@ -288,8 +288,53 @@
             }
           }
         },
-        "description": "What is waiting on a person. `status` defaults to `open`; `decided` is every\nanswered status, or name one exactly (`approved`, `rejected`, `done`,\n`superseded`). `source` is a prefix match on `sourceRef`, so a filer reads\nback only its own asks (`source=workforce:`). Newest first, with the real\ntotal for the filters.\nAuth: tenant API token or dashboard session.",
+        "description": "What is waiting on a person. `status` defaults to `open`; `decided` is every\nanswered status, or name one exactly (`approved`, `rejected`, `done`,\n`superseded`). `source` is a prefix match on `sourceRef`, so a filer reads\nback only its own asks (`source=workforce:`). Newest first, with the real\ntotal for the filters.\nAuth: tenant API token or dashboard session.\n\nQuery parameters:\n- `status` — `open` (the default), `decided` for every answered status, or\n  one exactly: `approved`, `rejected`, `done`, `superseded`.\n- `source` — a prefix match on `sourceRef`, so a filer reads back only its\n  own asks (`source=workforce:`).\n- `agentSlug` — only the asks a given agent raised.\n- `kind` — only the asks of one kind.\n- `groupKey` — only the asks sharing one grouping key.",
         "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "`open` (the default), `decided` for every answered status, or one exactly: `approved`, `rejected`, `done`, `superseded`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "a prefix match on `sourceRef`, so a filer reads back only its own asks (`source=workforce:`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentSlug",
+            "in": "query",
+            "required": false,
+            "description": "only the asks a given agent raised.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "description": "only the asks of one kind.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "groupKey",
+            "in": "query",
+            "required": false,
+            "description": "only the asks sharing one grouping key.",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "limit",
             "in": "query",
@@ -572,7 +617,81 @@
             }
           }
         },
-        "description": "every fire, across every automation.\n\nThe cross-automation query did not exist: `listAutomationRuns` took a slug\nand had exactly one caller, asking for `limit 1`. So \"has anything been\nrunning\" was a question only `psql` could answer, and nineteen hours of\nsilence on 3 September were found a week later while investigating something\nelse.\n\nQuery: `slug`, `status`, `kind`, `invokedBy` (`schedule` | `test-run`),\n`since`, `until`, `limit`, `cursor`. `facets=1` adds the values present, so\na client's filter list is never hardcoded."
+        "description": "every fire, across every automation.\n\nThe cross-automation query did not exist: `listAutomationRuns` took a slug\nand had exactly one caller, asking for `limit 1`. So \"has anything been\nrunning\" was a question only `psql` could answer, and nineteen hours of\nsilence on 3 September were found a week later while investigating something\nelse.\n\nQuery: `slug`, `status`, `kind`, `invokedBy` (`schedule` | `test-run`),\n`since`, `until`, `limit`, `cursor`. `facets=1` adds the values present, so\na client's filter list is never hardcoded.\n\nQuery parameters:\n- `slug` — one automation's runs rather than every automation's.\n- `status`, `kind` — only the runs in that state, or of that kind.\n- `invokedBy` — `schedule` or `test-run`.\n- `since`, `until` — ISO timestamps bounding when the run started.\n- `cursor` — the next page, from the previous response.\n- `facets` — `1` also returns the values present, so a client's filter list\n  is never hardcoded.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": false,
+            "description": "one automation's runs rather than every automation's.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state, or of that kind.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state, or of that kind.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invokedBy",
+            "in": "query",
+            "required": false,
+            "description": "`schedule` or `test-run`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "ISO timestamps bounding when the run started.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "ISO timestamps bounding when the run started.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "the next page, from the previous response.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "facets",
+            "in": "query",
+            "required": false,
+            "description": "`1` also returns the values present, so a client's filter list is never hardcoded.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/automations/{slug}/run": {
@@ -672,7 +791,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -1399,7 +1518,7 @@
         },
         "description": "Emit an inbound event; the trigger runner fans it out to the workflows\nsubscribed to that type. Body: `{ type, payload?, dedupeKey? }`. A repeated\n`dedupeKey` no-ops (redelivered webhooks are safe). Auth: a tenant API token (`Bearer vcn_live_…`) or a dashboard session.\n\nProvider webhooks (HubSpot, Gmail push, calendar, DocuSign) are thin adapters\nthat normalize their payload and POST here.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -1457,8 +1576,26 @@
             }
           }
         },
-        "description": "An org's feedback jobs, newest first. Filter with `status`\n(`queued` | `processing` | `classified` | `applied` | `failed` | `ignored`)\nand `source`; page with `limit` and `offset`.\nAuth: tenant API token or dashboard session.",
+        "description": "An org's feedback jobs, newest first. Filter with `status`\n(`queued` | `processing` | `classified` | `applied` | `failed` | `ignored`)\nand `source`; page with `limit` and `offset`.\nAuth: tenant API token or dashboard session.\n\nQuery parameters:\n- `status` — `queued`, `processing`, `classified`, `applied`, `failed` or\n  `ignored`.\n- `source` — only the jobs that arrived from one source.",
         "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "`queued`, `processing`, `classified`, `applied`, `failed` or `ignored`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "only the jobs that arrived from one source.",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "limit",
             "in": "query",
@@ -1592,8 +1729,26 @@
             }
           }
         },
-        "description": "Rules the system has proposed but not adopted. Filter with `status`\n(`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and\n`offset`. Newest first, with the real total for the filters.\nAuth: tenant API token or dashboard session.",
+        "description": "Rules the system has proposed but not adopted. Filter with `status`\n(`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and\n`offset`. Newest first, with the real total for the filters.\nAuth: tenant API token or dashboard session.\n\nQuery parameters:\n- `status` — `pending`, `approved` or `rejected`.\n- `stepName` — only the candidates proposed for one learning step.",
         "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "`pending`, `approved` or `rejected`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stepName",
+            "in": "query",
+            "required": false,
+            "description": "only the candidates proposed for one learning step.",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "limit",
             "in": "query",
@@ -2576,7 +2731,7 @@
             "required": false,
             "description": "the page window. The response carries the real total.",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           },
           {
@@ -2585,7 +2740,7 @@
             "required": false,
             "description": "the page window. The response carries the real total.",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ]
@@ -2720,11 +2875,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success.",
+            "description": "Success. The body is `application/x-ndjson`, not JSON.",
             "content": {
-              "application/json": {
+              "application/x-ndjson": {
                 "schema": {
-                  "type": "object"
+                  "type": "string"
                 }
               }
             }
@@ -2760,7 +2915,7 @@
             }
           }
         },
-        "description": "Runs the vision check on an image-backed object from the UI — the same tool\npath the Pack Inspector takes in chat — and STREAMS progress as NDJSON, one\nJSON object per line, so the page can show the analysis happening:\n\n  {\"phase\":\"start\", ...} → {\"phase\":\"references\", reference_urls…}\n  → {\"phase\":\"model\", model…} → {\"phase\":\"parsed\", verdict…} → {\"phase\":\"saved\"}\n  → {\"phase\":\"classifier\", …} (when ?classifier=1)\n  → {\"phase\":\"done\", \"ok\":true, \"reference\":{…}, \"classifier\":{…}, \"ms\":n}\n\nErrors end the stream with {\"phase\":\"done\",\"ok\":false,\"error\":\"…\"}. Every\ntool call is recorded as a tool_call row with the caller as invoker.",
+        "description": "Runs the vision check on an image-backed object from the UI — the same tool\npath the Pack Inspector takes in chat — and STREAMS progress as NDJSON, one\nJSON object per line, so the page can show the analysis happening:\n\n  {\"phase\":\"start\", ...} → {\"phase\":\"references\", reference_urls…}\n  → {\"phase\":\"model\", model…} → {\"phase\":\"parsed\", verdict…} → {\"phase\":\"saved\"}\n  → {\"phase\":\"classifier\", …} (when ?classifier=1)\n  → {\"phase\":\"done\", \"ok\":true, \"reference\":{…}, \"classifier\":{…}, \"ms\":n}\n\nErrors end the stream with {\"phase\":\"done\",\"ok\":false,\"error\":\"…\"}. Every\ntool call is recorded as a tool_call row with the caller as invoker.\n\nQuery parameters:\n- `classifier` — `1` also runs the classifier pass and streams its\n  `{\"phase\":\"classifier\"}` event before the final one.",
         "parameters": [
           {
             "name": "id",
@@ -2769,6 +2924,15 @@
             "description": "The id from the URL.",
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "name": "classifier",
+            "in": "query",
+            "required": false,
+            "description": "`1` also runs the classifier pass and streams its `{\"phase\":\"classifier\"}` event before the final one.",
+            "schema": {
+              "type": "string"
             }
           }
         ]
@@ -2929,7 +3093,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3288,7 +3452,7 @@
             }
           }
         },
-        "description": "The unified pending-review queue — paused workflow runs, missions awaiting\nreview, and pending action proposals — for the caller's org.\n\nQuery parameters:\n- `kind` — `workflow` | `mission` | `action`, to see one plane only.\n- `actionIds` — comma-separated registered action ids, to see one CARD TYPE\n  (`personalization.enroll`) rather than one plane. `total` narrows with it.\n  Pass `types=1` instead to get the types present with their counts.\n- `suggestedDecision` — `approve` | `reject` | `snooze`, to see the items the\n  AGENT recommended that outcome for. Composes with `actionIds` and\n  `assignedTo`, so several lanes can be cut from one pending set: everything\n  a screener wants turned down in one, what it wants approved in another.\n  Only action runs carry a recommendation, so this returns the action plane\n  alone. An unrecognised value is a 400, never a silent whole-queue read.\n  Note the tense: these are the verbs `/reviews/decide` takes, so it is\n  `reject`, not the `rejected` that a recorded decision reads as. The two\n  vocabularies sit next to each other in the same response, and `rejected`\n  here is the mistake worth expecting.\n- `approvedByAgent` — `true`, `false` or `null`, to see the items by WHO\n  made the approval call: the trust ladder, a person, or nobody yet. What\n  this cuts is the failed lane — a run whose approval stood and whose\n  execution threw stays in the queue, and \"the agent released this and it\n  broke\" is a different triage job from \"a person approved it and it broke\".\n  `true` and `false` return the action plane alone, since no workflow or\n  mission can be approved by an agent; `null` keeps all three, because an\n  item nobody has decided is exactly what a paused workflow is. Composes\n  with `actionIds`, `suggestedDecision` and `assignedTo`. Any other value is\n  a 400, never a silent whole-queue read.\n- `include` — `input`, `proposal` or both, comma-separated, to have those\n  payloads inlined on each item rather than fetched one detail request at a\n  time. A client that buckets the queue by something inside the payload —\n  a date, a venue, whether the record is complete — otherwise makes one\n  request per item to build a single screen. Opt-in because the payload is\n  unbounded: a page of thin rows is a few KB and the same page carrying\n  inputs can be a megabyte. Only action items have either payload to give.\n  An unrecognised value is a 400, never a silent fall back to thin rows.\n- `assignedTo` — a user id for that person's queue, or `unassigned` for triage.\n- `includeSnoozed` — `true` to include items delayed into the future.\n- `limit`, `offset` — the page window. The response carries the real total.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "The unified pending-review queue — paused workflow runs, missions awaiting\nreview, and pending action proposals — for the caller's org.\n\nQuery parameters:\n- `kind` — `workflow` | `mission` | `action`, to see one plane only.\n- `actionIds` — comma-separated registered action ids, to see one CARD TYPE\n  (`personalization.enroll`) rather than one plane. `total` narrows with it.\n  Pass `types=1` instead to get the types present with their counts.\n- `suggestedDecision` — `approve` | `reject` | `snooze`, to see the items the\n  AGENT recommended that outcome for. Composes with `actionIds` and\n  `assignedTo`, so several lanes can be cut from one pending set: everything\n  a screener wants turned down in one, what it wants approved in another.\n  Only action runs carry a recommendation, so this returns the action plane\n  alone. An unrecognised value is a 400, never a silent whole-queue read.\n  Note the tense: these are the verbs `/reviews/decide` takes, so it is\n  `reject`, not the `rejected` that a recorded decision reads as. The two\n  vocabularies sit next to each other in the same response, and `rejected`\n  here is the mistake worth expecting.\n- `approvedByAgent` — `true`, `false` or `null`, to see the items by WHO\n  made the approval call: the trust ladder, a person, or nobody yet. What\n  this cuts is the failed lane — a run whose approval stood and whose\n  execution threw stays in the queue, and \"the agent released this and it\n  broke\" is a different triage job from \"a person approved it and it broke\".\n  `true` and `false` return the action plane alone, since no workflow or\n  mission can be approved by an agent; `null` keeps all three, because an\n  item nobody has decided is exactly what a paused workflow is. Composes\n  with `actionIds`, `suggestedDecision` and `assignedTo`. Any other value is\n  a 400, never a silent whole-queue read.\n- `types` — `1` answers with the review types present and their counts,\n  instead of the queue itself, so a client can build its filter list from\n  what is actually waiting.\n- `include` — `input`, `proposal` or both, comma-separated, to have those\n  payloads inlined on each item rather than fetched one detail request at a\n  time. A client that buckets the queue by something inside the payload —\n  a date, a venue, whether the record is complete — otherwise makes one\n  request per item to build a single screen. Opt-in because the payload is\n  unbounded: a page of thin rows is a few KB and the same page carrying\n  inputs can be a megabyte. Only action items have either payload to give.\n  An unrecognised value is a 400, never a silent fall back to thin rows.\n- `assignedTo` — a user id for that person's queue, or `unassigned` for triage.\n- `includeSnoozed` — `true` to include items delayed into the future.\n- `limit`, `offset` — the page window. The response carries the real total.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "kind",
@@ -3327,6 +3491,15 @@
             }
           },
           {
+            "name": "types",
+            "in": "query",
+            "required": false,
+            "description": "`1` answers with the review types present and their counts, instead of the queue itself, so a client can build its filter list from what is actually waiting.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "include",
             "in": "query",
             "required": false,
@@ -3359,7 +3532,7 @@
             "required": false,
             "description": "the page window. The response carries the real total.",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           },
           {
@@ -3368,7 +3541,7 @@
             "required": false,
             "description": "the page window. The response carries the real total.",
             "schema": {
-              "type": "string"
+              "type": "integer"
             }
           }
         ]
@@ -3632,7 +3805,7 @@
         },
         "description": "Put a proposed action into the review queue. Body:\n\n  { actionId, input, agentSlug?, rationale?, confidence?, suggestedDecision?,\n    suggestedSnoozeUntil?, dedupKey?, expiresInDays? }\n\n`suggestedDecision` is what the proposing agent thinks the reviewer should\ndo — `approve`, `reject` or `snooze`. It is advisory: it never releases the\naction, and a `reject` or `snooze` recommendation additionally keeps the\nitem out of the trust ladder's reach. Anything outside those three values is\na 400 rather than a silently dropped field.\n\nThe proposal always lands `pending` — it rides the normal autonomy gate, so\nthis endpoint can never fire an action outright. Repeating a call with the\nsame `dedupKey` refreshes the existing item instead of duplicating it.\n\nThe response says which of those happened, so a caller re-posting the same\npage knows what it actually did:\n\n  { runId, status, outcome: 'created' | 'refreshed' | 'already_decided', decidedAt? }\n\n`already_decided` means a person judged this record before and nothing was\nwritten — `runId`, `status` and `decidedAt` describe that earlier decision.\nOnly actions that opt in (`dedupAgainstDecided`) ever answer it.\n\nRe-posting a record whose CONTENT changed behaves three ways, depending on\nwhat moved. Changing a field the dedup key is built from makes it a\ndifferent record, so it comes back `created`. Changing any other field\nwhile the item is still pending comes back `refreshed`, and the reviewer\nsees the new payload. Changing any other field after the item was decided\ncomes back `already_decided` and the edit is dropped — nothing is stored\nand nobody is notified, so a caller that cares about late edits has to\ncompare `decidedAt` itself and take it up outside the queue.\nRequires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3992,7 +4165,36 @@
             }
           }
         },
-        "description": "List recent workflow runs across the tenant. Supports query params:\nstatus, rating (up|down), limit. Returns rows sorted by createdAt\ndesc. Operation runs are gone with the operations layer; per-tool\nactivity lives on /dashboard/activity (tool_call rows)."
+        "description": "List recent workflow runs across the tenant. Supports query params:\nstatus, rating (up|down), limit. Returns rows sorted by createdAt\ndesc. Operation runs are gone with the operations layer; per-tool\nactivity lives on /dashboard/activity (tool_call rows).\n\nQuery parameters:\n- `status` — only the runs in that state.\n- `rating` — `up` or `down`, the reviewer's verdict on the run.\n- `limit` — how many rows to return, newest first.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rating",
+            "in": "query",
+            "required": false,
+            "description": "`up` or `down`, the reviewer's verdict on the run.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "how many rows to return, newest first.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/runs/{id}": {
@@ -4144,15 +4346,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Success.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+          "302": {
+            "description": "A redirect to the resource; there is no body to read."
           },
           "400": {
             "description": "The request was malformed or failed validation. Codes: `BAD_REQUEST`.",
@@ -4185,7 +4380,27 @@
             }
           }
         },
-        "description": "Serves a private S3 object to a signed-in member by redirecting to a\nshort-lived presigned URL. The bucket must be declared by one of the\ncaller's org's `s3` sources — the source is the grant, so a workspace\ncannot be used to read arbitrary buckets the AWS credentials can see."
+        "description": "Serves a private S3 object to a signed-in member by redirecting to a\nshort-lived presigned URL. The bucket must be declared by one of the\ncaller's org's `s3` sources — the source is the grant, so a workspace\ncannot be used to read arbitrary buckets the AWS credentials can see.\n\nQuery parameters:\n- `bucket` — required. The bucket to read from, which one of the org's `s3`\n  sources must declare; any other bucket is a 403.\n- `key` — required. The object's key inside that bucket.",
+        "parameters": [
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": true,
+            "description": "required. The bucket to read from, which one of the org's `s3` sources must declare; any other bucket is a 403.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "description": "required. The object's key inside that bucket.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/v1/sources": {
@@ -4558,8 +4773,35 @@
             }
           }
         },
-        "description": "Runs for the caller's org, newest first. Auth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Runs for the caller's org, newest first. Auth: tenant API token or dashboard session.\n\nQuery parameters:\n- `status`, `kind`, `agentSlug` — only the runs in that state, of that kind,\n  or belonging to that agent.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state, of that kind, or belonging to that agent.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state, of that kind, or belonging to that agent.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentSlug",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state, of that kind, or belonging to that agent.",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "limit",
             "in": "query",

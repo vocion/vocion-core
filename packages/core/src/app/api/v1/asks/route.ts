@@ -12,6 +12,15 @@ import { askErrorResponse, optDate, optStr, withAskUrl, withAskUrls } from './_l
  * back only its own asks (`source=workforce:`). Newest first, with the real
  * total for the filters.
  * Auth: tenant API token or dashboard session.
+ *
+ * Query parameters:
+ * - `status` — `open` (the default), `decided` for every answered status, or
+ *   one exactly: `approved`, `rejected`, `done`, `superseded`.
+ * - `source` — a prefix match on `sourceRef`, so a filer reads back only its
+ *   own asks (`source=workforce:`).
+ * - `agentSlug` — only the asks a given agent raised.
+ * - `kind` — only the asks of one kind.
+ * - `groupKey` — only the asks sharing one grouping key.
  * @param req - Request.
  */
 export async function GET(req: Request) {

@@ -69,6 +69,21 @@ const BODY_READER_NAMES = new Set(['str', 'num', 'bool', 'arr', 'obj', 'int']);
 /** The longest summary worth showing in a list of endpoints. */
 const MAX_SUMMARY_LENGTH = 160;
 
+/** The media type an endpoint answers with unless its own code says otherwise. */
+const JSON_MEDIA_TYPE = 'application/json';
+
+/** The constructors a handler uses when it answers with something other than JSON. */
+const RESPONSE_CONSTRUCTORS = new Set(['Response', 'NextResponse']);
+
+/** The reads that pull a value out of the query string. */
+const SEARCH_PARAM_READERS = new Set(['searchParams.get', 'searchParams.has']);
+
+/** Query parameters that are always whole numbers, whoever documented them. */
+const INTEGER_QUERY_PARAMETERS = new Set(['limit', 'offset']);
+
+/** The header a handler reads when it is willing to run with no body at all. */
+const CONTENT_LENGTH_HEADER = 'content-length';
+
 /**
  * Turn a route file's path into its OpenAPI path template.
  * @param relativePath - Path of the route file below `src/app/api/v1`, e.g. `worker-runs/[id]/claim/route.ts`.
@@ -136,32 +151,60 @@ function nodesWithin(root: ts.Node): ts.Node[] {
 }
 
 /**
- * The exported handler declarations in a route file, keyed by method name.
- * @param sourceFile
+ * The exported handlers in a route file, keyed by method name.
+ *
+ * Both shapes Next.js accepts count: `export async function GET(…)` and
+ * `export const GET = withSomething(…)`. Reading only the first quietly
+ * documented nothing for a route written the second way, and the failure
+ * surfaced as a path missing from the spec rather than as anything naming the
+ * cause.
+ * @param sourceFile - The parsed route file.
  */
-function exportedHandlers(sourceFile: ts.SourceFile): Map<string, ts.FunctionDeclaration> {
-  const handlers = new Map<string, ts.FunctionDeclaration>();
+function exportedHandlers(sourceFile: ts.SourceFile): Map<string, ts.Node> {
+  const handlers = new Map<string, ts.Node>();
   for (const statement of sourceFile.statements) {
-    if (!ts.isFunctionDeclaration(statement) || !statement.name) {
+    if (!isExported(statement)) {
       continue;
     }
-    const name = statement.name.text;
-    if (!HANDLER_NAMES.includes(name as (typeof HANDLER_NAMES)[number])) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && isHandlerName(statement.name.text)) {
+      handlers.set(statement.name.text, statement);
       continue;
     }
-    const isExported = ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Export;
-    if (isExported) {
-      handlers.set(name, statement);
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && isHandlerName(declaration.name.text)) {
+        // The statement, not the declaration: the doc comment hangs off it.
+        handlers.set(declaration.name.text, statement);
+      }
     }
   }
   return handlers;
 }
 
 /**
+ * Whether a top-level statement carries the `export` keyword.
+ * @param statement - A statement from the route file.
+ */
+function isExported(statement: ts.Statement): boolean {
+  return ts.canHaveModifiers(statement)
+    && (ts.getModifiers(statement) ?? []).some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+/**
+ * Whether an exported name is one Next.js treats as an HTTP handler.
+ * @param name - The exported name.
+ */
+function isHandlerName(name: string): boolean {
+  return HANDLER_NAMES.includes(name as (typeof HANDLER_NAMES)[number]);
+}
+
+/**
  * The handler's doc comment as plain text, with the `@param` tags dropped.
  * @param handler
  */
-function docCommentOf(handler: ts.FunctionDeclaration): string {
+function docCommentOf(handler: ts.Node): string {
   const blocks = ts.getJSDocCommentsAndTags(handler).filter(ts.isJSDoc);
   const last = blocks.at(-1);
   if (!last) {
@@ -340,6 +383,102 @@ export function queryParametersFromDoc(docComment: string): DocumentedParameter[
 }
 
 /**
+ * The query parameters a handler actually reads, whatever its prose says.
+ *
+ * The doc-comment bullets carry the good description, but nothing forces an
+ * author to write one — and a parameter missing from the spec reads to a
+ * caller as a parameter that does not exist. So the names come from the code
+ * (`searchParams.get('bucket')`) and the descriptions come from the prose
+ * wherever there is prose.
+ *
+ * A name the handler rejects when it is absent — the `if (!bucket)` guard — is
+ * published as required, because that is the difference between a request that
+ * works and a 400.
+ * @param handler - The exported handler.
+ */
+function queryParametersFromCode(handler: ts.Node): DocumentedParameter[] {
+  const required = negatedIdentifiersIn(handler);
+  const parameters: DocumentedParameter[] = [];
+  const seen = new Set<string>();
+  for (const { name, call } of callsWithin(handler)) {
+    const reader = name.split('.').slice(-2).join('.');
+    if (!SEARCH_PARAM_READERS.has(reader)) {
+      continue;
+    }
+    const parameterName = stringArgument(call, 0);
+    if (parameterName === null || seen.has(parameterName)) {
+      continue;
+    }
+    seen.add(parameterName);
+    parameters.push({
+      name: parameterName,
+      in: 'query',
+      required: required.has(parameterName) || required.has(bindingNameFor(call)),
+      description: '',
+      schema: INTEGER_QUERY_PARAMETERS.has(parameterName) ? { type: 'integer' } : { type: 'string' },
+    });
+  }
+  return parameters;
+}
+
+/**
+ * The variable a query-string read is assigned to, when it is assigned to one.
+ *
+ * `const bucket = url.searchParams.get('bucket') ?? ''` guards on `bucket`,
+ * not on the parameter name, and the two are not always spelled the same.
+ * @param call - The `searchParams.get(…)` call.
+ */
+function bindingNameFor(call: ts.CallExpression): string {
+  let node: ts.Node | undefined = call;
+  while (node && !ts.isVariableDeclaration(node) && !ts.isSourceFile(node)) {
+    node = node.parent;
+  }
+  return node && ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) ? node.name.text : '';
+}
+
+/**
+ * Every identifier the handler tests for absence with `!`.
+ * @param handler - The exported handler.
+ */
+function negatedIdentifiersIn(handler: ts.Node): Set<string> {
+  const names = new Set<string>();
+  for (const node of nodesWithin(handler)) {
+    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken && ts.isIdentifier(node.operand)) {
+      names.add(node.operand.text);
+    }
+  }
+  return names;
+}
+
+/**
+ * Merge the parameters the prose describes with the ones the code reads.
+ *
+ * The prose wins on description and the code wins on existence, so a
+ * documented parameter keeps its sentence and an undocumented one still shows
+ * up — with the honest note that it has no description yet.
+ * @param documented - Parameters read from the doc comment.
+ * @param fromCode - Parameters read from the handler body.
+ */
+function mergeQueryParameters(documented: DocumentedParameter[], fromCode: DocumentedParameter[]): DocumentedParameter[] {
+  const merged = [...documented];
+  for (const parameter of merged) {
+    if (INTEGER_QUERY_PARAMETERS.has(parameter.name)) {
+      parameter.schema = { type: 'integer' };
+    }
+  }
+  const byName = new Map(merged.map(parameter => [parameter.name, parameter]));
+  for (const parameter of fromCode) {
+    const existing = byName.get(parameter.name);
+    if (existing) {
+      existing.required = existing.required || parameter.required;
+      continue;
+    }
+    merged.push({ ...parameter, description: 'Read from the query string. This one has no description in the handler yet.' });
+  }
+  return merged;
+}
+
+/**
  * The path parameters named by an OpenAPI path template.
  * @param apiPath
  */
@@ -357,7 +496,7 @@ function pathParametersFrom(apiPath: string): DocumentedParameter[] {
  * Every call expression inside a handler, with its callee spelled out as text.
  * @param handler
  */
-function callsWithin(handler: ts.FunctionDeclaration): { name: string; call: ts.CallExpression }[] {
+function callsWithin(handler: ts.Node): { name: string; call: ts.CallExpression }[] {
   const calls: { name: string; call: ts.CallExpression }[] = [];
   for (const node of nodesWithin(handler)) {
     if (!ts.isCallExpression(node)) {
@@ -398,8 +537,8 @@ function numberArgument(call: ts.CallExpression, index: number): number | null {
  * @param call
  * @param index
  */
-function statusFromOptions(call: ts.CallExpression, index: number): number | null {
-  const options = call.arguments[index];
+function statusFromOptions(call: ts.CallExpression | ts.NewExpression, index: number): number | null {
+  const options = call.arguments?.[index];
   if (!options || !ts.isObjectLiteralExpression(options)) {
     return null;
   }
@@ -419,7 +558,7 @@ function statusFromOptions(call: ts.CallExpression, index: number): number | nul
  * handler that calls `authApi` can answer 401 whether or not it says so.
  * @param handler - The exported handler declaration.
  */
-function responsesOf(handler: ts.FunctionDeclaration): DocumentedResponse[] {
+function responsesOf(handler: ts.Node): DocumentedResponse[] {
   const calls = callsWithin(handler);
   const called = new Set(calls.map(entry => entry.name));
   const byStatus = new Map<number, Set<string>>();
@@ -443,13 +582,19 @@ function responsesOf(handler: ts.FunctionDeclaration): DocumentedResponse[] {
     addErrorCode(byStatus, 400, 'VALIDATION_FAILED');
   }
 
-  const responses: DocumentedResponse[] = successStatusesOf(calls).map(status => ({
-    status,
-    description: describeSuccessStatus(status),
+  const responses: DocumentedResponse[] = successResponsesOf(handler, calls).map(success => ({
+    status: success.status,
+    description: describeSuccessStatus(success.status, success.contentType),
     errorCodes: [],
+    contentType: success.contentType,
   }));
   for (const [status, codes] of [...byStatus.entries()].sort((a, b) => a[0] - b[0])) {
-    responses.push({ status, description: describeStatus(status), errorCodes: [...codes].sort() });
+    responses.push({
+      status,
+      description: describeStatus(status),
+      errorCodes: [...codes].sort(),
+      contentType: 'application/json',
+    });
   }
   return responses;
 }
@@ -475,31 +620,100 @@ function addErrorCode(byStatus: Map<number, Set<string>>, status: number, code: 
  * /api/v1/automations/:slug/run` answers 202 when the caller asked for the work
  * to carry on in the background and 200 when it waited. A client told only
  * about the 200 meets the async path as a surprise.
+ * @param handler
  * @param calls - The call expressions inside the handler.
  */
-function successStatusesOf(calls: { name: string; call: ts.CallExpression }[]): number[] {
-  const statuses = new Set<number>();
+function successResponsesOf(handler: ts.Node, calls: { name: string; call: ts.CallExpression }[]): { status: number; contentType: string | null }[] {
+  const byStatus = new Map<number, string | null>();
   for (const { name, call } of calls) {
-    const status = name === 'NextResponse.json' ? statusFromOptions(call, 1) : null;
-    if (status !== null && status < 400) {
-      statuses.add(status);
+    if (name === 'NextResponse.json') {
+      // `NextResponse.json(x)` with no options is a plain 200. Reading only the
+      // explicit statuses dropped it on a handler that had both.
+      const status = statusFromOptions(call, 1) ?? 200;
+      if (status < 400) {
+        byStatus.set(status, JSON_MEDIA_TYPE);
+      }
+      continue;
+    }
+    if (name === 'NextResponse.redirect') {
+      // A redirect carries no body at all; Next's own default is 307.
+      const status = statusFromOptions(call, 1) ?? numberArgument(call, 1) ?? 307;
+      byStatus.set(status, null);
     }
   }
-  return statuses.size === 0 ? [200] : [...statuses].sort((left, right) => left - right);
+  for (const construction of rawResponsesWithin(handler)) {
+    const status = statusFromOptions(construction, 1) ?? 200;
+    if (status < 400) {
+      byStatus.set(status, contentTypeFromOptions(construction, 1));
+    }
+  }
+  if (byStatus.size === 0) {
+    byStatus.set(200, JSON_MEDIA_TYPE);
+  }
+  return [...byStatus.entries()]
+    .map(([status, contentType]) => ({ status, contentType }))
+    .sort((left, right) => left.status - right.status);
+}
+
+/**
+ * The `new Response(…)` / `new NextResponse(…)` constructions in a handler.
+ *
+ * These are how an endpoint answers with something other than JSON — a stream,
+ * a file — and they are constructions rather than calls, so the call list does
+ * not see them.
+ * @param handler - The exported handler.
+ */
+function rawResponsesWithin(handler: ts.Node): ts.NewExpression[] {
+  const constructions: ts.NewExpression[] = [];
+  for (const node of nodesWithin(handler)) {
+    if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && RESPONSE_CONSTRUCTORS.has(node.expression.text)) {
+      constructions.push(node);
+    }
+  }
+  return constructions;
+}
+
+/**
+ * The media type an options object declares in its headers, when it says one.
+ * @param call - The response call or construction.
+ * @param index - Which argument holds the options object.
+ */
+function contentTypeFromOptions(call: ts.CallExpression | ts.NewExpression, index: number): string {
+  const options = call.arguments?.[index];
+  if (!options || !ts.isObjectLiteralExpression(options)) {
+    return JSON_MEDIA_TYPE;
+  }
+  for (const property of options.properties) {
+    if (!ts.isPropertyAssignment(property) || property.name.getText() !== 'headers' || !ts.isObjectLiteralExpression(property.initializer)) {
+      continue;
+    }
+    for (const header of property.initializer.properties) {
+      const name = ts.isPropertyAssignment(header) ? header.name.getText().replace(/['"]/g, '').toLowerCase() : '';
+      if (name === 'content-type' && ts.isPropertyAssignment(header) && ts.isStringLiteralLike(header.initializer)) {
+        return header.initializer.text.split(';')[0]!.trim();
+      }
+    }
+  }
+  return JSON_MEDIA_TYPE;
 }
 
 /**
  * Plain English for a success status.
  * @param status - The status code.
+ * @param contentType
  */
-function describeSuccessStatus(status: number): string {
+function describeSuccessStatus(status: number, contentType: string | null): string {
+  if (contentType === null) {
+    return 'A redirect to the resource; there is no body to read.';
+  }
   const wording: Record<number, string> = {
     200: 'Success.',
     201: 'Created.',
     202: 'Accepted — the work carries on in the background.',
     204: 'Success, with no body.',
   };
-  return wording[status] ?? 'Success.';
+  const base = wording[status] ?? 'Success.';
+  return contentType === JSON_MEDIA_TYPE ? base : `${base} The body is \`${contentType}\`, not JSON.`;
 }
 
 /**
@@ -536,7 +750,7 @@ function describeStatus(status: number): string {
  * The capability strings a handler enforces, sorted.
  * @param handler
  */
-function capabilitiesOf(handler: ts.FunctionDeclaration): string[] {
+function capabilitiesOf(handler: ts.Node): string[] {
   const capabilities = new Set<string>();
   for (const { name, call } of callsWithin(handler)) {
     if (name !== 'requireCapability') {
@@ -560,7 +774,7 @@ function capabilitiesOf(handler: ts.FunctionDeclaration): string[] {
  * @param handler - The exported handler declaration.
  * @param bodyNames - The variables this handler bound its body to.
  */
-function bodyFieldsOf(handler: ts.FunctionDeclaration, bodyNames: Set<string>): string[] {
+function bodyFieldsOf(handler: ts.Node, bodyNames: Set<string>): string[] {
   const fields = new Set<string>();
   for (const { name, call } of callsWithin(handler)) {
     if (!BODY_READER_NAMES.has(name)) {
@@ -581,6 +795,31 @@ function bodyFieldsOf(handler: ts.FunctionDeclaration, bodyNames: Set<string>): 
 }
 
 /**
+ * Whether the handler is happy to run with no request body.
+ *
+ * Two shapes say so: reading `content-length` to decide whether to parse at
+ * all, and defaulting the parsed body with `?? {}`. Publishing such a body as
+ * required tells a caller to send `{}` when sending nothing is what the
+ * endpoint actually expects.
+ * @param handler - The exported handler.
+ */
+function bodyIsOptional(handler: ts.Node): boolean {
+  for (const node of nodesWithin(handler)) {
+    if (ts.isStringLiteralLike(node) && node.text.toLowerCase() === CONTENT_LENGTH_HEADER) {
+      return true;
+    }
+    const defaultsToEmptyObject = ts.isBinaryExpression(node)
+      && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+      && ts.isObjectLiteralExpression(node.right)
+      && node.right.properties.length === 0;
+    if (defaultsToEmptyObject) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The names a handler binds its parsed request body to.
  *
  * A handler reaches the body as `readJsonBody(req)` or as a plain
@@ -594,7 +833,7 @@ function bodyFieldsOf(handler: ts.FunctionDeclaration, bodyNames: Set<string>): 
  * where a declaration sits in the file does not decide whether it is seen.
  * @param handler - The exported handler declaration.
  */
-function bodyIdentifiersOf(handler: ts.FunctionDeclaration): Set<string> {
+function bodyIdentifiersOf(handler: ts.Node): Set<string> {
   const names = new Set<string>();
   const bindings = bodyBindingsIn(handler);
   let foundMore = true;
@@ -620,7 +859,7 @@ function bodyIdentifiersOf(handler: ts.FunctionDeclaration): Set<string> {
  * reading declarations alone would miss the body entirely.
  * @param handler - The exported handler declaration.
  */
-function bodyBindingsIn(handler: ts.FunctionDeclaration): { name: string; value: ts.Expression }[] {
+function bodyBindingsIn(handler: ts.Node): { name: string; value: ts.Expression }[] {
   const bindings: { name: string; value: ts.Expression }[] = [];
   for (const node of nodesWithin(handler)) {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
@@ -700,7 +939,10 @@ export function parseRouteModule(source: string, apiPath: string): RouteOperatio
     const { summary, description } = summaryAndDescription(docComment);
     const called = new Set(callsWithin(handler).map(entry => entry.name));
     const bodyNames = bodyIdentifiersOf(handler);
-    const parameters = [...pathParametersFrom(apiPath), ...queryParametersFromDoc(docComment)];
+    const parameters = [
+      ...pathParametersFrom(apiPath),
+      ...mergeQueryParameters(queryParametersFromDoc(docComment), queryParametersFromCode(handler)),
+    ];
     if (called.has('readPagination')) {
       appendPaginationParameters(parameters);
     }
@@ -713,6 +955,7 @@ export function parseRouteModule(source: string, apiPath: string): RouteOperatio
       description,
       parameters,
       requiresBody: bodyNames.size > 0,
+      bodyOptional: bodyIsOptional(handler),
       requestBodyFields: bodyFieldsOf(handler, bodyNames),
       capabilities: capabilitiesOf(handler),
       delegatesErrorMapping: [...called].some(mapsServiceErrors),

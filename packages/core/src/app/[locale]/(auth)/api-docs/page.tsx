@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { ApiReference } from '@/features/api-docs/ApiReference';
 import { Link } from '@/libs/I18nNavigation';
-import generatedDocument from '@/libs/openapi/openapi.generated.json';
 import { requireOrganization } from '@/utils/Auth';
 
 /**
@@ -22,6 +21,13 @@ import { requireOrganization } from '@/utils/Auth';
 
 export const metadata: Metadata = { title: 'API reference' };
 
+/**
+ * Where the browser fetches the document from — the same endpoint an
+ * integrator would call, which answers to a dashboard session as well as to a
+ * tenant token, so the page reads it with the cookie the reader already has.
+ */
+const OPENAPI_DOCUMENT_URL = '/api/v1/openapi';
+
 export default async function ApiDocsPage() {
   await requireOrganization();
 
@@ -41,7 +47,7 @@ export default async function ApiDocsPage() {
           Back to Vocion
         </Link>
       </header>
-      <ApiReference document={generatedDocument} />
+      <ApiReference documentUrl={OPENAPI_DOCUMENT_URL} />
     </main>
   );
 }

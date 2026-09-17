@@ -15,6 +15,15 @@ import { runFilterFromSearchParams } from '../_runFilter';
  * Query: `slug`, `status`, `kind`, `invokedBy` (`schedule` | `test-run`),
  * `since`, `until`, `limit`, `cursor`. `facets=1` adds the values present, so
  * a client's filter list is never hardcoded.
+ *
+ * Query parameters:
+ * - `slug` — one automation's runs rather than every automation's.
+ * - `status`, `kind` — only the runs in that state, or of that kind.
+ * - `invokedBy` — `schedule` or `test-run`.
+ * - `since`, `until` — ISO timestamps bounding when the run started.
+ * - `cursor` — the next page, from the previous response.
+ * - `facets` — `1` also returns the values present, so a client's filter list
+ *   is never hardcoded.
  * @param req
  */
 export async function GET(req: Request) {

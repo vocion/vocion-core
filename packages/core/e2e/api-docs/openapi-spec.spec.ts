@@ -43,6 +43,17 @@ function seedFixtures(): SeedFixtures {
   }
 }
 
+/**
+ * Endpoints this spec describes but never calls.
+ *
+ * `/api/v1/vision/model` reports the configured vision model by asking the
+ * vendor — a live Rekognition call on a deployment that has AWS credentials.
+ * Tests do not call out to a paid third-party service, so this one is checked
+ * for its auth gate and left alone. Everything else in the sweep answers from
+ * the database.
+ */
+const OUTWARD_CALLING_PATHS = new Set(['/api/v1/vision/model']);
+
 let fixtures: SeedFixtures;
 
 test.beforeAll(() => {
@@ -93,6 +104,12 @@ test.describe('GET /api/v1/openapi', () => {
       const anonymous = await request.get(path);
 
       expect(anonymous.status(), `${path} without a token`).toBe(401);
+
+      if (OUTWARD_CALLING_PATHS.has(path)) {
+        // The auth gate is the part worth proving here; calling it for real
+        // would spend a vendor's API on a test run.
+        continue;
+      }
 
       const authenticated = await request.get(path, {
         headers: { authorization: `Bearer ${fixtures.token}` },
@@ -179,7 +196,17 @@ test.describe('the API reference page', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.waitForURL('**/dashboard**');
 
-    await page.goto('/api-docs');
+    // The reference is reachable from the app rather than only by URL: the
+    // sidebar's manage view carries one "Swagger Docs" row under Organization,
+    // and it is how a reader gets there without being told the path.
+    await page.getByTestId('manage-workspace-row').click();
+
+    const navLink = page.getByRole('link', { name: 'Swagger Docs' });
+
+    await expect(navLink).toBeVisible();
+
+    await navLink.click();
+    await page.waitForURL('**/api-docs**');
 
     // Swagger UI itself, on its own page: no dashboard sidebar around it.
     await expect(page.locator('.swagger-ui')).toBeVisible();
@@ -193,5 +220,21 @@ test.describe('the API reference page', () => {
     // The Authorize button is how a reader pastes a tenant token before
     // trying an endpoint; no button means the security scheme did not survive.
     await expect(page.getByRole('button', { name: /authorize/i }).first()).toBeVisible();
+
+    // "Try it out" is read-only here: an Execute runs against this deployment
+    // with the reader's own session, so a POST offering that button would be
+    // a real write started by someone who opened the page to read.
+    const firstGet = page.locator('.opblock-get').first();
+    await firstGet.locator('.opblock-summary').click();
+
+    // `tryItOutEnabled` puts an expanded operation straight into try-out mode,
+    // so the control to look for is Execute itself.
+    await expect(firstGet.getByRole('button', { name: 'Execute' })).toBeVisible();
+
+    const firstPost = page.locator('.opblock-post').first();
+    await firstPost.locator('.opblock-summary').click();
+
+    await expect(firstPost.locator('.opblock-body')).toBeVisible();
+    await expect(firstPost.getByRole('button', { name: 'Execute' })).toHaveCount(0);
   });
 });
