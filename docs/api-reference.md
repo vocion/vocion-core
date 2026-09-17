@@ -75,6 +75,14 @@ What each part becomes:
   name two (`` `limit`, `offset` ``), and an indented continuation line belongs
   to the bullet above it.
 
+## What the generator cannot know
+
+Some handlers hand a thrown service error to a shared mapper
+(`writeApiErrorResponse`, `workerRunErrorResponse`), which reads the status off
+the error itself. No reading of the handler can predict those, so the document
+says so on the endpoint — "can answer with statuses beyond the ones listed" —
+rather than publishing a list that looks complete and is not.
+
 ## What it does not do yet
 
 Response bodies are described as "a JSON object", with the fields named in the

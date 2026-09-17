@@ -93,6 +93,14 @@ describe('filterOperations', () => {
   it('does not match the long description, which would make a common word useless', () => {
     expect(filterOperations(operations, 'budgets').map(operation => operation.operationId)).toEqual(['get_budgets']);
   });
+
+  it('finds the endpoints that need a capability, which is otherwise invisible until one is opened', () => {
+    expect(filterOperations(operations, 'approve').map(operation => operation.operationId)).toEqual(['post_reviews']);
+  });
+
+  it('finds the endpoints that can answer with a status', () => {
+    expect(filterOperations(operations, '401').map(operation => operation.operationId)).toEqual(['get_reviews']);
+  });
 });
 
 describe('groupByTag', () => {

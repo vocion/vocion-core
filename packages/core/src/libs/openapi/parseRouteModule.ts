@@ -54,8 +54,14 @@ const NAME_LIST_ONLY = /^(?:`[\w[\]]+`[,\s]*)+$/;
 /** One backticked name inside a bullet's name list. */
 const BACKTICKED_NAME = /`([\w[\]]+)`/g;
 
-/** Shared helpers that turn a service error into the standard envelope. */
+/** Shared helpers that turn a thrown service error into the standard envelope. */
 const ERROR_MAPPER_NAME = /ErrorResponse$/;
+
+/** The shared request-body reader most handlers that take JSON go through. */
+const BODY_READER_CALL = 'readJsonBody';
+
+/** The other way a handler reads its body: `req.json()`. */
+const REQUEST_IDENTIFIER = /^req(?:uest)?$/;
 
 /** Body readers used across `/api/v1`: `str(body, 'workerId')` and friends. */
 const BODY_READER_NAMES = new Set(['str', 'num', 'bool', 'arr', 'obj', 'int']);
@@ -321,10 +327,13 @@ export function queryParametersFromDoc(docComment: string): DocumentedParameter[
       }
       continue;
     }
-    if (line === '') {
+    if (line === '' || BULLET_PREFIX.test(line)) {
+      // A bullet this cannot read — a name written without backticks, say — is
+      // skipped rather than treated as the end of the list. Ending there would
+      // silently drop every parameter documented after it.
       continue;
     }
-    // A non-indented line that is not a bullet ends the list.
+    // A line that is neither blank, a bullet, nor a continuation ends the list.
     inList = false;
   }
   return parameters;
@@ -434,10 +443,11 @@ function responsesOf(handler: ts.FunctionDeclaration): DocumentedResponse[] {
     addErrorCode(byStatus, 400, 'VALIDATION_FAILED');
   }
 
-  const successStatus = successStatusOf(calls);
-  const responses: DocumentedResponse[] = [
-    { status: successStatus, description: 'Success.', errorCodes: [] },
-  ];
+  const responses: DocumentedResponse[] = successStatusesOf(calls).map(status => ({
+    status,
+    description: describeSuccessStatus(status),
+    errorCodes: [],
+  }));
   for (const [status, codes] of [...byStatus.entries()].sort((a, b) => a[0] - b[0])) {
     responses.push({ status, description: describeStatus(status), errorCodes: [...codes].sort() });
   }
@@ -459,17 +469,49 @@ function addErrorCode(byStatus: Map<number, Set<string>>, status: number, code: 
 }
 
 /**
- * The success status a handler returns — 200 unless it says otherwise.
- * @param calls
+ * Every success status a handler can return.
+ *
+ * More than one is normal, and it is the interesting case: `POST
+ * /api/v1/automations/:slug/run` answers 202 when the caller asked for the work
+ * to carry on in the background and 200 when it waited. A client told only
+ * about the 200 meets the async path as a surprise.
+ * @param calls - The call expressions inside the handler.
  */
-function successStatusOf(calls: { name: string; call: ts.CallExpression }[]): number {
+function successStatusesOf(calls: { name: string; call: ts.CallExpression }[]): number[] {
+  const statuses = new Set<number>();
   for (const { name, call } of calls) {
     const status = name === 'NextResponse.json' ? statusFromOptions(call, 1) : null;
     if (status !== null && status < 400) {
-      return status;
+      statuses.add(status);
     }
   }
-  return 200;
+  return statuses.size === 0 ? [200] : [...statuses].sort((left, right) => left - right);
+}
+
+/**
+ * Plain English for a success status.
+ * @param status - The status code.
+ */
+function describeSuccessStatus(status: number): string {
+  const wording: Record<number, string> = {
+    200: 'Success.',
+    201: 'Created.',
+    202: 'Accepted — the work carries on in the background.',
+    204: 'Success, with no body.',
+  };
+  return wording[status] ?? 'Success.';
+}
+
+/**
+ * Whether a called helper maps a thrown service error onto the shared envelope.
+ *
+ * `isErrorResponse` ends with the same word, and nearly every handler calls it
+ * — but it is the guard on a helper's return value and maps nothing. Counting
+ * it put a "there may be other statuses" caveat on 54 of the 73 endpoints.
+ * @param calledName - The name of a function the handler calls.
+ */
+function mapsServiceErrors(calledName: string): boolean {
+  return ERROR_MAPPER_NAME.test(calledName) && !calledName.startsWith('is');
 }
 
 /**
@@ -512,11 +554,13 @@ function capabilitiesOf(handler: ts.FunctionDeclaration): string[] {
  * The request body field names a handler reads.
  *
  * Handlers pull fields two ways — `str(body, 'workerId')` through the shared
- * readers, or `body.workerId` directly — so both are collected. The result is
- * the field list, not their types: what a field must contain is in the prose.
+ * readers, or `body.workerId` directly — so both are collected, off whichever
+ * variables hold the body. The result is the field list, not their types: what
+ * a field must contain is in the prose.
  * @param handler - The exported handler declaration.
+ * @param bodyNames - The variables this handler bound its body to.
  */
-function bodyFieldsOf(handler: ts.FunctionDeclaration): string[] {
+function bodyFieldsOf(handler: ts.FunctionDeclaration, bodyNames: Set<string>): string[] {
   const fields = new Set<string>();
   for (const { name, call } of callsWithin(handler)) {
     if (!BODY_READER_NAMES.has(name)) {
@@ -524,16 +568,115 @@ function bodyFieldsOf(handler: ts.FunctionDeclaration): string[] {
     }
     const target = call.arguments[0];
     const field = stringArgument(call, 1);
-    if (field && target && ts.isIdentifier(target) && target.text === 'body') {
+    if (field && target && ts.isIdentifier(target) && bodyNames.has(target.text)) {
       fields.add(field);
     }
   }
   for (const node of nodesWithin(handler)) {
-    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'body') {
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && bodyNames.has(node.expression.text)) {
       fields.add(node.name.text);
     }
   }
   return [...fields].sort();
+}
+
+/**
+ * The names a handler binds its parsed request body to.
+ *
+ * A handler reaches the body as `readJsonBody(req)` or as a plain
+ * `req.json()`, and then often rebinds it — `const parsed = body as {…}` —
+ * before reading a field off it. Following those aliases is what keeps the
+ * documented fields honest: looking only for a variable literally named `body`
+ * reported `POST /api/v1/workflows/:slug`, which requires one, as taking no
+ * body at all.
+ *
+ * Aliases are resolved by repeating the pass until nothing new turns up, so
+ * where a declaration sits in the file does not decide whether it is seen.
+ * @param handler - The exported handler declaration.
+ */
+function bodyIdentifiersOf(handler: ts.FunctionDeclaration): Set<string> {
+  const names = new Set<string>();
+  const bindings = bodyBindingsIn(handler);
+  let foundMore = true;
+  while (foundMore) {
+    foundMore = false;
+    for (const binding of bindings) {
+      if (names.has(binding.name) || !isRequestBodyExpression(binding.value, names)) {
+        continue;
+      }
+      names.add(binding.name);
+      foundMore = true;
+    }
+  }
+  return names;
+}
+
+/**
+ * Every place a handler binds a name to a value — a declaration with an
+ * initializer, or a later assignment.
+ *
+ * Both matter: a handler that has to catch a parse failure declares the
+ * variable first (`let body: unknown;`) and assigns it inside the `try`, so
+ * reading declarations alone would miss the body entirely.
+ * @param handler - The exported handler declaration.
+ */
+function bodyBindingsIn(handler: ts.FunctionDeclaration): { name: string; value: ts.Expression }[] {
+  const bindings: { name: string; value: ts.Expression }[] = [];
+  for (const node of nodesWithin(handler)) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      bindings.push({ name: node.name.text, value: node.initializer });
+      continue;
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left)) {
+      bindings.push({ name: node.left.text, value: node.right });
+    }
+  }
+  return bindings;
+}
+
+/**
+ * Whether an initializer is the request body, or an alias of one already found.
+ * @param initializer - The declared variable's initializer.
+ * @param known - The names already known to hold the body.
+ */
+function isRequestBodyExpression(initializer: ts.Expression, known: Set<string>): boolean {
+  const expression = unwrapExpression(initializer);
+  if (ts.isIdentifier(expression)) {
+    return known.has(expression.text);
+  }
+  if (!ts.isCallExpression(expression)) {
+    return false;
+  }
+  const callee = expression.expression;
+  if (ts.isIdentifier(callee)) {
+    return callee.text === BODY_READER_CALL;
+  }
+  return ts.isPropertyAccessExpression(callee)
+    && ts.isIdentifier(callee.expression)
+    && REQUEST_IDENTIFIER.test(callee.expression.text)
+    && callee.name.text === 'json';
+}
+
+/**
+ * Strip what sits between a declaration and the expression that produced its
+ * value: `await`, parentheses, an `as` cast, a `!`, and the `?? {}` a handler
+ * adds to default an absent body.
+ * @param expression - The expression to unwrap.
+ */
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  for (let step = 0; step < 8; step++) {
+    if (ts.isAwaitExpression(current) || ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      current = current.left;
+      continue;
+    }
+    break;
+  }
+  return current;
 }
 
 /**
@@ -556,6 +699,7 @@ export function parseRouteModule(source: string, apiPath: string): RouteOperatio
     const docComment = docCommentOf(handler) || signedComments.get(handlerName) || '';
     const { summary, description } = summaryAndDescription(docComment);
     const called = new Set(callsWithin(handler).map(entry => entry.name));
+    const bodyNames = bodyIdentifiersOf(handler);
     const parameters = [...pathParametersFrom(apiPath), ...queryParametersFromDoc(docComment)];
     if (called.has('readPagination')) {
       appendPaginationParameters(parameters);
@@ -568,10 +712,10 @@ export function parseRouteModule(source: string, apiPath: string): RouteOperatio
       summary: summary === '' ? `${handlerName} ${apiPath}` : summary,
       description,
       parameters,
-      requiresBody: called.has('readJsonBody'),
-      requestBodyFields: bodyFieldsOf(handler),
+      requiresBody: bodyNames.size > 0,
+      requestBodyFields: bodyFieldsOf(handler, bodyNames),
       capabilities: capabilitiesOf(handler),
-      delegatesErrorMapping: [...called].some(name => ERROR_MAPPER_NAME.test(name)),
+      delegatesErrorMapping: [...called].some(mapsServiceErrors),
       responses: responsesOf(handler),
     });
   }

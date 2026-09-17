@@ -121,11 +121,16 @@ export function filterOperations(operations: SpecOperation[], query: string): Sp
 
 /**
  * Whether one search word matches an endpoint.
- * @param operation
- * @param word
+ *
+ * The capability and the status codes are in the haystack because they are
+ * what a reader comes here asking about — which endpoints need `approve`,
+ * which can answer 409 — and neither shows until an endpoint is opened.
+ * @param operation - The endpoint being tested.
+ * @param word - One lowercased word from the search box.
  */
 function matchesWord(operation: SpecOperation, word: string): boolean {
-  const haystack = `${operation.method} ${operation.path} ${operation.summary} ${operation.tag}`.toLowerCase();
+  const statuses = operation.responses.map(response => response.status).join(' ');
+  const haystack = `${operation.method} ${operation.path} ${operation.summary} ${operation.tag} ${operation.capabilities.join(' ')} ${statuses}`.toLowerCase();
   return haystack.includes(word);
 }
 

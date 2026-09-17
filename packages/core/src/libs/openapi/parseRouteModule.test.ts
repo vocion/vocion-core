@@ -156,3 +156,104 @@ describe('parseRouteModule', () => {
     expect(bare?.summary).toBe('GET /api/v1/budgets');
   });
 });
+
+/**
+ * The shapes the generator used to get wrong, kept as their own fixtures: a
+ * handler with two success paths, and one that reads its body without the
+ * shared helper and then renames it. Both are real patterns in `/api/v1`, and
+ * both published a document that quietly disagreed with the code.
+ */
+const AWKWARD_ROUTE = `
+import { NextResponse } from 'next/server';
+import { authApi, isErrorResponse, jsonError } from '../_shared';
+import { workerRunErrorResponse } from '../_lib';
+
+/**
+ * POST /api/v1/awkward
+ *
+ * Runs the work, or hands it to the background when asked.
+ * @param req - Request.
+ */
+export async function POST(req: Request) {
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return jsonError('INVALID_BODY', 'Request body must be valid JSON', 400);
+  }
+  const parsed = body as { input?: unknown; background?: unknown };
+  if (parsed.background === true) {
+    return NextResponse.json({ queued: true }, { status: 202 });
+  }
+  return NextResponse.json({ input: parsed.input }, { status: 200 });
+}
+
+/**
+ * GET /api/v1/awkward
+ *
+ * Reads it back.
+ * @param req - Request.
+ */
+export async function GET(req: Request) {
+  const caller = await authApi(req);
+  if (isErrorResponse(caller)) {
+    return caller;
+  }
+  try {
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return workerRunErrorResponse(error);
+  }
+}
+`;
+
+describe('parseRouteModule, on the shapes that used to be read wrong', () => {
+  const operations = parseRouteModule(AWKWARD_ROUTE, '/api/v1/awkward');
+  const post = operations.find(operation => operation.method === 'post');
+  const get = operations.find(operation => operation.method === 'get');
+
+  it('documents every success status, not just the first one found', () => {
+    const successes = post?.responses.filter(response => response.status < 400).map(response => response.status);
+
+    expect(successes).toEqual([200, 202]);
+  });
+
+  it('finds the body when the handler reads it with req.json() and renames it', () => {
+    expect(post?.requiresBody).toBe(true);
+    expect(post?.requestBodyFields).toEqual(['background', 'input']);
+  });
+
+  it('does not call `isErrorResponse` an error mapper — nearly every handler guards with it', () => {
+    expect(post?.delegatesErrorMapping).toBe(false);
+    expect(get?.delegatesErrorMapping).toBe(true);
+  });
+});
+
+describe('queryParametersFromDoc, on a bullet it cannot read', () => {
+  it('skips the malformed bullet and keeps reading the ones after it', () => {
+    const [operation] = parseRouteModule(
+      `
+/**
+ * GET /api/v1/things
+ *
+ * Things.
+ *
+ * Query parameters:
+ * - kind — written without backticks, so the name cannot be trusted.
+ * - \`limit\` — how many to return.
+ * @param req - Request.
+ */
+export async function GET(req: Request) {
+  return null;
+}
+`,
+      '/api/v1/things',
+    );
+
+    expect(operation?.parameters.map(parameter => parameter.name)).toEqual(['limit']);
+  });
+});

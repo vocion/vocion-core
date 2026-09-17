@@ -87,7 +87,9 @@ test.describe('GET /api/v1/openapi', () => {
 
     expect(paths.length).toBeGreaterThan(5);
 
-    for (const path of paths.slice(0, 5)) {
+    // Every one of them, not a sample: the endpoints this would have skipped
+    // are exactly the ones nobody checks by hand either.
+    for (const path of paths) {
       const anonymous = await request.get(path);
 
       expect(anonymous.status(), `${path} without a token`).toBe(401);
@@ -97,10 +99,24 @@ test.describe('GET /api/v1/openapi', () => {
       });
 
       expect(authenticated.status(), `${path} with a token`).not.toBe(404);
+
+      const operation = document.paths[path].get;
+      const status = authenticated.status();
+      if ((operation.description ?? '').includes('shared error mapper')) {
+        // The document says out loud that this endpoint can answer beyond the
+        // statuses it lists — its failures come from a service and carry their
+        // own status, which no reading of the handler can predict. So hold it
+        // to the part that is promised: the shared error envelope.
+        if (status >= 400) {
+          expect(await authenticated.json(), `${path} keeps the error envelope`).toHaveProperty('error.code');
+        }
+        continue;
+      }
+
       expect(
-        Object.keys(document.paths[path].get.responses),
+        Object.keys(operation.responses),
         `${path} documents the status it answered with`,
-      ).toContain(String(authenticated.status()));
+      ).toContain(String(status));
     }
   });
 });

@@ -33,11 +33,11 @@ export function ApiReference(props: { document: ApiReferenceDocument; origin: st
           type="search"
           value={query}
           onChange={event => setQuery(event.target.value)}
-          placeholder="Search endpoints — try “post reviews”"
+          placeholder="Search endpoints — try “post reviews”, “approve” or “409”"
           aria-label="Search endpoints"
           className="h-9 w-full max-w-sm rounded-lg border border-border/70 bg-background px-3 text-[13px] outline-none focus:border-foreground/30"
         />
-        <p className="text-[13px] text-muted-foreground" data-testid="endpoint-count">
+        <p className="text-[13px] text-muted-foreground" data-testid="endpoint-count" aria-live="polite">
           {shown === operations.length
             ? `${operations.length} endpoints`
             : `${shown} of ${operations.length} endpoints`}
@@ -93,7 +93,7 @@ function EndpointGroup(props: { group: OperationGroup; origin: string }) {
 function Endpoint(props: { operation: SpecOperation; origin: string }) {
   const { operation } = props;
   return (
-    <details className="group">
+    <details className="group" id={operation.operationId}>
       <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-x-3 gap-y-1 py-3 hover:bg-surface-hover">
         <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${methodClasses(operation.method)}`}>
           {operation.method}

@@ -288,7 +288,7 @@
             }
           }
         },
-        "description": "What is waiting on a person. `status` defaults to `open`; `decided` is every\nanswered status, or name one exactly (`approved`, `rejected`, `done`,\n`superseded`). `source` is a prefix match on `sourceRef`, so a filer reads\nback only its own asks (`source=workforce:`). Newest first, with the real\ntotal for the filters.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "What is waiting on a person. `status` defaults to `open`; `decided` is every\nanswered status, or name one exactly (`approved`, `rejected`, `done`,\n`superseded`). `source` is a prefix match on `sourceRef`, so a filer reads\nback only its own asks (`source=workforce:`). Newest first, with the real\ntotal for the filters.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "limit",
@@ -430,7 +430,7 @@
             }
           }
         },
-        "description": "one ask, with its decision when it has one.\nCross-org and missing ids both 404. Auth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "one ask, with its decision when it has one.\nCross-org and missing ids both 404. Auth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "id",
@@ -598,6 +598,16 @@
               }
             }
           },
+          "202": {
+            "description": "Accepted — the work carries on in the background.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
           "400": {
             "description": "The request was malformed or failed validation. Codes: `DRY_RUN_UNSUPPORTED`, `INVALID_BODY`.",
             "content": {
@@ -660,7 +670,30 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "async": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "dryRun": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "input": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/automations/{slug}/runs": {
@@ -862,7 +895,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -912,7 +945,7 @@
             }
           }
         },
-        "description": "{ surface, channelId, text, teamId?, threadTs?, images?, announcedLabel?, announcedUrl? }\n\nPost an announcement — release notes, a report — into a channel this org has\nbound, carrying its screenshots.\n\nPosting THROUGH Vocion rather than straight at Slack is the point: the post\nis recorded in `slack_post`, so when someone replies \"any screenshots to go\nwith this?\" the agent knows what \"this\" is without needing a history scope\non the Slack app. `announcedLabel` / `announcedUrl` are what it resolves to.\n\nImages are rendered inline — uploaded as files where the app holds\n`files:write`, otherwise as Block Kit image blocks, which Slack fetches\nitself. A link to an image does not unfurl in a private channel, so this\nnever falls back to pasting one.\n\nAuth: tenant API token or dashboard session. Authorises nothing in Slack —\nthe channel must already be bound to an agent in the caller's org.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ surface, channelId, text, teamId?, threadTs?, images?, announcedLabel?, announcedUrl? }\n\nPost an announcement — release notes, a report — into a channel this org has\nbound, carrying its screenshots.\n\nPosting THROUGH Vocion rather than straight at Slack is the point: the post\nis recorded in `slack_post`, so when someone replies \"any screenshots to go\nwith this?\" the agent knows what \"this\" is without needing a history scope\non the Slack app. `announcedLabel` / `announcedUrl` are what it resolves to.\n\nImages are rendered inline — uploaded as files where the app holds\n`files:write`, otherwise as Block Kit image blocks, which Slack fetches\nitself. A link to an image does not unfurl in a private channel, so this\nnever falls back to pasting one.\n\nAuth: tenant API token or dashboard session. Authorises nothing in Slack —\nthe channel must already be bound to an agent in the caller's org.",
         "requestBody": {
           "required": true,
           "content": {
@@ -987,7 +1020,7 @@
             }
           }
         },
-        "description": "which channels answer as which agent, for the caller's org.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way."
+        "description": "which channels answer as which agent, for the caller's org.\nAuth: tenant API token or dashboard session."
       },
       "post": {
         "operationId": "post_chat_bindings",
@@ -1002,7 +1035,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1042,7 +1075,7 @@
             }
           }
         },
-        "description": "Bind a channel to an agent. `channelId: \"*\"` with a `teamId` is the workspace catch-all (DMs).\n`displayName` + `iconUrl` are the optional persona the replies wear; omitting them posts\nunder the app's own name and icon.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Bind a channel to an agent. `channelId: \"*\"` with a `teamId` is the workspace catch-all (DMs).\n`displayName` + `iconUrl` are the optional persona the replies wear; omitting them posts\nunder the app's own name and icon.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1131,7 +1164,7 @@
             }
           }
         },
-        "description": "unbind a channel. Auth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "unbind a channel. Auth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "id",
@@ -1159,7 +1192,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1209,7 +1242,7 @@
             }
           }
         },
-        "description": "`POST /api/v1/evals/:slug/model-upgrade-test` — run the dataset on a\nbaseline model and a candidate model, compare on cost per passed case,\npublish the comparison as a briefing.\n\nBody: `{ baselineModel, candidateModel, baselineProvider?, candidateProvider?, publish? }`.\nReturns `201 { baselineRunId, candidateRunId, briefingId, comparison }`.\n\nAuth: a tenant API token (`Bearer vcn_live_…`) or a dashboard session — the\nsame as every `/api/v1` route. Like `POST /evals/:slug/runs`, the handler\nawaits both runs: datasets are small and the dashboard button is the\ncaller. Split kickoff from completion when datasets grow.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "`POST /api/v1/evals/:slug/model-upgrade-test` — run the dataset on a\nbaseline model and a candidate model, compare on cost per passed case,\npublish the comparison as a briefing.\n\nBody: `{ baselineModel, candidateModel, baselineProvider?, candidateProvider?, publish? }`.\nReturns `201 { baselineRunId, candidateRunId, briefingId, comparison }`.\n\nAuth: a tenant API token (`Bearer vcn_live_…`) or a dashboard session — the\nsame as every `/api/v1` route. Like `POST /evals/:slug/runs`, the handler\nawaits both runs: datasets are small and the dashboard button is the\ncaller. Split kickoff from completion when datasets grow.",
         "parameters": [
           {
             "name": "slug",
@@ -1266,7 +1299,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1424,7 +1457,7 @@
             }
           }
         },
-        "description": "An org's feedback jobs, newest first. Filter with `status`\n(`queued` | `processing` | `classified` | `applied` | `failed` | `ignored`)\nand `source`; page with `limit` and `offset`.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "An org's feedback jobs, newest first. Filter with `status`\n(`queued` | `processing` | `classified` | `applied` | `failed` | `ignored`)\nand `source`; page with `limit` and `offset`.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "limit",
@@ -1489,7 +1522,7 @@
             }
           }
         },
-        "description": "Submit a reviewer's written feedback. Body:\n\n  { source?, externalId?, payload: { text, quotedText?, artifactTitle?, targetSlug? } }\n\nThe job is queued; the background worker classifies it, and a classification\nthat proposes a rule becomes a pending learning candidate. Nothing changes\nhow an agent behaves until someone approves that candidate.\n\n`externalId` makes the call idempotent — posting the same one twice returns\nthe same job instead of queueing a duplicate. Supply the id of whatever the\nfeedback lives on in your own system. Without one, every call is a new job.\n\n`targetSlug` is the learning step a resulting rule would attach to. Feedback\nthat names no target is still classified, but cannot become a candidate.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Submit a reviewer's written feedback. Body:\n\n  { source?, externalId?, payload: { text, quotedText?, artifactTitle?, targetSlug? } }\n\nThe job is queued; the background worker classifies it, and a classification\nthat proposes a rule becomes a pending learning candidate. Nothing changes\nhow an agent behaves until someone approves that candidate.\n\n`externalId` makes the call idempotent — posting the same one twice returns\nthe same job instead of queueing a duplicate. Supply the id of whatever the\nfeedback lives on in your own system. Without one, every call is a new job.\n\n`targetSlug` is the learning step a resulting rule would attach to. Feedback\nthat names no target is still classified, but cannot become a candidate.\nAuth: tenant API token or dashboard session.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1559,7 +1592,7 @@
             }
           }
         },
-        "description": "Rules the system has proposed but not adopted. Filter with `status`\n(`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and\n`offset`. Newest first, with the real total for the filters.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Rules the system has proposed but not adopted. Filter with `status`\n(`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and\n`offset`. Newest first, with the real total for the filters.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "limit",
@@ -1636,7 +1669,7 @@
             }
           }
         },
-        "description": "One candidate. An id this org does not own is a 404.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "One candidate. An id this org does not own is a 404.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "id",
@@ -1712,7 +1745,7 @@
             }
           }
         },
-        "description": "Reword a pending candidate, point it at a different learning step, change\nits memory type, or re-scope it. Body: `{ editedRuleText?, stepName?,\nmemoryType?, scopeKind?, scopeRef? }` (scopeKind: null clears back to\nworkspace scope).\n\nThe original `ruleText` is never overwritten, so what the classifier actually\nproposed stays on the record. A candidate that has already been decided\ncannot be edited — that would rewrite history.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Reword a pending candidate, point it at a different learning step, change\nits memory type, or re-scope it. Body: `{ editedRuleText?, stepName?,\nmemoryType?, scopeKind?, scopeRef? }` (scopeKind: null clears back to\nworkspace scope).\n\nThe original `ruleText` is never overwritten, so what the classifier actually\nproposed stays on the record. A candidate that has already been decided\ncannot be edited — that would rewrite history.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "id",
@@ -1829,7 +1862,7 @@
             }
           }
         },
-        "description": "Approve a candidate into a real learning rule, or reject it. Body:\n`{ action, reason? }` where `action` is `approve` or `reject` — the same\nfield name `POST /api/v1/reviews/decide` uses, so a client learns it once.\n\nApproving runs the same near-duplicate guard a hand-written rule goes\nthrough: a candidate that restates a rule already on file comes back as a\n409 rather than quietly doubling up. Rejecting requires a reason — the reason\nis the whole point of keeping rejected candidates.\n\nDeciding requires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\n**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Approve a candidate into a real learning rule, or reject it. Body:\n`{ action, reason? }` where `action` is `approve` or `reject` — the same\nfield name `POST /api/v1/reviews/decide` uses, so a client learns it once.\n\nApproving runs the same near-duplicate guard a hand-written rule goes\nthrough: a candidate that restates a rule already on file comes back as a\n409 rather than quietly doubling up. Rejecting requires a reason — the reason\nis the whole point of keeping rejected candidates.\n\nDeciding requires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\n**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
         "parameters": [
           {
             "name": "id",
@@ -1900,7 +1933,7 @@
             }
           }
         },
-        "description": "The org's learning steps with a rule count each — the index a client needs\nbefore it can show, add to, or retarget rules.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way."
+        "description": "The org's learning steps with a rule count each — the index a client needs\nbefore it can show, add to, or retarget rules.\nAuth: tenant API token or dashboard session."
       }
     },
     "/api/v1/learnings/{step}/rules": {
@@ -1957,7 +1990,7 @@
             }
           }
         },
-        "description": "Every rule in a step. A 404 means the step itself is unknown.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Every rule in a step. A 404 means the step itself is unknown.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "step",
@@ -1983,7 +2016,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2043,7 +2076,7 @@
             }
           }
         },
-        "description": "Add a rule to a step. Body: `{ ruleText, source? }`. Returns the created row,\nor a 409 with `error.code = NEAR_DUPLICATE` when the rule is too close to one\nalready on file (trigram-Jaccard check in the service).\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Add a rule to a step. Body: `{ ruleText, source? }`. Returns the created row,\nor a 409 with `error.code = NEAR_DUPLICATE` when the rule is too close to one\nalready on file (trigram-Jaccard check in the service).\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "step",
@@ -2131,7 +2164,7 @@
             }
           }
         },
-        "description": "Would adding this rule be refused as a near-duplicate? Body: `{ ruleText }`.\n\nReturns `{ ok: true }` when the text is new, or `{ ok: false, existingKey,\nexistingRule, similarity }` when it restates a rule already in the step. This\nis a read — it writes nothing — so a client can warn while someone is still\ntyping instead of failing the save.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Would adding this rule be refused as a near-duplicate? Body: `{ ruleText }`.\n\nReturns `{ ok: true }` when the text is new, or `{ ok: false, existingKey,\nexistingRule, similarity }` when it restates a rule already in the step. This\nis a read — it writes nothing — so a client can warn while someone is still\ntyping instead of failing the save.\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "step",
@@ -2216,7 +2249,7 @@
             }
           }
         },
-        "description": "Rewrite one learning rule in place. `ruleText` is required and replaces the\nrule's whole body — this is not a merge. 404 when the step is not a\nnamespace in this org, or the rule is not in it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Rewrite one learning rule in place. `ruleText` is required and replaces the\nrule's whole body — this is not a merge. 404 when the step is not a\nnamespace in this org, or the rule is not in it.",
         "parameters": [
           {
             "name": "step",
@@ -2236,7 +2269,24 @@
               "type": "integer"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "ruleText": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       },
       "delete": {
         "operationId": "delete_learnings_step_rules_ruleId",
@@ -2281,7 +2331,7 @@
             }
           }
         },
-        "description": "Remove one learning rule. Returns the store key that was removed, so a\ncaller can see which file went. 404 when the step is not a namespace in this\norg, or the rule is not in it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Remove one learning rule. Returns the store key that was removed, so a\ncaller can see which file went. 404 when the step is not a namespace in this\norg, or the rule is not in it.",
         "parameters": [
           {
             "name": "step",
@@ -2482,7 +2532,7 @@
             }
           }
         },
-        "description": "A page of the caller's business objects — including the candidates an agent\nproposed and a human has or has not yet decided on.\n\nQuery parameters:\n- `type` — an object type slug, e.g. `event-candidate`.\n- `status` — `candidate` | `approved` | `rejected` | `active`.\n- `linked` — `true` for objects already tied to a downstream record,\n  `false` for approved ones still waiting to be published.\n- `search` — case-insensitive match on the title.\n- `limit`, `offset` — the page window. The response carries the real total.\n\nFiltering, ordering and counting all happen in the database, so a panel\npaging a long queue never pulls more than one page.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "A page of the caller's business objects — including the candidates an agent\nproposed and a human has or has not yet decided on.\n\nQuery parameters:\n- `type` — an object type slug, e.g. `event-candidate`.\n- `status` — `candidate` | `approved` | `rejected` | `active`.\n- `linked` — `true` for objects already tied to a downstream record,\n  `false` for approved ones still waiting to be published.\n- `search` — case-insensitive match on the title.\n- `limit`, `offset` — the page window. The response carries the real total.\n\nFiltering, ordering and counting all happen in the database, so a panel\npaging a long queue never pulls more than one page.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.",
         "parameters": [
           {
             "name": "type",
@@ -2590,7 +2640,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2640,7 +2690,7 @@
             }
           }
         },
-        "description": "Register an object type for this org — the record shape an agent may\npropose candidates against. Body is `{ slug, label, description?, icon?,\nschema? }`, where `schema` is the JSON Schema the payload is checked\nagainst and may carry `propertyOrder` to fix the review card's field order.\n\nA workspace apply is the usual way these arrive; this is the same thing\nover HTTP, for a panel or a test that stands one up directly. Re-posting an\nexisting slug is a 409, not a silent overwrite.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Register an object type for this org — the record shape an agent may\npropose candidates against. Body is `{ slug, label, description?, icon?,\nschema? }`, where `schema` is the JSON Schema the payload is checked\nagainst and may carry `propertyOrder` to fix the review card's field order.\n\nA workspace apply is the usual way these arrive; this is the same thing\nover HTTP, for a panel or a test that stands one up directly. Re-posting an\nexisting slug is a 409, not a silent overwrite.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2710,7 +2760,7 @@
             }
           }
         },
-        "description": "Runs the vision check on an image-backed object from the UI — the same tool\npath the Pack Inspector takes in chat — and STREAMS progress as NDJSON, one\nJSON object per line, so the page can show the analysis happening:\n\n  {\"phase\":\"start\", ...} → {\"phase\":\"references\", reference_urls…}\n  → {\"phase\":\"model\", model…} → {\"phase\":\"parsed\", verdict…} → {\"phase\":\"saved\"}\n  → {\"phase\":\"classifier\", …} (when ?classifier=1)\n  → {\"phase\":\"done\", \"ok\":true, \"reference\":{…}, \"classifier\":{…}, \"ms\":n}\n\nErrors end the stream with {\"phase\":\"done\",\"ok\":false,\"error\":\"…\"}. Every\ntool call is recorded as a tool_call row with the caller as invoker.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Runs the vision check on an image-backed object from the UI — the same tool\npath the Pack Inspector takes in chat — and STREAMS progress as NDJSON, one\nJSON object per line, so the page can show the analysis happening:\n\n  {\"phase\":\"start\", ...} → {\"phase\":\"references\", reference_urls…}\n  → {\"phase\":\"model\", model…} → {\"phase\":\"parsed\", verdict…} → {\"phase\":\"saved\"}\n  → {\"phase\":\"classifier\", …} (when ?classifier=1)\n  → {\"phase\":\"done\", \"ok\":true, \"reference\":{…}, \"classifier\":{…}, \"ms\":n}\n\nErrors end the stream with {\"phase\":\"done\",\"ok\":false,\"error\":\"…\"}. Every\ntool call is recorded as a tool_call row with the caller as invoker.",
         "parameters": [
           {
             "name": "id",
@@ -2778,7 +2828,7 @@
             }
           }
         },
-        "description": "Tie a business object to the record another system now holds for it. Body:\n\n  { system, id }\n\ne.g. `{ \"system\": \"strapi\", \"id\": \"412\" }` after an admin panel published\nan approved candidate. The usual path is to pass the same `externalRef` on\n`POST /api/v1/reviews/decide`, which approves and links in one call; this\nendpoint exists for the repair case — the record was published but the\ndecide call never landed. Idempotent.\n\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Tie a business object to the record another system now holds for it. Body:\n\n  { system, id }\n\ne.g. `{ \"system\": \"strapi\", \"id\": \"412\" }` after an admin panel published\nan approved candidate. The usual path is to pass the same `externalRef` on\n`POST /api/v1/reviews/decide`, which approves and links in one call; this\nendpoint exists for the repair case — the record was published but the\ndecide call never landed. Idempotent.\n\nAuth: tenant API token or dashboard session.",
         "parameters": [
           {
             "name": "id",
@@ -2866,7 +2916,7 @@
             }
           }
         },
-        "description": "A person agrees or disagrees with one model finding on an image-backed\nobject. Body: `{ index, signal: 'agree' | 'disagree', note? }`.\n\nAgree stamps the finding. Disagree stamps it AND opens a learning\ncandidate (the workspace's learning step for this object's agents) whose\nrule text is drafted from the finding + the note — a suggestion in the\nLearnings queue, never an applied rule. That is the feedback loop: the\ncorrection becomes a proposed standard a person adopts.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "A person agrees or disagrees with one model finding on an image-backed\nobject. Body: `{ index, signal: 'agree' | 'disagree', note? }`.\n\nAgree stamps the finding. Disagree stamps it AND opens a learning\ncandidate (the workspace's learning step for this object's agents) whose\nrule text is drafted from the finding + the note — a suggestion in the\nLearnings queue, never an applied rule. That is the feedback loop: the\ncorrection becomes a proposed standard a person adopts.",
         "parameters": [
           {
             "name": "id",
@@ -2960,7 +3010,7 @@
             }
           }
         },
-        "description": "What the vision engine knew and what people have taught it since, for one\ninspection: the adopted learnings in the org (the rules the prompt carries),\nwhich of them were applied on the last check, and the learning candidates\nraised from this record or about its kit (pending / approved / rejected).\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "What the vision engine knew and what people have taught it since, for one\ninspection: the adopted learnings in the org (the rules the prompt carries),\nwhich of them were applied on the last check, and the learning candidates\nraised from this record or about its kit (pending / approved / rejected).",
         "parameters": [
           {
             "name": "id",
@@ -3008,7 +3058,7 @@
             }
           }
         },
-        "description": "The OpenAPI 3.1 description of this API, as JSON — the same document the\nDevelopers → API reference page renders, for Postman, an SDK generator, or\nany other tool that reads a spec.\n\nIt is generated from the route handlers by `npm run openapi:generate` and\ncommitted, so what is served here is a static file rather than a walk of the\nfilesystem: production runs a bundle where `src/` does not exist.\n\nAuthenticated like every other endpoint. The document names no records and\nno credentials, but it does map this deployment's whole surface, which is\nnot something to hand to an anonymous caller.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way."
+        "description": "The OpenAPI 3.1 description of this API, as JSON — the same document the\nDevelopers → API reference page renders, for Postman, an SDK generator, or\nany other tool that reads a spec.\n\nIt is generated from the route handlers by `npm run openapi:generate` and\ncommitted, so what is served here is a static file rather than a walk of the\nfilesystem: production runs a bundle where `src/` does not exist.\n\nAuthenticated like every other endpoint. The document names no records and\nno credentials, but it does map this deployment's whole surface, which is\nnot something to hand to an anonymous caller."
       }
     },
     "/api/v1/personalization/briefs/{id}/regenerate": {
@@ -4135,7 +4185,7 @@
             }
           }
         },
-        "description": "Serves a private S3 object to a signed-in member by redirecting to a\nshort-lived presigned URL. The bucket must be declared by one of the\ncaller's org's `s3` sources — the source is the grant, so a workspace\ncannot be used to read arbitrary buckets the AWS credentials can see.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way."
+        "description": "Serves a private S3 object to a signed-in member by redirecting to a\nshort-lived presigned URL. The bucket must be declared by one of the\ncaller's org's `s3` sources — the source is the grant, so a workspace\ncannot be used to read arbitrary buckets the AWS credentials can see."
       }
     },
     "/api/v1/sources": {
@@ -4298,7 +4348,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Success.",
+            "description": "Accepted — the work carries on in the background.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4389,7 +4439,7 @@
             }
           }
         },
-        "description": "Whether the workspace's trained classifier is running, with the version's\nstatus, F1 score, inference units and creation time. `configured: false`\nmeans no model is set for this deployment; a call to AWS that fails comes\nback as 502.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way."
+        "description": "Whether the workspace's trained classifier is running, with the version's\nstatus, F1 score, inference units and creation time. `configured: false`\nmeans no model is set for this deployment; a call to AWS that fails comes\nback as 502."
       },
       "post": {
         "operationId": "post_vision_model",
@@ -4454,7 +4504,7 @@
             }
           }
         },
-        "description": "Start or stop the classifier endpoint — `action` is `start` or `stop`.\nStarting from a status that cannot start is a 409; starting one already\nrunning, or stopping one already stopped, is a 200 carrying a `note` rather\nthan an error, so a retry is safe. The endpoint bills per hour while it\nruns, which is why this is a button and not always-on.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Start or stop the classifier endpoint — `action` is `start` or `stop`.\nStarting from a status that cannot start is a 409; starting one already\nrunning, or stopping one already stopped, is a 200 carrying a `note` rather\nthan an error, so a retry is safe. The endpoint bills per hour while it\nruns, which is why this is a button and not always-on.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4543,7 +4593,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5270,7 +5320,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Success.",
+            "description": "Created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5341,7 +5391,30 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "input": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "invokedBy": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "triggerContext": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     }
   }
