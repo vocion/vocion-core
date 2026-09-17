@@ -269,6 +269,64 @@ describe('the sequence state, resolved before an Enroll button', () => {
   });
 });
 
+/** The lead's three artifacts, as the page receives them (0112). */
+const ARTIFACTS = [
+  { role: 'brief' as const, id: 9001, title: 'Rowan Pike — research brief', version: 2, kind: 'markdown', ref: { type: 'artifact' as const, id: '9001' } },
+  { role: 'recommendation' as const, id: 9002, title: 'Rowan Pike — outreach recommendation', version: 1, kind: 'markdown', ref: { type: 'artifact' as const, id: '9002' } },
+  { role: 'sequence' as const, id: 9003, title: 'Rowan Pike — draft sequence', version: 1, kind: 'sequence', ref: { type: 'artifact' as const, id: '9003' } },
+];
+
+describe('reading one artifact while editing another', () => {
+  /**
+   * Chris, 2026-09-17: *"wanting to see the brief or evidence in sidebar
+   * preview, while i edit the sequence content."* Tabs cannot do this — they
+   * are mutually exclusive — so the side panel does.
+   */
+  it('offers the brief and the recommendation beside the sequence, but never the sequence itself', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88220,
+          contactName: 'Rowan Pike',
+          recommendedSequence: NURTURE,
+          draftSequence: [{ step: 1, day: 0, subject: 'The ebook you pulled', body: 'One line.' }],
+        })}
+        artifacts={ARTIFACTS}
+        contactHref={HUBSPOT}
+        runState={NO_RUN}
+      />,
+    );
+
+    await expect.element(page.getByTestId('reference-brief')).toBeVisible();
+    await expect.element(page.getByTestId('reference-recommendation')).toBeVisible();
+    // Previewing the thing you are already looking at is the "two copies of
+    // the same page" failure the rail rules ban.
+    expect(page.getByTestId('reference-sequence').elements()).toHaveLength(0);
+  });
+
+  it('keeps you on the sequence when you send the brief to the panel', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({
+          id: 88221,
+          contactName: 'Rowan Pike',
+          recommendedSequence: NURTURE,
+          draftSequence: [{ step: 1, day: 0, subject: 'The ebook you pulled', body: 'One line.' }],
+        })}
+        artifacts={ARTIFACTS}
+        contactHref={HUBSPOT}
+        runState={NO_RUN}
+      />,
+    );
+
+    await page.getByTestId('reference-brief').click();
+
+    // Still the sequence — the point of the control is that you do not lose
+    // the send you were halfway through writing.
+    expect(page.getByTestId('brief-tab').elements()).toHaveLength(0);
+  });
+});
+
 describe('which tab the page opens on', () => {
   /**
    * The page is an enrollment review, so the sends are the work being
