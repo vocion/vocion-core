@@ -104,10 +104,27 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
   // A failure is a failure whether it arrived as a legacy run or as a typed
   // trace node — #368 persists the latter, and the badge has to find both.
-  const hasToolError = runs.some(r => r.type === 'tool' && r.state === 'error')
-    || (message.trace ?? []).some(n => n.status === 'error');
+  const erroredRun = runs.find(r => r.type === 'tool' && r.state === 'error');
+  const erroredNode = (message.trace ?? []).find(n => n.status === 'error');
+  const hasToolError = Boolean(erroredRun || erroredNode);
+  // WHAT failed, not just THAT something did.
+  //
+  // The badge was a way in to the trace, which is right — but it opened the
+  // trace at the failed step, and a failure that arrives as a typed trace node
+  // has no row among the tool runs to open to. So a turn whose visible steps
+  // all succeeded showed a red "Tool error" that led nowhere. Chris,
+  // 2026-09-17: *"it shows a 'Tool error' with no diagnostic info."*
+  //
+  // The message now travels with the badge, so the diagnosis is one hover or
+  // one click away and never depends on another component rendering a row.
+  const toolErrorName = (erroredRun?.type === 'tool' ? erroredRun.name : undefined) ?? erroredNode?.label ?? 'A tool';
+  const toolErrorDetail = ((erroredRun?.type === 'tool' ? erroredRun.output : undefined) ?? erroredNode?.detail ?? '')
+    .toString()
+    .replaceAll(/\s+/g, ' ')
+    .trim();
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
+  const [showError, setShowError] = useState(false);
   // One consolidated work timeline instead of breadcrumbs scattered through
   // the transcript; text runs render below it in order.
   const toolRuns = runs.filter((r): r is Extract<AgentRun, { type: 'tool' }> => r.type === 'tool');
@@ -146,14 +163,34 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <button
               type="button"
               data-testid="tool-error-badge"
-              onClick={() => setInspect(n => n + 1)}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
+              onClick={() => {
+                setInspect(n => n + 1);
+                setShowError(v => !v);
+              }}
+              aria-expanded={showError}
+              title={toolErrorDetail ? `${toolErrorName}: ${toolErrorDetail}` : undefined}
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
             >
-              <AlertCircle className="size-2.5" aria-hidden />
-              Tool error
+              <AlertCircle className="size-2.5 shrink-0" aria-hidden />
+              <span className="truncate">{toolErrorName === 'A tool' ? 'Tool error' : `${toolErrorName} failed`}</span>
             </button>
           )}
         </div>
+        {hasToolError && showError && (
+          <div
+            data-testid="tool-error-detail"
+            className="mt-2 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
+          >
+            <div className="font-medium text-[var(--brand-fail)]">
+              {toolErrorName}
+              {' '}
+              failed
+            </div>
+            <p className="mt-1 break-words whitespace-pre-wrap text-muted-foreground">
+              {toolErrorDetail || 'The tool reported a failure but returned no message. The full step is in the activity trace above.'}
+            </p>
+          </div>
+        )}
         <div className="mt-2 text-sm leading-relaxed">
           {(toolRuns.length > 0 || streaming || message.thinkingText || (message.trace?.length ?? 0) > 0) && (
             <WorkTimeline
