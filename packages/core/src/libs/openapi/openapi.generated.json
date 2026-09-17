@@ -1404,6 +1404,104 @@
         }
       }
     },
+    "/api/v1/evals/{slug}/refresh": {
+      "post": {
+        "operationId": "post_evals_slug_refresh",
+        "summary": "Refresh a dataset's scores.",
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted — the work carries on in the background.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `UNKNOWN_PROVIDER`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `PROVIDER_UNAVAILABLE`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something failed on our side. Codes: `EVAL_REFRESH_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Error. Codes: `EVAL_REFRESH_NOT_STARTED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Refresh a dataset's scores.\n\nThe button and the schedule are the same thing: both start\n`evalRefreshWorkflow`, so a scheduled refresh and a hand-pressed one produce\nidentical rows and a trend line cannot tell them apart. This route returns as\nsoon as the workflow is accepted, which is what the older `runs` route could\nnot do — it awaited the whole execution and said so in its own comment.\n\nThe run row is created here, before the workflow starts, so the response\ncarries a run id the browser can navigate to immediately. The workflow is\ngiven the same id as its run group, so it finds that row rather than opening\na second one, and so does every retry of its activity.\n\nThe grader is the dataset's own — an eval lives in one place, either Vocion\nor AgentCore — so the caller cannot pick one here.\n\nBody (all optional):\n- `concurrency`: how many cases to execute at once.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/evals/{slug}/runs": {
       "post": {
         "operationId": "post_evals_slug_runs",
@@ -3803,7 +3901,7 @@
             }
           }
         },
-        "description": "Put a proposed action into the review queue. Body:\n\n  { actionId, input, agentSlug?, rationale?, confidence?, suggestedDecision?,\n    suggestedSnoozeUntil?, dedupKey?, expiresInDays? }\n\n`suggestedDecision` is what the proposing agent thinks the reviewer should\ndo — `approve`, `reject` or `snooze`. It is advisory: it never releases the\naction, and a `reject` or `snooze` recommendation additionally keeps the\nitem out of the trust ladder's reach. Anything outside those three values is\na 400 rather than a silently dropped field.\n\nThe proposal always lands `pending` — it rides the normal autonomy gate, so\nthis endpoint can never fire an action outright. Repeating a call with the\nsame `dedupKey` refreshes the existing item instead of duplicating it.\n\nThe response says which of those happened, so a caller re-posting the same\npage knows what it actually did:\n\n  { runId, status, outcome: 'created' | 'refreshed' | 'already_decided', decidedAt? }\n\n`already_decided` means a person judged this record before and nothing was\nwritten — `runId`, `status` and `decidedAt` describe that earlier decision.\nOnly actions that opt in (`dedupAgainstDecided`) ever answer it.\n\nRe-posting a record whose CONTENT changed behaves three ways, depending on\nwhat moved. Changing a field the dedup key is built from makes it a\ndifferent record, so it comes back `created`. Changing any other field\nwhile the item is still pending comes back `refreshed`, and the reviewer\nsees the new payload. Changing any other field after the item was decided\ncomes back `already_decided` and the edit is dropped — nothing is stored\nand nobody is notified, so a caller that cares about late edits has to\ncompare `decidedAt` itself and take it up outside the queue.\nRequires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Put a proposed action into the review queue. Body:\n\n  { actionId, input, suggestedDecision, suggestedDecisionReason, agentSlug?,\n    rationale?, confidence?, suggestedSnoozeUntil?, dedupKey?,\n    expiresInDays? }\n\n`suggestedDecision` and `suggestedDecisionReason` are REQUIRED. The first is\nwhat the proposing agent thinks the reviewer should do — `approve`, `reject`\nor `snooze` — and the second is one short sentence for why, in words the\nreviewer can check against the card. Both are advisory: they never release\nthe action, and a `reject` or `snooze` recommendation additionally keeps the\nitem out of the trust ladder's reach. Omitting either, or sending a decision\noutside those three values, is a 400 rather than a silently dropped field —\na card carrying no opinion cannot be compared against the decision a person\nthen takes, which is the whole point of storing them.\n\nThe proposal always lands `pending` — it rides the normal autonomy gate, so\nthis endpoint can never fire an action outright. Repeating a call with the\nsame `dedupKey` refreshes the existing item instead of duplicating it.\n\nThe response says which of those happened, so a caller re-posting the same\npage knows what it actually did:\n\n  { runId, status, outcome: 'created' | 'refreshed' | 'already_decided', decidedAt? }\n\n`already_decided` means a person judged this record before and nothing was\nwritten — `runId`, `status` and `decidedAt` describe that earlier decision.\nOnly actions that opt in (`dedupAgainstDecided`) ever answer it.\n\nRe-posting a record whose CONTENT changed behaves three ways, depending on\nwhat moved. Changing a field the dedup key is built from makes it a\ndifferent record, so it comes back `created`. Changing any other field\nwhile the item is still pending comes back `refreshed`, and the reviewer\nsees the new payload. Changing any other field after the item was decided\ncomes back `already_decided` and the edit is dropped — nothing is stored\nand nobody is notified, so a caller that cares about late edits has to\ncompare `decidedAt` itself and take it up outside the queue.\nRequires the `approve` capability.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
           "required": false,
           "content": {
@@ -3834,6 +3932,9 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "suggestedDecision": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "suggestedDecisionReason": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "suggestedSnoozeUntil": {

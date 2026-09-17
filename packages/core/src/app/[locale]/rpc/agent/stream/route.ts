@@ -235,6 +235,23 @@ export async function POST(request: Request): Promise<Response> {
       } finally {
         clearInterval(keepaliveTimer);
         await Promise.allSettled(pending);
+        // Tell the client the turn is OVER before doing anything slow.
+        //
+        // This route used to signal completion only by closing the stream —
+        // and the close happens after an awaited database write. So between
+        // the last token and that write landing, the client held an open
+        // connection with no events and no terminal signal, and the rail
+        // showed "Working…" over a turn that had visibly finished. Chris,
+        // 2026-09-17: *"this chat action, stuck in 'working…' I think it's
+        // done."* It was.
+        //
+        // `done` is already the client's terminal event (`useChatSession`
+        // finalises the trace and clears the phase on it), so emitting it here
+        // costs nothing and decouples "the answer is complete" from "the row
+        // is persisted" — which were never the same fact.
+        // `response` is the turn's text; the collector already holds it, and
+        // the client backfills from its own streamed runs anyway.
+        sendEvent({ type: 'done', response: collector?.finalise().text ?? '' });
         buffered.close();
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {

@@ -31,8 +31,10 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { SyncBudget } from '../budget';
 import type { CandidateExtractorConfig } from './config';
 import type { ExtractionPrompt } from './prompt';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg, resolvedModelId } from '@/libs/llm/langchain';
@@ -48,11 +50,49 @@ export type ExtractedRecord = {
   seriesOf?: number;
   duplicateOf?: number;
   /**
+   * What the model thinks a reviewer should do with this record, judged
+   * against the operator's own extraction rules. Required of the model: a
+   * card nobody recommended anything about cannot be scored against what the
+   * reviewer then did, and that comparison is the only read we have on
+   * whether the criteria are working.
+   */
+  suggestedDecision: SuggestedDecision;
+  /**
+   * One short sentence for why that recommendation, in the model's words.
+   * Required alongside it: a verdict a reviewer cannot check is one they can
+   * only take on faith.
+   */
+  suggestedDecisionReason: string;
+  /**
    * Why this occurrence does not follow the pattern of the rest of its series,
    * in a few words. Only meaningful alongside `seriesOf`, and dropped by
    * `validate.ts` when that id did not survive.
    */
   seriesNote?: string;
+  /**
+   * The model's verdict on each object this record points at — the venue an
+   * event names, the employer a posting names — one entry per `objectType` the
+   * config's `relatedProposals` rules ask about.
+   *
+   * Asked for in the same call that reads the document, because the model is
+   * already looking at the line that names the object and a second call would
+   * buy nothing. `resolve.ts` files those objects as their own review cards,
+   * and this is what lets such a card carry a verdict somebody actually made
+   * rather than a sentence core wrote for it.
+   *
+   * Absent when the config asks about nothing, and absent per type when the
+   * model declined to judge one; the card then carries no recommendation,
+   * which is the honest reading and stays out of the agreement rate.
+   */
+  referencedObjects?: ReferencedObjectVerdict[];
+};
+
+/** What the model thinks of one object a record points at. */
+export type ReferencedObjectVerdict = {
+  /** The `relatedProposals` rule's `objectType`, as the prompt named it. */
+  objectType: string;
+  suggestedDecision: SuggestedDecision;
+  suggestedDecisionReason: string;
 };
 
 export type ExtractionResult
@@ -94,8 +134,10 @@ const runRef = z.union([z.number(), z.string()]).optional().transform(toRunId);
  * The envelope the answer must fit.
  *
  * `maxRecordsPerDocument` is enforced HERE rather than by trimming afterwards:
- * a document that claims 400 records is a document that was misread, and the
- * corrective retry is a better answer than silently keeping the first 25.
+ * a document claiming more records than the config allows was probably misread
+ * — a navigation index, a repeated feature block — and the corrective retry is
+ * a better answer than silently keeping a prefix of it. The cap it enforces is
+ * 200 by default rather than the old 25, so an honest season page passes.
  * @param maxRecords - The config's `maxRecordsPerDocument`.
  */
 function envelopeSchema(maxRecords: number) {
@@ -108,11 +150,31 @@ function envelopeSchema(maxRecords: number) {
       notes: z.string().max(2000).optional(),
       seriesOf: runRef,
       duplicateOf: runRef,
+      // Required, unlike every optional field around it. A record the model
+      // declined to judge is a record the agreement metric cannot see, so this
+      // is worth the corrective retry that a missing value costs — the same
+      // trade `maxRecords` above makes. The reason carries no length bound:
+      // the prompt asks for one short sentence, and a model that writes two
+      // should not have the second one cut off mid-word — the card clamps
+      // what it shows instead.
+      suggestedDecision: z.enum(SUGGESTED_DECISIONS),
+      suggestedDecisionReason: z.string().transform(value => value.trim()),
       // Truncated, never rejected. `notes` above is a hard `.max(2000)`, and a
       // value one character over a hard bound costs the corrective retry and
       // can cost the whole document. A 141-character aside must never cost a
       // card, so this follows `runRef` and transforms instead.
       seriesNote: z.string().optional().transform(value => value?.slice(0, SERIES_NOTE_CAP)),
+      // Optional, unlike the record's own verdict above, and deliberately so:
+      // the prompt only asks for these when the config names related objects,
+      // and a model that judged the record but not the venue should still get
+      // its records stored. A malformed entry is dropped rather than failing
+      // the document — `resolve.ts` treats a missing verdict as "nothing
+      // judged this", which is exactly what a malformed one means.
+      referencedObjects: z.array(z.object({
+        objectType: z.string().min(1),
+        suggestedDecision: z.enum(SUGGESTED_DECISIONS),
+        suggestedDecisionReason: z.string().transform(value => value.trim()),
+      }).nullable().catch(null)).optional().transform(entries => entries?.filter(entry => entry !== null)),
     })).max(maxRecords).default([]),
   });
 }
@@ -191,10 +253,18 @@ export async function extractRecords(opts: {
 
   const model: BaseChatModel = await buildChatModelForOrg('extractor', opts.orgId, {
     temperature: 0,
-    // 4096, not 2048: `maxRecordsPerDocument` is 25 and a record carries a
-    // description, so a full answer does not fit 2048 tokens. A truncated one
-    // is invalid JSON, which costs the corrective retry and then the document.
-    maxTokens: 4096,
+    // The answer's ceiling, and in practice the real limit on how many records
+    // one document can yield: at roughly 250 tokens a record — fields, a
+    // verdict, the sentence explaining it, a verdict per referenced object —
+    // 16,000 holds about 60. A truncated answer is invalid JSON, which costs
+    // the corrective retry and then the whole document, so this is the number
+    // to raise when a source genuinely lists more than that on one page.
+    //
+    // Not higher, because this is not ours to choose alone: the extractor's
+    // model is per org, and a vendor whose own output ceiling is lower (16,384
+    // on several OpenAI models) refuses the call outright rather than
+    // returning less.
+    maxTokens: 16_000,
     streaming: false,
   });
 

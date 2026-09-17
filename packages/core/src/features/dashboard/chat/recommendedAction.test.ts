@@ -54,4 +54,31 @@ describe('readRecommendedAction', () => {
     expect(readRecommendedAction({ actionId: 'a', label: 'b', runId: 7 })).toMatchObject({ rec: { runId: 7 } });
     expect(readRecommendedAction({ actionId: 'a', label: 'b', runId: '7' })).not.toMatchObject({ rec: { runId: 7 } });
   });
+
+  it('keeps the agent\'s own recommendation, so the queue card carries what the agent said', () => {
+    const checked = readRecommendedAction({
+      actionId: 'gmail.send',
+      label: 'Draft the note',
+      suggestedDecision: 'snooze',
+      suggestedDecisionReason: '  Worth doing, but not before the contract is signed.  ',
+    });
+
+    expect(checked).toMatchObject({
+      rec: { suggestedDecision: 'snooze', suggestedDecisionReason: 'Worth doing, but not before the contract is signed.' },
+    });
+  });
+
+  it.each([
+    [{ suggestedDecision: 'approve' }, 'a verdict with no sentence a reviewer could check'],
+    [{ suggestedDecisionReason: 'It is time.' }, 'a sentence arguing for an outcome the card never names'],
+    [{ suggestedDecision: 'maybe', suggestedDecisionReason: 'It is time.' }, 'a verdict that is not one of the three'],
+  ])('drops %j — %s', (advice: Record<string, string>, _why: string) => {
+    // Half a recommendation is worse than none: the card would show an
+    // argument with no verdict, or a verdict a reviewer cannot weigh.
+    const checked = readRecommendedAction({ actionId: 'gmail.send', label: 'Draft the note', ...advice });
+
+    expect(checked.ok).toBe(true);
+    expect(checked.ok && checked.rec).not.toHaveProperty('suggestedDecision');
+    expect(checked.ok && checked.rec).not.toHaveProperty('suggestedDecisionReason');
+  });
 });

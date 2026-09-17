@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -1007,6 +1007,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     name: ds.name,
     description: ds.description ?? null,
     agentSlug: ds.agentSlug,
+    provider: ds.provider,
     items: ds.items,
     version: ds.version,
   };
@@ -1014,6 +1015,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
   if (!existing) {
     if (!dryRun) {
       await db.insert(evalDatasetSchema).values(payload);
+      await upsertEvalEvaluators(orgId, ds);
     }
     return 'created';
   }
@@ -1022,15 +1024,100 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     existing.name === payload.name
     && (existing.description ?? null) === payload.description
     && existing.agentSlug === payload.agentSlug
+    && existing.provider === payload.provider
     && existing.version === payload.version
     && canonical(existing.items) === canonical(payload.items)
   ) {
+    if (!dryRun) {
+      await upsertEvalEvaluators(orgId, ds);
+    }
     return 'unchanged';
   }
   if (!dryRun) {
     await db.update(evalDatasetSchema).set(payload).where(eq(evalDatasetSchema.id, existing.id));
+    await upsertEvalEvaluators(orgId, ds);
   }
   return 'updated';
+}
+
+/**
+ * Record which evaluators this dataset wants, and nothing more.
+ *
+ * Apply writes desired state and stops. Creating a custom evaluator in the
+ * customer's AWS account is a network call, and apply makes none today — one
+ * unreachable AWS endpoint must not stop a workspace file landing its agents,
+ * its playbooks and everything else in the same pass. The remote create
+ * happens later in a Temporal activity, the same split `libs/sources/upsert.ts`
+ * and `SourceSyncService` already use.
+ *
+ * Rows keep any `remoteId` they already have, so re-applying an unchanged file
+ * never makes the next sync create a second evaluator in AWS.
+ * @param orgId - Whose workspace.
+ * @param ds - The dataset as authored, including any `evaluators` block.
+ */
+async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promise<void> {
+  const authored = ds.evaluators ?? [];
+  const authoredSlugs: string[] = [];
+  for (const evaluator of authored) {
+    // A built-in is named, not defined: there is nothing to create remotely,
+    // so each id becomes its own row and carries no config to sync.
+    const slugs = evaluator.builtin?.length
+      ? evaluator.builtin
+      : [evaluator.slug].filter((slug): slug is string => Boolean(slug));
+    for (const slug of slugs) {
+      authoredSlugs.push(slug);
+      const config = evaluator.builtin?.length
+        ? {}
+        : {
+            instructions: evaluator.instructions,
+            ratingScale: evaluator.ratingScale,
+            model: evaluator.model,
+            lambdaArn: evaluator.lambdaArn,
+          };
+      await db
+        .insert(evalEvaluatorSchema)
+        .values({
+          orgId,
+          datasetSlug: ds.slug,
+          provider: evaluator.provider,
+          slug,
+          level: evaluator.level ?? null,
+          config,
+        })
+        .onConflictDoUpdate({
+          target: [
+            evalEvaluatorSchema.orgId,
+            evalEvaluatorSchema.datasetSlug,
+            evalEvaluatorSchema.provider,
+            evalEvaluatorSchema.slug,
+          ],
+          // `retiredAt: null` revives an evaluator someone took out and put
+          // back: the row keeps its remote id, so the sync updates the
+          // evaluator already in AWS instead of failing on its name.
+          set: { level: evaluator.level ?? null, config, retiredAt: null, updatedAt: new Date() },
+        });
+    }
+  }
+
+  // An evaluator taken out of the file stops grading. Left active, it would
+  // keep being sent to AWS on every run, so the scores would quietly disagree
+  // with what the workspace says it measures.
+  //
+  // Retired, not deleted — the same sweep the workflows above do, and for the
+  // same reason. We never call AWS `DeleteEvaluator`, so deleting the row
+  // would strand the evaluator in the customer's account with nothing pointing
+  // at it, and putting the evaluator back in the file later would try to
+  // create a second one under a name AWS already has.
+  const { isNull, notInArray } = await import('drizzle-orm');
+  await db
+    .update(evalEvaluatorSchema)
+    .set({ retiredAt: new Date() })
+    .where(and(
+      eq(evalEvaluatorSchema.orgId, orgId),
+      eq(evalEvaluatorSchema.datasetSlug, ds.slug),
+      isNull(evalEvaluatorSchema.retiredAt),
+      authoredSlugs.length > 0 ? notInArray(evalEvaluatorSchema.slug, authoredSlugs) : undefined,
+    ));
 }
 
 /**

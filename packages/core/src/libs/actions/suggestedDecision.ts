@@ -7,8 +7,9 @@
  * proposes work it wants run, so a reviewer rejecting something the agent also
  * wanted rejected was recorded as a disagreement.
  *
- * This module holds the three values, the parser every boundary uses, and the
- * rule for when a recommendation and a human decision count as agreeing. It
+ * This module holds the three values, the parsers every boundary uses — for the
+ * recommendation itself and for the short reason an agent gives for it — and
+ * the rule for when a recommendation and a human decision count as agreeing. It
  * imports nothing, so the schema, the services, the routers, the adoption
  * queries and the agent tool can all share it without a cycle.
  *
@@ -34,6 +35,28 @@
 export const SUGGESTED_DECISIONS = ['approve', 'reject', 'snooze'] as const;
 
 export type SuggestedDecision = typeof SUGGESTED_DECISIONS[number];
+
+/**
+ * Read the reason a recommendation came with, off untrusted input.
+ *
+ * Returns undefined for anything that is not usable text, which callers should
+ * read as "no reason given" — the same way an absent `suggestedDecision` means
+ * no recommendation rather than approval. Whitespace-only text is nothing, and
+ * storing it would put an empty quote under a badge on the review card.
+ *
+ * Length is not limited here on purpose. Cutting at a character count lands
+ * mid-word and hands the reviewer half a sentence, which reads worse than a
+ * long one; the prompts ask for one short sentence instead, and the card
+ * clamps what it shows rather than the store throwing the words away.
+ * @param value - Anything; only non-empty text survives.
+ */
+export function parseSuggestedDecisionReason(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
 
 /**
  * Read a suggested decision off untrusted input — a query string, a JSON body,

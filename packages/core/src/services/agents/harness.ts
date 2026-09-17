@@ -263,6 +263,27 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
   }
 
+  // THE CLOCK (CORE, all agents).
+  //
+  // The agent did not know what day it was. Nowhere in the prompt, for any
+  // agent, was there a date — and it shows: `crm.ts` works around it per tool
+  // ("so you never have to know today's date"), briefing titles are authored
+  // by the model and one of them copied the example date out of its own schema
+  // description, and on 2026-09-17 the lead read a stale briefing's critical
+  // path and served it as "right now", naming a call that was not on the
+  // calendar. Chris: *"WTF. do you know what day it is?"* It did not.
+  //
+  // A model with no clock cannot tell a stale document from a current one, and
+  // will always resolve that ambiguity in favour of answering. So: state the
+  // time, and say plainly that a dated document older than today is history.
+  const nowIso = new Date().toISOString();
+  const CLOCK = [
+    `NOW: ${nowIso} (UTC). Today is ${new Date().toUTCString().slice(0, 16)}.`,
+    'Times you state must say their zone. Never say "today", "this morning" or "right now" about anything you read in a document without first checking that document\'s own date against NOW — a briefing, report or transcript dated before today is HISTORY, and presenting its schedule as the current day is the worst error you can make on this surface.',
+    'If a document you are quoting is not dated, say that you cannot tell when it is from rather than assuming it is current.',
+  ].join(' ');
+  systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
+
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
   // paste" rules; fighting that with content-stripping is whack-a-mole (it

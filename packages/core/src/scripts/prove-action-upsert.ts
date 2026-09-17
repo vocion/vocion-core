@@ -28,8 +28,8 @@ async function main(): Promise<void> {
   const principal = { kind: 'agent' as const, id: 'agent:founder-gtm-lead', scope: { orgId: ORG }, grants: ['*'], autonomy: 2 as const };
   const base = { orgId: ORG, actionId: 'gmail.send', principal, dedupKey: KEY };
 
-  const a = await proposeAction({ ...base, input: { to: 'upsert-probe@example.com', subject: 'First', body: 'v1', draft: true }, proposal: { confidence: 0.4 } });
-  const b = await proposeAction({ ...base, input: { to: 'upsert-probe@example.com', subject: 'Second', body: 'v2', draft: true }, proposal: { confidence: 0.9 } });
+  const a = await proposeAction({ ...base, input: { to: 'upsert-probe@example.com', subject: 'First', body: 'v1', draft: true }, proposal: { confidence: 0.4, suggestedDecision: 'approve', suggestedDecisionReason: 'Probe proposal for the upsert rule.' } });
+  const b = await proposeAction({ ...base, input: { to: 'upsert-probe@example.com', subject: 'Second', body: 'v2', draft: true }, proposal: { confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Probe proposal for the upsert rule.' } });
 
   const count = await pendingCount(KEY);
   const [row] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.orgId, ORG), eq(actionRunSchema.dedupKey, KEY)));

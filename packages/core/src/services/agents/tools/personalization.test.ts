@@ -930,6 +930,8 @@ function draftArgs(contactRef: string, over: Record<string, unknown> = {}) {
       { day: 4, subject: 'One level deeper', body: 'The switching-costs section.' },
     ],
     recommended_sequence: { id: 'seq-311', name: 'AI-Readiness Nurture', reason: 'Entrance path matches the nurture.' },
+    suggested_decision: 'approve',
+    suggested_decision_reason: 'The brief is grounded and the sequence fits the entrance path.',
     sender_email: 'chris@metacto.com',
     ...over,
   };

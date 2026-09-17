@@ -66,6 +66,28 @@ export type SyncBudgetCaps = {
  * only pays for a first sweep in any case, a steady-state sync re-reads just
  * the pages that changed.
  *
+ * **Every counted cap was multiplied on 2026-09-17, deliberately.** The
+ * numbers above are the measured cost of a call; the numbers below are how
+ * many calls a sync may make, and those were sized for a first cautious
+ * rollout rather than for reading a source completely. A venue's season page
+ * has more events on it than the old caps allowed through, and a sync that
+ * stops early leaves real events unread with nothing on screen saying so —
+ * which is the failure nobody notices. So the ceilings now sit well clear of
+ * anything a healthy sync does: roughly five times the pages, four times the
+ * calls, six times the tokens, half an hour of wall clock. They are still
+ * ceilings, and a runaway source still hits one; they are simply no longer
+ * the thing that decides how much of a source we read.
+ *
+ * These are limits, not spend: a sync that needs 30 calls still makes 30. What
+ * grows is the worst case a broken source can cost before something stops it.
+ *
+ * `maxInputTokensPerCall` moved furthest — 10,000 to 60,000 — because it is
+ * now the ONLY bound on how much of a page the model sees, the fixed 20,000
+ * character page cap having been removed for cutting the tail off long pages
+ * invisibly. The measured average call carries 3,330 to 4,500 input tokens, so
+ * this ceiling changes nothing for an ordinary page and lets a long one
+ * through whole.
+ *
  * `modelTimeoutMs` is 60,000 because it was 20,000 and that number came from
  * nowhere: the first dev shadow of this pipeline (2026-09-15) measured six
  * Bedrock calls averaging 18.2s and topping out at 19.8s, none of which
@@ -74,14 +96,14 @@ export type SyncBudgetCaps = {
  * costs the retry and then the whole document.
  */
 export const SYNC_BUDGET_DEFAULTS: SyncBudgetCaps = {
-  maxPages: 60,
-  maxDetailHops: 40,
-  maxModelCalls: 150,
-  maxInputTokensPerCall: 10_000,
+  maxPages: 300,
+  maxDetailHops: 200,
+  maxModelCalls: 600,
+  maxInputTokensPerCall: 60_000,
   modelTimeoutMs: 60_000,
-  maxInputTokensPerSync: 800_000,
-  maxProposalsPerSync: 120,
-  maxWallClockMs: 600_000,
+  maxInputTokensPerSync: 5_000_000,
+  maxProposalsPerSync: 600,
+  maxWallClockMs: 1_800_000,
 };
 
 /**
