@@ -10,7 +10,7 @@ import { createContext, use } from 'react';
  * **Never: a bordered surface contains another bordered surface.** A border
  * says "this is a thing"; a border inside a border says it twice and means it
  * once, and the reader pays for the second frame in noise
- * (MANIFESTO §4 — one obvious thing, not five possible ones; §16 — hierarchy
+ * (design principle 4 — one obvious thing, not five possible ones; principle 8 — hierarchy
  * comes from space, not from chrome). Nesting is expressed with a HAIRLINE, a
  * gap and an eyebrow label instead: `<SurfaceSection eyebrow="…">`.
  *

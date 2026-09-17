@@ -10,7 +10,7 @@ The daily team report for *Vocion Workforce* linked to
 because every dashboard URL is `/dashboard/...` and the workspace is session state:
 `auth()` resolves `projectId` from the `vocion_active_project` cookie on every read
 (`packages/core/src/libs/Auth.ts`, `resolveTenancyForUser`). A URL that means a
-different thing for each reader fails [MANIFESTO §11](./MANIFESTO.md#11-make-the-important-things-obvious):
+different thing for each reader fails [design principle 8](./DESIGN-PRINCIPLES.md#8-make-the-important-things-obvious-and-beautiful-is-functional):
 *where am I* must be obvious, and a link must open what it is about.
 
 The target is Vercel's model — `vercel.com/{team}/{project}/analytics` — where the

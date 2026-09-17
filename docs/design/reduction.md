@@ -212,6 +212,6 @@ what §19 means by it.
 
 ---
 
-*Referenced from `docs/MANIFESTO.md` §4, §7, §12 and §19, and from `CLAUDE.md`.
+*Referenced from `docs/DESIGN-PRINCIPLES.md` §4, §7, §12 and §19, and from `CLAUDE.md`.
 Changes here are product decisions: propose them as a pull request and say which
 principle you are applying.*

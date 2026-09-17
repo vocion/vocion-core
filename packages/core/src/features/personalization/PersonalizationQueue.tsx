@@ -105,7 +105,7 @@ const BriefListRow = ({ row }: { row: BriefRow }) => {
       )}
       columns={level && (
         <Column kind="score">
-          {/* One confidence renderer everywhere (MANIFESTO §19): the same bars
+          {/* One confidence renderer everywhere (design principle 6): the same bars
               the ledger, the inbox and the review detail draw. */}
           <ConfidenceBars value={row.confidence} subject="Brief" />
         </Column>

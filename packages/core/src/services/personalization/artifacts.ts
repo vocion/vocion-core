@@ -288,7 +288,7 @@ export type PinnedArtifact = { artifactId: number; role: string; version: number
  * regeneration writes a new `artifact_version` and the pin keeps pointing at
  * what was on screen. That is the difference between an audit that answers
  * "what did they approve" and one that answers "what does this look like now"
- * (MANIFESTO §3, §12).
+ * (design principles 1 and 9).
  * @param orgId - The project id.
  * @param runId - The `action_run` being decided.
  * @param artifacts - What the page was showing.

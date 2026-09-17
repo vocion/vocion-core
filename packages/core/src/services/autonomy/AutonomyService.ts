@@ -2,7 +2,7 @@
  * AutonomyService — the autonomy ladder per action kind, and how a kind moves
  * on it.
  *
- * "Automation is earned" (docs/MANIFESTO.md #8): a kind climbs from Execute
+ * "Automation is earned" (docs/DESIGN-PRINCIPLES.md #8): a kind climbs from Execute
  * with approval to Execute within bounds when the alignment ledger says the
  * people deciding it would have let it run anyway — enough decisions, a high
  * enough agreement rate, no recent rejections — under the bar its risk tier

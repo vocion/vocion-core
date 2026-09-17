@@ -7,7 +7,7 @@ Until 2026-09-15 these rules lived only as doc-comments in
 original spec, which was never committed); this file promotes them and adds
 the rail (§9). The section numbers below match the citations in the code.
 
-Read it beside the [Product Design Manifesto](./MANIFESTO.md): the surface
+Read it beside the [Product Design Manifesto](./DESIGN-PRINCIPLES.md): the surface
 exists so a person can act on what a page shows without leaving it (§11
 *make the important things obvious*), with the machinery — tool calls,
 reasoning, sources — one tap away but never in the way (§12 *hide complexity,

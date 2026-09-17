@@ -10,7 +10,7 @@ import { cn } from '@/utils/Helpers';
  *
  * Before this there were three: a dot-and-word pill (`ConfidenceIndicator`),
  * `speculative 0.42` as plain text on Personalization, and a bare `85%` in the
- * inbox. Three renderings of one idea is the defect MANIFESTO §19 names — so
+ * inbox. Three renderings of one idea is the defect design principle 6 names — so
  * this is one component, extended rather than forked, and the other three call
  * it.
  *

@@ -4,7 +4,7 @@
  * An artifact is what one person worked out beside one conversation; a
  * workspace page is the same thing for everyone, versioned in the workspace
  * repo. That promotion is the manifesto's loop — a view one person needed
- * once becomes a page the team has (MANIFESTO.md §6–7).
+ * once becomes a page the team has (DESIGN-PRINCIPLES.md §6–7).
  *
  * The mapping is deliberately partial, and says so rather than pretending:
  *
