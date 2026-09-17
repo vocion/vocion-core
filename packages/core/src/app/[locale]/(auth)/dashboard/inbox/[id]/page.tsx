@@ -10,7 +10,7 @@ import { LearningDecision } from '@/features/dashboard/inbox/LearningDecision';
 import { RunDecision } from '@/features/dashboard/inbox/RunDecision';
 import { toSheetAsk } from '@/features/dashboard/inbox/toSheetAsk';
 import { ReviewFocus } from '@/features/dashboard/ReviewFocus';
-import { describeAction } from '@/features/review/ReviewFocusView';
+import { describeAction } from '@/features/review/describeAction';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
