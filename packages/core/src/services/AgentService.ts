@@ -374,6 +374,13 @@ export async function runAgentDeep(opts: {
    * CLAUDE.md's *Structural over prompting* bullet is about.
    */
   deliverable?: Deliverable;
+  /**
+   * Files the person attached to this turn (`services/chat/attachments.ts`).
+   * An image reaches the model as an image block; a document as its text
+   * under the message. Absent or empty means the input is the message string,
+   * exactly as before.
+   */
+  attachments?: import('./chat/attachments').LoadedAttachment[];
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
   /**
    * Run this ONE turn on a named model instead of the agent's own. The
@@ -560,10 +567,14 @@ export async function runAgentDeep(opts: {
   // The agent's system prompt is supplied to the graph via createDeepAgent's
   // `systemPrompt` (see runtime.ts). It must NOT also appear here — deepagents
   // prepends its own system message, so a second one is rejected by the model.
+  // With attachments the user turn is content blocks — the message and each
+  // document's text, then the images; without, the plain string it always was.
+  const { composeUserContent } = await import('./chat/attachments');
+  const userContent = await composeUserContent(opts.message, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,
-      { role: 'user', content: opts.message },
+      { role: 'user', content: userContent },
     ],
     files: initialFiles,
   };

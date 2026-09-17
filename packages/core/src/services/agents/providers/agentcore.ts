@@ -46,6 +46,7 @@ import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
+import { composeUserText } from '@/services/chat/attachments';
 import { withToolCallRecord } from '../toolCallRecord';
 import { searchKnowledgeTool } from '../tools/searchKnowledge';
 
@@ -372,6 +373,8 @@ export type HarnessRunOptions = {
   orgId: string;
   agentSlug: string;
   message: string;
+  /** Files attached to this turn; this harness receives documents as text and is told about images. */
+  attachments?: import('@/services/chat/attachments').LoadedAttachment[];
   userId?: string;
   allowedSourceSlugs?: string[];
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -433,7 +436,8 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
       role: m.role,
       content: [{ text: m.content }],
     })),
-    { role: 'user', content: [{ text: opts.message }] },
+    // AWS's harness takes text: documents inline, images become a note.
+    { role: 'user', content: [{ text: await composeUserText(opts.message, opts.attachments ?? []) }] },
   ];
 
   emit({ type: 'thinking' });

@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -132,6 +132,7 @@
     "next-themes": "^0.4.6",
     "openai": "^6.32.0",
     "papaparse": "^5.5.3",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.20.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",

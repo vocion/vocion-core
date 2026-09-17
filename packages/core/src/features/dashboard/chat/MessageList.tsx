@@ -110,7 +110,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
         {messages.map((msg, i) => (
           <div key={i} className="space-y-8">
             {msg.role === 'user'
-              ? <UserMessage content={msg.content} />
+              ? <UserMessage content={msg.content} attachments={msg.attachments} />
               : (
                   <AgentMessage
                     message={msg}

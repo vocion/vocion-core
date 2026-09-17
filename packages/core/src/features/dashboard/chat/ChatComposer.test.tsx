@@ -430,3 +430,57 @@ describe('one alignment rule above the box (2026-09-16)', () => {
     expect(chip.parentElement).toBe(column);
   });
 });
+
+describe('attachments — files in the next turn', () => {
+  const shot = { id: 5, title: 'shot.png', contentType: 'image/png', bytes: 2048, url: '/api/artifacts/5', kind: 'image' as const };
+  const deck = { id: 6, title: 'deck.pdf', contentType: 'application/pdf', bytes: 120_000, url: '/api/artifacts/6', kind: 'document' as const };
+
+  it('shows each attached file as a chip, and the ✕ drops it', async () => {
+    const onRemoveAttachment = vi.fn();
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} attachments={[shot, deck]} onAttachFiles={() => {}} onRemoveAttachment={onRemoveAttachment} />);
+
+    expect(page.getByTestId('composer-attachment').elements()).toHaveLength(2);
+    await expect.element(page.getByText('deck.pdf')).toBeInTheDocument();
+
+    await userEvent.click(page.getByRole('button', { name: 'Remove deck.pdf' }));
+
+    expect(onRemoveAttachment).toHaveBeenCalledWith(6);
+  });
+
+  it('a message that is only a file can be sent; one still uploading cannot', async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = await render(<ChatComposer value="" onChange={() => {}} onSubmit={onSubmit} attachments={[deck]} onAttachFiles={() => {}} />);
+
+    await expect.element(page.getByRole('button', { name: 'Send message' })).toBeEnabled();
+
+    await rerender(<ChatComposer value="" onChange={() => {}} onSubmit={onSubmit} attachments={[deck]} uploading onAttachFiles={() => {}} />);
+
+    await expect.element(page.getByTestId('composer-uploading')).toBeInTheDocument();
+    await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  });
+
+  it('the paperclip opens a file picker and hands the files over', async () => {
+    const onAttachFiles = vi.fn();
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={onAttachFiles} />);
+
+    await expect.element(page.getByRole('button', { name: 'Attach a file' })).toBeInTheDocument();
+
+    const input = page.getByTestId('composer-file-input');
+    await input.upload(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
+
+    expect(onAttachFiles).toHaveBeenCalledTimes(1);
+    expect(onAttachFiles.mock.calls[0]![0][0].name).toBe('notes.txt');
+  });
+
+  it('says why a file was refused, above the box', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={() => {}} attachError="model.xlsx: images, PDFs and text files can be attached." />);
+
+    await expect.element(page.getByTestId('attach-error')).toHaveTextContent('model.xlsx');
+  });
+
+  it('has no paperclip when the surface cannot take files', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
+
+    expect(page.getByRole('button', { name: 'Attach a file' }).elements()).toHaveLength(0);
+  });
+});

@@ -780,6 +780,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           tags={session.contextRefs}
           onAddTag={session.addContextRef}
           onRemoveTag={session.removeContextRef}
+          attachments={session.attachments}
+          uploading={session.uploading > 0}
+          attachError={session.attachError}
+          onDismissAttachError={session.clearAttachError}
+          onAttachFiles={files => void session.attachFiles(files)}
+          onRemoveAttachment={session.removeAttachment}
         />
       </div>
     </>

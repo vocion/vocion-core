@@ -1,8 +1,8 @@
 'use client';
 
 import type { QueuedMessage } from './queueReducer';
-import type { ContextRef } from './types';
-import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, PencilLine, Plus, Square, Target, Users, X } from 'lucide-react';
+import type { ChatAttachment, ContextRef } from './types';
+import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, Loader2, Paperclip, PencilLine, Plus, Square, Target, Users, X } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
@@ -110,6 +110,16 @@ export type ChatComposerProps = {
    * rail edge while the box was inset).
    */
   above?: React.ReactNode;
+  /** Files attached to the next message — already uploaded; these are the chips. */
+  attachments?: ChatAttachment[];
+  /** An upload is in flight: a spinner chip, and Send waits for it. */
+  uploading?: boolean;
+  /** Why the last attach did not fully land — a line above the box. */
+  attachError?: string | null;
+  onDismissAttachError?: () => void;
+  /** The person picked, dropped or pasted files. Absent = the paperclip is off. */
+  onAttachFiles?: (files: File[]) => void;
+  onRemoveAttachment?: (id: number) => void;
 };
 
 /** Everything the queue affordance says, so the parent can translate it. */
@@ -171,6 +181,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team, mission or the page'],
+  ['Drop · paste · 📎', 'Attach an image, PDF or text file'],
   ['@artifact', 'This turn ends in a document'],
   ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
@@ -228,7 +239,24 @@ export function ChatComposer({
   copy,
   attachable = [],
   above,
+  attachments = [],
+  uploading = false,
+  attachError,
+  onDismissAttachError,
+  onAttachFiles,
+  onRemoveAttachment,
 }: ChatComposerProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // A drag over the box highlights it; dropping attaches. `dragging` is a
+  // counter, not a flag, because enter/leave fire for every child crossed.
+  const [dragDepth, setDragDepth] = useState(0);
+  const canAttach = Boolean(onAttachFiles);
+  const takeFiles = (list: FileList | File[] | null | undefined) => {
+    const files = Array.from(list ?? []).filter(f => f.size > 0);
+    if (files.length > 0 && onAttachFiles) {
+      onAttachFiles(files);
+    }
+  };
   const words = { ...DEFAULT_COPY, ...copy };
   const [queuedExpanded, setQueuedExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -370,8 +398,8 @@ export function ChatComposer({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const trimmedValue = value.trim();
-      const hasSomething = trimmedValue.length > 0 || Boolean(pastedText) || armed;
-      if (disabled || !hasSomething) {
+      const hasSomething = trimmedValue.length > 0 || Boolean(pastedText) || armed || attachments.length > 0;
+      if (disabled || !hasSomething || uploading) {
         return;
       }
       // ⌘⏎ / Ctrl+⏎ jumps the running turn. Enter alone always queues — never
@@ -389,6 +417,13 @@ export function ChatComposer({
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // A pasted screenshot is a file, not text: it becomes an attachment.
+    const files = Array.from(e.clipboardData.files ?? []);
+    if (files.length > 0 && canAttach) {
+      e.preventDefault();
+      takeFiles(files);
+      return;
+    }
     if (!onPasteText) {
       return;
     }
@@ -402,7 +437,7 @@ export function ChatComposer({
   const trimmed = value.trim();
   // `disabled` now means only "there is nothing to send to yet" (pre-boot).
   // Streaming never disables anything — that is the whole point of this file.
-  const sendEnabled = !disabled && (trimmed.length > 0 || Boolean(pastedText) || armed);
+  const sendEnabled = !disabled && !uploading && (trimmed.length > 0 || Boolean(pastedText) || armed || attachments.length > 0);
   const shownQueued = queuedExpanded ? queued : queued.slice(0, VISIBLE_QUEUED);
   const hiddenQueued = queued.length - shownQueued.length;
   const submitPrimary = () => {
@@ -497,8 +532,38 @@ export function ChatComposer({
             </button>
           </div>
         )}
-        {(pastedText || tags.length > 0 || commandHint) && (
+        {attachError && (
+          <div data-testid="attach-error" role="status" className="mb-1.5 flex items-center gap-2 rounded-xl border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-2.5 py-1.5 text-[11px] text-foreground/85">
+            <span className="min-w-0 flex-1">{attachError}</span>
+            <button type="button" onClick={() => onDismissAttachError?.()} aria-label={words.dismiss} className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground">
+              <X className="size-3.5" aria-hidden />
+            </button>
+          </div>
+        )}
+        {(pastedText || tags.length > 0 || commandHint || attachments.length > 0 || uploading) && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {/* The files, as chips — an image shows itself, a document its name
+                and size. Each ✕ drops the chip; the artifact row stays (it is
+                the person's file, in their artifacts list). */}
+            {attachments.map(a => (
+              <span key={a.id} data-testid="composer-attachment" className="inline-flex max-w-72 items-center gap-1.5 rounded-lg border border-border bg-muted/40 py-0.5 pr-1 pl-1.5 text-xs">
+                {a.kind === 'image'
+                  ? <img src={a.url} alt="" className="size-6 rounded object-cover" />
+                  : <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+                <span className="truncate">{a.title}</span>
+                {onRemoveAttachment && (
+                  <button type="button" onClick={() => onRemoveAttachment(a.id)} aria-label={`Remove ${a.title}`} className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground">
+                    <X className="size-3" aria-hidden />
+                  </button>
+                )}
+              </span>
+            ))}
+            {uploading && (
+              <span data-testid="composer-uploading" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                Uploading…
+              </span>
+            )}
             {tags.map((tag) => {
               const Icon = TAG_ICON[tag.type];
               return (
@@ -541,10 +606,63 @@ export function ChatComposer({
                 e.preventDefault();
                 submitPrimary();
               }}
+              // Dropping a file onto the box attaches it. The counter survives
+              // the enter/leave pairs every child element fires.
+              onDragEnter={(e) => {
+                if (canAttach && e.dataTransfer.types.includes('Files')) {
+                  e.preventDefault();
+                  setDragDepth(d => d + 1);
+                }
+              }}
+              onDragOver={(e) => {
+                if (canAttach && e.dataTransfer.types.includes('Files')) {
+                  e.preventDefault();
+                }
+              }}
+              onDragLeave={() => setDragDepth(d => Math.max(0, d - 1))}
+              onDrop={(e) => {
+                if (!canAttach) {
+                  return;
+                }
+                e.preventDefault();
+                setDragDepth(0);
+                takeFiles(e.dataTransfer.files);
+              }}
+              data-dragging={dragDepth > 0 || undefined}
               // Restrained focus: a 1px ring in the ring token at low alpha
               // plus a soft ground shift. No halo, no thickened border.
-              className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40"
+              className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint"
             >
+              {/* 📎 — the pointer path to a file; drop and paste are the others. */}
+              {canAttach && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    // Out of the accessibility tree: the paperclip is the control, and
+                    // a role query for the composer's textbox must find one element.
+                    aria-hidden
+                    tabIndex={-1}
+                    accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json,text/html,.md,.csv,.txt,.json"
+                    className="hidden"
+                    data-testid="composer-file-input"
+                    onChange={(e) => {
+                      takeFiles(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-testid="composer-attach-file"
+                    aria-label="Attach a file"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground"
+                  >
+                    <Paperclip className="size-4" aria-hidden />
+                  </button>
+                </>
+              )}
               {/*
                 * (+) — "what can I bring into this turn". It inserts a tag and
                 * nothing else: no store, no event, no flag of its own. What

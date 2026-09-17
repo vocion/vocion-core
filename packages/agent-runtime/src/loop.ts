@@ -285,8 +285,11 @@ async function runTurn(
     modelMessage = `[This turn must END WITH AN ARTIFACT: call render_markdown (or render_table / render_chart / render_record) with the finished document before you reply. The reply itself is a short pointer to it, not the document. If you cannot produce the document, render one that states plainly what failed and what is needed.]\n\n${modelMessage}`;
   }
 
+  // Attachments: each document's text under the message, each image as an
+  // inline block. Without any, the input is the string it always was.
+  const userContent = composeAttachedContent(modelMessage, req.attachments ?? []);
   const input = {
-    messages: [...history, { role: 'user', content: modelMessage }],
+    messages: [...history, { role: 'user', content: userContent }],
     files: req.files ?? {},
   };
 
@@ -374,4 +377,42 @@ async function runTurn(
   }
   await trace.end({ response: finalText.slice(0, 500), toolCalls: toolCallCount.n });
   emit({ type: 'done', response: finalText, traceId: trace.traceId });
+}
+
+/**
+ * The user turn with its attachments, as the chat model takes it. Mirrors
+ * `composeUserContent` in core (`services/chat/attachments.ts`) — the caps
+ * were applied there, at upload, so this only lays the parts out.
+ * @param message - The person's message.
+ * @param attachments - What core read for us.
+ */
+export function composeAttachedContent(
+  message: string,
+  attachments: NonNullable<InvocationRequest['attachments']>,
+): string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
+  if (attachments.length === 0) {
+    return message;
+  }
+  const parts: string[] = [message];
+  const images: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
+  const unreadable: string[] = [];
+  for (const a of attachments) {
+    if (a.dataUrl) {
+      images.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    } else if (typeof a.text === 'string') {
+      parts.push(a.text.trim()
+        ? `--- attached: ${a.title} (${a.contentType}) ---\n${a.text}`
+        : `--- attached: ${a.title} (${a.contentType}) ---\n(no text could be extracted from this file — a scanned PDF, or an empty file)`);
+    } else {
+      unreadable.push(a.title);
+    }
+  }
+  if (images.length > 0) {
+    parts.push(`(${images.length === 1 ? 'One image is' : `${images.length} images are`} attached below.)`);
+  }
+  if (unreadable.length > 0) {
+    parts.push(`(Attached but unreadable here: ${unreadable.join(', ')}.)`);
+  }
+  const text = parts.join('\n\n');
+  return images.length === 0 ? text : [{ type: 'text', text }, ...images];
 }

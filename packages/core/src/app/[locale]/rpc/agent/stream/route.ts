@@ -19,7 +19,8 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { openStream } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
-import { stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
 import { RunCollector } from '@/services/chat/runCollector';
 import {
   appendMessage,
@@ -127,21 +128,42 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Message required' }), { status: 400 });
   }
 
+  // Files the person attached: artifact ids from `/api/chat/attachments`,
+  // resolved under THIS org (an id that is not ours is silently absent) and
+  // only if they are human uploads — the model is never handed an agent's
+  // artifact because a client named its id here.
+  const attachmentIds = Array.isArray(body.attachments)
+    ? (body.attachments as unknown[]).filter((v): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0).slice(0, 10)
+    : [];
+  const attachments = attachmentIds.length > 0
+    ? (await listArtifactsByIds({ orgId, ids: attachmentIds }))
+        .filter(row => row.kind === 'file' && row.lastAuthorKind === 'human')
+        .map(loadedFromArtifact)
+    : [];
+
   // Authoritative history: when a conversation is attached, use the
   // persisted message log and ignore whatever the client sent. Tool
   // entries are dropped via toHistoryTurns so the agent doesn't see
   // its own UI ornaments echoed back.
   let conversationHistory = clientHistory;
   if (conversationId !== null) {
-    const msgs = await listMessages({ orgId, conversationId });
-    conversationHistory = toHistoryTurns(msgs);
-    await appendMessage({
+    const [msgs, uploads] = await Promise.all([
+      listMessages({ orgId, conversationId }),
+      listAttachmentsByMessage({ orgId, conversationId }),
+    ]);
+    // A past message that carried files says so in the replay — the names,
+    // not the contents — so the agent asks rather than guesses.
+    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })));
+    const userMsg = await appendMessage({
       orgId,
       conversationId,
       role: 'user',
       content: message,
       userId,
     });
+    if (attachments.length > 0) {
+      await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
+    }
   }
 
   const collector = conversationId !== null ? new RunCollector() : null;
@@ -227,6 +249,7 @@ export async function POST(request: Request): Promise<Response> {
           conversationHistory,
           pageContext: pageContext ?? undefined,
           ...(deliverable ? { deliverable } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
           onEvent: sendEvent,
         });
       } catch (err) {
