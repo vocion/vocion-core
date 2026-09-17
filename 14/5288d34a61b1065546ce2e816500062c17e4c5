@@ -1,0 +1,157 @@
+packages/core/templates/catalog/agents/comms-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/teams/ai-visibility.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/copywriter.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-42
+packages/core/templates/catalog/skills/creative-performance/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-31
+packages/core/templates/catalog/skills/schedule-meeting/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-30
+packages/core/templates/catalog/agents/paid-media-strategist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-41
+packages/core/templates/catalog/teams/sales.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/account-operations-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-40
+packages/core/templates/catalog/agents/people-ops.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/program-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/teams/marketing.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/lead-researcher.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-43
+packages/core/templates/catalog/agents/sdr-coordinator.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-44
+packages/core/templates/catalog/skills/spend-pacing/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-30
+packages/core/templates/catalog/skills/content-draft/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-31
+packages/core/templates/catalog/teams/paid-media.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/operations-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/performance-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-42
+packages/core/templates/catalog/agents/deliverables-coordinator.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-41
+packages/core/templates/catalog/skills/experiment-design/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-31
+packages/core/templates/catalog/agents/sales-operations-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-45
+packages/core/templates/catalog/skills/price-from-comparables/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-32
+packages/core/templates/catalog/agents/reporting-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-46
+packages/core/templates/catalog/agents/compliance-lead.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/skills/anomaly-scan/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-30
+packages/core/templates/catalog/agents/automation-engineer.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/chief-of-staff.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/skills/tracking-audit/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-29
+packages/core/templates/catalog/agents/aeo-foundations-specialist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-41
+packages/core/templates/catalog/agents/project-coordinator.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-39
+packages/core/templates/catalog/skills/insight-narrative/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-30
+packages/core/templates/catalog/agents/staff-engineer.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/teams/product.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 3-4
+packages/core/templates/catalog/agents/data-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/teams/revenue-operations.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/lead-response-specialist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-43
+packages/core/templates/catalog/agents/client-notes-specialist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-41
+packages/core/templates/catalog/agents/senior-project-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-43
+packages/core/templates/catalog/teams/engineering.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/teams/account-operations.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/teams/finance.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/visibility-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-41
+packages/core/templates/catalog/agents/ai-citation-strategist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-40
+packages/core/templates/catalog/agents/ad-copywriter.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-41
+packages/core/templates/catalog/teams/operations.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/intake-lead.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/seo-specialist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-40
+packages/core/templates/catalog/agents/social-media-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-39
+packages/core/templates/catalog/agents/outreach-specialist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-42
+packages/core/templates/catalog/agents/proposal-writer.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-43
+packages/core/templates/catalog/agents/revenue-lead.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-42
+packages/core/templates/catalog/skills/ad-variants/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-30
+packages/core/templates/catalog/agents/campaign-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-43
+packages/core/templates/catalog/agents/deal-desk-coordinator.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-45
+packages/core/templates/catalog/skills/structured-facts/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-29
+packages/core/templates/catalog/agents/team-notes-specialist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-40
+packages/core/templates/catalog/agents/growth-marketer.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/studio-producer.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-40
+packages/core/templates/catalog/agents/account-manager.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/insights-writer.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-42
+packages/core/templates/catalog/teams/new-business.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/controller.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/skills/citation-tracking/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-29
+packages/core/templates/catalog/teams/content-studio.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/teams/client-reporting.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+packages/core/templates/catalog/agents/content-strategist.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-43
+packages/core/templates/catalog/agents/research-analyst.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/agents/ux-researcher.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 6
+packages/core/templates/catalog/skills/keyword-map/SKILL.md
+  s_eaf62813ab08b0::t_0145ae8733619d 1-30
+packages/core/templates/catalog/teams/legal-and-people.yaml
+  s_eaf62813ab08b0::t_0145ae8733619d 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "145288d34a61b1065546ce2e816500062c17e4c5",
+  "prompts": {},
+  "sessions": {
+    "s_eaf62813ab08b0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0323b189-4bb4-463b-a9f5-bd81c0973273",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
