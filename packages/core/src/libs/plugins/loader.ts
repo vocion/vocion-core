@@ -26,7 +26,7 @@ import { pluginRegistry } from './registry';
  * third-party plugins to managed cloud.
  */
 
-const OperationShapeZ = z.object({
+const SkillShapeZ = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
   version: z.string().min(1),
@@ -40,14 +40,14 @@ const ManifestShapeZ = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
   description: z.string().optional(),
-  // v0.2: `operations` is canonical, `skills` is the deprecated alias.
-  // Accept both so v0.1 plugins keep loading; `operations` wins on conflict.
-  operations: z.array(OperationShapeZ).optional(),
-  skills: z.array(OperationShapeZ).optional(),
+  // `skills` is canonical; `operations` is the deprecated v0.2 alias.
+  // Accept both so v0.2 plugins keep loading; `skills` wins on conflict.
+  skills: z.array(SkillShapeZ).optional(),
+  operations: z.array(SkillShapeZ).optional(),
   register: z.any().optional(),
 }).refine(
-  m => Array.isArray(m.operations) || Array.isArray(m.skills) || typeof m.register === 'function',
-  { message: 'plugin must export an `operations` array, a `skills` array (deprecated), or a `register()` factory' },
+  m => Array.isArray(m.skills) || Array.isArray(m.operations) || typeof m.register === 'function',
+  { message: 'plugin must export a `skills` array, an `operations` array (deprecated), or a `register()` factory' },
 );
 
 export type LoadResult = {
@@ -66,20 +66,20 @@ export async function loadPlugins(opts: { orgId: string; env?: Readonly<Record<s
   for (const specifier of specifiers) {
     try {
       const manifest = await importPlugin(specifier);
-      const operations = await resolveOperations(manifest, { orgId: opts.orgId, env });
+      const skills = await resolveSkills(manifest, { orgId: opts.orgId, env });
 
       const valid: AnySkill[] = [];
-      for (const op of operations) {
-        const shape = OperationShapeZ.safeParse(op);
+      for (const skill of skills) {
+        const shape = SkillShapeZ.safeParse(skill);
         if (!shape.success) {
-          errors.push({ source: `${manifest.id}/${(op as { slug?: string } | undefined)?.slug ?? '<unknown>'}`, message: shape.error.issues.map(i => i.message).join('; ') });
+          errors.push({ source: `${manifest.id}/${(skill as { slug?: string } | undefined)?.slug ?? '<unknown>'}`, message: shape.error.issues.map(i => i.message).join('; ') });
           continue;
         }
-        valid.push(op);
+        valid.push(skill);
       }
 
       pluginRegistry.register(manifest, valid);
-      loaded.push({ pluginId: manifest.id, skills: valid.map(o => o.slug) });
+      loaded.push({ pluginId: manifest.id, skills: valid.map(s => s.slug) });
     } catch (err) {
       errors.push({ source: specifier, message: err instanceof Error ? err.message : String(err) });
     }
@@ -108,13 +108,13 @@ async function importPlugin(specifier: string): Promise<PluginManifest> {
   return candidate as PluginManifest;
 }
 
-async function resolveOperations(manifest: PluginManifest, env: { orgId: string; env: Readonly<Record<string, string | undefined>> }): Promise<AnySkill[]> {
-  // Prefer the v0.2 `operations` field; fall back to v0.1 `skills`.
-  if (manifest.operations) {
-    return manifest.operations;
-  }
+async function resolveSkills(manifest: PluginManifest, env: { orgId: string; env: Readonly<Record<string, string | undefined>> }): Promise<AnySkill[]> {
+  // Prefer `skills`; fall back to the deprecated v0.2 `operations`.
   if (manifest.skills) {
     return manifest.skills;
+  }
+  if (manifest.operations) {
+    return manifest.operations;
   }
   if (manifest.register) {
     return Promise.resolve(manifest.register(env));
