@@ -238,6 +238,34 @@ test.describe('the API reference page', () => {
     // so the control to look for is Execute itself.
     await expect(firstGet.getByRole('button', { name: 'Execute' })).toBeVisible();
 
+    // Authorize with a real tenant token and run a read-only call, which is
+    // the whole point of the page: a reader who cannot try an endpoint from
+    // here has only a document they could have read as JSON. Executing proves
+    // the security scheme, the server URL and the request Swagger UI builds
+    // all line up with what the API accepts.
+    await page.getByRole('button', { name: /authorize/i }).first().click();
+    await page.locator('.modal-ux input[type="text"]').first().fill(fixtures.token);
+    await page.locator('.modal-ux .auth-btn-wrapper button.authorize').click();
+    await page.locator('.modal-ux .btn-done').click();
+
+    // `firstGet` is `GET /api/v1/agents` and is already open, so run it there
+    // rather than expanding a second operation.
+    await expect(firstGet.locator('.opblock-summary-path')).toContainText('/api/v1/agents');
+
+    await firstGet.getByRole('button', { name: 'Execute' }).click();
+
+    const liveResponse = firstGet.locator('.live-responses-table');
+
+    await expect(liveResponse).toBeVisible();
+    // The table's first `.response-col_status` is its "Code" header, so read
+    // the body row instead.
+    await expect(liveResponse.locator('tbody .response-col_status').first()).toHaveText('200');
+    await expect(firstGet.locator('.curl')).toContainText(`Bearer ${fixtures.token}`);
+    // The body the API really returned, not the documented example: the token
+    // belongs to a workspace seeded with no agents, so `agents` is the key the
+    // list endpoint answers with.
+    await expect(liveResponse.locator('tbody .response-col_description')).toContainText('"agents"');
+
     const firstPost = page.locator('.opblock-post').first();
     await firstPost.locator('.opblock-summary').click();
 
