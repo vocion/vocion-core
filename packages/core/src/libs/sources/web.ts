@@ -628,10 +628,11 @@ const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
  * past 140 characters, so a conformant feed splits its own event URL across
  * lines; read without unfolding it would arrive truncated.
  *
- * A relative value is dropped rather than resolved against the feed URL. The
- * HTML path resolves hrefs through `absoluteUrl`; feeds are out of scope until
- * one is seen publishing a relative URL, because guessing the base for an
- * entry that may have been syndicated is how a wrong link gets published.
+ * A relative value is dropped rather than resolved here. A calendar entry is
+ * the one feed shape that travels: a VEVENT can be syndicated far from the
+ * host that wrote it, so the feed URL is not reliably its base, and guessing
+ * one is how a wrong link gets published. A JSON entry does not travel that
+ * way, which is why `declaredUrls` does resolve.
  * @param block - the VEVENT block's lines, as written in the feed.
  */
 function icsPublishedUrls(block: string[]): string[] {
@@ -765,16 +766,43 @@ function icsValue(lines: string[], name: string): string {
  * The body as a top-level JSON array, when that is what it is.
  * @param page - the fetched page.
  */
+/** Where a JSON feed that wraps its entries in an object tends to keep them. */
+const FEED_ARRAY_PATHS = ['upcoming', 'items', 'events', 'data'] as const;
+
+/**
+ * The entries of a JSON feed, whether the body is the array or wraps one.
+ *
+ * A bare array is the easy case. Squarespace, and every CMS that answers a
+ * listing with its whole page model, returns an object instead: the site's
+ * settings, its navigation, and the entries under a key. Refusing those left
+ * the entire page model as one document, and since only the first
+ * `PAGE_CHAR_CAP` characters reach the model, what it read was the site
+ * settings and never an event. `looksLikeFeed` already admits such a body, so
+ * refusing to split it was the connector disagreeing with itself.
+ *
+ * Only the first populated key is taken. A listing that publishes `upcoming`
+ * beside `past` means the second one on purpose, and `splitJsonArray` abandons
+ * the whole file on a repeated id, which a recurring entry present in both
+ * would cause.
+ * @param page - the fetched feed.
+ */
 function topLevelJsonArray(page: FetchedPage): unknown[] | null {
   if (!page.contentType.includes('json')) {
     return null;
   }
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(page.raw);
-    return Array.isArray(parsed) ? parsed : null;
+    parsed = JSON.parse(page.raw);
   } catch {
     return null;
   }
+  for (const path of FEED_ARRAY_PATHS) {
+    const found = arrayFromBody(parsed, path);
+    if (found?.length) {
+      return found;
+    }
+  }
+  return Array.isArray(parsed) ? parsed : null;
 }
 
 /**
@@ -800,7 +828,7 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
       return null;
     }
     seen.add(externalId);
-    const published = declaredUrls(item);
+    const published = declaredUrls(item, page.url);
     docs.push({
       externalId,
       uri: externalId,
@@ -822,8 +850,15 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
 const ITEM_KEY_FIELDS = ['@id', 'id', 'slug'] as const;
 /** Keys a JSON feed item might state its own name with, in order of trust. */
 const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
-/** Keys a JSON feed item might publish a URL of its own with. */
-const ITEM_URL_FIELDS = ['url', 'link', 'image', 'thumbnail'] as const;
+/**
+ * Keys a JSON feed item might publish a URL of its own with.
+ *
+ * `fullUrl` and `assetUrl` are what a Squarespace entry uses, and they are the
+ * reason this list resolves relative values: `fullUrl` is a path, `/events/x`,
+ * and the gate it feeds compares exactly, so an unresolved path can never
+ * match what a model read and would drop the link it exists to keep.
+ */
+const ITEM_URL_FIELDS = ['url', 'link', 'fullUrl', 'image', 'thumbnail', 'assetUrl'] as const;
 
 /**
  * The item's own stable identifier, when it publishes one.
@@ -869,14 +904,13 @@ function declaredTitle(item: unknown): string | undefined {
  *
  * Only top-level string values are read. A URL nested inside an object is left
  * alone rather than guessed at, because the shape of a feed item is the
- * publisher's to choose and walking it would turn this into a parser. A
- * relative value is dropped rather than resolved, for the reason given on
- * `icsPublishedUrls`.
+ * publisher's to choose and walking it would turn this into a parser.
  *
- * Bounded by construction: four property names, so at most four URLs.
+ * Bounded by construction: six property names, so at most six URLs.
  * @param item - one entry from the array.
+ * @param baseUrl
  */
-function declaredUrls(item: unknown): string[] {
+function declaredUrls(item: unknown, baseUrl: string): string[] {
   if (!isRecord(item)) {
     return [];
   }
@@ -886,7 +920,10 @@ function declaredUrls(item: unknown): string[] {
     if (typeof value !== 'string') {
       continue;
     }
-    const url = value.trim();
+    // Resolved against the feed's own URL, which is where the entry was
+    // published. A base that will not parse leaves the value as written, and
+    // a path that stays a path then fails the fetchable test below.
+    const url = absoluteUrl(value, baseUrl) ?? '';
     // A CMS export routinely repeats one link under two keys, so the dedupe is
     // what keeps the stored row honest rather than a formality.
     if (isFetchableUrl(url)) {

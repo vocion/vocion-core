@@ -105,6 +105,16 @@ SUMMARY:Broken but keyed
 END:VEVENT
 END:VCALENDAR`;
 
+const WRAPPED_JSON = {
+  website: { identifier: 'venue' },
+  collection: { title: 'Events' },
+  upcoming: [
+    { id: 'a1', title: 'Opening Night', fullUrl: '/events/opening-night', assetUrl: 'https://cdn.venue.test/opening.jpg' },
+    { id: 'a2', title: 'Second Night', fullUrl: '/events/second-night' },
+  ],
+  past: [{ id: 'a1', title: 'Opening Night' }],
+};
+
 const RSS = `<?xml version="1.0"?><rss version="2.0"><channel><title>Shows</title>
 <item><title>Opening Night</title><link>https://venue.test/shows/opening</link></item>
 </channel></rss>`;
@@ -395,6 +405,33 @@ describe('the JSON per-event split', () => {
     ]);
   });
 
+  it('splits a feed that wraps its entries in an object, and ignores the sibling array', async () => {
+    stubFetch(() => Response.json(WRAPPED_JSON));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // `past` repeats an id, and one repeated id abandons the split for the
+    // whole file, so taking only the first populated key is load-bearing.
+    expect(docs.map(d => d.title)).toEqual(['Opening Night', 'Second Night']);
+    expect(docs.map(d => d.externalId)).toEqual([
+      'https://venue.test/events.json#a1',
+      'https://venue.test/events.json#a2',
+    ]);
+  });
+
+  it('resolves an entry\'s relative page link against the feed it came from', async () => {
+    stubFetch(() => Response.json(WRAPPED_JSON));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // The gate compares exactly, so a path left as a path can never match what
+    // the model read off the entry and the link would be dropped.
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/events/opening-night',
+      'https://cdn.venue.test/opening.jpg',
+    ]);
+  });
+
   it('hashes the item when it publishes no key, and never uses its index', async () => {
     const items = [{ when: '2026-11-01' }, { when: '2026-11-08' }];
     stubFetch(() => Response.json(items));
@@ -520,7 +557,12 @@ describe('feed discovery', () => {
     const { docs, events } = await run({ crawl: { startUrl: LISTING_URL } });
 
     expect(events.some(e => e.message?.startsWith('source: discovered json feed'))).toBe(true);
-    expect(docs.map(d => d.externalId)).toEqual([`${LISTING_URL}?format=json`]);
+    // One document per entry, not one for the page model. Discovery already
+    // accepted this body; refusing to split it left the site's settings as the
+    // only thing the extractor ever read.
+    expect(docs).toHaveLength(1);
+    expect(docs[0]?.title).toBe('Opening Night');
+    expect(docs[0]?.externalId.startsWith(`${LISTING_URL}?format=json#`)).toBe(true);
   });
 
   it('skips discovery entirely when the config names a feed', async () => {
