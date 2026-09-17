@@ -22,6 +22,7 @@ import { apolloCompanyTools } from './apolloCompanies';
 import { apolloInScope } from './apolloDirect';
 import { apolloListTools } from './apolloLists';
 import { apolloPeopleTools } from './apolloPeople';
+import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
@@ -109,6 +110,11 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     webSearchTool(ctx),
     fetchUrlTool(ctx),
     crawlSiteTool(ctx),
+    // A company's own site, read rather than recalled. Source-gated like the
+    // other paid providers would be, except that brand lookup is useful to
+    // every agent that writes TO a company, so it ships on by default and
+    // reports plainly when no Firecrawl key is configured.
+    brandLookupTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     runCodeTool(ctx),
