@@ -4,12 +4,17 @@
  * the per-event split.
  *
  * The split is a TEXT split and the tests hold it to that: components come out
- * on `BEGIN:VEVENT` … `END:VEVENT`, only the fields a later stage keys or
- * the split key and the URL properties are unfolded, and nothing expands an
- * RRULE or does TZID arithmetic. Ids are the feed's own keys, never the item's
- * position in the feed, because one reorder or one
- * removal mid-feed would then rewrite every id after it and cost a re-embed
- * and a model call per document.
+ * on `BEGIN:VEVENT` … `END:VEVENT`, every property read as a value is unfolded,
+ * and nothing expands an RRULE or does TZID arithmetic. Ids are the feed's own
+ * keys, never the item's position in the feed, because one reorder or one
+ * removal mid-feed would then rewrite every id after it and cost a re-embed and
+ * a model call per document.
+ *
+ * A malformed feed is held to a second rule, which the two readings of a block
+ * exist for: a broken line may cost the value on that line, never the split. A
+ * lost UID abandons the split for the whole file, so the key is read wherever
+ * it appears, while a URL, a claim about what the document published, is
+ * taken only when the event itself wrote it and the line parsed without a guess.
  */
 import type { SourceContext } from './types';
 import type { IngestDoc } from '@/services/IngestionService';
@@ -104,6 +109,46 @@ UID;X-NOTE="never closed:evt-6@venue.test
 SUMMARY:Broken but keyed
 END:VEVENT
 END:VCALENDAR`;
+
+const STRAY_END_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+END:VTIMEZONE
+UID:evt-7@venue.test
+SUMMARY:Stray end before the key
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-8@venue.test
+SUMMARY:Second
+END:VEVENT
+END:VCALENDAR`;
+
+const UNCLOSED_ALARM_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+BEGIN:VALARM
+ACTION:DISPLAY
+UID:evt-9@venue.test
+SUMMARY:Alarm opened and never closed
+END:VEVENT
+END:VCALENDAR`;
+
+const FORGED_ATTACH_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-10@venue.test
+SUMMARY:Forged attachment
+ATTACH;FILENAME="never closed:https://elsewhere.example/forged.png
+END:VEVENT
+END:VCALENDAR`;
+
+const CAPPED_ATTACH_ICS = [
+  'BEGIN:VCALENDAR',
+  'BEGIN:VEVENT',
+  'UID:evt-11@venue.test',
+  'SUMMARY:Sixty attachments',
+  ...Array.from({ length: 60 }, (_, i) => `ATTACH;FMTTYPE=image/png:https://cdn.venue.test/p${i}.png`),
+  `ATTACH;FMTTYPE=image/png:https://cdn.venue.test/${'x'.repeat(2100)}.png`,
+  'END:VEVENT',
+  'END:VCALENDAR',
+].join('\n');
 
 const WRAPPED_JSON = {
   website: { identifier: 'venue' },
@@ -351,6 +396,58 @@ describe('the ICS per-event split', () => {
     expect(docs.map(d => d.externalId)).toEqual([`${ICS_URL}#evt-6@venue.test`]);
   });
 
+  it('keeps the split when a stray END: appears before the key', async () => {
+    stubFetch(() => typed(STRAY_END_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // Nesting is tracked by name, so an END: that closes nothing that is open
+    // is ignored. Counting instead would leave the depth permanently off by
+    // one, and every property after it, UID included, would read as some
+    // other component's, collapsing the whole feed into one document.
+    expect(docs.map(d => d.externalId)).toEqual([
+      `${ICS_URL}#evt-7@venue.test`,
+      `${ICS_URL}#evt-8@venue.test`,
+    ]);
+  });
+
+  it('still finds the key when an alarm is opened and never closed', async () => {
+    stubFetch(() => typed(UNCLOSED_ALARM_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // The key is read wherever it was written. Scoping it to the event's own
+    // nesting level would lose it here, and a lost UID costs every document of
+    // the source, which is never worth the tidier reading.
+    expect(docs.map(d => d.externalId)).toEqual([`${ICS_URL}#evt-9@venue.test`]);
+  });
+
+  it('refuses to declare a URL it had to guess the value of', async () => {
+    stubFetch(() => typed(FORGED_ATTACH_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // The line's quotes never close, so splitting it is guesswork, and the
+    // guess happens to produce something shaped exactly like a published URL.
+    // The event keeps its document; it just publishes nothing.
+    expect(docs.map(d => d.externalId)).toEqual([`${ICS_URL}#evt-10@venue.test`]);
+    expect(docs[0]?.metadata?.publishedUrls).toBeUndefined();
+  });
+
+  it('bounds what one entry may declare, by count and by length', async () => {
+    stubFetch(() => typed(CAPPED_ATTACH_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // ATTACH repeats without limit and an unfolded value concatenates every
+    // continuation line, so the row a hostile feed can write has a ceiling.
+    const published = docs[0]?.metadata?.publishedUrls as string[];
+
+    expect(published).toHaveLength(50);
+    expect(published.every(u => u.length <= 2048)).toBe(true);
+    expect(published[0]).toBe('https://cdn.venue.test/p0.png');
+  });
+
   it('reads past a quoted parameter that would otherwise forge a URL', async () => {
     stubFetch(() => typed(QUOTED_TRAP_ICS, 'text/calendar'));
 
@@ -410,8 +507,9 @@ describe('the JSON per-event split', () => {
 
     const { docs } = await run({ urls: ['https://venue.test/events.json'] });
 
-    // `past` repeats an id, and one repeated id abandons the split for the
-    // whole file, so taking only the first populated key is load-bearing.
+    // Both `upcoming` and `past` are entry-shaped, so shape alone cannot
+    // separate them and the tie-break decides. It has to: `past` repeats an id,
+    // and one repeated id abandons the split for the whole file.
     expect(docs.map(d => d.title)).toEqual(['Opening Night', 'Second Night']);
     expect(docs.map(d => d.externalId)).toEqual([
       'https://venue.test/events.json#a1',
@@ -451,6 +549,80 @@ describe('the JSON per-event split', () => {
     const { docs } = await run({ urls: ['https://venue.test/events.json'] });
 
     expect(docs.map(d => d.externalId)).toEqual(['https://venue.test/events.json']);
+  });
+
+  it('picks the entries over a sibling list of plain strings', async () => {
+    stubFetch(() => Response.json({
+      urls: ['https://venue.test/a', 'https://venue.test/b'],
+      events: [{ id: 'e1', title: 'Real One' }, { id: 'e2', title: 'Real Two' }],
+    }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // Entries are objects. A list of bare strings is a link registry or a
+    // navigation menu, and splitting on it would key two documents by hash,
+    // embed them and spend a model call each proving there is no event in
+    // `"https://venue.test/a"`.
+    expect(docs.map(d => d.title)).toEqual(['Real One', 'Real Two']);
+  });
+
+  it('breaks a tie between two entry-shaped keys by the known names', async () => {
+    stubFetch(() => Response.json({
+      items: [{ id: 'i1', title: 'Archived' }],
+      upcoming: [{ id: 'u1', title: 'Tonight' }],
+    }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // Both qualify on shape and `items` is written first, so insertion order
+    // would pick the wrong one. The named list exists for exactly this.
+    expect(docs.map(d => d.title)).toEqual(['Tonight']);
+  });
+
+  it('reads an empty known key as "nothing today" rather than falling through to the archive', async () => {
+    stubFetch(() => Response.json({
+      upcoming: [],
+      past: [{ id: 'p1', title: 'Last Month' }, { id: 'p2', title: 'Last Year' }],
+    }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // Otherwise the day the last event passes, every document of the source is
+    // tombstoned and replaced by its archive, then replaced back when the next
+    // event is posted, and each stale entry costs a model call, because a past
+    // date is only recognised after the model has read it.
+    expect(docs.map(d => d.externalId)).toEqual(['https://venue.test/events.json']);
+  });
+
+  it('splits on an unknown key when the body names none of the known ones', async () => {
+    stubFetch(() => Response.json({ shows: [{ id: 's1', title: 'House Band' }] }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // Shape is what identifies entries; the known names only settle which of
+    // several candidates a publisher meant.
+    expect(docs.map(d => d.title)).toEqual(['House Band']);
+  });
+
+  it('leaves a body whose only array is plain strings as one document', async () => {
+    stubFetch(() => Response.json({ items: ['Home', 'About', 'Contact'] }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    expect(docs.map(d => d.externalId)).toEqual(['https://venue.test/events.json']);
+  });
+
+  it('declares an entry\'s image published under the extractor\'s own field name', async () => {
+    stubFetch(() => Response.json([
+      { id: 'b1', title: 'Poster Night', imageUrl: 'https://cdn.venue.test/poster.jpg' },
+    ]));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // `imageUrl` is what the pipeline reads the value back out of, so an entry
+    // publishing it under that exact name losing it would be the whole defect
+    // this list exists to fix, reproduced.
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://cdn.venue.test/poster.jpg']);
   });
 });
 
