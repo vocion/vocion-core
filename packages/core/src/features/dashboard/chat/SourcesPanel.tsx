@@ -136,7 +136,7 @@ export function SourcesPanel({ documents, open, onClose, focusCitation, citedInd
         onClick={onClose}
         className="fixed inset-0 z-40 bg-black/40 sm:hidden"
       />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-[85vw] max-w-sm shrink-0 flex-col overflow-x-hidden border-l border-border bg-background shadow-xl sm:static sm:z-auto sm:w-96 sm:max-w-none sm:shadow-none">
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-[85vw] max-w-sm shrink-0 flex-col overflow-x-hidden border-l border-border bg-background shadow-xl sm:static sm:z-auto sm:w-96 sm:max-w-none sm:shadow-none lg:w-[28rem] 2xl:w-[32rem]">
         <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">

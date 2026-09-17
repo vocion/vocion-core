@@ -119,7 +119,8 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // decorative circle.
   return (
     <div className="group flex">
-      <div className="max-w-2xl min-w-0 flex-1">
+      {/* Width comes from the column in MessageList, not a second cap here. */}
+      <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <span>{agentName}</span>
           {via && (
