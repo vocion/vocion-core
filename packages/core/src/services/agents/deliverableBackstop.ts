@@ -100,7 +100,10 @@ export function subjectOf(request: string): string {
     .replace(/^(?:a|an|the|me\s+a|me\s+an|us\s+a|us\s+an)\s+/i, '')
     .replace(/[?!.\s]+$/, '')
     .trim();
-  const subject = cleaned.length > 0 ? cleaned : 'Requested document';
+  // "An" is what a request beginning "An overview of…" left after the article
+  // strip failed to match — and "An — not completed" is what got filed. Anything
+  // under two words or four letters is not a subject.
+  const subject = cleaned.length >= 4 || cleaned.includes(' ') ? cleaned : 'Requested document';
   const capped = subject.length > 80 ? `${subject.slice(0, 77).trimEnd()}…` : subject;
   return capped.charAt(0).toUpperCase() + capped.slice(1);
 }
