@@ -10,7 +10,7 @@
 import type { GetBatchEvaluationCommandOutput } from '@aws-sdk/client-bedrock-agentcore';
 import type { CaseTranscript } from '../transcripts';
 import { describe, expect, it } from 'vitest';
-import { buildBatchRequest, groundTruthFor, parseBatchResults } from './agentcoreBatch';
+import { batchEvaluationNameFor, buildBatchRequest, groundTruthFor, parseBatchResults } from './agentcoreBatch';
 
 /**
  * A finished case, with whatever ground truth this test is about.
@@ -41,7 +41,7 @@ function polled(overrides: Partial<GetBatchEvaluationCommandOutput>): GetBatchEv
 }
 
 const BASE = {
-  batchEvaluationName: 'refund-quality-2026-09-17',
+  batchEvaluationName: 'vocion_run41_refund_quality',
   evaluatorIds: ['Builtin.TrajectoryInOrderMatch'],
   serviceNames: ['vocion_agent_runtime_dev'],
   logGroupNames: ['aws/spans'],
@@ -247,5 +247,43 @@ describe('parseBatchResults', () => {
       logGroupName: '/aws/bedrock-agentcore/evaluations',
       logStreamName: 'job-1',
     });
+  });
+});
+
+describe('batchEvaluationNameFor', () => {
+  it('produces a name AWS will accept from a hyphenated slug', () => {
+    // Found by a live call, not by a test: AWS rejects anything outside
+    // /^[a-zA-Z][a-zA-Z0-9_]{0,47}$/ with a 400, and every dataset slug in the
+    // product is hyphenated. The previous name was `vocion-<slug>-run-<id>`,
+    // so no batch job could ever have started.
+    const name = batchEvaluationNameFor('refund-quality-2026', 41);
+
+    expect(name).toMatch(/^[a-z]\w{0,47}$/i);
+    expect(name).not.toContain('-');
+  });
+
+  it('keeps the run id when the slug is too long to fit', () => {
+    // The name is cut from the right, so a long slug would eat the run id and
+    // two runs of one dataset would collide on a name AWS wants unique.
+    const name = batchEvaluationNameFor('a-very-long-dataset-slug-that-will-not-fit-in-forty-eight', 7);
+
+    expect(name).toMatch(/^[a-z]\w{0,47}$/i);
+    expect(name).toContain('run7');
+  });
+
+  it('never ends on the separator left by truncation', () => {
+    const name = batchEvaluationNameFor(`${'x'.repeat(30)}-tail`, 1);
+
+    expect(name.endsWith('_')).toBe(false);
+  });
+});
+
+describe('buildBatchRequest name validation', () => {
+  it('refuses a name AWS would reject, before spending a call', () => {
+    expect(() => buildBatchRequest({
+      ...BASE,
+      batchEvaluationName: 'refund-quality-2026-09-17',
+      transcripts: [transcript({ itemIndex: 0 })],
+    })).toThrow(/letters, digits and underscores/);
   });
 });

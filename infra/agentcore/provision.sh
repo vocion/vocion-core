@@ -5,7 +5,8 @@
 #   2. Execution role the AgentCore Runtime assumes (model calls, logs, ECR pull)
 #   3. AgentCore Memory store (short-term; consumed in Phase 5)
 #   4. CloudWatch Transaction Search, so agent spans can reach CloudWatch Logs
-#   5. Outputs → SSM Parameter Store under /vocion/agentcore/<env>/
+#   5. Execution role AgentCore Evaluations assumes to read those spans
+#   6. Outputs → SSM Parameter Store under /vocion/agentcore/<env>/
 #
 # Usage: ENV=dev AWS_PROFILE=metacto REGION=us-west-2 bash infra/agentcore/provision.sh
 set -euo pipefail

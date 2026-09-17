@@ -86,6 +86,32 @@ export type BatchRequestOptions = {
 };
 
 /**
+ * What AWS accepts as a job name: letters, digits and underscores, starting
+ * with a letter, 48 characters at most.
+ *
+ * Written out here because nothing in the SDK types carries it — the shape says
+ * `string`, and a name with a hyphen in it is rejected at the API with a 400
+ * that never reaches a test suite.
+ */
+const BATCH_NAME_PATTERN = /^[a-z]\w{0,47}$/i;
+
+/**
+ * Name one dataset run's job, within what AWS will accept.
+ *
+ * Dataset slugs are hyphenated and can be long, and both of those are rejected,
+ * so neither the slug nor anything derived from it can be used as a name
+ * directly. The run id goes first, ahead of the slug, because the name is
+ * truncated from the right and the run id is the part that has to survive: it
+ * is what makes two runs of the same dataset two different jobs.
+ * @param datasetSlug - Which dataset ran.
+ * @param runId - Which run of it, and what keeps the name unique.
+ */
+export function batchEvaluationNameFor(datasetSlug: string, runId: number): string {
+  const readable = datasetSlug.replace(/[^a-z0-9]/gi, '_');
+  return `vocion_run${runId}_${readable}`.slice(0, 48).replace(/_+$/, '');
+}
+
+/**
  * The ground truth for one case, in the envelope batch evaluation expects.
  *
  * Returns undefined when the case authored nothing to check against. Sending
@@ -135,6 +161,14 @@ export function groundTruthFor(transcript: CaseTranscript): SessionMetadataShape
  * @param options - The job to describe.
  */
 export function buildBatchRequest(options: BatchRequestOptions): StartBatchEvaluationCommandInput {
+  if (!BATCH_NAME_PATTERN.test(options.batchEvaluationName)) {
+    throw new Error(
+      `"${options.batchEvaluationName}" cannot be a batch evaluation name. AWS accepts letters, `
+      + 'digits and underscores only, starting with a letter and at most 48 characters. '
+      + 'Build it with batchEvaluationNameFor rather than from a slug, which may contain hyphens.',
+    );
+  }
+
   const sessionMetadata: SessionMetadataShape[] = [];
   for (const transcript of options.transcripts) {
     if (transcript.errored) {

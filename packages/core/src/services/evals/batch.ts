@@ -32,6 +32,7 @@ import { evaluatorIdsFor } from './providers/agentcore';
 import {
   AGENTCORE_BATCH_PROVIDER,
   batchClient,
+  batchEvaluationNameFor,
   buildBatchRequest,
   getBatchEvaluation,
   startBatchEvaluation,
@@ -117,7 +118,7 @@ export async function startBatchForRun(options: StartBatchOptions): Promise<numb
   try {
     const evaluatorIds = await evaluatorIdsFor(options.orgId, options.datasetSlug, credentials, region);
     const request = buildBatchRequest({
-      batchEvaluationName: `vocion-${options.datasetSlug}-run-${options.runId}`.slice(0, 100),
+      batchEvaluationName: batchEvaluationNameFor(options.datasetSlug, options.runId),
       evaluatorIds,
       serviceNames: spanServiceNames(),
       logGroupNames: spanLogGroups(),
