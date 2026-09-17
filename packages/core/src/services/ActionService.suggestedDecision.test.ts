@@ -103,7 +103,9 @@ describe('proposeAction with a recommendation against acting', () => {
   });
 
   it('still auto-executes when the agent gave no recommendation at all', async () => {
-    // Everything proposed before this field existed behaves exactly as before.
+    // A null pair is what a producer sends when nothing judged the card, and
+    // it must behave exactly like the rows written before the field existed:
+    // the trust rule decides, and silence never blocks or releases anything.
     await enableTrustRule();
 
     const res = await proposeAction({
@@ -111,11 +113,31 @@ describe('proposeAction with a recommendation against acting', () => {
       actionId: ACTION_ID,
       input: { value: 'x' },
       principal: agent,
-      proposal: { confidence: 0.99, suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the listing rules and nothing like it is queued.' },
+      proposal: { confidence: 0.99, suggestedDecision: null, suggestedDecisionReason: null },
     });
 
     expect(res.status).toBe('done');
     expect(executed).toBe(1);
+  });
+
+  it('stores neither field when nothing judged the card, rather than a stored null', async () => {
+    // The agreement rate counts rows whose recommendation is not null, and it
+    // reads the stored envelope. A null written into the column would have to
+    // be special-cased by every reader; an absent key is what every row
+    // written before this looked like, so that is what a null pair becomes.
+    await proposeAction({
+      orgId: ORG,
+      actionId: ACTION_ID,
+      input: { value: 'x' },
+      principal: agent,
+      proposal: { confidence: 0.4, suggestedDecision: null, suggestedDecisionReason: null },
+    });
+
+    const [row] = await db.select().from(actionRunSchema);
+
+    expect(row!.proposal).not.toHaveProperty('suggestedDecision');
+    expect(row!.proposal).not.toHaveProperty('suggestedDecisionReason');
+    expect(row!.proposal).toMatchObject({ confidence: 0.4 });
   });
 
   it('a re-proposal that changes its mind replaces the recommendation', async () => {
