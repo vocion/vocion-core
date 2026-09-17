@@ -3,7 +3,7 @@ name: Intake Lead
 description: 'Works the queue — everything that arrives gets classified, checked against what is known, and routed with a reason.'
 icon: inbox
 accent: amber
-team: revenue
+team: sales
 agentType: operational
 active: true
 

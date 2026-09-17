@@ -3,7 +3,7 @@ name: 'Risk & Compliance Lead'
 description: 'Compares a thing against the written standard and reports where it deviates, by severity, with the fix.'
 icon: shield
 accent: stone
-team: governance
+team: legal-and-people
 agentType: operational
 active: true
 
