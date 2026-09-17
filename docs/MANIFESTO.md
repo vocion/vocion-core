@@ -80,6 +80,11 @@ Every additional choice has a cost.
 
 If Vocion can make a decision safely and correctly for the user, it should.
 
+**The reduction pass** — how this is actually done, with worked examples of the
+five ways a surface gets bloated and the rule that *less evidence should produce
+a smaller output, not a longer explanation of why evidence is missing* — is in
+[`docs/design/reduction.md`](./design/reduction.md).
+
 ## 5. Serious software should still be fun
 
 Work does not need to feel like enterprise software. Vocion should feel responsive, alive, and
@@ -288,6 +293,12 @@ opinionated and disposable without taxing everyone else.
 - Every vertical added to the core is paid for by every workspace that will never use it.
 
 **Generalize into the core. Specialize at the edge.**
+
+In practice this starts with the vocabulary: Vocion has a small set of nouns —
+record, artifact, ask, conversation, run, measure — and a new feature maps onto
+one of them rather than adding another. The worked example, and the tell that you
+are duplicating a noun rather than extending it, are in
+[`docs/design/reduction.md`](./design/reduction.md).
 
 ## The Vocion loop
 

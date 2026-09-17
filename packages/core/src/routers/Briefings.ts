@@ -3,6 +3,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
+import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
 import { guardAuth } from './AuthGuards';
 
 /**
@@ -24,7 +25,7 @@ export const regenerateRoute = os
         .where(and(eq(teamSchema.orgId, orgId), eq(teamSchema.slug, input.teamSlug)))
         .limit(1);
       runner = team?.lead ?? null;
-      instruction = 'Assemble and publish your team\'s daily brief NOW. Ground it in the tracker, your missions, and fresh sources (freshen gmail first if relevant). Structure it as a scannable document (sections, priority-ranked actions). Publish via publish_briefing when done — do not ask for permission.';
+      instruction = TEAM_BRIEF_INSTRUCTION;
     } else {
       const [proj] = await db
         .select({ lead: projectSchema.leadAgentSlug })
@@ -32,7 +33,7 @@ export const regenerateRoute = os
         .where(eq(projectSchema.id, orgId))
         .limit(1);
       runner = proj?.lead ?? null;
-      instruction = 'Assemble and publish the WORKSPACE ROLLUP brief NOW: read each team\'s latest brief (get_briefing with team:"<slug>"), synthesize the cross-team picture (top priorities, risks, asks), and publish via publish_briefing with rollup:true. Do not ask for permission.';
+      instruction = WORKSPACE_BRIEF_INSTRUCTION;
     }
     if (!runner) {
       return { ok: false as const, error: 'no lead agent for this scope' };

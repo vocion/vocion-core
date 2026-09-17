@@ -58,6 +58,14 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   const autoFiredRef = useRef(rec.runId !== undefined);
 
   const prepare = async () => {
+    // Belt and braces behind `readRecommendedAction` (the event boundary): a
+    // card with no action names nothing to propose, and firing the RPC anyway
+    // is how two 400s reached production. Nothing here recovers from it —
+    // this is the last place that can refuse to make the call.
+    if (!rec.actionId) {
+      setPhase({ status: 'error', message: 'This recommendation named no action, so there is nothing to prepare.' });
+      return;
+    }
     setPhase({ status: 'working' });
     try {
       const res = await client.review.propose({
@@ -90,7 +98,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   };
 
   useEffect(() => {
-    if (autoPropose && !autoFiredRef.current) {
+    if (autoPropose && !autoFiredRef.current && rec.actionId) {
       autoFiredRef.current = true;
       // Proposing IS the effect here: the thread runs at act-within-bounds,
       // so the card fires its one network call the moment it appears.
@@ -148,8 +156,9 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       </div>
 
       {/* Draft preview — one compact block: to→subject line + 2-line body */}
+      {/* A hairline block, not a second card inside the card. */}
       {isEmail && (to || subject || body) && (
-        <div className="mx-3 mt-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs">
+        <div className="mt-2 border-t border-rule px-3 pt-2 text-xs">
           {(to || subject) && (
             <div className="truncate">
               {to && <span className="text-muted-foreground">{to}</span>}
@@ -218,7 +227,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
                   href={phase.runId !== undefined ? inboxHref('proposal', phase.runId) : '/dashboard/inbox?kind=proposal'}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-tint px-3 py-1.5 text-sm font-medium text-brand-amber-deep transition hover:opacity-90"
                 >
-                  {status === 'pending' ? 'Decide on Needs you' : 'Open on Needs you'}
+                  {status === 'pending' ? 'Decide in review' : 'Open in review'}
                   <ArrowRight className="size-3.5" aria-hidden />
                 </Link>
                 {decideError && (

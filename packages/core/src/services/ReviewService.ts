@@ -18,6 +18,7 @@ import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
+import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
@@ -47,7 +48,51 @@ export type ReviewItem = {
    * just to label rows it already has in hand.
    */
   suggestedDecision?: SuggestedDecision;
+  /**
+   * Who made the approval call: `true` an agent took it on its own via the
+   * trust ladder, `false` a person decided it, `null` nobody has decided yet.
+   *
+   * Null on every item still waiting for a decision, and on every run decided
+   * before the column shipped. Never read a missing value as a human approval;
+   * it means unknown.
+   *
+   * Not always null in the queue, which is the part worth knowing: a run whose
+   * approval stood but whose execution threw stays in the queue as `failed`,
+   * so it carries the real answer — `true` when the trust ladder released it,
+   * `false` when a person did.
+   *
+   * Workflow and mission items carry `null` too: neither plane has an
+   * auto-approval path, so there is no honest value other than "no agent
+   * decided this".
+   */
+  approvedByAgent?: boolean | null;
+  /**
+   * The payload the decision would act on, present ONLY when the caller asked
+   * for it through `include`. Undefined otherwise, which is every caller that
+   * existed before this option did.
+   *
+   * Same reasoning as `suggestedDecision` above, one step further. A client
+   * that sorts the queue by something inside the payload - a proposal's date,
+   * its venue, whether it is complete enough to publish - cannot do that from
+   * a thin row, so it fetches every item's detail just to bucket it. At 428
+   * pending items that is 428 round trips to build one screen.
+   *
+   * Opt-in because the payload is unbounded. A page of thin rows is a few KB;
+   * the same page carrying inputs can be a megabyte, and no existing caller
+   * should start paying that without asking.
+   */
+  input?: Record<string, unknown> | null;
+  /**
+   * The agent-proposal envelope - confidence, rationale, evidence - present
+   * only when asked for. Actions only: a workflow or mission item carries no
+   * envelope and keeps this undefined even when requested.
+   */
+  proposal?: Record<string, unknown> | null;
 };
+
+/** A payload a list caller may ask to have inlined on each item. */
+export const REVIEW_INCLUDES = ['input', 'proposal'] as const;
+export type ReviewInclude = (typeof REVIEW_INCLUDES)[number];
 
 export type ListOptions = {
   /** Filter to items routed to this user id; pass `null` for the unassigned queue. Omit for all. */
@@ -70,6 +115,17 @@ export type ListOptions = {
    */
   actionIds?: string[];
   /**
+   * Inline these payloads on each item instead of leaving each one to its own
+   * detail fetch. Omit for the thin rows every caller gets today.
+   *
+   * Additive by construction: an item carries a key only when it was asked
+   * for, so a caller that passes nothing gets a byte-identical response to the
+   * one it got before this existed. Only the action plane has either payload
+   * to give, and the columns are selected only when requested, so an unasked
+   * query reads exactly the columns it always did.
+   */
+  include?: readonly ReviewInclude[];
+  /**
    * Restrict to items where the AGENT recommended this — `approve`, `reject`
    * or `snooze`. Only action runs carry a recommendation, so this narrows the
    * queue to the action plane by definition: a workflow or mission item has no
@@ -81,6 +137,26 @@ export type ListOptions = {
    * rather than counting the whole queue and filtering the page.
    */
   suggestedDecision?: SuggestedDecision;
+  /**
+   * Restrict to items by WHO made the approval call: `true` the trust ladder
+   * took it, `false` a person did, `null` nobody has yet.
+   *
+   * What this cuts is the failed lane. A run whose approval stood and whose
+   * execution threw stays in the queue, so "the agent released this and it
+   * broke" is a real set of rows and a different triage job from "a person
+   * approved it and it broke" — until now they came back mixed together.
+   *
+   * `true` and `false` return the action plane alone: no workflow or mission
+   * has an auto-approval path, so no row on those planes could ever match.
+   * `null` keeps all three, because an item nobody has decided is exactly what
+   * a paused workflow or a mission awaiting review is.
+   *
+   * Runs in the WHERE clause, like `actionIds` and `suggestedDecision`, so the
+   * total stays truthful rather than counting the whole queue and filtering
+   * the page. Omit the key for no filter — passing `null` is a filter, and
+   * means something different.
+   */
+  approvedByAgent?: boolean | null;
 };
 
 /** A page of the queue plus the total number of items the filters matched. */
@@ -132,6 +208,26 @@ function routingFilters(opts: ListOptions, now: Date): SQL[] {
     filters.push(eq(reviewAssignmentSchema.assignedTo, opts.assignedTo));
   }
   return filters;
+}
+
+/**
+ * The WHERE clause for the `approvedByAgent` filter, or nothing when the
+ * caller did not ask for one.
+ *
+ * Spread into the clause rather than returned as a value, because "no filter"
+ * and "filter on null" are different requests and only an empty list can say
+ * the first one. Asking for null compiles to IS NULL: `approved_by_agent =
+ * NULL` is never true in SQL and would hand back an empty queue.
+ * @param opts
+ */
+function approvedByAgentFilter(opts: ListOptions): SQL[] {
+  if (opts.approvedByAgent === undefined) {
+    return [];
+  }
+  if (opts.approvedByAgent === null) {
+    return [isNull(actionRunSchema.approvedByAgent)];
+  }
+  return [eq(actionRunSchema.approvedByAgent, opts.approvedByAgent)];
 }
 
 /**
@@ -207,6 +303,10 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    // Stated, not omitted: `getReviewDetail` returns null for this plane, and
+    // a key that is present on the detail but missing from the list is the
+    // shape a client reads with `?? false` and gets wrong.
+    approvedByAgent: null,
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -256,6 +356,8 @@ async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    // Same as the workflow plane: present and null, never absent.
+    approvedByAgent: null,
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -291,8 +393,19 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // is the expression index behind this; it is partial on the same two
     // statuses the clause above names, so the two have to stay in step.
     ...(opts.suggestedDecision ? [eq(suggestedDecisionColumn, opts.suggestedDecision)] : []),
+    // `null` is a value the caller can ask for, so the key being ABSENT is the
+    // only thing that means "no filter" — `opts.approvedByAgent ? …` would
+    // quietly turn a request for undecided rows into a request for all of them.
+    // Asking for null needs IS NULL: `= NULL` matches nothing in SQL.
+    ...approvedByAgentFilter(opts),
     ...routingFilters(opts, now),
   );
+  // Two jsonb columns the queue has never read. They are selected only when a
+  // caller asked for them, so the query an existing caller issues is unchanged
+  // down to the column list, and nobody starts paying to haul payloads they
+  // are not going to look at.
+  const wantsInput = opts.include?.includes('input') ?? false;
+  const wantsProposal = opts.include?.includes('proposal') ?? false;
   const query = db
     .select({
       id: actionRunSchema.id,
@@ -302,6 +415,9 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       suggestedDecision: suggestedDecisionColumn,
+      approvedByAgent: actionRunSchema.approvedByAgent,
+      ...(wantsInput ? { input: actionRunSchema.input } : {}),
+      ...(wantsProposal ? { proposal: actionRunSchema.proposal } : {}),
     })
     .from(actionRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
@@ -322,6 +438,18 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // older release or by hand can be any string at all, and a row claiming a
     // recommendation nobody defined should read as having none.
     suggestedDecision: parseSuggestedDecision(row.suggestedDecision),
+    // Null for a run still waiting, and the real answer for a `failed` one —
+    // that approval already happened, the execution is what threw. Carried on
+    // every item either way, so a client reads one shape across the queue.
+    approvedByAgent: row.approvedByAgent,
+    // Spread rather than assigned, so an item that was not asked for a payload
+    // has no key at all rather than a key holding undefined. That is what lets
+    // `include` be provably additive: JSON.stringify of an unasked row is
+    // byte-identical to what it was before this option existed.
+    ...(wantsInput ? { input: (row as { input?: Record<string, unknown> | null }).input ?? null } : {}),
+    ...(wantsProposal
+      ? { proposal: (row as { proposal?: Record<string, unknown> | null }).proposal ?? null }
+      : {}),
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -396,8 +524,16 @@ async function listPlanes(orgId: string, opts: ListOptions, cap?: number): Promi
   // A recommendation only exists on an action run, so asking for one excludes
   // the other two planes rather than returning rows that could never match.
   const planeCarriesRecommendation = (kind: ReviewKind) => kind === 'action' || opts.suggestedDecision === undefined;
+  // Only an action run can have been decided by an agent, so asking for a
+  // decided row — true or false — excludes the other two planes the same way.
+  // Asking for `null` does NOT: an item nobody has decided is exactly what a
+  // paused workflow or a mission awaiting review is, so those still belong.
+  const planeCanBeDecided = (kind: ReviewKind) =>
+    kind === 'action' || opts.approvedByAgent === undefined || opts.approvedByAgent === null;
   const wants = (kind: ReviewKind) =>
-    (opts.kind === undefined || opts.kind === kind) && planeCarriesRecommendation(kind);
+    (opts.kind === undefined || opts.kind === kind)
+    && planeCarriesRecommendation(kind)
+    && planeCanBeDecided(kind);
   return Promise.all([
     wants('workflow') ? listWorkflowPlane(orgId, opts, now, cap) : EMPTY_PLANE,
     wants('mission') ? listMissionPlane(orgId, opts, now, cap) : EMPTY_PLANE,
@@ -516,6 +652,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       input: row.input ?? null,
       proposal: (row.proposal as Record<string, unknown> | null) ?? null,
       suggestedDecision: parseSuggestedDecision(row.proposal?.suggestedDecision),
+      approvedByAgent: row.approvedByAgent,
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       alignment: await scoreFor({
         orgId,
@@ -544,6 +681,10 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       ...routing,
       input: row.input ?? null,
       proposal: null,
+      // No auto-approval path on this plane, so no agent ever decides one.
+      // Stated rather than omitted, so a client reads the same field on every
+      // kind instead of having to know which planes carry it.
+      approvedByAgent: null,
       card: null,
       record: row as unknown as Record<string, unknown>,
     };
@@ -566,6 +707,8 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
     ...routing,
     input: null,
     proposal: null,
+    // Same as the workflow plane: missions have no auto-approval path.
+    approvedByAgent: null,
     card: null,
     record: row as unknown as Record<string, unknown>,
   };
@@ -608,16 +751,27 @@ export async function listAutoExecuted(
 ): Promise<{ items: Array<typeof actionRunSchema.$inferSelect>; total: number; limit: number; offset: number }> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
+  // `approved_by_agent` is the whole question, and it is the whole question on
+  // purpose: migration 0108 backfilled every pre-column run whose proposal
+  // envelope said `autoApproved`, so there is no older population left to read
+  // a jsonb key for. That matters for more than tidiness — an `OR` over a
+  // jsonb expression cannot use `action_run_approved_by_agent_idx`, so the
+  // fallback this replaced turned a one-page audit read into a scan of every
+  // action run the org has ever recorded.
   const autoApproved = and(
     eq(actionRunSchema.orgId, orgId),
-    sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
+    eq(actionRunSchema.approvedByAgent, true),
   );
   const [items, [counted]] = await Promise.all([
     db
       .select()
       .from(actionRunSchema)
       .where(autoApproved)
-      .orderBy(desc(actionRunSchema.id))
+      // Newest decision first, and in the index's own order so a page is read
+      // off it rather than sorted out of the org's whole history. Backfilled
+      // rows have no `decided_at` — we never knew when they were decided — and
+      // sort last, where an undated row belongs; `id` only breaks ties.
+      .orderBy(sql`${actionRunSchema.decidedAt} DESC NULLS LAST`, desc(actionRunSchema.id))
       .limit(limit)
       .offset(offset),
     db.select({ total: sql<number>`count(*)::int` }).from(actionRunSchema).where(autoApproved),
@@ -804,10 +958,27 @@ export async function decide(
         // after it, so this is the last moment the values the proposer wrote
         // still exist anywhere.
         labels = await labelVerdicts(item.id, orgId, opts?.editedInput);
+        // Pin what the human actually approved (0112). Written BEFORE the
+        // execution, because the artifacts on screen at the moment of the
+        // click are what was authorised; a regeneration landing a second
+        // later must not be able to rewrite the answer to "what did they
+        // approve". Best-effort: a decision must never fail on its audit
+        // trail, and a run with no artifacts simply pins nothing.
+        await (await import('@/services/personalization/artifacts'))
+          .pinLeadArtifactsForRun(orgId, item.id)
+          .catch(() => []);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
         if (opts?.editedInput) {
+          // Same "last moment both versions exist" window as labelVerdicts,
+          // and the reason this has to live here: `updateActionInput` replaces
+          // `input` wholesale, so after the next line the words the agent
+          // wrote are gone. The words the reviewer DELETED are the only
+          // first-hand evidence about voice this system ever gets; every
+          // deletion becomes a proposed rule a person adopts, never an
+          // automatic one. Never blocks the approve.
+          await recordVoiceEditDiff(item.id, orgId, opts.editedInput, reviewedBy);
           await updateActionInput(item.id, orgId, opts.editedInput);
         }
         const outcome = await executeAction(item.id, orgId, { reviewedBy, externalRef: opts?.externalRef });
@@ -1143,7 +1314,7 @@ export async function rewriteDraft(opts: {
    * sequence has several, and a guided review asks about one at a time.
    */
   contentId?: string;
-}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string; prior: string; discardedEdit?: string }> {
+}): Promise<{ input: Record<string, unknown>; body: string; contentId?: string; prior: string; discardedEdit?: string; voiceError?: string }> {
   const [run] = await db
     .select({ input: actionRunSchema.input, actionId: actionRunSchema.actionId, revisions: actionRunSchema.revisions })
     .from(actionRunSchema)
@@ -1169,20 +1340,72 @@ export async function rewriteDraft(opts: {
     : String(input.body ?? input.notes ?? props.notes ?? '');
   const { buildChatModelForOrg } = await import('@/libs/llm');
   const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
+  const { buildVoicePrompt } = await import('@/libs/writing/voicePrompt');
+  const { describeViolations, lintCopy } = await import('@/libs/writing/voiceRules');
   const model = await buildChatModelForOrg('main', opts.orgId, { temperature: 0.4, streaming: false, maxTokens: 1200 });
-  // Generic house-style rewrite — no workspace-specific voice baked into core.
-  // (The learned per-user tone prompt, when built, will supply the voice.)
-  const sys = 'You rewrite an outbound draft in the sender\'s established voice: concise, specific, no filler or "just checking in". Preserve the core ask and any concrete details/names. It stays a DRAFT for human review. Return ONLY the rewritten text, no preamble.';
+  // The workspace's voice, not a house style. This used to be one hardcoded
+  // sentence of generic advice, which meant every "Add change" quietly threw
+  // away the voice guide the rest of the pipeline follows — a rewrite could
+  // reintroduce exactly the phrases the drafting pass was told to avoid.
+  // Now the rules and the workspace's own voice playbook compose the prompt,
+  // and the SAME rules check what comes back.
+  const voice = await buildVoicePrompt(opts.orgId);
+  const sys = voice.system;
   const user = `${opts.hint ? `Instruction: ${opts.hint}\n\n` : ''}Rewrite this:\n\n${original}`;
+
+  const ask = async (messages: Array<InstanceType<typeof SystemMessage> | InstanceType<typeof HumanMessage>>): Promise<string | null> => {
+    try {
+      const res = await model.invoke(messages, { signal: AbortSignal.timeout(20_000) });
+      const out = typeof res.content === 'string'
+        ? res.content
+        : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
+      return out.trim() || null;
+    } catch (err) {
+      logger.warn('rewriteDraft: model call failed', {
+        orgId: opts.orgId,
+        runId: opts.runId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  };
+
   let rewritten = original;
-  try {
-    const res = await model.invoke([new SystemMessage(sys), new HumanMessage(user)], { signal: AbortSignal.timeout(20_000) });
-    const out = typeof res.content === 'string'
-      ? res.content
-      : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
-    rewritten = out.trim() || original;
-  } catch {
-    rewritten = original;
+  // A rewrite that violates the voice rules is worse than no rewrite: it is
+  // the defect the reviewer pressed the button to fix, handed back with a
+  // fresh coat of paint. One corrective retry naming the offending phrases,
+  // then keep the original and SAY SO — never return tell-laden copy quietly.
+  let voiceError: string | undefined;
+  const first = await ask([new SystemMessage(sys), new HumanMessage(user)]);
+  if (first !== null) {
+    const firstLint = lintCopy(first, voice.rules);
+    if (firstLint.ok) {
+      rewritten = first;
+    } else {
+      const report = describeViolations(firstLint.violations);
+      logger.warn('rewriteDraft: rewrite violated the workspace voice rules — one corrective retry', {
+        orgId: opts.orgId,
+        runId: opts.runId,
+        violations: firstLint.violations.filter(v => v.blocking).map(v => v.span),
+      });
+      const second = await ask([
+        new SystemMessage(sys),
+        new HumanMessage(user),
+        new HumanMessage(`Your rewrite is rejected. It contains constructions this sender will not have in a send:\n${report}\n\nWrite it again without them. Do not paraphrase a banned phrase back in, and do not replace it with another way of announcing the tone. Return ONLY the rewritten text.`),
+      ]);
+      const secondLint = second === null ? null : lintCopy(second, voice.rules);
+      if (second !== null && secondLint!.ok) {
+        rewritten = second;
+      } else {
+        const failing = secondLint ? describeViolations(secondLint.violations) : report;
+        voiceError = `The rewrite kept breaking the workspace's voice rules, so the draft is unchanged:\n${failing}`;
+        logger.error('rewriteDraft: rewrite failed the voice gate twice — draft left unchanged', {
+          orgId: opts.orgId,
+          runId: opts.runId,
+          hasVoicePlaybook: voice.hasPlaybook,
+        });
+      }
+    }
   }
   await recordActionSignal({ orgId: opts.orgId, runId: opts.runId, signal: 'rewrite', userId: opts.userId, hint: opts.hint });
   // The audit record of the rewrite. The DRAFT is still untouched (the
@@ -1227,13 +1450,59 @@ export async function rewriteDraft(opts: {
       contentId: opts.contentId,
       prior: original,
       ...(discardedEdit !== undefined ? { discardedEdit } : {}),
+      ...(voiceError !== undefined ? { voiceError } : {}),
     };
   }
   if (input.body === undefined && input.notes === undefined && props.notes !== undefined) {
-    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
+    return { input: { ...input, properties: { ...props, notes: rewritten } }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}), ...(voiceError !== undefined ? { voiceError } : {}) };
   }
   const key = input.body !== undefined ? 'body' : 'notes';
-  return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}) };
+  return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}), ...(voiceError !== undefined ? { voiceError } : {}) };
+}
+
+/**
+ * Read the pre-edit copy and file the reviewer's deletions as proposed voice
+ * rules. Split out of `decide` so the window it depends on — before
+ * `updateActionInput` — is stated once, in one place, and so a failure here
+ * can be swallowed without swallowing anything else.
+ * @param runId - The action run being approved.
+ * @param orgId - The project id.
+ * @param editedInput - What the reviewer approved.
+ * @param reviewedBy - Who approved it.
+ */
+async function recordVoiceEditDiff(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown>,
+  reviewedBy?: string,
+): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ input: actionRunSchema.input, proposal: actionRunSchema.proposal, invokedBy: actionRunSchema.invokedBy })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!row) {
+      return;
+    }
+    const agentSlug = row.proposal?.agentSlug
+      ?? (row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice(6) : undefined);
+    const { recordVoiceEdits } = await import('@/services/feedback/voiceLearning');
+    await recordVoiceEdits({
+      orgId,
+      runId,
+      before: (row.input ?? {}) as Record<string, unknown>,
+      after: editedInput,
+      userId: reviewedBy,
+      agentSlug,
+    });
+  } catch (error) {
+    logger.warn('could not read the edit diff for voice learning', {
+      orgId,
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /** Learning step a proposal trains when its agent declares no `learningSteps` of its own. */

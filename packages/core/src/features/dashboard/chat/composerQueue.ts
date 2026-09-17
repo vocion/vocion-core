@@ -23,7 +23,9 @@ type QueueProps = Pick<
 >;
 
 /**
- * Every ChatComposer prop the send queue needs, translated, in one spread.
+ * Every ChatComposer prop the send queue needs, translated, in one spread —
+ * plus the composer's other translated strings, which ride in the same `copy`
+ * object because `copy` is one prop.
  *
  * Three surfaces render the same composer — the full page (`ChatShell`), the
  * rail (`ChatDock`) and the canvas (`CanvasView`) — and a queue that only
@@ -42,6 +44,9 @@ export function useComposerQueueProps(session: QueueBearingSession): QueueProps 
     queueAction: t('queue_action'),
     heldNotice: t('queue_held'),
     dismiss: t('queue_dismiss'),
+    // `copy` is ONE prop, so it travels with the queue spread rather than
+    // splitting into a second one the surfaces would have to remember.
+    attach: t('attach'),
   }), [t]);
 
   return {

@@ -60,6 +60,80 @@ goes in `migrations/concurrent/` and says `CONCURRENTLY`, because a plain
 changes go through expand and contract across releases, never in place.
 `npm run check:migrations` enforces the first rule and runs in CI.
 
+## Working in a git worktree
+
+A `git worktree` gets you a second checkout of a branch without disturbing the
+first, which is the usual way to work on two branches at once. Several things do
+**not** come with it, and each one fails in a way that looks like a broken
+branch rather than a missing setup step. Each entry below cost someone real
+time on this repo, which is why it is written down rather than left to be
+rediscovered.
+
+```bash
+git worktree add ../vocion-core-<topic> -b <branch>
+cd ../vocion-core-<topic>
+
+npm install                                              # node_modules is not shared
+cp packages/core/.env.example packages/core/.env.local   # nor is .env.local
+```
+
+### `.env.local` does not come with the worktree
+
+`packages/core/.env.local` is gitignored (`.env*.local` in `.gitignore`), so a
+new worktree has no environment at all. `packages/core/src/libs/Env.ts`
+validates on import and `DATABASE_URL` is required there, so **it has to be set
+before anything runs** — `npm test`, `npm run dev` and the build all fail during
+module load, before a single test executes, and the failure names the env schema
+rather than the worktree. `AUTH_SECRET` is optional to the schema but required
+by Auth.js as soon as a request hits it, so set both and stop thinking about it.
+
+For unit tests the values only have to be present and well-formed; nothing dials
+them. `.github/workflows/CI.yml` uses exactly this, and copying it into a
+worktree's `.env.local` is enough to run `npm test`:
+
+```
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/vocion_test
+AUTH_SECRET=<openssl rand -base64 32>
+```
+
+A real database is only needed for `npm run dev`, `npm run db:migrate` and the
+E2E suite. Copying your primary checkout's `.env.local` works too — but read it
+first: it points at whatever database that checkout uses, and migrating from a
+worktree will migrate that one.
+
+### A stale `tsconfig.tsbuildinfo` invents type errors
+
+`packages/core/tsconfig.json` sets `"incremental": true`, so `check:types`
+writes `packages/core/tsconfig.tsbuildinfo`. It is gitignored (`*.tsbuildinfo`)
+but it is **not** removed when you switch a worktree to a different branch, and
+a build info file written against another branch's file set makes
+`npm run check:types` report errors in files the current branch never changed —
+or, worse, report success when it should not. If a type error does not match
+what you edited:
+
+```bash
+rm -f packages/core/tsconfig.tsbuildinfo && npm run check:types
+```
+
+### A stale dev database looks like a broken migration
+
+Several worktrees pointing at one Postgres share its schema. A worktree on an
+older branch then runs against a database that already has a newer branch's
+migrations applied, and the failure — a column that already exists, a relation
+that does not — reads as a bad migration. That is the database being ahead of
+the branch, not the migration being wrong. Give each long-lived worktree its
+own database — change the database name at the end of `DATABASE_URL` — rather
+than resolving it in the migration files, and read
+`packages/core/migrations/CONVENTIONS.md` before editing a migration that has
+already merged.
+
+### macOS has no `timeout`
+
+Scripts and CI snippets copied from a Linux runner often wrap a command in
+`timeout 300 ...`. GNU coreutils is not installed on a stock macOS, so that
+fails with `command not found` and reads as the wrapped command failing. Use
+`gtimeout` (`brew install coreutils`) or drop the wrapper locally.
+
 ## Before you push
 
 Run these locally (the pre-commit hook also handles auto-fix + type check +

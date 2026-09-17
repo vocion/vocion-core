@@ -51,7 +51,7 @@ describe('workspaceChips — one workspace voice', () => {
 
 describe('parseSearchCommand', () => {
   it('recognises /search and returns the bare query', () => {
-    expect(parseSearchCommand('/search spinutech governance')).toEqual({ text: 'spinutech governance', searchOnly: true });
+    expect(parseSearchCommand('/search northwind governance')).toEqual({ text: 'northwind governance', searchOnly: true });
     expect(parseSearchCommand('  /SEARCH  MSA unsigned ')).toEqual({ text: 'MSA unsigned', searchOnly: true });
     expect(parseSearchCommand('search the deal')).toEqual({ text: 'search the deal', searchOnly: false });
     expect(parseSearchCommand('/search')).toEqual({ text: '/search', searchOnly: false });

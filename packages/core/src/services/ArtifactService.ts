@@ -97,6 +97,9 @@ export function toPayload(row: ArtifactRow): ArtifactPayload {
     url: row.url,
     messageId: row.messageId ?? null,
     folder: row.folder ?? null,
+    recordType: row.recordType ?? null,
+    recordId: row.recordId ?? null,
+    recordRole: row.recordRole ?? null,
     version: row.currentVersion,
     authorKind: row.lastAuthorKind,
     authorId: row.lastAuthorId ?? null,
@@ -150,8 +153,26 @@ export type CreateArtifactInput = {
   spec: unknown;
   url?: string | null;
   folder?: string | null;
+  /**
+   * The RECORD this artifact belongs to (0112) — a flat `RecordRef`. Artifacts
+   * were conversation-scoped; a research brief belongs to a lead, not to
+   * whichever conversation happened to produce it.
+   */
+  record?: ArtifactRecordScope | null;
   author: Author;
   changeSummary?: string | null;
+};
+
+/**
+ * Where an artifact lives when it lives on a record rather than (only) in a
+ * conversation. `type`/`id` are a `RecordRef` (`services/chat/pageContext.ts`)
+ * stored flat; `role` says what the artifact IS to that record.
+ */
+export type ArtifactRecordScope = {
+  type: string;
+  id: string;
+  /** `brief` | `recommendation` | `sequence` — one artifact per (record, role). */
+  role: string;
 };
 
 /**
@@ -173,6 +194,9 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
       spec,
       url: input.url ?? null,
       folder: normaliseFolder(input.folder),
+      recordType: input.record?.type ?? null,
+      recordId: input.record?.id ?? null,
+      recordRole: input.record?.role ?? null,
       currentVersion: 1,
       lastAuthorKind: input.author.kind,
       lastAuthorId: authorId(input.author),
@@ -427,6 +451,111 @@ export async function listArtifactsForConversation(opts: { orgId: string; conver
     .from(artifactSchema)
     .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.conversationId, opts.conversationId)))
     .orderBy(asc(artifactSchema.createdAt), asc(artifactSchema.id));
+}
+
+/**
+ * Key-order-independent JSON, for deciding whether a spec actually changed.
+ *
+ * `spec` is a jsonb column, and Postgres jsonb does NOT preserve key order —
+ * it stores keys sorted by length then value. A plain `JSON.stringify`
+ * comparison therefore reports a change on every read-back, which would make
+ * every idempotent sync write a version that changed nothing.
+ * @param value - Any JSON value.
+ */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_k, v) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)));
+    }
+    return v;
+  });
+}
+
+/**
+ * Every artifact that belongs to one record, oldest first.
+ *
+ * The record-scoped half of the artifact model (0112). A record page asks for
+ * its artifacts by the same `RecordRef` it already declares to the shell, so
+ * nothing new has to be threaded anywhere.
+ * @param opts - The org and the record.
+ * @param opts.orgId - The project id.
+ * @param opts.record - `{ type, id }` of the record; `role` is ignored here.
+ * @param opts.record.type
+ * @param opts.record.id
+ */
+export async function listArtifactsForRecord(opts: {
+  orgId: string;
+  record: { type: string; id: string };
+}): Promise<ArtifactRow[]> {
+  return db
+    .select()
+    .from(artifactSchema)
+    .where(and(
+      eq(artifactSchema.orgId, opts.orgId),
+      eq(artifactSchema.recordType, opts.record.type),
+      eq(artifactSchema.recordId, opts.record.id),
+    ))
+    .orderBy(asc(artifactSchema.createdAt), asc(artifactSchema.id));
+}
+
+/**
+ * Create the artifact for `(record, role)`, or write a NEW VERSION of the one
+ * that is already there — never a silent overwrite, and never a second
+ * artifact for the same role.
+ *
+ * Role uniqueness is enforced here rather than by a unique index because
+ * `artifact` is a populated table: CONVENTIONS.md rule 1 sends its index
+ * builds to `concurrent/`, where `UNIQUE` is refused. The read-then-write is
+ * therefore the contract, and it is documented rather than assumed.
+ *
+ * Content-identical writes are a no-op: a regeneration that produced the same
+ * brief should not fill the version menu with versions that changed nothing
+ * (`docs/design/reduction.md` — showing the workings is not the same as doing
+ * work). `changeSummary` carries the reason, which is what the version history
+ * reads back: "v3 — regenerated: the angle leans on an industry pattern".
+ * @param input - The artifact, its record scope, and why it changed.
+ */
+export async function upsertRecordArtifact(input: CreateArtifactInput & {
+  record: ArtifactRecordScope;
+  /** Skip the version-collapse window; a regeneration is always its own version. */
+  noCollapse?: boolean;
+}): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; created: boolean; unchanged: boolean }> {
+  const [existing] = await db
+    .select()
+    .from(artifactSchema)
+    .where(and(
+      eq(artifactSchema.orgId, input.orgId),
+      eq(artifactSchema.recordType, input.record.type),
+      eq(artifactSchema.recordId, input.record.id),
+      eq(artifactSchema.recordRole, input.record.role),
+    ))
+    .orderBy(asc(artifactSchema.id))
+    .limit(1);
+
+  if (!existing) {
+    const made = await createArtifact(input);
+    return { ...made, created: true, unchanged: false };
+  }
+
+  const { spec } = validateSpec(input.kind, input.spec);
+  const title = input.title.trim() || existing.title;
+  if (existing.title === title && stableJson(existing.spec) === stableJson(spec)) {
+    const head = await getArtifactVersion({ orgId: input.orgId, artifactId: existing.id, version: existing.currentVersion });
+    return { artifact: existing, version: head!, created: false, unchanged: true };
+  }
+
+  const updated = await updateArtifact({
+    orgId: input.orgId,
+    id: existing.id,
+    title,
+    spec,
+    author: input.author,
+    changeSummary: input.changeSummary ?? null,
+    runId: input.runId ?? null,
+    messageId: input.messageId ?? null,
+    noCollapse: input.noCollapse ?? true,
+  });
+  return { artifact: updated.artifact, version: updated.version, created: false, unchanged: false };
 }
 
 /** One row of the artifacts log. */

@@ -49,6 +49,7 @@ export type CredentialPlatformId
     | 'granola'
     | 'hubspot'
     | 'jira'
+    | 'notion'
     | 'strapi'
   // One credential, several connectors. A Google OAuth client is consented
   // once and its refresh token then serves Gmail, Drive, Calendar, Analytics
@@ -324,7 +325,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         // It is not read back to the list view today, and does not need to be:
         // one live credential per platform per org means there is never a
         // second AWS row to tell this one apart from. That changes with
-        // VEERIO-248, where connector platforms may hold several credentials
+        // LARK-248, where connector platforms may hold several credentials
         // at once and the non-secret fields become the way to identify them.
         secret: false,
       },
@@ -430,6 +431,34 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         secret: true,
       },
     ],
+  },
+  {
+    id: 'notion',
+    label: 'Notion',
+    keySource: 'supplied',
+    // `one-live`, like Apollo and unlike its sibling connector platforms.
+    // Widening the cap means rebuilding `api_token_org_platform_live_idx` to
+    // carve `notion` out of it, and a partial UNIQUE index has no concurrent
+    // route: `check:migrations` refuses the plain build. One internal
+    // integration token reaches everything shared with it, so a second one
+    // buys a workspace nothing until it connects a second Notion workspace —
+    // the cap waits for the workspace that actually needs two.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['notion'],
+    // One integration token reads every page shared with it, and a source
+    // narrows by search term rather than by credential, so a workspace running
+    // several Notion sources types the token once.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    // Internal integration tokens have been `secret_…` and are `ntn_…` since
+    // 2024; OAuth access tokens reach this field too, so no shape is enforced.
+    keyPattern: null,
+    keyShapeHint: 'any non-empty integration token',
+    helpText: 'A Notion internal integration token, from notion.so/my-integrations. The integration only sees pages and databases explicitly shared with it, from the page\'s Connections menu.',
+    // Named `token` because that is the key the connector reads out of
+    // `ctx.credentials`. The field name is the storage contract between the two.
+    fields: [{ name: 'token', label: 'Integration token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
   },
   {
     id: 'strapi',

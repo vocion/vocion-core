@@ -97,7 +97,17 @@ export type ConversationAutonomy = 'ask' | 'act-within-bounds';
  * shape). `type` is the dashboard entity family; `id` its slug or numeric id.
  */
 export type ContextRef = {
-  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page';
+  /**
+   * `deliverable` and `intent` are the odd ones out, deliberately: every
+   * other value names a RECORD the turn is about. `deliverable` (`@artifact`)
+   * names what the turn OWES; `intent` (`@change`) names what the turn must
+   * DO — route the ask through the sequence-draft rewrite rather than answer
+   * it. Both ride the same mention mechanism, because arming one is the same
+   * gesture as tagging a team, and both are stripped out of `context_refs`
+   * before the wire — see `libs/chat/deliverable.ts` and
+   * `features/dashboard/chat/composerTags.ts`.
+   */
+  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page' | 'deliverable' | 'intent';
   id: string;
   label: string;
   /** For a team: the agent slug a `@team` tag routes the turn to (its lead). */
@@ -112,7 +122,7 @@ export type ContextRef = {
 export type ChatMessageArtifact = {
   id: number;
   title: string;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence';
   version: number;
 };
 

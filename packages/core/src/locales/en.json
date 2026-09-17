@@ -11,7 +11,7 @@
     "main_section_label": "Workspace",
     "organization_section_label": "Organization",
     "chat": "Chat",
-    "inbox": "Needs you",
+    "inbox": "Review",
     "search": "Search",
     "observability": "Observability",
     "sources": "Connectors",
@@ -66,7 +66,8 @@
     "activity": "Activity",
     "members": "Members",
     "system": "System",
-    "profile": "Profile"
+    "profile": "Profile",
+    "marketplace": "Marketplace"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",
@@ -198,10 +199,15 @@
     "queue_more": "+{count} more",
     "queue_action": "Queue message",
     "queue_held": "The turn ended early — these were not sent.",
-    "queue_dismiss": "Dismiss"
+    "queue_dismiss": "Dismiss",
+    "attach": "Add to this turn",
+    "tag_artifact": "Artifact",
+    "tag_page": "This page",
+    "tag_change": "Change the draft",
+    "working_with": "Working with:"
   },
   "Inbox": {
-    "title": "Needs you",
+    "title": "Review queue",
     "tab_open": "Open",
     "tab_decided": "Decided",
     "tab_snoozed": "Snoozed",
@@ -216,7 +222,11 @@
     "filter_kind": "Filter by kind",
     "filter_facets": "Filter by action or agent",
     "all": "All",
-    "clear": "Clear"
+    "clear": "Clear",
+    "filter_type": "Type",
+    "filter_agent": "Agent",
+    "filter_placeholder": "Filter or search…",
+    "filter_searching": "deals, contacts and agents"
   },
   "Review": {
     "all": "All",
@@ -234,5 +244,18 @@
     "shortcut_approve": "Approve",
     "shortcut_decline": "Decline",
     "shortcut_snooze": "Snooze"
+  },
+  "Marketplace": {
+    "title_bar_description": "Agents you have not hired yet. Every one works from uploads on day one — connect a system later to deepen it.",
+    "view_profile": "View profile",
+    "skill_count": "{count, plural, one {# skill} other {# skills}}",
+    "empty_title": "Your whole catalog is working",
+    "empty_body": "Every agent in the catalog has been hired. To add one nobody shipped for you, ask the Automation Engineer to build it from something you already do by hand.",
+    "empty_action": "Build a new agent",
+    "none_title": "No catalog available",
+    "none_body": "This deployment shipped without the agent catalog. Agents can still be authored directly in the workspace.",
+    "hire": "Hire",
+    "hired": "{name} is on your team",
+    "hire_failed": "Could not hire that agent. Refresh and try again."
   }
 }

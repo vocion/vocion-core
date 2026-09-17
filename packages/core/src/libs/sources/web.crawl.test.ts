@@ -199,7 +199,7 @@ describe('the cost bound', () => {
 });
 
 describe('link order', () => {
-  /** Dorothy Alling's calendar, whose path carries Joomla's `/index.php` segment. */
+  /** Ashby Library's calendar, whose path carries Joomla's `/index.php` segment. */
   const CALENDAR_URL = 'https://venue.test/index.php/calendar-of-events';
   const MONTH_URL = 'https://venue.test/index.php/calendar-of-events?month=10&year=2026';
   const STORY_URL = 'https://venue.test/index.php/calendar-of-events/story-time';

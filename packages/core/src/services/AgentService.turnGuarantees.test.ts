@@ -1,0 +1,209 @@
+/**
+ * What a finished turn OWES the person, proved against a mocked loop.
+ *
+ * Two guarantees, both structural rather than prompted (CLAUDE.md —
+ * Structural over prompting*):
+ *
+ *   1. A delegation that failed reaches the answer and the persisted trace.
+ *      The turn that prompted this work delegated, the hand-off blew up, and
+ *      what the person got was a "Tool error" badge, one "Delegating to …"
+ *      line, and a paragraph of narration. The stored trace held exactly one
+ *      node: `{ kind: 'delegate', status: 'start' }`.
+ *   2. A turn sent with `deliverable: 'artifact'` ends with an artifact —
+ *      wrapped from a long-form answer, or an explicit stub when the work did
+ *      not happen.
+ *
+ * The loop is mocked with a recorded `streamEvents(v2)` shape, so these assert
+ * the harness's behaviour with no model and no network.
+ */
+import type { AgentEvent } from './agents/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/libs/DB');
+
+const streamEvents = vi.fn();
+
+vi.mock('@/services/agents/harness', () => ({
+  bindRequestEmit: vi.fn(),
+  buildInitialFiles: vi.fn(async () => ({})),
+  getCompiledAgent: vi.fn(async () => ({
+    graph: { streamEvents },
+    agentRow: { id: 1, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} },
+    __ctx: { delegations: new Map() },
+  })),
+}));
+
+vi.mock('@/libs/Langfuse', () => ({
+  createLangfuseCallback: vi.fn(() => ({ handler: {}, trace: { id: 'trace-1', update: vi.fn() } })),
+  flushTraces: vi.fn(async () => {}),
+}));
+
+vi.mock('@/services/BudgetService', () => ({
+  preflightCheck: vi.fn(async () => ({ ok: true })),
+  chargeUsage: vi.fn(async () => {}),
+}));
+
+// The gated pass must never reach a model here. Returning null is the
+// "the model could not produce a document" branch — the stub.
+vi.mock('@/services/agents/deliverableBackstop', async importOriginal => ({
+  ...(await importOriginal<typeof import('./agents/deliverableBackstop')>()),
+  composeArtifactWithModel: vi.fn(async () => null),
+}));
+
+const { db } = await import('@/libs/DB');
+const { agentSchema } = await import('@/models/Schema');
+const { createConversation } = await import('@/services/ConversationService');
+const { listArtifactsForConversation } = await import('@/services/ArtifactService');
+const { delegationFailureNotice, runAgentDeep } = await import('@/services/AgentService');
+
+const ORG = 'org_turn_guarantees';
+const TASK_ID = 'task-abc';
+
+/**
+ * `AIMessageChunk` content shape the answer streamer reads.
+ * @param t
+ */
+function text(t: string): unknown {
+  return { content: [{ type: 'text', text: t }] };
+}
+
+/**
+ * A turn that narrates, delegates, and never hears back — the recorded shape
+ * of the failure this work was opened for.
+ * @param failure - How the hand-off ends.
+ */
+function failingDelegationStream(failure: 'uncaught' | 'caught'): AsyncIterable<unknown> {
+  const events: unknown[] = [
+    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('I will pull the picture first. Handing this to the analyst.') } },
+    {
+      event: 'on_tool_start',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Full pipeline read for today' }) } },
+    },
+    failure === 'uncaught'
+      ? { event: 'on_tool_error', name: 'task', metadata: { checkpoint_ns: `tools:${TASK_ID}` }, data: { error: new Error('the specialist could not be reached') } }
+      : { event: 'on_tool_end', name: 'task', metadata: { checkpoint_ns: `tools:${TASK_ID}` }, data: { output: { status: 'error', content: 'Error: the specialist could not be reached\n Please fix your mistakes.' } } },
+  ];
+  return { async* [Symbol.asyncIterator]() {
+    for (const e of events) {
+      yield e;
+    }
+  } };
+}
+
+/** A turn whose whole answer is a document, and which renders nothing. */
+function longFormStream(): AsyncIterable<unknown> {
+  const body = `## Open pipeline\n\n${Array.from({ length: 130 }, (_, i) => `word${i}`).join(' ')}`;
+  return { async* [Symbol.asyncIterator]() {
+    yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text(body) } };
+  } };
+}
+
+/** A turn that answers with one short sentence and renders nothing. */
+function narrationStream(): AsyncIterable<unknown> {
+  return { async* [Symbol.asyncIterator]() {
+    yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Let me check the right structure first.') } };
+  } };
+}
+
+async function run(opts: { message: string; deliverable?: 'artifact' | 'answer'; conversationId?: number }) {
+  const events: AgentEvent[] = [];
+  const result = await runAgentDeep({
+    orgId: ORG,
+    agentSlug: 'lead',
+    message: opts.message,
+    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+    ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+    onEvent: e => void events.push(e),
+  });
+  return { result, events };
+}
+
+beforeEach(async () => {
+  await db.delete(agentSchema);
+  await db.insert(agentSchema).values({ orgId: ORG, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
+  streamEvents.mockReset();
+});
+
+describe('a failed delegation reaches the person', () => {
+  it.each(['uncaught', 'caught'] as const)('emits a terminal delegate node and a tool_error (%s)', async (mode) => {
+    streamEvents.mockResolvedValue(failingDelegationStream(mode));
+    const { events } = await run({ message: 'draft a pipeline report' });
+
+    const delegateNodes = events.filter((e): e is Extract<AgentEvent, { type: 'trace_node' }> => e.type === 'trace_node' && e.kind === 'delegate');
+
+    expect(delegateNodes.map(n => n.status)).toEqual(['start', 'error']);
+    expect(delegateNodes[1]?.label).toBe('Pipeline Analyst could not finish');
+
+    const toolErrors = events.filter(e => e.type === 'tool_error');
+
+    expect(toolErrors).toHaveLength(1);
+    expect(toolErrors[0]).toMatchObject({ tool: 'task' });
+  });
+
+  it('says so in the answer even though the model did not', async () => {
+    streamEvents.mockResolvedValue(failingDelegationStream('caught'));
+    const { result, events } = await run({ message: 'draft a pipeline report' });
+
+    expect(result.response).toContain('Pipeline Analyst');
+    expect(result.response).toMatch(/did not complete/);
+
+    // And the person sees it arrive, not just the persisted copy.
+    const deltas = events.filter((e): e is Extract<AgentEvent, { type: 'response_delta' }> => e.type === 'response_delta');
+
+    expect(deltas.some(d => d.delta.includes('did not complete'))).toBe(true);
+  });
+
+  it('says nothing extra when the answer already owned up to it', () => {
+    const answer = 'I could not get a read from Pipeline Analyst, so this is partial.';
+
+    expect(delegationFailureNotice([{ name: 'Pipeline Analyst', message: 'timeout' }], answer)).toBeNull();
+    expect(delegationFailureNotice([], 'all good')).toBeNull();
+  });
+
+  it('names every specialist that failed, once', () => {
+    const notice = delegationFailureNotice(
+      [{ name: 'Pipeline Analyst', message: 'timed out' }, { name: 'Proposal Writer', message: 'timed out' }],
+      'Here is what I have.',
+    );
+
+    expect(notice).toContain('Pipeline Analyst and Proposal Writer');
+  });
+});
+
+describe('the deliverable contract', () => {
+  it('wraps a long-form answer into an artifact when one was asked for', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockResolvedValue(longFormStream());
+    const { result, events } = await run({ message: 'draft a pipeline report', deliverable: 'artifact', conversationId: conv.id });
+
+    const artifacts = await listArtifactsForConversation({ orgId: ORG, conversationId: conv.id });
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.title).toBe('Open pipeline');
+    expect(events.some(e => e.type === 'artifact')).toBe(true);
+    expect(result.response).toContain('Open pipeline');
+  });
+
+  it('files an explicit stub when the turn produced only narration', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockResolvedValue(narrationStream());
+    const { result } = await run({ message: 'draft a pipeline report', deliverable: 'artifact', conversationId: conv.id });
+
+    const artifacts = await listArtifactsForConversation({ orgId: ORG, conversationId: conv.id });
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.title).toBe('Pipeline report — not completed');
+    expect(result.response).toMatch(/could not produce one/);
+  });
+
+  it('does nothing at all when the turn owed an answer', async () => {
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'lead', createdBy: 'usr-a' });
+    streamEvents.mockResolvedValue(narrationStream());
+    const { result } = await run({ message: 'what should I do right now?', deliverable: 'answer', conversationId: conv.id });
+
+    expect(await listArtifactsForConversation({ orgId: ORG, conversationId: conv.id })).toHaveLength(0);
+    expect(result.response).toBe('Let me check the right structure first.');
+  });
+});

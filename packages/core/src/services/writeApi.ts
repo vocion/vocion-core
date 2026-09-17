@@ -16,13 +16,14 @@
  */
 
 import type { Principal } from '@/services/authz';
-import type { PendingPage, ReviewDetail, ReviewItem, ReviewKind } from '@/services/ReviewService';
+import type { PendingPage, ReviewDetail, ReviewInclude, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
 import { parseSuggestedDecision, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
 import * as ReviewService from '@/services/ReviewService';
+import { REVIEW_INCLUDES } from '@/services/ReviewService';
 
 /**
  * Who is making this call, however they authenticated.
@@ -82,6 +83,36 @@ function assertId(id: unknown): asserts id is number {
 }
 
 /**
+ * Read the `approvedByAgent` query parameter — `true`, `false` or `null` — as
+ * the three-state value the queue filters on.
+ *
+ * Undefined in, undefined out: the caller asked for no filter. `null` in means
+ * the caller is asking for the undecided rows, which is a filter, and is why
+ * this cannot be a plain `Boolean()` coercion.
+ *
+ * Anything else is a 400 rather than a shrug. A misread value that fell
+ * through as "no filter" would hand back the whole queue while the client
+ * believed every row in it was agent-approved — the same failure the
+ * `suggestedDecision` check above exists to prevent.
+ * @param raw - The query parameter as sent, or undefined when absent.
+ */
+function parseApprovedByAgent(raw: string | undefined): boolean | null | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (raw === 'true') {
+    return true;
+  }
+  if (raw === 'false') {
+    return false;
+  }
+  if (raw === 'null') {
+    return null;
+  }
+  throw new WriteApiError(400, 'VALIDATION_FAILED', 'approvedByAgent must be one of true, false, null');
+}
+
+/**
  * Deciding, routing, snoozing and triaging a review are all the same
  * capability: `approve`. Owners, PMs and client-reviewers hold it; specialists
  * don't.
@@ -111,12 +142,27 @@ export type ListReviewsInput = {
    */
   actionIds?: string[];
   /**
+   * Payloads to inline on each item instead of leaving each one to its own
+   * detail fetch: `input`, `proposal`, or both. Omit for the thin rows every
+   * caller gets today; an unrecognised value is a 400, never silence.
+   */
+  include?: string[];
+  /**
    * Narrow to what the AGENT recommended — `approve`, `reject` or `snooze`.
    * This is a queue of "everything my screener wants turned down", which is a
    * different question from the card type or the plane, so it composes with
    * both rather than replacing either.
    */
   suggestedDecision?: string;
+  /**
+   * Narrow to WHO approved — `true` the trust ladder, `false` a person,
+   * `null` nobody yet — as the raw query string, parsed here.
+   *
+   * Sent as the text `true`, `false` or `null`. Anything else is a 400: a
+   * filter that silently does nothing would hand back the whole queue looking
+   * like every row in it matched.
+   */
+  approvedByAgent?: string;
   includeSnoozed?: boolean;
   limit?: number;
   offset?: number;
@@ -137,8 +183,24 @@ export async function apiListReviews(caller: ApiCaller, opts: ListReviewsInput =
   if (opts.suggestedDecision !== undefined && parseSuggestedDecision(opts.suggestedDecision) === undefined) {
     throw new WriteApiError(400, 'VALIDATION_FAILED', `suggestedDecision must be one of ${SUGGESTED_DECISIONS.join(', ')}`);
   }
+  // Same rule as the filters above: a misspelled `include` must not read as
+  // "include nothing". A caller asking for a payload and silently getting thin
+  // rows would fall back to a detail fetch per item, which is exactly the cost
+  // this option exists to remove, and it would look like the option did not
+  // work rather than like the request was wrong.
+  const include = opts.include?.filter(Boolean);
+  const unknown = include?.filter(v => !REVIEW_INCLUDES.includes(v as ReviewInclude)) ?? [];
+  if (unknown.length > 0) {
+    throw new WriteApiError(
+      400,
+      'VALIDATION_FAILED',
+      `include must be one of ${REVIEW_INCLUDES.join(', ')}`,
+    );
+  }
   return ReviewService.listPendingPage(caller.orgId, {
+    include: include as ReviewInclude[] | undefined,
     suggestedDecision: parseSuggestedDecision(opts.suggestedDecision),
+    approvedByAgent: parseApprovedByAgent(opts.approvedByAgent),
     assignedTo: opts.assignedTo === undefined
       ? undefined
       : (opts.assignedTo === 'unassigned' ? null : opts.assignedTo),

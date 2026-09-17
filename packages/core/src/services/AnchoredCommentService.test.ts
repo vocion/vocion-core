@@ -120,7 +120,7 @@ describe('AnchoredCommentService', () => {
     const [lead] = await db.insert(leadBriefSchema).values({
       orgId: ORG,
       contactRef: 'contacts:412',
-      contactName: 'Pete Laverick',
+      contactName: 'Rowan Pike',
       triggerType: 'new',
       sections: [{ heading: FIELD, body: BODY }],
     }).returning();

@@ -21,6 +21,14 @@ Two rules from §18–§19 bind day-to-day engineering here, so they are worth r
 
 - **Implementation is the forcing function.** Build what real work demanded, not what was
   imagined. If a change cannot name the thing it unblocked, it is not ready to build.
+- **Map onto the nouns we have.** Vocion's vocabulary is small — record, artifact,
+  ask, conversation, run, measure — and a new feature maps onto one rather than
+  adding another. Anything that needs to be referenced, edited, versioned,
+  previewed or cited is an **artifact**; implementing versioning or a history list
+  a second time is the tell that you are duplicating a noun instead of extending
+  one. Worked examples and the reduction pass (*less evidence should produce a
+  smaller output, not a longer explanation of why evidence is missing*) are in
+  `docs/design/reduction.md`.
 - **Extend the core; keep specifics at the edge.** Ask *how can we simplify this* and *how can we
   make this universal* before adding any surface. Extend an existing component or interaction
   pattern rather than building a second one beside it — especially when the gap is real, because
@@ -160,7 +168,7 @@ The same deepagents loop also ships as a standalone artifact — **`packages/age
 | Subagents / playbooks / HITL gates | yes | yes | none |
 | Default for | everything not on Bedrock | Bedrock agents | nothing — opt in |
 
-Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Veerio-Life/veerio-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
+Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Larkfield-Systems/larkfield-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
@@ -227,7 +235,7 @@ Testing the loop: `npx playwright test --project=learning` covers ingestion (whi
 
 ```bash
 # 1. the worker, pointed at the same database the app uses
-AWS_PROFILE=veerio AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
+AWS_PROFILE=larkfield AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
   ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
 # 2. the spec
 LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
@@ -451,7 +459,12 @@ requirements/                       # Product specs and case studies
   inside tool outputs (weakest). Prove behavior with a harness/E2E run —
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
-  `<scratch>` strip and the typed trace.)
+  `<scratch>` strip and the typed trace.) **Worked example, all four levers in
+  one change:** "this turn produces an artifact" — a typed `deliverable` field
+  on the turn request, armed by an explicit `@artifact` tag the person types,
+  with deterministic wrapping of a long-form answer, a gated backstop pass only
+  for the short-answer case, and a prompt line carried into the out-of-process
+  loop as the weakest lever. See `docs/agent-chat-surface.md` → *Deliverables*.
 - **Manifesto first.** Product decisions are judged against `docs/MANIFESTO.md` (see the section
   near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)
@@ -459,3 +472,22 @@ requirements/                       # Product specs and case studies
 - Strict TypeScript
 - T3 Env for validated environment variables
 - All translations in `src/locales/` - developers maintain `en.json`
+- **New dashboard pages use `components/patterns`** (List / Detail / Ledger — see
+  `docs/design/patterns.md`); don't hand-roll list/detail/ledger layouts. Hairlines not
+  boxes, one primary action per screen, numbers right-aligned in a `Column`.
+- **Fixtures are fictional, and a test enforces it.** This repo is public. No
+  real customer, prospect, contact, venue, email domain or live CRM/Zoom/Clerk
+  id goes into a test, story, seed script, doc or screenshot — including in a
+  filename. Reuse the fixture cast in
+  `packages/core/src/libs/fixtures/realDataGuard.ts` (Northwind, Kestrel Capital,
+  Larkfield Systems, Contoso Supply, Bellwater Hall, Acme …), keep each name's role
+  the same everywhere, put email addresses at `.example`, and keep an id's
+  shape but not its value. `realDataGuard.test.ts` scans every tracked file's
+  contents and path on each unit run and fails with the file and line. It
+  enforces two lists: `BANNED_NAMES` (specific identities, stored hashed, so
+  adding one does not re-commit it) and `REAL_DATA_SHAPES` (patterns for things
+  that are not names — a meeting-recording URL, a provider org id, a dialable
+  phone number, a street address — so a *different* real value pasted next week
+  is caught too). That file explains how to add to either. `Metacto` is
+  deliberately not on the list — it owns the product — but it is the seller in a
+  fixture, never the customer.

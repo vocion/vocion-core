@@ -78,20 +78,21 @@ export type RetrievalHit = {
 };
 
 /**
- * An Operation plugin (formerly `Skill` — see {@link Skill} alias).
- * Declarative metadata up top, executable logic in `run`.
+ * A Skill plugin. Declarative metadata up top, executable logic in `run`.
  *
- * Plugins export a default `Operation<Input, Output>` — or a factory if
- * they need per-org configuration. See `defineOperation` below for the
- * ergonomic constructor.
+ * Plugins export a default `Skill<Input, Output>` — or a factory if they
+ * need per-org configuration. See `defineSkill` below for the ergonomic
+ * constructor.
  *
- * **Naming note (v0.2):** what was called a "Skill" in v0.1 is renamed
- * **`Operation`** in v0.2 to disambiguate from procedural Playbooks
- * (markdown + YAML frontmatter that agents read on demand). The
- * `Skill` / `defineSkill` / `AnySkill` / `PluginManifest.skills`
- * names remain as deprecated aliases for one release cycle.
+ * **Naming note.** v0.2 renamed `Skill` to `Operation` to disambiguate it
+ * from procedural Playbooks. That rename never took: the dashboard route
+ * is `/dashboard/skills`, the workspace directory is `skills/`, the unit
+ * on disk is a `SKILL.md`, and migration 0061 deleted the operations
+ * layer outright. `Skill` is the noun. `Operation` / `AnyOperation` /
+ * `defineOperation` / `PluginManifest.operations` remain as deprecated
+ * aliases so v0.2 plugins keep loading.
  */
-export type Operation<Input = unknown, Output = unknown> = {
+export type Skill<Input = unknown, Output = unknown> = {
   /** Stable identifier. Same conventions as context slugs (lowercase, _ or -). */
   readonly slug: string;
   /** Display name. */
@@ -127,38 +128,37 @@ export type Operation<Input = unknown, Output = unknown> = {
 };
 
 /**
- * Type-erased Operation — what plugin manifests declare and the
- * registry stores. Input/Output types are preserved at authoring time
- * via `defineOperation`, then erased at the manifest boundary so
- * heterogeneous operation arrays type-check. Runtime validation via
- * the Zod schemas is what enforces the real shape.
+ * Type-erased Skill — what plugin manifests declare and the registry
+ * stores. Input/Output types are preserved at authoring time via
+ * `defineSkill`, then erased at the manifest boundary so heterogeneous
+ * skill arrays type-check. Runtime validation via the Zod schemas is
+ * what enforces the real shape.
  */
-export type AnyOperation = Operation<any, any>;
+export type AnySkill = Skill<any, any>;
 
 /**
  * Ergonomic constructor — infers types from the schemas so callers can
- * write `defineOperation({ inputSchema, outputSchema, run, ... })`
- * without restating generic parameters. Returns the erased type so
- * callers can drop the operation into an `operations: AnyOperation[]`
- * field without casts.
- * @param op
+ * write `defineSkill({ inputSchema, outputSchema, run, ... })` without
+ * restating generic parameters. Returns the erased type so callers can
+ * drop the skill into a `skills: AnySkill[]` field without casts.
+ * @param skill - The skill definition, typed by its own schemas.
  */
-export function defineOperation<Input, Output>(op: Operation<Input, Output>): AnyOperation {
-  return op as AnyOperation;
+export function defineSkill<Input, Output>(skill: Skill<Input, Output>): AnySkill {
+  return skill as AnySkill;
 }
 
 /* ------------------------------------------------------------------ */
-/* v0.1 back-compat aliases                                            */
+/* v0.2 back-compat aliases                                            */
 /* ------------------------------------------------------------------ */
 
-/** @deprecated Use {@link Operation} instead. Kept for v0.1 plugin back-compat. */
-export type Skill<Input = unknown, Output = unknown> = Operation<Input, Output>;
+/** @deprecated Use {@link Skill} instead. Kept for v0.2 plugin back-compat. */
+export type Operation<Input = unknown, Output = unknown> = Skill<Input, Output>;
 
-/** @deprecated Use {@link AnyOperation} instead. */
-export type AnySkill = AnyOperation;
+/** @deprecated Use {@link AnySkill} instead. */
+export type AnyOperation = AnySkill;
 
-/** @deprecated Use {@link defineOperation} instead. */
-export const defineSkill = defineOperation;
+/** @deprecated Use {@link defineSkill} instead. */
+export const defineOperation = defineSkill;
 
 /* ================================================================== */
 /* Source plugin contract (v0.3)                                        */
@@ -167,9 +167,9 @@ export const defineSkill = defineOperation;
 /**
  * Source plugin = a connector to an external data system.
  *
- * Pairs with the Operation contract. Together they cover both ends
+ * Pairs with the Skill contract. Together they cover both ends
  * of an agent's data flow: Sources bring data in (OAuth + pull +
- * optional direct retrieval), Operations act on it (typed LLM calls
+ * optional direct retrieval), Skills act on it (typed LLM calls
  * + plugin code).
  *
  * Two flavors:
@@ -342,27 +342,27 @@ export function defineSource<Config>(source: Source<Config>): AnySource {
  * to read env/config at boot time.
  */
 export type PluginManifest = {
-  /** Reverse-DNS style identifier for the plugin itself (not individual operations). */
+  /** Reverse-DNS style identifier for the plugin itself (not individual skills). */
   readonly id: string;
   /** Plugin package semver. */
   readonly version: string;
   /** Human description. */
   readonly description?: string;
-  /** Eager — plugin exports a fixed list of operations. */
-  readonly operations?: AnyOperation[];
+  /** Eager — plugin exports a fixed list of skills. */
+  readonly skills?: AnySkill[];
   /**
-   * @deprecated Use {@link operations} instead. Kept as an alias for
-   * v0.1 plugins. When both are provided, `operations` wins.
+   * @deprecated Use {@link skills} instead. Kept as an alias for v0.2
+   * plugins. When both are provided, `skills` wins.
    */
-  readonly skills?: AnyOperation[];
+  readonly operations?: AnySkill[];
   /** Lazy — plugin exports a factory called once at boot. */
-  readonly register?: (env: PluginRegistrationEnv) => Promise<AnyOperation[]> | AnyOperation[];
+  readonly register?: (env: PluginRegistrationEnv) => Promise<AnySkill[]> | AnySkill[];
   /**
-   * Source plugins (v0.3+). Plugins can export operations, sources, or
+   * Source plugins (v0.3+). Plugins can export skills, sources, or
    * both. Each source must declare `slug`, `authType`, `pull` at minimum.
    */
   readonly sources?: AnySource[];
-  /** Lazy factory variant for sources, same role as `register` for operations. */
+  /** Lazy factory variant for sources, same role as `register` for skills. */
   readonly registerSources?: (env: PluginRegistrationEnv) => Promise<AnySource[]> | AnySource[];
   /**
    * Card renderers (v0.4+, @experimental). Plugins ship typed UI components
@@ -371,7 +371,7 @@ export type PluginManifest = {
    * first-party card for its own runs. See `./cards.ts` for the contract.
    */
   readonly renderers?: AnyCardRenderer[];
-  /** Lazy factory variant for renderers, same role as `register` for operations. */
+  /** Lazy factory variant for renderers, same role as `register` for skills. */
   readonly registerRenderers?: (env: PluginRegistrationEnv) => Promise<AnyCardRenderer[]> | AnyCardRenderer[];
 };
 

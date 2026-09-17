@@ -46,7 +46,7 @@ async function main(): Promise<void> {
 
   // Citations tab: ask something that searches, expand the trace.
   const composer = page.getByPlaceholder(/Message|Ask/i).first();
-  await composer.fill('Search my notes for the latest on Gauge and give me a sourced summary.');
+  await composer.fill('Search my notes for the latest on Kestrel and give me a sourced summary.');
   await page.waitForTimeout(400);
   await page.getByLabel('Send message').click();
   await page.getByText(/Worked it out ·/i).first().waitFor({ state: 'visible', timeout: 240_000 });

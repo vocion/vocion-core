@@ -34,9 +34,43 @@ export type RecordRef = {
   key: string;
   /** How the record is named to a person. */
   name: string;
+  /**
+   * How the record reads when only its id is known — `Deal 1234`. Kept even
+   * once `name` is a real name, so the id stays available on hover and in
+   * the detail instead of being the label (Chris, 2026-09-16: "I should be
+   * able to see the name of this deal").
+   */
+  idLabel?: string;
+  /**
+   * True while `name` is still the id spelled out — the payload carried no
+   * name and nothing has resolved one yet. `services/records/recordLabel`
+   * clears it from the CRM mirror; what is still set after that genuinely
+   * has no name we can show, and says so rather than pretending.
+   */
+  fromId?: boolean;
 };
 
+/**
+ * The record as a row title: its name, or the id plus the reason there is no
+ * name. Never the bare id pretending to be a name.
+ * @param record
+ */
+export function recordTitle(record: RecordRef): string {
+  return record.fromId && record.idLabel ? `${record.idLabel} (name not synced)` : record.name;
+}
+
 export type ActionChange = { field: string; from?: string; to: string };
+
+/** Everything a describer may know that is not on the run itself. */
+export type DescribeOptions = {
+  /**
+   * Record key → the name the workspace knows that record by, from the CRM
+   * mirror (`services/records/recordLabel`). Only ever overrides a name the
+   * describer had to derive from an id: what the proposer actually wrote
+   * stays, because that is what it proposed.
+   */
+  recordNames?: ReadonlyMap<string, string>;
+};
 
 export type ActionDescription = {
   title: string;
@@ -55,6 +89,9 @@ export type ActionDescription = {
   rationale: string | null;
   evidence: string[];
 };
+
+/** How each HubSpot object type reads when only its id is known. */
+const HUBSPOT_ID_LABEL: Record<string, string> = { deals: 'Deal', contacts: 'Contact', companies: 'Company' };
 
 const HUBSPOT_OBJECT_KIND: Record<string, RecordRef['kind']> = {
   deals: 'deal',
@@ -161,27 +198,23 @@ function rec(value: unknown): Record<string, unknown> {
  * @param properties
  * @param before - Prior values, when the proposer supplied them.
  */
-function hubspotRecordName(objectType: string, objectId: string, properties: Record<string, unknown>, before: Record<string, unknown>): string {
+function hubspotRecordName(objectType: string, objectId: string, properties: Record<string, unknown>, before: Record<string, unknown>): { name: string; idLabel: string; fromId: boolean } {
   const pick = (...keys: string[]) => keys.map(k => str(properties[k]) ?? str(before[k])).find(Boolean) ?? null;
-  switch (objectType) {
-    case 'deals':
-      return pick('dealname') ?? `Deal ${objectId}`;
-    case 'contacts': {
-      const first = pick('firstname');
-      const last = pick('lastname');
-      return [first, last].filter(Boolean).join(' ') || pick('email') || `Contact ${objectId}`;
-    }
-    case 'companies':
-      return pick('name', 'domain') ?? `Company ${objectId}`;
-    default:
-      return `${objectType} ${objectId}`;
-  }
+  const idLabel = HUBSPOT_ID_LABEL[objectType] ? `${HUBSPOT_ID_LABEL[objectType]} ${objectId}` : `${objectType} ${objectId}`;
+  const found = objectType === 'deals'
+    ? pick('dealname')
+    : objectType === 'contacts'
+      ? ([pick('firstname'), pick('lastname')].filter(Boolean).join(' ') || pick('email'))
+      : objectType === 'companies'
+        ? pick('name', 'domain')
+        : null;
+  return found ? { name: found, idLabel, fromId: false } : { name: idLabel, idLabel, fromId: true };
 }
 
 /** Fields that name the record rather than change it — not listed as changes. */
 const HUBSPOT_IDENTITY_FIELDS = new Set(['dealname', 'firstname', 'lastname', 'email', 'name', 'domain']);
 
-function describeHubspotUpdate(run: ActionRunLike): ActionDescription {
+function describeHubspotUpdate(run: ActionRunLike, opts?: DescribeOptions): ActionDescription {
   const input = rec(run.input);
   const objectType = str(input.objectType) ?? 'records';
   const objectId = str(input.objectId) ?? '?';
@@ -189,7 +222,11 @@ function describeHubspotUpdate(run: ActionRunLike): ActionDescription {
   // Prior values are not part of the action's schema; a proposer that knows
   // them may put them on the proposal (`before`) or the input (`previous`).
   const before = { ...rec(input.previous), ...rec(run.proposal?.before) };
-  const name = hubspotRecordName(objectType, objectId, properties, before);
+  const named = hubspotRecordName(objectType, objectId, properties, before);
+  const key = `hubspot:${objectType}:${objectId}`;
+  const resolved = named.fromId ? opts?.recordNames?.get(key) : undefined;
+  const name = resolved ?? named.name;
+  const fromId = named.fromId && resolved === undefined;
   const changes: ActionChange[] = Object.entries(properties)
     .filter(([field]) => !(HUBSPOT_IDENTITY_FIELDS.has(field) && Object.keys(properties).length > 1))
     .map(([field, to]) => ({ field, to: valueLabel(to), ...(field in before ? { from: valueLabel(before[field]) } : {}) }));
@@ -205,9 +242,9 @@ function describeHubspotUpdate(run: ActionRunLike): ActionDescription {
   const amount = num(properties.amount) ?? num(before.amount);
   return {
     title: changeText ? `Update ${name} — ${changeText}${more}` : `Update ${name}`,
-    subline: [name, 'CRM update', agentSlug ? `proposed by ${agentSlug}` : null].filter(Boolean).join(' › '),
+    subline: ['CRM update', agentSlug ? `proposed by ${agentSlug}` : null].filter(Boolean).join(' › '),
     actionKind: 'CRM update',
-    record: { kind, key: `hubspot:${objectType}:${objectId}`, name },
+    record: { kind, key, name, idLabel: named.idLabel, fromId },
     changes,
     amount,
     currency: amount === null ? null : str(properties.deal_currency_code) ?? 'USD',
@@ -218,7 +255,7 @@ function describeHubspotUpdate(run: ActionRunLike): ActionDescription {
   };
 }
 
-function describeEnroll(run: ActionRunLike): ActionDescription {
+function describeEnroll(run: ActionRunLike, opts?: DescribeOptions): ActionDescription {
   const input = rec(run.input);
   const contact = str(input.contactName) ?? str(input.contactRef) ?? 'a contact';
   const company = str(input.companyName);
@@ -227,11 +264,17 @@ function describeEnroll(run: ActionRunLike): ActionDescription {
   const key = contactRef ? `hubspot:${contactRef.includes(':') ? contactRef : `contacts:${contactRef}`}` : `enroll:${run.id}`;
   const agentSlug = agentOf(run);
   const name = company ? `${contact} (${company})` : contact;
+  // Only a ref was given: `contacts:9412` is an id, not a name.
+  const idOnly = !str(input.contactName) && contactRef !== null && contact === contactRef;
+  const idLabel = idOnly ? `Contact ${contactRef!.split(':').at(-1)}` : undefined;
+  const resolved = idOnly ? opts?.recordNames?.get(key) : undefined;
+  const shown = resolved ?? (idOnly ? idLabel! : name);
+  const fromId = idOnly && resolved === undefined;
   return {
-    title: `Enroll ${name} in ${sequence}`,
-    subline: [name, 'Enrollment', agentSlug ? `proposed by ${agentSlug}` : null].filter(Boolean).join(' › '),
+    title: `Enroll ${shown} in ${sequence}`,
+    subline: ['Enrollment', agentSlug ? `proposed by ${agentSlug}` : null].filter(Boolean).join(' › '),
     actionKind: 'Enrollment',
-    record: { kind: 'contact', key, name },
+    record: { kind: 'contact', key, name: shown, ...(idOnly ? { idLabel, fromId } : {}) },
     changes: [{ field: 'sequence', to: sequence }],
     amount: null,
     currency: null,
@@ -250,7 +293,7 @@ function describeGmailSend(run: ActionRunLike): ActionDescription {
   const agentSlug = agentOf(run);
   return {
     title: `${draft ? 'Draft email to' : 'Email'} ${to}${subject ? ` — ${subject}` : ''}`,
-    subline: [to, draft ? 'Email draft' : 'Email', agentSlug ? `proposed by ${agentSlug}` : null].filter(Boolean).join(' › '),
+    subline: [draft ? 'Email draft' : 'Email', agentSlug ? `proposed by ${agentSlug}` : null].filter(Boolean).join(' › '),
     actionKind: 'Email',
     record: { kind: 'email', key: `email:${to.toLowerCase()}`, name: to },
     changes: subject ? [{ field: 'subject', to: subject }] : [],
@@ -282,7 +325,7 @@ function describeFallback(run: ActionRunLike): ActionDescription {
   };
 }
 
-const DESCRIBERS: Record<string, (run: ActionRunLike) => ActionDescription> = {
+const DESCRIBERS: Record<string, (run: ActionRunLike, opts?: DescribeOptions) => ActionDescription> = {
   'hubspot.update': describeHubspotUpdate,
   'personalization.enroll': describeEnroll,
   'gmail.send': describeGmailSend,
@@ -292,11 +335,12 @@ const DESCRIBERS: Record<string, (run: ActionRunLike) => ActionDescription> = {
  * Describe one proposed action for a person. Never throws on a malformed
  * payload — a row that cannot be read still needs a row.
  * @param run
+ * @param opts - Names the workspace knows that the payload did not carry.
  */
-export function describeActionRun(run: ActionRunLike): ActionDescription {
+export function describeActionRun(run: ActionRunLike, opts?: DescribeOptions): ActionDescription {
   const describer = DESCRIBERS[run.actionId] ?? describeFallback;
   try {
-    return describer(run);
+    return describer(run, opts);
   } catch {
     return describeFallback(run);
   }

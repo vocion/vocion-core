@@ -28,6 +28,10 @@
         "!src/**/*.test.{ts,tsx}"
       ],
       "ignore": [
+        // The banned-names list is consumed only by its own guard test, and
+        // tests are excluded from `project` above. It is not dead code — it is
+        // the reason the guard can fail. See realDataGuard.ts.
+        "src/libs/fixtures/**",
         "src/components/ui/**",
         // Model upgrade test: built, not finished, and not rendered on the
         // dataset page — both models run inside one request, so it times out
@@ -54,16 +58,13 @@
         "src/routers/**"
       ],
       "ignoreDependencies": [
-        // shadcn umbrella package behind components/ui/{collapsible,tabs}.tsx — primitives kept for the next page that needs them
-        "radix-ui",
+
         "@radix-ui/react-accordion",
-        "@tanstack/react-table",
         "react-hook-form",
         "@swc/helpers",
         "@tailwindcss/typography",
         "tailwindcss",
         "tw-animate-css",
-        "@clerk/nextjs",
         "vite",
         "@wsx/registry"
       ],
@@ -88,8 +89,7 @@
     "tofu",
     "production",
     "checkly",
-    "stripe",
-    "vitest"
+    "stripe"
   ],
   "rules": {
     "exports": "off",

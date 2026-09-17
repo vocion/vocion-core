@@ -49,17 +49,17 @@ const evalCases: EvalCase[] = [
       },
       {
         name: 'No raw URLs in response',
-        fn: response => !response.includes('https://us06web.zoom.us/rec/play/'),
+        fn: response => !response.includes('https://zoom.example/rec/play/'),
       },
       {
         name: 'No /dashboard/ paths in response',
         fn: response => !response.includes('/dashboard/objects/'),
       },
       {
-        name: 'Kevin/Kristen NOT shown for "this week" (it is from January)',
+        name: 'Devon/Priya NOT shown for "this week" (it is from January)',
         fn: (response) => {
-          // If the response mentions Kevin/Kristen, it should note it's old
-          if (response.includes('Kevin') && response.includes('Kristen')) {
+          // If the response mentions Devon/Priya, it should note it's old
+          if (response.includes('Devon') && response.includes('Priya')) {
             return response.toLowerCase().includes('january') || response.toLowerCase().includes('not this week') || response.toLowerCase().includes('old');
           }
           return true; // Not mentioned = pass
@@ -91,7 +91,7 @@ const evalCases: EvalCase[] = [
   },
   {
     name: 'Citation format',
-    input: 'What do you know about the Kevin/Kristen discovery call?',
+    input: 'What do you know about the Devon/Priya discovery call?',
     checks: [
       {
         name: 'Response uses citation markers [N]',
@@ -112,12 +112,12 @@ const evalCases: EvalCase[] = [
         fn: (_, toolCalls) => toolCalls.some((tc: any) => tc.tool === 'search'),
       },
       {
-        name: 'Response includes Dr. K or Unmuted (Mar 19)',
-        fn: response => /Dr\.?\s*K|Unmuted/i.test(response),
+        name: 'Response includes Dr. Vale or Offbeat (Mar 19)',
+        fn: response => /Dr\.?\s*Vale|Offbeat/i.test(response),
       },
       {
-        name: 'Response includes Matt Hurst (Mar 17)',
-        fn: response => /Matt\s*Hurst/i.test(response),
+        name: 'Response includes Mara Okafor (Mar 17)',
+        fn: response => /Mara\s*Okafor/i.test(response),
       },
       {
         name: 'Response includes dates (Mar 17, Mar 19, etc.)',
@@ -125,7 +125,7 @@ const evalCases: EvalCase[] = [
       },
       {
         name: 'No raw URLs',
-        fn: response => !response.includes('https://us06web.zoom.us'),
+        fn: response => !response.includes('https://zoom.example'),
       },
     ],
   },
@@ -136,7 +136,7 @@ async function runAgent(message: string): Promise<{ response: string; toolCalls:
   const { runAgentDeep: runAgentFn } = await import('../services/AgentService');
 
   const result = await runAgentFn({
-    orgId: 'org_3B7f6cPKTKnJOExO55asDaUVAay',
+    orgId: 'org_2ExampleFixtureOrgId000000',
     agentSlug: 'sales-assistant',
     message,
   });
@@ -158,7 +158,7 @@ async function main() {
     const orgArg = process.argv.indexOf('--org');
     const orgId = orgArg !== -1 && process.argv[orgArg + 1]
       ? process.argv[orgArg + 1]!
-      : (process.env.VOCION_DEFAULT_ORG ?? 'org_3B7f6cPKTKnJOExO55asDaUVAay');
+      : (process.env.VOCION_DEFAULT_ORG ?? 'org_2ExampleFixtureOrgId000000');
     const { runDataset } = await import('../services/EvalService');
     console.log(`\n→ Running dataset "${datasetSlug}" for org ${orgId}...`);
     const result = await runDataset({ orgId, datasetSlug });

@@ -49,7 +49,7 @@ export type RecommendedActionPayload = {
   actionId: string;
   /** Pre-filled payload for that action (draft to/subject/body, CRM props, …). */
   input: Record<string, unknown>;
-  /** Short button label, e.g. "Draft the note to Carlo Marcelino". */
+  /** Short button label, e.g. "Draft the note to Nadia Brandt". */
   label: string;
   /** One-line why. */
   rationale?: string;
@@ -76,10 +76,18 @@ export type RecommendedActionPayload = {
 export type ArtifactPayload = {
   id: number;
   conversationId: number | null;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence';
   title: string;
   spec: Record<string, unknown>;
   url?: string | null;
+  /**
+   * The RECORD this artifact belongs to (0112), when it belongs to one rather
+   * than only to a conversation — `{ type, id }` of a `RecordRef`, plus what
+   * the artifact IS to that record (`brief` | `recommendation` | `sequence`).
+   */
+  recordType?: string | null;
+  recordId?: string | null;
+  recordRole?: string | null;
   /** The assistant turn that produced this version — where the chip hangs in the transcript. */
   messageId: number | null;
   /** Path-like grouping in the artifacts log, e.g. `revenue/weekly`. */

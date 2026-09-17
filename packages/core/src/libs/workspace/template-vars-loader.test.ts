@@ -37,8 +37,8 @@ function makeWorkspace(files: Record<string, string>): string {
 const INGESTOR_AGENT = 'slug: ingestor\nname: Ingestor\nsystemPrompt: Ingest sources.\n';
 
 beforeEach(() => {
-  process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-  process.env.VEERIO_API_URL = 'https://api-dev.veerio.app';
+  process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+  process.env.LARKFIELD_API_URL = 'https://api-dev.larkfield.example';
 });
 
 afterEach(() => {
@@ -57,7 +57,7 @@ describe('loadWorkspace — {{env.NAME}} in a playbook body', () => {
     'description: Pull the source list before ingesting.',
     '---',
     '',
-    'Fetch {{env.VEERIO_API_URL}}/api/sources/ingestion first.',
+    'Fetch {{env.LARKFIELD_API_URL}}/api/sources/ingestion first.',
     '',
   ].join('\n');
 
@@ -65,7 +65,7 @@ describe('loadWorkspace — {{env.NAME}} in a playbook body', () => {
     const workspace = loadWorkspace(makeWorkspace({ [playbookFile]: playbookText }));
     const playbook = workspace.playbooks.find(p => p.slug === 'ingest-sources');
 
-    expect(playbook?.body).toBe('Fetch https://api-dev.veerio.app/api/sources/ingestion first.');
+    expect(playbook?.body).toBe('Fetch https://api-dev.larkfield.example/api/sources/ingestion first.');
     expect(playbook?.body).not.toContain('{{');
   });
 
@@ -73,17 +73,17 @@ describe('loadWorkspace — {{env.NAME}} in a playbook body', () => {
     const workspace = loadWorkspace(makeWorkspace({ [playbookFile]: playbookText }));
     const playbook = workspace.playbooks.find(p => p.slug === 'ingest-sources');
     const expected = createHash('sha256')
-      .update('Fetch https://api-dev.veerio.app/api/sources/ingestion first.', 'utf8')
+      .update('Fetch https://api-dev.larkfield.example/api/sources/ingestion first.', 'utf8')
       .digest('hex');
 
     expect(playbook?.contentSha).toBe(expected);
   });
 
   it('fails the whole load, naming the file, when the variable leaves the environment', () => {
-    delete process.env.VEERIO_API_URL;
+    delete process.env.LARKFIELD_API_URL;
     const dir = makeWorkspace({ [playbookFile]: playbookText });
 
-    expect(() => loadWorkspace(dir)).toThrow(/VEERIO_API_URL/);
+    expect(() => loadWorkspace(dir)).toThrow(/LARKFIELD_API_URL/);
     expect(() => loadWorkspace(dir)).toThrow(/SKILL\.md/);
   });
 
@@ -100,7 +100,7 @@ describe('loadWorkspace — {{env.NAME}} in a mission yaml', () => {
     'slug: ingest-daily',
     'name: Ingest daily',
     'agent: ingestor',
-    'goal: Read the source list from {{env.VEERIO_API_URL}}/api/sources/ingestion daily.',
+    'goal: Read the source list from {{env.LARKFIELD_API_URL}}/api/sources/ingestion daily.',
     '',
   ].join('\n');
 
@@ -111,16 +111,16 @@ describe('loadWorkspace — {{env.NAME}} in a mission yaml', () => {
     }));
     const mission = workspace.missions.find(m => m.slug === 'ingest-daily');
 
-    expect(mission?.goal).toBe('Read the source list from https://api-dev.veerio.app/api/sources/ingestion daily.');
+    expect(mission?.goal).toBe('Read the source list from https://api-dev.larkfield.example/api/sources/ingestion daily.');
   });
 
   it('fails the load when the mission names an unset variable', () => {
-    delete process.env.VEERIO_API_URL;
+    delete process.env.LARKFIELD_API_URL;
 
     expect(() => loadWorkspace(makeWorkspace({
       'agents/ingestor.yaml': INGESTOR_AGENT,
       'missions/ingest-daily.yaml': missionText,
-    }))).toThrow(/VEERIO_API_URL/);
+    }))).toThrow(/LARKFIELD_API_URL/);
   });
 });
 

@@ -15,22 +15,36 @@ import { parseConversationParam } from './resumeRule';
 export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//];
 
 /**
- * Screens where a person is answering a question — an ask or a decision
- * sheet — with the action pinned to the bottom of a phone. The dock's button
- * would sit on top of Submit there, and a decision screen is not a place to
- * start a conversation, so the shell mounts no dock at all.
+ * Screens that mount no dock at all.
+ *
+ * This used to hold every decision route, on two arguments. The first was
+ * mechanical — the dock's button would sit on top of Submit on a phone — and
+ * it is no longer true: the collapsed dock is an edge TAB, `fixed top-1/2`
+ * on the right rail, while a decision's action bar is pinned to the bottom.
+ * They do not touch.
+ *
+ * The second was a product claim — *"a decision screen is not a place to start
+ * a conversation"* — and that turned out to be backwards. A decision screen is
+ * the ONE place a person has a question, and the question is always the same:
+ * why are you recommending this? The lead page has proved it (`Discuss
+ * recommendation`, `Ask about brief`), and Chris, 2026-09-17: *"do I not get
+ * chat sidebar when on a proposals / review / decision page?"*
+ *
+ * So the list is empty, and kept rather than deleted because "a screen with no
+ * dock" is still a coherent idea — a print view, a full-screen editor — and
+ * the next one that needs it should land here rather than re-deriving this.
  */
-export const NO_DOCK_ROUTES: RegExp[] = [
-  /\/dashboard\/inbox\/(?!g(?:\/|$))[^/]+$/,
-  /\/dashboard\/inbox\/g\/[^/]+$/,
-  /\/dashboard\/inbox\/r\/[^/]+$/,
-];
+export const NO_DOCK_ROUTES: RegExp[] = [];
 
 /**
- * Single-record pages that do not (yet) mount their own dock: the everything
- * conversation opens by default there, because a person on one record came
- * to work on it (Valerie, 2026-09-09). Anything with its own URL and its own
- * record counts; lists, settings and catalogs do not.
+ * Single-record pages that do not (yet) mount their own dock.
+ *
+ * These used to open the rail by default. They no longer do: a record page is
+ * FULL WIDTH when you arrive on it and the rail waits on its edge tab, one
+ * ⌘J away (CEO, 2026-09-16 — `docs/design/patterns.md`). The list is kept
+ * because it still names "a page that is one record", which is what decides
+ * whether the region is commentable and what `@page` resolves to; nothing
+ * reads it for collapse state any more.
  */
 export const RECORD_ROUTES: RegExp[] = [
   // A briefing is the record a person came to work from (R4): the rail opens
@@ -76,10 +90,11 @@ function routeOf(pathname: string): string {
 /**
  * The rail on every page that has no dock of its own (058, §9): the
  * everything conversation, carrying the page the person is on as context,
- * collapsed to an edge tab until they open it (⌘J) and open by default on a
- * single record. Mounted once by the app shell, beside the page content, so
- * it follows the person across routes. Renders nothing on the full-page
- * chat, on routes that mount a scoped dock, and for an org with no agents.
+ * collapsed to an edge tab until they open it (⌘J) — on a record page too,
+ * since 2026-09-16: the page is full width and the rail overlays it on
+ * demand. Mounted once by the app shell, so it follows the person across
+ * routes. Renders nothing on the full-page chat, on routes that mount a
+ * scoped dock, and for an org with no agents.
  * @param props
  * @param props.agents - Agents available to pick from. Empty array renders nothing.
  */
@@ -120,7 +135,9 @@ export function PageDock({ agents }: { agents: AgentOption[] }) {
       agents={agents}
       scopeLabel="Everything"
       pageContext={record ? { path: pathname, title, record } : { path: pathname, title }}
-      defaultCollapsed={!isRecordRoute(pathname)}
+      // Full width by default, everywhere. A record page is no longer the
+      // exception (2026-09-16).
+      defaultCollapsed
       resumeConversationId={resumeId}
     />
   );

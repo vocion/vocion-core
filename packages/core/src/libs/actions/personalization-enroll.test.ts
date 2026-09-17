@@ -585,3 +585,73 @@ describe('Regenerate, tiered (the fast path)', () => {
     expect(await db.select().from(eventLogSchema)).toHaveLength(0);
   });
 });
+
+/**
+ * The voice gate. `runSkillTurn`'s schema covers the regenerate path, but
+ * that is one of several doors into the queue — the hourly drafting pass, the
+ * write API and a replay all arrive through `proposeAction`. These cover the
+ * door they share.
+ */
+describe('personalization.enroll voice gate', () => {
+  /** The complaint, fixture-ised: register announcements, no real prospect. */
+  const OFFENDING = 'Quick one on the build. Curious about something on the technical side. No pitch, just curious how that works day to day.';
+
+  it('refuses a proposal whose sends carry a banned construction, and names each one', async () => {
+    await seedLead();
+
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      input: enrollInput({
+        sends: [
+          { step: 1, day: 0, subject: 'Your platform hires', body: 'Dana, saw the hires.' },
+          { step: 2, day: 4, subject: 'One level deeper', body: OFFENDING },
+        ],
+      }),
+      principal: agent(),
+      invokedBy: 'agent:revenue-lead',
+    })).rejects.toThrow(/body of send 2: "Curious about" is banned/);
+  });
+
+  it('writes nothing when it refuses', async () => {
+    await seedLead();
+
+    await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      input: enrollInput({ sends: [{ step: 1, day: 0, subject: 'A', body: OFFENDING }] }),
+      principal: agent(),
+      invokedBy: 'agent:revenue-lead',
+    }).catch(() => {});
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(runs).toHaveLength(0);
+  });
+
+  it('gates the subject as well as the body', async () => {
+    await seedLead();
+
+    await expect(proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      input: enrollInput({ sends: [{ step: 1, day: 0, subject: 'Quick question', body: 'Dana, saw the hires.' }] }),
+      principal: agent(),
+      invokedBy: 'agent:revenue-lead',
+    })).rejects.toThrow(/subject of send 1: "Quick question" is banned/);
+  });
+
+  it('lets clean copy through', async () => {
+    await seedLead();
+
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      input: enrollInput(),
+      principal: agent(),
+      invokedBy: 'agent:revenue-lead',
+    });
+
+    expect(proposed.status).toBe('pending');
+  });
+});

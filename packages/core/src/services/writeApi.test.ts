@@ -149,6 +149,36 @@ describe('apiListReviews', () => {
     await expect(apiListReviews(owner, { suggestedDecision: 'rejected' })).rejects.toMatchObject({ status: 400 });
     expect(mockListPage).not.toHaveBeenCalled();
   });
+
+  it('reads the approval-actor filter as three states, not as a boolean', async () => {
+    await apiListReviews(owner, { approvedByAgent: 'true' });
+
+    expect(mockListPage).toHaveBeenCalledWith('org1', expect.objectContaining({ approvedByAgent: true }));
+
+    await apiListReviews(owner, { approvedByAgent: 'false' });
+
+    expect(mockListPage).toHaveBeenCalledWith('org1', expect.objectContaining({ approvedByAgent: false }));
+
+    // The one a `Boolean(raw)` coercion would get wrong: asking for the
+    // undecided rows is a filter, and the string 'false' is truthy.
+    await apiListReviews(owner, { approvedByAgent: 'null' });
+
+    expect(mockListPage).toHaveBeenCalledWith('org1', expect.objectContaining({ approvedByAgent: null }));
+  });
+
+  it('leaves the filter off entirely when the caller does not send it', async () => {
+    await apiListReviews(owner);
+
+    expect(mockListPage).toHaveBeenCalledWith('org1', expect.objectContaining({ approvedByAgent: undefined }));
+  });
+
+  it('refuses an approval-actor filter it does not recognise', async () => {
+    // Same failure as the recommendation filter above: falling through as "no
+    // filter" would hand back the whole queue looking like every row in it was
+    // approved by an agent.
+    await expect(apiListReviews(owner, { approvedByAgent: '1' })).rejects.toMatchObject({ status: 400 });
+    expect(mockListPage).not.toHaveBeenCalled();
+  });
 });
 
 describe('apiGetReview', () => {

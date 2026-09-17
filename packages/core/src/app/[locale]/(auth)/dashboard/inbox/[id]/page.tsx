@@ -17,6 +17,7 @@ import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
+import { askGroupHref } from '@/services/inbox/recordKey';
 import { INBOX_SORTS, kindForAsk, listProposalQueue } from '@/services/InboxService';
 import { getCandidate } from '@/services/LearningCandidateService';
 import { getMissionRun } from '@/services/MissionService';
@@ -101,7 +102,7 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
             <p className="mt-4 text-xs text-muted-foreground">
               Part of
               {' '}
-              <Link href={`/dashboard/inbox/g/${encodeURIComponent(ask.groupKey)}`} className="underline-offset-2 hover:underline">{ask.groupTitle ?? 'a decision sheet'}</Link>
+              <Link href={askGroupHref(ask.groupKey)} className="underline-offset-2 hover:underline">{ask.groupTitle ?? 'a decision sheet'}</Link>
               .
             </p>
           )}

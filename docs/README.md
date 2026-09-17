@@ -10,6 +10,7 @@
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
 - [**Artifacts — one live thing beside the conversation**](./artifacts.md) — `render_*` / `read_artifact` / `update_artifact`, the `artifact` + `artifact_version` tables, the pane a person and an agent both edit, the version rules (restore never rewrites, human saves collapse), the log at `/dashboard/artifacts`, and exporting one as a workspace page.
 - [**Routing — the workspace in the URL**](./routing.md) — why `/w/<slug>/…` exists, what the entry route does, and the phase-2 design for `/{account}/{workspace}/…` as the canonical URL.
+- [**Dashboard patterns — List, Detail, Ledger**](./design/patterns.md) — the UI pattern library every dashboard page composes from: which archetype for which page, anatomy, do/don't, and the migration checklist for the remaining pages.
 - [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.
 
 ## Dashboard map

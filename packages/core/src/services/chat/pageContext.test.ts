@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeScopeRef, readContextRefs, readPageContext, readRecordRef, scopeRefToRecord, withPageContext } from './pageContext';
+import { mergeScopeRef, pageShowsRecord, readContextRefs, readPageContext, readRecordRef, scopeRefToRecord, withPageContext } from './pageContext';
 
 describe('readPageContext', () => {
   it('accepts two short strings and trims them', () => {
@@ -37,9 +37,9 @@ describe('readPageContext', () => {
   });
 
   it('drops a malformed record without dropping the page', () => {
-    const ctx = readPageContext({ path: '/dashboard/inbox', title: 'Needs you', record: { type: 'ask' } });
+    const ctx = readPageContext({ path: '/dashboard/inbox', title: 'Review queue', record: { type: 'ask' } });
 
-    expect(ctx).toEqual({ path: '/dashboard/inbox', title: 'Needs you' });
+    expect(ctx).toEqual({ path: '/dashboard/inbox', title: 'Review queue' });
   });
 
   it('only lets in-app relative hrefs through on a ref', () => {
@@ -55,7 +55,7 @@ describe('readPageContext', () => {
 
 describe('mergeScopeRef', () => {
   it('folds a scoped dock ref into the context instead of excluding it', () => {
-    const merged = mergeScopeRef({ path: '/gtm/lead/9412', title: 'Carlo' }, 'contacts:9412');
+    const merged = mergeScopeRef({ path: '/gtm/lead/9412', title: 'Nadia' }, 'contacts:9412');
 
     expect(merged?.refs).toEqual([{ type: 'object', id: 'contacts:9412' }]);
   });
@@ -96,13 +96,13 @@ describe('withPageContext', () => {
       path: '/dashboard/briefings',
       title: 'Briefings',
       record: { type: 'briefing', id: '61', label: 'Revenue Briefing — Mon', href: '/dashboard/briefings' },
-      refs: [{ type: 'deal', id: 'deals:611', label: 'Spinutech' }],
-      selection: { text: 'Spinutech – $216K\nstalling', quote: true },
+      refs: [{ type: 'deal', id: 'deals:611', label: 'Northwind' }],
+      selection: { text: 'Northwind – $216K\nstalling', quote: true },
     });
 
     expect(out).toContain('This page is about the briefing "Revenue Briefing — Mon" (/dashboard/briefings).');
-    expect(out).toContain('I mentioned: deal "Spinutech".');
-    expect(out).toContain('> Spinutech – $216K\n> stalling');
+    expect(out).toContain('I mentioned: deal "Northwind".');
+    expect(out).toContain('> Northwind – $216K\n> stalling');
     expect(out).toContain('`page_context` tool');
   });
 });
@@ -145,5 +145,36 @@ describe('withPageContext with tagged records', () => {
 
     expect(out.indexOf('--- where I am ---')).toBeLessThan(out.indexOf('--- records I tagged ---'));
     expect(out).toContain('- deal "9" (deal:9)');
+  });
+});
+
+describe('pageShowsRecord — is the record already on screen?', () => {
+  const LEAD = { path: '/gtm/lead/9412', title: 'A lead', record: { type: 'object' as const, id: 'contacts:9412', label: 'A lead' } };
+
+  it('is true when the page beside the rail IS that record\'s page', () => {
+    expect(pageShowsRecord(LEAD, scopeRefToRecord('contacts:9412'))).toBe(true);
+  });
+
+  it('is false for a different record of the same type — the rail must not go quiet beside the wrong page', () => {
+    expect(pageShowsRecord(LEAD, scopeRefToRecord('contacts:9999'))).toBe(false);
+  });
+
+  it('is false for the same id under a different type', () => {
+    expect(pageShowsRecord(LEAD, { type: 'deal', id: 'contacts:9412' })).toBe(false);
+  });
+
+  it('is false where there is no page beside the rail — the full-page chat, which is why the guided review survives there', () => {
+    expect(pageShowsRecord(null, scopeRefToRecord('contacts:9412'))).toBe(false);
+    expect(pageShowsRecord(undefined, scopeRefToRecord('contacts:9412'))).toBe(false);
+    expect(pageShowsRecord({ path: '/dashboard/chat', title: 'Chat' }, scopeRefToRecord('contacts:9412'))).toBe(false);
+  });
+
+  it('is false when the rail is about nothing in particular', () => {
+    expect(pageShowsRecord(LEAD, null)).toBe(false);
+    expect(pageShowsRecord(LEAD, undefined)).toBe(false);
+  });
+
+  it('ignores label and href — two refs at the same record are the same record', () => {
+    expect(pageShowsRecord(LEAD, { type: 'object', id: 'contacts:9412', label: 'Renamed', href: '/elsewhere' })).toBe(true);
   });
 });

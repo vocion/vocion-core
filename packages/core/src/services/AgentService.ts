@@ -1,5 +1,8 @@
+import type { TurnFailure } from './agents/deliverableBackstop';
 import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
+import type { AgentEvent } from './agents/types';
+import type { Deliverable } from '@/libs/chat/deliverable';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
@@ -7,9 +10,10 @@ import { FEATURES } from '@/libs/Langfuse/features';
 import { tokenCostCents } from '@/libs/pricing';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
+import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { persistToolCall } from './agents/toolCallRecord';
-import { extractChunk, parseJsonArgs, toolNodeId, toolOutputContent, TraceEmitter } from './agents/traceEmitter';
+import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
@@ -115,6 +119,179 @@ function defaultHarnessTargetFor(
 }
 
 /* ------------------------------------------------------------------ */
+/* End-of-turn guarantees — structural, not prompted                   */
+/* ------------------------------------------------------------------ */
+
+/** A delegation that started and did not come back with an answer. */
+export type FailedDelegation = { name: string; message: string };
+
+/** Words a model uses when it HAS owned up to a failure. */
+const ADMITS_FAILURE = /\b(?:fail(?:ed|ure)?|could ?n[o']t|was ?n[o']t able|unable|errored|error|did ?n[o']t (?:complete|finish|work)|broke)\b/i;
+
+/**
+ * The sentence a person gets when a hand-off failed and the answer did not say
+ * so.
+ *
+ * This is the structural half of "delegation failures reach the person": the
+ * model is asked to mention it, and when it does not, code says it anyway.
+ * Prompting alone put a confident answer on top of a specialist that never
+ * ran — the failure existed only as a badge in the trace.
+ *
+ * Returns null when there is nothing to say, or when the answer already names
+ * the specialist AND admits something went wrong, so the person never reads
+ * the same bad news twice.
+ * @param failed - Delegations that did not complete.
+ * @param answer - The answer text as it stands.
+ */
+export function delegationFailureNotice(failed: ReadonlyArray<FailedDelegation>, answer: string): string | null {
+  if (failed.length === 0) {
+    return null;
+  }
+  const text = answer ?? '';
+  const named = failed.filter(f => !(text.toLowerCase().includes(f.name.toLowerCase()) && ADMITS_FAILURE.test(text)));
+  if (named.length === 0) {
+    return null;
+  }
+  const names = named.map(f => f.name);
+  const who = names.length === 1
+    ? names[0]!
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]!}`;
+  const why = named[0]!.message.trim();
+  return `The hand-off to ${who} did not complete${why ? ` (${why})` : ''}, so nothing from that step is in this answer.`;
+}
+
+/** Everything the end-of-turn pass needs, from whichever harness ran the loop. */
+export type TurnGuaranteeInput = {
+  orgId: string;
+  agentSlug: string;
+  userId?: string;
+  conversationId?: number;
+  deliverable?: Deliverable;
+  /** The person's message for this turn. */
+  request: string;
+  /** The answer the turn produced. */
+  response: string;
+  toolCalls: ReadonlyArray<{ tool: string; input?: Record<string, unknown>; output?: string }>;
+  failures: ReadonlyArray<TurnFailure>;
+  failedDelegations: ReadonlyArray<FailedDelegation>;
+  systemPrompt?: string;
+  emit: (event: AgentEvent) => void;
+  /** Injected in tests; the harness passes the real gated pass. */
+  compose?: Parameters<typeof runDeliverableBackstop>[0]['compose'];
+};
+
+/**
+ * Everything a finished turn owes the person, applied in code rather than
+ * asked for in a prompt:
+ *
+ *   1. a failed delegation is stated in the answer, and
+ *   2. a turn sent with `deliverable: 'artifact'` ends with an artifact.
+ *
+ * Runs for EVERY harness target — it reads the finished text and the tool
+ * calls, which all of them return — so the guarantee does not depend on where
+ * the loop executed. Each appended sentence also goes out as a
+ * `response_delta`, so the live transcript and the persisted message say the
+ * same thing.
+ *
+ * Never throws: a guarantee that can fail the turn it is guaranteeing is worse
+ * than the gap it closes.
+ * @param input - See {@link TurnGuaranteeInput}.
+ */
+export async function applyTurnGuarantees(input: TurnGuaranteeInput): Promise<string> {
+  let text = input.response;
+  const append = (sentence: string): void => {
+    const delta = `${text.trim().length > 0 ? '\n\n' : ''}${sentence}`;
+    text = `${text}${delta}`;
+    input.emit({ type: 'response_delta', delta });
+  };
+
+  const notice = delegationFailureNotice(input.failedDelegations, text);
+  if (notice) {
+    append(notice);
+  }
+
+  if (input.deliverable === 'artifact') {
+    try {
+      const backstop = await runDeliverableBackstop({
+        orgId: input.orgId,
+        agentSlug: input.agentSlug,
+        userId: input.userId,
+        conversationId: input.conversationId,
+        deliverable: input.deliverable,
+        request: input.request,
+        finalText: text,
+        toolCalls: input.toolCalls,
+        failures: input.failures,
+        emit: input.emit,
+        systemPrompt: input.systemPrompt,
+        compose: input.compose ?? composeArtifactWithModel,
+      });
+      if (backstop) {
+        append(backstop.notice);
+      }
+    } catch (err) {
+      console.warn(`deliverable backstop failed for org ${input.orgId} agent ${input.agentSlug}: ${(err as Error).message}`);
+    }
+  }
+
+  return text;
+}
+
+/**
+ * Run a turn on a harness that is NOT this process, and still apply the
+ * end-of-turn guarantees.
+ *
+ * The other harness targets stream their own `done`, which is the last thing
+ * the client waits on — so a guarantee applied after it would arrive at a
+ * transcript that had already closed. This holds that one frame back, runs the
+ * guarantees (which may append sentences and open the artifact pane), and then
+ * emits `done` carrying the amended answer. Every other event passes through
+ * untouched and in order.
+ * @param opts - The turn, as `runAgentDeep` received it.
+ * @param emit - The request emit.
+ * @param run - Starts the provider with the emit it should use.
+ */
+async function runOutOfProcess(
+  opts: Parameters<typeof runAgentDeep>[0],
+  emit: (event: AgentEvent) => void,
+  run: (onEvent: (event: AgentEvent) => void) => Promise<{ response: string; traceId: string; toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>; usage?: RunUsage }>,
+): Promise<{ response: string; traceId: string; toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>; usage?: RunUsage }> {
+  const failures: TurnFailure[] = [];
+  let held: Extract<AgentEvent, { type: 'done' }> | null = null;
+  const gated = (event: AgentEvent): void => {
+    if (event.type === 'tool_error') {
+      failures.push({ tool: event.tool, message: event.message });
+    }
+    if (event.type === 'done') {
+      held = event;
+      return;
+    }
+    emit(event);
+  };
+
+  const result = await run(gated);
+  const response = await applyTurnGuarantees({
+    orgId: opts.orgId,
+    agentSlug: opts.agentSlug,
+    userId: opts.userId,
+    conversationId: opts.conversationId,
+    deliverable: opts.deliverable,
+    request: opts.message,
+    response: result.response,
+    toolCalls: result.toolCalls,
+    failures,
+    // Delegation nesting is not visible across the transport (the other
+    // harnesses run their own loop and report tool failures flat), so a failed
+    // hand-off surfaces there as an ordinary tool failure.
+    failedDelegations: [],
+    emit,
+  });
+  const done: Extract<AgentEvent, { type: 'done' }> = held ?? { type: 'done', response, traceId: result.traceId };
+  emit({ ...done, response });
+  return { ...result, response };
+}
+
+/* ------------------------------------------------------------------ */
 /* runAgentDeep — opt-in deepagents runtime (Phase 4)                  */
 /* ------------------------------------------------------------------ */
 
@@ -178,6 +355,18 @@ export async function runAgentDeep(opts: {
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
+  /**
+   * What this turn OWES (`libs/chat/deliverable.ts`). `artifact` means the
+   * turn must end with an artifact beside the conversation; if the loop does
+   * not make one, `applyTurnGuarantees` does. `answer` (and absent) means the
+   * reply is the whole deliverable and nothing is wrapped.
+   *
+   * It is a typed field on the request rather than a line in the system
+   * prompt because "did this turn produce an artifact" is a requirement, not a
+   * judgement — and three rounds of prompt wording is exactly the failure mode
+   * CLAUDE.md's *Structural over prompting* bullet is about.
+   */
+  deliverable?: Deliverable;
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
   /**
    * Run this ONE turn on a named model instead of the agent's own. The
@@ -265,7 +454,7 @@ export async function runAgentDeep(opts: {
   // that named nothing gets a target derived from its `modelProvider`
   // — see `defaultHarnessTargetFor`.
   const [agentRow] = await db
-    .select({ harnessConfig: agentSchema.harnessConfig })
+    .select({ harnessConfig: agentSchema.harnessConfig, systemPrompt: agentSchema.systemPrompt })
     .from(agentSchema)
     .where(and(eq(agentSchema.orgId, opts.orgId), eq(agentSchema.slug, opts.agentSlug)));
   const harness = agentRow?.harnessConfig;
@@ -278,17 +467,18 @@ export async function runAgentDeep(opts: {
       ?? defaultHarnessTargetFor(harness?.modelProvider);
   if (target === 'agentcore-container' && process.env.VOCION_DISABLE_RUNTIME !== '1') {
     const { runAgentOnRuntime } = await import('./agents/providers/runtime');
-    return runAgentOnRuntime(opts);
+    return runOutOfProcess(opts, emit, run => runAgentOnRuntime({ ...opts, onEvent: run }));
   }
   if (target === 'external-worker') {
     // ADR 0004: Vocion is the control plane, a process it does not host does the
     // work. This queues a worker_run and returns a receipt instead of a turn.
+    // No turn happened, so nothing is owed: the guarantees do not apply.
     const { queueExternalWorkerTurn } = await import('./agents/providers/externalWorker');
     return queueExternalWorkerTurn(opts);
   }
   if (target === 'aws-managed-harness' && process.env.VOCION_DISABLE_AGENTCORE !== '1') {
     const { runAgentOnAgentCoreHarness } = await import('./agents/providers/agentcore');
-    return runAgentOnAgentCoreHarness(opts);
+    return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
@@ -299,6 +489,12 @@ export async function runAgentDeep(opts: {
   // Full (untruncated) tool outputs — the sanitizer needs the whole thing to
   // strip a verbatim echo (toolCallLog truncates for the event/audit surface).
   const rawToolOutputs: string[] = [];
+  // Tools that FAILED this turn, and delegations that failed specifically.
+  // Both were previously invisible past the live rail: a caught tool error
+  // rendered as an ordinary "Used X" row, and an uncaught one ended the run
+  // with a trace whose last word was "Delegating…".
+  const failures: TurnFailure[] = [];
+  const failedDelegations: FailedDelegation[] = [];
 
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cents: 0, turns: 0 };
@@ -490,12 +686,39 @@ export async function runAgentDeep(opts: {
           if (outputFull) {
             rawToolOutputs.push(outputFull);
           }
+          // LangGraph's ToolNode catches a throwing tool and hands back an
+          // error ToolMessage, so a failure arrives as an ordinary end event.
+          // Read the status, or the failure reaches nobody.
+          if (toolResultStatus(ev.data?.output) === 'error') {
+            const message = toolErrorMessage(outputFull);
+            failures.push({ tool, message });
+            if (tool === 'task') {
+              failedDelegations.push({ name: tracer.delegateName(toolNodeId(nsFor(ev))) ?? 'the specialist', message });
+            }
+            emit({ type: 'tool_error', tool, message });
+          }
           if (tool !== 'task' && !PLUMBING.has(tool)) {
             const input = parseJsonArgs(ev.data?.input);
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
             toolCallLog.push({ tool, input, output: outputStr });
           }
+          break;
+        }
+        case 'on_tool_error': {
+          // Nothing caught it: LangChain ends this tool's run here and emits
+          // no `on_tool_end` at all. This is the event the failed delegation
+          // arrived on, and the event nothing used to read.
+          const tool = ev.name ?? 'tool';
+          if (PLUMBING.has(tool)) {
+            break;
+          }
+          const message = toolErrorMessage(ev.data?.error);
+          failures.push({ tool, message });
+          if (tool === 'task') {
+            failedDelegations.push({ name: tracer.delegateName(toolNodeId(nsFor(ev))) ?? 'the specialist', message });
+          }
+          emit({ type: 'tool_error', tool, message });
           break;
         }
         default:
@@ -508,6 +731,25 @@ export async function runAgentDeep(opts: {
     // richer `documents` event the search tool emits via ctx.emit.
   } catch (err) {
     const message = (err as Error).message ?? 'agent run failed';
+    // The run died. Close anything still open as a FAILURE first, so the
+    // persisted trace carries a terminal node instead of stopping at
+    // "Delegating to <specialist>" — the exact trace this turn used to leave.
+    const stillDelegating = tracer.openDelegationNames();
+    for (const node of tracer.closeDelegations(message)) {
+      emit(node);
+    }
+    for (const name of stillDelegating) {
+      if (!failedDelegations.some(f => f.name === name)) {
+        failedDelegations.push({ name, message });
+      }
+      emit({ type: 'tool_error', tool: 'task', message });
+    }
+    // There will be no answer, so the words have to go into the transcript
+    // here — a badge in the trace is not the person being told.
+    const notice = delegationFailureNotice(failedDelegations, finalText);
+    if (notice) {
+      emit({ type: 'response_delta', delta: `${finalText.trim().length > 0 ? '\n\n' : ''}${notice}` });
+    }
     emit({ type: 'error', message });
     trace.update({ output: { error: message } });
     await flushTraces();
@@ -565,6 +807,23 @@ export async function runAgentDeep(opts: {
       /* backstop is best-effort — never fails the turn */
     }
   }
+
+  // End-of-turn guarantees (structural): a failed hand-off is stated in the
+  // answer, and a turn sent with `deliverable: 'artifact'` ends with one.
+  finalText = await applyTurnGuarantees({
+    orgId: opts.orgId,
+    agentSlug: opts.agentSlug,
+    userId: opts.userId,
+    conversationId: opts.conversationId,
+    deliverable: opts.deliverable,
+    request: opts.message,
+    response: finalText,
+    toolCalls: toolCallLog,
+    failures,
+    failedDelegations,
+    systemPrompt: compiled.agentRow.systemPrompt ?? undefined,
+    emit,
+  });
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
   await flushTraces();

@@ -1,9 +1,26 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
+import { agentSkillsNameError } from '@/libs/skills/name';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
+});
+
+/**
+ * A slug for a SKILL.md folder — stricter than {@link SlugSchema} because the
+ * folder is mounted as an Agent Skill and that specification validates the
+ * name: lowercase letters, digits and SINGLE hyphens only, never leading or
+ * trailing, at most 64 characters. See `libs/skills/name.ts`.
+ */
+export const AgentSkillSlugSchema = SlugSchema.superRefine((slug, ctx) => {
+  const problem = agentSkillsNameError(slug);
+  if (problem) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `skill folder slugs must follow the Agent Skills specification — ${problem}. Rename the folder and every reference to it.`,
+    });
+  }
 });
 
 const FewShotExampleSchema = z.object({
@@ -107,7 +124,7 @@ export const WorkspaceManifestSchema = z.object({
   extends: z.string().optional().describe('base pack pin, e.g. "core@1.4.0"; omit for no base layer'),
   /**
    * Activation allowlist for the pinned pack. `use: all` activates every
-   * default; an {agents,operations} selector activates only what it names
+   * default; an {agents,skills} selector activates only what it names
    * (agents pull their skills transitively). Omitted while `extends` is
    * set = activate nothing (`use: none`).
    */
@@ -464,6 +481,23 @@ export const AgentManifestSchema = z.object({
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),
+  /**
+   * What this agent reaches for, named by connector CATEGORY and never by
+   * vendor — `crm`, not `salesforce`. Same-category connectors are peers,
+   * so an agent can never quietly prefer one vendor's ledger over another's,
+   * and the catalog can say "needs a ledger" without naming a product.
+   *
+   * `degradesTo` is what it does with none of them connected. Every agent
+   * has an answer; a missing connector picks a tier, it does not fail. There
+   * is deliberately no permission field here — whether an agent may write is
+   * a property of the installation, not of the definition, and an agent's
+   * write ceiling is the union of its skills' own write paths.
+   */
+  requires: z.object({
+    connectors: z.array(SlugSchema).default([]),
+    optional: z.array(SlugSchema).default([]),
+    degradesTo: z.enum(['files', 'none']).default('files'),
+  }).default({ connectors: [], optional: [], degradesTo: 'files' }),
   connectorSources: z.array(z.string()).default([]).describe('source slugs (matching knowledge_source.slug) this agent can search'),
   objectTypes: z.array(z.string()).default([]).describe('business object type slugs'),
   documentSetIds: z.array(z.number()).default([]),
@@ -526,7 +560,7 @@ export const AgentManifestSchema = z.object({
    * harness. `provider` selects where the agent loop executes:
    * `local` (in-process deepagents loop, the default), `agentcore`
    * (the AWS AgentCore managed harness — provisioned by
-   * workspace:apply, invoked via InvokeHarness; operations execute
+   * workspace:apply, invoked via InvokeHarness; skills execute
    * client-side in vocion-core as inline functions), or `runtime`
    * (the BYOA artifact — packages/agent-runtime: our deepagents loop
    * hosted out-of-process, localhost in dev / AgentCore Runtime when
@@ -740,6 +774,61 @@ export const TrustManifestSchema = z.object({
   risk: z.record(z.string(), z.enum(['low', 'medium', 'high'])).optional(),
 });
 export type TrustManifest = z.infer<typeof TrustManifestSchema>;
+
+/**
+ * Voice rules — workspace/<org>/voice.yaml.
+ *
+ * The workspace's own banned constructions, versioned in the same repo as the
+ * playbooks that describe the voice. Core ships a conservative platform floor
+ * (`libs/writing/voiceRules.ts`); this file is where the sharp edges live,
+ * because what counts as a tell is a property of the person signing the note,
+ * not of the platform.
+ *
+ * Applied onto `project.voice_rules` and enforced by `lintCopy` at every seam
+ * that produces outbound copy — so a banned phrase is a validation failure,
+ * not a hope.
+ */
+export const VoiceManifestSchema = z.object({
+  /** Constructions that must never appear in outbound copy. */
+  never: z.array(z.object({
+    /** The literal phrase, or a regex source when `match: regex`. */
+    pattern: z.string().min(1),
+    /** How `pattern` is read. Phrases are case-insensitive and word-boundary aware. */
+    match: z.enum(['phrase', 'regex']).default('phrase'),
+    /** Why. Handed to the model on the corrective retry and shown to reviewers. */
+    reason: z.string().min(1),
+    /** Optional stable handle, for referring to this rule in review. */
+    id: SlugSchema.optional(),
+  })).default([]),
+  /** Softer steers. Reported, never blocking. */
+  prefer: z.array(z.object({
+    pattern: z.string().min(1),
+    match: z.enum(['phrase', 'regex']).default('phrase'),
+    /** What to write instead. */
+    use: z.string().min(1),
+    reason: z.string().optional(),
+  })).default([]),
+  /** Platform-default rule ids this workspace deliberately permits. */
+  allow: z.array(z.string().min(1)).default([]),
+  maxWordsPerSend: z.number().int().positive().optional(),
+  maxAsksPerSend: z.number().int().min(0).optional(),
+  noExclamation: z.boolean().optional(),
+  noEmoji: z.boolean().optional(),
+  noEmDash: z.boolean().optional(),
+  /**
+   * The playbook slug that describes this voice in prose. Composed into the
+   * rewrite prompt so a reviewer's "Add change" gets the workspace's voice
+   * instead of a generic house style. Core never hardcodes a slug.
+   */
+  playbook: SlugSchema.optional(),
+  /**
+   * The learnings step that reviewer edit-diffs land in as proposed rules.
+   * Unset means edit-diffs are not mined — a voice rule must never be filed
+   * into an unrelated step, so this is opt-in and named.
+   */
+  learningStep: SlugSchema.optional(),
+});
+export type VoiceManifest = z.infer<typeof VoiceManifestSchema>;
 
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
@@ -1045,8 +1134,17 @@ export const LearningStepManifestSchema = z.object({
 export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 
 export const PlaybookManifestSchema = z.object({
-  slug: SlugSchema,
-  name: z.string().describe('Human-readable name for catalog UI.'),
+  /**
+   * The folder slug, and — because deepagents mounts this folder as an Agent
+   * Skill — the name that specification validates. Stricter than `SlugSchema`
+   * on purpose: underscores, doubled hyphens and trailing hyphens are legal
+   * Vocion slugs and illegal skill names, and a workspace that ships one makes
+   * the runtime log a spec warning on every single turn. Failing here, once,
+   * at `workspace:check`, is the whole point (CLAUDE.md — fail loudly at apply
+   * time rather than warn at runtime).
+   */
+  slug: AgentSkillSlugSchema,
+  name: z.string().describe('Human-readable name for catalog UI. Mounted as `title`; the mounted `name` is the slug, per the Agent Skills spec — see libs/skills/name.ts.'),
   description: z.string().describe('One-line summary the agent reads to decide when to activate this skill or playbook.'),
   /**
    * Playbook slugs this skill attaches (skill folders only). A playbook

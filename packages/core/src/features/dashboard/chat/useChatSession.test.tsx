@@ -161,13 +161,13 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     await act(async () => {
-      await result.current.sendMessage('/search spinutech governance');
+      await result.current.sendMessage('/search northwind governance');
     });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
 
     expect(body.agent_slug).toBe('__search__');
-    expect(body.message).toBe('spinutech governance');
+    expect(body.message).toBe('northwind governance');
     // The conversation stays with the workspace agent.
     expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentName: 'Search only' });
@@ -296,5 +296,142 @@ describe('useChatSession', () => {
     const body = JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body);
 
     expect(body.message).toContain('--- pasted ---');
+  });
+
+  /**
+   * "Does this turn produce an artifact" is a contract on the request, not a
+   * judgement the model makes mid-turn — and it is armed by a tag the person
+   * typed (`@artifact`), not by anything inferred from the draft. The tag
+   * rides the composer's existing `@`-mention, so this is the same state the
+   * `@team` tag uses; the only new behaviour is how it leaves.
+   */
+  describe('the deliverable contract (0102)', () => {
+    const ARTIFACT_TAG_REF = { type: 'deliverable' as const, id: 'artifact', label: 'Artifact' };
+
+    function sse() {
+      const encoder = new TextEncoder();
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"type":"done","response":"ok"}\n\n'));
+          controller.close();
+        },
+      });
+    }
+
+    async function booted() {
+      vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+      vi.mocked(client.conversations.create).mockResolvedValue({ id: 21 } as never);
+      const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, body: sse() }));
+      vi.stubGlobal('fetch', fetchMock);
+      const { result, act } = await renderHook(() => useChatSession({ agents: AGENTS }));
+      await vi.waitFor(() => expect(result.current.booted).toBe(true));
+      return { result, act, fetchMock };
+    }
+
+    function sentBody(fetchMock: ReturnType<typeof vi.fn>) {
+      return JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body);
+    }
+
+    it('is `answer` until somebody tags `@artifact` — nothing is inferred from the draft', async () => {
+      const { result, act, fetchMock } = await booted();
+
+      await act(async () => {
+        // The sentence the old classifier used to arm the chip on.
+        await result.current.sendMessage('draft a pipeline report');
+      });
+
+      expect(sentBody(fetchMock).deliverable).toBe('answer');
+    });
+
+    it('sends `artifact` when the turn carries the `@artifact` tag', async () => {
+      const { result, act, fetchMock } = await booted();
+
+      await act(async () => {
+        result.current.addContextRef(ARTIFACT_TAG_REF);
+      });
+      await vi.waitFor(() => expect(result.current.contextRefs).toHaveLength(1));
+      await act(async () => {
+        await result.current.sendMessage('put the risks somewhere I can keep them');
+      });
+
+      expect(sentBody(fetchMock).deliverable).toBe('artifact');
+    });
+
+    it('strips the tag out of `context_refs` — it points at no record', async () => {
+      const { result, act, fetchMock } = await booted();
+
+      await act(async () => {
+        result.current.addContextRef(ARTIFACT_TAG_REF);
+        result.current.addContextRef({ type: 'team', id: 'revops', label: 'RevOps' });
+      });
+      await vi.waitFor(() => expect(result.current.contextRefs).toHaveLength(2));
+      await act(async () => {
+        await result.current.sendMessage('the three risks, as a memo');
+      });
+
+      const body = sentBody(fetchMock);
+
+      expect(body.deliverable).toBe('artifact');
+      expect(body.context_refs).toEqual([{ type: 'team', id: 'revops', label: 'RevOps' }]);
+    });
+
+    it('is per message: the tag clears with the rest of them when the turn goes out', async () => {
+      const { result, act } = await booted();
+
+      await act(async () => {
+        result.current.addContextRef(ARTIFACT_TAG_REF);
+      });
+      await vi.waitFor(() => expect(result.current.contextRefs).toHaveLength(1));
+      await act(async () => {
+        await result.current.sendMessage('one artifact, please');
+      });
+
+      expect(result.current.contextRefs).toEqual([]);
+    });
+  });
+
+  /**
+   * A recommendation with no `actionId` reached the card and fired
+   * `review.propose` with `undefined`, which came back 400 twice on
+   * 2026-09-15. The payload is checked where it arrives instead.
+   */
+  it('never turns a malformed recommended_action into a card', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 31 } as never);
+    const encoder = new TextEncoder();
+    const frames = [
+      'data: {"type":"recommended_action","recommendation":{"input":{"to":"someone"},"label":"Send it"}}\n\n',
+      'data: {"type":"recommended_action","recommendation":{"actionId":"gmail.send","label":"Send the follow-up","input":{}}}\n\n',
+      'data: {"type":"done","response":"ok"}\n\n',
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const f of frames) {
+            controller.enqueue(encoder.encode(f));
+          }
+          controller.close();
+        },
+      }),
+    }));
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+    await result.current.sendMessage('what is owed?');
+
+    await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const assistant = result.current.messages[1]!;
+
+    // Only the valid one became a card.
+    expect(assistant.recommendations).toHaveLength(1);
+    expect(assistant.recommendations![0]).toMatchObject({ actionId: 'gmail.send' });
+
+    // The invalid one is visible as a failed step, with a reason.
+    const failed = (assistant.runs ?? []).filter(r => r.type === 'tool' && r.state === 'error');
+
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ name: 'recommend_action' });
+    expect((failed[0] as { output?: string }).output).toMatch(/named no action/);
   });
 });

@@ -28,7 +28,13 @@ export type MessageFeedbackRating = 'up' | 'down';
 
 export type ConversationRun
   = | { type: 'text'; text: string }
-    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string };
+    /**
+     * One tool step. `state` is persisted so a RELOADED transcript can still
+     * tell a step that worked from one that failed — a hydrate that assumed
+     * `done` for every stored step turned every failure into a success the
+     * moment the page refreshed.
+     */
+    | { type: 'tool'; name: string; input?: Record<string, unknown>; output?: string; state?: 'pending' | 'done' | 'error' };
 
 /** One persisted node of the turn's activity trace (the UI's TraceNode shape). */
 export type ConversationTraceNode = {

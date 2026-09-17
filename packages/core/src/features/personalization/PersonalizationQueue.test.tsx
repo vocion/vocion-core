@@ -1,5 +1,5 @@
 import type { BriefRow } from './PersonalizationQueue';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { PersonalizationQueue } from './PersonalizationQueue';
@@ -36,7 +36,7 @@ function brief(over: Partial<BriefRow> & Pick<BriefRow, 'id' | 'contactName'>): 
 }
 
 const BRIEFS: BriefRow[] = [
-  brief({ id: 1, contactName: 'Jamie Smith', companyName: 'Redpoint IT', confidence: 0.88 }),
+  brief({ id: 1, contactName: 'Jamie Smith', companyName: 'Contoso Supply', confidence: 0.88 }),
   brief({ id: 2, contactName: 'Rosa Lindqvist', companyName: 'Meridian Group', confidence: 0.64 }),
   brief({ id: 3, contactName: 'Marta Kovac', companyName: 'Orlin Health', status: 'sent', confidence: 0.84 }),
 ];
@@ -48,6 +48,13 @@ const UNBRIEFED: BriefRow[] = [
 ];
 
 describe('PersonalizationQueue', () => {
+  // The lane, search, sort and direction live in the URL (`useListUrlState`),
+  // and every test in a file shares one browser page — so a search typed in
+  // one test is still in the query string when the next one renders. Clear it.
+  beforeEach(() => {
+    window.history.replaceState(null, '', window.location.pathname);
+  });
+
   it('opens on Review, and has no lane for unbriefed leads', async () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
 
@@ -96,7 +103,7 @@ describe('PersonalizationQueue', () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
 
     await expect.element(
-      page.getByText('COO · Redpoint IT · arrived Aug 24 · Paid social · via LinkedIn · 2 sent · 1 opened'),
+      page.getByText('COO · Contoso Supply · arrived Aug 24 · Paid social · via LinkedIn · 2 sent · 1 opened'),
     ).toBeVisible();
   });
 

@@ -42,7 +42,7 @@ import { getProcessor, listProcessorSlugs } from '@/libs/processors/registry';
 import { DEFAULT_RUNS_ON } from '@/libs/processors/types';
 import { processorRefOf } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
-import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
+import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
   deleteDocumentsGoneFromSource,
   ensureSource,
@@ -1303,6 +1303,73 @@ export async function listRecentDocuments(
     updatedAt: r.lastModifiedAt ?? r.ingestedAt,
     blurb: blurbs.get(r.id) ?? null,
   }));
+}
+
+export type KnowledgeDocumentDetail = {
+  id: number;
+  title: string | null;
+  uri: string | null;
+  externalId: string;
+  sourceSlug: string;
+  sourceKind: string | null;
+  metadata: Record<string, unknown>;
+  lastModifiedAt: Date | null;
+  ingestedAt: Date;
+  /** The document's chunks in order, joined — the full ingested text. */
+  content: string;
+  chunkCount: number;
+};
+
+/**
+ * One ingested document with its full text, for the Search detail page.
+ * Content lives on chunks, so the text is the chunks in order; that IS what
+ * retrieval reads, which is the honest thing to show (manifesto #12).
+ * Returns null when the document is not this org's, or when the person's
+ * connection ACL does not reach its source.
+ * @param orgId
+ * @param id - `knowledge_document.id`.
+ * @param opts
+ * @param opts.allowedSourceSlugs - Per-user connection ACL; omit for no restriction.
+ */
+export async function getDocument(
+  orgId: string,
+  id: number,
+  opts: { allowedSourceSlugs?: string[] } = {},
+): Promise<KnowledgeDocumentDetail | null> {
+  const rows = await db
+    .select({
+      id: knowledgeDocumentSchema.id,
+      title: knowledgeDocumentSchema.title,
+      uri: knowledgeDocumentSchema.uri,
+      externalId: knowledgeDocumentSchema.externalId,
+      metadata: knowledgeDocumentSchema.metadata,
+      lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
+      ingestedAt: knowledgeDocumentSchema.ingestedAt,
+      sourceSlug: knowledgeSourceSchema.slug,
+      sourceKind: knowledgeSourceSchema.kind,
+    })
+    .from(knowledgeDocumentSchema)
+    .innerJoin(knowledgeSourceSchema, eq(knowledgeDocumentSchema.sourceId, knowledgeSourceSchema.id))
+    .where(and(
+      eq(knowledgeDocumentSchema.id, id),
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      opts.allowedSourceSlugs ? inArray(knowledgeSourceSchema.slug, opts.allowedSourceSlugs) : undefined,
+    ))
+    .limit(1);
+  const doc = rows[0];
+  if (!doc) {
+    return null;
+  }
+  const chunks = await db
+    .select({ content: knowledgeChunkSchema.content })
+    .from(knowledgeChunkSchema)
+    .where(and(eq(knowledgeChunkSchema.documentId, id), eq(knowledgeChunkSchema.orgId, orgId)))
+    .orderBy(knowledgeChunkSchema.chunkIdx);
+  return {
+    ...doc,
+    content: chunks.map(c => c.content).join('\n\n'),
+    chunkCount: chunks.length,
+  };
 }
 
 /**

@@ -39,6 +39,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 <workspace-dir>/
 ├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin
 ├── trust.yaml                    # which actions may auto-execute, above what confidence, at which rung / risk tier
+├── voice.yaml                    # banned constructions in outbound copy — the gate, not a suggestion (docs/guides/voice-rules.md)
 ├── agents/
 │   ├── <agent>.yaml              # agent metadata + refs
 │   └── <agent>.system-prompt.md  # long-form system prompt
@@ -214,7 +215,7 @@ between them, like an API base URL, can't be hardcoded. Write a token
 instead:
 
 ```markdown
-Fetch the source list from {{env.VEERIO_API_URL}}/api/sources/ingestion
+Fetch the source list from {{env.LARKFIELD_API_URL}}/api/sources/ingestion
 ```
 
 vocion-core swaps in that environment variable's value as it reads the
@@ -230,8 +231,8 @@ Two variables on every process that reads the workspace — the app **and**
 the Temporal worker:
 
 ```bash
-WORKSPACE_TEMPLATE_VARS=VEERIO_API_URL,PORTAL_HOST
-VEERIO_API_URL=https://api-dev.veerio.app
+WORKSPACE_TEMPLATE_VARS=LARKFIELD_API_URL,PORTAL_HOST
+LARKFIELD_API_URL=https://api-dev.larkfield.example
 ```
 
 `WORKSPACE_TEMPLATE_VARS` is an allowlist of names, and it is the only

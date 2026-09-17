@@ -1,15 +1,17 @@
 'use client';
 
-import type { Chip } from './ChipRow';
+import type { Chip } from '@/components/patterns';
+import type { TokenOption } from '@/components/ui/token-select';
 import type { InboxFacets, InboxKind, InboxSort, InboxTab } from '@/services/InboxService';
-import { Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { ChipRow, FilterBar } from '@/components/patterns';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
-import { ChipRow } from './ChipRow';
+
 import { INBOX_KIND_META } from './inboxMeta';
+import { mergeSearch } from './searchParams';
 
 const SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];
 
@@ -55,16 +57,12 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     setDraft(q);
   }, [q]);
 
+  // Read the URL at CALL time, never from the render snapshot: a debounced
+  // write would otherwise rebuild it from a snapshot taken before the user's
+  // last click and drop that click. See `searchParams.ts`.
   function withParams(patch: Record<string, string | null>): string {
-    const next = new URLSearchParams(params.toString());
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === null || v === '') {
-        next.delete(k);
-      } else {
-        next.set(k, v);
-      }
-    }
-    const s = next.toString();
+    const current = typeof window === 'undefined' ? params.toString() : window.location.search;
+    const s = mergeSearch(current, patch);
     return s ? `${pathname}?${s}` : pathname;
   }
 
@@ -81,12 +79,24 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     if (timer.current) {
       clearTimeout(timer.current);
     }
+    // Selecting a token clears the field, which lands here with ''. When the
+    // URL already says that, there is nothing to write — and writing anyway is
+    // how a freshly chosen filter got overwritten by its own side effect.
+    if (value.trim() === q) {
+      return;
+    }
     timer.current = setTimeout(() => go({ q: value.trim() }), 300);
   }
 
   const total = INBOX_KINDS.reduce((sum, k) => sum + counts[k], 0);
   const filtered = kinds.length > 0 || actionKinds.length > 0 || agents.length > 0 || Boolean(q);
-  const defaultSort: InboxSort = tab === 'decided' ? 'newest' : 'oldest';
+  // Newest first everywhere. Oldest-first is the classic work-queue default and
+  // it earns its keep when a queue drains; this one has not drained in fifteen
+  // days, so it only ever showed the same stalled rows and made the queue look
+  // dead. Chris, 2026-09-17: *"maybe default to newest first?"* The oldest age
+  // is still stated in the header line, so the backlog does not become
+  // invisible — it just stops being the only thing you can see.
+  const defaultSort: InboxSort = 'newest';
 
   const kindChips: Chip[] = [
     { key: 'all', label: t('all'), count: total, active: kinds.length === 0, pinned: true, onToggle: () => go({ kind: null }) },
@@ -104,6 +114,54 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     ...facets.actionKinds.map<Chip>(k => ({ key: `action:${k.id}`, label: humaniseActionId(k.id), count: k.count, active: actionKinds.includes(k.id), title: k.id, onToggle: () => toggle('actionKind', k.id) })),
     ...facets.agents.map<Chip>(a => ({ key: `agent:${a.slug}`, label: a.slug, count: a.count, active: agents.includes(a.slug), onToggle: () => toggle('agents', a.slug) })),
   ];
+
+  /**
+   * Every filter value in the queue, as ONE option list.
+   *
+   * Namespaced by dimension so a selection can be split back into the three
+   * URL params it came from. `FilterBar` neither knows nor cares what the
+   * prefixes mean — which is what lets the same bar serve Search, the
+   * Discovery ledger and Personalization without learning their vocabularies.
+   */
+  const tokenOptions: TokenOption[] = [
+    ...INBOX_KINDS.filter(k => counts[k] > 0 || kinds.includes(k)).map(k => ({
+      value: `kind:${k}`,
+      label: INBOX_KIND_META[k].plural,
+      count: counts[k],
+      group: t('filter_kind'),
+    })),
+    ...facets.actionKinds.map(k => ({
+      value: `type:${k.id}`,
+      label: humaniseActionId(k.id),
+      count: k.count,
+      group: t('filter_type'),
+    })),
+    ...facets.agents.map(a => ({
+      value: `agent:${a.slug}`,
+      label: a.slug,
+      count: a.count,
+      group: t('filter_agent'),
+    })),
+  ];
+
+  const selectedTokens = [
+    ...kinds.map(k => `kind:${k}`),
+    ...actionKinds.map(k => `type:${k}`),
+    ...agents.map(a => `agent:${a}`),
+  ];
+
+  /**
+   * One write to the URL, whichever dimensions the selection touched.
+   * @param next
+   */
+  function onTokens(next: string[]) {
+    const pick = (prefix: string) => next.filter(v => v.startsWith(prefix)).map(v => v.slice(prefix.length));
+    go({
+      kind: pick('kind:').join(',') || null,
+      actionKind: pick('type:').join(',') || null,
+      agents: pick('agent:').join(',') || null,
+    });
+  }
 
   return (
     <div className="space-y-3">
@@ -123,28 +181,6 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
           ))}
         </nav>
 
-        <label className="relative flex h-9 min-w-0 flex-1 items-center sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 size-4 text-muted-foreground" aria-hidden />
-          <input
-            type="search"
-            value={draft}
-            onChange={e => onSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                go({ q: draft.trim() });
-              }
-            }}
-            placeholder={t('search_placeholder')}
-            aria-label={t('search_label')}
-            className="h-9 w-full rounded-md border border-border bg-background pr-8 pl-8 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-          />
-          {draft && (
-            <button type="button" onClick={() => onSearch('')} aria-label={t('clear_search')} className="absolute right-2 rounded p-0.5 text-muted-foreground hover:text-foreground">
-              <X className="size-3.5" aria-hidden />
-            </button>
-          )}
-        </label>
-
         <label className="ml-auto flex h-9 items-center gap-2 text-xs text-muted-foreground">
           {t('sort')}
           <select
@@ -157,21 +193,39 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
         </label>
       </div>
 
-      {/* The kind chips: "All · 12" then each kind present — one line, the rest behind "+N more". */}
-      <div data-testid="inbox-kind-filter">
-        <ChipRow chips={kindChips} size="md" label={t('filter_kind')} />
-      </div>
+      {/* ONE field: the letters narrow every dimension at once and search the
+          list's text at the same time, and what you pick rides as a token.
+          The chip rows are not gone — they are the advanced panel, which is
+          where browsing a dimension you cannot name yet belongs. */}
+      <FilterBar
+        label={t('search_label')}
+        placeholder={t('filter_placeholder')}
+        query={draft}
+        onQueryChange={onSearch}
+        options={tokenOptions}
+        selected={selectedTokens}
+        onSelectedChange={onTokens}
+        searching={t('filter_searching')}
+        advancedCount={selectedTokens.length}
+        advanced={(
+          <div className="flex flex-col gap-3">
+            <div data-testid="inbox-kind-filter">
+              <ChipRow chips={kindChips} size="md" label={t('filter_kind')} />
+            </div>
+            {facetChips.length > 0 && <ChipRow chips={facetChips} size="sm" label={t('filter_facets')} />}
+            {filtered && (
+              <button
+                type="button"
+                onClick={() => go({ kind: null, actionKind: null, agents: null, q: null })}
+                className="self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {t('clear')}
+              </button>
+            )}
+          </div>
+        )}
+      />
 
-      {facetChips.length > 0 && (
-        <div className="flex items-center gap-2">
-          <ChipRow chips={facetChips} size="sm" label={t('filter_facets')} className="min-w-0 flex-1" />
-          {filtered && (
-            <button type="button" onClick={() => go({ kind: null, actionKind: null, agents: null, q: null })} className="inline-flex h-7 shrink-0 items-center gap-1 px-2 text-xs whitespace-nowrap text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-              {t('clear')}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

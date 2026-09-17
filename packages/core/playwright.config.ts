@@ -181,7 +181,7 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(120 * 1000, 60 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
-    // VEERIO-252 — mission-run report routes, real HTTP against a real
+    // LARK-252 — mission-run report routes, real HTTP against a real
     // running app. No browser: uses Playwright's `request` fixture only, so
     // it never depends on the `setup` (Clerk) project.
     // Run with: npx playwright test --project=mission-runs
@@ -190,7 +190,7 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/mission-runs',
       timeout: 60 * 1000,
     },
-    // VEERIO-262 — what a proposal did (created / refreshed / already_decided),
+    // LARK-262 — what a proposal did (created / refreshed / already_decided),
     // over real HTTP against a real running app. No browser: uses the
     // `request` fixture only, so it never depends on the `setup` project.
     // Run with: npx playwright test --project=reviews-propose
@@ -225,6 +225,12 @@ export default defineConfig<ChromaticConfig>({
     {
       name: 'reviews-suggested-decision',
       testDir: './e2e/reviews-suggested-decision',
+      timeout: 60 * 1000,
+    },
+    // Run with: npx playwright test --project=reviews-approved-by-agent
+    {
+      name: 'reviews-approved-by-agent',
+      testDir: './e2e/reviews-approved-by-agent',
       timeout: 60 * 1000,
     },
     ...(process.env.CI

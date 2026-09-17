@@ -34,6 +34,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { withSpecCompliantName } from '@/libs/skills/name';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
@@ -109,7 +110,13 @@ function mountRow(row: CatalogRow, out: Record<string, string>): void {
     // workspace:apply should be re-run to clean up.
     return;
   }
-  out[`${mountBase}/SKILL.md`] = body;
+  // deepagents parses this file's frontmatter and validates its `name`
+  // against the Agent Skills specification, where `name` IS the identity.
+  // Vocion's `name` is a human label ("Pipeline Health") and its `slug` is the
+  // identity, so the mounted copy is handed the slug as `name` and keeps the
+  // label as `title`. Without this the runtime logged a spec warning for every
+  // mounted skill on every turn. See `libs/skills/name.ts`.
+  out[`${mountBase}/SKILL.md`] = withSpecCompliantName(body, row.slug);
   for (const rel of row.sourceFiles ?? []) {
     const content = readByOrigin(row, rel);
     if (content !== null) {

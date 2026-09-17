@@ -12,13 +12,16 @@ function scratchContext(): string {
 }
 
 describe('writer', () => {
+  // A skill folder's slug is also its Agent Skills `name` (libs/skills/name.ts),
+  // so underscores are refused at apply time now — hence the hyphen here where
+  // this fixture used to carry `test_skill`.
   it('writes a skill and loads it back identically', () => {
     const dir = scratchContext();
     try {
       const written = writeSkill({
         contextPath: dir,
         manifest: {
-          slug: 'test_skill',
+          slug: 'test-skill',
           name: 'Test Skill',
           description: 'unit test skill',
           version: 1,
@@ -32,7 +35,7 @@ describe('writer', () => {
       const loaded = loadWorkspace(dir);
 
       expect(loaded.skills).toHaveLength(1);
-      expect(loaded.skills[0]!.slug).toBe('test_skill');
+      expect(loaded.skills[0]!.slug).toBe('test-skill');
       expect(loaded.skills[0]!.kind).toBe('skill');
       expect(loaded.skills[0]!.body).toBe('# Test\n\nDo the test thing.');
     } finally {

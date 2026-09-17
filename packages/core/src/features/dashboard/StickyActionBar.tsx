@@ -3,7 +3,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/utils/Helpers';
@@ -24,6 +23,12 @@ import { cn } from '@/utils/Helpers';
  * shape (border-top, blur, safe-area padding). Left alone here on purpose —
  * it is another PR's surface — but it is the obvious second consumer once
  * this bar has settled.
+ *
+ * The collapsed field's toggle takes its wording as a prop (English default)
+ * rather than reading `useTranslations('Review')`: the bar is a pattern-library
+ * primitive and also renders on surfaces that mount no intl provider (the lead
+ * page, the stories, the browser tests). Translated surfaces pass the strings
+ * in. Re-exported from `components/patterns`.
  */
 
 export type BarAction = {
@@ -95,11 +100,14 @@ export function StickyActionBar(props: {
   primary: BarAction;
   secondary?: BarAction[];
   field?: BarField;
+  /** The collapsed field's toggle. Translated surfaces pass their own strings. */
+  labels?: { addField?: string; hideField?: string };
   /** A slot beside the verbs: a snooze picker, for instance. */
   aside?: ReactNode;
   className?: string;
 }) {
-  const t = useTranslations('Review');
+  const addLabel = props.labels?.addField ?? 'Add feedback';
+  const hideLabel = props.labels?.hideField ?? 'Hide feedback';
   const { primary, secondary = [], field, aside } = props;
   const [fieldOpen, setFieldOpen] = useState(field?.defaultOpen ?? false);
   const showField = field !== undefined && (fieldOpen || field.value.trim().length > 0);
@@ -142,7 +150,9 @@ export function StickyActionBar(props: {
         </div>
       )}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      {/* Wraps at `sm`+ too: beside a conversation rail the column can be
+          narrower than the verbs, and they must never run under the rail. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {field && (
           <button
             type="button"
@@ -151,12 +161,12 @@ export function StickyActionBar(props: {
             aria-expanded={showField}
           >
             {showField ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronUp className="size-3.5" aria-hidden />}
-            {showField ? t('hide_feedback') : t('add_feedback')}
+            {showField ? hideLabel : addLabel}
           </button>
         )}
         {aside && <div className="flex items-center gap-2 sm:ml-2">{aside}</div>}
         <div className="hidden flex-1 sm:block" />
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           {secondary.map((a, i) => <ActionButton key={i} a={a} />)}
           <ActionButton a={primary} primary />
         </div>

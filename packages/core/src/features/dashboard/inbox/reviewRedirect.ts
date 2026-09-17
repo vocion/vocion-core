@@ -1,6 +1,6 @@
 /**
  * `/dashboard/review` is gone as a destination — the review queue is the
- * `proposal` kind on "Needs you". Old links (mail, Slack, bookmarks, the
+ * `proposal` kind on "Review queue". Old links (mail, Slack, bookmarks, the
  * palette's muscle memory) land here and are sent on, permanently (308), with
  * the one filter the old page had (`?type=<action id>`, repeated or
  * comma-joined) carried over as the inbox's `?actionKind=`.

@@ -137,3 +137,53 @@ where someone applied half of one by hand, must not wedge the whole chain on
 drizzle reads `meta/_journal.json`, not the directory listing. A numbered file
 with no entry is silently never applied. `concurrent/` files are the deliberate
 exception — they are meant to be invisible to drizzle.
+
+## 5. Two branches that claim the same number: renumber, do not merge
+
+Migration numbers are allocated by whoever writes the file, so two branches
+opened the same day both take the next free one. The collision does not surface
+until the second one merges, and then it surfaces as a git conflict in
+`meta/_journal.json` — two entries with the same `idx` and different `tag`s,
+inside a JSON array where the conflict markers land in the middle of an object.
+
+**Resolve it by renumbering the later migration to the tail of the sequence, not
+by editing the conflict into something that merges.** Concretely, for a branch
+whose `0100_thing.sql` collides with a `0100_other.sql` that reached `main`
+first:
+
+1. `git mv` the file to the next free number — `0101_thing.sql`.
+2. Restore `meta/_journal.json` to exactly what `main` says it is, rather than
+   hand-editing the conflicted hunk into something that parses.
+3. Append one fresh entry for the renamed migration: `idx` one past the last,
+   `tag` matching the new filename, and a `when` later than the entry before it.
+   Keep the array sorted by `idx` — that is the order the migrator walks.
+4. If the migration has a `concurrent/` sibling, rename that too — the applier
+   matches on the filename's first four characters, so a stale number silently
+   detaches the index build from its migration.
+
+Why renumbering rather than hand-merging the conflict: drizzle decides what to
+apply from the journal, and what is already applied from what it recorded when
+it ran — not from the file contents (same reason rule 1 leaves `0000`-`0080`
+alone). An environment that already applied the entry that reached `main` first
+has therefore recorded that number as done, and a second, different file sitting
+at the same `idx` is at best skipped in silence and at worst applied to some
+environments and not others, with nothing in the repo showing which. Renumbering
+keeps the sequence append-only, which is what every applier here assumes. It
+costs nothing, because a migration that has not reached `main` yet has not been
+applied anywhere — the immutability rule starts at merge, not at authoring.
+
+This is not hypothetical, and it is not rare. It has happened twice:
+
+- [#253](https://github.com/vocion/vocion-core/pull/253) hit it at `idx` 84/85,
+  resolved by renumbering the branch's migration — twice, as it turned out: it
+  was moved to `0086` and then again, when more branches landed ahead of it, to
+  the `0090_agent_persona` it merged as. Renumbering being repeatable is the
+  point; hand-merging the journal is not.
+- The 2026-09-15 release train hit it again with three branches all authoring
+  `0100`. Two were renumbered to `0101_artifact_version` and
+  `0102_slack_post_feedback_source`, and `0101` carried a `concurrent/` sibling
+  that had to be renamed with it (step 4) — `concurrent/0101_artifact_org_updated_index.sql`.
+
+Both times the sequence stayed append-only and nothing had to be re-applied by
+hand. `npm run check:migrations` does not catch this: it checks lock safety, not
+number allocation, and a collision is legal on each branch in isolation.

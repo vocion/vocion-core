@@ -2,9 +2,10 @@
 
 import type { QueuedMessage } from './queueReducer';
 import type { ContextRef } from './types';
-import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, Square, Target, Users, X } from 'lucide-react';
+import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, PencilLine, Plus, Square, Target, Users, X } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
+import { insertTagAt, tagSlug } from './composerTags';
 
 /**
  * Sticky-bottom composer — an input and ONE primary action.
@@ -16,9 +17,13 @@ import { useEffect, useRef, useState } from 'react';
  * - auto-resize textarea (24px → 220px)
  * - round send button, amber filled when enabled
  *
- * Two quiet affordances ride along (agent-chat-surface.md §9):
- *   `@` tags a record (agent, team, mission) the message is about — a chip
- *       beside the box, sent as `context_refs`, never inlined in the text;
+ * Three quiet affordances ride along (agent-chat-surface.md §9):
+ *   `@` tags a record (agent, team, mission, the page) the message is about,
+ *       or `@artifact` to say the turn owes a document — a chip beside the
+ *       box, sent as `context_refs`, never inlined in the text;
+ *   `(+)` at the left of the box is the POINTER path to that same list: it
+ *       types the tag into the draft at the caret and the `@` reader above
+ *       resolves it. No second mechanism, no hidden state (Manifesto §19).
  *   `?` (the key on an empty box, or the small mark beside send) opens the
  *       shortcuts in a collision-aware popover.
  *
@@ -34,6 +39,12 @@ import { useEffect, useRef, useState } from 'react';
  * and they go out in order the moment the turn lands. ⌘⏎ stops the turn and
  * sends immediately; Esc on an empty box stops it. Enter alone never kills a
  * running turn.
+ *
+ * Everything stacked above the box — queued rows, tag chips, the pasted-text
+ * chip, and whatever the surface passes as `above` (the "About: …" context
+ * chip, anchored-comment chips) — lives in ONE column with the input, so
+ * there is a single left edge to align to rather than a padding decision per
+ * child (2026-09-16).
  *
  * Stateless about the conversation: the parent owns `value`, `onChange`,
  * `onSubmit`, `disabled` and the tags. Copy for the shortcuts comes from this
@@ -83,6 +94,21 @@ export type ChatComposerProps = {
   onDismissHeld?: () => void;
   /** i18n'd queue copy. Every key has an English default so the component renders bare in tests. */
   copy?: Partial<ComposerCopy>;
+  /**
+   * What this surface can pull into the turn explicitly — `@artifact`, the
+   * page, the record in view. Drives the `(+)` menu; the same list is the head
+   * of `tagSearch`'s pool. Empty/absent = no `(+)`, which is how a bare test
+   * render behaves.
+   */
+  attachable?: ContextRef[];
+  /**
+   * Anything the SURFACE stacks above the box — the "About: …" context chip,
+   * the anchored-comment chips. It renders inside the composer's own column,
+   * so one padding rule governs everything above the input instead of each
+   * caller guessing at it (CEO, 2026-09-16: the chip sat flush against the
+   * rail edge while the box was inset).
+   */
+  above?: React.ReactNode;
 };
 
 /** Everything the queue affordance says, so the parent can translate it. */
@@ -103,6 +129,8 @@ export type ComposerCopy = {
   heldNotice: string;
   /** Dismiss control on the notice. */
   dismiss: string;
+  /** aria-label and header for the `(+)` menu. */
+  attach: string;
 };
 
 const DEFAULT_COPY: ComposerCopy = {
@@ -114,6 +142,7 @@ const DEFAULT_COPY: ComposerCopy = {
   queueAction: 'Queue message',
   heldNotice: 'The turn ended early — these were not sent.',
   dismiss: 'Dismiss',
+  attach: 'Add to this turn',
 };
 
 /** Mobile sanity: queued rows must not eat the viewport. */
@@ -131,6 +160,8 @@ const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
   briefing: AtSign,
   deal: AtSign,
   page: AtSign,
+  deliverable: FileText,
+  intent: PencilLine,
 };
 
 const SHORTCUTS: Array<[keys: string, what: string]> = [
@@ -138,7 +169,9 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['⌘ / Ctrl + Enter', 'Stop the turn and send now'],
   ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
-  ['@', 'Tag an agent, team or mission'],
+  ['@', 'Tag an agent, team, mission or the page'],
+  ['@artifact', 'This turn ends in a document'],
+  ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
   ['⌘ J', 'Open or collapse the conversation'],
   ['?', 'These shortcuts'],
@@ -169,13 +202,26 @@ export function ChatComposer({
   queueHeld = false,
   onDismissHeld,
   copy,
+  attachable = [],
+  above,
 }: ChatComposerProps) {
   const words = { ...DEFAULT_COPY, ...copy };
   const [queuedExpanded, setQueuedExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  // Where the caret is, so a mention typed (or injected by `(+)`) in the
+  // MIDDLE of a draft reads the same as one at the end. `null` = "wherever the
+  // end is", which is what a fresh render and every non-interactive host see.
+  const [caret, setCaret] = useState<number | null>(null);
+  // Set when this component moves the caret itself; applied once the parent
+  // has echoed the new value back down.
+  const pendingCaretRef = useRef<number | null>(null);
+  const caretAt = Math.max(0, Math.min(caret ?? value.length, value.length));
+  const head = value.slice(0, caretAt);
+  const tail = value.slice(caretAt);
   // The `@query` under the caret, when the person is tagging.
-  const tagMatch = tagSearch ? /(?:^|\s)@([\w-]*)$/.exec(value) : null;
+  const tagMatch = tagSearch ? /(?:^|\s)@([\w-]*)$/.exec(head) : null;
   const tagQuery = tagMatch ? tagMatch[1] ?? '' : null;
   const [tagHits, setTagHits] = useState<ContextRef[]>([]);
   const [tagCursor, setTagCursor] = useState(0);
@@ -188,6 +234,13 @@ export function ChatComposer({
     }
     el.style.height = 'auto';
     el.style.height = `${Math.min(220, Math.max(24, el.scrollHeight))}px`;
+    // A caret this component asked for lands only once the parent has echoed
+    // the value back — controlled inputs reset the selection on re-render.
+    const next = pendingCaretRef.current;
+    if (next !== null) {
+      pendingCaretRef.current = null;
+      el.setSelectionRange(next, next);
+    }
   }, [value]);
 
   // Resolve the tag query as it is typed.
@@ -213,11 +266,40 @@ export function ChatComposer({
     };
   }, [tagQuery, tagSearch]);
 
+  /**
+   * Move the caret ourselves — remembered until the parent echoes the value back.
+   * @param to
+   */
+  const moveCaret = (to: number) => {
+    pendingCaretRef.current = to;
+    setCaret(to);
+  };
+
   const pickTag = (ref: ContextRef) => {
     onAddTag?.(ref);
-    // Drop the `@query` the person typed; the chip carries it now.
-    onChange(value.replace(/(^|\s)@[\w-]*$/, '$1').trimEnd());
+    // Drop the `@query` the person typed; the chip carries it now. Only the
+    // text BEFORE the caret is rewritten — anything after it is untouched.
+    const nextHead = head.replace(/(^|\s)@[\w-]*$/, '$1').trimEnd();
+    moveCaret(nextHead.length);
+    onChange(nextHead + tail);
     setTagHits([]);
+    textareaRef.current?.focus();
+  };
+
+  /**
+   * The `(+)` menu's only job: type the tag into the draft at the caret. The
+   * `@` reader above then sees it and offers the same chip it would have
+   * offered had the person typed it — one mechanism, two ways in.
+   * @param ref
+   */
+  const insertTag = (ref: ContextRef) => {
+    // The caret is read off the element, not off state: clicking `(+)` blurs
+    // the box, and a browser keeps the selection through a blur while React's
+    // `onSelect` has nothing left to fire.
+    const next = insertTagAt(value, textareaRef.current?.selectionStart ?? caretAt, tagSlug(ref));
+    moveCaret(next.caret);
+    onChange(next.value);
+    setAttachOpen(false);
     textareaRef.current?.focus();
   };
 
@@ -313,6 +395,8 @@ export function ChatComposer({
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-3 sm:px-6 sm:pt-4">
       <div className="relative mx-auto max-w-3xl">
+        {/* The surface's own stack — same column, same left edge as the box. */}
+        {above}
         {tagQuery !== null && tagHits.length > 0 && (
           <ul role="listbox" aria-label="Tag a record" className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-full rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop)">
             {tagHits.map((h, i) => {
@@ -433,11 +517,67 @@ export function ChatComposer({
               // plus a soft ground shift. No halo, no thickened border.
               className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40"
             >
+              {/*
+                * (+) — "what can I bring into this turn". It inserts a tag and
+                * nothing else: no store, no event, no flag of its own. What
+                * the person ends up with is the chip they would have got by
+                * typing `@`. Same 32px round target and muted tone as the help
+                * mark on the other end of the box.
+                */}
+              {attachable.length > 0 && (
+                <PopoverPrimitive.Root open={attachOpen} onOpenChange={setAttachOpen}>
+                  <PopoverPrimitive.Trigger
+                    data-testid="composer-attach"
+                    aria-label={words.attach}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                  </PopoverPrimitive.Trigger>
+                  <PopoverPrimitive.Portal>
+                    <PopoverPrimitive.Content
+                      side="top"
+                      align="start"
+                      sideOffset={8}
+                      collisionPadding={8}
+                      onOpenAutoFocus={e => e.preventDefault()}
+                      className="z-50 w-[min(16rem,calc(100vw-1rem))] rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop) outline-none"
+                    >
+                      <div className="px-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{words.attach}</div>
+                      <ul role="menu" aria-label={words.attach}>
+                        {attachable.map((ref) => {
+                          const Icon = TAG_ICON[ref.type];
+                          return (
+                            <li key={`${ref.type}:${ref.id}`} role="none">
+                              <button
+                                type="button"
+                                role="menuitem"
+                                data-testid="composer-attach-item"
+                                onClick={() => insertTag(ref)}
+                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
+                              >
+                                <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                                <span className="min-w-0 flex-1 truncate">{ref.label}</span>
+                                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{`@${tagSlug(ref)}`}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </PopoverPrimitive.Content>
+                  </PopoverPrimitive.Portal>
+                </PopoverPrimitive.Root>
+              )}
               <textarea
                 ref={textareaRef}
                 data-agent-composer
                 value={value}
-                onChange={e => onChange(e.target.value)}
+                onChange={(e) => {
+                  setCaret(e.target.selectionStart);
+                  onChange(e.target.value);
+                }}
+                // Every caret move, however it happened (arrows, a click, a
+                // drag). Cheap: the box already re-renders on every keystroke.
+                onSelect={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 placeholder={streaming ? words.streamingPlaceholder : (placeholder ?? 'Ask anything…')}

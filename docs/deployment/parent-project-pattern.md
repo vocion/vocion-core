@@ -2,8 +2,15 @@
 
 How to stand up Vocion for one client, and which repo owns what.
 
-Two deployments exist already: `Meta-CTO/metacto-vocion-agents` and
-`Veerio-Life/veerio-vocion`. Read this before building a third.
+Two deployments exist already: `Meta-CTO/metacto-vocion-agents` and a client
+parent project. Read this before building a third.
+
+> The client parent project is **anonymised throughout this page** as
+> `Larkfield-Systems/larkfield-vocion`, on the fictional
+> `larkfield.example` domain. Everything described about it is real and was
+> measured against the live repo; only the name is a fixture. See
+> `packages/core/src/libs/fixtures/realDataGuard.ts` for why this repo does not
+> name clients.
 
 ---
 
@@ -109,7 +116,7 @@ ENV=production AWS_PROFILE=<profile> REGION=<region> \
 Copying them lets a parent project drift from the version it pins. Calling them
 makes that impossible.
 
-`Veerio-Life/veerio-vocion` wires this into `scripts/deploy.sh`:
+`Larkfield-Systems/larkfield-vocion` wires this into `scripts/deploy.sh`:
 
 ```bash
 ./scripts/deploy.sh apply       # phase 1
@@ -139,7 +146,7 @@ table blocks every write to it until the build finishes. A non-recursive glob
 skips that directory in silence: the numbered migration lands, the index build
 does not, and the deploy reports success.
 
-That is not hypothetical. `Veerio-Life/veerio-vocion` applies migrations from
+That is not hypothetical. `Larkfield-Systems/larkfield-vocion` applies migrations from
 its own `apply-workspace.sh` with exactly such a glob, so core's applier has
 never run there — confirmed against both of its environments, whose migration
 history lives in a `schema_migration` table core knows nothing about.
@@ -216,7 +223,7 @@ so check it during handover rather than assuming.
 The parent project, never core. Core holds no AWS account and no credentials,
 so it cannot deploy a runtime anywhere. The scripts under `infra/agentcore/`
 are the shared implementation; the parent project calls them with its own
-profile and environment. Veerio's wrapper is
+profile and environment. Larkfield's wrapper is
 `./scripts/deploy.sh agentcore <env>`.
 
 Core used to carry a workflow that deployed a runtime into MetaCTO's own
@@ -234,8 +241,8 @@ manual and deliberately human: it creates federated trust between GitHub and
 an AWS account.
 
 ```bash
-TRUSTED_REPO=Veerio-Life/veerio-vocion \
-AWS_PROFILE=veerio REGION=us-west-2 \
+TRUSTED_REPO=Larkfield-Systems/larkfield-vocion \
+AWS_PROFILE=larkfield REGION=us-west-2 \
   bash vocion-core/infra/agentcore/provision-ci-role.sh
 ```
 
@@ -458,7 +465,7 @@ naming any of those index builds that is missing or `INVALID`:
 live in the framework repo — which is exactly why every parent project copies
 it.
 
-Measured at `v2.21.0` against the Veerio copy: `main.tf` is **295 lines, 92
+Measured at `v2.21.0` against the Larkfield copy: `main.tf` is **295 lines, 92
 differing, and 29 of those differences are just resource names and tags.**
 
 The fix, when someone has room:

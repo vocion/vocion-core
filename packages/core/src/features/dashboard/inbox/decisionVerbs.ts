@@ -2,7 +2,7 @@ import type { ReviewShortcut } from '@/features/review/reviewShortcuts';
 import type { InboxKind } from '@/services/InboxService';
 
 /**
- * ONE decision model for the whole "Needs you" surface. Every kind of row
+ * ONE decision model for the whole "Review queue" surface. Every kind of row
  * maps to the verbs a person can take on it; the sticky bar on the detail
  * screen, the hover verbs on a list row and the keyboard all read from here,
  * so a verb is never spelled one way on the row and another on the page.

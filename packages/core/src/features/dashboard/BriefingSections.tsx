@@ -1,19 +1,28 @@
 'use client';
 
-import type { ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { recordRef } from '@/services/chat/recordContext';
-import { isActionSection, splitSections } from './briefingSectionsModel';
+import { splitSections } from './briefingSectionsModel';
 import { AskAboutThis } from './context/AskAboutThis';
 
 /**
- * A briefing rendered section by section, with the brief → action loop wired
- * in (R4). Every `##` heading gets an "Ask about this"; inside sections that
- * hold work for a person (needs you / moves / actions / at-risk / close this
- * week / not in HubSpot) each bullet gets a "Do this" that opens the agent
- * surface with the bullet as the prompt and the briefing as the record — so
- * reading the brief and working the pipeline are one motion.
+ * A pre-v2 briefing — markdown, rendered section by section. Every brief
+ * published before `docs/specs/briefing-v2.md` reads through here; a brief
+ * with a typed document renders through `briefings/BriefingView`.
+ *
+ * Every `##` heading gets an "Ask about this". Bullets no longer do.
+ *
+ * They used to: each bullet in a "needs you" section carried a **Do this**
+ * chip that opened the conversation with the bullet's own text as the
+ * message. Chris, 2026-09-16, clicked one beside "4 learning candidates to
+ * adopt or reject" and watched the composer send exactly that back as a chat
+ * message. It was a prompt pretending to be an action — the work still had to
+ * be done afterwards, somewhere else. The typed briefing routes every
+ * actionable item to the surface that does the thing instead; a markdown
+ * brief cannot know where its bullets route, so it offers no action at all
+ * rather than a fake one. "Ask about this" remains, as what it always was: a
+ * way to ask, not a way to act.
  *
  * Split is on `## ` at line start; the preamble before the first heading is
  * rendered as-is. Markdown inside each section is untouched.
@@ -29,88 +38,35 @@ export function BriefingSections(props: { briefingId: number; briefingTitle: str
 
   return (
     <>
-      {sections.map((sec, i) => {
-        const actionable = sec.heading ? isActionSection(sec.heading) : false;
-        return (
-          <section key={i} data-briefing-section={sec.heading ? slug(sec.heading) : 'preamble'}>
-            {sec.heading && (
-              <div className="not-prose mt-6 mb-2 flex flex-wrap items-baseline justify-between gap-2 first:mt-0">
-                <h2 className="text-base font-semibold tracking-tight">{sec.heading}</h2>
-                <AskAboutThis
-                  record={record}
-                  variant="icon"
-                  label={`Ask about “${sec.heading}”`}
-                  prompt={`About the "${sec.heading}" section of this brief: `}
-                  agentSlug={props.agentSlug}
-                  fallbackContext={props.content}
-                />
-              </div>
-            )}
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              components={actionable
-                ? {
-                    li: ({ children, ...rest }) => (
-                      <li {...rest}>
-                        <span className="group/bullet inline">
-                          {children}
-                          <DoThis record={record} agentSlug={props.agentSlug} fallbackContext={props.content} text={textOf(children)} />
-                        </span>
-                      </li>
-                    ),
-                  }
-                : undefined}
-            >
-              {sec.body}
-            </Markdown>
-          </section>
-        );
-      })}
+      {sections.map(sec => (
+        // The legacy renderer's equivalent of the archetype's `Section`:
+        // `data-comment-field` is the select-to-talk opt-in, so a pre-v2
+        // brief keeps the pattern the typed one gets from `Section`.
+        <section
+          key={sec.heading ?? '__preamble__'}
+          data-briefing-section={sec.heading ? slug(sec.heading) : 'preamble'}
+          data-comment-field={sec.heading ?? 'Summary'}
+        >
+          {sec.heading && (
+            <div className="not-prose mt-6 mb-2 flex flex-wrap items-baseline justify-between gap-2 first:mt-0">
+              <h2 className="text-base font-semibold tracking-tight">{sec.heading}</h2>
+              <AskAboutThis
+                record={record}
+                variant="icon"
+                label={`Ask about “${sec.heading}”`}
+                prompt={`About the "${sec.heading}" section of this brief: `}
+                agentSlug={props.agentSlug}
+                fallbackContext={props.content}
+              />
+            </div>
+          )}
+          <Markdown remarkPlugins={[remarkGfm]}>{sec.body}</Markdown>
+        </section>
+      ))}
     </>
-  );
-}
-
-function DoThis(props: { record: ReturnType<typeof recordRef>; agentSlug?: string; fallbackContext: string; text: string }) {
-  if (!props.text.trim()) {
-    return null;
-  }
-  return (
-    <AskAboutThis
-      record={props.record}
-      variant="button"
-      label="Do this"
-      prompt={`Do this: ${props.text.trim()}`}
-      agentSlug={props.agentSlug}
-      fallbackContext={props.fallbackContext}
-      className="ml-2 px-2 py-0.5 align-middle text-[11px] opacity-60 group-hover/bullet:opacity-100"
-    />
   );
 }
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
-}
-
-/**
- * Plain text of a bullet's children, for the prompt — bold/links flattened, nested lists dropped.
- * @param node
- */
-function textOf(node: ReactNode): string {
-  if (node == null || typeof node === 'boolean') {
-    return '';
-  }
-  if (typeof node === 'string' || typeof node === 'number') {
-    return String(node);
-  }
-  if (Array.isArray(node)) {
-    return node.map(textOf).join('');
-  }
-  if (typeof node === 'object' && 'props' in node) {
-    const el = node as { type?: unknown; props: { children?: ReactNode } };
-    if (el.type === 'ul' || el.type === 'ol') {
-      return '';
-    }
-    return textOf(el.props.children);
-  }
-  return '';
 }

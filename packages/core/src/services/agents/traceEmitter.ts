@@ -36,6 +36,8 @@ export type RawStreamEvent = {
     input?: { input?: unknown } & Record<string, unknown>;
     output?: unknown;
     chunk?: unknown;
+    /** Set on `on_tool_error` — whatever the tool threw. */
+    error?: unknown;
   } & Record<string, unknown>;
 };
 
@@ -128,6 +130,40 @@ export function toolOutputContent(output: unknown): string {
     return o.content;
   }
   return '';
+}
+
+/**
+ * A tool's terminal status from an on_tool_end ToolMessage.
+ *
+ * LangGraph's ToolNode catches a throwing tool and returns a ToolMessage with
+ * `status: 'error'` rather than letting the run fail, so a failed tool reaches
+ * us as a perfectly ordinary `on_tool_end`. Reading the status is the only way
+ * to tell "the specialist answered" from "the specialist blew up", and getting
+ * that wrong is how a delegation that failed rendered as `<name> finished`.
+ * @param output - `ev.data.output` from an `on_tool_end` event.
+ */
+export function toolResultStatus(output: unknown): 'success' | 'error' | undefined {
+  const status = (output as { status?: unknown } | null | undefined)?.status;
+  return status === 'error' || status === 'success' ? status : undefined;
+}
+
+/**
+ * The human-readable message from an `on_tool_error` event (or from an errored
+ * ToolMessage's content), capped so a stack trace never becomes a trace label.
+ * @param raw - `ev.data.error`, or the ToolMessage content.
+ */
+export function toolErrorMessage(raw: unknown): string {
+  const text = raw instanceof Error
+    ? (raw.message || String(raw))
+    : typeof raw === 'string'
+      ? raw
+      : (raw && typeof raw === 'object' && typeof (raw as { message?: unknown }).message === 'string')
+          ? (raw as { message: string }).message
+          : raw === undefined || raw === null
+            ? ''
+            : String(raw);
+  const cleaned = text.replace(/^Error:\s*/i, '').replace(/\n\s*Please fix your mistakes\.?\s*$/i, '').trim();
+  return (cleaned || 'the step failed with no message').slice(0, 300);
 }
 
 /**
@@ -267,6 +303,9 @@ function kindFor(tool: string): TraceNodeKind {
  */
 function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject: string): string {
   const running = status === 'start' || status === 'progress';
+  if (status === 'error' && kind !== 'delegate') {
+    return kind === 'search' ? `Search failed ${subject}`.trim() : `${subject} failed`.trim();
+  }
   switch (kind) {
     case 'reason':
       return running ? 'Thinking' : 'Thought through it';
@@ -275,6 +314,9 @@ function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject
     case 'skill':
       return running ? `Running ${subject}`.trim() : `Ran ${subject}`.trim();
     case 'delegate':
+      if (status === 'error') {
+        return `${subject} could not finish`.trim();
+      }
       return running ? `Delegating to ${subject}`.trim() : `${subject} finished`.trim();
     case 'draft':
       return running ? 'Preparing a recommendation' : 'Recommended an action';
@@ -348,6 +390,13 @@ export class TraceEmitter {
   private readonly openReason = new Map<string, { actor: TraceActor; parentId?: string }>();
   /** node id → subject for the label (the query / skill name), so the `done` label matches `start`. */
   private readonly nodeSubjects = new Map<string, string>();
+  /**
+   * Delegations that started and have not yet ended, so a run that dies
+   * mid-delegation can still close them as failures. A delegate node left at
+   * `start` forever is exactly the trace this class shipped with, and it is
+   * indistinguishable from a delegation that is still running.
+   */
+  private readonly openDelegations = new Map<string, { actor: TraceActor; parentId?: string; name: string }>();
 
   constructor(opts: TraceEmitterOptions) {
     this.leadName = opts.leadName;
@@ -389,6 +438,43 @@ export class TraceEmitter {
       });
     }
     this.openReason.clear();
+    return out;
+  }
+
+  /**
+   * Display name of the specialist a `task` node dispatched, if it is known.
+   * @param nodeId
+   */
+  delegateName(nodeId: string): string | undefined {
+    return this.specialists.get(nodeId)?.name;
+  }
+
+  /** Delegations that started and never reported an outcome. */
+  openDelegationNames(): string[] {
+    return [...this.openDelegations.values()].map(d => d.name);
+  }
+
+  /**
+   * Close every still-open delegation as a FAILURE. Called when the run itself
+   * throws: the specialist did not finish, and a trace that stops at `start`
+   * says nothing about why.
+   * @param message - What went wrong, already human-readable.
+   */
+  closeDelegations(message: string): TraceNodeEvent[] {
+    const out: TraceNodeEvent[] = [];
+    for (const [id, { actor, parentId, name }] of this.openDelegations) {
+      out.push({
+        type: 'trace_node',
+        id,
+        parentId,
+        actor,
+        kind: 'delegate',
+        status: 'error',
+        label: labelFor('delegate', 'error', name),
+        result: message.slice(0, 160),
+      });
+    }
+    this.openDelegations.clear();
     return out;
   }
 
@@ -452,6 +538,7 @@ export class TraceEmitter {
           const description = typeof args.description === 'string' ? args.description : '';
           const name = specialistName(subagentType, description);
           this.specialists.set(id, { id, kind: 'specialist', name });
+          this.openDelegations.set(id, { actor, parentId, name });
           const brief = description ? description.replace(/\s+/g, ' ').trim().slice(0, 140) : undefined;
           return [{
             type: 'trace_node',
@@ -497,16 +584,38 @@ export class TraceEmitter {
         const parentId = taskIdOf(ns);
         const content = toolOutputContent(ev.data?.output);
 
+        const failed = toolResultStatus(ev.data?.output) === 'error';
+
         if (kind === 'delegate') {
           const name = this.specialists.get(id)?.name ?? 'a specialist';
+          this.openDelegations.delete(id);
+          const status = failed ? 'error' as const : 'done' as const;
           return [{
             type: 'trace_node',
             id,
             parentId,
             actor,
             kind,
-            status: 'done',
-            label: labelFor('delegate', 'done', name),
+            status,
+            label: labelFor('delegate', status, name),
+            ...(failed ? { result: toolErrorMessage(content).slice(0, 160) } : {}),
+          }];
+        }
+
+        if (failed) {
+          // A tool the graph caught and turned into an error ToolMessage. It
+          // is still an `on_tool_end`; rendering it as "Used X" would say the
+          // opposite of what happened.
+          const subject = this.nodeSubjects.get(id) ?? tool;
+          return [{
+            type: 'trace_node',
+            id,
+            parentId,
+            actor,
+            kind,
+            status: 'error',
+            label: labelFor(kind, 'error', subject),
+            result: toolErrorMessage(content).slice(0, 160),
           }];
         }
 
@@ -539,6 +648,42 @@ export class TraceEmitter {
           result,
           resultDetail,
           citations: citations && citations.length ? citations : undefined,
+        }];
+      }
+
+      case 'on_tool_error': {
+        // The other half of a failed tool: when nothing catches it, LangChain
+        // ends the run with `on_tool_error` and NO `on_tool_end`. Without this
+        // case the node stayed at `start` forever — which is the whole reason a
+        // failed delegation reached the person as one "Delegating…" line and
+        // nothing else.
+        const tool = ev.name ?? 'tool';
+        if (PLUMBING_TOOLS.has(tool)) {
+          return [];
+        }
+        const kind = kindFor(tool);
+        const id = toolNodeId(ns);
+        const actor = this.actorFor(ns);
+        const parentId = taskIdOf(ns);
+        const message = toolErrorMessage(ev.data?.error);
+        const subject = kind === 'delegate'
+          ? (this.specialists.get(id)?.name ?? 'a specialist')
+          : (this.nodeSubjects.get(id) ?? tool);
+        if (kind === 'delegate') {
+          this.openDelegations.delete(id);
+        }
+        return [{
+          type: 'trace_node',
+          id,
+          parentId,
+          actor,
+          kind,
+          status: 'error',
+          label: labelFor(kind, 'error', subject),
+          detail: kind === 'delegate' ? undefined : this.nodeSubjects.get(id),
+          tool,
+          result: message.slice(0, 160),
+          resultDetail: message,
         }];
       }
 

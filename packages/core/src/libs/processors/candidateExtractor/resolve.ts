@@ -4,9 +4,9 @@
  *
  * Two knobs, and the order between them matters:
  *
- *   - `resolveAgainst`, the record printed "Higher Ground Ballroom, S.
- *     Burlington" and the workspace already has an approved venue called
- *     "Higher Ground" in "South Burlington". Match them, and copy the approved
+ *   - `resolveAgainst`, the record printed "Bellwater Hall Ballroom, S.
+ *     Riverton" and the workspace already has an approved venue called
+ *     "Bellwater Hall" in "Riverton". Match them, and copy the approved
  *     values over the printed ones, so every card for that venue carries the
  *     same spelling.
  *   - `relatedProposals`, no match. Propose the venue ONCE for this sync,
@@ -18,7 +18,7 @@
  * to a NAME, `s.` and `n.` apply to a TOWN. One shared normaliser would
  * silently widen both, and a venue in "North Street" would become one in
  * "north" territory. Core's own `normaliseForKey` does none of this, it turns
- * `S. Burlington` into `s-burlington`, which is exactly why this knob exists
+ * `Riverton` into `riverton`, which is exactly why this knob exists
  * rather than reusing the key.
  */
 

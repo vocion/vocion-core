@@ -14,12 +14,13 @@
  */
 
 import type { AgentEvent } from '@/services/agents/types';
-import type { ConversationRun, ConversationTraceNode } from '@/services/ConversationService';
+import type { CollectedDoc } from '@/services/chat/runCollector';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { openStream } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { stampArtifactsWithMessage } from '@/services/ArtifactService';
+import { RunCollector } from '@/services/chat/runCollector';
 import {
   appendMessage,
   createConversation,
@@ -30,116 +31,6 @@ import {
 } from '@/services/ConversationService';
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
-
-/**
- * Buffer streaming text + tool events into the runsJson shape so the
- * assistant turn can be persisted at end-of-stream. Mirrors rev-ai's
- * `_RunCollector` (server/main.py:1182-1212).
- */
-type CollectedDoc = { document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string };
-
-class RunCollector {
-  private runs: ConversationRun[] = [];
-  private currentText: string | null = null;
-  private documents: CollectedDoc[] = [];
-  private readonly docKeys = new Set<string>();
-  // Merged by id, mirroring the client's fold (start → progress* → done),
-  // so the persisted trace equals what the live surface showed.
-  private readonly trace = new Map<string, ConversationTraceNode>();
-  /**
-   * Artifacts this turn created or changed. Stamped onto the assistant
-   * message once it is persisted, so a RELOADED transcript still shows the
-   * chip where the thing came from — otherwise the pane holds the current
-   * artifact and nothing in the history says which turn made which.
-   */
-  private readonly artifactIds = new Set<number>();
-
-  onArtifact(id: number): void {
-    if (Number.isInteger(id) && id > 0) {
-      this.artifactIds.add(id);
-    }
-  }
-
-  get touchedArtifactIds(): number[] {
-    return [...this.artifactIds];
-  }
-
-  onTraceNode(event: Record<string, unknown>): void {
-    const id = typeof event.id === 'string' ? event.id : null;
-    if (!id) {
-      return;
-    }
-    const prev = this.trace.get(id);
-    const node = event as unknown as ConversationTraceNode & { delta?: string; type?: string };
-    const merged: ConversationTraceNode = {
-      ...prev,
-      ...node,
-      text: (prev?.text ?? '') + (typeof node.delta === 'string' ? node.delta : ''),
-      citations: node.citations ?? prev?.citations,
-      result: node.result ?? prev?.result,
-      resultDetail: node.resultDetail ?? prev?.resultDetail,
-      tool: node.tool ?? prev?.tool,
-      args: node.args ?? prev?.args,
-      detail: node.detail ?? prev?.detail,
-    };
-    delete (merged as { delta?: string }).delta;
-    delete (merged as { type?: string }).type;
-    this.trace.set(id, merged);
-  }
-
-  onDocuments(docs: CollectedDoc[]): void {
-    for (const d of docs) {
-      const key = `${d.citationIndex ?? ''}:${d.document_id}:${d.semantic_identifier}`;
-      if (!this.docKeys.has(key)) {
-        this.docKeys.add(key);
-        this.documents.push(d);
-      }
-    }
-  }
-
-  onTextDelta(delta: string): void {
-    if (!delta) {
-      return;
-    }
-    this.currentText = (this.currentText ?? '') + delta;
-  }
-
-  onToolStart(name: string, input: Record<string, unknown>): void {
-    this.flushText();
-    this.runs.push({ type: 'tool', name, input });
-  }
-
-  onToolEnd(name: string, output: string): void {
-    // Attach the output to the most recent matching tool run, if found.
-    for (let i = this.runs.length - 1; i >= 0; i--) {
-      const r = this.runs[i];
-      if (r && r.type === 'tool' && r.name === name && !r.output) {
-        r.output = output.slice(0, 4000);
-        return;
-      }
-    }
-  }
-
-  private flushText(): void {
-    if (this.currentText !== null) {
-      const t = this.currentText;
-      if (t.trim()) {
-        this.runs.push({ type: 'text', text: t });
-      }
-      this.currentText = null;
-    }
-  }
-
-  finalise(): { text: string; runs: ConversationRun[]; documents: CollectedDoc[]; trace: ConversationTraceNode[] } {
-    this.flushText();
-    const text = this.runs
-      .filter((r): r is { type: 'text'; text: string } => r.type === 'text')
-      .map(r => r.text)
-      .join('\n\n')
-      .trim();
-    return { text, runs: this.runs, documents: this.documents, trace: [...this.trace.values()] };
-  }
-}
 
 export async function POST(request: Request): Promise<Response> {
   const { userId, orgId } = await auth();
@@ -164,6 +55,19 @@ export async function POST(request: Request): Promise<Response> {
   // `@` tags (§9.10): besides routing the turn's `agent_slug`, the tagged
   // records reach the model as a note under the message.
   const contextRefs = readContextRefs(body.context_refs);
+  // P0 (personalization-v2): the ARTIFACTS the page is showing travel with the
+  // turn, resolved from the store under this org rather than described by the
+  // client, and declared canonical. This is what stops the rail answering
+  // "there's no brief or proposal to review here" beside a page rendering one.
+  // Grounding, not rendering: #378's rule that the rail never re-draws the
+  // page is untouched.
+  const { buildGrounding } = await import('@/services/chat/grounding');
+  const grounding = await buildGrounding(orgId, pageContext);
+  // What the turn OWES (0102): the composer's `@artifact` tag, sent as a typed
+  // field so "did this turn produce an artifact" is a contract the harness
+  // enforces rather than something the model decided while it was busy.
+  const { readDeliverable } = await import('@/libs/chat/deliverable');
+  const deliverable = readDeliverable(body.deliverable);
   // Resolve the agent. Explicit `agent_slug` wins (an `@mention` routes one
   // turn); otherwise the WORKSPACE AGENT answers — the project's lead
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
@@ -275,6 +179,8 @@ export async function POST(request: Request): Promise<Response> {
             collector.onToolStart(event.tool, event.input);
           } else if (event.type === 'tool_end') {
             collector.onToolEnd(event.tool, event.output);
+          } else if (event.type === 'tool_error') {
+            collector.onToolError(event.tool, event.message);
           } else if (event.type === 'documents') {
             collector.onDocuments(event.documents as CollectedDoc[]);
           } else if (event.type === 'trace_node') {
@@ -315,11 +221,12 @@ export async function POST(request: Request): Promise<Response> {
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext, contextRefs),
+          message: withPageContext(message, pageContext, contextRefs, grounding.text),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,
           pageContext: pageContext ?? undefined,
+          ...(deliverable ? { deliverable } : {}),
           onEvent: sendEvent,
         });
       } catch (err) {

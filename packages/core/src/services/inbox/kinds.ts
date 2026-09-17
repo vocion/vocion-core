@@ -1,5 +1,5 @@
 /**
- * The vocabulary of "Needs you", free of I/O so a client component can read
+ * The vocabulary of "Review queue", free of I/O so a client component can read
  * it without dragging the database into its bundle. `InboxService` re-exports
  * everything here.
  */

@@ -11,13 +11,13 @@ import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
 import { useComposerQueueProps } from './composerQueue';
-import { EmptyState } from './EmptyState';
+import { EmptyState, NoAgentsState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
-import { parseSearchCommand } from './routing';
+import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
-import { useTagSearch } from './tagSearch';
+import { useComposerTags } from './tagSearch';
 import { useChatSession } from './useChatSession';
 
 /**
@@ -133,7 +133,10 @@ function ChatShellInner({
   const t = useTranslations('Chat');
   const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
   const queueProps = useComposerQueueProps(session);
-  const tagSearch = useTagSearch(agents);
+  // `@` and `(+)` offer the same list: the artifact contract, then the records
+  // this surface knows. The full page is not on a record, so there is no page
+  // tag here — the rail and the artifact view add theirs.
+  const tagProps = useComposerTags(agents);
   const autonomyCopy = {
     ask: t('autonomy_ask'),
     act: t('autonomy_act'),
@@ -197,12 +200,16 @@ function ChatShellInner({
               )
             : session.messages.length === 0
               ? (
-                  <EmptyState
-                    greeting={session.emptyGreeting}
-                    suggestions={session.emptyChips}
-                    suggestionsLoading={session.emptyChipsLoading}
-                    onPick={session.handlePickSuggestion}
-                  />
+                  hasWorkspaceAgents(agents)
+                    ? (
+                        <EmptyState
+                          greeting={session.emptyGreeting}
+                          suggestions={session.emptyChips}
+                          suggestionsLoading={session.emptyChipsLoading}
+                          onPick={session.handlePickSuggestion}
+                        />
+                      )
+                    : <NoAgentsState />
                 )
               : (
                   <MessageList
@@ -214,6 +221,7 @@ function ChatShellInner({
                     onCitationClick={session.handleCitationClick}
                     onFeedback={session.handleFeedback}
                     autonomy={session.autonomy}
+                    conversationId={session.conversationId}
                   />
                 )}
 
@@ -236,6 +244,7 @@ function ChatShellInner({
             disabled={!session.booted}
             streaming={session.isStreaming}
             {...queueProps}
+            {...tagProps}
             onStop={session.handleStop}
             placeholder={session.composerPlaceholder}
             commandHint={parseSearchCommand(session.composerValue).searchOnly ? t('search_mode') : undefined}
@@ -245,7 +254,6 @@ function ChatShellInner({
             tags={session.contextRefs}
             onAddTag={session.addContextRef}
             onRemoveTag={session.removeContextRef}
-            tagSearch={tagSearch}
           />
         </div>
 

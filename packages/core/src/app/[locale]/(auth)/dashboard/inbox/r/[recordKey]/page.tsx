@@ -1,20 +1,30 @@
+import { Inbox } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { AskSheet } from '@/features/dashboard/inbox/AskSheet';
-import { agoLabel, decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
+import { ListEmpty } from '@/components/patterns';
+import { decisionCrumbs, REVIEW_CRUMB } from '@/features/dashboard/inbox/inboxMeta';
+import { RecordSheet } from '@/features/dashboard/inbox/RecordSheet';
+import { recordSheetView } from '@/features/dashboard/inbox/recordSheetView';
 import { reviewRowToSheetAsk } from '@/features/dashboard/inbox/reviewRowToSheetAsk';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
-import { inboxHref } from '@/services/inbox/inboxRef';
+import { parseRecordKeyParam } from '@/services/inbox/recordKey';
 import { listReviewRowsForRecord } from '@/services/inbox/reviewRows';
 
 /**
  * One record's decision sheet: every proposed action about the same deal,
- * contact or address, answered as a stepper — approve or decline per item, a
- * receipt, one Submit all. Same chrome as a single proposal (Needs you ›
- * Proposals › record). Already-decided proposals about the record are listed
- * underneath as the history; each links to its own screen.
+ * contact or address, answered as a stepper — approve or decline per item,
+ * with everything already decided about the record listed underneath.
+ *
+ * Deciding stays on the record. The sheet moves to the record's next open
+ * proposal and the decided one joins the list below; only when nothing is
+ * left does it offer a button back to the review queue. `RecordSheet` owns both
+ * halves so that stays true without waiting on a refetch.
+ *
+ * Arriving with nothing left is the same answer, not a missing page: the URL
+ * was right and the work is finished, so it is an empty state named after the
+ * record rather than the 404 it used to be (`services/inbox/recordKey.ts`
+ * explains why the URL reached here at all).
  */
 
 export const dynamic = 'force-dynamic';
@@ -26,43 +36,35 @@ export default async function RecordSheetPage(props: { params: Promise<{ locale:
   if (!orgId) {
     notFound();
   }
-  const recordKey = decodeURIComponent(raw);
-  const { open, decided } = await listReviewRowsForRecord(orgId, recordKey);
-  if (open.length === 0 && decided.length === 0) {
-    notFound();
+  const recordKey = parseRecordKeyParam(raw);
+  const view = recordSheetView(recordKey, await listReviewRowsForRecord(orgId, recordKey));
+  if (view.state === 'empty') {
+    return (
+      <div className="mx-auto w-full max-w-3xl">
+        <ReviewHeader crumbs={decisionCrumbs('proposal', view.label)} title={view.label} system="Record" status="done" position="0 open" />
+        <ListEmpty
+          icon={Inbox}
+          title="Nothing waiting on this record"
+          description={`No open or decided proposals about ${view.label} any more.`}
+          action={{ label: 'Back to the review queue', href: REVIEW_CRUMB.href }}
+        />
+      </div>
+    );
   }
-  const record = (open[0] ?? decided[0])!.described.record;
-  const name = record?.name ?? 'Proposal';
-  const title = `${name} — ${open.length} ${open.length === 1 ? 'proposal' : 'proposals'}`;
+  const { open, decided, name } = view;
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      {open.length > 0
-        ? <AskSheet asks={open.map(reviewRowToSheetAsk)} title={title} endpoint="review" allowOther={false} kind="proposal" crumbs={decisionCrumbs('proposal', name)} />
-        : <ReviewHeader crumbs={decisionCrumbs('proposal', name)} title={name} system="Record" status="done" position={`${decided.length} decided`} />}
-      {decided.length > 0 && (
-        <section className={open.length > 0 ? 'mt-8' : 'mt-4'}>
-          <h2 className="mb-1 px-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Decided
-            {' '}
-            <span className="font-normal text-muted-foreground/70 tabular-nums">{decided.length}</span>
-          </h2>
-          <ul className="divide-y divide-border border-y border-border text-sm">
-            {decided.map(r => (
-              <li key={r.id} className="flex min-h-11 items-center gap-3 px-3 py-2">
-                <Link href={inboxHref('proposal', r.id)} className="min-w-0 flex-1 hover:underline">
-                  <span className="block truncate">{r.described.title}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{r.described.subline}</span>
-                </Link>
-                <span className={`shrink-0 text-xs font-medium ${r.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                  {r.status === 'rejected' ? 'Declined' : 'Approved'}
-                </span>
-                <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{r.decidedAt ? agoLabel(r.decidedAt) : ''}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
+    <RecordSheet
+      open={open.map(reviewRowToSheetAsk)}
+      decided={decided.map(r => ({
+        id: r.id,
+        title: r.described.title,
+        subline: r.described.subline,
+        status: r.status,
+        decidedAt: r.decidedAt?.toISOString() ?? null,
+      }))}
+      title={name}
+      crumbs={decisionCrumbs('proposal', name)}
+    />
   );
 }

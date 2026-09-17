@@ -1,4 +1,6 @@
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { BriefingV2 } from '@/services/briefings/document';
+import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
 import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
@@ -212,6 +214,30 @@ export const projectSchema = pgTable(
      * back to its full pass.
      */
     regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
+    /**
+     * The workspace's voice rules (migration 0108) — the banned constructions
+     * outbound copy is linted against before it can reach a review queue.
+     * Authored as `workspace/<org>/voice.yaml`; shape is
+     * `libs/workspace/schemas.ts` `VoiceManifestSchema`, read through
+     * `libs/writing/loadVoiceRules.ts` which merges it over core's platform
+     * floor. NULL = the floor only.
+     *
+     * A workspace setting rather than a per-agent one on purpose: the voice
+     * belongs to the person whose name is on the send, and two agents drafting
+     * for the same signature must not disagree about it.
+     */
+    voiceRules: jsonb('voice_rules').$type<{
+      never?: Array<{ id?: string; pattern: string; match?: 'phrase' | 'regex'; reason: string }>;
+      prefer?: Array<{ pattern: string; match?: 'phrase' | 'regex'; use: string; reason?: string }>;
+      allow?: string[];
+      maxWordsPerSend?: number;
+      maxAsksPerSend?: number;
+      noExclamation?: boolean;
+      noEmoji?: boolean;
+      noEmDash?: boolean;
+      playbook?: string;
+      learningStep?: string;
+    }>(),
     /**
      * The workspace's top-line goal — one sentence every team's weight and
      * progress is read against on the team report. Authored as top-level
@@ -1177,8 +1203,7 @@ export const workspaceVersionSchema = pgTable(
 // proposal_drafting). Per-step rules live in `learning` rows. Steps are
 // whitelisted via context (`workspace/<org>/learnings/<step>.yaml`) so we
 // don't drift into a junk drawer of near-duplicates. See rev-ai's
-// /var/www/metacto/spinutech/kickoff-demo/server/learnings.py for the
-// originating pattern.
+// `server/learnings.py` for the originating pattern.
 
 /**
  * The namespace manifest — the whitelist of memory buckets, seeded by
@@ -2742,8 +2767,15 @@ export const briefingSchema = pgTable(
     id: serial('id').primaryKey(),
     orgId: text('org_id').notNull(),
     title: text('title').notNull(),
-    /** Markdown body. */
+    /** Markdown body — what the document renders to, and what pre-v2 rows carry. */
     content: text('content').notNull(),
+    /**
+     * The typed `BriefingV2` document (migration 0110,
+     * `docs/specs/briefing-v2.md`). NULL on every row written before v2 and on
+     * any row an older publisher writes; the page falls back to rendering
+     * `content` as markdown when it is absent, so nothing needs backfilling.
+     */
+    document: jsonb('document').$type<BriefingV2>(),
     /** Who published — usually `agent:<slug>` via a mission check. */
     publishedBy: text('published_by'),
     /** Team this brief belongs to; NULL = the workspace-wide ROLLUP brief. */
@@ -2980,6 +3012,34 @@ export const actionRunSchema = pgTable(
     decidedBy: text('decided_by'),
     decidedAt: timestamp('decided_at', { mode: 'date' }),
     /**
+     * Who made the approval call — an agent, or a person. Three states, and
+     * the third one is the point:
+     *
+     * - `null` — nobody has decided yet (the run is still open in the queue),
+     *   and every run decided before this column shipped
+     * - `true` — the trust ladder released it without a person
+     * - `false` — a person approved or rejected it in the review queue
+     *
+     * A plain boolean defaulting to false would be cheaper to query and wrong:
+     * it would make every run still waiting in the queue read as
+     * human-approved. "Nobody has looked at this yet" and "a person said yes"
+     * are the two facts this column exists to tell apart, so a missing value
+     * is never a human approval — treat it as unknown.
+     *
+     * The LAST decider owns the row. A run can only be decided twice while it
+     * sits in the queue as `failed` — an agent released it, the execution
+     * threw, and a person then retried or rejected it — because a `done` or
+     * `rejected` run is never re-decided and a later proposal opens a new run.
+     * In that one case the person's call replaces the agent's, which is the
+     * honest reading: the ladder did not get this through on its own, so it
+     * should not be counted as though it had. The agent's original approval
+     * stays visible in the adoption stream.
+     *
+     * `decidedBy` names the deciding agent as `agent:<slug>` on the auto path,
+     * so "which agent, and when" is answerable from the same row.
+     */
+    approvedByAgent: boolean('approved_by_agent'),
+    /**
      * Server truth for an in-flight regeneration: stamped by the regenerate
      * route before the work dispatches, cleared by the dedup refresh that
      * lands the new content (or by a failed fast-path turn). While fresh
@@ -3007,6 +3067,23 @@ export const actionRunSchema = pgTable(
       at: string;
       by?: string;
     }>>(),
+    /**
+     * The exact artifact VERSIONS this decision approved (0112).
+     *
+     * Once the research brief, the outreach recommendation and the draft
+     * sequence are separate artifacts, "what did the human approve" and "what
+     * does this look like now" stop being the same question — a regeneration
+     * writes a new `artifact_version` and the page moves on. The pin is
+     * written at decide time and never rewritten, so the audit answers the
+     * first question (MANIFESTO §3, §12).
+     */
+    pinnedArtifacts: jsonb('pinned_artifacts').$type<Array<{
+      artifactId: number;
+      /** `brief` | `recommendation` | `sequence`. */
+      role: string;
+      version: number;
+      title: string;
+    }>>(),
   },
   table => [
     index('action_run_org_status_idx').on(table.orgId, table.status),
@@ -3021,6 +3098,16 @@ export const actionRunSchema = pgTable(
     index('action_run_suggested_decision_idx')
       .on(table.orgId, sql`(${table.proposal} ->> 'suggestedDecision')`)
       .where(sql`${table.status} IN ('pending', 'failed')`),
+    // The auto-approved list asks for exactly the rows where an agent took the
+    // decision, newest first. Partial on true because those are a small
+    // fraction of every run ever decided, and indexing the false and null rows
+    // too would be most of the table to answer a question nobody asks of it.
+    // The direction matches `listAutoExecuted`'s ORDER BY so a page is read
+    // off the index rather than sorted out of the org's whole history;
+    // changing either one without the other loses the index quietly.
+    index('action_run_approved_by_agent_idx')
+      .on(table.orgId, sql`${table.decidedAt} DESC NULLS LAST`)
+      .where(sql`${table.approvedByAgent}`),
   ],
 );
 
@@ -3121,15 +3208,29 @@ export const discoveryCandidateSchema = pgTable(
     matchedAt: timestamp('matched_at', { mode: 'date' }).defaultNow().notNull(),
     /** Lifecycle: 'matched' | 'classified' | 'routed' | 'dropped'. */
     status: text('status').default('matched').notNull(),
-    /** Two-dimensional classification output (null until Stage 2 runs). */
-    classification: jsonb('classification').$type<{
-      isDiscovery: boolean;
-      isDiscoveryConfidence: number;
-      proposalReady: boolean;
-      proposalReadyConfidence: number;
-      reasoning: string;
-      model?: string;
-    }>(),
+    /**
+     * Classifier output (null until Stage 2 runs). Two shapes live here, told
+     * apart by `confidenceSemantics` on the document itself and mirrored into
+     * `confidence_semantics` for querying:
+     *
+     *  - `stated-class` — the defined contract. Both confidences are
+     *    confidence IN THE STATED CLASS.
+     *  - legacy (no `confidenceSemantics`) — rows written under the v1 prompt,
+     *    which never said what its confidence meant. The booleans are readable;
+     *    the numbers are carried, never converted.
+     *
+     * `services/discovery/classification.ts` is the one definition, and
+     * `readClassification()` the one reader.
+     */
+    classification: jsonb('classification').$type<StoredClassification>(),
+    /**
+     * Which reading this row's confidences were written under:
+     * 'stated-class' | 'legacy'. Duplicated out of the jsonb so the ledger can
+     * filter and count without unpacking every document.
+     */
+    confidenceSemantics: text('confidence_semantics'),
+    /** The closed-set reason the classifier gave. Null on legacy rows — v1 had no reason codes. */
+    reasonCode: text('reason_code'),
     classifiedAt: timestamp('classified_at', { mode: 'date' }),
     /** Route the supervised router chose: 'generate' | 'confirm' | 'drop'. */
     route: text('route'),
@@ -3292,6 +3393,48 @@ export const leadBriefSchema = pgTable(
       hubspotUserId?: string;
       verified?: boolean;
     }>(),
+    /**
+     * The contact's CURRENT sequence enrollment, as last observed on the CRM
+     * mirror (0112). The page must resolve this against `recommendedSequence`
+     * BEFORE it offers an Enroll button: the CEO's review found a page
+     * recommending enrollment on a contact the CRM said was enrolled in a
+     * sequence minutes after becoming an MQL, with no way to tell whether
+     * approving would add, replace, or duplicate.
+     *
+     * `status: 'unknown'` — and the column being null — is the honest fourth
+     * answer, and `resolveSequenceState` refuses a one-click Enroll on it
+     * rather than guessing which it meant.
+     */
+    currentSequence: jsonb('current_sequence').$type<{
+      id?: string;
+      name?: string;
+      /** 'active' | 'completed' | 'none' | 'unknown' */
+      status: string;
+      /** 1-based position in the running sequence, when the mirror carries it. */
+      step?: number;
+      totalSteps?: number;
+      /** 'automated' (a CRM workflow enrolled them) | 'manual' | 'unknown' */
+      kind?: string;
+      /** What the agent proposes doing to it: 'replace' | 'add'. Absent = it did not say. */
+      disposition?: string;
+      observedAt?: string;
+      source?: string;
+    }>(),
+    /**
+     * Research confidence per dimension (0112). One global 0.20 collapsed five
+     * different questions; separately computed, the recommendation engine can
+     * reason "identity known, company context insufficient, engagement
+     * unavailable → curiosity nurture, not fabricated personalization".
+     *
+     * A `value` of null means UNAVAILABLE, which is not the same as low:
+     * engagement fields the CRM never returned cannot be graded, and a brief
+     * that grades them anyway is the contradiction the chat repeated.
+     * `confidence` stays as the headline reading.
+     */
+    confidenceDimensions: jsonb('confidence_dimensions').$type<Record<string, {
+      value: number | null;
+      basis: string;
+    }>>(),
     /** HubSpot's stage-entry date. Null = the mirror had nothing; display falls back to `arrivedAt`, labeled "Arrived", never as stage timing. */
     mqlAt: timestamp('mql_at', { mode: 'date' }),
     /** Drafting tries so far — same three-try budget as the briefs. */
@@ -3647,6 +3790,22 @@ export const artifactSchema = pgTable(
     /** Denormalised head author, so the log lists "last editor" without a join. */
     lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
     lastAuthorId: text('last_author_id'),
+    /**
+     * The RECORD this artifact belongs to (0112), as a flat `RecordRef`
+     * (`services/chat/pageContext.ts`). Artifacts were conversation-scoped;
+     * a research brief belongs to a lead, not to whichever conversation
+     * happened to produce it. Null for a conversation-only artifact.
+     */
+    recordType: text('record_type'),
+    recordId: text('record_id'),
+    /**
+     * What this artifact IS to that record — `brief`, `recommendation`,
+     * `sequence`. One artifact per (record, role), enforced in
+     * `ArtifactService.upsertRecordArtifact` rather than by a unique index,
+     * because `artifact` is populated and CONVENTIONS.md rule 1 sends its
+     * index builds to `concurrent/`, where UNIQUE is refused.
+     */
+    recordRole: text('record_role'),
     createdBy: text('created_by'),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
@@ -3656,6 +3815,8 @@ export const artifactSchema = pgTable(
     index('artifact_org_canvas_idx').on(table.orgId, table.canvasId),
     // Built concurrently in production — see concurrent/0101_artifact_org_updated_index.sql.
     index('artifact_org_updated_idx').on(table.orgId, table.updatedAt),
+    // Built concurrently in production — see concurrent/0112_artifact_record_index.sql.
+    index('artifact_org_record_idx').on(table.orgId, table.recordType, table.recordId, table.recordRole),
   ],
 );
 

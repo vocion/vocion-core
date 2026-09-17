@@ -28,7 +28,7 @@ const reasoning: TraceNode = {
   kind: 'reason',
   status: 'progress',
   label: 'Thinking',
-  text: 'Chris wants to close Spinutech as lost. First confirm the deal id and its live stage in HubSpot, then propose the update for approval rather than writing it directly.',
+  text: 'Chris wants to close Northwind as lost. First confirm the deal id and its live stage in HubSpot, then propose the update for approval rather than writing it directly.',
 };
 
 const lookup: TraceNode = {
@@ -39,9 +39,9 @@ const lookup: TraceNode = {
   label: 'Looked up records',
   detail: 'deal',
   tool: 'lookup_objects',
-  args: '{"type":"deal","query":"Spinutech"}',
+  args: '{"type":"deal","query":"Northwind"}',
   result: '1 record',
-  resultDetail: 'Spinutech – Continuous AI (18k/mo retainer) · $216,000 · Proposal Sent',
+  resultDetail: 'Northwind – Continuous AI (18k/mo retainer) · $216,000 · Proposal Sent',
 };
 
 const delegate: TraceNode = {
@@ -50,7 +50,7 @@ const delegate: TraceNode = {
   kind: 'delegate',
   status: 'start',
   label: 'Handing off to Pipeline Analyst…',
-  detail: '“Confirm the live stage and the last touch on Spinutech”',
+  detail: '“Confirm the live stage and the last touch on Northwind”',
 };
 
 const childSearch: TraceNode = {
@@ -60,7 +60,7 @@ const childSearch: TraceNode = {
   kind: 'search',
   status: 'start',
   label: 'Searching sources…',
-  detail: '“Spinutech Kevin governance”',
+  detail: '“Northwind Devon governance”',
 };
 
 /** Mid-turn: reasoning folded with its first sentence, one done row, a delegate in flight with its specialist's row indented. */
@@ -102,10 +102,10 @@ export const Folded: Story = {
       { ...reasoning, status: 'done' },
       lookup,
       { ...delegate, status: 'done', label: 'Delegated to Pipeline Analyst', result: 'stage confirmed' },
-      { ...childSearch, status: 'done', label: 'Searched sources', result: '4 hits', citations: [{ sourceType: 'gmail', title: 'Re: Spinutech governance — Kevin', actorId: 'pipeline-analyst' }] },
+      { ...childSearch, status: 'done', label: 'Searched sources', result: '4 hits', citations: [{ sourceType: 'gmail', title: 'Re: Northwind governance — Devon', actorId: 'pipeline-analyst' }] },
     ],
     documents: [
-      { document_id: 'g1', semantic_identifier: 'Re: Spinutech governance — Kevin', link: '#', source_type: 'gmail', blurb: 'Kevin is still stalling on the governance clause…' },
+      { document_id: 'g1', semantic_identifier: 'Re: Northwind governance — Devon', link: '#', source_type: 'gmail', blurb: 'Devon is still stalling on the governance clause…' },
     ],
   },
 };

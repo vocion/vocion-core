@@ -4,11 +4,13 @@ import type { ReviewType } from './reviewQueueModel';
 import type { ReviewShortcut } from './reviewShortcuts';
 import type { UpNextEntry } from './UpNextMenu';
 import type { ReviewCard } from '@/libs/actions/types';
-import { Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { Button } from '@/components/ui/button';
 import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
 import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
@@ -26,7 +28,7 @@ import { UpNextMenu } from './UpNextMenu';
  * Shape (Chris, 2026-09-15): breadcrumb + item title, one meta row, then the
  * item as hairline-divided sections with the decision in a sticky bar. No
  * outer card, no persistent Up-next rail. Since the two decision surfaces
- * became one, this is the `proposal` kind's detail on "Needs you": the
+ * became one, this is the `proposal` kind's detail on "Review queue": the
  * crumbs say so, the Up-next walks the filtered inbox, and the kind chips are
  * the list's job (pass `types` only where a standalone queue wants them).
  */
@@ -38,7 +40,7 @@ export type ActionRun = {
   input: Record<string, unknown>;
   invokedBy: string | null;
   createdAt: string | Date;
-  proposal: { confidence?: number; rationale?: string; suggestedDecision?: 'approve' | 'reject' | 'snooze' } | null;
+  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze' } | null;
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
   error?: string | null;
@@ -78,7 +80,7 @@ export type ReviewFocusViewProps = {
   types?: readonly ReviewType[];
   activeTypes?: readonly string[];
   onChangeTypes?: (next: string[]) => void;
-  /** Breadcrumb override; defaults to Workspace › Needs you › Proposals › record. */
+  /** Breadcrumb override; defaults to Workspace › Review queue › Proposals › record. */
   crumbs?: Array<{ label: string; href?: string }>;
   current: ActionRun | null;
   /** Index of `current` in the working queue, 0-based; -1 when unknown. */
@@ -103,6 +105,15 @@ export type ReviewFocusViewProps = {
   steering: boolean;
   busy: boolean;
   onDecide: (decision: 'approve' | 'reject') => void;
+  /**
+   * Snooze, on the generic (card-less) proposal. The card owns its own
+   * snooze; this is the same verb for everything else. The bar dropped it
+   * when the sticky bar replaced the action row (2026-09-15), so `s` did
+   * nothing and the E2E spec that snoozes from here timed out.
+   */
+  snoozeOpen: boolean;
+  onToggleSnooze: () => void;
+  onSnooze: (days: number) => void;
   decided: number;
   showHelp: boolean;
   onToggleHelp: () => void;
@@ -114,6 +125,13 @@ const INLINE_FIELD = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm trans
 
 const VERBS = DECISION_VERBS.proposal;
 const verb = (id: string) => [VERBS.primary, ...VERBS.secondary].find(v => v.id === id)!;
+
+/** The same three revisit horizons the card offers. */
+const SNOOZES = [
+  { label: 'Tomorrow', days: 1 },
+  { label: '3 days', days: 3 },
+  { label: 'Next week', days: 7 },
+];
 
 export function ReviewFocusView(p: ReviewFocusViewProps) {
   const t = useTranslations('Review');
@@ -146,7 +164,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {p.decided > 0 ? `${p.decided} handled this session. ` : ''}
-            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on Needs you for your decision.'}
+            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on the review queue for your decision.'}
           </p>
         </div>
       </div>
@@ -156,21 +174,26 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   const current = p.current;
   const desc = describeAction(current);
   const label = current.typeLabel ?? (types.length > 0 ? typeLabel(types, current.actionId) : humaniseActionId(current.actionId));
-  const title = itemTitle({ label, title: desc.title, subject: current.card?.subject });
-  const record = current.card?.subject?.name ?? desc.title;
+  // A card that names its own object owns the H1 and the section crumb; every
+  // other card keeps the generated "<action> — <subject>" title.
+  const object = current.card?.object;
+  const title = object?.title ?? itemTitle({ label, title: desc.title, subject: current.card?.subject });
+  const record = object?.title ?? current.card?.subject?.name ?? desc.title;
   const longField = desc.isEmail ? 'body' : 'notes';
   const held = p.busy || p.steering;
 
   return (
     <div data-testid="review-focus" className="relative">
       <ReviewHeader
-        crumbs={p.crumbs ?? decisionCrumbs('proposal', record)}
+        crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
         title={title}
+        subtitle={object?.subtitle}
         subject={current.card?.subject}
         system={current.card?.system ?? desc.system}
         status={current.status}
         proposedBy={current.invokedBy}
         confidence={current.proposal?.confidence}
+        confidenceSubject={current.card?.confidenceSubject ?? 'Recommendation'}
         alignment={current.alignment}
         suggestion={current.proposal?.suggestedDecision}
         position={queuePosition(p.index, p.total)}
@@ -218,6 +241,15 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.rationale}</p>
               </section>
             )}
+            {/* What the recommendation rests on. Each citation opens in the
+                preview panel, so the evidence can be checked without leaving
+                the decision — and `a` still approves while it is open. */}
+            {(current.proposal?.evidence?.length ?? 0) > 0 && (
+              <section className="border-b border-rule py-6" aria-label="Evidence">
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">Evidence</div>
+                <EvidenceRefs sources={current.proposal!.evidence!} />
+              </section>
+            )}
             {/* The alignment score: confidence is how sure the agent is; this is
                 how often you agreed with this kind of recommendation (0099). */}
             {current.alignment && current.alignment.n > 0 && current.alignment.agreementRate !== null && (
@@ -240,6 +272,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
               ))}
             </section>
             <StickyActionBar
+              labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
               primary={{
                 'label': desc.isEmail ? (current.input.draft === true ? `${verb('approve').label} → draft` : `${verb('approve').label} & send`) : verb('approve').label,
                 'onClick': () => p.onDecide('approve'),
@@ -251,9 +284,19 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
               }}
               secondary={[
                 { 'label': verb('reject').label, 'onClick': () => p.onDecide('reject'), 'disabled': held, 'icon': X, 'shortcut': verb('reject').shortcut, 'tone': 'danger', 'data-testid': 'decide-reject' },
+                { 'label': verb('snooze').label, 'onClick': p.onToggleSnooze, 'disabled': held, 'icon': AlarmClock, 'shortcut': verb('snooze').shortcut, 'data-testid': 'decide-snooze' },
                 { label: verb('save').label, onClick: p.onSave, disabled: held, icon: Bookmark },
                 { label: verb('skip').label, onClick: p.onSkip, disabled: held, icon: SkipForward, shortcut: verb('skip').shortcut },
               ]}
+              aside={p.snoozeOpen && (
+                <div className="flex gap-1" role="group" aria-label="Snooze until">
+                  {SNOOZES.map(sn => (
+                    <Button key={sn.days} size="sm" variant="ghost" onClick={() => p.onSnooze(sn.days)} disabled={held}>
+                      {sn.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
               field={{
                 label: 'Steer the agent',
                 placeholder: 'Steer the agent — e.g. shorter, mention the July 20 call, firmer ask',

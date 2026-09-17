@@ -38,6 +38,12 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
   }
 
   const propose = async (rec: RecommendedAction): Promise<void> => {
+    // Same refusal as the card's: a recommendation with no action id cannot
+    // produce a valid proposal, and "Queue all" must not turn one bad payload
+    // into a burst of 400s.
+    if (!rec.actionId) {
+      throw new Error('This recommendation named no action, so there is nothing to prepare.');
+    }
     await client.review.propose({
       actionId: rec.actionId,
       input: rec.input,
@@ -94,7 +100,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
         </span>
         {saved > 0 && (
           <Link href="/dashboard/inbox?kind=proposal" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
-            Needs you
+            Review queue
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>
         )}

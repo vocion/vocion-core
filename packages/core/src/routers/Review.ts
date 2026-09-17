@@ -148,18 +148,14 @@ export const listPendingActionTypesRoute = os.handler(async () => {
 /** Recently auto-executed proposals (trust-ladder audit surface). */
 export const listAutoExecutedRoute = os.handler(async () => {
   const { orgId } = await guardAuth();
-  const { db } = await import('@/libs/DB');
-  const { actionRunSchema } = await import('@/models/Schema');
-  const { and, desc, eq, sql } = await import('drizzle-orm');
-  return db
-    .select()
-    .from(actionRunSchema)
-    .where(and(
-      eq(actionRunSchema.orgId, orgId),
-      sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
-    ))
-    .orderBy(desc(actionRunSchema.createdAt))
-    .limit(20);
+  // Delegates rather than repeating the query. This used to filter on
+  // `proposal ->> 'autoApproved'` itself, which stopped being the whole answer
+  // once `approved_by_agent` became the system of record: two copies of the
+  // rule meant this dashboard feed would quietly empty out the day the jsonb
+  // key stopped being written, while the REST endpoint kept working.
+  const { listAutoExecuted } = await import('@/services/ReviewService');
+  const { items } = await listAutoExecuted(orgId, { limit: 20 });
+  return items;
 });
 
 /**

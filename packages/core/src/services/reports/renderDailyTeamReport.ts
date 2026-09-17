@@ -24,6 +24,7 @@
 
 import type { DailyTeamReportData, MemberStats, TeamPerformance, TeamStats } from './dailyTeamReportShape';
 import type { EmailStyles } from './markdownToEmailHtml';
+import { renderBriefingEmailMarkdown } from '@/services/briefings/render';
 import { escapeHtml, markdownToEmailHtml, markdownToPlainText } from './markdownToEmailHtml';
 
 export type RenderedReport = { subject: string; html: string; text: string; markdown: string };
@@ -187,7 +188,7 @@ export type ReportSections = {
   /** What happens next. */
   next: string[];
   /** The workspace briefing, excerpted; `truncated` says a link is owed. */
-  rollup: { title: string; publishedAt: string; excerpt: string; truncated: boolean; label: string } | null;
+  rollup: { title: string; publishedAt: string; excerpt: string; truncated: boolean; label: string; href: string } | null;
   /** Evidence — the counts everything above is derived from. */
   evidence: { label: string; value: string }[];
 };
@@ -328,12 +329,29 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
 
   // --- Rollup excerpt -----------------------------------------------------
   let rollup: ReportSections['rollup'] = null;
-  if (data.rollup) {
+  if (data.rollup?.document) {
+    // A typed brief mails its FIRST SCREEN and a link — the same editorial
+    // layer, shorter (docs/specs/briefing-v2.md). No character-count excerpt:
+    // the document already knows what belongs above the fold.
+    const href = data.rollup.href ?? data.links.briefings;
+    rollup = {
+      title: data.rollup.title,
+      publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`,
+      excerpt: renderBriefingEmailMarkdown(data.rollup.document, { briefing: href, inbox: data.links.inbox, archive: data.links.briefings })
+        .split('\n')
+        .filter(l => !l.startsWith('# '))
+        .join('\n')
+        .trim(),
+      truncated: false,
+      label: data.rollup.label,
+      href,
+    };
+  } else if (data.rollup) {
     const content = data.rollup.content.trim();
     // A briefing the job was pointed at rides in full; the rollup is excerpted.
     const truncated = !data.rollup.full && content.length > ROLLUP_EXCERPT_CHARS;
     const excerpt = truncated ? `${content.slice(0, ROLLUP_EXCERPT_CHARS).replace(/\s+\S*$/, '')}…` : content;
-    rollup = { title: data.rollup.title, publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`, excerpt, truncated, label: data.rollup.label };
+    rollup = { title: data.rollup.title, publishedAt: `${STAMP_FMT.format(data.rollup.createdAt)} UTC`, excerpt, truncated, label: data.rollup.label, href: data.rollup.href ?? data.links.briefings };
   }
 
   // --- Evidence -----------------------------------------------------------
@@ -345,7 +363,7 @@ export function reportSections(data: DailyTeamReportData): ReportSections {
     { label: 'Tokens', value: compactTokens(totals.tokens) },
     { label: 'Board runs', value: totals.kindsKnown ? `${totals.boardRuns}` : '—' },
     { label: 'Red-team runs', value: totals.kindsKnown ? `${totals.redTeamRuns}` : '—' },
-    { label: 'Needs you', value: `${needsYou.total}` },
+    { label: 'Review queue', value: `${needsYou.total}` },
   ];
 
   return { performance, changed, needsMe: { total: needsYou.total, lines: needsLines }, onTrack: { status, lines: trackLines }, next, rollup, evidence };
@@ -536,7 +554,7 @@ export function renderDailyTeamReport(data: DailyTeamReportData): RenderedReport
       ? `${h2('From the workspace briefing')
       }<p style="${ST.p}${MUTED}font-size:12px;">${escapeHtml(s.rollup.title)} — ${escapeHtml(s.rollup.publishedAt)}</p>`
       + `<div style="padding:10px 14px;${BORDER}border-radius:6px;">${markdownToEmailHtml(s.rollup.excerpt, { ...ST, h1: ST.h3, h2: ST.h3, h3: ST.h3 })}${
-        s.rollup.truncated ? `<p style="${ST.p}margin:6px 0 0;"><a href="${escapeHtml(data.links.briefings)}" style="${ST.a}">Read the full briefing</a></p>` : ''
+        s.rollup.truncated ? `<p style="${ST.p}margin:6px 0 0;"><a href="${escapeHtml(s.rollup.href)}" style="${ST.a}">Read the full briefing</a></p>` : ''
       }</div>`
       : '',
 

@@ -23,6 +23,7 @@ import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
+import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -272,6 +273,16 @@ export async function proposeAction(input: {
           // it, and the card re-enables in place.
           regeneratingSince: null,
           regenerateNote: null,
+          // A refreshed card is open work again, so it carries no decision.
+          // A run the ladder approved whose execution failed can be
+          // re-proposed on the same dedup key and comes back to `pending`
+          // here; leaving the old stamp on it would show a reviewer a pending
+          // card that claims an agent already approved it, and would put an
+          // undecided run into the auto-approved audit list and the
+          // auto-approval count.
+          approvedByAgent: null,
+          decidedBy: null,
+          decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
       // Keep the action's own domain row in step with the refreshed payload.
@@ -371,6 +382,14 @@ export async function proposeAction(input: {
     const { trustDecision } = await import('@/services/TrustService');
     const trust = await trustDecision(input.orgId, action.id, input.proposal?.confidence);
     if (trust.auto) {
+      // Who to credit with the decision. An in-process agent turn stamps
+      // `agent:<slug>` on the proposing principal; a proposal made over the API
+      // stamps its caller there and names the agent in the envelope instead, so
+      // both have to be read. Neither knowing it means the trust ladder itself
+      // is the decider — the honest answer, rather than crediting an agent we
+      // cannot name.
+      const decidingAgent = agentSlugFromPrincipal(input.invokedBy ?? input.principal.id)
+        ?? input.proposal?.agentSlug;
       await db
         .update(actionRunSchema)
         .set({
@@ -379,8 +398,25 @@ export async function proposeAction(input: {
             autoApproved: true,
             autoApprovedThreshold: trust.threshold,
           } as never,
+          // `approvedByAgent` is the system of record for who decided; the
+          // envelope key above predates it and is kept so runs written before
+          // the column landed still read as auto-approved.
+          //
+          // Stamping the decision fields here is what makes "did a decision
+          // happen" one question instead of two: before this, an auto-approved
+          // run left `decidedBy` and `decidedAt` empty and was indistinguishable
+          // from one nobody had touched.
+          approvedByAgent: true,
+          decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
+          decidedAt: new Date(),
         })
         .where(eq(actionRunSchema.id, run!.id));
+      // Deliberately NOT written to the adoption stream. Adoption measures what
+      // people do, and an agent actor on a `review.%` event would count itself
+      // as an active user and as an interaction, inflating the very numbers the
+      // screen exists to report. The count comes off this column instead
+      // (`AdoptionService.countAutoApprovals`), which is the system of record
+      // for the decision and is indexed for exactly that question.
       return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
     }
     return { runId: run!.id, status: 'pending', outcome: 'created' };
@@ -430,7 +466,24 @@ export async function executeAction(
       status: 'executing',
       // Stamped at the decision, not at completion: even a failed execution
       // was still approved by this person at this moment.
-      ...(opts?.reviewedBy ? { decidedBy: opts.reviewedBy, decidedAt: new Date() } : {}),
+      ...(opts?.reviewedBy
+        ? {
+            decidedBy: opts.reviewedBy,
+            decidedAt: new Date(),
+            // The LAST decider owns the row, so a person executing this makes
+            // it a human decision outright — no coalesce.
+            //
+            // The only run this can overwrite is one an agent approved whose
+            // execution then threw and which sits in the queue as `failed`: a
+            // `done` or `rejected` run is never re-decided, because the dedup
+            // refresh matches only open rows and a later proposal opens a new
+            // run instead. So what this reclassifies is precisely the case
+            // where the agent did NOT take the work off anyone's plate — it
+            // broke and a person finished it — and counting that as an
+            // auto-approval overstates what the ladder actually did.
+            approvedByAgent: false,
+          }
+        : {}),
     })
     .where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
@@ -511,7 +564,20 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
 export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
   const [run] = await db
     .update(actionRunSchema)
-    .set({ status: 'rejected', error: reason ?? null, executedAt: new Date(), decidedBy: opts?.reviewedBy ?? null, decidedAt: new Date() })
+    .set({
+      status: 'rejected',
+      error: reason ?? null,
+      executedAt: new Date(),
+      decidedBy: opts?.reviewedBy ?? null,
+      decidedAt: new Date(),
+      // A rejection is a decision, and it is never an agent's — the trust
+      // ladder can only release work, never turn it down. The last decider
+      // owns the row, so rejecting a run an agent approved makes it a human
+      // decision: the agent's call did not stand, and a column that still read
+      // `true` would count a rejected proposal towards what the ladder got
+      // through on its own.
+      approvedByAgent: false,
+    })
     .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
     .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
   if (!run) {

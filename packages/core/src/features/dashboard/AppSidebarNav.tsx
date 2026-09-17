@@ -16,7 +16,7 @@ export type SidebarNavItem = {
   url: string;
   icon: LucideIcon;
   disabled?: boolean;
-  /** A live count (e.g. "Needs you"). Omitted or 0 renders nothing. */
+  /** A live count (e.g. "Review queue"). Omitted or 0 renders nothing. */
   badge?: number;
 };
 

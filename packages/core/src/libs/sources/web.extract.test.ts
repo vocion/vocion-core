@@ -4,7 +4,7 @@
  * <script>, og:image was never read, and a listing page lost the links to
  * its own detail pages.
  *
- * The two fixtures are hand-cut miniatures of two real Higher Ground pages,
+ * The two fixtures are hand-cut miniatures of two real Bellwater Hall pages,
  * a show detail page and the shows listing, small enough to read but
  * faithful where it counts: unquoted hrefs, data: URI lazy-load placeholders
  * with the real file in data-src, the price in a <span class="price">, share
@@ -20,49 +20,49 @@ import { JSON_LD_BLOCK_CAP, LINK_CAP, LINK_TEXT_CAP, pageMetadata } from './page
 import { extractFromHtml } from './web';
 
 const JSON_LD_HEADING = 'Structured data (JSON-LD):';
-const DETAIL_URL = 'https://highergroundmusic.com/events/the-music-of-hey-arnold-live/';
-const LISTING_URL = 'https://highergroundmusic.com/shows-at-higher-ground/';
+const DETAIL_URL = 'https://bellwaterhall.example/events/the-music-of-moonrise-live/';
+const LISTING_URL = 'https://bellwaterhall.example/shows-at-bellwater-hall/';
 
 const DETAIL_HTML = `<!doctype html>
 <html lang="en">
 <head>
-  <title>The Music of Hey Arnold! Live | Higher Ground</title>
-  <meta property="og:title" content="The Music of Hey Arnold! Live">
-  <meta property="og:image" content="https://highergroundmusic.com/?og_img=1&#038;pid=40405">
+  <title>The Music of Moonrise Live | Bellwater Hall</title>
+  <meta property="og:title" content="The Music of Moonrise Live">
+  <meta property="og:image" content="https://bellwaterhall.example/?og_img=1&#038;pid=40405">
   <meta property="og:image:width" content="1200">
   <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"Event","name":"The Music of Hey Arnold! Live",
+    {"@context":"https://schema.org","@type":"Event","name":"The Music of Moonrise Live",
      "startDate":"2026-11-01T00:00:00+00:00",
-     "location":{"@type":"Place","name":"Higher Ground","address":{"@type":"PostalAddress","streetAddress":"1214 Williston Rd","addressLocality":"S. Burlington","addressRegion":"VT"}},
-     "image":"https://prod-images.seetickets.us/hey-arnold.jpg",
-     "offers":{"@type":"Offer","price":"31.00-36.00","url":"https://wl.seetickets.us/event/hey-arnold/702172"}}
+     "location":{"@type":"Place","name":"Bellwater Hall","address":{"@type":"PostalAddress","streetAddress":"88 Mill Street","addressLocality":"Riverton","addressRegion":"VT"}},
+     "image":"https://images.tickethub.example/moonrise.jpg",
+     "offers":{"@type":"Offer","price":"31.00-36.00","url":"https://wl.tickethub.example/event/moonrise/702172"}}
   </script>
   <style>.price { font-weight: 700 }</style>
 </head>
 <body>
 <div class="cookie-banner">We use cookies. <a href="/privacy/">Privacy policy</a></div>
 <header class="wp-block-template-part">
-  <nav aria-label="Header Menu"><ul><li><a href="/shows-at-higher-ground/">Shows</a></li><li><a href="/venue-info/">Venue Info</a></li></ul></nav>
+  <nav aria-label="Header Menu"><ul><li><a href="/shows-at-bellwater-hall/">Shows</a></li><li><a href="/venue-info/">Venue Info</a></li></ul></nav>
 </header>
 <main>
-  <h1>The Music of Hey Arnold! Live</h1>
+  <h1>The Music of Moonrise Live</h1>
   <div class="event-info-block">
     <p class="fs-18 bold mt-1r event-date"><time datetime="2026-11-01T19:30:00-05:00">Sun Nov 1</time></p>
-    <p class="fs-12 venue">at Higher Ground</p>
+    <p class="fs-12 venue">at Bellwater Hall</p>
     <p class="fs-12 doortime-showtime">Doors at <span class="see-doortime">7:30PM</span></p>
     <p class="fs-12"><span class="price">$31.00-$36.00</span></p>
   </div>
   <div class="event-images">
-    <a href=/events/the-music-of-hey-arnold-live/ ><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" data-src="https://prod-images.seetickets.us/hey-arnold.jpg"></a>
-    <img src="/wp-content/uploads/hey-arnold-hero.jpg" alt="Jim Lang on stage">
+    <a href=/events/the-music-of-moonrise-live/ ><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" data-src="https://images.tickethub.example/moonrise.jpg"></a>
+    <img src="/wp-content/uploads/moonrise-hero.jpg" alt="Owen Rask on stage">
     <img src="https://analytics.example.com/px.gif" width="1" height="1" alt="">
   </div>
   <p>Tickets: <a href="/tickets/702172">Buy now</a> or at the door.<br>Doors 7:30PM, show 8:00PM.</p>
   <p>Same link again: <a href="/tickets/702172">Buy now</a></p>
-  <div class="buy-and-share-block"><a href="https://www.facebook.com/sharer.php?u=hey-arnold">Share Event</a></div>
+  <div class="buy-and-share-block"><a href="https://www.facebook.com/sharer.php?u=moonrise">Share Event</a></div>
 </main>
 <footer class="wp-block-template-part">
-  <p>1214 Williston Rd., S. Burlington, VT 05403 | Ph (802) 652-0777</p>
+  <p>88 Mill Street, Riverton, VT 05999 | Ph (802) 555-0142</p>
 </footer>
 <noscript>Enable JavaScript to buy tickets.</noscript>
 <script>window.dataLayer = [{ event: 'page_view' }];</script>
@@ -72,33 +72,33 @@ const DETAIL_HTML = `<!doctype html>
 const LISTING_HTML = `<!doctype html>
 <html lang="en">
 <head>
-  <title>Shows at Higher Ground</title>
+  <title>Shows at Bellwater Hall</title>
   <meta name="og:image" content="/wp-content/uploads/2026/05/LAP-20241004-9175.jpg">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Higher Ground","url":"https://highergroundmusic.com/shows-at-higher-ground/"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Bellwater Hall","url":"https://bellwaterhall.example/shows-at-bellwater-hall/"}</script>
 </head>
 <body>
-<nav aria-label="Header Menu"><a href="/shows-at-higher-ground/">Shows</a> <a href="/venue-info/">Venue Info</a></nav>
-<div id="upcoming" class="seetickets-list-events">
-  <div class="mdc-card seetickets-list-event-container">
-    <div class="seetickets-list-view-event-image-container"><a href=https://highergroundmusic.com/events/thesaurus-rex/ ><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" data-src="https://prod-images.seetickets.us/thesaurus-rex.jpg"></a></div>
-    <div class="seetickets-list-event-content-container">
-      <p class="fs-18 bold mb-12 event-title"><a href=https://highergroundmusic.com/events/thesaurus-rex/ >Thesaurus Rex</a></p>
+<nav aria-label="Header Menu"><a href="/shows-at-bellwater-hall/">Shows</a> <a href="/venue-info/">Venue Info</a></nav>
+<div id="upcoming" class="tickethub-list-events">
+  <div class="mdc-card tickethub-list-event-container">
+    <div class="tickethub-list-view-event-image-container"><a href=https://bellwaterhall.example/events/velvet-antler/ ><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" data-src="https://images.tickethub.example/velvet-antler.jpg"></a></div>
+    <div class="tickethub-list-event-content-container">
+      <p class="fs-18 bold mb-12 event-title"><a href=https://bellwaterhall.example/events/velvet-antler/ >Velvet Antler</a></p>
       <p class="fs-18 bold mt-1r event-date">Thu Sep 10</p>
-      <p class="fs-12 venue">at Higher Ground</p>
+      <p class="fs-12 venue">at Bellwater Hall</p>
       <p class="fs-12"><span class="price">$20.00</span></p>
     </div>
-    <div class="buy-and-share-block"><p>Share Event</p><a href="https://www.facebook.com/sharer.php?u=thesaurus-rex">Facebook</a></div>
+    <div class="buy-and-share-block"><p>Share Event</p><a href="https://www.facebook.com/sharer.php?u=velvet-antler">Facebook</a></div>
   </div>
-  <div class="mdc-card seetickets-list-event-container">
-    <div class="seetickets-list-view-event-image-container"><a href=/events/mimi-fang/ ><img src="/wp-content/uploads/mimi-fang.jpg" alt="Mimi Fang"></a></div>
-    <div class="seetickets-list-event-content-container">
-      <p class="fs-18 bold mb-12 event-title"><a href=/events/mimi-fang/ >Mimi Fang</a></p>
+  <div class="mdc-card tickethub-list-event-container">
+    <div class="tickethub-list-view-event-image-container"><a href=/events/nina-calder/ ><img src="/wp-content/uploads/nina-calder.jpg" alt="Nina Calder"></a></div>
+    <div class="tickethub-list-event-content-container">
+      <p class="fs-18 bold mb-12 event-title"><a href=/events/nina-calder/ >Nina Calder</a></p>
       <p class="fs-18 bold mt-1r event-date">Fri Sep 11</p>
       <p class="fs-12"><span class="price">$17.00-$25.00</span></p>
     </div>
   </div>
 </div>
-<footer><p>1214 Williston Rd., S. Burlington, VT 05403</p></footer>
+<footer><p>88 Mill Street, Riverton, VT 05999</p></footer>
 </body>
 </html>`;
 
@@ -139,22 +139,22 @@ describe('extractFromHtml on a show detail page', () => {
 
     expect(event['@type']).toBe('Event');
     expect(event.startDate).toBe('2026-11-01T00:00:00+00:00');
-    expect(event.location.address.streetAddress).toBe('1214 Williston Rd');
+    expect(event.location.address.streetAddress).toBe('88 Mill Street');
     expect(event.offers.price).toBe('31.00-36.00');
-    expect(event.offers.url).toBe('https://wl.seetickets.us/event/hey-arnold/702172');
+    expect(event.offers.url).toBe('https://wl.tickethub.example/event/moonrise/702172');
   });
 
   it('carries the street address and the price in the content itself', () => {
     const { content } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(content).toContain('1214 Williston Rd');
+    expect(content).toContain('88 Mill Street');
     expect(content).toContain('$31.00-$36.00');
   });
 
   it('leads with the og:image as an absolute URL, entities decoded', () => {
     const { content } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(content.split('\n')[0]).toBe('Image: https://highergroundmusic.com/?og_img=1&pid=40405');
+    expect(content.split('\n')[0]).toBe('Image: https://bellwaterhall.example/?og_img=1&pid=40405');
     expect(content).not.toContain('og_img=1&#038;');
   });
 
@@ -167,8 +167,8 @@ describe('extractFromHtml on a show detail page', () => {
   it('makes hrefs absolute, unquoted ones included, and renders each URL once', () => {
     const { content } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(content).toContain('Buy now (https://highergroundmusic.com/tickets/702172)');
-    expect(occurrences(content, 'https://highergroundmusic.com/tickets/702172')).toBe(1);
+    expect(content).toContain('Buy now (https://bellwaterhall.example/tickets/702172)');
+    expect(occurrences(content, 'https://bellwaterhall.example/tickets/702172')).toBe(1);
     expect(content).toContain('Same link again: Buy now');
     expect(content).toContain(DETAIL_URL);
   });
@@ -176,7 +176,7 @@ describe('extractFromHtml on a show detail page', () => {
   it('keeps a real image and skips placeholders, tracking pixels and repeats', () => {
     const { content } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(content).toContain('[image: Jim Lang on stage](https://highergroundmusic.com/wp-content/uploads/hey-arnold-hero.jpg)');
+    expect(content).toContain('[image: Owen Rask on stage](https://bellwaterhall.example/wp-content/uploads/moonrise-hero.jpg)');
     expect(content).not.toContain('data:image');
     expect(content).not.toContain('px.gif');
   });
@@ -196,7 +196,7 @@ describe('extractFromHtml on a show detail page', () => {
   it('reads the title from <title>', () => {
     const { title } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(title).toBe('The Music of Hey Arnold! Live | Higher Ground');
+    expect(title).toBe('The Music of Moonrise Live | Bellwater Hall');
   });
 });
 
@@ -204,17 +204,17 @@ describe('extractFromHtml on a listing page', () => {
   it('keeps one link per detail page, absolute either way it was written', () => {
     const { content } = extractFromHtml(LISTING_HTML, LISTING_URL);
 
-    expect(content).toContain('https://highergroundmusic.com/events/thesaurus-rex/');
-    expect(occurrences(content, 'https://highergroundmusic.com/events/thesaurus-rex/')).toBe(1);
-    expect(content).toContain('https://highergroundmusic.com/events/mimi-fang/');
-    expect(occurrences(content, 'https://highergroundmusic.com/events/mimi-fang/')).toBe(1);
+    expect(content).toContain('https://bellwaterhall.example/events/velvet-antler/');
+    expect(occurrences(content, 'https://bellwaterhall.example/events/velvet-antler/')).toBe(1);
+    expect(content).toContain('https://bellwaterhall.example/events/nina-calder/');
+    expect(occurrences(content, 'https://bellwaterhall.example/events/nina-calder/')).toBe(1);
   });
 
   it('resolves a relative og:image and a relative card image', () => {
     const { content } = extractFromHtml(LISTING_HTML, LISTING_URL);
 
-    expect(content).toContain('Image: https://highergroundmusic.com/wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
-    expect(content).toContain('[image: Mimi Fang](https://highergroundmusic.com/wp-content/uploads/mimi-fang.jpg)');
+    expect(content).toContain('Image: https://bellwaterhall.example/wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
+    expect(content).toContain('[image: Nina Calder](https://bellwaterhall.example/wp-content/uploads/nina-calder.jpg)');
     expect(content).not.toContain('data:image');
   });
 
@@ -224,27 +224,27 @@ describe('extractFromHtml on a listing page', () => {
     const lines = structuredLines(content);
 
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({ '@type': 'WebPage', 'name': 'Higher Ground' });
+    expect(JSON.parse(lines[0]!)).toMatchObject({ '@type': 'WebPage', 'name': 'Bellwater Hall' });
   });
 
   it('still drops the nav, the footer and the share widgets', () => {
     const { content } = extractFromHtml(LISTING_HTML, LISTING_URL);
 
-    expect(content).toContain('Thesaurus Rex');
+    expect(content).toContain('Velvet Antler');
     expect(content).toContain('$20.00');
     expect(content).not.toContain('Venue Info');
     expect(content).not.toContain('Share Event');
     expect(content).not.toContain('Facebook');
-    expect(content).not.toContain('1214 Williston Rd');
+    expect(content).not.toContain('88 Mill Street');
   });
 
   it('leaves relative URLs alone when no base URL is given', () => {
     const { content } = extractFromHtml(LISTING_HTML);
 
     expect(content).toContain('Image: /wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
-    expect(content).toContain('(/events/mimi-fang/)');
-    expect(content).toContain('[image: Mimi Fang](/wp-content/uploads/mimi-fang.jpg)');
-    expect(content).not.toContain('https://highergroundmusic.com/events/mimi-fang/');
+    expect(content).toContain('(/events/nina-calder/)');
+    expect(content).toContain('[image: Nina Calder](/wp-content/uploads/nina-calder.jpg)');
+    expect(content).not.toContain('https://bellwaterhall.example/events/nina-calder/');
   });
 });
 
@@ -269,12 +269,12 @@ describe('extractFromHtml edge cases', () => {
   it('keeps a <main> whose id reads like boilerplate, which is how WordPress names it', () => {
     const html = `<html><body>
       <div class="menu-main-container"><a href="/shows/">Shows</a></div>
-      <main id="wp--skip-link--target"><h1>The Music of Hey Arnold! Live</h1><p>Doors at 7:30PM.</p></main>
+      <main id="wp--skip-link--target"><h1>The Music of Moonrise Live</h1><p>Doors at 7:30PM.</p></main>
     </body></html>`;
 
-    const { content } = extractFromHtml(html, 'https://highergroundmusic.com/events/hey-arnold/');
+    const { content } = extractFromHtml(html, 'https://bellwaterhall.example/events/moonrise/');
 
-    expect(content).toContain('The Music of Hey Arnold! Live');
+    expect(content).toContain('The Music of Moonrise Live');
     expect(content).toContain('Doors at 7:30PM.');
     expect(content).not.toContain('/shows/');
   });
@@ -327,11 +327,11 @@ describe('extractFromHtml, lazy-loaded images', () => {
   it('takes the real file from data-src when src holds a placeholder', () => {
     const html = `<html><body><article>
       <img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
-           data-src="/wp-content/uploads/hey-arnold.jpg" alt="Hey Arnold poster">
+           data-src="/wp-content/uploads/moonrise.jpg" alt="Moonrise poster">
     </article></body></html>`;
-    const { content } = extractFromHtml(html, 'https://highergroundmusic.com/events/the-music-of-hey-arnold-live/');
+    const { content } = extractFromHtml(html, 'https://bellwaterhall.example/events/the-music-of-moonrise-live/');
 
-    expect(content).toContain('[image: Hey Arnold poster](https://highergroundmusic.com/wp-content/uploads/hey-arnold.jpg)');
+    expect(content).toContain('[image: Moonrise poster](https://bellwaterhall.example/wp-content/uploads/moonrise.jpg)');
     expect(content).not.toContain('data:image/gif');
   });
 
@@ -402,22 +402,22 @@ describe('extractFromHtml, the structure it returns', () => {
     expect(structure?.jsonLd?.[0]).toMatchObject({
       '@type': 'Event',
       'startDate': '2026-11-01T00:00:00+00:00',
-      'offers': { price: '31.00-36.00', url: 'https://wl.seetickets.us/event/hey-arnold/702172' },
+      'offers': { price: '31.00-36.00', url: 'https://wl.tickethub.example/event/moonrise/702172' },
     });
   });
 
   it('returns the og:image absolute, entities decoded', () => {
     const { structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(structure?.ogImage).toBe('https://highergroundmusic.com/?og_img=1&pid=40405');
+    expect(structure?.ogImage).toBe('https://bellwaterhall.example/?og_img=1&pid=40405');
   });
 
   it('returns every URL the page published, chrome included, though the text drops the chrome', () => {
     const { content, structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
     const urls = structure?.links?.map(link => link.url) ?? [];
 
-    expect(urls).toContain('https://highergroundmusic.com/venue-info/');
-    expect(urls).toContain('https://highergroundmusic.com/tickets/702172');
+    expect(urls).toContain('https://bellwaterhall.example/venue-info/');
+    expect(urls).toContain('https://bellwaterhall.example/tickets/702172');
     expect(content).not.toContain('Venue Info');
   });
 
@@ -425,7 +425,7 @@ describe('extractFromHtml, the structure it returns', () => {
     const { structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
     const urls = structure?.links?.map(link => link.url) ?? [];
 
-    expect(occurrences(urls.join('\n'), 'https://highergroundmusic.com/tickets/702172')).toBe(1);
+    expect(occurrences(urls.join('\n'), 'https://bellwaterhall.example/tickets/702172')).toBe(1);
     expect(structure?.links?.find(link => link.url.endsWith('/tickets/702172'))?.text).toBe('Buy now');
   });
 

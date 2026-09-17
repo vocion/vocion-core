@@ -795,7 +795,7 @@ const INDEX_SEGMENT_RE = /(^|\/)index(?:\.\w+)?$/i;
  *
  * The path and nothing else. The query string is deliberately not part of the
  * test, which is what makes a listing's own paginated pages count as its own:
- * Dorothy Alling's `/index.php/calendar-of-events?month=10&year=2026` is the
+ * Ashby Library's `/index.php/calendar-of-events?month=10&year=2026` is the
  * next month of the very listing being read, while `/index.php/services/notary`
  * is another corner of the site. A trailing index segment is stripped first,
  * so the file that IS the directory scopes to the directory.
@@ -816,17 +816,17 @@ function isUnderListingPath(url: URL, listing: URL): boolean {
  * Whether a discovered feed describes THIS listing rather than the whole site.
  *
  * The test is the URL path and nothing else: a feed counts when it sits at the
- * listing's own path or under it, on the same origin. Higher Ground's calendar
- * at `/calendar/` declares `https://highergroundmusic.com/feed/` in its head,
+ * listing's own path or under it, on the same origin. Bellwater Hall's calendar
+ * at `/calendar/` declares `https://bellwaterhall.example/feed/` in its head,
  * the WordPress blog feed every page on that site declares, and the second dev
  * shadow (2026-09-15) took it: the whole source became ONE document of 1,460
  * characters of blog posts and zero events, while the shows sat unread on the
- * listing. Brownell declares `/feed/` and `/comments/feed/` the same way.
+ * listing. Mill Creek declares `/feed/` and `/comments/feed/` the same way.
  *
  * An `ics` candidate is exempt, `webcal:` included, since that is rewritten to
  * `https:` and reaches here as `ics`. A calendar feed is a calendar wherever a
  * site parks it, it cannot be about anything but events, and it is the kind
- * worth most: Brownell's `/events/?ical=1` is the 26 events the run takes.
+ * worth most: Mill Creek's `/events/?ical=1` is the 26 events the run takes.
  * A Squarespace `?format=json` candidate is the listing URL itself, so it
  * passes on the paths being equal.
  * @param candidate - the discovered feed.
@@ -1249,7 +1249,7 @@ function renderImages($: CheerioAPI, baseUrl: string | undefined, rendered: Set<
   $('img').each((_i, el) => {
     const $el = $(el);
     // A lazy-loading theme puts a placeholder in `src` and the real file in a
-    // data attribute, so the first usable candidate wins. Higher Ground does
+    // data attribute, so the first usable candidate wins. Bellwater Hall does
     // this on every card: 91 of the 97 images on one show page carry a
     // one-pixel data: URI in `src` and the real JPEG in `data-src`.
     const raw = LAZY_SRC_ATTRS
@@ -1418,7 +1418,7 @@ async function* crawl(
     //
     // Order is what a spent budget turns into content. The queue is FIFO and a
     // site's chrome is its first markup, collected before chrome removal on
-    // purpose. Dorothy Alling's calendar (third dev shadow, 2026-09-15) crawled
+    // purpose. Ashby Library's calendar (third dev shadow, 2026-09-15) crawled
     // 60 pages and only 3 of them were calendar pages: the listing twice and
     // one PAST month. The other 50-odd were the Joomla sidebar menu,
     // `/services/`, `/digital-library/`, `/library-policies/`, `/learn/`,

@@ -122,11 +122,11 @@ describe('GET /api/v1/sources', () => {
   it('reports enabled as a boolean and a never-synced source as run: null', async () => {
     await db.insert(knowledgeSourceSchema).values({
       orgId: ORG,
-      slug: 'veerio-higher-ground',
+      slug: 'larkfield-bellwater-hall',
       kind: 'plugin',
       // `enabled` is a TEXT column: a JSON client must not have to know that.
       enabled: 'true',
-      configJson: { urls: ['https://highergroundmusic.com/calendar'], _connector: 'web', _name: 'Higher Ground' },
+      configJson: { urls: ['https://bellwaterhall.example/calendar'], _connector: 'web', _name: 'Bellwater Hall' },
     });
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
@@ -136,8 +136,8 @@ describe('GET /api/v1/sources', () => {
     expect(res.status).toBe(200);
     expect(body.sources).toHaveLength(1);
     expect(body.sources[0]).toMatchObject({
-      slug: 'veerio-higher-ground',
-      name: 'Higher Ground',
+      slug: 'larkfield-bellwater-hall',
+      name: 'Bellwater Hall',
       connector: 'web',
       enabled: true,
       lastSyncedAt: null,
@@ -149,7 +149,7 @@ describe('GET /api/v1/sources', () => {
   it('names a source after its slug when no name was supplied, and reports enabled: false', async () => {
     await db.insert(knowledgeSourceSchema).values({
       orgId: ORG,
-      slug: 'veerio-unnamed',
+      slug: 'larkfield-unnamed',
       kind: 'plugin',
       enabled: 'false',
       configJson: { urls: ['https://example.test/'], _connector: 'web' },
@@ -158,15 +158,15 @@ describe('GET /api/v1/sources', () => {
 
     const body = await (await GET(getRequest())).json() as { sources: Array<Record<string, unknown>> };
 
-    expect(body.sources[0]).toMatchObject({ name: 'veerio-unnamed', enabled: false });
+    expect(body.sources[0]).toMatchObject({ name: 'larkfield-unnamed', enabled: false });
   });
 
   it('carries the checkpoint, including since and the processor-scope failures', async () => {
     const [source] = await db.insert(knowledgeSourceSchema).values({
       orgId: ORG,
-      slug: 'veerio-flynn',
+      slug: 'larkfield-corvina',
       kind: 'plugin',
-      configJson: { urls: ['https://flynn.test/'], _connector: 'web' },
+      configJson: { urls: ['https://corvina.test/'], _connector: 'web' },
     }).returning({ id: knowledgeSourceSchema.id });
     const startedAt = new Date('2026-09-14T06:00:00.000Z');
     await db.insert(sourceSyncCheckpointSchema).values({
@@ -177,7 +177,7 @@ describe('GET /api/v1/sources', () => {
       completedAt: new Date('2026-09-14T06:04:00.000Z'),
       since: new Date('2026-09-13T06:00:00.000Z'),
       counts: { created: 3, errors: 0, processorErrors: 1 },
-      failures: [{ scope: 'processor', message: 'extract_model_invalid', uri: 'https://flynn.test/e/1', at: '2026-09-14T06:03:00.000Z' }],
+      failures: [{ scope: 'processor', message: 'extract_model_invalid', uri: 'https://corvina.test/e/1', at: '2026-09-14T06:03:00.000Z' }],
     });
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
@@ -189,7 +189,7 @@ describe('GET /api/v1/sources', () => {
       completedAt: '2026-09-14T06:04:00.000Z',
       since: '2026-09-13T06:00:00.000Z',
       counts: { created: 3, errors: 0, processorErrors: 1 },
-      failures: [{ scope: 'processor', message: 'extract_model_invalid', uri: 'https://flynn.test/e/1' }],
+      failures: [{ scope: 'processor', message: 'extract_model_invalid', uri: 'https://corvina.test/e/1' }],
     });
   });
 
@@ -224,51 +224,51 @@ describe('POST /api/v1/sources', () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
     const res = await POST(postRequest({
-      slug: 'veerio-higher-ground',
-      name: 'Higher Ground',
+      slug: 'larkfield-bellwater-hall',
+      name: 'Bellwater Hall',
       kind: 'web',
-      config: { urls: ['https://highergroundmusic.com/calendar'] },
+      config: { urls: ['https://bellwaterhall.example/calendar'] },
       schedule: '0 6 * * *',
       reconcileSchedule: '0 3 * * 0',
     }));
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ source: { slug: 'veerio-higher-ground', created: true } });
-    expect(await storedConfig('veerio-higher-ground')).toEqual({
-      urls: ['https://highergroundmusic.com/calendar'],
+    expect(body).toEqual({ source: { slug: 'larkfield-bellwater-hall', created: true } });
+    expect(await storedConfig('larkfield-bellwater-hall')).toEqual({
+      urls: ['https://bellwaterhall.example/calendar'],
       _connector: 'web',
-      _name: 'Higher Ground',
+      _name: 'Bellwater Hall',
     });
-    expect(ensureSourceSchedule).toHaveBeenCalledWith(expect.objectContaining({ orgId: ORG, sourceSlug: 'veerio-higher-ground', cron: '0 6 * * *' }));
+    expect(ensureSourceSchedule).toHaveBeenCalledWith(expect.objectContaining({ orgId: ORG, sourceSlug: 'larkfield-bellwater-hall', cron: '0 6 * * *' }));
     expect(ensureSourceReconcileSchedule).toHaveBeenCalledWith(expect.objectContaining({ cron: '0 3 * * 0' }));
   });
 
   it('REPLACES the config of an existing slug and reports created: false', async () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
     await POST(postRequest({
-      slug: 'veerio-higher-ground',
-      name: 'Higher Ground',
+      slug: 'larkfield-bellwater-hall',
+      name: 'Bellwater Hall',
       kind: 'web',
-      config: { urls: ['https://highergroundmusic.com/calendar'], feedUrl: 'https://highergroundmusic.com/feed.ics' },
+      config: { urls: ['https://bellwaterhall.example/calendar'], feedUrl: 'https://bellwaterhall.example/feed.ics' },
     }));
 
     const res = await POST(postRequest({
-      slug: 'veerio-higher-ground',
-      name: 'Higher Ground (Ballroom)',
+      slug: 'larkfield-bellwater-hall',
+      name: 'Bellwater Hall (Ballroom)',
       kind: 'web',
-      config: { urls: ['https://highergroundmusic.com/events'] },
+      config: { urls: ['https://bellwaterhall.example/events'] },
     }));
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ source: { slug: 'veerio-higher-ground', created: false } });
+    expect(body).toEqual({ source: { slug: 'larkfield-bellwater-hall', created: false } });
     // The old `feedUrl` is GONE: this writer is authoritative, so a key the
     // second call did not send must not survive it.
-    expect(await storedConfig('veerio-higher-ground')).toEqual({
-      urls: ['https://highergroundmusic.com/events'],
+    expect(await storedConfig('larkfield-bellwater-hall')).toEqual({
+      urls: ['https://bellwaterhall.example/events'],
       _connector: 'web',
-      _name: 'Higher Ground (Ballroom)',
+      _name: 'Bellwater Hall (Ballroom)',
     });
   });
 
@@ -277,14 +277,14 @@ describe('POST /api/v1/sources', () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
     const res = await POST(postRequest({
-      slug: 'veerio-flynn',
+      slug: 'larkfield-corvina',
       kind: 'web',
-      config: { urls: ['https://flynn.test/'] },
+      config: { urls: ['https://corvina.test/'] },
       processor: { slug: 'candidate-extractor', config: extractorConfig() },
     }));
 
     expect(res.status).toBe(200);
-    expect(await storedConfig('veerio-flynn')).toMatchObject({
+    expect(await storedConfig('larkfield-corvina')).toMatchObject({
       _processor: { slug: 'candidate-extractor', config: extractorConfig() },
     });
   });
@@ -293,9 +293,9 @@ describe('POST /api/v1/sources', () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
     const res = await POST(postRequest({
-      slug: 'veerio-flynn',
+      slug: 'larkfield-corvina',
       kind: 'web',
-      config: { urls: ['https://flynn.test/'] },
+      config: { urls: ['https://corvina.test/'] },
       processor: { slug: 'no-such-processor', config: {} },
     }));
     const body = await res.json();
@@ -311,9 +311,9 @@ describe('POST /api/v1/sources', () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
     const res = await POST(postRequest({
-      slug: 'veerio-flynn',
+      slug: 'larkfield-corvina',
       kind: 'web',
-      config: { urls: ['https://flynn.test/'] },
+      config: { urls: ['https://corvina.test/'] },
       processor: { slug: 'candidate-extractor', config: extractorConfig() },
     }));
 
@@ -324,7 +324,7 @@ describe('POST /api/v1/sources', () => {
   it('400s a config the connector refuses', async () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
-    const res = await POST(postRequest({ slug: 'veerio-empty', kind: 'web', config: {} }));
+    const res = await POST(postRequest({ slug: 'larkfield-empty', kind: 'web', config: {} }));
 
     expect(res.status).toBe(400);
   });
@@ -332,7 +332,7 @@ describe('POST /api/v1/sources', () => {
   it('400s an unknown connector kind', async () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
-    const res = await POST(postRequest({ slug: 'veerio-x', kind: 'not-a-connector', config: {} }));
+    const res = await POST(postRequest({ slug: 'larkfield-x', kind: 'not-a-connector', config: {} }));
 
     expect(res.status).toBe(400);
   });
@@ -341,15 +341,15 @@ describe('POST /api/v1/sources', () => {
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
     const res = await POST(postRequest({
-      slug: 'veerio-higher-ground',
+      slug: 'larkfield-bellwater-hall',
       kind: 'web',
-      config: { urls: ['https://highergroundmusic.com/calendar'] },
+      config: { urls: ['https://bellwaterhall.example/calendar'] },
       schedule: '0 6 * * *',
       enabled: false,
     }));
 
     expect(res.status).toBe(200);
     expect(ensureSourceSchedule).not.toHaveBeenCalled();
-    expect(removeSourceSchedule).toHaveBeenCalledWith(ORG, 'veerio-higher-ground');
+    expect(removeSourceSchedule).toHaveBeenCalledWith(ORG, 'larkfield-bellwater-hall');
   });
 });

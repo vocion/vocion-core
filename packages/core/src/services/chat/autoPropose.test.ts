@@ -15,7 +15,7 @@ describe('readAutonomy', () => {
 
 describe('deriveRecommendationDedupKey', () => {
   it('matches the review router: gmail by recipient, others by object id', () => {
-    expect(deriveRecommendationDedupKey('gmail.send', { to: ' Carlo@Example.com ' })).toBe('gmail.send:carlo@example.com');
+    expect(deriveRecommendationDedupKey('gmail.send', { to: ' Nadia@Example.com ' })).toBe('gmail.send:nadia@example.com');
     expect(deriveRecommendationDedupKey('hubspot.update', { objectId: '611' })).toBe('hubspot.update:611');
     expect(deriveRecommendationDedupKey('hubspot.update', {})).toBeUndefined();
   });
@@ -27,7 +27,7 @@ describe('autoProposeRecommendation', () => {
     const runId = await autoProposeRecommendation({
       orgId: 'org_1',
       userId: 'usr_1',
-      rec: { actionId: 'hubspot.update', input: { objectId: '611', stage: 'closedlost' }, label: 'Close Spinutech as Lost', agentSlug: 'revenue-director', confidence: 0.9 },
+      rec: { actionId: 'hubspot.update', input: { objectId: '611', stage: 'closedlost' }, label: 'Close Northwind as Lost', agentSlug: 'revenue-director', confidence: 0.9 },
     });
 
     expect(runId).toBe(42);

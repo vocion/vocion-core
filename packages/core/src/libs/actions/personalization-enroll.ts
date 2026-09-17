@@ -15,10 +15,21 @@
  * `handed_off`. Declining moves it to `held`. Nothing unapproved is ever
  * sent, and the action is on ActionService's never-auto list: no trust rule
  * can release an enrollment without a human.
+ *
+ * Voice is gated structurally, at both doors. `precheck` lints every send
+ * against the workspace's voice rules before a proposal is accepted, so no
+ * path into the queue can carry a banned construction — not the hourly
+ * drafting pass, not Regenerate, not an API caller, not a replay. The
+ * regenerate fast path additionally wraps its skill-turn output schema in the
+ * same rules, so the model is told the offending phrase and the reason and
+ * gets exactly one corrective retry before the turn fails loudly.
  */
 
 import type { Action } from './types';
+import type { VoiceRules } from '@/libs/writing/voiceRules';
 import { z } from 'zod';
+import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
+import { lintSends, outboundCopy } from '@/libs/writing/voiceRules';
 
 const sendSchema = z.object({
   step: z.number().int().positive(),
@@ -79,38 +90,49 @@ async function contactsSourceConfig(orgId: string): Promise<{ portalId?: string 
  * data and the SERVER saves it through the same validate + save + propose
  * path as the hourly pass.
  */
-const regenerateTurnOutput = z.object({
-  /** True when the note invalidates the research itself — the full pass takes over. */
-  needsResearch: z.boolean(),
-  /**
-   * Why it needs research (required with needsResearch), or the
-   * recommendation's reason otherwise. Absent fields are `.nullish()`
-   * throughout: a model answering `needsResearch` naturally writes
-   * `"sends": null`, and refusing the null costs a corrective retry.
-   */
-  reason: z.string().nullish(),
-  sends: z.array(z.object({
-    day: z.number().int().min(0).nullish(),
-    subject: z.string().min(1),
-    body: z.string().min(1),
-  })).min(1).max(10).nullish(),
-  recommendedSequence: z.object({
-    id: z.string().min(1),
-    name: z.string().min(1),
+/**
+ * The regenerate turn's answer shape, built per-org because the voice rules
+ * are workspace config. Wrapping `subject` and `body` in `outboundCopy` turns
+ * the voice from an instruction the model may drift from into a validation
+ * contract `runSkillTurn` enforces: a banned phrase becomes a zod issue, the
+ * issue text names the phrase and the reason, and `runSkillTurn` hands that
+ * straight back to the model as its one corrective retry.
+ * @param rules - The merged workspace voice rules.
+ */
+function regenerateTurnOutputFor(rules: VoiceRules) {
+  return z.object({
+    /** True when the note invalidates the research itself — the full pass takes over. */
+    needsResearch: z.boolean(),
+    /**
+     * Why it needs research (required with needsResearch), or the
+     * recommendation's reason otherwise. Absent fields are `.nullish()`
+     * throughout: a model answering `needsResearch` naturally writes
+     * `"sends": null`, and refusing the null costs a corrective retry.
+     */
     reason: z.string().nullish(),
-  }).nullish(),
-  senderEmail: z.string().min(1).nullish(),
-  hubspotUserId: z.string().nullish(),
-}).superRefine((v, sctx) => {
-  if (!v.needsResearch) {
-    if (!v.sends || v.sends.length === 0) {
-      sctx.addIssue({ code: z.ZodIssueCode.custom, message: 'sends is required (the full ordered list) unless needsResearch is true' });
+    sends: z.array(z.object({
+      day: z.number().int().min(0).nullish(),
+      subject: outboundCopy(rules, 'subject').min(1),
+      body: outboundCopy(rules, 'body').min(1),
+    })).min(1).max(10).nullish(),
+    recommendedSequence: z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      reason: z.string().nullish(),
+    }).nullish(),
+    senderEmail: z.string().min(1).nullish(),
+    hubspotUserId: z.string().nullish(),
+  }).superRefine((v, sctx) => {
+    if (!v.needsResearch) {
+      if (!v.sends || v.sends.length === 0) {
+        sctx.addIssue({ code: z.ZodIssueCode.custom, message: 'sends is required (the full ordered list) unless needsResearch is true' });
+      }
+      if (!v.recommendedSequence) {
+        sctx.addIssue({ code: z.ZodIssueCode.custom, message: 'recommendedSequence is required unless needsResearch is true' });
+      }
     }
-    if (!v.recommendedSequence) {
-      sctx.addIssue({ code: z.ZodIssueCode.custom, message: 'recommendedSequence is required unless needsResearch is true' });
-    }
-  }
-});
+  });
+}
 
 type FastRegenerateOutcome = { done: true } | { done: false; reason?: string };
 
@@ -162,6 +184,9 @@ async function regenerateSequenceCopy(opts: {
     });
   }
 
+  // The workspace's voice, as a validation contract rather than a hope.
+  const voiceRules = await voiceRulesFor(ctx.orgId);
+
   const { runSkillTurn } = await import('@/services/agents/skillTurn');
   const { output, toolCalls, durationMs } = await runSkillTurn({
     orgId: ctx.orgId,
@@ -201,9 +226,14 @@ async function regenerateSequenceCopy(opts: {
       },
       { title: 'Sender\'s sequence library (HubSpot live)', body: libraryBlock },
     ],
-    outputSchema: regenerateTurnOutput,
-    outputInstruction: 'Fields: needsResearch (boolean); reason (string; why research is needed, or the recommendation\'s reason); sends (the FULL ordered list, each {subject, body, day?}, required unless needsResearch); recommendedSequence ({id, name, reason?}, ids exactly as the library returned them, required unless needsResearch); senderEmail and hubspotUserId (echo the current ones unless the library read changed them).',
+    outputSchema: regenerateTurnOutputFor(voiceRules),
+    outputInstruction: 'Fields: needsResearch (boolean); reason (string; why research is needed, or the recommendation\'s reason); sends (the FULL ordered list, each {subject, body, day?}, required unless needsResearch); recommendedSequence ({id, name, reason?}, ids exactly as the library returned them, required unless needsResearch); senderEmail and hubspotUserId (echo the current ones unless the library read changed them). Any "is banned" message names a phrase the sender will not have in a send: remove it and say the thing plainly, do not paraphrase it back in.',
     toolAllowlist: ['get_lead_brief', 'hubspot_list_sequences'],
+    // One corrective retry, then fail. A model that repeats a banned phrase
+    // after being told the phrase and the reason will not find it on the
+    // fourth attempt, and a loud failure is the whole point: a draft carrying
+    // the phrase must never land in the queue.
+    maxAnswerRetries: 1,
   });
 
   if (output.needsResearch) {
@@ -248,6 +278,38 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
   inputSchema: enrollInput,
   grant: 'enroll_lead',
   external: true,
+
+  /**
+   * The voice gate, at the one door every proposal has to pass through.
+   *
+   * `runSkillTurn`'s schema catches the regenerate path, but that is one of
+   * several ways sends reach this action — the hourly drafting pass proposes
+   * through `saveDraftSequence`, the write API proposes directly, a replay
+   * re-proposes stored input. A gate that only covers the model call is a
+   * gate with a corridor around it. `precheck` runs inside `proposeAction`,
+   * after schema validation and before any write, so there is no path into
+   * the review queue that skips it.
+   *
+   * The refusal names every offending span and its authored reason, because
+   * whoever receives it — an agent mid-pass, an API caller, a person reading
+   * a log — has to be able to fix it without guessing which words were wrong.
+   * @param ctx
+   * @param input
+   */
+  async precheck(ctx, input) {
+    const rules = await voiceRulesFor(ctx.orgId);
+    const { ok, report, count } = lintSends(input.sends, rules);
+    if (ok) {
+      return;
+    }
+    return [
+      `NOTHING WAS SAVED. ${count} voice-rule violation(s) in the drafted sends.`,
+      'These are the workspace\'s versioned voice rules (workspace/<org>/voice.yaml plus the platform floor), not a style suggestion:',
+      report,
+      'Rewrite the offending sends without those constructions and propose again. Do not paraphrase a banned phrase back in.',
+    ].join('\n');
+  },
+
   sourceSlug: 'hubspot',
   // One queue item per contact: a re-fired sweep updates the pending item in
   // place, never duplicates it.

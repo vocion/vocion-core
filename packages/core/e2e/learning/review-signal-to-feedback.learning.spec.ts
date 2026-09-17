@@ -31,8 +31,8 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
 
 const ADMIN = {
   name: 'Ines Okafor',
-  account: 'Veerio Learning',
-  email: 'ines@veerio.example',
+  account: 'Larkfield Learning',
+  email: 'ines@larkfield.example',
   password: 'learning-loop-1',
 };
 

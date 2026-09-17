@@ -15,7 +15,7 @@ import { inboxHref } from '@/services/inbox/inboxRef';
  * action on a record (route it, follow up on it) is an `action_run`
  * referencing the object, so "review the applicant" and "review the action"
  * are the same row, the same status transition, the same audit trail as
- * `/dashboard/inbox?kind=proposal` (Needs you). What agents already did to the record is the
+ * `/dashboard/inbox?kind=proposal` (Review queue). What agents already did to the record is the
  * `tool_call` log, filtered to this object. No new tables, no new queue.
  *
  * Linkage convention: a row references an object via `input.objectRef`
@@ -100,7 +100,7 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
       <p className="mb-4 text-xs text-muted-foreground">
         Every agent action on this record, with its reasoning — pending items are the same proposals as on
         {' '}
-        <Link href="/dashboard/inbox?kind=proposal" className="underline">Needs you</Link>
+        <Link href="/dashboard/inbox?kind=proposal" className="underline">Review queue</Link>
         .
       </p>
 

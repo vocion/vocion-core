@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from '@/components/ui/toast';
@@ -43,6 +44,7 @@ const INLINE_FIELD = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm trans
  * @param props.candidate
  */
 export function LearningDecision({ candidate }: { candidate: LearningCandidateView }) {
+  const t = useTranslations('Review');
   const router = useRouter();
   const current = candidate.editedRuleText ?? candidate.ruleText;
   const [draft, setDraft] = useState(current);
@@ -106,7 +108,9 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
       toast.success(`${decision === 'approve' ? 'Adopted' : 'Rejected'} · ${draft.trim().slice(0, 80)}`, {
         description: decision === 'approve' ? `Agents read it at /learnings/${candidate.stepName}.md on their next run.` : 'Dropped; your reason is kept for the classifier.',
       });
-      router.push('/dashboard/inbox?kind=learning');
+      // Stay on the rule. The page re-reads it and renders what was decided,
+      // with an explicit way back — a redirect on submit loses the context
+      // the decision was made in (Chris, 2026-09-16).
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -165,6 +169,11 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
             {candidate.rejectedReason ? ` — “${candidate.rejectedReason}”` : ''}
           </p>
         )}
+        {!open && (
+          <p className="mt-3">
+            <Link href="/dashboard/inbox?kind=learning" className="text-[13px] text-primary underline-offset-2 hover:underline" data-testid="learning-back">Back to the review queue</Link>
+          </p>
+        )}
       </section>
 
       {error && (
@@ -173,6 +182,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
 
       {open && (
         <StickyActionBar
+          labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
           primary={{ 'label': verbs.primary.label, 'onClick': () => void decide('approve'), 'disabled': busy !== null || !draft.trim(), 'busy': busy === 'approve', 'icon': Check, 'shortcut': verbs.primary.shortcut, 'data-testid': 'learning-adopt' }}
           secondary={verbs.secondary.map(v => ({ 'label': v.label, 'onClick': () => void decide('reject'), 'disabled': busy !== null, 'busy': busy === 'reject', 'icon': X, 'shortcut': v.shortcut, 'tone': v.tone, 'data-testid': 'learning-reject' }))}
           field={{
