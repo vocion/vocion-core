@@ -275,18 +275,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                   </Markdown>
                 </div>
               )))}
-          {/* One card renders directly; several become the in-chat triage
-              stepper (skip / save-for-later / queue-all). */}
-          {(message.recommendations?.length ?? 0) > 0 && (
-            <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
-          )}
-          {(message.artifacts?.length ?? 0) > 0 && (
-            <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
-          )}
           {/*
-            The live indicator is the LAST thing in the turn, always, while it
-            is running — the shape OpenClaw and Claude Code both use, and the
-            reason they read better than this did.
+            The live indicator sits right under the prose while the turn runs
+            — the shape OpenClaw and Claude Code both use. It used to be the
+            LAST thing in the turn, under the suggested-action cards, which put
+            it a screen away from the sentence that was still being written
+            (Chris, 2026-09-17: *"put 'working' indicator above the action
+            cards, closer to the text that's pending"*).
 
             Three things make it work, and the first version here had only one
             of them:
@@ -320,6 +315,14 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                 <span className="font-mono text-[11px] text-muted-foreground/70 tabular-nums">{formatElapsed(elapsed)}</span>
               )}
             </div>
+          )}
+          {/* One card renders directly; several become the in-chat triage
+              stepper (skip / save-for-later / queue-all). */}
+          {(message.recommendations?.length ?? 0) > 0 && (
+            <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
+          )}
+          {(message.artifacts?.length ?? 0) > 0 && (
+            <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
           )}
         </div>
         {message.confidence && (
