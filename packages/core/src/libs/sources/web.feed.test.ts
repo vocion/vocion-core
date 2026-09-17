@@ -5,9 +5,9 @@
  *
  * The split is a TEXT split and the tests hold it to that: components come out
  * on `BEGIN:VEVENT` … `END:VEVENT`, only the fields a later stage keys or
- * gates on are unfolded, and nothing expands an RRULE or does TZID arithmetic.
- * Ids are the feed's own
- * keys, never the item's position in the feed, because one reorder or one
+ * the split key and the URL properties are unfolded, and nothing expands an
+ * RRULE or does TZID arithmetic. Ids are the feed's own keys, never the item's
+ * position in the feed, because one reorder or one
  * removal mid-feed would then rewrite every id after it and cost a re-embed
  * and a model call per document.
  */
@@ -74,6 +74,27 @@ UID:evt-3@venue.test
 SUMMARY:Publishes nothing fetchable
 ATTACH;ENCODING=BASE64;VALUE=BINARY:R0lGODlhAQABAIAAAAAAAP
 URL:https:not a url at all
+END:VEVENT
+END:VCALENDAR`;
+
+const NESTED_ALARM_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-4@venue.test
+SUMMARY:Show with a rem
+ inder
+ATTACH;FMTTYPE=image/png:https://cdn.venue.test/show.png
+BEGIN:VALARM
+ACTION:AUDIO
+ATTACH;FMTTYPE=audio/basic:https://cdn.venue.test/chime.wav
+END:VALARM
+END:VEVENT
+END:VCALENDAR`;
+
+const QUOTED_TRAP_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-5@venue.test
+SUMMARY:Quoted trap
+ATTACH;FILENAME="x:https://cdn.venue.test/wrong.png";FMTTYPE=image/png:https://cdn.venue.test/right.png
 END:VEVENT
 END:VCALENDAR`;
 
@@ -249,7 +270,7 @@ describe('the ICS per-event split', () => {
     expect(docs[0]?.content).toContain('BEGIN:VCALENDAR');
   });
 
-  it('declares every URL the component published, unfolding each one', async () => {
+  it('declares every URL the component published, unfolding the folded ones', async () => {
     stubFetch(() => typed(PUBLISHED_URLS_ICS, 'text/calendar'));
 
     const { docs } = await run({ urls: [ICS_URL] });
@@ -279,6 +300,37 @@ describe('the ICS per-event split', () => {
     // it. Writing an empty array instead of omitting the key would rewrite the
     // metadata of every such document once and report a refresh for it.
     expect(docs[1]?.metadata).not.toHaveProperty('publishedUrls');
+  });
+
+  it('leaves a nested alarm attachment out of what the event published', async () => {
+    stubFetch(() => typed(NESTED_ALARM_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // The alarm's sound is the alarm's, not the event's. Declaring it would let
+    // the extractor's gate accept a chime as the event's image.
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://cdn.venue.test/show.png']);
+  });
+
+  it('keeps a folded SUMMARY folded, because a title is read as text', async () => {
+    stubFetch(() => typed(NESTED_ALARM_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // The one reader now serves both, so the flag that separates a value read
+    // as a value from one read as text has to stay pinned by a test.
+    expect(docs[0]?.title).toBe('Show with a rem');
+  });
+
+  it('reads past a quoted parameter that would otherwise forge a URL', async () => {
+    stubFetch(() => typed(QUOTED_TRAP_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // Splitting on the first colon would end the value inside the quotes and
+    // yield `https://cdn.venue.test/wrong.png"`, which still passes for a URL.
+    // That is worse than dropping it: the gate would bless the wrong link.
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://cdn.venue.test/right.png']);
   });
 });
 

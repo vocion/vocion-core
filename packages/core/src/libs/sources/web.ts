@@ -372,10 +372,7 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
   // protocol test is the whole point, since zod's `.url()` waves `file://` and
   // `javascript:` through.
   const url = httpUrl(value.trim());
-  if (!HTTP_URL_RE.test(url) || !z.string().url().safeParse(url).success) {
-    return undefined;
-  }
-  return url;
+  return isFetchableUrl(url) ? url : undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -529,9 +526,10 @@ function splitFeed(page: FetchedPage): IngestDoc[] | null {
 /**
  * Split an ICS body on `BEGIN:VEVENT` … `END:VEVENT`.
  *
- * A text split and nothing more: no RFC 5545 unfolding of any field except
- * UID (the split key, which would otherwise be cut in half by a fold), no
- * TZID arithmetic, no RRULE expansion. A recurring event stays one document
+ * A text split and nothing more: no TZID arithmetic, no RRULE expansion. The
+ * only fields unfolded are the ones a later stage reads as a value rather than
+ * as text, because a fold would cut those in half: UID, the split key, and the
+ * URL properties the extractor's provenance gate compares against. A recurring event stays one document
  * unless the feed itself writes separate components with RECURRENCE-ID.
  * @param page - the fetched feed.
  */
@@ -632,8 +630,8 @@ function icsPublishedUrls(block: string[]): string[] {
     // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
     // feed that ships inline base64 bytes on the first line and the poster URL
     // on the second would otherwise lose the poster entirely.
-    for (const value of icsValues(block, name)) {
-      if (isPublishableUrl(value)) {
+    for (const value of icsValues(block, name, true)) {
+      if (isFetchableUrl(value)) {
         out.push(value);
       }
     }
@@ -644,12 +642,13 @@ function icsPublishedUrls(block: string[]): string[] {
 /**
  * Whether a value is a URL something downstream could actually fetch.
  *
- * The protocol test and the shape test are both needed, the same pairing
- * `usableUrl` makes: zod's `.url()` waves `file://` and `javascript:` through,
- * while the protocol regex alone accepts `https:not a url`.
- * @param value - the raw property value.
+ * Both halves are needed and neither is enough: zod's `.url()` waves `file://`
+ * and `javascript:` through, while the protocol regex alone accepts
+ * `https:not a url`. Named for what it tests, the shape, and deliberately not
+ * for what `publishedUrls` means, which is a claim about provenance.
+ * @param value - the raw value.
  */
-function isPublishableUrl(value: string): boolean {
+function isFetchableUrl(value: string): boolean {
   return HTTP_URL_RE.test(value) && z.string().url().safeParse(value).success;
 }
 
@@ -675,33 +674,58 @@ function icsValueColon(line: string): number {
   return -1;
 }
 
+/** A line that continues the one above it, per RFC 5545 folding. */
+const ICS_FOLD_RE = /^[ \t]/;
+
 /**
- * Every occurrence of one property in a VEVENT block, always unfolded.
+ * Every occurrence of one property in a VEVENT block.
  *
  * `icsValue` answers with the first match, which is right for `UID` and
  * `SUMMARY` because RFC 5545 allows one of each. `ATTACH` may repeat, so a
  * caller that wants attachments has to read them all or it silently keeps
  * whichever the feed happened to write first.
+ *
+ * Properties of a nested component are not the event's own. A `VEVENT` carries
+ * its alarms inside it and an alarm has its own `ATTACH`, so a reader that did
+ * not track depth would declare an alarm's sound file as a URL the event
+ * published, and the extractor's gate would then let a model return it as the
+ * event's image.
  * @param lines - the block's lines, as written in the feed.
  * @param name - the property name, uppercase.
+ * @param unfold - join continuation lines. Off for a value read as text, where
+ * the fold is part of how it was written.
  */
-function icsValues(lines: string[], name: string): string[] {
+function icsValues(lines: string[], name: string, unfold: boolean): string[] {
   const out: string[] = [];
+  // The block opens with its own `BEGIN:VEVENT`, so the event's properties sit
+  // at depth 1 and anything deeper belongs to a component inside it.
+  let depth = 0;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
-    if (/^[ \t]/.test(line)) {
+    if (ICS_FOLD_RE.test(line)) {
       continue;
     }
     const colon = icsValueColon(line);
     if (colon < 0) {
       continue;
     }
-    if (line.slice(0, colon).split(';')[0]!.toUpperCase() !== name) {
+    const property = line.slice(0, colon).split(';')[0]!.toUpperCase();
+    if (property === 'BEGIN') {
+      depth += 1;
+      continue;
+    }
+    if (property === 'END') {
+      depth -= 1;
+      continue;
+    }
+    if (depth !== 1 || property !== name) {
       continue;
     }
     let value = line.slice(colon + 1);
-    for (let j = i + 1; j < lines.length && /^[ \t]/.test(lines[j]!); j += 1) {
-      value += lines[j]!.slice(1);
+    if (unfold) {
+      for (let j = i + 1; j < lines.length && ICS_FOLD_RE.test(lines[j]!); j += 1) {
+        value += lines[j]!.slice(1);
+      }
     }
     out.push(value.trim());
   }
@@ -716,31 +740,7 @@ function icsValues(lines: string[], name: string): string[] {
  * read without it arrives truncated.
  */
 function icsValue(lines: string[], name: string, unfold: boolean): string {
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!;
-    // A line starting with a space or a tab is the continuation of the one
-    // above it, never a property of its own.
-    if (/^[ \t]/.test(line)) {
-      continue;
-    }
-    const colon = icsValueColon(line);
-    if (colon < 0) {
-      continue;
-    }
-    // `UID:x`, but also `DTSTART;TZID=America/New_York:x`, and a quoted
-    // parameter value may itself contain a colon.
-    if (line.slice(0, colon).split(';')[0]!.toUpperCase() !== name) {
-      continue;
-    }
-    let value = line.slice(colon + 1);
-    if (unfold) {
-      for (let j = i + 1; j < lines.length && /^[ \t]/.test(lines[j]!); j += 1) {
-        value += lines[j]!.slice(1);
-      }
-    }
-    return value.trim();
-  }
-  return '';
+  return icsValues(lines, name, unfold)[0] ?? '';
 }
 
 /**
@@ -871,7 +871,7 @@ function declaredUrls(item: unknown): string[] {
     const url = value.trim();
     // A CMS export routinely repeats one link under two keys, so the dedupe is
     // what keeps the stored row honest rather than a formality.
-    if (isPublishableUrl(url)) {
+    if (isFetchableUrl(url)) {
       out.push(url);
     }
   }
