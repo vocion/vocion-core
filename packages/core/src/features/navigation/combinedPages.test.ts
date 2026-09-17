@@ -7,7 +7,7 @@ describe('combinedPage — tab deep-links', () => {
 
     expect(page.owner.url).toBe('/dashboard/teams');
     expect(page.active.url).toBe('/dashboard/agents');
-    expect(page.tabs.map(t => t.url)).toEqual(['/dashboard/teams', '/dashboard/agents']);
+    expect(page.tabs.map(t => t.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/marketplace']);
   });
 
   it('resolves the owner url to the same page with the first tab active', () => {

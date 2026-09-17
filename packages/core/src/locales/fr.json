@@ -66,7 +66,8 @@
     "activity": "Activité",
     "members": "Membres",
     "system": "Système",
-    "profile": "Profil"
+    "profile": "Profil",
+    "marketplace": "Place de marché"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
@@ -243,5 +244,23 @@
     "shortcut_approve": "Approuver",
     "shortcut_decline": "Refuser",
     "shortcut_snooze": "Reporter"
+  },
+  "Marketplace": {
+    "title_bar_description": "Agents que vous n'avez pas encore recrutés. Chacun fonctionne dès le premier jour à partir de fichiers que vous importez — connectez un système plus tard pour l'enrichir.",
+    "view_profile": "Voir le profil",
+    "skill_count": "{count, plural, one {# compétence} other {# compétences}}",
+    "reaches_for": "Fait appel à",
+    "reaches_for_none": "Rien — fonctionne à partir de ce que vous importez",
+    "empty_title": "Tout votre catalogue est en service",
+    "empty_body": "Tous les agents du catalogue ont été recrutés. Pour en ajouter un que personne n'a livré, demandez à l'Ingénieur d'automatisation de le construire à partir de ce que vous faites déjà à la main.",
+    "empty_action": "Créer un agent",
+    "none_title": "Aucun catalogue disponible",
+    "none_body": "Ce déploiement a été livré sans le catalogue d'agents. Les agents peuvent toujours être définis directement dans l'espace de travail.",
+    "back": "Tous les agents",
+    "hire": "Recruter",
+    "hired": "{name} fait partie de votre équipe",
+    "hire_failed": "Impossible de recruter cet agent. Actualisez et réessayez.",
+    "how_it_works": "Comment il travaille",
+    "degrades_note": "Rien n'est obligatoire. Sans aucune de ces connexions, l'agent travaille à partir des fichiers que vous importez ; en connecter une plus tard l'enrichit sans rien changer ici."
   }
 }

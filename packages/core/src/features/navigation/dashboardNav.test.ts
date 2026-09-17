@@ -62,7 +62,7 @@ describe('dashboardNav registry', () => {
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],
       ['/dashboard/members', '/dashboard/developers', '/dashboard/admin'],
     ]);
-    expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents']);
+    expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/marketplace']);
     expect(tabsOf('/dashboard/skills').map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/tools', '/dashboard/models']);
     expect(tabsOf('/dashboard/missions')).toEqual([]);
   });

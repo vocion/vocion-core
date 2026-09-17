@@ -20,6 +20,7 @@ import {
   Plug,
   ShieldCheck,
   Sparkles,
+  Store,
   TestTube,
   TrendingUp,
   UserPlus,
@@ -113,6 +114,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
   { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
   { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
+  { url: '/dashboard/marketplace', title: 'Marketplace', group: 'Team', icon: Store, i18nKey: 'marketplace', tabOf: '/dashboard/teams', keywords: ['catalog', 'hire', 'install', 'inactive agents'] },
   { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
   { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
   { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation'] },
