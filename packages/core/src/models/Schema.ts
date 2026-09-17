@@ -1925,6 +1925,68 @@ export const evalDatasetRemoteSchema = pgTable('eval_dataset_remote', {
   uniqueIndex('eval_dataset_remote_dataset_provider_idx').on(table.datasetId, table.provider),
 ]);
 
+/**
+ * One AgentCore batch evaluation job, and where it got to.
+ *
+ * The on-demand path needs no table like this: `Evaluate` answers in the same
+ * call, so there is nothing to come back to. A batch job runs for minutes on
+ * AWS's side and outlives the process that started it, so its identifiers have
+ * to be written down before the wait begins — otherwise a restart loses the
+ * job while AWS carries on billing for it.
+ *
+ * It also holds the two identifiers that make the whole batch path worth
+ * having: the job id and the output log group, so a person can open the result
+ * in their own AWS console and check the number without going through Vocion.
+ */
+export const evalBatchJobSchema = pgTable('eval_batch_job', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  runId: integer('run_id').notNull().references(() => evalRunSchema.id, { onDelete: 'cascade' }),
+  /** Which region's AgentCore holds the job — needed to build the console link. */
+  region: text('region').notNull(),
+  /**
+   * Our idempotency key, written before the job is started.
+   *
+   * A Temporal activity is at-least-once, so the start call can run twice for
+   * one run. AWS reuses the existing job when it sees the same token, which
+   * turns a retry into a no-op instead of a second job billing for the same
+   * sessions twice.
+   */
+  clientToken: text('client_token').notNull(),
+  /** AWS's id for the job. NULL between the row being written and the start landing. */
+  batchEvaluationId: text('batch_evaluation_id'),
+  batchEvaluationArn: text('batch_evaluation_arn'),
+  /** AWS's own status word, kept verbatim: PENDING, IN_PROGRESS, COMPLETED… */
+  status: text('status').notNull().default('PENDING'),
+  /**
+   * Why this job is not a clean success.
+   *
+   * Set for a failed job, for one that finished with errors, and for one that
+   * completed having graded nothing — which AWS reports as success and is what
+   * a wrong service name or log group looks like.
+   */
+  failure: text('failure'),
+  /** How many sessions AWS found, graded, failed on and skipped. */
+  sessionsTotal: integer('sessions_total').notNull().default(0),
+  sessionsCompleted: integer('sessions_completed').notNull().default(0),
+  sessionsFailed: integer('sessions_failed').notNull().default(0),
+  sessionsIgnored: integer('sessions_ignored').notNull().default(0),
+  /** Where AWS wrote the per-session detail, for a person to open. */
+  outputLogGroup: text('output_log_group'),
+  outputLogStream: text('output_log_stream'),
+  startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  // One batch job per run. A second job over the same sessions measures the
+  // same thing twice and bills for it twice.
+  uniqueIndex('eval_batch_job_run_idx').on(table.runId),
+  index('eval_batch_job_status_idx').on(table.status),
+]);
+
 export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
   runs: many(evalRunSchema),
   remotes: many(evalDatasetRemoteSchema),

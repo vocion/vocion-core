@@ -29,6 +29,7 @@ import { BedrockAgentCoreClient, EvaluateCommand } from '@aws-sdk/client-bedrock
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { bedrockRegion } from '@/libs/llm/bedrockCredentials';
 import { resolveAwsCredentials } from '@/services/ApiTokenService';
+import { evalCaseSessionId } from '../sessionIds';
 import { publishAgentcoreDataset } from './agentcoreDatasets';
 import { resolveAgentcoreEvaluators } from './agentcoreEvaluators';
 import { buildSessionSpans } from './agentcoreSpans';
@@ -117,7 +118,7 @@ async function isAvailable(orgId: string): Promise<ProviderAvailability> {
  * @param credentials - Needed to create a custom evaluator in AWS.
  * @param region - Where to talk to AWS.
  */
-async function evaluatorIdsFor(
+export async function evaluatorIdsFor(
   orgId: string,
   datasetSlug: string,
   credentials: AwsCredentials,
@@ -207,7 +208,7 @@ export function parseEvaluateResults(
  * @param job - Client, evaluator and the case to score.
  */
 async function evaluateOne(job: EvaluateJob): Promise<ProviderScore[]> {
-  const sessionId = `${job.datasetSlug}-${job.transcript.itemIndex}`;
+  const sessionId = evalCaseSessionId(job.datasetSlug, job.transcript.itemIndex);
   const spans = buildSessionSpans(job.transcript, sessionId);
   try {
     const response = await job.client.send(new EvaluateCommand({

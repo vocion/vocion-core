@@ -143,7 +143,7 @@ consequences worth knowing before you plan around it:
   a score is about that one execution and nothing else — rerunning the dataset
   is a new measurement, not a second opinion on the old one.
 
-## Three ways AgentCore evaluates, and the one we use
+## Three ways AgentCore evaluates, and the two we use
 
 AWS offers evaluation in three shapes, and they answer different questions:
 
@@ -159,9 +159,12 @@ AWS offers evaluation in three shapes, and they answer different questions:
 The last two read your agent's OpenTelemetry traces out of CloudWatch, which
 means an agent instrumented and delivering spans there. On-demand needs none of
 that — it is the shape Vocion's dataset runner uses, and it works wherever your
-agent runs. The other two need the tracing described in the next section.
-Nothing about the datasets or the evaluators changes either way; only who runs
-the cases.
+agent runs.
+
+Vocion supports the first two. On demand is the primary path because it is
+synchronous and always available; batch runs beside it, off by default, as the
+audit trail — see the two sections after the next one. Online evaluation is
+deliberately not enabled, for reasons written down below.
 
 Worth being clear about what the live-traffic shape can and cannot tell you.
 Nobody wrote down the right answer for a real customer's question, so online
@@ -199,13 +202,13 @@ page before enabling it in production — do not take a number from this guide.
 Tracing is on by default when you deploy the runtime:
 
 ```bash
-ENV=dev AWS_PROFILE=veerio bash infra/agentcore/deploy-runtime.sh
+ENV=dev AWS_PROFILE=<your-aws-profile> bash infra/agentcore/deploy-runtime.sh
 ```
 
 To deploy a runtime that emits nothing:
 
 ```bash
-OBSERVABILITY=false ENV=dev AWS_PROFILE=veerio bash infra/agentcore/deploy-runtime.sh
+OBSERVABILITY=false ENV=dev AWS_PROFILE=<your-aws-profile> bash infra/agentcore/deploy-runtime.sh
 ```
 
 Two things have to be in place first, and `infra/agentcore/provision.sh` does
@@ -246,15 +249,15 @@ In order, cheapest first.
 
 ```bash
 # 1. Is the runtime deployed with tracing on?
-aws --profile veerio --region us-west-2 bedrock-agentcore-control \
+aws --profile "$AWS_PROFILE" --region us-west-2 bedrock-agentcore-control \
   get-agent-runtime --agent-runtime-id "$RUNTIME_ID" \
   --query 'environmentVariables.AGENT_OBSERVABILITY_ENABLED'
 
 # 2. Is Transaction Search on in this region?
-aws --profile veerio --region us-west-2 xray get-trace-segment-destination
+aws --profile "$AWS_PROFILE" --region us-west-2 xray get-trace-segment-destination
 
 # 3. Did any spans land in the last hour?
-aws --profile veerio --region us-west-2 logs start-query \
+aws --profile "$AWS_PROFILE" --region us-west-2 logs start-query \
   --log-group-name 'aws/spans' \
   --start-time "$(($(date +%s) - 3600))" --end-time "$(date +%s)" \
   --query-string 'fields @timestamp, attributes.session.id, name | limit 20'
@@ -272,6 +275,120 @@ Two symptoms and what they mean:
 | --- | --- |
 | No trace at all in the console | Transaction Search off, or the role cannot write traces |
 | Traces present, but an evaluation scores nothing | Spans have no `session.id` — check the runtime's startup log |
+
+## Batch evaluation: a score someone can check without you
+
+The on-demand path returns a score and AWS keeps nothing. That is fine for a
+trend line and weak as evidence — the only record is a row in Vocion, and "our
+tool says our agent is good" is not what a client's security team is asking
+for.
+
+Batch evaluation answers the other way round. AWS reads the spans the agent
+runtime really wrote into CloudWatch, grades them server-side, keeps the job,
+and writes the per-session detail to a log group in the customer's own account.
+Someone who has never used Vocion can open it and read the result.
+
+It is **off by default** and turning it on spends money on the customer's AWS
+bill, so it is a decision, not a default.
+
+### Turning it on
+
+Two environment variables on the Vocion deployment:
+
+```bash
+# Start a batch job alongside every AgentCore-graded eval run.
+VOCION_AGENTCORE_BATCH_EVALS=1
+
+# Only if the runtime was deployed with a different service name or the spans
+# go somewhere other than the shared group. Defaults shown.
+VOCION_AGENTCORE_SPAN_SERVICE_NAMES=vocion_agent_runtime_dev
+VOCION_AGENTCORE_SPAN_LOG_GROUPS=aws/spans
+```
+
+Preconditions, all of which are the tracing section above: the agent runtime
+deployed with tracing on, Transaction Search enabled in the region, and the
+org's AWS credential connected. With the flag on and any of those missing, no
+job is started and the on-demand run is unaffected.
+
+`VOCION_AGENTCORE_SPAN_SERVICE_NAMES` must match the `service.name` the runtime
+was deployed with, exactly. This is the quietest failure in the whole feature:
+a name that matches nothing makes AWS find zero sessions, grade all of them,
+and report success. Vocion treats a job that graded nothing as a failure for
+exactly this reason, but the fix is to check the name.
+
+### What happens, in order
+
+1. The dataset runs. Each case is executed by the agent, and because the eval
+   runner names the session, the runtime stamps every span from that case with
+   `session.id = <dataset-slug>-<case-index>`.
+2. The on-demand scores are produced and stored, exactly as before. Everything
+   after this point is the audit trail and cannot affect them.
+3. Vocion starts a batch job naming those session ids, carrying the same
+   expected answers, and writes the job's identifiers to `eval_batch_job`
+   before AWS is called — so a crash cannot lose a job that is running.
+4. The Temporal workflow sleeps and polls, up to half an hour. Nothing is held
+   open while it waits.
+5. When the job stops, the per-evaluator averages are stored under the
+   `agentcore-batch` provider, and the job row records where AWS wrote the
+   per-session detail.
+
+### Reading the result
+
+A batch score is **an average over sessions**, not a per-case result. It is
+filed under its own provider id so it never shares a line with on-demand
+scores, which are a different kind of number. The per-case detail lives in
+AWS, not in Vocion.
+
+```bash
+# What the job did.
+aws --profile "$AWS_PROFILE" --region us-west-2 bedrock-agentcore \
+  get-batch-evaluation --batch-evaluation-id "$BATCH_ID"
+
+# Every job Vocion has started.
+aws --profile "$AWS_PROFILE" --region us-west-2 bedrock-agentcore list-batch-evaluations
+```
+
+In the console: CloudWatch → GenAI Observability → Bedrock AgentCore →
+Evaluations.
+
+### What each failure means
+
+| What you see | What it is |
+| --- | --- |
+| "found no sessions" | The service name, the log group or the session ids do not match what the runtime emitted. Check `VOCION_AGENTCORE_SPAN_SERVICE_NAMES` first |
+| `COMPLETED_WITH_ERRORS` | Some sessions graded, some did not. The averages are kept and cover fewer cases than the dataset has |
+| `FAILED` | AWS refused the job. `errorDetails` says why — usually the credential cannot read the log group |
+| No job at all | The flag is off, the dataset is not graded by AgentCore, or the org has no AWS credential |
+
+### Cost
+
+Batch is cheaper than on demand: **$0.0018 per 1,000 input tokens and $0.009
+per 1,000 output** against $0.0024 and $0.012 for the same built-in evaluators
+(read from AWS's pricing page on 2026-09-17 — check it again before committing
+to a cadence, and do not trust this paragraph). Running batch alongside
+on-demand means paying for both, which is the price of the audit trail.
+
+## Online evaluation, and why it is switched off
+
+AWS also offers a standing configuration that samples live traffic and scores
+it continuously, writing to CloudWatch metrics you can alarm on. Vocion does
+not enable it, and that is a decision rather than an omission.
+
+**It cannot grade against expected answers.** Nobody wrote down the right
+answer for a real customer's question, so online evaluation judges a session
+against itself — was the reply responsive, was it grounded in what the tools
+returned. That is a production health signal. It will not tell anyone whether
+the agent is correct, which is what a pass rate means here.
+
+**It bills continuously whether or not anyone is reading it.** A standing
+config costs money every day on the customer's account, and a number nobody
+looks at is not worth a recurring bill.
+
+Batch evaluation over a chosen window answers the same question better, with
+ground truth, and only costs when someone asks for it. The place online
+evaluation would earn its keep is alarming — page someone when correctness
+drops — and that is worth revisiting once batch runs have produced a baseline
+to drop from. Until someone asks for production monitoring, it stays off.
 
 ## Where the cases live
 

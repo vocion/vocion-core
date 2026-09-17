@@ -38,6 +38,7 @@ describe('produceTranscripts', () => {
     const [transcript] = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'refund 4471' }],
     });
 
@@ -50,6 +51,7 @@ describe('produceTranscripts', () => {
     const [transcript] = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'refund 4471' }],
     });
 
@@ -65,6 +67,7 @@ describe('produceTranscripts', () => {
     const [transcript] = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'refund 4471' }],
     });
 
@@ -84,6 +87,7 @@ describe('produceTranscripts', () => {
     const transcripts = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'one' }, { input: 'two' }, { input: 'three' }],
       concurrency: 1,
     });
@@ -104,6 +108,7 @@ describe('produceTranscripts', () => {
     const transcripts = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'slow' }, { input: 'fast' }],
       concurrency: 2,
     });
@@ -119,6 +124,7 @@ describe('produceTranscripts', () => {
     const [transcript] = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'x' }],
     });
 
@@ -131,6 +137,7 @@ describe('produceTranscripts', () => {
     const [transcript] = await produceTranscripts({
       orgId: 'org_1',
       agentSlug: 'support',
+      datasetSlug: 'refund-quality',
       items: [{ input: 'x' }],
     });
 

@@ -38,6 +38,11 @@ export type RunEvalDatasetOutput = {
   runId: number;
   scoreCount: number;
   error: string | null;
+  /**
+   * The AgentCore batch evaluation this run started, when it started one. The
+   * workflow polls it; null means there is nothing to wait for.
+   */
+  batchJobId: number | null;
 };
 
 /**
@@ -59,7 +64,21 @@ export async function runEvalDatasetActivity(input: RunEvalDatasetInput): Promis
     runId: result.run.runId,
     scoreCount: result.run.scoreCount,
     error: result.run.error,
+    batchJobId: result.batchJobId,
   };
+}
+
+/**
+ * Ask AWS where one batch evaluation got to, and store what it says.
+ *
+ * Returns true once the job has stopped and will not change again, which is
+ * the workflow's signal to stop polling. Safe to call on a job that has
+ * already finished: it returns true without calling AWS.
+ * @param jobId - The `eval_batch_job` row to advance.
+ */
+export async function advanceEvalBatchActivity(jobId: number): Promise<boolean> {
+  const { advanceBatchJob } = await import('@/services/evals/batch');
+  return advanceBatchJob(jobId);
 }
 
 /**

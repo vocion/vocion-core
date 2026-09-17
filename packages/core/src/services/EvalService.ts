@@ -20,8 +20,10 @@
 
 import type { EvalScoreProvider } from './evals/providers/types';
 import type { ProviderRunResult, ScoreWithProviderOptions } from './evals/scoring';
+import type { CaseTranscript } from './evals/transcripts';
 import type { EvalDatasetItem } from './evals/types';
 import type { LangChainProvider } from '@/libs/llm';
+import process from 'node:process';
 import { and, asc, avg, desc, eq, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
@@ -421,6 +423,12 @@ export type RunDatasetAndScoreOptions = RunDatasetOptions & {
 export type RunDatasetAndScoreResult = {
   runGroupId: string | null;
   run: ProviderRunResult;
+  /**
+   * The AgentCore batch evaluation started for this run, when one was. Null is
+   * the ordinary case — batch evaluation is opt-in per deployment. The caller
+   * polls it; it is running on AWS by the time this returns.
+   */
+  batchJobId: number | null;
 };
 
 /**
@@ -465,6 +473,7 @@ export async function runDatasetAndScore(
   const transcripts = await produceTranscripts({
     orgId: opts.orgId,
     agentSlug: dataset.agentSlug,
+    datasetSlug: dataset.slug,
     items,
     modelOverride,
     concurrency: opts.concurrency,
@@ -488,7 +497,53 @@ export async function runDatasetAndScore(
   const run = await scoreWithProvider({ ...shared, provider, existingRunId: runId });
   await recordEvalEpisode(opts.orgId, dataset.slug, dataset.agentSlug, run);
 
-  return { runGroupId: opts.runGroupId ?? null, run };
+  // The audit trail, started here because this is the only place the finished
+  // transcripts and their ground truth are both in hand. It grades the spans
+  // the agent really emitted, in the customer's own account, so the score is
+  // checkable by someone who does not have Vocion.
+  //
+  // Opt-in, and deliberately not on by default: it bills the customer's AWS
+  // account per token graded, and it only works at all once the agent runtime
+  // is deployed with tracing on. Off, everything above is unchanged.
+  const batchJobId = await maybeStartBatch(opts.orgId, dataset.slug, provider.id, runId, transcripts);
+
+  return { runGroupId: opts.runGroupId ?? null, run, batchJobId };
+}
+
+/**
+ * Start an AgentCore batch evaluation for this run, when one is wanted.
+ *
+ * Returns the job row's id when a job was started, and null otherwise — which
+ * is the ordinary case. Null means one of: the deployment has not turned batch
+ * evaluation on, this dataset is graded by someone other than AgentCore, or
+ * the org has no AWS credential connected.
+ *
+ * Never throws. The on-demand scores are already written by the time this
+ * runs, and losing the second opinion must not turn a finished run into a
+ * failed one.
+ * @param orgId - Whose workspace.
+ * @param datasetSlug - The dataset that just ran.
+ * @param providerId - The grader that scored it.
+ * @param runId - The run to attach the job to.
+ * @param transcripts - The finished cases, with their ground truth.
+ */
+async function maybeStartBatch(
+  orgId: string,
+  datasetSlug: string,
+  providerId: string,
+  runId: number,
+  transcripts: CaseTranscript[],
+): Promise<number | null> {
+  if (process.env.VOCION_AGENTCORE_BATCH_EVALS !== '1' || providerId !== 'agentcore') {
+    return null;
+  }
+  try {
+    const { startBatchForRun } = await import('./evals/batch');
+    return await startBatchForRun({ orgId, runId, datasetSlug, transcripts });
+  } catch (error) {
+    console.error(`[evals] could not start the batch evaluation for run ${runId}`, error);
+    return null;
+  }
 }
 
 /**

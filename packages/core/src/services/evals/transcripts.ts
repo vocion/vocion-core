@@ -26,6 +26,7 @@ import { mapWithConcurrency } from '@/libs/concurrency';
 import { db } from '@/libs/DB';
 import { evalCaseResultSchema } from '@/models/Schema';
 import { runAgentDeep } from '../AgentService';
+import { evalCaseSessionId } from './sessionIds';
 
 /**
  * How many cases run at once.
@@ -77,6 +78,7 @@ export type CaseTranscript = {
 type CaseJob = {
   orgId: string;
   agentSlug: string;
+  datasetSlug: string;
   itemIndex: number;
   item: EvalDatasetItem;
   modelOverride: { model: string; provider?: LangChainProvider } | undefined;
@@ -85,6 +87,8 @@ type CaseJob = {
 export type ProduceTranscriptsOptions = {
   orgId: string;
   agentSlug: string;
+  /** Names the session each case's spans land under. See `sessionIds.ts`. */
+  datasetSlug: string;
   items: EvalDatasetItem[];
   modelOverride?: { model: string; provider?: LangChainProvider };
   /** Defaults to `DEFAULT_CASE_CONCURRENCY`. */
@@ -109,6 +113,10 @@ async function runCase(job: CaseJob): Promise<CaseTranscript> {
       message: job.item.input,
       userId: 'eval-runner',
       modelOverride: job.modelOverride,
+      // Names the session this case's spans land under, so a batch job can
+      // address its expected answer to the same session the on-demand path
+      // synthesizes. Without it every case in the dataset shares one session.
+      sessionId: evalCaseSessionId(job.datasetSlug, job.itemIndex),
     });
     const toolCalls = result.toolCalls ?? [];
     return {
@@ -154,6 +162,7 @@ export async function produceTranscripts(options: ProduceTranscriptsOptions): Pr
   const jobs: CaseJob[] = options.items.map((item, itemIndex) => ({
     orgId: options.orgId,
     agentSlug: options.agentSlug,
+    datasetSlug: options.datasetSlug,
     itemIndex,
     item,
     modelOverride: options.modelOverride,
