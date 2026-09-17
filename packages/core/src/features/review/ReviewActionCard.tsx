@@ -554,7 +554,9 @@ export function ReviewActionCard(props: {
             value: note,
             onChange: setNote,
             disabled: held,
-            action: card.canRegenerate && run.status !== 'failed'
+            // A failed card opens the field: regenerate-then-retry is its repair path.
+            defaultOpen: execError !== null && card.canRegenerate,
+            action: card.canRegenerate
               ? { label: regenerating ? 'Regenerating…' : 'Regenerate', onClick: () => void regenerateRun(), disabled: held || !note.trim(), busy: busy || regenerating, icon: RefreshCw }
               : undefined,
             hint: card.canRegenerate && !regenerating && !note.trim() ? 'Type feedback to regenerate' : undefined,
@@ -848,7 +850,7 @@ export function ReviewActionCard(props: {
               disabled={held}
             />
           </label>
-          {card.canRegenerate && run.status !== 'failed' && (
+          {card.canRegenerate && (
             <div className="mt-2 flex items-center justify-end gap-2">
               {!regenerating && !note.trim() && <span className="text-[11px] text-muted-foreground">Type feedback to regenerate</span>}
               <Button size="sm" variant="outline" onClick={() => void regenerateRun()} disabled={held || !note.trim()}>

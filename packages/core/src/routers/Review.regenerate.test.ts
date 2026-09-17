@@ -162,6 +162,17 @@ describe('regenerateAction route', () => {
     expect(regenerate).not.toHaveBeenCalled();
   });
 
+  it('accepts a failed run — regenerate-then-retry is its repair path', async () => {
+    const regenerate = vi.fn(async () => {});
+    vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
+    const runId = await makeRun({ status: 'failed' });
+
+    const res = await call<{ ok: boolean }>(regenerateActionRoute, { id: runId, feedback: 're-pick the sender' });
+
+    expect(res).toEqual({ ok: true });
+    expect((await stampOf(runId)).regeneratingSince).not.toBeNull();
+  });
+
   it('refuses an action that never declared the capability, recording nothing', async () => {
     vi.mocked(getAction).mockReturnValue({} as unknown as ReturnType<typeof getAction>);
     const runId = await makeRun();

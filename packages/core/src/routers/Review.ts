@@ -421,8 +421,9 @@ export const regenerateActionRoute = os
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
       .limit(1);
-    if (!run || run.status !== 'pending') {
-      throw ApiError.notFound(`no pending action ${input.id}`);
+    // Failed runs regenerate too — the redraft's dedup refresh reclaims them to pending.
+    if (!run || (run.status !== 'pending' && run.status !== 'failed')) {
+      throw ApiError.notFound(`no regenerable action ${input.id}`);
     }
     const action = getAction(run.actionId);
     if (!action?.regenerate) {
