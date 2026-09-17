@@ -171,7 +171,7 @@ export function LearningDecision({ candidate }: { candidate: LearningCandidateVi
         )}
         {!open && (
           <p className="mt-3">
-            <Link href="/dashboard/inbox?kind=learning" className="text-[13px] text-primary underline-offset-2 hover:underline" data-testid="learning-back">Back to Needs you</Link>
+            <Link href="/dashboard/inbox?kind=learning" className="text-[13px] text-primary underline-offset-2 hover:underline" data-testid="learning-back">Back to the review queue</Link>
           </p>
         )}
       </section>

@@ -61,7 +61,7 @@ function noKnown(): KnownCards {
  * @param startDate - The card's date segment.
  */
 function keyFor(startDate: string): string {
-  return `objects.propose_candidate:event-candidate|open-mic-night|${startDate}|higher-ground`;
+  return `objects.propose_candidate:event-candidate|open-mic-night|${startDate}|bellwater-hall`;
 }
 
 /**
@@ -100,7 +100,7 @@ async function seedCard(opts: {
   seriesKey?: string;
 }) {
   const title = opts.title ?? 'open-mic-night';
-  const venue = opts.venue ?? 'higher-ground';
+  const venue = opts.venue ?? 'bellwater-hall';
   const [row] = await db.insert(actionRunSchema).values({
     orgId: ORG,
     actionId: 'objects.propose_candidate',
@@ -123,7 +123,7 @@ function record(over: Record<string, unknown> = {}) {
     fields: {
       title: 'Open Mic Night',
       startDate: '2026-11-19',
-      venueName: 'Higher Ground',
+      venueName: 'Bellwater Hall',
       ...fields,
     },
     confidence: 0.9,
@@ -250,7 +250,7 @@ describe('series and duplicate labels', () => {
   });
 
   it('does not treat the same title at another venue as a sibling', async () => {
-    await seedCard({ startDate: '2026-11-12', venue: 'the-flynn', recurrence: 'every Thursday' });
+    await seedCard({ startDate: '2026-11-12', venue: 'the-corvina', recurrence: 'every Thursday' });
     const records = [record()];
 
     const counts = await labelRecords({ orgId: ORG, config, records, known: noKnown() });
@@ -260,7 +260,7 @@ describe('series and duplicate labels', () => {
   });
 
   it('does not treat the same day as a sibling, that is a duplicate, not a series', async () => {
-    await seedCard({ startDate: '2026-11-19', venue: 'higher-ground', recurrence: 'every Thursday' });
+    await seedCard({ startDate: '2026-11-19', venue: 'bellwater-hall', recurrence: 'every Thursday' });
     const records = [record()];
 
     await labelRecords({ orgId: ORG, config, records, known: noKnown() });

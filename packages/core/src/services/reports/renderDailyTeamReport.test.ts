@@ -203,7 +203,7 @@ describe('renderDailyTeamReport', () => {
     expect(s.next[0]).toContain('[inbox](https://agents.example.com/w/vocion-workforce/dashboard/inbox)');
     expect(s.next[1]).toContain('next report lands in 24 hours');
     expect(s.rollup).toMatchObject({ title: 'Workspace rollup — Mon, Sep 14', truncated: false });
-    expect(s.evidence.map(e => e.label)).toEqual(['Runs', 'Completed', 'Failed / lost', 'Spend', 'Tokens', 'Board runs', 'Red-team runs', 'Needs you']);
+    expect(s.evidence.map(e => e.label)).toEqual(['Runs', 'Completed', 'Failed / lost', 'Spend', 'Tokens', 'Board runs', 'Red-team runs', 'Review queue']);
   });
 
   it('is calm when nothing is wrong, and honest when nothing ran', () => {

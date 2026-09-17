@@ -50,7 +50,7 @@ const ARTIFACTS: ArtifactListItem[] = [
   artifact({ id: 1, title: 'Pipeline by stage', kind: 'table', version: 3, versions: 3 }),
   artifact({ id: 2, title: 'Q3 platform plan', kind: 'markdown', folder: 'planning', conversationTitle: 'Planning' }),
   artifact({ id: 3, title: 'Win rate by segment', kind: 'chart', authorKind: 'human', authorId: 'chris', folder: null }),
-  artifact({ id: 4, title: 'Redpoint IT — account snapshot', kind: 'record', folder: 'accounts' }),
+  artifact({ id: 4, title: 'Contoso Supply — account snapshot', kind: 'record', folder: 'accounts' }),
 ];
 
 export const Default: Story = {

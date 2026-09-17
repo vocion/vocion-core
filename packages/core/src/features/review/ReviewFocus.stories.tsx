@@ -45,7 +45,7 @@ const enroll: ActionRun = {
   card: {
     title: 'New MQL ready to enroll',
     system: 'Personalization',
-    subject: { name: 'Dana Whitfield', role: 'Managing Partner', company: 'Agentix — AI Automation Agency' },
+    subject: { name: 'Dana Whitfield', role: 'Managing Partner', company: 'Vantage Automation — AI Automation Agency' },
     provenance: [
       { label: 'Source', value: 'Paid social' },
       { label: 'Campaign', value: 'LinkedIn' },
@@ -57,7 +57,7 @@ const enroll: ActionRun = {
     },
     contentHeading: { label: 'Outreach · 4 sends', meta: '12 days' },
     content: [
-      { kind: 'email', id: 's1', label: 'Send 1', subject: 'AI automation agencies and the build gap', body: 'Dana,\n\nSaw you\'re running Agentix alongside the platform relaunch — interesting moment to be building an AI automation practice.' },
+      { kind: 'email', id: 's1', label: 'Send 1', subject: 'AI automation agencies and the build gap', body: 'Dana,\n\nSaw you\'re running Vantage Automation alongside the platform relaunch — interesting moment to be building an AI automation practice.' },
       { kind: 'email', id: 's2', label: 'Send 2', subject: 'Re: AI automation agencies and the build gap', body: 'One more thought on the build gap…' },
       { kind: 'email', id: 's3', label: 'Send 3', subject: 'What we actually build', body: 'A short list of what we ship for agencies like yours.' },
       { kind: 'email', id: 's4', label: 'Send 4', subject: 'Leaving it here', body: 'If the timing is off, no worries — leaving it here.' },
@@ -93,7 +93,7 @@ const gmailSend: ActionRun = {
 /**
  * A discovery assessment. The card names its own object, so the H1 is the
  * meeting ("Project Ranger – Follow Up"), the line under it says what kind of
- * record this is, and the breadcrumb reads Needs you › Discovery › <object>
+ * record this is, and the breadcrumb reads Review queue › Discovery › <object>
  * instead of putting a generated identifier where the page's name belongs.
  * The long Up-next label beside it is what used to squeeze the H1 into ~150px.
  * Every name is a fixture.

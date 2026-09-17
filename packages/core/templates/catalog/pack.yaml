@@ -1,0 +1,18 @@
+# The agent catalog — the library a workspace hires from.
+#
+# Same authored shape as templates/base (pack.yaml + agents/ + skills/), so
+# the loader, the schemas and workspace:check all apply unchanged. It is NOT
+# a base pack a workspace `extends`: nothing here is composed in
+# automatically. CatalogService reads it, the Marketplace tab lists what an
+# org has not hired, and hiring copies one agent into the workspace.
+#
+# An agent declares what it reaches for by connector CATEGORY, never by
+# vendor. There is deliberately no permission field: whether an agent may
+# write belongs to the installation, and an agent's write ceiling is the
+# union of its skills' own write paths.
+name: catalog
+version: 1.0.0
+description: >-
+  17 hireable agents composed from 138 skills. Definitions only —
+  system prompts and skill instructions. Connectors are installed separately;
+  every agent has a files-only path and works with nothing connected.

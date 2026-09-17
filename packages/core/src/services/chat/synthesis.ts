@@ -20,7 +20,7 @@ import { listBusinessObjects } from '@/services/BusinessObjectService';
  * Chip shape (per Chris, 2026-07-20): the surface anchors on exactly TWO
  * constant-label chips — "What should I do?" (ranked next actions) and
  * "What can you do?" (capabilities) — whose PROMPTS are emergent. Any more
- * specific chips synthesis produces (e.g. "Draft the Carlo Marcelino note")
+ * specific chips synthesis produces (e.g. "Draft the Nadia Brandt note")
  * rank after the anchors and live behind the quiet "More" caret.
  *
  * Grounding priority (also explicit from Chris): missions + tracker/wiki

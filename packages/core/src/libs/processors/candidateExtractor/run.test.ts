@@ -49,7 +49,7 @@ const config = candidateExtractorConfigSchema.parse({
   titleFrom: 'title',
   promptFragment: 'Only events open to the public.',
   timezone: 'America/New_York',
-  defaults: { venueName: 'Higher Ground', venueCity: 'South Burlington' },
+  defaults: { venueName: 'Bellwater Hall', venueCity: 'Riverton' },
   knownCandidates: { keyedBy: 'venueName', dateField: 'startDate' },
   dropIfPast: { field: 'startDate', keepIfField: 'end' },
   allowedValues: { categories: ['Music', 'Comedy'] },
@@ -80,11 +80,11 @@ async function seedAnchor(offset: number): Promise<number> {
     orgId: ORG,
     actionId: 'objects.propose_candidate',
     status: 'pending',
-    dedupKey: `objects.propose_candidate:event-candidate|open-mic-night|${day(offset)}|higher-ground`,
+    dedupKey: `objects.propose_candidate:event-candidate|open-mic-night|${day(offset)}|bellwater-hall`,
     input: {
       objectType: 'event-candidate',
       title: 'Open Mic Night',
-      fields: { title: 'Open Mic Night', startDate: day(offset), venueName: 'Higher Ground', recurrence: 'every Thursday' },
+      fields: { title: 'Open Mic Night', startDate: day(offset), venueName: 'Bellwater Hall', recurrence: 'every Thursday' },
     },
   }).returning({ id: actionRunSchema.id });
   return row!.id;
@@ -92,18 +92,18 @@ async function seedAnchor(offset: number): Promise<number> {
 
 /** A trimmed listing page, the shape `extractFromHtml` hands the processor. */
 const document = {
-  externalId: 'https://highergroundmusic.com/events',
-  uri: 'https://highergroundmusic.com/events',
+  externalId: 'https://bellwaterhall.example/events',
+  uri: 'https://bellwaterhall.example/events',
   title: 'Upcoming shows',
   content: [
-    'Upcoming shows at Higher Ground, South Burlington',
+    'Upcoming shows at Bellwater Hall, Riverton',
     'Open Mic Night, every Thursday, 8pm. Free.',
-    'The Music of Hey Arnold! Live, 8pm. Tickets $28.',
+    'The Music of Moonrise Live, 8pm. Tickets $28.',
     'Last Month\'s Benefit, already happened.',
   ].join('\n'),
   metadata: {
-    jsonLd: [{ '@type': 'Event', 'name': 'Open Mic Night', 'url': 'https://highergroundmusic.com/e/open-mic' }],
-    links: [{ url: 'https://highergroundmusic.com/e/open-mic', text: 'Open Mic Night' }],
+    jsonLd: [{ '@type': 'Event', 'name': 'Open Mic Night', 'url': 'https://bellwaterhall.example/e/open-mic' }],
+    links: [{ url: 'https://bellwaterhall.example/e/open-mic', text: 'Open Mic Night' }],
   },
 };
 
@@ -113,23 +113,23 @@ function answer() {
     content: JSON.stringify({
       records: [
         {
-          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Higher Ground', categories: ['Music'], recurrence: 'every Thursday', price: 'Free' },
+          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'], recurrence: 'every Thursday', price: 'Free' },
           confidence: 0.9,
-          sourceUrl: 'https://highergroundmusic.com/e/open-mic',
+          sourceUrl: 'https://bellwaterhall.example/e/open-mic',
         },
         {
-          fields: { title: 'The Music of Hey Arnold! Live', startDate: day(21), venueName: 'Higher Ground', categories: ['Music', 'Interpretive Dance'], price: '$28' },
+          fields: { title: 'The Music of Moonrise Live', startDate: day(21), venueName: 'Bellwater Hall', categories: ['Music', 'Interpretive Dance'], price: '$28' },
           confidence: 0.8,
         },
         // Duplicated by a "featured" block at the top of the same page.
         {
-          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Higher Ground', categories: ['Music'] },
+          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'] },
           confidence: 0.7,
         },
         // Already happened.
-        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Higher Ground' }, confidence: 0.9 },
+        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Bellwater Hall' }, confidence: 0.9 },
         // The model was not sure.
-        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Higher Ground' }, confidence: 0.2 },
+        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Bellwater Hall' }, confidence: 0.2 },
       ],
     }),
     usage_metadata: { input_tokens: 3200, output_tokens: 420 },
@@ -140,7 +140,7 @@ function context(over: Record<string, unknown> = {}) {
   return {
     orgId: ORG,
     sourceId: 1,
-    sourceSlug: 'higher-ground',
+    sourceSlug: 'bellwater-hall',
     document,
     outcome: { status: 'created' as const, documentId: 4242, chunks: 3 },
     config,
@@ -201,7 +201,7 @@ describe('candidate extractor, one document end to end', () => {
 
     const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
     const events = runs.filter(row => (row.input as { objectType?: string }).objectType === 'event-candidate');
-    const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Hey Arnold'));
+    const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Moonrise'));
     const fields = (arnold?.input as { fields: Record<string, unknown> }).fields;
     const openMic = events.find(row => row.id !== anchor && (row.input as { title?: string }).title === 'Open Mic Night');
     const openMicFields = (openMic?.input as { fields: Record<string, unknown> }).fields;
@@ -216,7 +216,7 @@ describe('candidate extractor, one document end to end', () => {
     // The price's digits are on the page, so it survived.
     expect(fields.price).toBe('$28');
     // The source default filled the city the page never repeated.
-    expect(fields.venueCity).toBe('South Burlington');
+    expect(fields.venueCity).toBe('Riverton');
     // And the venue was proposed once and threaded onto the record.
     expect(typeof fields.venueCandidateRun).toBe('number');
     expect(runs.filter(row => (row.input as { objectType?: string }).objectType === 'venue-candidate')).toHaveLength(1);
@@ -234,11 +234,50 @@ describe('candidate extractor, one document end to end', () => {
     const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
     const events = runs.filter(row => (row.input as { objectType?: string }).objectType === 'event-candidate');
     const openMic = events.find(row => row.id !== anchor && (row.input as { title?: string }).title === 'Open Mic Night');
-    const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Hey Arnold'));
+    const arnold = events.find(row => (row.input as { title?: string }).title?.includes('Moonrise'));
 
     expect(openMic?.proposal?.labels).toEqual(['seriesMatch', 'seriesKey']);
     // Nothing labelled this one, so it declares nothing at all.
     expect(arnold?.proposal).not.toHaveProperty('labels');
+  });
+
+  it('keeps the URLs a feed entry declared, having no links or JSON-LD to check against', async () => {
+    // The join this file exists to cover: the connector writes the URLs onto
+    // the document, the processor has to hand them to the gate. Tested in the
+    // two halves separately, a dropped hand-off here is silent, and the whole
+    // defect this fixes was one missing hand-off.
+    const entry = {
+      externalId: 'https://venue.test/events.ics#evt-1',
+      uri: 'https://venue.test/events.ics#evt-1',
+      title: 'Poster Night',
+      content: 'BEGIN:VEVENT\nSUMMARY:Poster Night\nURL:https://venue.test/e/poster-night\nEND:VEVENT',
+      // What a calendar entry has: no parsed links, no JSON-LD, its own list.
+      metadata: {
+        contentType: 'text/calendar',
+        feedUrl: 'https://venue.test/events.ics',
+        publishedUrls: ['https://venue.test/e/poster-night', 'https://cdn.venue.test/poster.png'],
+      },
+    };
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{
+          fields: { title: 'Poster Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'] },
+          confidence: 0.9,
+          sourceUrl: 'https://venue.test/e/poster-night',
+          imageUrl: 'https://cdn.venue.test/poster.png',
+        }],
+      }),
+      usage_metadata: { input_tokens: 900, output_tokens: 120 },
+    });
+
+    await run(context({ document: entry }));
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const card = runs.find(row => (row.input as { title?: string }).title === 'Poster Night');
+    const input = card?.input as { sourceUrl?: string; imageUrl?: string };
+
+    expect(input.sourceUrl).toBe('https://venue.test/e/poster-night');
+    expect(input.imageUrl).toBe('https://cdn.venue.test/poster.png');
   });
 
   it('reports a skip instead of throwing when the model never answers', async () => {

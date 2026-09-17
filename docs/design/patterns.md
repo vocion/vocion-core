@@ -172,9 +172,9 @@ Lane 12   Lane 3   Lane 40      [🔍 Find…]  Sort ▾  ↓      trailing
 
 ```
 DetailPage ─────────────────────────────────────────────────────────────
-  Workspace › Personalization › Pete Laverick                 [actions]
-  Pete Laverick                                    (H1, 22px)
-  CEO · Incline Gaming Marketing Inc
+  Workspace › Personalization › Rowan Pike                    [actions]
+  Rowan Pike                                       (H1, 22px)
+  CEO · Tideline Gaming Marketing Inc
   PERSONALIZATION · ● Ready for review · proposed by revenue-lead ·
   ▮▮▮▯▯ uncertain 0.60 · Paid social · MQL Sep 1 · Open in HubSpot ↗   (DetailMeta)
   ───────────────────────────────────────────────────────────────────── (hairline)
@@ -186,11 +186,11 @@ DetailPage ───────────────────────
   ───────────────────────────────────────────  │ TIMELINE
   PROSPECT FACTS                               │ Arrived      Aug 29
   Role         CEO                             │ Became MQL   Sep 1
-  Company      Incline Gaming Marketing        │
+  Company      Tideline Gaming Marketing       │
   ───────────────────────────────────────────  │ CRM CONTEXT
   RESEARCH THAT MATTERS                        │ …
   Claim.                                       │
-  [FACT] incline.bet/about · 2026-08-30        │
+  [FACT] tideline.example/about · 2026-08-30   │
   ───────────────────────────────────────────  │
   OUTREACH · 2 SENDS                 [Edit all]│
   › Day 0 · The ebook you pulled               │
@@ -232,6 +232,59 @@ The decision logic for a review run lives in
 `features/review/useReviewDecision` — the card's wiring as a hook — so a
 Detail page decides the same run through the same calls the review queue
 does.
+
+### A Detail page with more than one document is a Detail page with tabs
+
+A record whose content is genuinely several documents — a research brief, an
+outreach recommendation, a draft sequence, the evidence under all three — does
+not get a column each. It gets ONE recommendation block and a `Tabs` row, and
+the archetype is otherwise unchanged: same crumbs, same H1, same one meta line,
+same sticky bar.
+
+```
+DetailPage ─────────────────────────────────────────────────────────────
+  Workspace › Personalization › Rowan Pike
+  Rowan Pike                                       (H1, 22px)
+  CEO · Tideline Gaming Marketing Inc
+  ● Ready for review · Paid social · MQL Sep 1 · ▮▮▮▯▯ Research 60% ·
+    Open in HubSpot ↗                                        (DetailMeta)
+  ───────────────────────────────────────────────────────────────────── (hairline)
+  RECOMMENDATION                           [Discuss recommendation]
+  Enroll in Ebook Inbound Sequence · 2 sends
+  One sentence of why.
+  CURRENT STATE      MQL Auto-Nurture · active · step 1 of 3
+  VOCION RECOMMENDS  Ebook Inbound Sequence · 2 sends
+  APPROVING WILL     Unenroll from MQL Auto-Nurture and enroll in …
+  ↻ Regenerate
+  ─────────────────────────────────────────────────────────────────────
+  Brief   Sequence · 2   Evidence                                (Tabs)
+  ─────────────────────────────────────────────────────────────────────
+  … the tab's `Section`s …
+
+  StickyActionBar (sticky bottom)
+  [⌃ Add feedback]                    Snooze   Decline   ▐ Enroll ▌
+```
+
+- **No right column.** What used to live there — confidence, timeline, CRM
+  context — belongs to one of the documents, and putting it in a column beside
+  all of them made it belong to none. Confidence is in the brief; the timeline
+  and the CRM record are under Evidence.
+- **The last tab is always Evidence**, and it is where everything the reduction
+  pass took off the first screen went. Nothing is deleted; it is one click
+  away (§12).
+- **One primary, and it can be HELD.** Where the page cannot say what the
+  primary would actually do — here, whether approving adds a sequence or
+  replaces one — the bar states the reason and disables it rather than offering
+  a verb with two meanings.
+- **Each document carries its own Regenerate**, beside the document. One
+  Regenerate in a shared column silently means whichever document its author
+  had in mind, which is how the lead page's regenerate went unfound: it had
+  both forms and good copy and sat below confidence, timeline and CRM context
+  in the column this rule deletes.
+
+**Where it came from.** `docs/specs/personalization-v2.md`: *"Cap it at
+navigation | primary workspace | optional copilot drawer. The metadata column
+goes away."*
 
 ## Ledger
 
@@ -510,8 +563,7 @@ no note required, the same motion on every Detail page.
 - `record` — what the passage is about, carried with it so the turn is filed
   against the right thing.
 
-Live on: the personalization lead page (`LeadContext`'s brief sections and CRM
-context) and the **Briefing detail** (every rendered section of the typed
+Live on: the personalization lead workspace (every `Section` on every tab) and the **Briefing detail** (every rendered section of the typed
 document, through `Section`). The briefing's own bespoke "Ask Vocion" pill is
 gone; two selection controls on two pages doing the same job was the defect,
 per MANIFESTO §19.
@@ -686,6 +738,34 @@ window event, the same shape as `dockState.ts`, so the surface that does the
 work and the surface that shows the result hold no reference to each other and
 an unmounted listener simply does not hear it.
 
+## The drawer has a scope
+
+The conversation rail beside a record is opened from somewhere, and the
+somewhere is the subject. Opened from the brief it is **Ask about brief**; from
+Send 2, **Editing Send 2**; from the recommendation, **Discuss
+recommendation**. The scope rides the same `requestAgentSurface({ scope })`
+intent as the prompt and the context, and renders as one line in the rail's
+header — **not a second panel, not a second conversation, not a second
+composer.**
+
+Two things make it a rule rather than a nicety:
+
+- **"Make this less salesy" needs a referent.** On a page showing three
+  artifacts, an unscoped ask is a guess, and the person cannot tell which guess
+  the model made.
+- **Scope is what the turn attaches, said out loud.** The rail lists what it is
+  *Working with* above the composer, and that list is literally the artifact
+  ids the turn carries (`PageContext.artifacts`, resolved server-side by
+  `services/chat/grounding.ts`, which also writes them into the turn as
+  canonical). It is grounding the person can see — and it is not a second
+  rendering of the page, which the rule above still forbids: the chips name the
+  artifacts, they never draw them.
+
+**Where it came from.** `docs/specs/personalization-v2.md`: the chat answered
+*"there's no brief or proposal to review here"* beside a page rendering a
+brief, and asserted engagement facts on a brief that marked those fields
+unavailable.
+
 ## Preview where you are, from any reference
 
 A reference to a record — a citation, an evidence chip, a linked row — opens
@@ -804,7 +884,7 @@ or `<PreviewRef recordRef={…} />` (a typed ref) from `features/preview`. Rende
 the panel anywhere; only the first mounted host paints.
 
 Live on: the proposal decision sheet's Evidence (`AskSheet`), the lead brief's
-Claims (`LeadContext`, through `EvidenceList`'s `renderSource` slot), the
+Claims (`LeadTabs`, through `EvidenceList`'s `renderSource` slot), the
 briefing decision cards' evidence (`DecisionCards`), and — as whole lists —
 Search (`SearchResults`) and Artifacts (`ArtifactLog`).
 

@@ -101,14 +101,14 @@ describe('assembleAgentMemory — budget', () => {
 
 describe('objectKnowledge — the entities-in-play layer', () => {
   it('resolves facts per object and never leaks across objects or orgs', async () => {
-    const spinutech = await ensureScopedNamespace(ORG, 'object', 'account/41');
+    const northwind = await ensureScopedNamespace(ORG, 'object', 'account/41');
     const gauge = await ensureScopedNamespace(ORG, 'object', 'account/77');
-    await addRule({ orgId: ORG, stepName: spinutech.name, ruleText: 'Spinutech uses HubSpot and Apollo.', type: 'knowledge' });
-    await addRule({ orgId: ORG, stepName: gauge.name, ruleText: 'Gauge owns healthcare-IT.', type: 'knowledge' });
+    await addRule({ orgId: ORG, stepName: northwind.name, ruleText: 'Northwind uses HubSpot and Apollo.', type: 'knowledge' });
+    await addRule({ orgId: ORG, stepName: gauge.name, ruleText: 'Kestrel owns healthcare-IT.', type: 'knowledge' });
 
     const known = await objectKnowledge(ORG, ['account/41']);
 
-    expect(known.get('account/41')).toEqual(['Spinutech uses HubSpot and Apollo.']);
+    expect(known.get('account/41')).toEqual(['Northwind uses HubSpot and Apollo.']);
     expect(known.has('account/77')).toBe(false);
 
     const crossOrg = await objectKnowledge(OTHER_ORG, ['account/41']);

@@ -94,11 +94,11 @@ describe('hubspotConnector', () => {
 
   it('embeds company identity (name, domain, industry, description) and keeps size in metadata', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => res({
-      results: [{ id: '9', properties: { name: 'TerraClear', domain: 'terraclear.com', industry: 'COMPUTER_SOFTWARE', description: 'Rock-picking robots.', numberofemployees: '120' } }],
+      results: [{ id: '9', properties: { name: 'SunFleet', domain: 'sunfleet.example', industry: 'COMPUTER_SOFTWARE', description: 'Fleet-maintenance software.', numberofemployees: '120' } }],
     })));
     const docs = await collect(hubspotConnector.sync(ctx({ config: { objectType: 'companies' } })));
 
-    expect(docs[0]!.content).toBe('TerraClear\nterraclear.com\nCOMPUTER_SOFTWARE\nRock-picking robots.');
+    expect(docs[0]!.content).toBe('SunFleet\nsunfleet.example\nCOMPUTER_SOFTWARE\nFleet-maintenance software.');
     expect(docs[0]!.content).not.toContain('120');
     expect(docs[0]!.metadata!.employees).toBe(120);
   });

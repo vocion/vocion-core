@@ -33,7 +33,7 @@ async function renderHeader() {
     <NextIntlClientProvider locale="en" messages={messages}>
       <div className="px-6 py-4">
         <ReviewHeader
-          crumbs={[{ label: 'Workspace' }, { label: 'Needs you' }, { label: 'Discovery' }]}
+          crumbs={[{ label: 'Workspace' }, { label: 'Review queue' }, { label: 'Discovery' }]}
           title={LONG}
           status="pending"
           canBack

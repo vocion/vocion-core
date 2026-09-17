@@ -37,12 +37,12 @@ describe('decision sheets', () => {
       workspaceName: 'Fixture workspace',
     });
 
-    expect(crumbs?.map(c => c.label)).toEqual(['Fixture workspace', 'Needs you', 'someone@example.test']);
+    expect(crumbs?.map(c => c.label)).toEqual(['Fixture workspace', 'Review', 'someone@example.test']);
   });
 
   it('drops the routing shim for an ask group too', () => {
     const crumbs = buildCrumbs({ pathname: '/dashboard/inbox/g/plain-group', docTitle: '', workspaceName: null });
 
-    expect(crumbs?.map(c => c.label)).toEqual(['Needs you', 'plain-group']);
+    expect(crumbs?.map(c => c.label)).toEqual(['Review', 'plain-group']);
   });
 });

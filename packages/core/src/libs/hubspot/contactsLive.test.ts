@@ -34,8 +34,8 @@ describe('readContactsLive', () => {
         properties: {
           firstname: 'James',
           lastname: 'Schiesel',
-          email: 'jamie@notboredindc.com',
-          company: 'Not Bored in DC',
+          email: 'jamie@contoso.example',
+          company: 'Contoso Supply',
           lifecyclestage: 'marketingqualifiedlead',
           createdate: '2026-09-14T16:24:50.422Z',
           hs_email_delivered: '3',
@@ -49,8 +49,8 @@ describe('readContactsLive', () => {
     expect(result.ok && result.data[0]).toMatchObject({
       ref: 'contacts:213673813772',
       name: 'James Schiesel',
-      primaryEmail: 'jamie@notboredindc.com',
-      company: 'Not Bored in DC',
+      primaryEmail: 'jamie@contoso.example',
+      company: 'Contoso Supply',
       lifecycleStage: 'marketingqualifiedlead',
       createdAt: '2026-09-14T16:24:50.422Z',
       emailDelivered: 3,

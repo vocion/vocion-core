@@ -40,7 +40,7 @@ const LIVE: InboxItem[] = FIXTURE_BRIEFING.decisions!.judgment.map(c => ({
   shape: 'single',
   ref: c.ref,
   title: c.title,
-  subline: 'Needs you',
+  subline: 'Review queue',
   agentSlug: null,
   teamSlug: null,
   risk: c.risk,

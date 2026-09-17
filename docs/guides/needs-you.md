@@ -62,10 +62,10 @@ is in that toast's second line.
   bookmarked or pasted into a chat.
 
 Rows follow the List archetype: a human title, a breadcrumb subline that
-starts with the kind (`Proposal › Spinutech › CRM update › proposed by
+starts with the kind (`Proposal › Northwind › CRM update › proposed by
 deal-desk`), right-aligned confidence · amount · age, and the kind's quick
 verbs on hover. Several proposals about one record collapse into one sheet
-row ("Spinutech — 4 proposals"); several asks under one `groupKey` collapse
+row ("Northwind — 4 proposals"); several asks under one `groupKey` collapse
 into one decision sheet.
 
 ## The detail, by kind
@@ -102,7 +102,7 @@ selection intact.
 
 **Every decision says what it did.** When a decision resolves, a toast
 (`@/components/ui/toast`) names what was decided and what happens next —
-*Approved · Update Spinutech — Executing now.*; *Declined · … — Nothing runs;
+*Approved · Update Northwind — Executing now.*; *Declined · … — Nothing runs;
 the agent learns from it.*; *Snoozed · … — Back on Needs you Thursday.*;
 *Resumed · … — The run continues.*; *Adopted · … — Agents read it on their
 next run.* A failure is `toast.error` with the server's message, and the

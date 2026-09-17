@@ -26,8 +26,9 @@ export {
   StatusDot,
 } from './DetailPage';
 export { citationLabel, evidenceSource, type EvidenceSource, isCitationUrl } from './evidence';
-
 export { type EvidenceItem, EvidenceList, SourceChip } from './EvidenceList';
+
+export { FilterBar } from './FilterBar';
 // Ledger
 export { LedgerEntry, LedgerGroup, type ProvenanceItem, ProvenanceLine, ScoreChip, type ScoreChipProps, type Verdict, VerdictBadge } from './Ledger';
 export { ListEmpty, ListPage } from './ListPage';

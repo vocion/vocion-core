@@ -12,7 +12,7 @@ import { RecordSheet } from './RecordSheet';
  * Deciding on a record keeps you on the record.
  *
  * Chris, 2026-09-16, after approving one proposal on a record sheet: "It
- * redirected me back to Needs you list with no context. At least give me my
+ * redirected me back to the review queue list with no context. At least give me my
  * toast notification?" The toast was in fact firing and surviving the
  * navigation — what was missing was the record. These tests pin the contract
  * that replaced the redirect: no navigation on submit, the decided row joins
@@ -50,7 +50,7 @@ const decided: DecidedProposal[] = [
   { id: 900, title: 'Update Northwind renewal — Stage: contract sent', subline: 'Approve', status: 'done', decidedAt: '2026-09-15T10:00:00.000Z' },
 ];
 
-const CRUMBS = [{ label: 'Needs you', href: '/dashboard/inbox' }, { label: 'Northwind renewal' }];
+const CRUMBS = [{ label: 'Review queue', href: '/dashboard/inbox' }, { label: 'Northwind renewal' }];
 
 const sheet = (open: SheetAsk[]) => (
   <NextIntlClientProvider locale="en" messages={messages}>
@@ -76,9 +76,10 @@ describe('deciding on a record sheet', () => {
     await expect.element(page.getByText('Update Northwind renewal — Next step: Send the terms')).toBeVisible();
     expect(push).not.toHaveBeenCalled();
 
-    // The one just decided joined the list that was already on the page.
+    // The one just decided shows as its own section — what you did in THIS
+    // visit stays on screen, and the record's older decisions stay folded.
     await expect.element(page.getByTestId('record-decided')).toBeVisible();
-    await expect.element(page.getByText('just now')).toBeVisible();
+    await expect.element(page.getByText('just now', { exact: true })).toBeVisible();
     expect(__toasts()[0]?.title).toContain('Approve');
   });
 
@@ -94,5 +95,18 @@ describe('deciding on a record sheet', () => {
     await page.getByTestId('ask-exit').click();
 
     expect(push).toHaveBeenCalledWith('/dashboard/inbox');
+  });
+});
+
+/**
+ * Chris, 2026-09-17: *"i don't want to see historical all decided when
+ * clicking into a review decision."*
+ */
+describe('the record\'s earlier decisions', () => {
+  it('stays folded behind one line, so the decision is what you see', async () => {
+    render(sheet([ask(1, 'Update Northwind renewal — Close date: 2026-11-30')]));
+
+    await expect.element(page.getByTestId('record-history')).toBeVisible();
+    expect(await page.getByTestId('record-history').getByRole('button').element().getAttribute('aria-expanded')).toBe('false');
   });
 });

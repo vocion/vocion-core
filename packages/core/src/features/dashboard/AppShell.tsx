@@ -84,7 +84,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Agent picker options for the dock (and the ⌘K palette). Empty outside an
   // org — the dock renders nothing rather than a picker with no agents in it.
   const agents = orgId ? (await loadChatAgentContext(orgId)).agents : [];
-  // The "Needs you" badge. Counted in SQL, and a failure here must never take
+  // The "Review queue" badge. Counted in SQL, and a failure here must never take
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });

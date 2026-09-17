@@ -8,9 +8,9 @@ const start: TraceNode = { id: 't1', actor, kind: 'tool', status: 'start', label
 describe('mergeTraceNode', () => {
   it('appends reason deltas and keeps fields a later event leaves out', () => {
     const a = mergeTraceNode(undefined, { id: 'r1', actor, kind: 'reason', status: 'progress', label: 'Thinking', delta: 'The deal ' });
-    const b = mergeTraceNode(a, { id: 'r1', actor, kind: 'reason', status: 'progress', label: 'Thinking', delta: 'is Spinutech.' });
+    const b = mergeTraceNode(a, { id: 'r1', actor, kind: 'reason', status: 'progress', label: 'Thinking', delta: 'is Northwind.' });
 
-    expect(b.text).toBe('The deal is Spinutech.');
+    expect(b.text).toBe('The deal is Northwind.');
     expect((b as { delta?: string }).delta).toBeUndefined();
 
     const done = mergeTraceNode(start, { id: 't1', actor, kind: 'tool', status: 'done', label: 'Looked up records', result: '3 records' });

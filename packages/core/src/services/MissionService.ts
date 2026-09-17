@@ -73,7 +73,7 @@ export type MissionRunTaskReport = {
 /**
  * The shape returned by `/api/v1/missions/:slug/runs` and
  * `/api/v1/mission-runs/:id`. Bridges the `mission_run` row (models/Schema.ts)
- * to field names an outside caller — the Veerio source registry, for one —
+ * to field names an outside caller — the Larkfield source registry, for one —
  * can read without knowing our column names: `startedAt`/`finishedAt`
  * instead of `createdAt`/`completedAt`, `invokedBy` instead of `createdBy`,
  * and `missionSlug` resolved from the joined mission template (null for an

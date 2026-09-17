@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   }
   const composer = page.getByPlaceholder(/Message|Ask/i).first();
   await composer.waitFor({ state: 'visible', timeout: 20_000 });
-  await composer.fill('Search my notes and emails for the latest on the Gauge relationship and give me a sourced summary.');
+  await composer.fill('Search my notes and emails for the latest on the Kestrel relationship and give me a sourced summary.');
   await page.waitForTimeout(400);
   await page.getByLabel('Send message').click();
   console.warn('sent — letting it stream 10s, then hard reload mid-turn…');

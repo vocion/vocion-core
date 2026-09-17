@@ -1,4 +1,4 @@
--- Learning candidates (VEERIO-239). A rule the feedback worker proposes but
+-- Learning candidates (LARK-239). A rule the feedback worker proposes but
 -- the system has not adopted: it sits here as 'pending' until a person
 -- approves it into a real `learning` row or rejects it with a reason.
 --

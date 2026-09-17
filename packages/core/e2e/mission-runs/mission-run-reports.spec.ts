@@ -4,11 +4,11 @@ import process from 'node:process';
 import { expect, test } from '@playwright/test';
 
 /**
- * VEERIO-252 — mission-run reports, end to end.
+ * LARK-252 — mission-run reports, end to end.
  *
  * Drives `GET /api/v1/missions/:slug/runs` and `GET /api/v1/mission-runs/:id`
  * with real HTTP requests against a real running app (no mocked DB, no
- * mocked auth), the way an outside caller — the Veerio source registry, for
+ * mocked auth), the way an outside caller — the Larkfield source registry, for
  * one — actually reaches them. Unit coverage for these two routes already
  * lives next to the route files (`route.test.ts`); this spec is the proof
  * that the same behavior holds once a browser-less client hits the real

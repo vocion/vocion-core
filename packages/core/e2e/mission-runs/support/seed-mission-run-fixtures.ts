@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * seed-mission-run-fixtures — real data for the VEERIO-252 mission-run report
+ * seed-mission-run-fixtures — real data for the LARK-252 mission-run report
  * E2E spec (`e2e/mission-runs/mission-run-reports.spec.ts`).
  *
  * Builds, in the database the running app is actually pointed at:

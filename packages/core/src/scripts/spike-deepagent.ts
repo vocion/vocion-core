@@ -31,7 +31,7 @@ async function main() {
   }
 
   // 1. Model under test: Sonnet 4.6, the latest Sonnet (Claude 4.x).
-  //    Matches rev-ai's default in /var/www/metacto/spinutech/kickoff-demo/server/llm.py.
+  //    Matches rev-ai's default in `server/llm.py`.
   const model = new ChatAnthropic({
     model: 'claude-sonnet-4-6',
     temperature: 0,

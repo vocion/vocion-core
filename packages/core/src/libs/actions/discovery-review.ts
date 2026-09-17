@@ -152,9 +152,9 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
     // score: a person deciding needs to know what happens next, and the scores
     // are already on the page with the class they belong to.
     const nextAction = route === 'generate'
-      ? 'Create a draft proposal from this meeting and add it to Needs you for your review. Nothing is sent.'
+      ? 'Create a draft proposal from this meeting and add it to the review queue for your review. Nothing is sent.'
       : route === 'confirm'
-        ? 'Start the discovery follow-up: a call summary, then a draft follow-up email added to Needs you for your review. Nothing is sent.'
+        ? 'Start the discovery follow-up: a call summary, then a draft follow-up email added to the review queue for your review. Nothing is sent.'
         : classification
           ? `Mark this assessment correct. No downstream workflow runs — Vocion classified this as ${REASON_CODE_LABEL[classification.reasonCode ?? 'insufficient-evidence'].toLowerCase()}.`
           : 'Mark this assessment correct. No downstream workflow runs.';

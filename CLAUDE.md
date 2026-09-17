@@ -168,7 +168,7 @@ The same deepagents loop also ships as a standalone artifact — **`packages/age
 | Subagents / playbooks / HITL gates | yes | yes | none |
 | Default for | everything not on Bedrock | Bedrock agents | nothing — opt in |
 
-Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Veerio-Life/veerio-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
+Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Larkfield-Systems/larkfield-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
@@ -235,7 +235,7 @@ Testing the loop: `npx playwright test --project=learning` covers ingestion (whi
 
 ```bash
 # 1. the worker, pointed at the same database the app uses
-AWS_PROFILE=veerio AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
+AWS_PROFILE=larkfield AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
   ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
 # 2. the spec
 LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
@@ -475,3 +475,19 @@ requirements/                       # Product specs and case studies
 - **New dashboard pages use `components/patterns`** (List / Detail / Ledger — see
   `docs/design/patterns.md`); don't hand-roll list/detail/ledger layouts. Hairlines not
   boxes, one primary action per screen, numbers right-aligned in a `Column`.
+- **Fixtures are fictional, and a test enforces it.** This repo is public. No
+  real customer, prospect, contact, venue, email domain or live CRM/Zoom/Clerk
+  id goes into a test, story, seed script, doc or screenshot — including in a
+  filename. Reuse the fixture cast in
+  `packages/core/src/libs/fixtures/realDataGuard.ts` (Northwind, Kestrel Capital,
+  Larkfield Systems, Contoso Supply, Bellwater Hall, Acme …), keep each name's role
+  the same everywhere, put email addresses at `.example`, and keep an id's
+  shape but not its value. `realDataGuard.test.ts` scans every tracked file's
+  contents and path on each unit run and fails with the file and line. It
+  enforces two lists: `BANNED_NAMES` (specific identities, stored hashed, so
+  adding one does not re-commit it) and `REAL_DATA_SHAPES` (patterns for things
+  that are not names — a meeting-recording URL, a provider org id, a dialable
+  phone number, a street address — so a *different* real value pasted next week
+  is caught too). That file explains how to add to either. `Metacto` is
+  deliberately not on the list — it owns the product — but it is the seller in a
+  fixture, never the customer.

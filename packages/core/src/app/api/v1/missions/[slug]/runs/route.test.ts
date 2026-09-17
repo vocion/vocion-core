@@ -94,10 +94,10 @@ describe('GET /api/v1/missions/:slug/runs', () => {
   });
 
   it('404s a mission that belongs to another org, never leaking that it exists', async () => {
-    await makeMission('veerio-event-ingestion', OTHER_ORG);
+    await makeMission('larkfield-event-ingestion', OTHER_ORG);
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
-    const res = await GET(requestFor('veerio-event-ingestion'), paramsFor('veerio-event-ingestion'));
+    const res = await GET(requestFor('larkfield-event-ingestion'), paramsFor('larkfield-event-ingestion'));
 
     expect(res.status).toBe(404);
   });
@@ -114,27 +114,27 @@ describe('GET /api/v1/missions/:slug/runs', () => {
   });
 
   it('lists the runs for the named mission with plan.tasks[0].output populated', async () => {
-    const missionId = await makeMission('veerio-event-ingestion');
+    const missionId = await makeMission('larkfield-event-ingestion');
     const runId = await makeRun(missionId);
     mockBearer.mockResolvedValue(tokenPrincipal(ORG) as never);
 
-    const res = await GET(requestFor('veerio-event-ingestion'), paramsFor('veerio-event-ingestion'));
+    const res = await GET(requestFor('larkfield-event-ingestion'), paramsFor('larkfield-event-ingestion'));
     const body = await res.json() as { runs: Array<{ id: number; missionSlug: string; plan: { tasks: Array<{ output?: string }> } }> };
 
     expect(res.status).toBe(200);
     expect(body.runs).toHaveLength(1);
     expect(body.runs[0]!.id).toBe(runId);
-    expect(body.runs[0]!.missionSlug).toBe('veerio-event-ingestion');
+    expect(body.runs[0]!.missionSlug).toBe('larkfield-event-ingestion');
     expect(body.runs[0]!.plan.tasks[0]!.output).toBe('found 3, refreshed 3, failed 0');
   });
 
   it('accepts a dashboard session with no bearer token', async () => {
-    const missionId = await makeMission('veerio-event-ingestion');
+    const missionId = await makeMission('larkfield-event-ingestion');
     await makeRun(missionId);
     mockBearer.mockResolvedValue(null);
     mockSession.mockResolvedValue({ userId: 'u1', orgId: ORG, accountId: 'a1', projectId: ORG, role: 'admin', has: () => true } as never);
 
-    const res = await GET(new Request(`https://vocion.test/api/v1/missions/veerio-event-ingestion/runs`), paramsFor('veerio-event-ingestion'));
+    const res = await GET(new Request(`https://vocion.test/api/v1/missions/larkfield-event-ingestion/runs`), paramsFor('larkfield-event-ingestion'));
 
     expect(res.status).toBe(200);
   });

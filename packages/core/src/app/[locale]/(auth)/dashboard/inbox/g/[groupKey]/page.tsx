@@ -14,7 +14,7 @@ import { kindForAsk } from '@/services/InboxService';
 /**
  * A decision sheet — every ask under one `groupKey`, answered as a stepper:
  * one question per screen, a receipt at the end, one "Submit all". Wears the
- * same chrome as a single decision (Needs you › kind › sheet). Asks already
+ * same chrome as a single decision (Review queue › kind › sheet). Asks already
  * answered are listed underneath as the record.
  */
 

@@ -47,15 +47,15 @@ export type SyncBudgetCaps = {
  * sized for ONE CALL PER DOCUMENT, because a document is now one feed entry or
  * one detail page rather than one listing page. 25 and 120,000 came from the
  * agent run that motivated this pipeline, which spent 26 calls on five listing
- * pages, and the second dev shadow (2026-09-15, three Veerio sources) showed
- * what that costs at the new granularity: Dorothy Alling crawled 59 detail
+ * pages, and the second dev shadow (2026-09-15, three Larkfield sources) showed
+ * what that costs at the new granularity: Ashby Library crawled 59 detail
  * pages, spent all 25 calls, hit a cap 34 times and SKIPPED 44 documents, and
- * Brownell skipped 1 of its 26. The same run measured what a call actually
+ * Mill Creek skipped 1 of its 26. The same run measured what a call actually
  * carries: 51 Bedrock invocations, 169,831 input tokens, 3,330 average, 6,150
  * at the worst, well under the 10,000-token per-call ceiling.
  *
  * The token cap was 400,000 on those averages, which read as 150 calls at
- * about 2,700 each. The fourth dev shadow (2026-09-16, Higher Ground) showed
+ * about 2,700 each. The fourth dev shadow (2026-09-16, Bellwater Hall) showed
  * that the two caps are not the same size in practice: 117 documents, about
  * 4,500 input tokens for a detail page rather than 2,700, so the sync spent
  * its tokens after 88 of its 150 calls and left 29 documents unread. 800,000

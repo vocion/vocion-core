@@ -6,7 +6,7 @@
  * moved to `agentcore-container` left its harness `READY` — AWS's harness
  * image, still chargeable, still reachable by anyone holding its ARN — while
  * every actual turn went to our container. Nothing in the app showed it;
- * `Veerio-Life/veerio-vocion` had one sitting live for days, found only by
+ * `Larkfield-Systems/larkfield-vocion` had one sitting live for days, found only by
  * reading the AgentCore console.
  *
  * These tests pin both directions, and pin that an agent which never asked for

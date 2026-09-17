@@ -28,12 +28,26 @@
  */
 const TENANT_ID = /\b(?:proj|org|orgs|acct|account|tenant|usr|user|ws|workspace)[-_][A-Z0-9][\w-]{5,}/gi;
 
+/**
+ * A configuration identifier — `TAVILY_API_KEY`, `STRIPE_SECRET_KEY`,
+ * `VOCION_MAIL_DOMAIN`.
+ *
+ * SCREAMING_SNAKE_CASE is how this codebase spells an environment variable and
+ * essentially nothing else, so it is a reliable tell. Chris, 2026-09-16, on a
+ * revenue review screen reading `TAVILY_API_KEY not configured`: *"That belongs
+ * in admin observability, logs, or developer tooling. It should never leak into
+ * a revenue review UX."* Requires at least one underscore, so a shouted word is
+ * left alone.
+ */
+const CONFIG_KEY = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g;
+
 /** A double-underscore sentinel slug — `__search__`, `__default__`. Internal by construction. */
 const SENTINEL_SLUG = /__[a-z0-9]+(?:_[a-z0-9]+)*__/gi;
 
 /** What the reader sees instead. */
 export const REDACTED_ID = '[id]';
 export const REDACTED_SLUG = '[internal]';
+export const REDACTED_CONFIG = '[config]';
 
 /**
  * The reader's version of an error message: the sentence, minus the
@@ -45,6 +59,7 @@ export function redactInternalIds(text: string): string {
   return text
     .replace(TENANT_ID, REDACTED_ID)
     .replace(SENTINEL_SLUG, REDACTED_SLUG)
+    .replace(CONFIG_KEY, REDACTED_CONFIG)
     // A redaction can leave "in [id]" dangling at the end of a clause; tidy
     // the double spaces it makes rather than shipping ragged copy.
     .replace(/ {2,}/g, ' ')
@@ -115,4 +130,62 @@ export function failureReport(report: FailureReport): string {
     `delegate:     ${report.delegate || 'none'}`,
     `error:        ${report.message || unknown}`,
   ].join('\n');
+}
+
+/**
+ * Is this failure really "a provider this deployment never configured"?
+ *
+ * `ProviderNotConfiguredError` writes for an operator — it names the capability,
+ * the provider and the environment variables to set. All three are ours. To the
+ * person reviewing a lead it is one fact: that source did not run. Like the
+ * empty workspace above, this is a STATE rather than an error, and it gets its
+ * own sentence.
+ * @param text - The raw failure message.
+ */
+export function isProviderNotConfiguredFailure(text: string): boolean {
+  return /provider\s+"[^"]*"\s+is not configured/i.test(text);
+}
+
+/**
+ * The reader's sentence for an unconfigured provider. Names the CAPABILITY,
+ * because that is the part they can reason about ("web research did not run"),
+ * and never the provider or the variable, because those are operations.
+ *
+ * Deliberately says "for this run": the evidence is thin *today*, which is a
+ * retryable condition, not a property of the lead.
+ * @param text - The raw failure message, to read the capability out of.
+ */
+export function providerUnavailableMessage(text: string): string {
+  // An index scan rather than a regex: `/^(.+?)\s+provider\s+"/` lets the lazy
+  // quantifier exchange characters with the whitespace class, which is
+  // super-linear backtracking on a string an outside error message can shape.
+  const marker = ' provider "';
+  const cut = text.indexOf(marker);
+  const capability = cut > 0 ? text.slice(0, cut).trim() : '';
+  const what = capability ? capability.toLowerCase() : 'that source';
+  return `${what.charAt(0).toUpperCase()}${what.slice(1)} was unavailable for this run.`;
+}
+
+/**
+ * THE render-boundary function: what a person is shown for any pipeline
+ * failure.
+ *
+ * A known state gets its own sentence; everything else gets the raw message
+ * with our identifiers taken out. One call site per surface, so a new thrower
+ * cannot leak by being forgotten — which is the whole argument of this module,
+ * applied to the surfaces outside chat as well.
+ *
+ * The raw text is never destroyed; it stays on the row for *Copy details* and
+ * for the logs.
+ * @param text - The raw failure message.
+ * @returns The reader's version.
+ */
+export function readerFailure(text: string): string {
+  if (isProviderNotConfiguredFailure(text)) {
+    return providerUnavailableMessage(text);
+  }
+  if (isEmptyWorkspaceFailure(text)) {
+    return NO_AGENTS_MESSAGE;
+  }
+  return redactInternalIds(text);
 }

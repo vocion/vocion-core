@@ -1,6 +1,6 @@
 /**
  * Warn when a workspace apply empties one of an agent's authored lists
- * (VEERIO-252 item 3). An apply from a branch that is simply missing the
+ * (LARK-252 item 3). An apply from a branch that is simply missing the
  * agent's playbook/skill/object-type/learning-step files — rather than one
  * that deliberately cleared the list — used to silently write
  * `playbookSlugs: [] ` (etc.) over a non-empty list with nothing but

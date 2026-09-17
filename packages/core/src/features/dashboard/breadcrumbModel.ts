@@ -57,7 +57,7 @@ export function buildCrumbs(input: { pathname: string; docTitle: string; workspa
     const useDocTitle = last && input.docTitle !== '' && input.docTitle !== sectionTitle;
     pageCrumbs.push({ url, label: useDocTitle ? input.docTitle : humanizeSegment(seg) });
   });
-  // The workspace leads (ElevenLabs/Vercel): "Revenue Team › Needs you › …".
+  // The workspace leads (ElevenLabs/Vercel): "Revenue Team › Review queue › …".
   // The full-page chat is its own surface, so only the workspace crumb shows there.
   const tail = onChat ? [] : pageCrumbs;
   return input.workspaceName ? [{ url: '/dashboard', label: input.workspaceName }, ...tail] : tail;

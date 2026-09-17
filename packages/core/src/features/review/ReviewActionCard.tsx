@@ -252,7 +252,7 @@ export function ReviewActionCard(props: {
         until: until.toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
       }));
-      toast.info(`Snoozed · ${card.title}`, { description: `Back on Needs you ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
+      toast.info(`Snoozed · ${card.title}`, { description: `Back on the review queue ${until.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}.` });
       onDecided?.('snooze');
     } catch (err) {
       toast.error(`Could not snooze · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
@@ -588,7 +588,14 @@ export function ReviewActionCard(props: {
                 <span className={`size-1.5 rounded-full ${run.status === 'failed' ? 'bg-red-500' : 'bg-emerald-500'}`} aria-hidden />
                 {STATUS_LABEL[run.status] ?? run.status}
               </span>
-              {run.invokedBy && <span className="text-[11px] text-muted-foreground">{run.invokedBy.replace('agent:', 'proposed by ')}</span>}
+              {/* The agent's name, not a sentence about it — the same
+                  reduction `ReviewHeader` got. Two components rendering one
+                  fact in two wordings is the defect §19 names. */}
+              {run.invokedBy && (
+                <span className="text-[11px] text-muted-foreground" title={`Proposed by ${run.invokedBy.replace('agent:', '')}`}>
+                  {run.invokedBy.replace('agent:', '')}
+                </span>
+              )}
               {/* What the agent advised, next to who proposed it. Worded as
                   advice rather than as a verdict: the person decides, and a
                   badge reading "Reject" would look like the item already had
@@ -610,8 +617,11 @@ export function ReviewActionCard(props: {
                     is how often people agreed with it. Inline, same box, no
                     new chrome — and nothing at all until there is evidence. */}
                 {run.alignment && run.alignment.n > 0 && run.alignment.agreementRate !== null && (
-                  <span className="block text-[10px] leading-tight text-muted-foreground tabular-nums" title={`${run.alignment.n} decided recommendation${run.alignment.n === 1 ? '' : 's'} of this kind by this agent in the last 30 days`}>
-                    {`agrees with you ${Math.round(run.alignment.agreementRate * 100)}% · n=${run.alignment.n}`}
+                  <span
+                    className="block text-[10px] leading-tight text-muted-foreground tabular-nums"
+                    title={`You have agreed with this agent ${Math.round(run.alignment.agreementRate * 100)}% of the time — ${run.alignment.n} decided recommendation${run.alignment.n === 1 ? '' : 's'} of this kind in the last 30 days`}
+                  >
+                    {`${Math.round(run.alignment.agreementRate * 100)}% aligned`}
                   </span>
                 )}
               </div>

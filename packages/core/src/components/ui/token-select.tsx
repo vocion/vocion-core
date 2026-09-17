@@ -22,6 +22,16 @@ export type TokenOption = {
   label: string;
   /** Shown right-aligned in the list and on the token, when the caller has one. */
   count?: number;
+  /**
+   * Which DIMENSION this option belongs to — "Type", "Agent", "Kind".
+   *
+   * One field can then span several independent dimensions instead of one row
+   * of chips per dimension: you type "hubspot" and the matching type appears,
+   * you type a teammate and the matching agent appears, and neither needs its
+   * own control. Options are shown under their group heading, in first-seen
+   * order.
+   */
+  group?: string;
 };
 
 /**
@@ -32,6 +42,9 @@ export type TokenOption = {
  * @param props.placeholder - Input placeholder while nothing is selected.
  * @param props.emptyLabel - What "nothing selected" means, e.g. "All types".
  * @param props.label - Accessible name for the control.
+ * @param props.query
+ * @param props.onQueryChange
+ * @param props.searchNote
  */
 export function TokenSelect({
   options,
@@ -40,6 +53,9 @@ export function TokenSelect({
   placeholder = 'Type to filter…',
   emptyLabel,
   label,
+  query: queryProp,
+  onQueryChange,
+  searchNote,
 }: {
   options: TokenOption[];
   selected: string[];
@@ -47,9 +63,28 @@ export function TokenSelect({
   placeholder?: string;
   emptyLabel?: string;
   label: string;
+  /**
+   * The typed text, CONTROLLED — pass it with `onQueryChange` and the same
+   * letters that narrow the token list are also the list's free-text search.
+   * That is the whole point of merging the two controls: one field, and you
+   * do not have to know in advance whether what you are typing is a filter or
+   * a search. Omit both and the text stays internal, narrowing only.
+   */
+  query?: string;
+  onQueryChange?: (next: string) => void;
+  /** Shown while there is text, to say the text is also searching. */
+  searchNote?: (query: string) => string;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const [internalQuery, setInternalQuery] = useState('');
+  const query = queryProp ?? internalQuery;
+  const setQuery = (next: string) => {
+    if (onQueryChange) {
+      onQueryChange(next);
+    } else {
+      setInternalQuery(next);
+    }
+  };
   const [active, setActive] = useState(0);
   const wrap = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -63,6 +98,22 @@ export function TokenSelect({
     }
     return options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q));
   }, [options, query]);
+
+  // Options are shown under their dimension, in the order the dimensions first
+  // appear — so a heading never repeats further down the list.
+  const grouped = useMemo(() => {
+    if (!matches.some(o => o.group)) {
+      return matches;
+    }
+    const order: string[] = [];
+    for (const o of matches) {
+      const g = o.group ?? '';
+      if (!order.includes(g)) {
+        order.push(g);
+      }
+    }
+    return order.flatMap(g => matches.filter(o => (o.group ?? '') === g));
+  }, [matches]);
 
   // Clicking outside commits nothing and closes — a filter should never trap.
   useEffect(() => {
@@ -82,7 +133,7 @@ export function TokenSelect({
   // Clamped at render rather than reset from an effect: a narrowing query can
   // leave the stored index past the end of the list, and resetting it in an
   // effect costs a second render before the first row shows as highlighted.
-  const activeIndex = matches.length === 0 ? 0 : Math.min(active, matches.length - 1);
+  const activeIndex = grouped.length === 0 ? 0 : Math.min(active, grouped.length - 1);
 
   const toggle = (value: string) => {
     onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
@@ -94,12 +145,12 @@ export function TokenSelect({
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       setOpen(true);
-      const n = matches.length;
+      const n = grouped.length;
       setActive(n === 0 ? 0 : (e.key === 'ArrowDown' ? (activeIndex + 1) % n : (activeIndex - 1 + n) % n));
       return;
     }
     if (e.key === 'Enter') {
-      const pick = matches[activeIndex];
+      const pick = grouped[activeIndex];
       if (open && pick) {
         e.preventDefault();
         toggle(pick.value);
@@ -215,7 +266,17 @@ export function TokenSelect({
             </li>
           )}
 
-          {matches.length === 0 && (
+          {/* The text is a FILTER and a SEARCH at once, and a person cannot
+              be expected to guess that. Say it, in the list, while they type —
+              so an empty match list reads as "still searching" rather than
+              "nothing here". */}
+          {searchNote && query.trim() !== '' && (
+            <li className="border-b border-rule px-2.5 py-1.5 text-xs text-muted-foreground">
+              {searchNote(query.trim())}
+            </li>
+          )}
+
+          {grouped.length === 0 && !searchNote && (
             <li className="px-2.5 py-2 text-xs text-muted-foreground">
               Nothing matches “
               {query.trim()}
@@ -223,10 +284,16 @@ export function TokenSelect({
             </li>
           )}
 
-          {matches.map((opt, i) => {
+          {grouped.map((opt, i) => {
             const on = selected.includes(opt.value);
+            const heading = opt.group && opt.group !== matches[i - 1]?.group ? opt.group : null;
             return (
               <li key={opt.value} role="option" aria-selected={on}>
+                {heading && (
+                  <span className="mt-1 block px-2.5 pt-1 pb-0.5 text-[10px] font-semibold tracking-widest text-muted-foreground/70 uppercase">
+                    {heading}
+                  </span>
+                )}
                 <button
                   type="button"
                   onMouseEnter={() => setActive(i)}

@@ -12,7 +12,7 @@
  * worker's static import graph, but the mission-check path reaches it
  * anyway: AgentService imports `agents/harness` dynamically and harness
  * imports Logger statically. On 2026-09-10 that failed every scheduled
- * run on the Veerio dev box in 1.5 seconds, before any model call.
+ * run on the Larkfield dev box in 1.5 seconds, before any model call.
  *
  * Vitest loads modules as ESM, where the await is legal, so a unit test
  * that imports Logger directly cannot catch this. This one spawns tsx the

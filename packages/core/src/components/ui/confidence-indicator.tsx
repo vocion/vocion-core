@@ -1,5 +1,8 @@
+'use client';
+
 import type { ComponentProps } from 'react';
 import type { ConfidenceLevel } from '@/types/Status';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/utils/Helpers';
 
 /**
@@ -108,6 +111,13 @@ export type ConfidenceBarsProps = Omit<ComponentProps<'span'>, 'title'> & {
   note?: string | null;
   /** Hide the written reading (a dense column that labels itself elsewhere). Never hides it from the accessible name. */
   readingHidden?: boolean;
+  /**
+   * Write this instead of the percentage — a coverage STATE ("Partial"), where
+   * the raw number is not a calibrated probability and printing it would claim
+   * a precision nothing earns. The value still drives the bars and the level,
+   * so the picture and the word cannot disagree.
+   */
+  reading?: string;
 };
 
 /**
@@ -119,6 +129,7 @@ export type ConfidenceBarsProps = Omit<ComponentProps<'span'>, 'title'> & {
  * @param props.size
  * @param props.note
  * @param props.readingHidden
+ * @param props.reading
  * @param props.className
  */
 export function ConfidenceBars({
@@ -129,6 +140,7 @@ export function ConfidenceBars({
   size = 'sm',
   note,
   readingHidden,
+  reading: readingOverride,
   className,
   ...rest
 }: ConfidenceBarsProps) {
@@ -141,7 +153,7 @@ export function ConfidenceBars({
   const filled = scored
     ? Math.min(BARS, Math.max(1, Math.ceil(Math.min(1, Math.max(0, value!)) * BARS)))
     : BAND_BARS[level];
-  const reading = scored ? confidenceReading(value!, format) : null;
+  const reading = readingOverride ?? (scored ? confidenceReading(value!, format) : null);
 
   // The visible text: the class first, the number second. Never one without
   // the other.
@@ -152,33 +164,46 @@ export function ConfidenceBars({
   const accessible = [
     subject ?? 'Confidence',
     '—',
-    reading ? `${reading} confidence` : 'no score recorded',
+    reading ? (readingOverride ? reading : `${reading} confidence`) : 'no score recorded',
     `(${spec.label})`,
   ].join(' ');
 
   const bar = size === 'md' ? 'h-3 w-[3px]' : 'h-2.5 w-[3px]';
 
+  // A REAL tooltip, not `title`. The native one is slow to appear, cannot be
+  // styled, and on a queue where the reading is hidden it is the ONLY way to
+  // see the number — which makes it part of the interface rather than a
+  // nicety. Chris, 2026-09-16: *"give percentage on hover over, tooltip…
+  // and not title text"*. Radix renders the content only while open, so the
+  // cost on a long list is the trigger, not a panel per row.
   return (
-    <span
-      data-slot="confidence-bars"
-      data-level={level}
-      data-value={scored ? value : undefined}
-      className={cn('inline-flex items-center gap-1.5 whitespace-nowrap', className)}
-      title={note ? `${accessible} · ${note}` : accessible}
-      {...rest}
-    >
-      <span className="inline-flex items-end gap-[2px]" role="img" aria-label={accessible}>
-        {Array.from({ length: BARS }, (_, i) => (
-          <span
-            key={i}
-            className={cn('inline-block rounded-[1px]', bar, i < filled ? spec.fill : spec.track)}
-          />
-        ))}
-      </span>
-      <span className={cn('text-[12px] font-medium tabular-nums', spec.fg, readingHidden && 'sr-only')}>
-        {visible}
-      </span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          data-slot="confidence-bars"
+          data-level={level}
+          data-value={scored ? value : undefined}
+          className={cn('inline-flex items-center gap-1.5 whitespace-nowrap', className)}
+          {...rest}
+        >
+          <span className="inline-flex items-end gap-[2px]" role="img" aria-label={accessible}>
+            {Array.from({ length: BARS }, (_, i) => (
+              <span
+                key={i}
+                className={cn('inline-block rounded-[1px]', bar, i < filled ? spec.fill : spec.track)}
+              />
+            ))}
+          </span>
+          <span className={cn('text-[12px] font-medium tabular-nums', spec.fg, readingHidden && 'sr-only')}>
+            {visible}
+          </span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" collisionPadding={8} className="max-w-72">
+        <span className="font-medium">{accessible}</span>
+        {note ? <span className="mt-0.5 block opacity-80">{note}</span> : null}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

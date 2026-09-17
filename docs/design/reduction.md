@@ -66,7 +66,18 @@ The reduction:
 > **Sources** — three chips.
 > **Research confidence: Low**
 
-Everything else moved to Evidence. The recommendation underneath was good — *we
+Everything else moved to Evidence.
+
+It is enforced **structurally**, in `services/personalization/brief.ts`, and
+that is the part worth copying. A section with nothing to say is not in the
+array, so the renderer has no empty-state branch to reach. A repeated absence is
+de-duplicated in code by comparing normalised token sets, so "No company website
+found for X", "We could not retrieve the company website" and "The website could
+not be retrieved" are recognised as one absence and said once — none of which is
+asked of the model, because a model asked to be concise about what it does not
+know writes another paragraph about not knowing it. And the confidence section
+is *computed* rather than narrated: the five dimensions replace the sentence
+that used to explain the one number. The recommendation underneath was good — *we
 know almost nothing about this company, so do not fabricate personalization, ask
 an honest question* — and the old page hid it. A system confident enough to say
 "we verified four facts and could not establish the rest" reads as more mature,
@@ -180,6 +191,16 @@ because artifacts did not quite fit would have been the wrong kind.
 The tell that you are duplicating rather than extending: you find yourself
 implementing versioning, or editing, or a preview, or a history list, a second
 time.
+
+**How it landed.** `artifact.record_type` / `record_id` — a flat `RecordRef` —
+plus `record_role`, saying what the artifact IS to its record (`brief`,
+`recommendation`, `sequence`). One migration, one `upsertRecordArtifact`, and
+every future artifact can belong to a record. The draft sequence, being
+structured rather than prose, became a typed artifact kind: one spec descriptor
+and one card, which is §7 made mechanical. And `action_run.pinned_artifacts`
+records the exact versions a decision approved, so the chain is not only
+literal but auditable — the answer to *what did the human approve* stops moving
+when the next regeneration lands.
 
 ### A note on vocabulary
 

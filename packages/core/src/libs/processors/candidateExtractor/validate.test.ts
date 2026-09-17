@@ -30,7 +30,7 @@ function record(over: Record<string, unknown> = {}) {
     fields: {
       title: 'Open Mic Night',
       startDate: '2026-11-12',
-      venueName: 'Higher Ground',
+      venueName: 'Bellwater Hall',
       ...fields,
     },
     confidence: 0.9,
@@ -51,13 +51,13 @@ function run(records: ReturnType<typeof record>[], config = configWith(), over: 
 
 describe('candidate extractor validation', () => {
   it('fills in the source defaults before it checks the identity', () => {
-    const config = configWith({ defaults: { venueName: 'Higher Ground', venueCity: 'South Burlington' } });
+    const config = configWith({ defaults: { venueName: 'Bellwater Hall', venueCity: 'Riverton' } });
 
     const out = run([record({ fields: { venueName: '' } })], config);
 
     expect(out.records).toHaveLength(1);
-    expect(out.records[0]?.fields.venueName).toBe('Higher Ground');
-    expect(out.records[0]?.fields.venueCity).toBe('South Burlington');
+    expect(out.records[0]?.fields.venueName).toBe('Bellwater Hall');
+    expect(out.records[0]?.fields.venueCity).toBe('Riverton');
   });
 
   it('drops a record the model was not sure enough about', () => {
@@ -129,11 +129,60 @@ describe('candidate extractor validation', () => {
   });
 
   it('accepts a URL the page published only inside its JSON-LD', () => {
-    const out = run([record({ sourceUrl: 'https://highergroundmusic.com/e/open-mic' })], configWith(), {
-      jsonLd: [{ '@type': 'Event', 'url': 'https://highergroundmusic.com/e/open-mic' }],
+    const out = run([record({ sourceUrl: 'https://bellwaterhall.example/e/open-mic' })], configWith(), {
+      jsonLd: [{ '@type': 'Event', 'url': 'https://bellwaterhall.example/e/open-mic' }],
     });
 
-    expect(out.records[0]?.sourceUrl).toBe('https://highergroundmusic.com/e/open-mic');
+    expect(out.records[0]?.sourceUrl).toBe('https://bellwaterhall.example/e/open-mic');
+  });
+
+  it('accepts the URLs a feed entry declared, having no links or JSON-LD of its own', () => {
+    // A calendar entry is not HTML, so it parses to no links and no JSON-LD.
+    // Without the declared list every URL it really carries fails the gate, and
+    // the card reaches a reviewer with no link back and no image.
+    const out = run([record({ sourceUrl: 'https://venue.test/e/poster-night', imageUrl: 'https://cdn.venue.test/poster.png' })], configWith(), {
+      publishedUrls: ['https://venue.test/e/poster-night', 'https://cdn.venue.test/poster.png'],
+    });
+
+    expect(out.records[0]?.sourceUrl).toBe('https://venue.test/e/poster-night');
+    expect(out.records[0]?.imageUrl).toBe('https://cdn.venue.test/poster.png');
+  });
+
+  it('accepts a folded URL however the model rejoined it', () => {
+    // The connector declares the URL joined back up, but the model is shown the
+    // document as written, folds and all. Comparing literally would drop
+    // exactly the long URLs a fold exists for, so both sides lose whitespace.
+    const declared = 'https://venue.test/e/a-title-long-enough-that-the-feed-folded-it';
+
+    for (const asModelReturnedIt of [
+      declared,
+      'https://venue.test/e/a-title-long-enough-that -the-feed-folded-it',
+      'https://venue.test/e/a-title-long-enough-that\n -the-feed-folded-it',
+    ]) {
+      const out = run([record({ sourceUrl: asModelReturnedIt })], configWith(), { publishedUrls: [declared] });
+
+      expect(out.records[0]?.sourceUrl).toBe(asModelReturnedIt);
+    }
+  });
+
+  it('ignores a declared list that is not a list of strings', () => {
+    // The column is jsonb and the processor casts rather than parses, so a row
+    // holding a bare string would otherwise spread character by character into
+    // the allowed set, and a number would throw and kill the document.
+    for (const wrong of ['https://venue.test/e/one', 42, null, { url: 'x' }]) {
+      const out = run([record({ sourceUrl: 'https://venue.test/e/one' })], configWith(), { publishedUrls: wrong });
+
+      expect(out.records[0]?.sourceUrl).toBeUndefined();
+    }
+  });
+
+  it('still drops a URL no feed entry declared', () => {
+    const out = run([record({ sourceUrl: 'https://evil.example/pwn' })], configWith(), {
+      publishedUrls: ['https://venue.test/e/poster-night'],
+    });
+
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
   });
 
   it('collapses two records the document listed twice', () => {

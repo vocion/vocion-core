@@ -325,7 +325,7 @@ const PLATFORMS: readonly CredentialPlatform[] = [
         // It is not read back to the list view today, and does not need to be:
         // one live credential per platform per org means there is never a
         // second AWS row to tell this one apart from. That changes with
-        // VEERIO-248, where connector platforms may hold several credentials
+        // LARK-248, where connector platforms may hold several credentials
         // at once and the non-secret fields become the way to identify them.
         secret: false,
       },

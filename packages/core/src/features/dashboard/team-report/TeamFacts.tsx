@@ -101,7 +101,7 @@ export function ControlLine({ team }: { team: TeamReportTeam }) {
 }
 
 /**
- * Needs you (spec §8): a real count and the oldest age, orange only when
+ * Review queue (spec §8): a real count and the oldest age, orange only when
  * something is actually waiting. Links to the inbox filtered to the team.
  * @param props
  * @param props.team
@@ -111,7 +111,7 @@ export function NeedsYou({ team, now = new Date() }: { team: TeamReportTeam; now
   const n = team.needsYou;
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Needs you</dt>
+      <dt className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Review queue</dt>
       <dd className="mt-1 text-sm">
         {n.count > 0
           ? (

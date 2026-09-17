@@ -1,5 +1,5 @@
 /**
- * The two ways a person decides from "Needs you" both feed the alignment
+ * The two ways a person decides from "Review queue" both feed the alignment
  * ledger. A proposal decided from the detail screen goes through
  * `client.review.decideAction` (the oRPC route the sticky bar calls); an ask
  * decided from the sheet goes through `POST /api/v1/asks/:id/decide`. Each
@@ -86,7 +86,7 @@ beforeEach(async () => {
   await db.delete(askSchema);
 });
 
-describe('deciding from Needs you writes the alignment ledger', () => {
+describe('deciding from Review queue writes the alignment ledger', () => {
   it('a proposal approved from the detail screen (review.decideAction) lands as an action decision', async () => {
     const [run] = await db
       .insert(actionRunSchema)

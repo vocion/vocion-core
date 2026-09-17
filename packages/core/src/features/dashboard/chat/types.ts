@@ -122,7 +122,7 @@ export type ContextRef = {
 export type ChatMessageArtifact = {
   id: number;
   title: string;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence';
   version: number;
 };
 
