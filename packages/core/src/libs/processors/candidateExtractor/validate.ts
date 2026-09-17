@@ -118,11 +118,15 @@ function documentUrls(
   links: PageLink[] | undefined,
   jsonLd: unknown[] | undefined,
   declared: string[] | undefined,
-): { exact: Set<string>; blob: string } {
-  const exact = new Set<string>();
+): { exact: Map<string, string>; blob: string } {
+  // Keyed by the squashed form so the lookup is whitespace-blind, valued by the
+  // string the document actually published, because that is what gets stored:
+  // matching on a folded URL and then keeping the model's spelling of it would
+  // put a newline in the `sourceUrl` a moderator clicks.
+  const exact = new Map<string, string>();
   for (const link of links ?? []) {
     if (link?.url) {
-      exact.add(squashUrl(link.url));
+      exact.set(squashUrl(link.url), link.url);
     }
   }
   // A document that is not an HTML page has no parsed links and no JSON-LD, so
@@ -133,7 +137,7 @@ function documentUrls(
   // character by character into the set.
   for (const url of Array.isArray(declared) ? declared : []) {
     if (typeof url === 'string') {
-      exact.add(squashUrl(url));
+      exact.set(squashUrl(url), url);
     }
   }
   // JSON-LD carries URLs inside nested objects (`offers.url`, `image`), so a
@@ -174,11 +178,21 @@ export function validateRecords(opts: {
   };
 
   const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls);
-  const published = (url: string | undefined): boolean => {
+  // Answers with the document's own spelling of the URL rather than with a
+  // yes, because that spelling is what gets stored. A feed folds a long line
+  // and the model may hand the value back with the fold still in it; blessing
+  // that string and then keeping it puts a newline in the link a moderator
+  // clicks. The JSON-LD arm has no canonical form to offer, so it returns what
+  // it was given.
+  const published = (url: string | undefined): string | undefined => {
     if (!url) {
-      return false;
+      return undefined;
     }
-    return urls.exact.has(squashUrl(url)) || (urls.blob !== '' && urls.blob.includes(url));
+    const declared = urls.exact.get(squashUrl(url));
+    if (declared !== undefined) {
+      return declared;
+    }
+    return urls.blob !== '' && urls.blob.includes(url) ? url : undefined;
   };
 
   const kept: ValidatedRecord[] = [];
@@ -265,19 +279,34 @@ export function validateRecords(opts: {
       }
     }
 
-    if (record.sourceUrl && !published(record.sourceUrl)) {
-      record.issues.push('the source URL was not published by the document, so it was dropped');
-      delete record.sourceUrl;
+    if (record.sourceUrl) {
+      const declared = published(record.sourceUrl);
+      if (declared === undefined) {
+        record.issues.push('the source URL was not published by the document, so it was dropped');
+        delete record.sourceUrl;
+      } else {
+        record.sourceUrl = declared;
+      }
     }
-    if (record.imageUrl && !published(record.imageUrl)) {
-      record.issues.push('the image URL was not published by the document, so it was dropped');
-      delete record.imageUrl;
+    if (record.imageUrl) {
+      const declared = published(record.imageUrl);
+      if (declared === undefined) {
+        record.issues.push('the image URL was not published by the document, so it was dropped');
+        delete record.imageUrl;
+      } else {
+        record.imageUrl = declared;
+      }
     }
     if (config.imageFrom) {
       const fromField = record.fields[config.imageFrom];
-      if (typeof fromField === 'string' && fromField !== '' && !published(fromField)) {
-        delete record.fields[config.imageFrom];
-        record.issues.push(`${config.imageFrom}: dropped, the document did not publish that URL`);
+      if (typeof fromField === 'string' && fromField !== '') {
+        const declared = published(fromField);
+        if (declared === undefined) {
+          delete record.fields[config.imageFrom];
+          record.issues.push(`${config.imageFrom}: dropped, the document did not publish that URL`);
+        } else {
+          record.fields[config.imageFrom] = declared;
+        }
       }
     }
 
