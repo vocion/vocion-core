@@ -221,7 +221,11 @@
     "filter_kind": "Filter by kind",
     "filter_facets": "Filter by action or agent",
     "all": "All",
-    "clear": "Clear"
+    "clear": "Clear",
+    "filter_type": "Type",
+    "filter_agent": "Agent",
+    "filter_placeholder": "Filter or search…",
+    "filter_searching": "deals, contacts and agents"
   },
   "Review": {
     "all": "All",
