@@ -3,7 +3,7 @@ name: Controller
 description: 'Closes the period on time with numbers that tie, and leaves a trail an auditor can follow.'
 icon: calculator
 accent: slate
-eyebrow: Measurement
+team: data-and-records
 agentType: workflow
 active: true
 

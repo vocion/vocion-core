@@ -1,0 +1,6 @@
+name: Shared Services
+description: >-
+  Hired by everyone else. One writes what leaves the building; the
+  other turns how a client already works into new catalog entries.
+lead: comms-manager
+# No accountableUser: inherits the workspace default when one is set.

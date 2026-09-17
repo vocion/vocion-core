@@ -1,0 +1,6 @@
+name: Revenue
+description: >-
+  Works the demand: what arrives in the queue, the relationships that
+  already exist, and the channels that feed both.
+lead: account-manager
+# No accountableUser: inherits the workspace default when one is set.

@@ -3,7 +3,7 @@ name: Communications Manager
 description: "Writes everything that leaves the building under somebody else's name, and never carries a claim nothing backs."
 icon: pen-line
 accent: purple
-eyebrow: Shared service
+team: shared-services
 agentType: mission
 active: true
 

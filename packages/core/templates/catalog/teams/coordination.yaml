@@ -1,0 +1,6 @@
+name: Coordination
+description: >-
+  Protects attention and holds the plan. The two agents every
+  workspace leans on first — one runs the week, one runs the sequence.
+lead: chief-of-staff
+# No accountableUser: inherits the workspace default when one is set.

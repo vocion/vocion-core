@@ -91,8 +91,8 @@ function MarketplaceCard({ entry }: { entry: CatalogEntry }) {
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-base leading-tight font-semibold">{entry.name}</h3>
-          {entry.eyebrow && (
-            <div className="mt-0.5 text-[11px] text-muted-foreground">{entry.eyebrow}</div>
+          {entry.teamName && (
+            <div className="mt-0.5 text-[11px] text-muted-foreground">{entry.teamName}</div>
           )}
         </div>
       </div>

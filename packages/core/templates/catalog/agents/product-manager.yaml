@@ -3,7 +3,7 @@ name: Product Manager
 description: 'Decides what gets built and why, and makes the tradeoff legible to everyone who did not attend the argument.'
 icon: lightbulb
 accent: yellow
-eyebrow: Product
+team: product
 agentType: mission
 active: true
 

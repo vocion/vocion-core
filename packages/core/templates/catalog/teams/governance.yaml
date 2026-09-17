@@ -1,0 +1,6 @@
+name: Governance
+description: >-
+  Compares things against the written standard — contracts, risk,
+  policy, and the employee lifecycle that runs on the same rubrics.
+lead: compliance-lead
+# No accountableUser: inherits the workspace default when one is set.
