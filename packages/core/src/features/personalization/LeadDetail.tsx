@@ -31,6 +31,7 @@ import { useDraftRevision } from './draftRevision';
 import { savedGuidedEdits } from './GuidedReview';
 import { entranceLabel, fullDate, LANE_PILL, shortDate } from './leadFormat';
 import { BriefTab, EvidenceTab, HandoffBriefZone } from './LeadTabs';
+import { ReferenceRow } from './ReferenceRow';
 import { SequenceStateBlock } from './SequenceStateBlock';
 
 /**
@@ -462,6 +463,11 @@ export const LeadView = (props: {
         </TabsContent>
 
         <TabsContent value="sequence">
+          {/* The sequence is the work; the brief justifies it. Reading one
+              while editing the other is this page's normal motion, and tabs
+              make it impossible. These stand an artifact in the side panel
+              without moving you off the send you are writing. */}
+          <ReferenceRow artifacts={artifacts} exclude="sequence" />
           <Section
             eyebrow={`Draft sequence${lead.recommendedSequence ? ` · ${lead.recommendedSequence.name}` : ''}`}
             data-testid="outreach-sends"
