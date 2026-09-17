@@ -4,6 +4,7 @@ import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
@@ -631,6 +632,17 @@ export function useChatSession({
           ...m,
           artifacts: [...(m.artifacts ?? []).filter(x => x.id !== chip.id), chip],
         }));
+        // ...and open it beside the conversation, which is what the tool has
+        // been TELLING the user it did. `render_markdown` returns "now open
+        // beside the conversation at v1"; `openPreview` was only ever called
+        // from a chip click, so the artifact appeared as a chip the user then
+        // had to find and press. Chris, 2026-09-17: *"it didn't open the
+        // sidebar artifact (it should have)"* — he was comparing against the
+        // sentence the product had just shown him.
+        //
+        // The newest artifact of the turn wins, so a turn that renders three
+        // leaves the last one open rather than fighting over the panel.
+        openPreview({ type: 'artifact', id: String(chip.id) }, null);
         return;
       }
 

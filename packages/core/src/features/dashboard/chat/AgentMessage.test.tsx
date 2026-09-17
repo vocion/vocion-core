@@ -190,3 +190,78 @@ describe('the live indicator while streaming', () => {
     expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(0);
   });
 });
+
+describe('a tool failure says what failed', () => {
+  // The badge was a way IN to the trace, which is right — but it opened the
+  // trace at the failed step, and a failure arriving as a typed trace node has
+  // no row among the tool runs to open to. So a turn whose visible steps all
+  // succeeded showed a red "Tool error" that led nowhere.
+  it('names the tool and shows its message on click', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [
+            { type: 'tool', name: 'render_markdown', state: 'error', output: 'ArtifactError: spec.md must be a string' },
+            { type: 'text', text: 'Done.' },
+          ],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('tool-error-badge')).toHaveTextContent('render_markdown failed');
+
+    await userEvent.click(page.getByTestId('tool-error-badge'));
+
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('spec.md must be a string');
+  });
+
+  it('finds a failure that arrived as a typed trace node, not a run', async () => {
+    // The exact case that produced a badge with nothing behind it.
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [{ type: 'text', text: 'Done.' }],
+          trace: [{ id: 'n1', actor: { id: 'revops', kind: 'lead', name: 'RevOps Lead' }, kind: 'tool', label: 'update_artifact', status: 'error', detail: 'artifact 91 not found' }],
+        }}
+      />,
+    );
+
+    await userEvent.click(page.getByTestId('tool-error-badge'));
+
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('artifact 91 not found');
+  });
+
+  it('still says something useful when the failure carried no message', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [{ type: 'tool', name: 'web_search', state: 'error' }, { type: 'text', text: 'Done.' }],
+        }}
+      />,
+    );
+
+    await userEvent.click(page.getByTestId('tool-error-badge'));
+
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('returned no message');
+  });
+
+  it('shows no badge when nothing failed', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{ role: 'assistant', content: 'Done.', runs: [{ type: 'text', text: 'Done.' }] }}
+      />,
+    );
+
+    expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
+  });
+});
