@@ -101,7 +101,16 @@ export function ReviewHeader(props: {
 
   const subline = subject ? [subject.role, subject.company].filter(Boolean).join(' · ') : '';
 
-  // The meta row, as a list of facts separated by middots. Absent facts leave no gap.
+  // The meta row, as a list of facts separated by middots. Absent facts leave
+  // no gap.
+  //
+  // Chris, 2026-09-17: *"make this bar more concise or visual or… less text?,
+  // but with discoverable hover/tooltip if helpful"*. So the grammar goes and
+  // the facts stay: "proposed by revenue-lead" is one fact wearing three words,
+  // "Recommendation 65%" names the thing the whole page already is, and
+  // "(n=9, 30d)" is the working behind the number. Each keeps its full sentence
+  // in a tooltip — which is the reduction pass exactly: show the reading, put
+  // the workings one hover behind it.
   const meta: ReactNode[] = [];
   if (props.system) {
     meta.push(<span key="system" className="text-[12px] font-medium tracking-wide text-foreground/70 uppercase">{props.system}</span>);
@@ -113,18 +122,24 @@ export function ReviewHeader(props: {
     </span>,
   );
   if (props.proposedBy) {
-    meta.push(<span key="by">{props.proposedBy.replace('agent:', 'proposed by ')}</span>);
+    const agent = props.proposedBy.replace('agent:', '');
+    meta.push(<span key="by" title={`Proposed by ${agent}`}>{agent}</span>);
   }
   if (props.confidence !== undefined) {
     // Never a bare score: the meter carries what the confidence is IN.
-    meta.push(<ConfidenceMeter key="confidence" value={props.confidence} label={props.confidenceSubject} />);
+    meta.push(<ConfidenceMeter key="confidence" value={props.confidence} label={props.confidenceSubject} readingHidden />);
   }
   const alignmentRate = props.alignment && props.alignment.n > 0 ? props.alignment.agreementRate : null;
   if (props.alignment && alignmentRate !== null) {
     const a = props.alignment;
     meta.push(
-      <span key="alignment" className="tabular-nums" data-testid="alignment-score" title={`${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind by this agent in the last ${a.window === 'all' ? 'all time' : a.window}`}>
-        {`agrees with you ${Math.round(alignmentRate * 100)}% (n=${a.n}, ${a.window})`}
+      <span
+        key="alignment"
+        className="tabular-nums"
+        data-testid="alignment-score"
+        title={`You have agreed with this agent ${Math.round(alignmentRate * 100)}% of the time — ${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind in the last ${a.window === 'all' ? 'all time' : a.window}`}
+      >
+        {`${Math.round(alignmentRate * 100)}% aligned`}
       </span>,
     );
   }

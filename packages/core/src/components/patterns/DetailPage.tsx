@@ -207,6 +207,7 @@ export function StatusDot(props: { tone: DotTone; label: ReactNode; className?: 
  * @param props.label - What the confidence is IN — the class, the verdict. Shown before the reading.
  * @param props.format - `score` renders "0.60", `percent` renders "60%". Default percent.
  * @param props.rationale - The model's reason, shown in the tooltip.
+ * @param props.readingHidden
  * @param props.alignment - A second 0..1 reading ("alignment 0.91"), when measured.
  * @param props.className
  */
@@ -215,12 +216,14 @@ export function ConfidenceMeter(props: {
   label?: string;
   format?: 'percent' | 'score';
   rationale?: string | null;
+  /** Bars only, the reading in the tooltip — for a dense meta row. */
+  readingHidden?: boolean;
   alignment?: { value: number; label?: string } | null;
   className?: string;
 }) {
   const body = (
     <>
-      <ConfidenceBars value={props.value} subject={props.label} format={props.format} size="md" />
+      <ConfidenceBars value={props.value} subject={props.label} format={props.format} size="md" readingHidden={props.readingHidden} />
       {props.alignment && (
         <span className="text-[13px] text-muted-foreground tabular-nums">
           {`· ${props.alignment.label ?? 'alignment'} ${Math.round(props.alignment.value * 100)}%`}
