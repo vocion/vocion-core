@@ -39,7 +39,7 @@ export const PublishBriefingInputSchema = z.object({
   narratives: z.record(z.string(), z.string()).default({}).describe('metric key → one clause explaining a move. A clause for a key that did not move is dropped.'),
   whyNow: z.record(z.string(), z.string()).default({}).describe('inbox item key → why THIS matters today. "$450K unsigned" is data; "unsigned while delivery started" is a briefing.'),
   incidents: z.record(z.string(), z.string()).default({}).describe('inbox item key → why it is a genuine incident. The ONLY way a brief shows more than three decisions.'),
-  criticalPath: z.array(CriticalPathItemSchema).max(12).default([]).describe('What is on the clock today, with `order` as minutes from midnight.'),
+  criticalPath: z.array(CriticalPathItemSchema).max(12).default([]).describe('What is on the clock TODAY, with `order` as minutes from midnight and `date` as the YYYY-MM-DD it falls on. Every item needs its date: the publisher drops anything not dated today, including anything copied from a previous briefing.'),
   exceptions: z.array(BriefingExceptionSchema).max(12).default([]).describe('Only actual exceptions: off-plan, contradictory, stalled or missing. Never "nothing is wrong".'),
   detail: z.array(DetailTableSchema).max(6).default([]).describe('The compact tables behind "View full pipeline".'),
   agentActivity: AgentActivitySchema.optional().describe('ONLY when something mattered: a failure, unusual spend, stalled work, a missed SLA, a human intervention, or a major completed outcome.'),

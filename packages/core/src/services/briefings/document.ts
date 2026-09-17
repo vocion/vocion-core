@@ -224,6 +224,18 @@ export const ChangesSchema = z.object({
 /** One thing on the clock today. `at` is a wall-clock label so the brief keeps its own timezone. */
 export const CriticalPathItemSchema = z.object({
   at: z.string().min(1).describe('"11:30", "EOD", "12:30 PT"'),
+  /**
+   * The calendar date this item falls on, `YYYY-MM-DD`.
+   *
+   * A time of day is not a date, and this section is a claim about TODAY.
+   * Without one, an item carried forward from a previous briefing is
+   * indistinguishable from one happening in an hour — which is exactly how a
+   * call from the previous day was served as "10:30am CT today" on
+   * 2026-09-17. Optional in the type so briefings published before this
+   * still parse; `enforceBriefing` drops any item that is not dated today,
+   * because an undated claim about today cannot be checked by anyone.
+   */
+  date: z.string().optional().describe('REQUIRED in practice: the calendar date this is on, as YYYY-MM-DD. An item without it, or dated other than today, is dropped by the publisher — never carry an item forward from a previous briefing.'),
   /** Minutes from midnight — how the renderer orders the list, so ordering is not string sorting. */
   order: z.number().int().nonnegative(),
   label: z.string().min(1),

@@ -92,6 +92,8 @@ export function publishBriefingTool(ctx: RuntimeContext) {
         'You supply observations and judgement ONLY. The product decides the rest and will overrule you:',
         'section presence and order, which metrics survive, every delta (computed against the previous brief by key),',
         'the on-track verdict (never green without a verified or observed measure with a target),',
+        'and the critical path, where every item must carry the date it falls on and anything not dated today is dropped —',
+        'a time of day is not a date, so never copy an item forward from a previous briefing,',
         'which decisions are shown and how many (at most 3 unless you mark a genuine incident), and the history.',
         'Do not write a section that says nothing happened — omit it and it will not render.',
         'Never put agent names, job names, tool names, run ids, token counts, connector field names or table names in any narrative field:',
