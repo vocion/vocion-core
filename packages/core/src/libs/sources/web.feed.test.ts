@@ -98,6 +98,13 @@ ATTACH;FILENAME="x:https://cdn.venue.test/wrong.png";FMTTYPE=image/png:https://c
 END:VEVENT
 END:VCALENDAR`;
 
+const UNBALANCED_QUOTE_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID;X-NOTE="never closed:evt-6@venue.test
+SUMMARY:Broken but keyed
+END:VEVENT
+END:VCALENDAR`;
+
 const RSS = `<?xml version="1.0"?><rss version="2.0"><channel><title>Shows</title>
 <item><title>Opening Night</title><link>https://venue.test/shows/opening</link></item>
 </channel></rss>`;
@@ -312,14 +319,26 @@ describe('the ICS per-event split', () => {
     expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://cdn.venue.test/show.png']);
   });
 
-  it('keeps a folded SUMMARY folded, because a title is read as text', async () => {
+  it('unfolds a folded SUMMARY into a whole title', async () => {
     stubFetch(() => typed(NESTED_ALARM_ICS, 'text/calendar'));
 
     const { docs } = await run({ urls: [ICS_URL] });
 
-    // The one reader now serves both, so the flag that separates a value read
-    // as a value from one read as text has to stay pinned by a test.
-    expect(docs[0]?.title).toBe('Show with a rem');
+    // RFC 5545 makes a fold an artifact of how the line was written down, not
+    // part of the value, so a title read without unfolding is just truncated.
+    // This read `Show with a rem` until the one-scanner change.
+    expect(docs[0]?.title).toBe('Show with a reminder');
+  });
+
+  it('keeps the split when a component quote never closes, rather than losing the feed', async () => {
+    stubFetch(() => typed(UNBALANCED_QUOTE_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // A malformed line is not a reason to abandon the per-event split: with no
+    // UID the whole feed collapses back to one document, which re-embeds
+    // everything and tombstones every per-event document.
+    expect(docs.map(d => d.externalId)).toEqual([`${ICS_URL}#evt-6@venue.test`]);
   });
 
   it('reads past a quoted parameter that would otherwise forge a URL', async () => {

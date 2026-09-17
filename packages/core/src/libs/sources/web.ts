@@ -560,11 +560,11 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
   const docs: IngestDoc[] = [];
   const seen = new Set<string>();
   for (const block of blocks) {
-    const uid = icsValue(block, 'UID', true);
+    const uid = icsValue(block, 'UID');
     if (!uid) {
       return null;
     }
-    const recurrenceId = icsValue(block, 'RECURRENCE-ID', false);
+    const recurrenceId = icsValue(block, 'RECURRENCE-ID');
     const externalId = `${page.url}#${uid}${recurrenceId ? `#${recurrenceId}` : ''}`;
     if (seen.has(externalId)) {
       // Two components the feed itself cannot tell apart. Splitting on a key
@@ -576,7 +576,7 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
     docs.push({
       externalId,
       uri: externalId,
-      title: icsValue(block, 'SUMMARY', false) || uid,
+      title: icsValue(block, 'SUMMARY') || uid,
       content: block.join('\n'),
       // Feed-wide headers say nothing about one event inside it.
       etag: null,
@@ -592,6 +592,16 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
   }
   return docs;
 }
+
+/**
+ * Caps on what a feed entry may declare, so one broken or hostile feed cannot
+ * write an arbitrarily large row. `pageMetadata` states boundedness as a hard
+ * invariant for this column and caps the HTML path at `LINK_CAP`; `ATTACH`
+ * repeats without limit and an unfolded value concatenates every continuation
+ * line, so both need a ceiling here. The length is set above any real URL.
+ */
+const PUBLISHED_URL_CAP = 50;
+const PUBLISHED_URL_CHAR_CAP = 2048;
 
 /** Properties whose value is a URL the entry publishes about itself. */
 const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
@@ -630,13 +640,13 @@ function icsPublishedUrls(block: string[]): string[] {
     // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
     // feed that ships inline base64 bytes on the first line and the poster URL
     // on the second would otherwise lose the poster entirely.
-    for (const value of icsValues(block, name, true)) {
+    for (const value of icsValues(block, name)) {
       if (isFetchableUrl(value)) {
         out.push(value);
       }
     }
   }
-  return dedupe(out);
+  return dedupe(out).slice(0, PUBLISHED_URL_CAP);
 }
 
 /**
@@ -649,7 +659,9 @@ function icsPublishedUrls(block: string[]): string[] {
  * @param value - the raw value.
  */
 function isFetchableUrl(value: string): boolean {
-  return HTTP_URL_RE.test(value) && z.string().url().safeParse(value).success;
+  return value.length <= PUBLISHED_URL_CHAR_CAP
+    && HTTP_URL_RE.test(value)
+    && z.string().url().safeParse(value).success;
 }
 
 /**
@@ -659,6 +671,13 @@ function isFetchableUrl(value: string): boolean {
  * quoted value may contain one, as in `ATTACH;FILENAME="a:b":https://…`.
  * Splitting on the first colon there would cut the value in half, which costs
  * the attachment and, worse, can produce a string that still looks like a URL.
+ *
+ * An unbalanced quote is not conformant (RFC 5545 excludes a bare DQUOTE from
+ * a parameter value, which is why RFC 6868 exists), but a broken feed is not a
+ * reason to lose the whole file: a line whose quotes never close falls back to
+ * the first colon. Skipping it instead would leave that component with no UID,
+ * and `splitIcs` answers a missing UID by abandoning the split for every event
+ * in the feed.
  * @param line - one content line, as written in the feed.
  */
 function icsValueColon(line: string): number {
@@ -671,31 +690,34 @@ function icsValueColon(line: string): number {
       return i;
     }
   }
-  return -1;
+  return quoted ? line.indexOf(':') : -1;
 }
 
 /** A line that continues the one above it, per RFC 5545 folding. */
 const ICS_FOLD_RE = /^[ \t]/;
 
 /**
- * Every occurrence of one property in a VEVENT block.
+ * Every occurrence of one property in a VEVENT block, unfolded.
  *
  * `icsValue` answers with the first match, which is right for `UID` and
  * `SUMMARY` because RFC 5545 allows one of each. `ATTACH` may repeat, so a
  * caller that wants attachments has to read them all or it silently keeps
  * whichever the feed happened to write first.
  *
+ * Unfolding is unconditional because RFC 5545 section 3.1 makes a fold an
+ * artifact of how the line was written down, never part of the value: a value
+ * read without unfolding is simply truncated, whether it is a URL or a title.
+ *
  * Properties of a nested component are not the event's own. A `VEVENT` carries
  * its alarms inside it and an alarm has its own `ATTACH`, so a reader that did
  * not track depth would declare an alarm's sound file as a URL the event
  * published, and the extractor's gate would then let a model return it as the
- * event's image.
- * @param lines - the block's lines, as written in the feed.
+ * event's image. Depth is clamped at zero so one stray `END:` cannot silently
+ * drop every property after it.
+ * @param lines - the block's lines, starting at its own `BEGIN:`.
  * @param name - the property name, uppercase.
- * @param unfold - join continuation lines. Off for a value read as text, where
- * the fold is part of how it was written.
  */
-function icsValues(lines: string[], name: string, unfold: boolean): string[] {
+function icsValues(lines: string[], name: string): string[] {
   const out: string[] = [];
   // The block opens with its own `BEGIN:VEVENT`, so the event's properties sit
   // at depth 1 and anything deeper belongs to a component inside it.
@@ -715,17 +737,15 @@ function icsValues(lines: string[], name: string, unfold: boolean): string[] {
       continue;
     }
     if (property === 'END') {
-      depth -= 1;
+      depth = Math.max(0, depth - 1);
       continue;
     }
     if (depth !== 1 || property !== name) {
       continue;
     }
     let value = line.slice(colon + 1);
-    if (unfold) {
-      for (let j = i + 1; j < lines.length && ICS_FOLD_RE.test(lines[j]!); j += 1) {
-        value += lines[j]!.slice(1);
-      }
+    for (let j = i + 1; j < lines.length && ICS_FOLD_RE.test(lines[j]!); j += 1) {
+      value += lines[j]!.slice(1);
     }
     out.push(value.trim());
   }
@@ -734,13 +754,11 @@ function icsValues(lines: string[], name: string, unfold: boolean): string[] {
 
 /**
  * Read one property out of a VEVENT block.
- * @param lines - the block's lines, as written in the feed.
+ * @param lines - the block's lines, starting at its own `BEGIN:`.
  * @param name - the property name, uppercase.
- * @param unfold - join RFC 5545 continuation lines. UID asks for this; a value
- * read without it arrives truncated.
  */
-function icsValue(lines: string[], name: string, unfold: boolean): string {
-  return icsValues(lines, name, unfold)[0] ?? '';
+function icsValue(lines: string[], name: string): string {
+  return icsValues(lines, name)[0] ?? '';
 }
 
 /**
@@ -875,7 +893,7 @@ function declaredUrls(item: unknown): string[] {
       out.push(url);
     }
   }
-  return dedupe(out);
+  return dedupe(out).slice(0, PUBLISHED_URL_CAP);
 }
 
 /* ------------------------------------------------------------------ */

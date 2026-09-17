@@ -91,6 +91,21 @@ function isBlank(value: unknown): boolean {
 }
 
 /**
+ * A URL with its whitespace removed, which is how both sides of the gate are
+ * compared.
+ *
+ * A calendar feed folds a long line, and the model is shown the document as it
+ * was written, folds and all, while the connector declares the value joined
+ * back up. Comparing the two literally would drop exactly the long URLs a fold
+ * exists for. No real URL carries whitespace, so removing it costs nothing and
+ * makes the comparison independent of how the model handled the fold.
+ * @param url - either side's URL.
+ */
+function squashUrl(url: string): string {
+  return url.replace(/\s+/g, '');
+}
+
+/**
  * Every URL the document itself published, the gate a model-returned URL has
  * to pass. Named apart from the `publishedUrls` option it reads, which is one
  * of its three inputs rather than the whole answer.
@@ -107,15 +122,19 @@ function documentUrls(
   const exact = new Set<string>();
   for (const link of links ?? []) {
     if (link?.url) {
-      exact.add(link.url);
+      exact.add(squashUrl(link.url));
     }
   }
   // A document that is not an HTML page has no parsed links and no JSON-LD, so
   // on its own it publishes nothing and every URL a model reads out of it gets
   // dropped. A calendar entry or a JSON feed item states its URLs directly and
-  // the connector hands them over here.
-  for (const url of declared ?? []) {
-    exact.add(url);
+  // the connector hands them over here. Guarded rather than trusted: the blob
+  // is stored jsonb and a row holding a bare string would otherwise iterate
+  // character by character into the set.
+  for (const url of Array.isArray(declared) ? declared : []) {
+    if (typeof url === 'string') {
+      exact.add(squashUrl(url));
+    }
   }
   // JSON-LD carries URLs inside nested objects (`offers.url`, `image`), so a
   // substring check over the serialised blocks is the honest gate: the value
@@ -159,7 +178,7 @@ export function validateRecords(opts: {
     if (!url) {
       return false;
     }
-    return urls.exact.has(url) || (urls.blob !== '' && urls.blob.includes(url));
+    return urls.exact.has(squashUrl(url)) || (urls.blob !== '' && urls.blob.includes(url));
   };
 
   const kept: ValidatedRecord[] = [];
