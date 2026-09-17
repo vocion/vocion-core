@@ -5,7 +5,7 @@ import { ArrowRight, Check, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X 
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
-import { RECOMMENDED_ACTION_ADVICE } from '@/services/chat/autoPropose';
+import { RECOMMENDED_ACTION_ADVICE } from '@/services/chat/recommendedActionAdvice';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { describeActionStatus, TERMINAL_STATUSES, useActionRunStatus } from './useActionRunStatus';
 
