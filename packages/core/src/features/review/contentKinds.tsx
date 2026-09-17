@@ -4,6 +4,7 @@ import type { ComponentType } from 'react';
 import type { ReviewContent } from '@/libs/actions/types';
 import { ExternalLink, FileText, PenLine } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { cn } from '@/utils/Helpers';
 
 /**
  * Content-kind renderers for the review card — kinds register here the way
@@ -16,6 +17,8 @@ import { useEffect, useRef, useState } from 'react';
 export type ContentEdit = { subject?: string; body?: string };
 
 export type ContentRenderProps = {
+  /** True for a moment after a conversation rewrite landed on this item. */
+  changed?: boolean;
   item: ReviewContent;
   /** 1-based position in the content list. */
   position: number;
@@ -105,7 +108,7 @@ function AutoGrow({ value, onChange, className, disabled, label }: {
   );
 }
 
-function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline }: ContentRenderProps) {
+function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline, changed }: ContentRenderProps) {
   const [own, setOwn] = useState(defaultExpanded ?? false);
   const expanded = controlled ?? own;
   const setExpanded = (fn: (e: boolean) => boolean) => setOwn(fn(expanded));
@@ -120,7 +123,17 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded:
   const subject = edit?.subject ?? item.subject ?? '';
   const body = edit?.body ?? item.body;
   return (
-    <div className={inline ? 'border-b border-rule last:border-b-0' : 'border-b border-border/60 last:border-b-0'}>
+    <div
+      data-changed={changed ? 'true' : undefined}
+      className={cn(
+        inline ? 'border-b border-rule last:border-b-0' : 'border-b border-border/60 last:border-b-0',
+        // A rewrite that landed while you were reading says where it landed,
+        // then gets out of the way. Long transition, no animation on the way
+        // in: the tint IS the arrival, the fade is the part you watch.
+        'rounded-sm transition-colors duration-[2000ms]',
+        changed && 'bg-brand-amber-tint duration-0',
+      )}
+    >
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}

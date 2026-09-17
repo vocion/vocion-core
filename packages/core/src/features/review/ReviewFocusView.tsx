@@ -12,6 +12,7 @@ import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
+import { describeAction } from './describeAction';
 import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
@@ -51,28 +52,9 @@ export type ActionRun = {
   typeLabel?: string;
 };
 
-const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
-
-/**
- * The human answer to "what am I approving?" for an item with no presenter —
- * action verb + target system + object, from the action id and its input.
- * @param p
- */
-export function describeAction(p: ActionRun): { title: string; system: string; isEmail: boolean } {
-  const input = p.input;
-  if (p.card) {
-    return { title: p.card.title, system: p.card.system ?? p.actionId.split('.')[0] ?? 'system', isEmail: false };
-  }
-  if (p.actionId === 'gmail.send') {
-    const draft = input.draft === true;
-    return { title: `${draft ? 'Draft email' : 'Send email'} → ${str(input.to) || 'recipient'}`, system: 'Gmail', isEmail: true };
-  }
-  if (p.actionId.startsWith('hubspot.')) {
-    const objectType = str(input.objectType) || 'record';
-    return { title: `Update HubSpot ${objectType === 'companies' ? 'company' : objectType.replace(/s$/, '')} record`, system: 'HubSpot CRM', isEmail: false };
-  }
-  return { title: p.actionId, system: p.actionId.split('.')[0] ?? 'system', isEmail: false };
-}
+// Re-exported so existing client importers are untouched; the definition is
+// in a server-safe module because server components need it too.
+export { describeAction };
 
 export type ReviewFocusViewProps = {
   loaded: boolean;
