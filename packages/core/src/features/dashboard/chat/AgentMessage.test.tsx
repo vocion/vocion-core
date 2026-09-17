@@ -137,3 +137,50 @@ describe('a tool error is inspectable (2026-09-16)', () => {
     expect(block).toContain('proj-2df61364');
   });
 });
+
+describe('the live indicator while streaming', () => {
+  const streamed = {
+    role: 'assistant' as const,
+    content: 'Here is where things stand.',
+    runs: [{ type: 'text' as const, text: 'Here is where things stand.' }],
+  };
+
+  it('shows what is happening at the BOTTOM once prose has started', async () => {
+    // The work timeline opens the message and is the record of the turn. But
+    // once text is arriving you are reading the bottom, and a pause there —
+    // a tool call mid-stream, a slow token — looked exactly like a finished
+    // answer, because the only thing still moving had scrolled off the top.
+    await render(<AgentMessage agentName="RevOps Lead" message={streamed} streaming activity="Searching the CRM" />);
+
+    // Scoped to the indicator on purpose: the activity also names the timeline
+    // header above, and the point of this test is that it now reads at the
+    // bottom too.
+    await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Searching the CRM');
+  });
+
+  it('falls back to a plain label when there is no activity to name', async () => {
+    await render(<AgentMessage agentName="RevOps Lead" message={streamed} streaming />);
+
+    await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+  });
+
+  it('stays out of the way before any text arrives, so there is only ever one live indicator', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{ role: 'assistant', content: '', runs: [] }}
+        streaming
+        activity="Reading the briefing"
+      />,
+    );
+
+    expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(0);
+  });
+
+  it('disappears when the turn lands', async () => {
+    await render(<AgentMessage agentName="RevOps Lead" message={streamed} />);
+
+    expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(0);
+  });
+});

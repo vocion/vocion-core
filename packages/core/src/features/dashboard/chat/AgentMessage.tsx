@@ -223,6 +223,33 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {(message.artifacts?.length ?? 0) > 0 && (
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
           )}
+          {/*
+            The live state belongs where the eye is. The work timeline above is
+            the RECORD of the turn — it opens the message and collapses into
+            "Worked it out · 5 steps" when the turn lands. But once prose starts
+            arriving you are reading the bottom, and a pause there (a tool call
+            mid-stream, a slow first token) looked identical to a finished
+            answer: the only thing still moving was a spinner you had scrolled
+            past.
+
+            So this appears only AFTER text has started — before that the
+            timeline is already saying "Working…" a few lines up, and two live
+            indicators at once is worse than one in the wrong place.
+          */}
+          {streaming && textRuns.some(r => r.text.trim() !== '') && (
+            <div
+              className="mt-2 flex items-center gap-2 text-[12px] text-muted-foreground"
+              role="status"
+              aria-live="polite"
+              data-testid="streaming-indicator"
+            >
+              <span className="relative flex size-1.5 shrink-0">
+                <span className="absolute inline-flex size-full rounded-full bg-brand-amber opacity-60 motion-safe:animate-ping" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-brand-amber" />
+              </span>
+              <span>{activity ?? 'Working…'}</span>
+            </div>
+          )}
         </div>
         {message.confidence && (
           <div className="mt-2 flex justify-end">
