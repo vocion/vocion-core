@@ -136,6 +136,27 @@ describe('candidate extractor validation', () => {
     expect(out.records[0]?.sourceUrl).toBe('https://bellwaterhall.example/e/open-mic');
   });
 
+  it('accepts the URLs a feed entry declared, having no links or JSON-LD of its own', () => {
+    // A calendar entry is not HTML, so it parses to no links and no JSON-LD.
+    // Without the declared list every URL it really carries fails the gate,
+    // which is what emptied two thirds of the queue of its links and images.
+    const out = run([record({ sourceUrl: 'https://venue.test/e/poster-night', imageUrl: 'https://cdn.venue.test/poster.png' })], configWith(), {
+      publishedUrls: ['https://venue.test/e/poster-night', 'https://cdn.venue.test/poster.png'],
+    });
+
+    expect(out.records[0]?.sourceUrl).toBe('https://venue.test/e/poster-night');
+    expect(out.records[0]?.imageUrl).toBe('https://cdn.venue.test/poster.png');
+  });
+
+  it('still drops a URL no feed entry declared', () => {
+    const out = run([record({ sourceUrl: 'https://evil.example/pwn' })], configWith(), {
+      publishedUrls: ['https://venue.test/e/poster-night'],
+    });
+
+    expect(out.records).toHaveLength(1);
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
+  });
+
   it('collapses two records the document listed twice', () => {
     const config = configWith({ collapseWithinDocument: true });
 

@@ -56,6 +56,21 @@ SUMMARY:Nor here
 END:VEVENT
 END:VCALENDAR`;
 
+const PUBLISHED_URLS_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-2@venue.test
+SUMMARY:Poster Night
+URL:https://venue.test/event/poster-night-with-a-title-long-enough-that
+ -the-feed-folded-the-line
+ATTACH;FMTTYPE=image/png:https://cdn.venue.test/poster.png
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-3@venue.test
+SUMMARY:Publishes nothing fetchable
+ATTACH;ENCODING=BASE64;VALUE=BINARY:R0lGODlhAQABAIAAAAAAAP
+END:VEVENT
+END:VCALENDAR`;
+
 const RSS = `<?xml version="1.0"?><rss version="2.0"><channel><title>Shows</title>
 <item><title>Opening Night</title><link>https://venue.test/shows/opening</link></item>
 </channel></rss>`;
@@ -227,6 +242,31 @@ describe('the ICS per-event split', () => {
     expect(docs.map(d => d.externalId)).toEqual([ICS_URL]);
     expect(docs[0]?.content).toContain('BEGIN:VCALENDAR');
   });
+
+  it('declares the URL and the image the component published, unfolding both', async () => {
+    stubFetch(() => typed(PUBLISHED_URLS_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // The folded URL has to arrive whole: read a line at a time it would stop
+    // at "…long-enough-that" and the extractor would drop it as unpublished,
+    // which is the bug this whole change exists to fix.
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/event/poster-night-with-a-title-long-enough-that-the-feed-folded-the-line',
+      'https://cdn.venue.test/poster.png',
+    ]);
+  });
+
+  it('omits the key when a component publishes nothing fetchable', async () => {
+    stubFetch(() => typed(PUBLISHED_URLS_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // A base64 ATTACH is bytes, not a link. Writing an empty array instead of
+    // omitting the key would rewrite the metadata of every such document once
+    // and report a refresh for it.
+    expect(docs[1]?.metadata).not.toHaveProperty('publishedUrls');
+  });
 });
 
 describe('the JSON per-event split', () => {
@@ -246,6 +286,26 @@ describe('the JSON per-event split', () => {
       'https://venue.test/events.json#three',
     ]);
     expect(docs.map(d => d.title)).toEqual(['One', 'Two', 'Three']);
+  });
+
+  it('declares the item\'s own top-level URLs, and leaves nested ones alone', async () => {
+    const items = [{
+      slug: 'one',
+      url: 'https://venue.test/e/one',
+      image: 'https://cdn.venue.test/one.jpg',
+      offers: { url: 'https://tickets.test/one' },
+      link: 'mailto:box@venue.test',
+    }];
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // `offers.url` is nested, so it is the publisher's shape to choose and
+    // walking it would make this a parser; `mailto:` is not fetchable.
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/e/one',
+      'https://cdn.venue.test/one.jpg',
+    ]);
   });
 
   it('hashes the item when it publishes no key, and never uses its index', async () => {

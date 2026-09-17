@@ -95,13 +95,26 @@ function isBlank(value: unknown): boolean {
  * to pass.
  * @param links - `metadata.links`, the pre-strip list.
  * @param jsonLd - The page's JSON-LD blocks.
+ * @param declared - `metadata.publishedUrls`, the URLs a non-HTML document
+ * stated for itself, which is the only list a feed entry has.
  */
-function publishedUrls(links: PageLink[] | undefined, jsonLd: unknown[] | undefined): { exact: Set<string>; blob: string } {
+function publishedUrls(
+  links: PageLink[] | undefined,
+  jsonLd: unknown[] | undefined,
+  declared: string[] | undefined,
+): { exact: Set<string>; blob: string } {
   const exact = new Set<string>();
   for (const link of links ?? []) {
     if (link?.url) {
       exact.add(link.url);
     }
+  }
+  // A document that is not an HTML page has no parsed links and no JSON-LD, so
+  // on its own it publishes nothing and every URL a model reads out of it gets
+  // dropped. A calendar entry or a JSON feed item states its URLs directly and
+  // the connector hands them over here.
+  for (const url of declared ?? []) {
+    exact.add(url);
   }
   // JSON-LD carries URLs inside nested objects (`offers.url`, `image`), so a
   // substring check over the serialised blocks is the honest gate: the value
@@ -118,6 +131,8 @@ function publishedUrls(links: PageLink[] | undefined, jsonLd: unknown[] | undefi
  * @param opts.pageText - The document's text, for the corroboration rule.
  * @param opts.links - `metadata.links` from the page, for the URL gate.
  * @param opts.jsonLd - `metadata.jsonLd` from the page, for the URL gate.
+ * @param opts.publishedUrls - `metadata.publishedUrls`, the URLs a feed entry
+ * declared for itself, for the same gate.
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
  */
@@ -127,6 +142,7 @@ export function validateRecords(opts: {
   pageText: string;
   links?: PageLink[];
   jsonLd?: unknown[];
+  publishedUrls?: string[];
   knownIds: Set<number>;
   today: string;
 }): ValidationOutput {
@@ -137,7 +153,10 @@ export function validateRecords(opts: {
     counts[key] = (counts[key] ?? 0) + 1;
   };
 
-  const urls = publishedUrls(opts.links, opts.jsonLd);
+  // Named apart from the function so the call below reads as one thing feeding
+  // another, rather than the same word meaning two things.
+  const declaredByDocument = opts.publishedUrls;
+  const urls = publishedUrls(opts.links, opts.jsonLd, declaredByDocument);
   const published = (url: string | undefined): boolean => {
     if (!url) {
       return false;

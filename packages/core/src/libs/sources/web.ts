@@ -574,6 +574,7 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
       return null;
     }
     seen.add(externalId);
+    const published = icsPublishedUrls(block);
     docs.push({
       externalId,
       uri: externalId,
@@ -582,17 +583,55 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
       // Feed-wide headers say nothing about one event inside it.
       etag: null,
       lastModifiedAt: null,
-      metadata: { contentType: page.contentType, feedUrl: page.url },
+      metadata: {
+        contentType: page.contentType,
+        feedUrl: page.url,
+        // Omitted when empty: an entry that publishes no URL must keep writing
+        // the metadata it wrote before, or every sync reports a refresh.
+        ...(published.length ? { publishedUrls: published } : {}),
+      },
     });
   }
   return docs;
+}
+
+/** Properties whose value is a URL the entry publishes about itself. */
+const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
+
+/**
+ * The URLs a VEVENT publishes about itself: its own page, and its attachment.
+ *
+ * A document's URLs are how the extractor tells a link the page really carried
+ * from one a model invented. For an HTML page that list is the parsed links;
+ * a feed entry is not HTML and had no list at all, so every real URL a
+ * calendar entry carries was being discarded downstream.
+ *
+ * Unfolding is not optional here. RFC 5545 folds at 75 octets and these values
+ * run past 140 characters, so a conformant feed splits its own event URL
+ * across lines; read without unfolding it would arrive truncated.
+ *
+ * Bounded by construction: two property names, so at most two URLs.
+ * @param block - the VEVENT block's lines, as written in the feed.
+ */
+function icsPublishedUrls(block: string[]): string[] {
+  const out: string[] = [];
+  for (const name of ICS_URL_PROPERTIES) {
+    const value = icsValue(block, name, true);
+    // ATTACH is also how a feed ships base64 bytes or a `mailto:`; only an
+    // http(s) value is a URL anything downstream can fetch.
+    if (HTTP_URL_RE.test(value)) {
+      out.push(value);
+    }
+  }
+  return out;
 }
 
 /**
  * Read one property out of a VEVENT block.
  * @param lines - the block's lines, as written in the feed.
  * @param name - the property name, uppercase.
- * @param unfold - join RFC 5545 continuation lines. Only UID asks for this.
+ * @param unfold - join RFC 5545 continuation lines. UID and the URL
+ * properties ask for this; a value read without it arrives truncated.
  */
 function icsValue(lines: string[], name: string, unfold: boolean): string {
   for (let i = 0; i < lines.length; i += 1) {
@@ -660,6 +699,7 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
       return null;
     }
     seen.add(externalId);
+    const published = declaredUrls(item);
     docs.push({
       externalId,
       uri: externalId,
@@ -667,7 +707,11 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
       content: body,
       etag: null,
       lastModifiedAt: null,
-      metadata: { contentType: page.contentType, feedUrl: page.url },
+      metadata: {
+        contentType: page.contentType,
+        feedUrl: page.url,
+        ...(published.length ? { publishedUrls: published } : {}),
+      },
     });
   }
   return docs;
@@ -677,6 +721,8 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
 const ITEM_KEY_FIELDS = ['@id', 'id', 'slug'] as const;
 /** Keys a JSON feed item might state its own name with, in order of trust. */
 const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
+/** Keys a JSON feed item might publish a URL of its own with. */
+const ITEM_URL_FIELDS = ['url', 'link', 'image', 'thumbnail'] as const;
 
 /**
  * The item's own stable identifier, when it publishes one.
@@ -713,6 +759,36 @@ function declaredTitle(item: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * The URLs the item publishes about itself, for the same reason
+ * `icsPublishedUrls` exists: a JSON entry is not HTML, so nothing else in the
+ * pipeline knows which links it really carried.
+ *
+ * Only top-level string values are read. A URL nested inside an object is left
+ * alone rather than guessed at, because the shape of a feed item is the
+ * publisher's to choose and walking it would turn this into a parser.
+ *
+ * Bounded by construction: four property names, so at most four URLs.
+ * @param item - one entry from the array.
+ */
+function declaredUrls(item: unknown): string[] {
+  if (!isRecord(item)) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const field of ITEM_URL_FIELDS) {
+    const value = item[field];
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const url = value.trim();
+    if (HTTP_URL_RE.test(url) && !out.includes(url)) {
+      out.push(url);
+    }
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
