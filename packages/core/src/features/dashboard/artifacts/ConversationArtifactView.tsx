@@ -20,7 +20,7 @@
  */
 
 import type { ArtifactEntry } from './artifactReducer';
-import type { AgentOption, ChatMessage, ChatMessageArtifact } from '@/features/dashboard/chat/types';
+import type { AgentOption, ChatMessageArtifact } from '@/features/dashboard/chat/types';
 import type { ArtifactPayload } from '@/services/agents/types';
 import { Minimize2, PanelRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -91,11 +91,10 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
       dispatch({ type: 'upsert', artifact: merged, focus: !merged.pending });
       api.setActivity(merged.pending ? `Writing ${merged.title}…` : `Updated ${merged.title}`);
       if (!merged.pending) {
+        // The transcript chip is set by the shared reducer in `useChatSession`
+        // now, so every surface gets it rather than only this one. This view
+        // keeps what is genuinely its own: the PANE.
         api.flushDeltas();
-        api.appendToLatestAgent((m: ChatMessage) => {
-          const rest = (m.artifacts ?? []).filter(x => x.id !== merged.id);
-          return { ...m, artifacts: [...rest, chipOf(merged)] };
-        });
       }
       // Not claimed: any other handling of `artifact` still runs.
       return undefined;
