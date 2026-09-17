@@ -6,6 +6,10 @@ import { obj, str, workerRunErrorResponse } from './_lib';
 /**
  * GET /api/v1/worker-runs?status=&agentSlug=&kind=&limit=&offset=
  * Runs for the caller's org, newest first. Auth: tenant API token or dashboard session.
+ *
+ * Query parameters:
+ * - `status`, `kind`, `agentSlug` — only the runs in that state, of that kind,
+ *   or belonging to that agent.
  * @param req - Request.
  */
 export async function GET(req: Request) {

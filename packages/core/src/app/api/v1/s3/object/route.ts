@@ -12,6 +12,11 @@ import { authApi, isErrorResponse, jsonError } from '../../_shared';
  * short-lived presigned URL. The bucket must be declared by one of the
  * caller's org's `s3` sources — the source is the grant, so a workspace
  * cannot be used to read arbitrary buckets the AWS credentials can see.
+ *
+ * Query parameters:
+ * - `bucket` — required. The bucket to read from, which one of the org's `s3`
+ *   sources must declare; any other bucket is a 403.
+ * - `key` — required. The object's key inside that bucket.
  * @param req
  */
 export async function GET(req: Request) {

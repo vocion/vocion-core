@@ -11,6 +11,11 @@ import { authApi, jsonError } from '../_shared';
  * status, rating (up|down), limit. Returns rows sorted by createdAt
  * desc. Operation runs are gone with the operations layer; per-tool
  * activity lives on /dashboard/activity (tool_call rows).
+ *
+ * Query parameters:
+ * - `status` — only the runs in that state.
+ * - `rating` — `up` or `down`, the reviewer's verdict on the run.
+ * - `limit` — how many rows to return, newest first.
  * @param req
  */
 export async function GET(req: Request) {

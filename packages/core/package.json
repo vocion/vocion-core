@@ -2,7 +2,7 @@
   "name": "@vocion/core",
   "version": "0.1.0",
   "private": true,
-  "description": "Vocion \u2014 Next.js app, Postgres schema, MCP server, workflow runner.",
+  "description": "Vocion — Next.js app, Postgres schema, MCP server, workflow runner.",
   "license": "MPL-2.0",
   "engines": {
     "node": ">=20.3"
@@ -29,6 +29,7 @@
     "check:i18n": "i18n-check -l src/locales -s en -u src -f next-intl",
     "check:migrations": "tsx src/scripts/check-migration-safety.ts",
     "check:symlinks": "tsx src/scripts/check-tracked-symlinks.ts",
+    "openapi:generate": "tsx src/scripts/generate-openapi.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "db-server:file": "pglite-server --extensions=vector --db=local.db --run 'npm run db:migrate'",
@@ -141,6 +142,7 @@
     "remark-gfm": "^4.0.1",
     "sharp": "^0.34.5",
     "stripe": "^18.5.0",
+    "swagger-ui-react": "^5.33.0",
     "tailwind-merge": "^3.5.0",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
@@ -166,6 +168,7 @@
     "@types/pg": "^8.18.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/swagger-ui-react": "^5.18.0",
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/browser": "^4.0.18",
     "@vitest/browser-playwright": "^4.0.18",

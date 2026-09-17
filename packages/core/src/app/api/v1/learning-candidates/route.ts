@@ -9,6 +9,10 @@ import { authApi, isErrorResponse, jsonError, readPagination } from '../_shared'
  * (`pending` | `approved` | `rejected`) and `stepName`; page with `limit` and
  * `offset`. Newest first, with the real total for the filters.
  * Auth: tenant API token or dashboard session.
+ *
+ * Query parameters:
+ * - `status` — `pending`, `approved` or `rejected`.
+ * - `stepName` — only the candidates proposed for one learning step.
  * @param req
  */
 export async function GET(req: Request) {

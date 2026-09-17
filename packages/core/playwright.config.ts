@@ -233,6 +233,15 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/reviews-approved-by-agent',
       timeout: 60 * 1000,
     },
+    // #396 — the generated OpenAPI document, and the reference page that
+    // renders it. Mostly the `request` fixture; one browser check that the
+    // page is behind the login.
+    // Run with: npx playwright test --project=api-docs
+    {
+      name: 'api-docs',
+      testDir: './e2e/api-docs',
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
+    },
     ...(process.env.CI
       ? [
           {
