@@ -1,7 +1,7 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, Check, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, Clock3, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -81,6 +81,41 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       onProposed?.(res.runId);
     } catch (err) {
       setPhase({ status: 'error', message: (err as Error).message });
+    }
+  };
+
+  /**
+   * Propose and approve in one gesture.
+   *
+   * `prepare` sets phase from its own closure, so the run id is not readable
+   * here afterwards — the propose call is repeated rather than reused so the
+   * id is in hand for the decision. One network round trip more than the
+   * two-click path, and one click fewer.
+   */
+  const prepareAndApprove = async () => {
+    if (!rec.actionId) {
+      setPhase({ status: 'error', message: 'This recommendation named no action, so there is nothing to approve.' });
+      return;
+    }
+    setPhase({ status: 'working' });
+    setDecideError(null);
+    try {
+      const res = await client.review.propose({
+        actionId: rec.actionId,
+        input: rec.input,
+        agentSlug: rec.agentSlug,
+        rationale: rec.rationale,
+        confidence: rec.confidence,
+        ...recommendedActionAdvice(rec),
+      }) as { runId: number; status: string };
+      setPhase({ status: 'proposed', runId: res.runId });
+      onProposed?.(res.runId);
+      setDeciding('approve');
+      await client.review.decideAction({ id: res.runId, decision: 'approve' });
+    } catch (err) {
+      setDecideError((err as Error).message);
+    } finally {
+      setDeciding(null);
     }
   };
 
@@ -180,7 +215,13 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
       {status && desc && (
         <div className="mx-3 mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" data-testid="recommended-action-status">
           <span className={`inline-flex items-center gap-1 font-medium ${toneClass}`}>
-            {!terminal && status !== 'snoozed' && <Loader2 className="size-3 animate-spin" aria-hidden />}
+            {/* A spinner promises the thing will change on its own. `pending`
+                is waiting for a PERSON, so it spun forever and read as a hung
+                request — Chris, 2026-09-17: *"after clicking review i get
+                perma-loading 'In review' icon."* Only states the machine is
+                actually working get the spinner. */}
+            {!terminal && status !== 'snoozed' && status !== 'pending' && <Loader2 className="size-3 animate-spin" aria-hidden />}
+            {status === 'pending' && <Clock3 className="size-3" aria-hidden />}
             {terminal && status === 'done' && <Check className="size-3" aria-hidden />}
             {terminal && status !== 'done' && <X className="size-3" aria-hidden />}
             {desc.label}
@@ -242,15 +283,38 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
               </>
             )
           : (
-              <button
-                type="button"
-                onClick={prepare}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-              >
-                {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
-                {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Prepare for review'}
-              </button>
+              <>
+                {/* One click when the suggestion is already right. Approving
+                    used to mean "Prepare for review", then find the card again,
+                    then "Approve" — two clicks and a context switch to agree
+                    with something you had already read. Chris, 2026-09-17:
+                    *"I wanted to approve. I shouldn't have to click twice."*
+                    Preparing is still offered, for when you want to look first
+                    or edit the draft. */}
+                {canApprove && !isDraft && (
+                  <button
+                    type="button"
+                    onClick={() => void prepareAndApprove()}
+                    disabled={busy || deciding !== null}
+                    data-testid="recommended-approve-now"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+                  >
+                    {busy || deciding === 'approve' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+                    {busy || deciding === 'approve' ? 'Approving…' : 'Approve'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={prepare}
+                  disabled={busy}
+                  className={canApprove && !isDraft
+                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-surface-hover disabled:opacity-60'
+                    : 'inline-flex items-center gap-1.5 rounded-lg bg-brand-amber-deep px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60'}
+                >
+                  {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <PencilLine className="size-4" aria-hidden />}
+                  {busy ? 'Preparing…' : isDraft ? 'Prepare draft for review' : 'Review first'}
+                </button>
+              </>
             )}
         {isDraft && phase.status !== 'proposed' && (
           <span className="text-[11px] text-muted-foreground">saves to Gmail Drafts — nothing sends without you</span>

@@ -10,6 +10,7 @@ import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
 import { amountLabel } from '@/services/inbox/describeActionRun';
+import { actionIcon } from './actionIcon';
 import { rowVerbs } from './decisionVerbs';
 import { agoLabel, INBOX_KIND_META, riskTone, waitingFor } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -40,7 +41,9 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
   const verbs = tab === 'decided' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
   const opensHere = item.href.startsWith('/dashboard/inbox');
   const meta = INBOX_KIND_META[item.kind];
-  const KindIcon = meta.icon;
+  // What the row would DO, not how it is decided: on a real queue almost every
+  // row is the `proposal` kind, so the kind icon made them all identical.
+  const KindIcon = actionIcon(item.actionId, meta.icon);
 
   async function decide(verb: DecisionVerb) {
     setBusy(verb.id);
