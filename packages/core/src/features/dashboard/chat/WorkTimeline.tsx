@@ -25,6 +25,7 @@ import {
 import { useEffect, useState } from 'react';
 import { failureReport, redactInternalIds } from '@/libs/chat/redact';
 import { sourceLabels } from './helpers';
+import { useElapsed } from './useElapsed';
 
 /**
  * WorkTimeline — the agent Activity trace.
@@ -173,19 +174,6 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   }
   const out = state === 'done' ? outputSnippet(run.output) : undefined;
   return { icon, kind, label, detail, drill: out, state };
-}
-
-function useElapsed(active: boolean): number {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [active]);
-  return Math.floor((now - start) / 1000);
 }
 
 function Marker({ node }: { node: Node }) {
