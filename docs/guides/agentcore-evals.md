@@ -103,10 +103,15 @@ own account. That is deliberate — versions are the provenance behind scores
 someone may still be reading — but it does mean an abandoned eval leaves
 something behind.
 
-Cost: the judging is billed to your account as model usage, the same as any
-other AgentCore evaluator call. Whether AWS charges separately for storing a
-dataset and its versions is not something we have verified — check the Bedrock
-AgentCore pricing page before assuming the storage is free.
+Cost: the judging is billed to your account, the same as any other AgentCore
+evaluator call. AWS's pricing page (read 2026-09-17) lists **$0.0024 per 1,000
+input tokens and $0.012 per 1,000 output tokens** for a built-in evaluator, and
+**$1.50 per 1,000 evaluations** for a custom one, with that evaluator's own
+model usage billed separately. Storing a dataset and its versions carries no
+line item on that page. Trajectory matching runs no model at all, so a
+trajectory-only dataset costs nothing per case beyond the agent run itself.
+Prices move — read the page rather than this paragraph before quoting a
+number to anyone.
 
 ## What is deterministic, and what only looks it
 
@@ -299,8 +304,9 @@ Three things the UI does on purpose:
 - A region where AgentCore Evaluations exists. Vocion checks this before the
   run and says so, rather than failing every case. Set
   `VOCION_AGENTCORE_EVAL_REGIONS` to override the list when AWS adds a region.
-- AgentCore's judges are billed by AWS per evaluation, on your account. Vocion
-  does not mark them up and does not turn any of them on for you.
+- AgentCore's judges are billed by AWS per evaluation, on your account, at the
+  rates above. Vocion does not mark them up and does not turn any of them on
+  for you.
 - Taking an evaluator out of the workspace file retires it: it stops grading
   immediately, and the row is kept so Vocion still knows which evaluator in
   your AWS account belongs to this dataset. Putting it back in the file revives

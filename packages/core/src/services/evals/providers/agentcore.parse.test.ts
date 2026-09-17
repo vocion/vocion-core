@@ -1,7 +1,7 @@
 import type { EvaluationResultContent } from '@aws-sdk/client-bedrock-agentcore';
 import type { CaseTranscript } from '../transcripts';
 import { describe, expect, it } from 'vitest';
-import { parseEvaluateResults, toProviderScore } from './agentcore';
+import { parseEvaluateResults, referenceInputsFor, toProviderScore } from './agentcore';
 
 function transcript(itemIndex = 0): CaseTranscript {
   return {
@@ -109,5 +109,55 @@ describe('parseEvaluateResults', () => {
     expect(scores).toHaveLength(1);
     expect(scores[0]?.evaluatorSlug).toBe('unknown');
     expect(scores[0]?.value).toBeNull();
+  });
+});
+
+describe('referenceInputsFor', () => {
+  /** A case that authored every kind of ground truth at once. */
+  function fullyAuthored(): CaseTranscript {
+    return {
+      ...transcript(),
+      item: {
+        input: 'refund my order 4471',
+        expectedOutput: 'Refunded $42.10.',
+        expectedTrajectory: ['lookup_order', 'issue_refund'],
+        assertions: ['names the amount'],
+      },
+    };
+  }
+
+  it('sends a session-level evaluator the trajectory and not the expected answer', () => {
+    // AWS refuses the whole request otherwise — "Fields {'expectedResponse'}
+    // are not valid for SESSION-level context" — and the case goes unscored,
+    // which is worse than scoring it badly.
+    const [reference] = referenceInputsFor(fullyAuthored(), 'session-1', 'SESSION')!;
+
+    expect(reference?.expectedTrajectory?.toolNames).toEqual(['lookup_order', 'issue_refund']);
+    expect(reference?.expectedResponse).toBeUndefined();
+    expect(reference?.assertions).toHaveLength(1);
+  });
+
+  it('sends a trace-level evaluator the expected answer and not the trajectory', () => {
+    const [reference] = referenceInputsFor(fullyAuthored(), 'session-1', 'TRACE')!;
+
+    expect(reference?.expectedResponse?.text).toBe('Refunded $42.10.');
+    expect(reference?.expectedTrajectory).toBeUndefined();
+  });
+
+  it('ties the ground truth to the session the spans were sent under', () => {
+    // A mismatch here is answered with "contexts that do not match any
+    // session", so the reference is silently dropped.
+    const [reference] = referenceInputsFor(fullyAuthored(), 'session-7', 'SESSION')!;
+
+    expect(reference?.context?.spanContext?.sessionId).toBe('session-7');
+  });
+
+  it('sends nothing at all for a case with no ground truth for this level', () => {
+    // An empty reference is not the same as none: AWS validates the shape, and
+    // a case that only authored an expected answer has nothing to say to a
+    // trajectory evaluator.
+    const onlyAnswer = { ...transcript(), item: { input: 'hi', expectedOutput: 'hello' } };
+
+    expect(referenceInputsFor(onlyAnswer, 'session-1', 'SESSION')).toBeUndefined();
   });
 });

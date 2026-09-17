@@ -215,7 +215,7 @@ async function evaluateOne(job: EvaluateJob): Promise<ProviderScore[]> {
       // `sessionSpans` is typed as free-form documents on the wire. Our
       // SpanDocument is that shape, spelled out so it is readable here.
       evaluationInput: { sessionSpans: spans as unknown as DocumentType[] },
-      evaluationReferenceInputs: referenceInputsFor(job.transcript, sessionId),
+      evaluationReferenceInputs: referenceInputsFor(job.transcript, sessionId, levelOf(job.evaluatorId)),
     }));
     return parseEvaluateResults(response.evaluationResults, job.transcript);
   } catch (error) {
@@ -236,7 +236,19 @@ async function evaluateOne(job: EvaluateJob): Promise<ProviderScore[]> {
 }
 
 /**
- * Ground truth for this case, when it authored any.
+ * Ground truth for this case, in the fields this evaluator's level accepts.
+ *
+ * AWS validates the reference against the level and refuses the whole request
+ * for a field that does not belong there: a SESSION-level evaluator sent an
+ * `expectedResponse` answers
+ * `Fields {'expectedResponse'} are not valid for SESSION-level context`, and
+ * the case is not scored at all. A dataset carrying both an expected answer
+ * and an expected trajectory — the normal case — would otherwise fail every
+ * case against a trajectory evaluator while passing every mocked test.
+ *
+ * So the level decides: SESSION grades what the agent did, and takes the
+ * trajectory and the assertions; TRACE and TOOL grade what it said, and take
+ * the expected answer and the assertions.
  *
  * `context` binds the reference to a session rather than carrying the input
  * text — AWS types it as a span context, so the tie between "what we expected"
@@ -244,20 +256,26 @@ async function evaluateOne(job: EvaluateJob): Promise<ProviderScore[]> {
  * prompt.
  * @param transcript - The case, and whatever ground truth it authored.
  * @param sessionId - The session the spans were sent under.
+ * @param level - The grain this evaluator judges at.
  */
-function referenceInputsFor(transcript: CaseTranscript, sessionId: string): EvaluationReferenceInput[] | undefined {
+export function referenceInputsFor(
+  transcript: CaseTranscript,
+  sessionId: string,
+  level: EvalScoreLevel,
+): EvaluationReferenceInput[] | undefined {
   const { item } = transcript;
-  const hasGroundTruth = item.expectedTrajectory?.length || item.assertions?.length || item.expectedOutput;
-  if (!hasGroundTruth) {
+  const wantsTrajectory = level === 'SESSION';
+  const trajectory = wantsTrajectory ? item.expectedTrajectory ?? [] : [];
+  const expectedResponse = wantsTrajectory ? '' : item.expectedOutput ?? '';
+  const assertions = item.assertions ?? [];
+  if (!trajectory.length && !assertions.length && !expectedResponse) {
     return undefined;
   }
   return [{
     context: { spanContext: { sessionId } },
-    ...(item.expectedOutput ? { expectedResponse: { text: item.expectedOutput } } : {}),
-    ...(item.assertions?.length ? { assertions: item.assertions.map(text => ({ text })) } : {}),
-    ...(item.expectedTrajectory?.length
-      ? { expectedTrajectory: { toolNames: item.expectedTrajectory } }
-      : {}),
+    ...(expectedResponse ? { expectedResponse: { text: expectedResponse } } : {}),
+    ...(assertions.length ? { assertions: assertions.map(text => ({ text })) } : {}),
+    ...(trajectory.length ? { expectedTrajectory: { toolNames: trajectory } } : {}),
   }];
 }
 

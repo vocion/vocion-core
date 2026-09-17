@@ -27,7 +27,7 @@ describe('buildSessionSpans', () => {
     const spans = buildSessionSpans(transcript(), 'session-1');
 
     expect(spans).toHaveLength(3);
-    expect(spans[0]?.name).toBe('invoke_agent');
+    expect(spans[0]?.name).toBe('invoke_agent vocion-agent');
     expect(spans[0]?.parentSpanId).toBeUndefined();
     expect(spans.slice(1).every(span => span.parentSpanId === spans[0]?.spanId)).toBe(true);
   });
@@ -38,14 +38,57 @@ describe('buildSessionSpans', () => {
     // silently meaningless.
     const spans = buildSessionSpans(transcript(), 'session-1');
 
-    expect(spans.slice(1).map(span => span.name)).toEqual(['lookup_order', 'issue_refund']);
+    expect(spans.slice(1).map(span => span.name)).toEqual(['execute_tool lookup_order', 'execute_tool issue_refund']);
   });
 
-  it('carries the tool arguments, since a tool-parameter evaluator reads them', () => {
+  it('names an instrumentation AgentCore knows how to parse', () => {
+    // Live AWS refuses the whole session otherwise: "Provided input has no
+    // spans with supported scope", and every case comes back unscored.
     const spans = buildSessionSpans(transcript(), 'session-1');
 
-    expect(spans[1]?.attributes['gen_ai.tool.name']).toBe('lookup_order');
-    expect(spans[1]?.attributes['gen_ai.tool.call.arguments']).toBe('{"id":"4471"}');
+    expect(spans.every(span => span.scope.name === 'strands.telemetry.tracer')).toBe(true);
+  });
+
+  it('stamps the session id on every span, which is how the expected answers find their case', () => {
+    // The reference inputs address a case by session id. Without this
+    // attribute AWS answers "contexts that do not match any session" and
+    // scores nothing, even though the spans themselves are fine.
+    const spans = buildSessionSpans(transcript(), 'session-1');
+
+    expect(spans.every(span => span.attributes['session.id'] === 'session-1')).toBe(true);
+  });
+
+  it('puts the tool arguments in the tool message and the result in the choice', () => {
+    // Swapping these two is not cosmetic: AWS parses the result out of the
+    // choice event and answers "Failed to parse tool_output from tool-span"
+    // when the tool message holds it instead.
+    const spans = buildSessionSpans(transcript(), 'session-1');
+    const toolSpan = spans[1]!;
+
+    expect(toolSpan.attributes['gen_ai.tool.name']).toBe('lookup_order');
+    expect(toolSpan.events.find(event => event.name === 'gen_ai.tool.message')?.attributes.content).toBe('{"id":"4471"}');
+    expect(toolSpan.events.find(event => event.name === 'gen_ai.choice')?.attributes.message).toBe('[{"text":"{\\"total\\":4210}"}]');
+  });
+
+  it('carries the prompt and the answer as events, not as attributes', () => {
+    // A span with no events is rejected outright: "Session span data is
+    // incomplete ... missing a corresponding log event".
+    const spans = buildSessionSpans(transcript(), 'session-1');
+
+    expect(spans[0]?.events.map(event => event.name)).toEqual(['gen_ai.user.message', 'gen_ai.choice']);
+    expect(spans[0]?.events[0]?.attributes.content).toBe('[{"text":"refund my order 4471"}]');
+    expect(spans[0]?.events[1]?.attributes.message).toBe('Refunded $42.10.');
+  });
+
+  it('gives every tool call its own id, shared by its arguments and its result', () => {
+    // Two calls to the same tool in one session are told apart by this id;
+    // reusing one would let AWS pair the second call's arguments with the
+    // first call's result.
+    const spans = buildSessionSpans(transcript(), 'session-1');
+    const ids = spans.slice(1).map(span => span.attributes['gen_ai.tool.call.id']);
+
+    expect(new Set(ids).size).toBe(2);
+    expect(spans[1]?.events.every(event => event.attributes.id === ids[0])).toBe(true);
   });
 
   it('produces a valid single-span session when the agent called no tools', () => {
@@ -54,7 +97,7 @@ describe('buildSessionSpans', () => {
     const spans = buildSessionSpans(transcript({ toolCalls: [], trajectory: [] }), 'session-1');
 
     expect(spans).toHaveLength(1);
-    expect(spans[0]?.name).toBe('invoke_agent');
+    expect(spans[0]?.name).toBe('invoke_agent vocion-agent');
     expect(spans[0]?.endTimeUnixNano).toBeGreaterThan(spans[0]!.startTimeUnixNano);
   });
 
