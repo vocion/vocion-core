@@ -6,7 +6,7 @@
  * - publish_briefing: stamps the caller's agent + team.
  * - get_briefing: the caller's TEAM brief by default (arg `team` to read
  *   another team's, `rollup` for the workspace rollup) + freshness signal.
- * - refresh_briefing: regenerates the caller's team brief IN THE BACKGROUND by
+ * - refresh_briefing: refreshes the caller's team brief IN THE BACKGROUND by
  *   running the team's lead agent with a publish instruction (generic — works
  *   for every team, no per-team mission required). Rollup refresh runs the
  *   workspace lead over the latest team briefs. Never blocks the turn.
@@ -22,7 +22,6 @@ import { PublishBriefingInputSchema } from '@/services/briefings/agentInput';
 import { renderedSections } from '@/services/briefings/document';
 import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
 import { publishBriefingDocument } from '@/services/briefings/store';
-import { briefingTitle } from '@/services/briefings/title';
 import { BriefingContractError } from '@/services/briefings/validate';
 import { isFromToday, renderBriefingForAgent } from './briefingCitation';
 
@@ -60,20 +59,23 @@ async function latestBriefing(orgId: string, teamSlug: string | null) {
 export function publishBriefingTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const parsed = PublishBriefingInputSchema.parse(args);
-      // The publisher dates the briefing; the model only names it.
-      const input = { ...parsed, title: briefingTitle(parsed.title) };
+      // The publisher dates the briefing (`publishBriefingDocument`); the
+      // model only names it, and whatever date it wrote is stripped there.
+      const input = PublishBriefingInputSchema.parse(args);
       const { teamSlug } = await callerTeam(ctx);
       const scope = input.rollup ? null : teamSlug;
       try {
-        const { id, doc, dropped } = await publishBriefingDocument(ctx.orgId, input, {
+        const { id, doc, dropped, replaced } = await publishBriefingDocument(ctx.orgId, input, {
           teamSlug: scope,
           agentSlug: ctx.agentSlug ?? null,
           userId: ctx.userId ?? null,
         });
         const sections = renderedSections(doc).join(', ');
         const notes = dropped.length > 0 ? `\nThe contract trimmed some of it: ${dropped.map(d => d.message).join('; ')}.` : '';
-        return `Briefing #${id} published${scope === null ? ' (workspace)' : ` for team ${scope}`} — /dashboard/briefings/${id}.\nSections rendered: ${sections}.${notes}`;
+        // A republish minutes after the first replaced it — say so, so the
+        // agent does not report two briefings when there is one.
+        const verb = replaced ? 'updated (it replaced the version you published a moment ago)' : 'published';
+        return `Briefing #${id} ${verb}${scope === null ? ' (workspace)' : ` for team ${scope}`} — /dashboard/briefings/${id}.\nSections rendered: ${sections}.${notes}`;
       } catch (err) {
         if (err instanceof BriefingContractError) {
           return `NOT published — the briefing contract refused it:\n${err.issues.map(i => `- ${i.section}: ${i.message}`).join('\n')}\nFix those and call publish_briefing again.`;
@@ -153,7 +155,7 @@ export function refreshBriefingTool(ctx: RuntimeContext) {
       const { runAgentDeep } = await import('@/services/AgentService');
       void runAgentDeep({ orgId: ctx.orgId, agentSlug: runner, message: instruction, userId: ctx.userId ?? 'refresh-briefing' })
         .catch((err: unknown) => console.error(`refresh_briefing run failed: ${String(err)}`));
-      return `Regenerating the ${teamSlug ?? 'rollup'} briefing in the background (${runner} is assembling it) — it'll appear under Briefings in a minute or two. Tell the user it's regenerating; don't wait on it.`;
+      return `Refreshing the ${teamSlug ?? 'rollup'} briefing in the background (${runner} is assembling it) — it'll appear under Briefings in a minute or two. Tell the user it's refreshing; don't wait on it.`;
     },
     {
       name: 'refresh_briefing',

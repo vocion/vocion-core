@@ -1,4 +1,4 @@
-import type { BriefGroup } from '@/features/dashboard/BriefingsView';
+import type { BriefGroup, BriefRow } from '@/features/dashboard/BriefingsView';
 import type { InboxItem } from '@/services/InboxService';
 import { desc, eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
@@ -7,14 +7,13 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { briefingSchema, projectSchema, teamSchema } from '@/models/Schema';
-import { parseStoredDocument } from '@/services/briefings/store';
+import { agentNames, parseStoredDocument } from '@/services/briefings/store';
 import { listInbox } from '@/services/InboxService';
 
 /**
  * Briefings — grouped BY TEAM: the workspace ROLLUP tab first (the
  * director/workspace-lead's cross-team read), then one tab per team. Each tab:
- * latest brief, previous-brief history, Regenerate, and a floating chat pill
- * scoped to that team's lead.
+ * latest brief with its previous briefs underneath, and Refresh briefing.
  * @param props
  * @param props.params
  */
@@ -32,7 +31,7 @@ export default async function BriefingsPage(props: { params: Promise<{ locale: s
   }
 
   const [briefings, teams, projects] = await Promise.all([
-    db.select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug, document: briefingSchema.document })
+    db.select({ id: briefingSchema.id, title: briefingSchema.title, content: briefingSchema.content, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug, agentSlug: briefingSchema.agentSlug, document: briefingSchema.document })
       .from(briefingSchema)
       .where(eq(briefingSchema.orgId, orgId))
       .orderBy(desc(briefingSchema.createdAt))
@@ -43,7 +42,15 @@ export default async function BriefingsPage(props: { params: Promise<{ locale: s
     db.select({ lead: projectSchema.leadAgentSlug }).from(projectSchema).where(eq(projectSchema.id, orgId)).limit(1),
   ]);
 
-  const rows = briefings.map(b => ({ ...b, createdAt: b.createdAt.toISOString(), document: parseStoredDocument(b.document) }));
+  // The publisher is named on every brief and history row (principle 10) —
+  // two briefs with one title are told apart by who wrote them.
+  const names = await agentNames(orgId, briefings.map(b => b.agentSlug));
+  const rows: BriefRow[] = briefings.map(({ agentSlug, ...b }) => ({
+    ...b,
+    createdAt: b.createdAt.toISOString(),
+    publisher: agentSlug ? names.get(agentSlug) ?? agentSlug : null,
+    document: parseStoredDocument(b.document),
+  }));
 
   // The decision cards on a typed brief are inbox rows; they are re-read live
   // so a decision made since the brief was written shows as made.
@@ -68,7 +75,7 @@ export default async function BriefingsPage(props: { params: Promise<{ locale: s
     <>
       <TitleBar
         title="Briefings"
-        description="Each team's brief plus the workspace rollup — regenerate on demand, explore history, or chat with a brief."
+        description="Each team's brief and the workspace rollup. Refresh on demand; highlight a passage to ask about it."
       />
       <BriefingsView groups={groups} liveDecisions={liveDecisions} archiveTotal={briefings.length} />
     </>

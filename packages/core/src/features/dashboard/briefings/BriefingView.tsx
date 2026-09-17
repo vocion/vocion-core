@@ -1,7 +1,7 @@
 'use client';
 
 import type { AccordionItem } from '@/components/patterns';
-import type { BriefingMetric, BriefingV2 } from '@/services/briefings/document';
+import type { BriefingHistoryEntry, BriefingMetric, BriefingV2 } from '@/services/briefings/document';
 import type { InboxItem } from '@/services/InboxService';
 import { useState } from 'react';
 import { Accordion, DetailMeta, DetailPage, ListRow, ListRows, Section } from '@/components/patterns';
@@ -9,6 +9,7 @@ import { Link } from '@/libs/I18nNavigation';
 import { firstScreen } from '@/services/briefings/budget';
 import { hasContent, SECTION_TITLE } from '@/services/briefings/document';
 import { formatDelta, formatValue } from '@/services/briefings/format';
+import { BRIEFING_ARCHIVE_HREF } from '@/services/briefings/links';
 import { ON_TRACK_LABEL } from '@/services/briefings/onTrack';
 import { DecisionCards } from './DecisionCards';
 
@@ -36,15 +37,32 @@ import { DecisionCards } from './DecisionCards';
  * standard control offers *Ask about this* — which is secondary by
  * construction. A chip that sends "Do this: 4 learning candidates to adopt or
  * reject" as a chat message is a prompt pretending to be an action.
+ *
+ * **Previous briefings are read LIVE.** The document carries a `history`
+ * snapshot from the moment it was published, and that snapshot is wrong the
+ * moment the next brief lands — the newest brief is missing from it, and the
+ * page used to draw a second, live list underneath to compensate, so the
+ * same rows appeared twice (Chris, 2026-09-17). The page passes the current
+ * history in; the stored snapshot serves only the rendered markdown and the
+ * mail, which are frozen anyway.
  * @param props
  * @param props.doc - The document.
  * @param props.liveDecisions - The open inbox now, so a card decided since the brief was written says so.
+ * @param props.history - Previous briefings in this scope, read now. Overrides the document's snapshot.
+ * @param props.publisher - Who wrote it, by name — shown on the date line (principle 10).
  */
-export function BriefingView({ doc, liveDecisions }: { doc: BriefingV2; liveDecisions: InboxItem[] }) {
+export function BriefingView({ doc, liveDecisions, history, publisher }: {
+  doc: BriefingV2;
+  liveDecisions: InboxItem[];
+  history?: { entries: HistoryRow[]; total: number } | null;
+  publisher?: string | null;
+}) {
   const screen = firstScreen(doc);
   const [open, setOpen] = useState<string[]>([]);
   const toggle = (id: string, next: boolean) => setOpen(ids => (next ? [...ids, id] : ids.filter(x => x !== id)));
 
+  // Live history when the page supplies it; the stored snapshot otherwise.
+  const previous = history === undefined ? doc.history : history;
   const onTrack = doc.today?.onTrack;
   const showOnTrack = onTrack && (onTrack.status !== 'not-enough-evidence' || onTrack.targetSet);
   const readable = screen.metrics.filter(m => m.value !== null);
@@ -139,7 +157,7 @@ export function BriefingView({ doc, liveDecisions }: { doc: BriefingV2; liveDeci
         data-testid="briefing"
         crumbs={[{ label: 'Workspace', href: '/dashboard' }, { label: 'Briefings', href: '/dashboard/briefings' }, { label: doc.title }]}
         title={doc.title}
-        subtitle={`${doc.dateLabel} · ${doc.updatedLabel}`}
+        subtitle={[doc.dateLabel, doc.updatedLabel, publisher ? `by ${publisher}` : null].filter(Boolean).join(' · ')}
         meta={readable.length > 0 ? <DetailMeta items={readable.map(m => <Metric key={m.key} metric={m} />)} /> : undefined}
       >
         {/* 1 — Today. The metrics line is the header's meta; what belongs here
@@ -254,24 +272,25 @@ export function BriefingView({ doc, liveDecisions }: { doc: BriefingV2; liveDeci
           </Section>
         )}
 
-        {/* 9 — the last few briefings, then the archive. */}
-        {hasContent(doc, 'history') && (
+        {/* 9 — the last few briefings, then the archive. Once, and current. */}
+        {previous && previous.entries.length > 0 && (
           <Section
             eyebrow={SECTION_TITLE.history}
             data-testid="briefing-history"
             action={(
-              <Link href={doc.history!.viewAllHref} className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
-                {`View all briefings${doc.history!.total > doc.history!.entries.length ? ` (${doc.history!.total})` : ''}`}
+              <Link href={BRIEFING_ARCHIVE_HREF} className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
+                {`View all briefings${previous.total > previous.entries.length ? ` (${previous.total})` : ''}`}
               </Link>
             )}
           >
             <ListRows>
-              {doc.history!.entries.map(e => (
+              {previous.entries.map(e => (
                 <ListRow
                   key={e.id}
                   href={e.href}
                   title={e.title}
-                  subline={new Date(e.at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  // Two briefs with one title need their publisher to tell apart.
+                  subline={[stamp(e.at), 'publisher' in e && e.publisher ? e.publisher : null].filter(Boolean).join(' · ')}
                 />
               ))}
             </ListRows>
@@ -302,6 +321,13 @@ function Metric({ metric }: { metric: BriefingMetric }) {
       )}
     </span>
   );
+}
+
+/** A history entry, with the publisher's display name when the page resolved one. */
+export type HistoryRow = BriefingHistoryEntry & { publisher?: string | null };
+
+function stamp(at: Date | string): string {
+  return new Date(at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 function side(v: number | string | null, unit?: string): string {
