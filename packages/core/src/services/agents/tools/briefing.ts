@@ -22,6 +22,7 @@ import { PublishBriefingInputSchema } from '@/services/briefings/agentInput';
 import { renderedSections } from '@/services/briefings/document';
 import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
 import { publishBriefingDocument } from '@/services/briefings/store';
+import { briefingTitle } from '@/services/briefings/title';
 import { BriefingContractError } from '@/services/briefings/validate';
 
 async function callerTeam(ctx: RuntimeContext): Promise<{ teamSlug: string | null; leadSlug: string | null }> {
@@ -63,7 +64,9 @@ function isFromToday(d: Date): boolean {
 export function publishBriefingTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const input = PublishBriefingInputSchema.parse(args);
+      const parsed = PublishBriefingInputSchema.parse(args);
+      // The publisher dates the briefing; the model only names it.
+      const input = { ...parsed, title: briefingTitle(parsed.title) };
       const { teamSlug } = await callerTeam(ctx);
       const scope = input.rollup ? null : teamSlug;
       try {
