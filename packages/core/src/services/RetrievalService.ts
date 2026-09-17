@@ -110,6 +110,26 @@ export type SearchHit = {
   score: number;
   /** Per-arm raw scores for debugging / future rerankers. */
   scores: { vector?: number; keyword?: number };
+  /**
+   * When the document is from, as the SOURCE dates it (`lastModifiedAt`),
+   * falling back to when we ingested it. Never null in practice, because
+   * `ingestedAt` is NOT NULL.
+   *
+   * This exists because it did not, and four things quietly depended on it:
+   * the recency decay in `reRankResults` (a no-op without a date), the
+   * `call_type` boost (metadata, below), the date on a rendered search hit,
+   * and the date on a source chip in the sidebar. On 2026-09-17 the lead
+   * named a calendar event from the day before as that morning's schedule —
+   * it had no way to tell, because every hit it saw was undated.
+   */
+  updatedAt: Date | null;
+  /**
+   * The document's own metadata from its connector — `kind`, `call_type`,
+   * `start` for a calendar event, and so on. Carried because the
+   * `metadata_filters` argument on `search_knowledge` filters on it, and
+   * because `reRankResults` boosts discovery calls by `call_type`.
+   */
+  metadata: Record<string, unknown>;
 };
 
 const DEFAULT_K = 8;
@@ -412,6 +432,9 @@ async function hydrate(
       uri: knowledgeDocumentSchema.uri,
       sourceId: knowledgeDocumentSchema.sourceId,
       sourceSlug: knowledgeSourceSchema.slug,
+      lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
+      ingestedAt: knowledgeDocumentSchema.ingestedAt,
+      metadata: knowledgeDocumentSchema.metadata,
     })
     .from(knowledgeChunkSchema)
     .innerJoin(knowledgeDocumentSchema, eq(knowledgeChunkSchema.documentId, knowledgeDocumentSchema.id))
@@ -419,7 +442,7 @@ async function hydrate(
     .where(inArray(knowledgeChunkSchema.id, ids));
   const byId = new Map(rows.map(r => [r.chunkId, r]));
   return fused
-    .map((f) => {
+    .map((f): SearchHit | null => {
       const r = byId.get(f.chunkId);
       if (!r) {
         return null;
@@ -435,7 +458,9 @@ async function hydrate(
         uri: r.uri,
         score: f.score,
         scores: f.scores,
-      } satisfies SearchHit;
+        updatedAt: r.lastModifiedAt ?? r.ingestedAt ?? null,
+        metadata: r.metadata ?? {},
+      };
     })
     .filter((x): x is SearchHit => x !== null);
 }
