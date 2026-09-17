@@ -285,6 +285,47 @@ describe('candidate extractor, one document end to end', () => {
     expect(venue?.proposal).not.toHaveProperty('suggestedDecisionReason');
   });
 
+  it('keeps the URLs a feed entry declared, having no links or JSON-LD to check against', async () => {
+    // The join this file exists to cover: the connector writes the URLs onto
+    // the document, the processor has to hand them to the gate. Tested in the
+    // two halves separately, a dropped hand-off here is silent, and the whole
+    // defect this fixes was one missing hand-off.
+    const entry = {
+      externalId: 'https://venue.test/events.ics#evt-1',
+      uri: 'https://venue.test/events.ics#evt-1',
+      title: 'Poster Night',
+      content: 'BEGIN:VEVENT\nSUMMARY:Poster Night\nURL:https://venue.test/e/poster-night\nEND:VEVENT',
+      // What a calendar entry has: no parsed links, no JSON-LD, its own list.
+      metadata: {
+        contentType: 'text/calendar',
+        feedUrl: 'https://venue.test/events.ics',
+        publishedUrls: ['https://venue.test/e/poster-night', 'https://cdn.venue.test/poster.png'],
+      },
+    };
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{
+          fields: { title: 'Poster Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'] },
+          confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'A public listing with its own date and venue.',
+          sourceUrl: 'https://venue.test/e/poster-night',
+          imageUrl: 'https://cdn.venue.test/poster.png',
+        }],
+      }),
+      usage_metadata: { input_tokens: 900, output_tokens: 120 },
+    });
+
+    await run(context({ document: entry }));
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const card = runs.find(row => (row.input as { title?: string }).title === 'Poster Night');
+    const input = card?.input as { sourceUrl?: string; imageUrl?: string };
+
+    expect(input.sourceUrl).toBe('https://venue.test/e/poster-night');
+    expect(input.imageUrl).toBe('https://cdn.venue.test/poster.png');
+  });
+
   it('reports a skip instead of throwing when the model never answers', async () => {
     invoke.mockResolvedValue({ content: 'I could not read that page.' });
 

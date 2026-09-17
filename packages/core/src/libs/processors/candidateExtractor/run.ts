@@ -118,7 +118,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   const notes: string[] = [];
   const today = calendarToday(config.timezone);
 
-  const metadata = (ctx.document.metadata ?? {}) as { jsonLd?: unknown[]; links?: PageLink[] };
+  const metadata = (ctx.document.metadata ?? {}) as { jsonLd?: unknown[]; links?: PageLink[]; publishedUrls?: string[] };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
   const [known, rules, objectSchema] = await Promise.all([
@@ -177,6 +177,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     pageText: ctx.document.content,
     links: metadata.links,
     jsonLd: jsonLdBlocks,
+    publishedUrls: metadata.publishedUrls,
     knownIds: known.ids,
     today,
   });
