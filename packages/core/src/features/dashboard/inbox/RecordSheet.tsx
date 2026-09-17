@@ -43,7 +43,22 @@ export function RecordSheet({ open, decided, title, crumbs }: {
   crumbs: Array<{ label: string; href?: string }>;
 }) {
   const [justDecided, setJustDecided] = useState<DecidedProposal[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const rows = [...justDecided, ...decided];
+
+  /**
+   * What you did in THIS visit stays on screen; what was decided before it
+   * folds away.
+   *
+   * Chris, 2026-09-17: *"i don't want to see historical all decided when
+   * clicking into a review decision."* He is right, and the two lists are
+   * different things wearing one heading. The row you just approved is
+   * feedback — it is the reason this page does not navigate away, and hiding
+   * it would make a decision feel like it went nowhere. Everything decided
+   * before you arrived is audit material: true, worth keeping, and not what
+   * you came to this screen to read (§12 — hide complexity, never hide truth).
+   */
+  const history = decided;
 
   return (
     <div className="mx-auto w-full max-w-3xl" data-testid="record-sheet">
@@ -64,15 +79,45 @@ export function RecordSheet({ open, decided, title, crumbs }: {
           )
         : <ReviewHeader crumbs={crumbs} title={title} system="Record" status="done" position={`${rows.length} decided`} />}
 
-      {rows.length > 0 && (
+      {justDecided.length > 0 && (
         <section className={open.length > 0 ? 'mt-8' : 'mt-4'} data-testid="record-decided">
           <h2 className="mb-1 px-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Decided
+            Just decided
             {' '}
-            <span className="font-normal text-muted-foreground/70 tabular-nums">{rows.length}</span>
+            <span className="font-normal text-muted-foreground/70 tabular-nums">{justDecided.length}</span>
           </h2>
           <ul className="divide-y divide-border border-y border-border text-sm">
-            {rows.map(row => (
+            {justDecided.map(row => (
+              <li key={row.id} className="flex min-h-11 items-center gap-3 px-3 py-2">
+                <Link href={inboxHref('proposal', row.id)} className="min-w-0 flex-1 hover:underline">
+                  <span className="block truncate">{row.title}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{row.subline}</span>
+                </Link>
+                <span className={`shrink-0 text-xs font-medium ${row.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  {row.status === 'rejected' ? 'Declined' : 'Approved'}
+                </span>
+                <span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                  {row.decidedAt ? agoLabel(new Date(row.decidedAt)) : 'just now'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {history.length > 0 && (
+        <section className="mt-6" data-testid="record-history">
+          <button
+            type="button"
+            onClick={() => setShowHistory(v => !v)}
+            aria-expanded={showHistory}
+            className="px-3 text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
+          >
+            {showHistory ? 'Hide' : 'Show'}
+            {` ${history.length} earlier ${history.length === 1 ? 'decision' : 'decisions'} about this record`}
+          </button>
+          <ul hidden={!showHistory} className="mt-2 divide-y divide-border border-y border-border text-sm">
+            {history.map(row => (
               <li key={row.id} className="flex min-h-11 items-center gap-3 px-3 py-2">
                 <Link href={inboxHref('proposal', row.id)} className="min-w-0 flex-1 hover:underline">
                   <span className="block truncate">{row.title}</span>

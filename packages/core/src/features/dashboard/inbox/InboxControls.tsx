@@ -11,6 +11,7 @@ import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
 
 import { INBOX_KIND_META } from './inboxMeta';
+import { mergeSearch } from './searchParams';
 
 const SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];
 
@@ -56,16 +57,12 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     setDraft(q);
   }, [q]);
 
+  // Read the URL at CALL time, never from the render snapshot: a debounced
+  // write would otherwise rebuild it from a snapshot taken before the user's
+  // last click and drop that click. See `searchParams.ts`.
   function withParams(patch: Record<string, string | null>): string {
-    const next = new URLSearchParams(params.toString());
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === null || v === '') {
-        next.delete(k);
-      } else {
-        next.set(k, v);
-      }
-    }
-    const s = next.toString();
+    const current = typeof window === 'undefined' ? params.toString() : window.location.search;
+    const s = mergeSearch(current, patch);
     return s ? `${pathname}?${s}` : pathname;
   }
 
@@ -82,12 +79,24 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
     if (timer.current) {
       clearTimeout(timer.current);
     }
+    // Selecting a token clears the field, which lands here with ''. When the
+    // URL already says that, there is nothing to write — and writing anyway is
+    // how a freshly chosen filter got overwritten by its own side effect.
+    if (value.trim() === q) {
+      return;
+    }
     timer.current = setTimeout(() => go({ q: value.trim() }), 300);
   }
 
   const total = INBOX_KINDS.reduce((sum, k) => sum + counts[k], 0);
   const filtered = kinds.length > 0 || actionKinds.length > 0 || agents.length > 0 || Boolean(q);
-  const defaultSort: InboxSort = tab === 'decided' ? 'newest' : 'oldest';
+  // Newest first everywhere. Oldest-first is the classic work-queue default and
+  // it earns its keep when a queue drains; this one has not drained in fifteen
+  // days, so it only ever showed the same stalled rows and made the queue look
+  // dead. Chris, 2026-09-17: *"maybe default to newest first?"* The oldest age
+  // is still stated in the header line, so the backlog does not become
+  // invisible — it just stops being the only thing you can see.
+  const defaultSort: InboxSort = 'newest';
 
   const kindChips: Chip[] = [
     { key: 'all', label: t('all'), count: total, active: kinds.length === 0, pinned: true, onToggle: () => go({ kind: null }) },
