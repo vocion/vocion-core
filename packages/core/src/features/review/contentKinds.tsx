@@ -3,7 +3,7 @@
 import type { ComponentType } from 'react';
 import type { ReviewContent } from '@/libs/actions/types';
 import { ExternalLink, FileText, PenLine } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Content-kind renderers for the review card — kinds register here the way
@@ -57,16 +57,63 @@ function UnknownContent({ item }: ContentRenderProps) {
   );
 }
 
-const fieldClass = 'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none transition focus:border-brand-amber';
 // Inline editing: the text reads like text until you touch it (B-034b §2 —
 // soft fills, no chrome borders). The pencil on the row is the affordance.
 const inlineFieldClass = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none transition hover:bg-[var(--surface-hover,var(--muted))] focus:bg-[var(--surface-soft,var(--muted))]';
+
+/**
+ * A textarea that is exactly as tall as what it holds.
+ *
+ * A fixed height with `resize-y` gives a short email an inner scrollbar and a
+ * drag grip — two pieces of chrome that say "form field" on a surface meant to
+ * read as a message. `field-sizing: content` does this natively in current
+ * Chrome; the effect is set from the DOM as well so the height is right in
+ * every engine and on first paint, not just after a keystroke.
+ * @param props - Value, change handler and the shared field styling.
+ * @param props.value - The body text.
+ * @param props.onChange - Called with the next body.
+ * @param props.className - The field styling to share with the subject.
+ * @param props.disabled - Read-only when the caller passes no editor.
+ * @param props.label - The accessible name; there is no visible label.
+ */
+function AutoGrow({ value, onChange, className, disabled, label }: {
+  value: string;
+  onChange: (next: string) => void;
+  className?: string;
+  disabled?: boolean;
+  label: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      aria-label={label}
+      className={`${className} [field-sizing:content] resize-none overflow-hidden`}
+      value={value}
+      onChange={ev => onChange(ev.target.value)}
+      disabled={disabled}
+    />
+  );
+}
 
 function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline }: ContentRenderProps) {
   const [own, setOwn] = useState(defaultExpanded ?? false);
   const expanded = controlled ?? own;
   const setExpanded = (fn: (e: boolean) => boolean) => setOwn(fn(expanded));
-  const field = inline ? inlineFieldClass : fieldClass;
+  // An email reads as an email on BOTH presentations. The bordered variant
+  // was the card's, and a boxed field inside a boxed row inside a boxed card
+  // is the nesting `patterns.md` bans — it is also exactly what made this look
+  // like a form. One treatment, so there is nothing to keep in step.
+  const field = inlineFieldClass;
   if (item.kind !== 'email') {
     return null;
   }
@@ -82,29 +129,43 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded:
       >
         <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${inline ? 'bg-muted/60 text-muted-foreground' : 'bg-muted'}`}>{position}</span>
         <span className="shrink-0 text-[13px] text-muted-foreground">{item.label}</span>
-        <span className={`min-w-0 flex-1 truncate text-sm ${inline ? 'font-medium' : 'font-semibold'}`}>{subject || body.split('\n')[0]}</span>
+        <span className={`min-w-0 flex-1 truncate text-sm ${inline ? 'font-medium' : 'font-semibold'}`}>
+          {expanded ? '' : subject || body.split('\n')[0]}
+        </span>
         <PenLine className={`size-3.5 shrink-0 text-muted-foreground/60 ${inline ? 'opacity-0 transition group-hover:opacity-100' : ''}`} aria-hidden />
       </button>
       {expanded && (
         <div className="space-y-2 pb-3 pl-9">
+          {/* An email, not a form.
+              Chris, 2026-09-17: *"any way to make this block look a little
+              more like an email editor input and less nested inputs with clear
+              borders?"* Three things were making it read as a form: a boxed
+              field inside a boxed row inside a boxed card (the nesting
+              `patterns.md` bans outright), a label above each field naming
+              what the shape already says, and a fixed-height body with its own
+              scrollbar and resize grip — so a four-line email arrived pre-
+              cropped. Now the subject is a subject line with a hairline under
+              it, the body grows to its content, and the labels are there for
+              a screen reader only. */}
           <label className="block">
-            <span className={`mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground ${inline ? '' : 'uppercase'}`}>{inline ? 'Subject' : 'subject'}</span>
+            <span className="sr-only">Subject</span>
             <input
-              className={field}
+              className={`${field} border-b border-rule text-[15px] font-medium`}
               value={subject}
+              placeholder="Subject"
               onChange={ev => onEdit?.({ subject: ev.target.value })}
               disabled={disabled || !onEdit}
             />
           </label>
-          <label className="block">
-            <span className={`mb-1 block text-[10px] font-medium tracking-wide text-muted-foreground ${inline ? '' : 'uppercase'}`}>{inline ? 'Body' : 'body'}</span>
-            <textarea
-              className={`${field} min-h-28 resize-y leading-relaxed`}
-              value={body}
-              onChange={ev => onEdit?.({ body: ev.target.value })}
-              disabled={disabled || !onEdit}
-            />
-          </label>
+          {/* No <label> wrapper: the control lives inside `AutoGrow`, so the
+              association has to travel as an accessible name instead. */}
+          <AutoGrow
+            label="Body"
+            className={`${field} leading-relaxed`}
+            value={body}
+            onChange={next => onEdit?.({ body: next })}
+            disabled={disabled || !onEdit}
+          />
         </div>
       )}
     </div>
