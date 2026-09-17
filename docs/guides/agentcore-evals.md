@@ -143,7 +143,7 @@ consequences worth knowing before you plan around it:
   a score is about that one execution and nothing else — rerunning the dataset
   is a new measurement, not a second opinion on the old one.
 
-## Three ways AgentCore evaluates, and the two we use
+## Three ways AgentCore evaluates, and what each one answers
 
 AWS offers evaluation in three shapes, and they answer different questions:
 
@@ -161,10 +161,11 @@ means an agent instrumented and delivering spans there. On-demand needs none of
 that — it is the shape Vocion's dataset runner uses, and it works wherever your
 agent runs.
 
-Vocion supports the first two. On demand is the primary path because it is
-synchronous and always available; batch runs beside it, off by default, as the
-audit trail — see the two sections after the next one. Online evaluation is
-deliberately not enabled, for reasons written down below.
+Vocion supports all three, and they answer different questions. On demand is
+the primary path because it is synchronous and always available; batch runs
+beside it as the audit trail; online watches production. The last two are both
+off by default and both cost money while they run — each has its own section
+below, with what it does and does not tell you.
 
 Worth being clear about what the live-traffic shape can and cannot tell you.
 Nobody wrote down the right answer for a real customer's question, so online
@@ -368,27 +369,113 @@ per 1,000 output** against $0.0024 and $0.012 for the same built-in evaluators
 to a cadence, and do not trust this paragraph). Running batch alongside
 on-demand means paying for both, which is the price of the audit trail.
 
-## Online evaluation, and why it is switched off
+## Online evaluation: scoring live traffic continuously
 
-AWS also offers a standing configuration that samples live traffic and scores
-it continuously, writing to CloudWatch metrics you can alarm on. Vocion does
-not enable it, and that is a decision rather than an omission.
+The two paths above grade cases somebody wrote. This one grades what real
+people actually asked the agent: AWS samples a share of live sessions, scores
+them as they happen, and publishes the results as CloudWatch metrics you can
+alarm on.
 
-**It cannot grade against expected answers.** Nobody wrote down the right
-answer for a real customer's question, so online evaluation judges a session
+**Read these two limits first.** Neither is obvious from the API, and both
+change what the number means.
+
+**It cannot grade against an expected answer.** Nobody wrote down the right
+reply to a real customer's question, so every evaluator here judges a session
 against itself — was the reply responsive, was it grounded in what the tools
-returned. That is a production health signal. It will not tell anyone whether
-the agent is correct, which is what a pass rate means here.
+returned. That is a health signal, not a pass rate. A trajectory evaluator has
+nothing to match against, so Vocion refuses to configure one and tells you
+which of your choices it dropped. To grade correctness, use a dataset.
 
-**It bills continuously whether or not anyone is reading it.** A standing
-config costs money every day on the customer's account, and a number nobody
-looks at is not worth a recurring bill.
+**It bills for as long as it exists.** Every sampled session is a paid judge
+call on the customer's account, every day, whether or not anyone reads the
+number. The sampling percentage is the dial and the enable switch is the tap;
+neither is a one-way door.
 
-Batch evaluation over a chosen window answers the same question better, with
-ground truth, and only costs when someone asks for it. The place online
-evaluation would earn its keep is alarming — page someone when correctness
-drops — and that is worth revisiting once batch runs have produced a baseline
-to drop from. Until someone asks for production monitoring, it stays off.
+### Setting it up
+
+One prerequisite, which `infra/agentcore/provision.sh` creates: an IAM role AWS
+assumes to read the spans and write the results. Creating the role costs
+nothing and starts nothing.
+
+```bash
+# Creates VocionAgentCoreEvaluationExecution and writes its ARN to SSM.
+ENV=dev AWS_PROFILE=<your-aws-profile> bash infra/agentcore/provision.sh
+
+# Point Vocion at it.
+VOCION_AGENTCORE_EVAL_EXECUTION_ROLE_ARN=arn:aws:iam::<account>:role/VocionAgentCoreEvaluationExecution
+```
+
+Then create the configuration from Vocion. **It is created switched off**, on
+purpose: a configuration that starts sampling the moment it exists means the
+first anyone hears about the cost is the bill. Look at it, then enable it.
+
+```ts
+// Exists, sampling nothing, costing nothing.
+await client.evals.online.setUp({});
+
+// Check what AWS actually thinks before spending anything.
+await client.evals.online.status();
+
+// Now it is scoring 5% of live sessions, and charging for them.
+await client.evals.online.setEnabled({ enabled: true });
+```
+
+Ask for specific evaluators with `setUp({ evaluatorIds: [...] })`. Anything
+needing a right answer is refused rather than dropped, and the reply names what
+it would not run and why.
+
+One configuration per workspace and region. Asking twice returns the one that
+exists rather than making a second — two configurations over the same traffic
+would sample it twice and bill twice.
+
+### The two dials
+
+```ts
+// Stop sampling and stop the bill. Keeps the configuration and its history.
+await client.evals.online.setEnabled({ enabled: false });
+
+// Keep the signal, spend less on it. Usually the better answer to a bill
+// that came in higher than expected.
+await client.evals.online.setSampling({ samplingPercentage: 1 });
+
+// Remove it from the customer's account entirely. Rarely what you want.
+await client.evals.online.tearDown();
+```
+
+### Is it costing me anything right now?
+
+Two different questions, which is why there are two status fields:
+
+| `status` | `enabled` | What it means |
+| --- | --- | --- |
+| `ACTIVE` | `true` | Sampling live traffic and billing for it |
+| `ACTIVE` | `false` | Exists, sampling nothing, costing nothing |
+| `CREATING` | `false` | Not ready yet |
+| `CREATE_FAILED` | `false` | Never started — `failureReason` says why, usually the execution role |
+
+`evals.online.status()` asks AWS and updates the stored answer before returning
+it, which is deliberate: AWS owns this resource, a create can fail after it
+returned, and somebody can change it in the console. Telling a person they are
+not being charged when they are is the one answer this must never give.
+
+### Where the results appear
+
+Per-session results land in `/aws/bedrock-agentcore/evaluations/results/<config-id>`
+as EMF, which publishes them as CloudWatch metrics under the
+`Bedrock-AgentCore/Evaluations` namespace. From there they render in CloudWatch
+→ GenAI Observability → Bedrock AgentCore → Evaluations, with session, trace
+and span drill-down, and they can carry a CloudWatch alarm — "page someone when
+correctness drops below 0.8" — which is the thing this path can do that neither
+of the others can.
+
+### When to use which
+
+| Question | Path |
+| --- | --- |
+| Did this change break anything? | On-demand, over a dataset |
+| Can someone else verify that score? | Batch, in their own account |
+| Is quality drifting in production? | Online |
+| Is the agent correct? | Not online — it has no right answer to compare against |
 
 ## Where the cases live
 

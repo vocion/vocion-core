@@ -1987,6 +1987,56 @@ export const evalBatchJobSchema = pgTable('eval_batch_job', {
   index('eval_batch_job_status_idx').on(table.status),
 ]);
 
+/**
+ * The standing online evaluation configuration for one workspace.
+ *
+ * Unlike a batch job this is not a record of something that happened — it is a
+ * mirror of a resource that exists in the customer's AWS account and is
+ * spending their money right now. So the row is a pointer plus the last thing
+ * AWS said about it, refreshed rather than accumulated, and the two status
+ * columns are kept apart on purpose: a config can exist and be switched off,
+ * which costs nothing, and that is the difference someone asking "is this
+ * billing me?" needs to see.
+ *
+ * One per org and region. A second config over the same traffic would sample
+ * it twice and bill for it twice.
+ */
+export const evalOnlineConfigSchema = pgTable('eval_online_config', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  /** Which region's AgentCore holds it — needed to build the console link. */
+  region: text('region').notNull(),
+  /** AWS's id and ARN for the configuration. */
+  configId: text('config_id').notNull(),
+  configArn: text('config_arn').notNull(),
+  /** The resource's own lifecycle word: CREATING, ACTIVE, UPDATE_FAILED… */
+  status: text('status').notNull().default('CREATING'),
+  /**
+   * Whether it is sampling traffic right now, and therefore billing.
+   *
+   * Separate from `status` because they answer different questions. An ACTIVE
+   * config that is disabled is a resource sitting there costing nothing.
+   */
+  enabled: boolean('enabled').notNull().default(false),
+  /** How much live traffic is scored, as a percentage. The cost dial. */
+  samplingPercentage: integer('sampling_percentage').notNull().default(5),
+  /** Which evaluators are running. Never a ground-truth one — see agentcoreOnline.ts. */
+  evaluatorIds: text('evaluator_ids').array().notNull().default([]),
+  /** Where AWS writes the per-session results, for a person to open. */
+  outputLogGroup: text('output_log_group'),
+  /** Whatever AWS last said went wrong. */
+  failureReason: text('failure_reason'),
+  /** When we last asked AWS what state this was in. */
+  syncedAt: timestamp('synced_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  uniqueIndex('eval_online_config_org_region_idx').on(table.orgId, table.region),
+]);
+
 export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
   runs: many(evalRunSchema),
   remotes: many(evalDatasetRemoteSchema),

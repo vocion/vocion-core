@@ -200,11 +200,100 @@ aws xray update-indexing-rule \
   --rule '{"Probabilistic": {"DesiredSamplingPercentage": 1.0}}' >/dev/null 2>&1 \
   || echo "-- could not set the indexing rule; leaving whatever is configured"
 
-# ---------------------------------------------------------------- 5. SSM
+# ------------------------------------------ 5. online evaluation role
+# The role AWS assumes to run continuous evaluation of live traffic.
+#
+# Online evaluation is a standing configuration: AWS reads a sample of real
+# sessions out of the spans log group, scores them, and writes the results
+# back. It does that as this role, not as the caller, so the role has to exist
+# before a configuration can be created.
+#
+# Creating the role costs nothing and starts nothing. It is a prerequisite, not
+# a switch — the configuration itself is created switched off, and only starts
+# sampling when somebody enables it. See docs/guides/agentcore-evals.md.
+#
+# Read access to the spans, write access to the results, and nothing else.
+EVAL_ROLE_NAME="VocionAgentCoreEvaluationExecution"
+EVAL_TRUST=$(cat <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Service": "bedrock-agentcore.amazonaws.com" },
+    "Action": "sts:AssumeRole",
+    "Condition": {
+      "StringEquals": { "aws:SourceAccount": "${ACCOUNT}" },
+      "ArnLike": { "aws:SourceArn": "arn:aws:bedrock-agentcore:${REGION}:${ACCOUNT}:*" }
+    }
+  }]
+}
+JSON
+)
+if aws iam get-role --role-name "$EVAL_ROLE_NAME" >/dev/null 2>&1; then
+  echo "-- evaluation execution role already exists"
+  aws iam update-assume-role-policy --role-name "$EVAL_ROLE_NAME" \
+    --policy-document "$EVAL_TRUST" >/dev/null
+else
+  echo "-- creating evaluation execution role ${EVAL_ROLE_NAME}"
+  aws iam create-role --role-name "$EVAL_ROLE_NAME" \
+    --description "Read agent spans and write evaluation results (Vocion online evaluation)" \
+    --assume-role-policy-document "$EVAL_TRUST" >/dev/null
+fi
+
+EVAL_POLICY=$(cat <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadAgentSpans",
+      "Effect": "Allow",
+      "Action": [
+        "logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery",
+        "logs:GetLogEvents", "logs:FilterLogEvents",
+        "logs:DescribeLogGroups", "logs:DescribeLogStreams"
+      ],
+      "Resource": [
+        "arn:aws:logs:${REGION}:${ACCOUNT}:log-group:aws/spans:*",
+        "arn:aws:logs:${REGION}:${ACCOUNT}:log-group:/aws/bedrock-agentcore/runtimes/*"
+      ]
+    },
+    {
+      "Sid": "WriteEvaluationResults",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:${REGION}:${ACCOUNT}:log-group:/aws/bedrock-agentcore/evaluations/*"
+    },
+    {
+      "Sid": "PublishEvaluationMetrics",
+      "Effect": "Allow",
+      "Action": "cloudwatch:PutMetricData",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "cloudwatch:namespace": "Bedrock-AgentCore/Evaluations" }
+      }
+    },
+    {
+      "Sid": "InvokeJudgeModels",
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Resource": "*"
+    }
+  ]
+}
+JSON
+)
+aws iam put-role-policy --role-name "$EVAL_ROLE_NAME" \
+  --policy-name VocionEvaluationExecution \
+  --policy-document "$EVAL_POLICY" >/dev/null
+EVAL_ROLE_ARN="arn:aws:iam::${ACCOUNT}:role/${EVAL_ROLE_NAME}"
+echo "-- evaluation execution role ready: ${EVAL_ROLE_ARN}"
+
+# ---------------------------------------------------------------- 6. SSM
 put() { aws ssm put-parameter --name "$1" --value "$2" --type String --overwrite >/dev/null; }
 put "${SSM_PREFIX}/ecr-repo-uri" "$REPO_URI"
 put "${SSM_PREFIX}/runtime-role-arn" "$ROLE_ARN"
 put "${SSM_PREFIX}/memory-id" "$MEMORY_ID"
+put "${SSM_PREFIX}/eval-execution-role-arn" "$EVAL_ROLE_ARN"
 echo "-- SSM outputs written under ${SSM_PREFIX}/"
 
 echo "== OK: provision complete. Next: bash infra/agentcore/deploy-runtime.sh =="
