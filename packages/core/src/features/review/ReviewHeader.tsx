@@ -5,13 +5,14 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { ChevronRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
+import { ConfidenceMeter } from '@/components/patterns';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
 /**
- * The decision-screen header every kind on "Needs you" shares: a breadcrumb
- * with context (Workspace › Needs you › kind › record), the item as the H1
- * ("Enroll MQL in sequence — Dale Heim · Agentix"), and ONE meta row —
+ * The decision-screen header every kind on "Review queue" shares: a breadcrumb
+ * with context (Workspace › Review queue › kind › record), the item as the H1
+ * ("Enroll MQL in sequence — Dev Okonkwo · Vantage Automation"), and ONE meta row —
  * system · status · who proposed or asked · confidence as an inline meter ·
  * how often people agreed with this agent on this kind · what the agent
  * suggests · where you are in the queue — with Back and "Next: …" on the
@@ -47,43 +48,27 @@ const SUGGESTION: Record<SuggestedDecision, { label: string; className: string }
   snooze: { label: 'Agent suggests waiting', className: 'text-muted-foreground' },
 };
 
-function meterTone(c: number): string {
-  if (c >= 0.85) {
-    return 'bg-emerald-500';
-  }
-  if (c >= 0.7) {
-    return 'bg-amber-500';
-  }
-  return 'bg-orange-500';
-}
-
-/**
- * Confidence as a quiet 48px meter with the percentage beside it — a number
- * in the meta row, not a boxed badge.
- * @param props - The confidence, 0..1.
- * @param props.value - The confidence, 0..1.
- */
-export function ConfidenceMeter(props: { value: number }) {
-  const pct = Math.round(props.value * 100);
-  return (
-    <span className="inline-flex items-center gap-1.5" title={`Confidence ${pct}%`} data-testid="confidence-meter">
-      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-muted">
-        <span className={cn('block h-full rounded-full', meterTone(props.value))} style={{ width: `${pct}%` }} />
-      </span>
-      <span className="text-[13px] text-foreground/80 tabular-nums">{`${pct}% confidence`}</span>
-    </span>
-  );
-}
-
 export function ReviewHeader(props: {
   crumbs: Array<{ label: string; href?: string }>;
   title: string;
   /** The record the item is about; the H1 already names it, so this line carries role, company and the deep link. */
   subject?: { name: string; role?: string; company?: string; href?: string };
+  /**
+   * One line under the H1 naming what this record IS — "Discovery assessment ·
+   * Sep 14, 11:30 AM". Set it when the H1 is the object's own name rather than
+   * a description of the decision; `subject` still renders its deep link.
+   */
+  subtitle?: string;
   system?: string;
   status: string;
   proposedBy?: string | null;
   confidence?: number;
+  /**
+   * What the confidence is IN — the class or the recommendation it scores.
+   * A number beside a verdict it does not belong to is the defect
+   * `docs/specs/discovery-ledger-v2.md` is about, so the meter takes it.
+   */
+  confidenceSubject?: string;
   /**
    * How often this agent's recommendations of this kind matched what the
    * person decided (30d). Confidence says how sure the agent is; this says how
@@ -116,7 +101,16 @@ export function ReviewHeader(props: {
 
   const subline = subject ? [subject.role, subject.company].filter(Boolean).join(' · ') : '';
 
-  // The meta row, as a list of facts separated by middots. Absent facts leave no gap.
+  // The meta row, as a list of facts separated by middots. Absent facts leave
+  // no gap.
+  //
+  // Chris, 2026-09-17: *"make this bar more concise or visual or… less text?,
+  // but with discoverable hover/tooltip if helpful"*. So the grammar goes and
+  // the facts stay: "proposed by revenue-lead" is one fact wearing three words,
+  // "Recommendation 65%" names the thing the whole page already is, and
+  // "(n=9, 30d)" is the working behind the number. Each keeps its full sentence
+  // in a tooltip — which is the reduction pass exactly: show the reading, put
+  // the workings one hover behind it.
   const meta: ReactNode[] = [];
   if (props.system) {
     meta.push(<span key="system" className="text-[12px] font-medium tracking-wide text-foreground/70 uppercase">{props.system}</span>);
@@ -128,17 +122,24 @@ export function ReviewHeader(props: {
     </span>,
   );
   if (props.proposedBy) {
-    meta.push(<span key="by">{props.proposedBy.replace('agent:', 'proposed by ')}</span>);
+    const agent = props.proposedBy.replace('agent:', '');
+    meta.push(<span key="by" title={`Proposed by ${agent}`}>{agent}</span>);
   }
   if (props.confidence !== undefined) {
-    meta.push(<ConfidenceMeter key="confidence" value={props.confidence} />);
+    // Never a bare score: the meter carries what the confidence is IN.
+    meta.push(<ConfidenceMeter key="confidence" value={props.confidence} label={props.confidenceSubject} readingHidden />);
   }
   const alignmentRate = props.alignment && props.alignment.n > 0 ? props.alignment.agreementRate : null;
   if (props.alignment && alignmentRate !== null) {
     const a = props.alignment;
     meta.push(
-      <span key="alignment" className="tabular-nums" data-testid="alignment-score" title={`${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind by this agent in the last ${a.window === 'all' ? 'all time' : a.window}`}>
-        {`agrees with you ${Math.round(alignmentRate * 100)}% (n=${a.n}, ${a.window})`}
+      <span
+        key="alignment"
+        className="tabular-nums"
+        data-testid="alignment-score"
+        title={`You have agreed with this agent ${Math.round(alignmentRate * 100)}% of the time — ${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind in the last ${a.window === 'all' ? 'all time' : a.window}`}
+      >
+        {`${Math.round(alignmentRate * 100)}% aligned`}
       </span>,
     );
   }
@@ -161,9 +162,29 @@ export function ReviewHeader(props: {
           </span>
         ))}
       </nav>
+      {/*
+        The title and the queue controls share one wrapping flex line, and the
+        title's basis is what makes the wrap real.
+
+        The bug this replaces: the title block was `flex-1`, i.e.
+        `flex-basis: 0`. A flex item with a zero basis has a hypothetical main
+        size of zero, so it never contributes to the line's overflow and the
+        line NEVER wraps — while the control cluster beside it was
+        `sm:shrink-0`. Every pixel the Up-next label wanted therefore came out
+        of the title, down to its `min-w-0` floor: the H1 collapsed to about
+        150px and broke one word per line on a page with room to spare. Neither
+        a `min-width` on the H1 nor a `max-width` on the cluster fixes that —
+        they just move where the squeeze lands.
+
+        So: the title gets a real basis (20rem), which is the width below which
+        the line is genuinely too tight and the controls should drop to their
+        own row; and the cluster is allowed to shrink, so its already-`truncate`d
+        Up-next label truncates instead of pushing.
+      */}
       <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.01em] break-words">{title}</h1>
+        <div className="min-w-0 flex-1 basis-80">
+          <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.01em] text-balance">{title}</h1>
+          {props.subtitle && <p className="mt-1 text-sm text-muted-foreground">{props.subtitle}</p>}
           {subject && (subline || subject.href) && (
             <p className="mt-1 text-sm text-muted-foreground">
               {subline}
@@ -175,7 +196,7 @@ export function ReviewHeader(props: {
             </p>
           )}
         </div>
-        <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2 text-[13px] text-muted-foreground sm:shrink-0 sm:flex-nowrap">
+        <div className="flex min-w-0 shrink flex-wrap items-center gap-2 text-[13px] text-muted-foreground sm:flex-nowrap">
           {props.canBack !== undefined && (
             <button
               type="button"

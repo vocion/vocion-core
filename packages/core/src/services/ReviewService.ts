@@ -74,7 +74,33 @@ export type ReviewItem = {
    * decided this".
    */
   approvedByAgent?: boolean | null;
+  /**
+   * The payload the decision would act on, present ONLY when the caller asked
+   * for it through `include`. Undefined otherwise, which is every caller that
+   * existed before this option did.
+   *
+   * Same reasoning as `suggestedDecision` above, one step further. A client
+   * that sorts the queue by something inside the payload - a proposal's date,
+   * its venue, whether it is complete enough to publish - cannot do that from
+   * a thin row, so it fetches every item's detail just to bucket it. At 428
+   * pending items that is 428 round trips to build one screen.
+   *
+   * Opt-in because the payload is unbounded. A page of thin rows is a few KB;
+   * the same page carrying inputs can be a megabyte, and no existing caller
+   * should start paying that without asking.
+   */
+  input?: Record<string, unknown> | null;
+  /**
+   * The agent-proposal envelope - confidence, rationale, evidence - present
+   * only when asked for. Actions only: a workflow or mission item carries no
+   * envelope and keeps this undefined even when requested.
+   */
+  proposal?: Record<string, unknown> | null;
 };
+
+/** A payload a list caller may ask to have inlined on each item. */
+export const REVIEW_INCLUDES = ['input', 'proposal'] as const;
+export type ReviewInclude = (typeof REVIEW_INCLUDES)[number];
 
 export type ListOptions = {
   /** Filter to items routed to this user id; pass `null` for the unassigned queue. Omit for all. */
@@ -96,6 +122,17 @@ export type ListOptions = {
    * what a caller asking for a type this org has never produced must get.
    */
   actionIds?: string[];
+  /**
+   * Inline these payloads on each item instead of leaving each one to its own
+   * detail fetch. Omit for the thin rows every caller gets today.
+   *
+   * Additive by construction: an item carries a key only when it was asked
+   * for, so a caller that passes nothing gets a byte-identical response to the
+   * one it got before this existed. Only the action plane has either payload
+   * to give, and the columns are selected only when requested, so an unasked
+   * query reads exactly the columns it always did.
+   */
+  include?: readonly ReviewInclude[];
   /**
    * Restrict to items where the AGENT recommended this — `approve`, `reject`
    * or `snooze`. Only action runs carry a recommendation, so this narrows the
@@ -372,6 +409,12 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     ...approvedByAgentFilter(opts),
     ...routingFilters(opts, now),
   );
+  // Two jsonb columns the queue has never read. They are selected only when a
+  // caller asked for them, so the query an existing caller issues is unchanged
+  // down to the column list, and nobody starts paying to haul payloads they
+  // are not going to look at.
+  const wantsInput = opts.include?.includes('input') ?? false;
+  const wantsProposal = opts.include?.includes('proposal') ?? false;
   const query = db
     .select({
       id: actionRunSchema.id,
@@ -383,6 +426,8 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       suggestedDecision: suggestedDecisionColumn,
       suggestedDecisionReason: suggestedDecisionReasonColumn,
       approvedByAgent: actionRunSchema.approvedByAgent,
+      ...(wantsInput ? { input: actionRunSchema.input } : {}),
+      ...(wantsProposal ? { proposal: actionRunSchema.proposal } : {}),
     })
     .from(actionRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'action', actionRunSchema.id))
@@ -408,6 +453,14 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // that approval already happened, the execution is what threw. Carried on
     // every item either way, so a client reads one shape across the queue.
     approvedByAgent: row.approvedByAgent,
+    // Spread rather than assigned, so an item that was not asked for a payload
+    // has no key at all rather than a key holding undefined. That is what lets
+    // `include` be provably additive: JSON.stringify of an unasked row is
+    // byte-identical to what it was before this option existed.
+    ...(wantsInput ? { input: (row as { input?: Record<string, unknown> | null }).input ?? null } : {}),
+    ...(wantsProposal
+      ? { proposal: (row as { proposal?: Record<string, unknown> | null }).proposal ?? null }
+      : {}),
   }));
   const total = await planeTotal(items.length, cap, async () => {
     const [counted] = await db
@@ -917,6 +970,15 @@ export async function decide(
         // after it, so this is the last moment the values the proposer wrote
         // still exist anywhere.
         labels = await labelVerdicts(item.id, orgId, opts?.editedInput);
+        // Pin what the human actually approved (0112). Written BEFORE the
+        // execution, because the artifacts on screen at the moment of the
+        // click are what was authorised; a regeneration landing a second
+        // later must not be able to rewrite the answer to "what did they
+        // approve". Best-effort: a decision must never fail on its audit
+        // trail, and a run with no artifacts simply pins nothing.
+        await (await import('@/services/personalization/artifacts'))
+          .pinLeadArtifactsForRun(orgId, item.id)
+          .catch(() => []);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.

@@ -24,17 +24,23 @@ import { contextTagRefs, matchesTag } from './composerTags';
  * wires the send queue.
  * @param agents - The agents this surface can talk to.
  * @param pageContext - Where the person is standing, when the surface has one.
+ * @param intents - Intents this surface can carry out (`@change` needs a sequence draft in view).
+ * @param intents.change - True when a sequence draft is in view.
  */
 export function useComposerTags(
   agents: AgentOption[],
   pageContext?: PageContext | null,
+  intents: { change?: boolean } = {},
 ): Pick<ChatComposerProps, 'tagSearch' | 'attachable'> {
   const t = useTranslations('Chat');
   const cacheRef = useRef<{ teams: ContextRef[] | null; missions: ContextRef[] | null }>({ teams: null, missions: null });
 
+  // Depended on by value, not by identity: the caller builds this object
+  // inline every render, so `{ change: true }` must not re-derive the list.
+  const change = intents.change === true;
   const attachable = useMemo(
-    () => contextTagRefs(pageContext, { artifact: t('tag_artifact'), page: t('tag_page') }),
-    [pageContext, t],
+    () => contextTagRefs(pageContext, { artifact: t('tag_artifact'), page: t('tag_page'), change: t('tag_change') }, { change }),
+    [pageContext, t, change],
   );
 
   const tagSearch = useCallback(async (q: string) => {

@@ -8,7 +8,11 @@ import { searchConversations } from '@/services/ConversationService';
 
 export const dynamic = 'force-dynamic';
 
-/** Today / Yesterday / the date — the same buckets the rail's history uses. */
+/**
+ * Today / Yesterday / the date — the same buckets the rail's history uses.
+ * @param when
+ * @param now
+ */
 function bucketOf(when: Date, now: Date): string {
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((day(now) - day(when)) / 86_400_000);

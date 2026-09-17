@@ -34,8 +34,8 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
 
 const ADMIN = {
   name: 'Mo Delgado',
-  account: 'Veerio Events',
-  email: 'mo@veerio.example',
+  account: 'Larkfield Events',
+  email: 'mo@larkfield.example',
   password: 'events-queue-1',
 };
 
@@ -59,7 +59,7 @@ const OBJECT_TYPE = {
   },
 };
 
-const LISTING_URL = 'https://listings.example.org/burlington/events';
+const LISTING_URL = 'https://listings.example.org/riverton/events';
 
 /**
  * Every title this run creates carries this tag, and every count is filtered
@@ -80,9 +80,9 @@ function openMic(over: Record<string, unknown> = {}) {
   return {
     objectType: OBJECT_TYPE.slug,
     title: OPEN_MIC_TITLE,
-    fields: { title: OPEN_MIC_TITLE, start: '2026-09-12T19:30', venue: 'The Flynn' },
+    fields: { title: OPEN_MIC_TITLE, start: '2026-09-12T19:30', venue: 'The Corvina' },
     dedupOn: ['title', 'start', 'venue'],
-    sourceUrl: 'https://listings.example.org/burlington/events/open-mic-night',
+    sourceUrl: 'https://listings.example.org/riverton/events/open-mic-night',
     sourceListingUrl: LISTING_URL,
     summary: 'Sign-ups at 7, music at 7:30.',
     ...over,
@@ -210,8 +210,8 @@ test('one record, one review item: propose, re-propose, decide, and link what th
       suggestedDecisionReason: 'Public listing with its own date line, and nothing like it is queued.',
       input: openMic({
         title: POETRY_TITLE,
-        fields: { title: POETRY_TITLE, start: '2026-09-12T19:30', venue: 'The Flynn' },
-        sourceUrl: 'https://listings.example.org/burlington/events/poetry-slam',
+        fields: { title: POETRY_TITLE, start: '2026-09-12T19:30', venue: 'The Corvina' },
+        sourceUrl: 'https://listings.example.org/riverton/events/poetry-slam',
       }),
       agentSlug: 'ingestion-lead',
       confidence: 0.72,

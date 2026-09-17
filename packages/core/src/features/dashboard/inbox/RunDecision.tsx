@@ -1,7 +1,7 @@
 'use client';
 
 import type { InboxRefKind } from '@/services/inbox/inboxRef';
-import { ArrowUpRight, Play, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Play, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from '@/components/ui/toast';
@@ -61,7 +61,8 @@ export function RunDecision({ run }: { run: RunSummary }) {
       toast.success(`${verb === 'resume' ? 'Resumed' : 'Cancelled'} · ${run.title}`, {
         description: verb === 'resume' ? 'The run continues from where it paused.' : 'Stopped; nothing more runs.',
       });
-      router.push('/dashboard/inbox?kind=run');
+      // Stay on the run and re-read it: its new status is the receipt, and
+      // the way back is a link the person presses.
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -140,6 +141,7 @@ export function RunDecision({ run }: { run: RunSummary }) {
         : (
             <StickyActionBar
               primary={{ label: run.openLabel, onClick: () => router.push(run.openHref), icon: ArrowUpRight }}
+              secondary={[{ 'label': 'Back to the review queue', 'onClick': () => router.push('/dashboard/inbox?kind=run'), 'icon': ArrowLeft, 'data-testid': 'run-back' }]}
             />
           )}
     </div>

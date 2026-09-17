@@ -1,7 +1,7 @@
 'use client';
 
 import type { TextAnchor } from '@/libs/anchors/resolve';
-import { X } from 'lucide-react';
+import { PencilLine, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { buildAnchor } from '@/libs/anchors/resolve';
 import { client } from '@/libs/Orpc';
@@ -48,6 +48,30 @@ export type ResolvedCommentView = {
 
 /** Enough to decide whether the control fits below the selection. */
 const POPOVER_HEIGHT = 120;
+
+/**
+ * Ask whatever selection control is on screen to go away.
+ *
+ * A surface that opens OVER the page — the preview panel — has to dismiss the
+ * selection control rather than sit beside it: two floating things about two
+ * different pieces of the page, one of which the person did not ask for. It
+ * sends this instead of reaching into the layer's state, so the control can
+ * be rebuilt without breaking whoever dismisses it.
+ *
+ * The browser's own selection is dropped too — the control is a statement
+ * about a selection, and leaving one highlighted with nothing offering to act
+ * on it is the half-state this avoids.
+ */
+export const DISMISS_SELECTION_EVENT = 'vocion:dismiss-selection';
+
+/** Dismiss the selection control, from outside the comment layer. */
+export function dismissSelectionControl(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(DISMISS_SELECTION_EVENT));
+  window.getSelection()?.removeAllRanges();
+}
 
 /** Marks the layer owns, so clearing never touches anyone else's marks. */
 const MARK_SELECTOR = 'mark[data-anchor-id]';
@@ -200,6 +224,13 @@ export function useAnchoredComments({ targetRef, root }: CommentTargetProps) {
     }
   }, [pending, root]);
 
+  /* Another surface took the screen and asked the control to stand down. */
+  useEffect(() => {
+    const onDismiss = () => setPending(null);
+    window.addEventListener(DISMISS_SELECTION_EVENT, onDismiss);
+    return () => window.removeEventListener(DISMISS_SELECTION_EVENT, onDismiss);
+  }, []);
+
   const addComment = useCallback(async (note: string) => {
     if (!pending || !note.trim()) {
       return;
@@ -281,22 +312,40 @@ export function useAnchoredComments({ targetRef, root }: CommentTargetProps) {
 }
 
 /**
- * The control at the selection: says what the highlighted text should become,
- * and hands the note to the page's agent surface.
+ * The control at the selection — the ONE thing that happens when a person
+ * highlights words anywhere in the app (2026-09-16).
+ *
+ * Ask about this* is the default and carries no special meaning: the passage
+ * goes into the composer as `PageContext.selection` and the person says what
+ * they want. It is the same motion on a briefing, a lead brief, an object.
+ *
+ * Add change* appears only where a page declares an intent it can carry out
+ * — today the personalization sequence draft. It stores the anchored note AND
+ * puts `@change` in the composer, so the SAME gesture acquires the special
+ * semantics through a tag rather than through a second control. Select →
+ * talk everywhere; the tag is what makes it act (`docs/design/patterns.md`).
  * @param root0 - Component props.
  * @param root0.pending - The armed selection, or null.
- * @param root0.onAdd - Store the note.
+ * @param root0.onAdd - Store the note (the `Add change` path).
+ * @param root0.onAsk - Put the passage in the composer as page context.
  * @param root0.onCancel - Drop the selection.
- * @param root0.onBegin
+ * @param root0.onBegin - Commenting has begun — paint the span.
+ * @param root0.changeLabel - Name of the intent action; absent = no intent here.
  */
-export function CommentPopover({ pending, onAdd, onCancel, onBegin }: {
+export function CommentPopover({ pending, onAdd, onAsk, onCancel, onBegin, changeLabel }: {
   pending: { rect: DOMRect } | null;
   onAdd: (note: string) => void;
+  onAsk?: () => void;
   onCancel: () => void;
   /** Commenting has begun — the layer paints the span so it stays visible. */
   onBegin?: () => void;
+  /** Label for the intent action ("Add change"). Absent = the page declares no intent. */
+  changeLabel?: string;
 }) {
   const [note, setNote] = useState('');
+  // The note box opens only once the person picks the intent action — until
+  // then the control is two words wide and does not ask for typing.
+  const [writing, setWriting] = useState(false);
 
   // Deliberately NOT auto-focused. Taking focus collapses the browser's own
   // selection, which would both hide the span the reviewer is commenting on
@@ -317,23 +366,67 @@ export function CommentPopover({ pending, onAdd, onCancel, onBegin }: {
     return null;
   }
 
+  const position = {
+    left: Math.max(8, Math.min(pending.rect.left, window.innerWidth - 320)),
+    // Below the selection when there is room, above it when there is not:
+    // a selection near the bottom of the window would otherwise put the
+    // control off-screen, where it cannot be answered.
+    top: pending.rect.bottom + 8 + (writing ? POPOVER_HEIGHT : 48) > window.innerHeight
+      ? Math.max(8, pending.rect.top - (writing ? POPOVER_HEIGHT : 48) - 8)
+      : pending.rect.bottom + 8,
+  };
+
+  if (!writing) {
+    return (
+      <div
+        data-comment-popover
+        role="dialog"
+        aria-label="What to do with the selection"
+        style={position}
+        className="fixed z-50 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-(--shadow-pop)"
+      >
+        <button
+          type="button"
+          // mousedown, not click: click collapses the selection first, and
+          // the passage is the whole point.
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onAsk?.();
+          }}
+          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition hover:bg-muted"
+        >
+          <Sparkles className="size-3.5 text-brand-amber" aria-hidden />
+          Ask about this
+        </button>
+        {changeLabel && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setWriting(true);
+              onBegin?.();
+            }}
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          >
+            <PencilLine className="size-3.5" aria-hidden />
+            {changeLabel}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       data-comment-popover
       role="dialog"
       aria-label="Comment on the selection"
-      style={{
-        left: Math.max(8, Math.min(pending.rect.left, window.innerWidth - 320)),
-        // Below the selection when there is room, above it when there is not:
-        // a selection near the bottom of the window would otherwise put the
-        // control off-screen, where it cannot be answered.
-        top: pending.rect.bottom + 8 + POPOVER_HEIGHT > window.innerHeight
-          ? Math.max(8, pending.rect.top - POPOVER_HEIGHT - 8)
-          : pending.rect.bottom + 8,
-      }}
+      style={position}
       className="fixed z-50 w-[300px] rounded-xl border border-border bg-background p-2.5 shadow-xl"
     >
       <textarea
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- the person just chose to write; the span is already painted by onBegin
+        autoFocus
         value={note}
         onFocus={onBegin}
         onChange={e => setNote(e.target.value)}
@@ -351,7 +444,7 @@ export function CommentPopover({ pending, onAdd, onCancel, onBegin }: {
           disabled={!note.trim()}
           className="rounded-lg bg-brand-amber px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-brand-amber-deep disabled:bg-muted disabled:text-muted-foreground/60"
         >
-          Add change
+          {changeLabel}
         </button>
       </div>
     </div>
@@ -377,7 +470,9 @@ export function CommentChips({ comments, activeId, onFocus, onRemove }: {
     return null;
   }
   return (
-    <div className="flex flex-col gap-1 px-4 pb-1.5" data-comment-chips>
+    // No padding of its own: the chips render inside the composer's column
+    // (`ChatComposer`'s `above` slot), which owns the one left edge.
+    <div className="flex flex-col gap-1 pb-1.5" data-comment-chips>
       {comments.map((c, i) => {
         const open = activeId === c.id;
         const orphaned = c.status === 'orphaned';

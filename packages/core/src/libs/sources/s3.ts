@@ -15,8 +15,8 @@
  *   - `extensions?` — default images (.jpg .jpeg .png .webp)
  *   - `pathFields?` — map key-path segment index → metadata key, counted
  *     AFTER `prefix`. `{ template_id: 1, label: 2 }` on prefix `templates/`
- *     turns `templates/C-PM-134-PC/good/x.jpg` into
- *     `{ template_id: 'C-PM-134-PC', label: 'good' }`.
+ *     turns `templates/RM-204-A/good/x.jpg` into
+ *     `{ template_id: 'RM-204-A', label: 'good' }`.
  *   - `filenamePattern?` — a regex with NAMED groups applied to the basename,
  *     merged into metadata (e.g. production order + capture timestamp).
  *

@@ -70,24 +70,24 @@ const config = candidateExtractorConfigSchema.parse({
 });
 
 const document = {
-  externalId: 'https://listings.example.org/burlington',
-  uri: 'https://listings.example.org/burlington',
-  title: 'This week in Burlington',
+  externalId: 'https://listings.example.org/riverton',
+  uri: 'https://listings.example.org/riverton',
+  title: 'This week in Riverton',
   content: [
-    'Open Mic Night at The Double E, Essex Junction. Thursday, 8pm. Free.',
-    'Trivia at The Double E, Essex Junction. Next Tuesday, 7pm. Free.',
+    'Open Mic Night at The Ember Room, Riverton. Thursday, 8pm. Free.',
+    'Trivia at The Ember Room, Riverton. Next Tuesday, 7pm. Free.',
   ].join('\n'),
   metadata: {},
 };
 
 /**
- * One extracted event at The Double E, with whatever the model said about the
+ * One extracted event at The Ember Room, with whatever the model said about the
  * venue it names.
  * @param over - Fields to override on the record.
  */
 function eventRecord(over: Record<string, unknown> = {}) {
   return {
-    fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'The Double E', venueCity: 'Essex Junction' },
+    fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'The Ember Room', venueCity: 'Riverton' },
     confidence: 0.9,
     suggestedDecision: 'approve',
     suggestedDecisionReason: 'Public listing with its own date line and a venue.',
@@ -110,7 +110,7 @@ function context() {
   return {
     orgId: ORG,
     sourceId: 1,
-    sourceSlug: 'burlington-listings',
+    sourceSlug: 'riverton-listings',
     document,
     outcome: { status: 'created' as const, documentId: 909, chunks: 2 },
     config,
@@ -252,7 +252,7 @@ describe('an ingestion run, venue by venue', () => {
   });
 
   it('files no venue card at all once the venue is approved, and keeps the event card', async () => {
-    await approveVenue('The Double E', 'Essex Junction');
+    await approveVenue('The Ember Room', 'Riverton');
     invoke.mockResolvedValue(answer([eventRecord({
       referencedObjects: [{
         objectType: 'venue-candidate',
@@ -275,7 +275,7 @@ describe('an ingestion run, venue by venue', () => {
         referencedObjects: [{ objectType: 'venue-candidate', suggestedDecision: 'approve', suggestedDecisionReason: 'Reads as a real room.' }],
       }),
       eventRecord({
-        fields: { title: 'Trivia', startDate: day(12), venueName: 'The Double E', venueCity: 'Essex Junction' },
+        fields: { title: 'Trivia', startDate: day(12), venueName: 'The Ember Room', venueCity: 'Riverton' },
         referencedObjects: [{ objectType: 'venue-candidate', suggestedDecision: 'approve', suggestedDecisionReason: 'Reads as a real room.' }],
       }),
     ]));

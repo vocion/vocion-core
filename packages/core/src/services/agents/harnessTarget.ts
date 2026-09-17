@@ -19,7 +19,7 @@
  *
  * The old spellings are still accepted everywhere — in workspace YAML, in
  * `VOCION_AGENT_PROVIDER`, and in `harness_config` rows written before the
- * rename. Parent projects hold workspace files we do not deploy (Veerio's
+ * rename. Parent projects hold workspace files we do not deploy (Larkfield's
  * `event-ingestion-lead` is authored as `provider: agentcore`), so dropping
  * the old names would break an apply in a repo this one cannot see.
  *

@@ -70,19 +70,24 @@ export function agoLabel(at: Date, now: Date = new Date()): string {
 }
 
 /** The crumbs every detail screen starts with. */
-export const NEEDS_YOU_CRUMB = { label: 'Needs you', href: '/dashboard/inbox' } as const;
+export const REVIEW_CRUMB = { label: 'Review', href: '/dashboard/inbox' } as const;
 
 /**
- * "Needs you › <kind> › <record>" — the breadcrumb for one decision screen.
+ * "Review queue › <kind> › <record>" — the breadcrumb for one decision screen.
  * The kind crumb links to the list filtered to that kind.
  * @param kind
  * @param record - The thing the decision is about, when the title does not already say.
+ * @param section - Overrides the kind's label, for a card that names its own section.
  */
-export function decisionCrumbs(kind: InboxKind, record?: string | null): Array<{ label: string; href?: string }> {
+export function decisionCrumbs(kind: InboxKind, record?: string | null, section?: string | null): Array<{ label: string; href?: string }> {
   const crumbs: Array<{ label: string; href?: string }> = [
     { label: 'Workspace', href: '/dashboard' },
-    NEEDS_YOU_CRUMB,
-    { label: INBOX_KIND_META[kind].plural, href: `/dashboard/inbox?kind=${kind}` },
+    REVIEW_CRUMB,
+    // The middle crumb still LINKS to the kind's lane; a card that names its
+    // own section ("Discovery") relabels it, because "Review queue › Proposals ›
+    // Project Ranger" says less about where you are than "Review queue ›
+    // Discovery › Project Ranger" does.
+    { label: section || INBOX_KIND_META[kind].plural, href: `/dashboard/inbox?kind=${kind}` },
   ];
   if (record) {
     crumbs.push({ label: record });

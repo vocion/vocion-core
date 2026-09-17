@@ -8,14 +8,22 @@ const CONFIG = {
   chips: ['drop', 'generate', 'confirm'],
 };
 
+/** A list that also declares independent single-value dimensions (the Ledger's shape). */
+const FACETED = {
+  ...CONFIG,
+  facets: { decision: ['discovery', 'not-discovery'], review: ['pending', 'corrected'] },
+};
+
+const NO_FACETS = { facets: {} };
+
 describe('parseListState', () => {
   it('reads a clean URL as the defaults', () => {
-    expect(parseListState('', CONFIG)).toEqual(CONFIG.defaults);
-    expect(parseListState('?', CONFIG)).toEqual(CONFIG.defaults);
+    expect(parseListState('', CONFIG)).toEqual({ ...CONFIG.defaults, ...NO_FACETS });
+    expect(parseListState('?', CONFIG)).toEqual({ ...CONFIG.defaults, ...NO_FACETS });
   });
 
   it('reads every parameter, with or without the leading ?', () => {
-    const state = { tab: 'sent', q: 'meridian', sort: 'name', dir: 'asc' as const, chips: ['drop', 'confirm'] };
+    const state = { tab: 'sent', q: 'meridian', sort: 'name', dir: 'asc' as const, chips: ['drop', 'confirm'], ...NO_FACETS };
 
     expect(parseListState('?tab=sent&q=meridian&sort=name&dir=asc&f=drop,confirm', CONFIG)).toEqual(state);
     expect(parseListState('tab=sent&q=meridian&sort=name&dir=asc&f=drop&f=confirm', CONFIG)).toEqual(state);
@@ -66,9 +74,46 @@ describe('applyListState', () => {
   });
 
   it('round-trips', () => {
-    const state = { tab: 'all', q: 'jamie smith', sort: 'confidence', dir: 'asc' as const, chips: ['confirm'] };
+    const state = { tab: 'all', q: 'jamie smith', sort: 'confidence', dir: 'asc' as const, chips: ['confirm'], ...NO_FACETS };
 
     expect(parseListState(applyListState('?x=1', state, CONFIG), CONFIG)).toEqual(state);
+  });
+});
+
+describe('facets — independent single-value dimensions', () => {
+  const base = { ...CONFIG.defaults, facets: { decision: '', review: '' } };
+
+  it('defaults every declared facet to "all"', () => {
+    expect(parseListState('', FACETED).facets).toEqual({ decision: '', review: '' });
+  });
+
+  it('reads each facet under its own parameter', () => {
+    expect(parseListState('?decision=not-discovery&review=corrected', FACETED).facets)
+      .toEqual({ decision: 'not-discovery', review: 'corrected' });
+  });
+
+  it('drops a value the facet does not accept rather than filtering on nonsense', () => {
+    expect(parseListState('?decision=banana', FACETED).facets.decision).toBe('');
+  });
+
+  it('writes only the facets that are set, and clears one that returns to all', () => {
+    expect(applyListState('', { ...base, facets: { decision: 'discovery', review: '' } }, FACETED))
+      .toBe('?decision=discovery');
+    expect(applyListState('?decision=discovery', { ...base, facets: { decision: '', review: '' } }, FACETED))
+      .toBe('');
+  });
+
+  it('namespaces facets behind the prefix too', () => {
+    const prefixed = { ...FACETED, prefix: 'ledger' };
+
+    expect(parseListState('?decision=discovery&ledger.decision=uncertain', prefixed).facets.decision).toBe('');
+    expect(parseListState('?ledger.decision=discovery', prefixed).facets.decision).toBe('discovery');
+  });
+
+  it('round-trips with the rest of the state', () => {
+    const state = { ...base, tab: 'all', q: 'ranger', facets: { decision: 'not-discovery', review: 'corrected' } };
+
+    expect(parseListState(applyListState('', state, FACETED), FACETED)).toEqual(state);
   });
 });
 

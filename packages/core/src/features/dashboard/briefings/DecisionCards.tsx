@@ -5,7 +5,10 @@ import type { InboxItem } from '@/services/InboxService';
 import { AlertTriangle } from 'lucide-react';
 import { ListRow, ListRows, Section } from '@/components/patterns';
 import { InboxRow } from '@/features/dashboard/inbox/InboxRow';
+import { PreviewRef } from '@/features/preview/EvidenceRefs';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { Link } from '@/libs/I18nNavigation';
+import { briefingEvidenceRef } from '@/libs/preview/evidenceRef';
 import { decisionHeadline } from '@/services/briefings/budget';
 
 const SECTION_EYEBROW = 'Needs your decision';
@@ -64,7 +67,12 @@ export function DecisionCards({ cards, live, queued, href }: {
       {open.length > 0 && (
         <div data-slot="decision-rows">
           <ListRows className="border-y border-border/70">
-            {open.map(card => <InboxRow key={card.key} item={byKey.get(card.key)!} tab="open" why={whyLine(card)} />)}
+            {open.map(card => (
+              <div key={card.key}>
+                <InboxRow item={byKey.get(card.key)!} tab="open" why={whyLine(card)} />
+                <Evidence card={card} />
+              </div>
+            ))}
           </ListRows>
         </div>
       )}
@@ -99,17 +107,45 @@ export function DecisionCards({ cards, live, queued, href }: {
           )}
         </p>
       )}
+      <PreviewPanel />
     </Section>
   );
 }
 
 /**
- * The why-now line, plus the evidence the recommendation rests on.
+ * The why-now line. The evidence used to be appended to it as flat labels;
+ * it is a row of openable references now (see `Evidence`).
  * @param card
  */
 function whyLine(card: BriefingDecision): string {
-  const evidence = card.evidence.length > 0 ? ` · ${card.evidence.map(e => e.label).join(' · ')}` : '';
-  return `${card.whyNow}${evidence}`;
+  return card.whyNow;
+}
+
+/**
+ * What the recommendation rests on, each openable in the preview panel
+ * without leaving the brief. An `inbox` reference is a decision rather than a
+ * reference to confirm, so it stays a link.
+ * @param props
+ * @param props.card
+ */
+function Evidence({ card }: { card: BriefingDecision }) {
+  if (card.evidence.length === 0) {
+    return null;
+  }
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2 text-[12px] text-muted-foreground" data-slot="decision-evidence">
+      {card.evidence.map((e) => {
+        const ref = briefingEvidenceRef(e);
+        return ref
+          ? <PreviewRef key={`${e.kind}-${e.id}`} recordRef={ref} label={e.label} className="text-[12px]" />
+          : (
+              <Link key={`${e.kind}-${e.id}`} href={e.href ?? '/dashboard/inbox'} className="underline decoration-border underline-offset-2 hover:text-foreground">
+                {e.label}
+              </Link>
+            );
+      })}
+    </p>
+  );
 }
 
 /**

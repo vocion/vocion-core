@@ -8,12 +8,13 @@ import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { agentKeyOf, scoresByAgentAndKey } from '@/services/alignment/AlignmentService';
 import { listAskGroup } from '@/services/AskService';
+import { parseRecordKeyParam } from '@/services/inbox/recordKey';
 import { kindForAsk } from '@/services/InboxService';
 
 /**
  * A decision sheet — every ask under one `groupKey`, answered as a stepper:
  * one question per screen, a receipt at the end, one "Submit all". Wears the
- * same chrome as a single decision (Needs you › kind › sheet). Asks already
+ * same chrome as a single decision (Review queue › kind › sheet). Asks already
  * answered are listed underneath as the record.
  */
 
@@ -26,7 +27,7 @@ export default async function AskGroupPage(props: { params: Promise<{ locale: st
   if (!orgId) {
     notFound();
   }
-  const groupKey = decodeURIComponent(raw);
+  const groupKey = parseRecordKeyParam(raw);
   const asks = await listAskGroup(orgId, groupKey);
   if (asks.length === 0) {
     notFound();

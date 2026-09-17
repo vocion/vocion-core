@@ -16,13 +16,14 @@
  */
 
 import type { Principal } from '@/services/authz';
-import type { PendingPage, ReviewDetail, ReviewItem, ReviewKind } from '@/services/ReviewService';
+import type { PendingPage, ReviewDetail, ReviewInclude, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
 import { parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
 import * as ReviewService from '@/services/ReviewService';
+import { REVIEW_INCLUDES } from '@/services/ReviewService';
 
 /**
  * Who is making this call, however they authenticated.
@@ -141,6 +142,12 @@ export type ListReviewsInput = {
    */
   actionIds?: string[];
   /**
+   * Payloads to inline on each item instead of leaving each one to its own
+   * detail fetch: `input`, `proposal`, or both. Omit for the thin rows every
+   * caller gets today; an unrecognised value is a 400, never silence.
+   */
+  include?: string[];
+  /**
    * Narrow to what the AGENT recommended — `approve`, `reject` or `snooze`.
    * This is a queue of "everything my screener wants turned down", which is a
    * different question from the card type or the plane, so it composes with
@@ -176,7 +183,22 @@ export async function apiListReviews(caller: ApiCaller, opts: ListReviewsInput =
   if (opts.suggestedDecision !== undefined && parseSuggestedDecision(opts.suggestedDecision) === undefined) {
     throw new WriteApiError(400, 'VALIDATION_FAILED', `suggestedDecision must be one of ${SUGGESTED_DECISIONS.join(', ')}`);
   }
+  // Same rule as the filters above: a misspelled `include` must not read as
+  // "include nothing". A caller asking for a payload and silently getting thin
+  // rows would fall back to a detail fetch per item, which is exactly the cost
+  // this option exists to remove, and it would look like the option did not
+  // work rather than like the request was wrong.
+  const include = opts.include?.filter(Boolean);
+  const unknown = include?.filter(v => !REVIEW_INCLUDES.includes(v as ReviewInclude)) ?? [];
+  if (unknown.length > 0) {
+    throw new WriteApiError(
+      400,
+      'VALIDATION_FAILED',
+      `include must be one of ${REVIEW_INCLUDES.join(', ')}`,
+    );
+  }
   return ReviewService.listPendingPage(caller.orgId, {
+    include: include as ReviewInclude[] | undefined,
     suggestedDecision: parseSuggestedDecision(opts.suggestedDecision),
     approvedByAgent: parseApprovedByAgent(opts.approvedByAgent),
     assignedTo: opts.assignedTo === undefined

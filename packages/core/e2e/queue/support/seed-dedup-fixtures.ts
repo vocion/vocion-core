@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * seed-dedup-fixtures. Real data for the VEERIO-257 dedupOn E2E spec
+ * seed-dedup-fixtures. Real data for the LARK-257 dedupOn E2E spec
  * (`e2e/queue/objects-propose-candidate-dedup-required.queue.spec.ts`).
  *
  * Two modes, both against the database the running app is pointed at:

@@ -2,15 +2,18 @@
 
 import type { LucideIcon } from 'lucide-react';
 import type { AgentRun, IndexedDocument, TraceNode } from './types';
+import type { FailureReport } from '@/libs/chat/redact';
 import {
   Brain,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ClipboardCopy,
   ExternalLink,
+
   GitBranch,
   Loader2,
-
   PencilLine,
   Rows3,
   Search,
@@ -20,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { failureReport, redactInternalIds } from '@/libs/chat/redact';
 import { sourceLabels } from './helpers';
 
 /**
@@ -47,6 +51,15 @@ export type WorkTimelineProps = {
    * of the flat `runs`/`thinkingText` fallback.
    */
   trace?: TraceNode[];
+  /**
+   * A counter the "Tool error" badge bumps. Each bump opens the trace and
+   * expands the failed step(s) — the badge is the way IN to the failure, not
+   * a decoration over it (CEO, 2026-09-16: *"how do I get details on this
+   * tool error, to share with you?"*).
+   */
+  inspect?: number;
+  /** Who this turn was, so a failed step can be copied as a report. */
+  failureContext?: FailureReport;
 };
 
 // Plumbing the operator shouldn't have to see — hidden from the curated trace.
@@ -148,7 +161,7 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   const input = run.input ?? {};
   const state = run.state ?? 'done';
   if (run.name === 'error') {
-    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: String(run.output ?? '').slice(0, 160), state: 'error' };
+    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: redactInternalIds(String(run.output ?? '')).slice(0, 160), state: 'error' };
   }
   const { icon, kind } = kindFor(run.name);
   const { label, detail } = describeToolCall(run.name, input);
@@ -187,7 +200,9 @@ function Marker({ node }: { node: Node }) {
 function Citation({ doc }: { doc: IndexedDocument }) {
   const label = sourceLabels[doc.source_type] ?? doc.source_type;
   return (
-    <a href={doc.link} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl border border-border px-3 py-2 transition hover:border-brand-amber/40">
+    // A hairline row inside the trace's own surface, not a card in a card
+    // (docs/design/patterns.md → Never).
+    <a href={doc.link} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 border-t border-rule px-3 py-2 transition first:border-t-0 hover:bg-muted/40">
       <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-muted-foreground uppercase">{label}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{doc.semantic_identifier}</span>
@@ -248,6 +263,64 @@ function TraceCitations({ node }: { node: TraceNode }) {
 }
 
 /**
+ * What a failed step says, and how to hand it to someone else.
+ *
+ * On screen the message is REDACTED (`libs/chat/redact.ts`): a tenant id or a
+ * `__sentinel__` slug in a sentence a person reads is a leak dressed as an
+ * explanation. *Copy details* puts the raw block on the clipboard — turn,
+ * conversation, when, tool, delegate, error — which is the whole reason the
+ * redaction is safe to do.
+ * @param root0 - Component props.
+ * @param root0.node - The failed trace node.
+ * @param root0.context - Who this turn was.
+ */
+function FailureDetail({ node, context }: { node: TraceNode; context?: FailureReport }) {
+  const [copied, setCopied] = useState(false);
+  const raw = node.resultDetail ?? node.result ?? node.detail ?? node.label;
+  const shown = redactInternalIds(raw ?? '');
+  const block = failureReport({
+    ...context,
+    tool: node.tool ?? node.label,
+    message: raw ?? null,
+    delegate: node.actor.kind === 'specialist' ? node.actor.name : (context?.delegate ?? null),
+  });
+  return (
+    <div data-testid="failed-step" className="mt-1.5">
+      <p className="rounded-lg bg-[var(--brand-fail-bg)]/50 p-2.5 text-[12px] leading-relaxed break-words text-[var(--brand-fail)]">{shown}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {node.tool && (
+          <span>
+            tool ·
+            {' '}
+            <span className="font-mono">{node.tool}</span>
+          </span>
+        )}
+        {node.actor.kind === 'specialist' && (
+          <span>
+            in ·
+            {' '}
+            {node.actor.name}
+          </span>
+        )}
+        <button
+          type="button"
+          data-testid="copy-failure"
+          onClick={() => {
+            void navigator.clipboard?.writeText(block).catch(() => {});
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+          }}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-brand-amber-deep transition hover:bg-muted"
+        >
+          {copied ? <Check className="size-3" aria-hidden /> : <ClipboardCopy className="size-3" aria-hidden />}
+          {copied ? 'Copied' : 'Copy details'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The tool/input/result call detail for a tool·search·skill node's drill.
  * @param root0
  * @param root0.node
@@ -286,8 +359,9 @@ function CallDetail({ node }: { node: TraceNode }) {
  * @param root0.nested
  * @param root0.open
  * @param root0.onToggle
+ * @param root0.failureContext
  */
-function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void }) {
+function TraceRow({ node, nested, open, onToggle, failureContext }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void; failureContext?: FailureReport }) {
   const isReason = node.kind === 'reason';
   const drillText = isReason ? node.text?.trim() : undefined;
   // A tool·search·skill node drills into its call detail (tool / input / result).
@@ -333,20 +407,23 @@ function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: 
         <span className="mt-1 block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
       )}
       {open && hasCallDetail && <CallDetail node={node} />}
+      {/* A failure is never folded away: the message (redacted) and the way
+          to hand it to someone else sit right on the step. */}
+      {node.status === 'error' && <FailureDetail node={node} context={failureContext} />}
       {/* Citations always visible under a search node (the sources it surfaced). */}
       {hasCitations && <TraceCitations node={node} />}
     </li>
   );
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace }: WorkTimelineProps) {
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext }: WorkTimelineProps) {
   if (trace && trace.length > 0) {
-    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} />;
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} />;
   }
-  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} />;
+  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} inspect={inspect} />;
 }
 
-function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[] }) {
+function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -374,6 +451,24 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
       setThinkingSeconds(elapsed);
     }
   }, [stillThinking, elapsed]);
+  // The badge asked to see the failure: open the trace and every failed step,
+  // including a failure that happened inside a delegate.
+  const failedIds = trace.filter(n => n.status === 'error').map(n => n.id);
+  const failedKey = failedIds.join('|');
+  useEffect(() => {
+    if (inspect <= 0) {
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setExpanded(true);
+    const ids = failedKey ? failedKey.split('|') : [];
+    const withParents = ids.flatMap(id => [id, trace.find(n => n.id === id)?.parentId ?? id]);
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setOpenIds(new Set(withParents));
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setOpenDrill(ids[0] ?? null);
+  }, [inspect, failedKey]);
+
   const thoughtLabel = thinkingSeconds >= 2 ? `Thought for ${thinkingSeconds}s` : 'Thought it through';
   const reasonText = reasons.map(r => r.text?.trim() || '').filter(Boolean).join('\n\n');
   const reasonPreview = reasonText.split('\n').find(l => l.trim().length > 0)?.trim() ?? '';
@@ -521,13 +616,14 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
                     ? (
                         <ol className="relative">
                           {kids.map(k => (
-                            <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
+                            <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} failureContext={failureContext} />
                           ))}
                         </ol>
                       )
                     : (
                         <div>
                           <CallDetail node={n} />
+                          {n.status === 'error' && <FailureDetail node={n} context={failureContext} />}
                           {(n.citations?.length ?? 0) > 0 && <TraceCitations node={n} />}
                         </div>
                       )}
@@ -602,11 +698,17 @@ function ClaimLine({ id, icon, label, detail, radius, error, open, onToggle, chi
   );
 }
 
-function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [] }: Omit<WorkTimelineProps, 'trace'>) {
+function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], inspect = 0 }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState<number | null>(null);
   const elapsed = useElapsed(streaming);
+  useEffect(() => {
+    if (inspect > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setOpen(true);
+    }
+  }, [inspect]);
 
   // Curate: hide plumbing from the trace and the counts.
   const visible = runs.filter(r => !PLUMBING.has(r.name));

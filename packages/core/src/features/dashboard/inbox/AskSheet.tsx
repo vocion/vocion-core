@@ -9,6 +9,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { kindForAsk } from '@/services/inbox/kinds';
 import { FIXED_ROWS, labelFor, OTHER } from './askOptions';
@@ -22,10 +23,14 @@ export type SheetAsk = {
   id: number;
   kind: string;
   title: string;
+  /** The row's breadcrumb line ("CRM update › proposed by revenue-lead"), when it has one. */
+  subline?: string;
   body: string | null;
   options: AskOption[];
   contextUrl: string | null;
   contextMd: string | null;
+  /** Citations behind the proposal — each opens in the preview panel. */
+  evidence?: string[];
   agentSlug: string | null;
   teamSlug: string | null;
   risk: string | null;
@@ -35,6 +40,11 @@ export type SheetAsk = {
 
 type Answer = { decision: string; note: string };
 type Outcome = { ok: true } | { ok: false; error: string };
+
+/** Where the sheet offers to go once nothing on it is waiting any more. */
+export type SheetExit = { label: string; href: string };
+
+const DEFAULT_EXIT: SheetExit = { label: 'Back to the review queue', href: '/dashboard/inbox' };
 
 /**
  * What happens next, for the toast — an answer is read by the team; an approved proposal runs.
@@ -59,11 +69,21 @@ function nextFor(endpoint: 'ask' | 'review', decision: string): string {
  * end lists every Question → Answer with its outcome and a Retry for anything
  * that failed. A single ask is the same screen with Submit in place of Next.
  *
- * Wears the same chrome as every other decision on "Needs you": the
+ * Wears the same chrome as every other decision on "Review queue": the
  * `ReviewHeader` (breadcrumb › kind › record, one meta row with the asker,
  * the recommendation's confidence and how often you agreed with this asker)
  * and the `StickyActionBar` for Submit / Next. The option rows ARE the verbs
  * for an ask — `DECISION_VERBS` says so — so the bar carries one primary.
+ *
+ * **Deciding never navigates.** Answering the last question used to
+ * `router.push` back to the list, which threw the reviewer out of the record
+ * they were working (Chris, 2026-09-16: "It redirected me back to the review queue
+ * list with no context"). The toast survived that navigation — it renders
+ * bottom-right and lives its full five seconds — but a toast in the corner of
+ * a page you did not ask for is not context. So the sheet stays put: the
+ * answered question is recorded, the next open one becomes current, and only
+ * when there is nothing left does it offer an explicit way out. The exit is a
+ * button someone presses, never a side effect of submitting.
  *
  * Built to be answered from a phone: one column, big targets, the action
  * pinned to the bottom of the screen.
@@ -74,8 +94,12 @@ function nextFor(endpoint: 'ask' | 'review', decision: string): string {
  * @param props.allowOther - Offer the free-text "Other" row. Off for review items, which are approve/reject.
  * @param props.kind - The inbox kind the crumbs name; defaults to the current ask's.
  * @param props.crumbs - Breadcrumb override.
+ * @param props.exit - Where the "everything decided" state offers to go, and
+ * what that button says. Pressed, never automatic.
+ * @param props.onDecided - Told about each answer as it lands, so a parent
+ * can move the row into a decided list it already renders without a refetch.
  */
-export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kind, crumbs }: {
+export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kind, crumbs, exit = DEFAULT_EXIT, onDecided }: {
   asks: SheetAsk[];
   title?: string | null;
   kind?: InboxKind;
@@ -88,6 +112,8 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
    */
   endpoint?: 'ask' | 'review';
   allowOther?: boolean;
+  exit?: SheetExit;
+  onDecided?: (ask: SheetAsk, decision: { id: string; label: string }) => void;
 }) {
   const router = useRouter();
   const multi = asks.length > 1;
@@ -156,16 +182,23 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
     const outcome = await withMinimumPending(submitOne(ask));
     setOutcomes(prev => ({ ...prev, [ask.id]: outcome }));
     setPending(false);
-    const chosen = labelFor(ask, answerFor(ask.id).decision);
+    const decision = answerFor(ask.id).decision;
+    const chosen = labelFor(ask, decision);
     if (outcome.ok) {
-      toast.success(`${chosen} · ${sentenceCase(ask.title)}`, { description: nextFor(endpoint, answerFor(ask.id).decision) });
+      toast.success(`${chosen} · ${sentenceCase(ask.title)}`, { description: nextFor(endpoint, decision) });
+      onDecided?.(ask, { id: decision, label: chosen });
     } else {
       toast.error(`Could not submit “${sentenceCase(ask.title)}”`, { description: outcome.error });
     }
     return outcome.ok;
   }
 
-  /** Next on the stepper: submit this answer, then move to the next unanswered question or the receipt. */
+  /**
+   * Submit this answer, then stay on the sheet: the next unanswered question
+   * becomes current, or — when there is none — the receipt, which is where
+   * the only way out lives. The same path for one question and for twenty;
+   * a single ask is not a special case that gets to navigate.
+   */
   async function next() {
     if (!submitted(current!.id)) {
       const ok = await decideOne(current!);
@@ -178,15 +211,6 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
       setIndex(after);
     } else {
       setStage('receipt');
-    }
-  }
-
-  /** A single ask: submit and go back to the list. */
-  async function submitSingle() {
-    const ok = await decideOne(current!);
-    if (ok) {
-      router.push('/dashboard/inbox');
-      router.refresh();
     }
   }
 
@@ -206,11 +230,15 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
     const allDone = remaining.length === 0;
     return (
       <div className="mx-auto w-full max-w-3xl" data-testid="ask-receipt">
-        <ReviewHeader crumbs={sheetCrumbs} title={title ?? 'Your answers'} system="Receipt" status={allDone ? 'done' : 'open'} position={`${asks.length - remaining.length} of ${asks.length} answered`} />
+        <ReviewHeader crumbs={sheetCrumbs} title={title ?? (endpoint === 'review' ? 'All decided' : 'Your answers')} system="Receipt" status={allDone ? 'done' : 'open'} position={`${asks.length - remaining.length} of ${asks.length} ${endpoint === 'review' ? 'decided' : 'answered'}`} />
         <p className="mt-3 text-sm text-muted-foreground">
-          {allDone ? 'Every answer is in. The team reads them on its next cycle.' : 'Some answers did not land. Fix them and retry; the rest are already in.'}
+          {allDone
+            ? endpoint === 'review'
+              ? 'All decided. Nothing here is waiting on you.'
+              : 'Every answer is in. The team reads them on its next cycle.'
+            : 'Some answers did not land. Fix them and retry; the rest are already in.'}
         </p>
-        <ol className="mt-4 divide-y divide-border border-y border-border">
+        <ol className={`mt-4 divide-y divide-border border-y border-border ${allDone && endpoint === 'review' ? 'hidden' : ''}`}>
           {asks.map((ask, i) => {
             const a = answerFor(ask.id);
             const outcome = outcomes[ask.id];
@@ -248,13 +276,15 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
         <StickyActionBar
           primary={allDone
             ? {
-                'label': 'Done',
+                // The one deliberate transition: a button, pressed, named for
+                // where it goes — not a redirect that happened to you.
+                'label': exit.label,
                 'onClick': () => {
-                  router.push('/dashboard/inbox');
                   router.refresh();
+                  router.push(exit.href);
                 },
-                'icon': Check,
-                'data-testid': 'ask-submit',
+                'icon': ArrowRight,
+                'data-testid': 'ask-exit',
               }
             : {
                 'label': `Retry ${remaining.length} ${remaining.length === 1 ? 'answer' : 'answers'}`,
@@ -287,7 +317,8 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
   // the long-form markdown and the context link all live in one Details fold.
   const body = splitBody(current.body);
   const paragraph = firstParagraph(current.body);
-  const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl);
+  const evidence = current.evidence ?? [];
+  const hasDetails = Boolean(body.rest || current.contextMd || current.contextUrl || evidence.length > 0);
   const canAdvance = done || complete(answer);
   const outcome = outcomes[current.id];
   const locked = pending || done;
@@ -300,7 +331,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
     ? done
       ? (last ? 'Review answers' : 'Next')
       : `${chosen ?? 'Choose an answer'}${chosen ? ` · ${last ? 'Submit' : 'Next'}` : ''}`
-    : (chosen ? `${verbs.primary.label} · ${chosen}` : verbs.primary.label);
+    : (chosen && chosen !== verbs.primary.label ? `${verbs.primary.label} · ${chosen}` : verbs.primary.label);
 
   return (
     <div className="mx-auto w-full max-w-3xl" data-testid="ask-sheet" data-pending={pending || undefined}>
@@ -381,6 +412,12 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
             {body.rest ? 'Show details' : 'Details'}
           </summary>
           <div className="space-y-3 border-t border-border px-3 py-3">
+            {evidence.length > 0 && (
+              <section aria-label="Evidence">
+                <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Evidence</h3>
+                <EvidenceRefs sources={evidence} />
+              </section>
+            )}
             {body.rest && (
               <div className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
                 <Markdown remarkPlugins={[remarkGfm]}>{body.rest}</Markdown>
@@ -406,9 +443,7 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
       )}
 
       <StickyActionBar
-        primary={multi
-          ? { 'label': primaryLabel, 'onClick': () => void next(), 'disabled': !canAdvance || pending, 'busy': pending, 'icon': done ? ArrowRight : (last ? Check : ArrowRight), 'data-testid': 'ask-submit' }
-          : { 'label': primaryLabel, 'onClick': () => void submitSingle(), 'disabled': !canAdvance || pending, 'busy': pending, 'icon': Check, 'data-testid': 'ask-submit' }}
+        primary={{ 'label': primaryLabel, 'onClick': () => void next(), 'disabled': !canAdvance || pending, 'busy': pending, 'icon': multi && !last && !done ? ArrowRight : Check, 'data-testid': 'ask-submit' }}
         secondary={multi && index > 0 ? [{ label: 'Back', icon: ArrowLeft, disabled: pending, onClick: () => setIndex(i => i - 1) }] : []}
       />
     </div>

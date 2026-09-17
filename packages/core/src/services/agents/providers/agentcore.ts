@@ -550,7 +550,7 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
  * Called when an agent moves OFF `aws-managed-harness`. Without it the harness
  * stays `READY` and invisible — AWS's harness image, still chargeable, still
  * reachable by anyone holding its ARN — while every actual turn goes to
- * whatever the agent now names. That happened: `Veerio-Life/veerio-vocion`
+ * whatever the agent now names. That happened: `Larkfield-Systems/larkfield-vocion`
  * moved `event-ingestion-lead` to `agentcore-container` and its harness sat
  * live for days, found only by reading the AgentCore console.
  *

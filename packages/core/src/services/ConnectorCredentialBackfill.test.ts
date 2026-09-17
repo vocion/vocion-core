@@ -202,7 +202,7 @@ describe('backfillConnectorCredentials', () => {
   });
 
   it('moves a Jira connector\'s email and token together', async () => {
-    const connector = await makeConnector('jira', { projects: ['VEERIO'] });
+    const connector = await makeConnector('jira', { projects: ['LARKFIELD'] });
     await storeCredential({
       orgId: ORG,
       installId: connector.installId,

@@ -11,7 +11,7 @@ import { chromium } from '@playwright/test';
 const BASE = process.env.E2E_BASE ?? 'https://dev.agents.metacto.com';
 const EMAIL = 'chris@metacto.com';
 const PW = process.env.E2E_PW ?? 'Vocion-Dogfood-2026!';
-const MSG = process.env.E2E_MSG ?? 'Search my notes and emails for the latest on the Gauge relationship and give me a sourced summary.';
+const MSG = process.env.E2E_MSG ?? 'Search my notes and emails for the latest on the Kestrel relationship and give me a sourced summary.';
 const SHOT = '/Users/chrisfitkin/citation-proof.png';
 
 async function main(): Promise<void> {

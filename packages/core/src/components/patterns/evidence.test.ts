@@ -26,9 +26,9 @@ describe('evidenceSource', () => {
 
 describe('citationLabel', () => {
   it('shortens a URL to host and path', () => {
-    expect(citationLabel('https://www.incline.bet/about')).toBe('incline.bet/about');
-    expect(citationLabel('https://incline.bet/')).toBe('incline.bet');
-    expect(isCitationUrl('https://incline.bet/')).toBe(true);
+    expect(citationLabel('https://www.tideline.example/about')).toBe('tideline.example/about');
+    expect(citationLabel('https://tideline.example/')).toBe('tideline.example');
+    expect(isCitationUrl('https://tideline.example/')).toBe(true);
   });
 
   it('names a system ref', () => {

@@ -9,7 +9,7 @@ import { describeSyncResult, filterConnectors, initialCredentialChoice, parseStr
  * source-type picker has to stay usable as the connector registry grows (search
  * + a capped first page, one card per row), and picking a connector has to
  * offer the fields that connector's config schema actually requires — Strapi
- * asked for a crawl URL before VEERIO-235 and every submit failed validation.
+ * asked for a crawl URL before LARK-235 and every submit failed validation.
  */
 
 type ConnectorFixture = {

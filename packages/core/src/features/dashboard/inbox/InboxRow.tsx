@@ -6,9 +6,10 @@ import { ArrowUpRight, Check, ChevronRight, Loader2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Column, ListRow, Subline } from '@/components/patterns';
+import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
-import { amountLabel, confidenceLabel } from '@/services/inbox/describeActionRun';
+import { amountLabel } from '@/services/inbox/describeActionRun';
 import { rowVerbs } from './decisionVerbs';
 import { agoLabel, INBOX_KIND_META, riskTone, waitingFor } from './inboxMeta';
 import { withMinimumPending } from './pending';
@@ -70,7 +71,17 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
         icon={KindIcon}
         title={(
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-normal">{item.title}</span>
+            <span className="truncate font-normal" title={item.titleHint}>{item.title}</span>
+            {item.shape === 'sheet' && item.count !== undefined && (
+              // The count is a label, not the title (Chris, 2026-09-16). Quiet
+              // grey, beside the name, never in place of it.
+              <span
+                className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[11px] font-normal text-muted-foreground tabular-nums"
+                title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'proposal' : 'proposals') : (item.count === 1 ? 'question' : 'questions')} waiting`}
+              >
+                {item.count}
+              </span>
+            )}
             {item.risk && (
               <span className={`hidden shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium tracking-wide uppercase sm:inline ${riskTone(item.risk)}`}>{item.risk}</span>
             )}
@@ -93,8 +104,19 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
         )}
         columns={(
           <>
-            <Column kind="number" className="hidden sm:inline-block">
-              <span title="Confidence">{item.confidence !== undefined ? confidenceLabel(item.confidence ?? null) : ''}</span>
+            <Column kind="score" className="hidden sm:inline-block">
+              {/* Was a bare `85%`, then `Recommendation 72%` — and the subject
+                  is a constant, so the same word printed once per row down the
+                  whole column. Chris, 2026-09-16: *"why is 'recommendation'
+                  listed over and over and over?"* A word that never varies
+                  carries no information in a column; the COLUMN HEADER says it
+                  once, the bars carry the magnitude, and the reading rides the
+                  tooltip with its class and level. Native `title` on purpose:
+                  a queue is hundreds of rows and mounting a portal tooltip on
+                  each is not worth a hover. */}
+              {item.confidence !== undefined && item.confidence !== null
+                ? <ConfidenceBars value={item.confidence} subject="Recommendation" readingHidden />
+                : null}
             </Column>
             <Column kind="amount" className="hidden sm:inline-block">
               <span title="Amount">{item.amount !== undefined && item.amount !== null ? amountLabel(item.amount, item.currency ?? null) : ''}</span>

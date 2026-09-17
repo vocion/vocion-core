@@ -17,6 +17,7 @@ import { linkCard } from './link';
 import { markdownCard } from './markdown';
 import { recordCard } from './record';
 import { sendStubCard } from './sendStub';
+import { sequenceCard } from './sequence';
 
 let registered = false;
 
@@ -38,6 +39,9 @@ export function registerFirstPartyCards(): void {
   registerCard(chartCard);
   registerCard(recordCard);
   registerCard(linkCard);
+  // The typed draft sequence (0112) — the personalization lead page's third
+  // artifact, previewed here and edited where its decision is.
+  registerCard(sequenceCard);
   registered = true;
 }
 
@@ -54,3 +58,4 @@ export { LINK_SLUG, linkCard } from './link';
 export { MARKDOWN_SLUG, markdownCard } from './markdown';
 export { RECORD_SLUG, recordCard } from './record';
 export { SEND_STUB_SLUG, sendStubCard } from './sendStub';
+export { SEQUENCE_SLUG, sequenceCard } from './sequence';

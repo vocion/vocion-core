@@ -5,7 +5,7 @@
  * tenant's own install. Anything that differs per box, like an API base
  * URL, can't be hardcoded. So the file writes a token:
  *
- *     Fetch the source list from {{env.VEERIO_API_URL}}/api/sources
+ *     Fetch the source list from {{env.LARKFIELD_API_URL}}/api/sources
  *
  * and we swap in that environment variable's value as the file is read.
  * The file on disk is never rewritten.

@@ -2,7 +2,9 @@ import type { ActionDescription } from './describeActionRun';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema } from '@/models/Schema';
+import { resolveRecordLabels } from '@/services/records/recordLabel';
 import { describeActionRun } from './describeActionRun';
+import { recordKeyOf } from './recordKey';
 
 /**
  * The action plane of the review queue, read for the inbox: every column the
@@ -89,7 +91,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     .orderBy(tab === 'decided' ? desc(sql`coalesce(${actionRunSchema.decidedAt}, ${actionRunSchema.executedAt}, ${actionRunSchema.createdAt})`) : desc(actionRunSchema.id));
   const rows = tab === 'decided' ? await query.limit(opts.limit ?? 200) : await query;
 
-  return rows.map(row => ({
+  const described = rows.map(row => ({
     id: row.id,
     actionId: row.actionId,
     status: row.status,
@@ -101,8 +103,39 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     assignedTo: row.assignedTo ?? null,
     input: row.input ?? {},
     proposal: (row.proposal as Record<string, unknown> | null) ?? null,
-    described: describeActionRun({ id: row.id, actionId: row.actionId, input: row.input ?? {}, proposal: row.proposal as never, invokedBy: row.invokedBy }),
+    invokedBy: row.invokedBy,
   }));
+  return withRecordNames(orgId, described);
+}
+
+/** A row before it has been described — everything a describer reads. */
+type RawRow = Omit<ReviewRow, 'described'> & { invokedBy: string | null };
+
+function describe(row: RawRow, opts?: Parameters<typeof describeActionRun>[1]): ReviewRow {
+  const { invokedBy, ...rest } = row;
+  return { ...rest, described: describeActionRun({ id: row.id, actionId: row.actionId, input: row.input, proposal: row.proposal as never, invokedBy }, opts) };
+}
+
+/**
+ * Describe every row, giving the ones whose record is still a bare id the
+ * name the CRM mirror holds for it — one query for the whole page.
+ *
+ * `describeActionRun` stays pure over the payload, because the payload is
+ * what the agent proposed and nothing more. Naming the record is a read of
+ * what the workspace already knows, so it happens here, once, where the org
+ * is in scope. A record the mirror cannot name keeps `fromId` and says "name
+ * not synced" rather than showing the id as if it were a name.
+ * @param orgId
+ * @param rows
+ */
+async function withRecordNames(orgId: string, rows: RawRow[]): Promise<ReviewRow[]> {
+  const first = rows.map(row => describe(row));
+  const unnamed = first.filter(r => r.described.record?.fromId === true).map(r => r.described.record!.key);
+  if (unnamed.length === 0) {
+    return first;
+  }
+  const recordNames = await resolveRecordLabels(orgId, unnamed);
+  return recordNames.size === 0 ? first : rows.map(row => describe(row, { recordNames }));
 }
 
 /** Rows that are about the same record, in one sheet. */
@@ -121,7 +154,7 @@ export type ReviewGroup = {
 export function groupByRecord(rows: ReviewRow[]): ReviewGroup[] {
   const groups = new Map<string, ReviewGroup>();
   for (const row of rows) {
-    const key = row.described.record?.key ?? `run:${row.id}`;
+    const key = recordKeyOf(row);
     const g = groups.get(key);
     if (g) {
       g.rows.push(row);
@@ -140,6 +173,6 @@ export function groupByRecord(rows: ReviewRow[]): ReviewGroup[] {
  */
 export async function listReviewRowsForRecord(orgId: string, recordKey: string): Promise<{ open: ReviewRow[]; decided: ReviewRow[] }> {
   const [open, decided] = await Promise.all([listReviewRows(orgId, 'open'), listReviewRows(orgId, 'decided', { limit: 500 })]);
-  const match = (r: ReviewRow) => (r.described.record?.key ?? `run:${r.id}`) === recordKey;
+  const match = (r: ReviewRow) => recordKeyOf(r) === recordKey;
   return { open: open.filter(match), decided: decided.filter(match) };
 }

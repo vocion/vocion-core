@@ -198,7 +198,7 @@ let candidatesExecuted = 0;
 
 // Actions that keep a moderated record per proposal — an extracted candidate a
 // human approves or rejects. Re-proposing one a moderator already decided must
-// not put a second card in front of them (VEERIO-262).
+// not put a second card in front of them (LARK-262).
 registerAction({
   id: 'test.candidate',
   name: 'Test candidate',
@@ -440,10 +440,10 @@ describe('proposing against an already-decided run', () => {
   });
 
   it('still blocks the same record when its key is complete', async () => {
-    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-flynn' }, principal: agent(2) });
+    const first = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
     await rejectAction(first.runId, ORG, 'not for us', { reviewedBy: 'user-lili' });
 
-    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-flynn' }, principal: agent(2) });
+    const second = await proposeAction({ orgId: ORG, actionId: 'test.candidate-weak-key', input: { value: 'open-mic', venue: 'the-corvina' }, principal: agent(2) });
 
     expect(second.outcome).toBe('already_decided');
     expect(second.runId).toBe(first.runId);

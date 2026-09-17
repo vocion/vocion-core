@@ -37,7 +37,7 @@ describe('chatModelOptionsFor', () => {
   });
 
   it('ignores a model with no provider, because it belongs to another harness', () => {
-    // Veerio's own agent carries exactly this: a Bedrock id authored for the
+    // Larkfield's own agent carries exactly this: a Bedrock id authored for the
     // agentcore harness, with no modelProvider. On the local fallback path it
     // must not reach ChatAnthropic.
     expect(chatModelOptionsFor({ model: 'global.anthropic.claude-sonnet-4-6' })).toEqual({});

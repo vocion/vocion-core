@@ -5,7 +5,7 @@
  * only RECOMMENDS: it emits a `recommended_action` event the chat renders as a
  * clickable card. The gated review item is JIT-created only if the user taps it
  * (review.propose), reusing the agent's authority so it still lands `pending`
- * for approval. Use it to turn "you should follow up with Carlo" into a button
+ * for approval. Use it to turn "you should follow up with Nadia" into a button
  * the user can act on, instead of leaving the recommendation as dead text.
  */
 
@@ -51,7 +51,7 @@ export function recommendActionTool(ctx: RuntimeContext) {
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "gmail.send"'),
         action_input: z.record(z.string(), z.unknown()).describe('Pre-filled payload for the action — for gmail.send: { to, subject, body, draft: true }'),
-        label: z.string().describe('Short human button label, e.g. "Draft the note to Carlo Marcelino"'),
+        label: z.string().describe('Short human button label, e.g. "Draft the note to Nadia Brandt"'),
         rationale: z.string().optional().describe('One line: why this action, now'),
         confidence: z.number().min(0).max(1).optional().describe('Your confidence 0–1 from grounding quality'),
         // Required, and asked as a separate question from `rationale`: the

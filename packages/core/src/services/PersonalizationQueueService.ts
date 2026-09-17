@@ -853,6 +853,30 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
   const { getCurrentWorkspaceSha } = await import('@/libs/workspace');
   const workspaceSha = await getCurrentWorkspaceSha(orgId).catch(() => null);
 
+  // Confidence, per dimension (0112). Computed from the evidence rather than
+  // asked of the model: "identity known, company context insufficient,
+  // engagement unavailable" is arithmetic, and one collapsed number was
+  // hiding all three answers behind the worst of them.
+  const { computeConfidenceDimensions } = await import('@/services/personalization/confidence');
+  const [before] = await db
+    .select({
+      contactName: leadBriefSchema.contactName,
+      contactTitle: leadBriefSchema.contactTitle,
+      companyName: leadBriefSchema.companyName,
+      entranceSource: leadBriefSchema.entranceSource,
+      utmCampaign: leadBriefSchema.utmCampaign,
+      mqlAt: leadBriefSchema.mqlAt,
+      arrivedAt: leadBriefSchema.arrivedAt,
+      engagementSent: leadBriefSchema.engagementSent,
+      engagementOpened: leadBriefSchema.engagementOpened,
+    })
+    .from(leadBriefSchema)
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.contactRef, opts.contactRef)))
+    .limit(1);
+  const dimensions = before
+    ? computeConfidenceDimensions({ ...before, claims: opts.claims, missing: opts.missing })
+    : null;
+
   const [row] = await db
     .update(leadBriefSchema)
     .set({
@@ -860,6 +884,7 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
       claims: opts.claims,
       missing: opts.missing,
       confidence: opts.confidence,
+      ...(dimensions ? { confidenceDimensions: dimensions } : {}),
       status: REVIEW_STATUS,
       briefedAt,
       briefVersion: opts.briefVersion,
@@ -892,6 +917,7 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
       eq(leadBriefSchema.contactRef, opts.contactRef),
     ))
     .returning({
+      id: leadBriefSchema.id,
       status: leadBriefSchema.status,
       confidence: leadBriefSchema.confidence,
       briefVersion: leadBriefSchema.briefVersion,
@@ -907,6 +933,19 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
   if (!row) {
     return { saved: false, reason: 'not_on_queue', contactRef: opts.contactRef };
   }
+
+  // The brief and the recommendation become artifact versions here — this is
+  // the write, so this is where a version genuinely belongs. The instruction
+  // that asked for the rewrite, if there was one, is the change summary.
+  await (await import('@/services/personalization/artifacts')).ensureLeadArtifacts(
+    orgId,
+    row.id,
+    {
+      author: { kind: 'agent', id: opts.briefedBy?.agentSlug ? `agent:${opts.briefedBy.agentSlug}` : null },
+      changeSummary: 'Research pass',
+    },
+    ['brief', 'recommendation'],
+  ).catch(() => []);
 
   return {
     saved: true,
@@ -1033,6 +1072,75 @@ export async function regenerateBrief(
     return { regenerated: false, reason: 'not_found', id: opts.id };
   }
   return { regenerated: true, id: opts.id, contactRef: row.contactRef, contactName: row.contactName };
+}
+
+/** Which of the lead's three artifacts a Regenerate was pressed on. */
+export type RegenerateTarget = 'brief' | 'recommendation' | 'sequence';
+
+export type RegenerateArtifactResult = RegenerateResult & { target?: RegenerateTarget };
+
+/**
+ * Send ONE of the lead's three artifacts back to be written again.
+ *
+ * The three targets are not three pipelines — they are three depths of the one
+ * pipeline the sweep already runs, and each resets exactly the stage it owns:
+ *
+ * | Target | Resets | Why that depth |
+ * |---|---|---|
+ * | `brief` | research + everything downstream | the recommendation and the sends are arguments FROM the brief; a new brief invalidates both |
+ * | `recommendation` | the sequence choice and the sends | the recommendation IS the sequence choice plus its reasoning |
+ * | `sequence` | the sends only | the chosen sequence stands; the copy is what is being rewritten |
+ *
+ * The instruction is stored on the row for the next pass to read AND becomes
+ * the change summary of the artifact version the pass writes, which is what
+ * makes the history legible: "v3 — regenerated: the angle leans on an industry
+ * pattern rather than anything about this company".
+ *
+ * Nothing is overwritten in place: the current artifact versions stay exactly
+ * as they are until a pass writes new ones, so a decision taken before the
+ * regeneration lands still pins what it approved.
+ * @param orgId - The project id.
+ * @param opts - The lead, the target and the reviewer's instruction.
+ * @param opts.id - `lead_brief.id`.
+ * @param opts.target - Which artifact.
+ * @param opts.note - The instruction; required for `brief`.
+ */
+export async function regenerateLeadArtifact(
+  orgId: string,
+  opts: { id: number; target: RegenerateTarget; note?: string },
+): Promise<RegenerateArtifactResult> {
+  if (opts.target === 'brief') {
+    // A brief rewrite already resets the whole chain, note required.
+    const res = await regenerateBrief(orgId, { id: opts.id, note: opts.note ?? '' });
+    return { ...res, target: 'brief' };
+  }
+
+  const reset = opts.target === 'recommendation'
+    ? { recommendedSequence: null, draftSequence: [] }
+    : { draftSequence: [] };
+
+  const [row] = await db
+    .update(leadBriefSchema)
+    .set({
+      ...reset,
+      draftAttempts: 0,
+      lastDraftAttemptAt: null,
+      draftError: null,
+      // The lead stays in Review: the brief is still good, so there is still
+      // something to read while the sends are rewritten. Only a brief rewrite
+      // takes the lead off the review screen.
+      ...(opts.note ? { regenerateNote: opts.note } : {}),
+    })
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.id, opts.id)))
+    .returning({
+      contactRef: leadBriefSchema.contactRef,
+      contactName: leadBriefSchema.contactName,
+    });
+
+  if (!row) {
+    return { regenerated: false, reason: 'not_found', id: opts.id, target: opts.target };
+  }
+  return { regenerated: true, id: opts.id, contactRef: row.contactRef, contactName: row.contactName, target: opts.target };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1342,6 +1450,15 @@ export async function saveDraftSequence(orgId: string, opts: SaveDraftSequenceOp
       ...recommendedActionAdvice(opts.advice ?? {}),
     },
   });
+
+  // The recommendation and the draft sequence become artifact versions here —
+  // the sequence choice IS the recommendation, so both move together (0112).
+  await (await import('@/services/personalization/artifacts')).ensureLeadArtifacts(
+    orgId,
+    row.id,
+    { author: { kind: 'agent', id: invokedBy }, changeSummary: 'Drafting pass' },
+    ['recommendation', 'sequence'],
+  ).catch(() => []);
 
   return {
     saved: true,

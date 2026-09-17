@@ -54,6 +54,20 @@ export type ReviewCard = {
   title: string;
   /** System badge, e.g. `Discovery` / `Gmail`. */
   system?: string;
+  /**
+   * The thing this decision is ABOUT, named for a human. Set it when the
+   * record has a name of its own and the generated "<action> — <subject>"
+   * title would put an internal identifier where the page's name belongs
+   * (`docs/specs/discovery-ledger-v2.md`): the H1 becomes `title`, the line
+   * under it `subtitle`, and the middle breadcrumb `section`.
+   */
+  object?: { title: string; subtitle?: string; section?: string };
+  /**
+   * What the proposal's confidence is IN, for the meter beside it —
+   * "Not discovery", "Enrollment fit". Defaults to "Recommendation"; a score
+   * is never drawn without one.
+   */
+  confidenceSubject?: string;
   /** Who/what the item is about, e.g. the lead: name / role / company, deep-linked. */
   subject?: { name: string; role?: string; company?: string; href?: string };
   /** Where the item came from: source, campaign, MQL date. Labeled, no links. */

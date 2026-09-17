@@ -4,7 +4,7 @@ import process from 'node:process';
 import { expect, test } from '@playwright/test';
 
 /**
- * VEERIO-262 — what a proposal actually did, end to end.
+ * LARK-262 — what a proposal actually did, end to end.
  *
  * Drives `POST /api/v1/reviews/propose` and `POST /api/v1/reviews/decide`
  * with real HTTP requests against a real running app: no mocked database, no
@@ -84,7 +84,7 @@ function eventProposal(over: Record<string, unknown> = {}) {
   const fields = {
     title: 'Open Mic Night',
     start: '2026-09-19T19:30',
-    venue: 'The Flynn',
+    venue: 'The Corvina',
     price: 'Free',
     ...over,
   };

@@ -8,7 +8,7 @@
  * provider-neutral message arrays. This file lives alongside it for
  * LangChain-specific surfaces.
  *
- * Defaults match rev-ai (`/var/www/metacto/spinutech/kickoff-demo/server/llm.py`).
+ * Defaults match rev-ai (`server/llm.py`).
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';

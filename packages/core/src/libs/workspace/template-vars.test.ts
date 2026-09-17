@@ -3,7 +3,7 @@
  *
  * The bug this prevents is quiet: a playbook that named a per-box API
  * URL as a literal token was served to the agent unchanged, the model
- * read `{{VEERIO_API_URL}}` as a real address, guessed three plausible
+ * read `{{LARKFIELD_API_URL}}` as a real address, guessed three plausible
  * hostnames, and fell back to remembered sources. Nothing errored. So
  * every unresolvable token here must raise, never pass through.
  */
@@ -23,7 +23,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   delete process.env.WORKSPACE_TEMPLATE_VARS;
-  delete process.env.VEERIO_API_URL;
+  delete process.env.LARKFIELD_API_URL;
   delete process.env.PORTAL_HOST;
 });
 
@@ -37,32 +37,32 @@ describe('allowlistedTemplateVariableNames', () => {
   });
 
   it('splits on commas and trims the spaces people leave in .env files', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = ' VEERIO_API_URL , PORTAL_HOST ,';
+    process.env.WORKSPACE_TEMPLATE_VARS = ' LARKFIELD_API_URL , PORTAL_HOST ,';
 
-    expect(allowlistedTemplateVariableNames()).toEqual(['VEERIO_API_URL', 'PORTAL_HOST']);
+    expect(allowlistedTemplateVariableNames()).toEqual(['LARKFIELD_API_URL', 'PORTAL_HOST']);
   });
 });
 
 describe('substituteEnvTokens', () => {
   it('replaces an allowlisted token with the value from the environment', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = 'https://api-dev.veerio.app';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api-dev.larkfield.example';
 
     const out = substituteEnvTokens(
-      'GET {{env.VEERIO_API_URL}}/api/sources/ingestion',
+      'GET {{env.LARKFIELD_API_URL}}/api/sources/ingestion',
       'playbooks/ingest-sources/SKILL.md',
     );
 
-    expect(out).toBe('GET https://api-dev.veerio.app/api/sources/ingestion');
+    expect(out).toBe('GET https://api-dev.larkfield.example/api/sources/ingestion');
   });
 
   it('replaces every occurrence, not only the first', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = 'https://api.veerio.app';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api.larkfield.example';
 
-    const out = substituteEnvTokens('{{env.VEERIO_API_URL}} and {{env.VEERIO_API_URL}}', 'f.md');
+    const out = substituteEnvTokens('{{env.LARKFIELD_API_URL}} and {{env.LARKFIELD_API_URL}}', 'f.md');
 
-    expect(out).toBe('https://api.veerio.app and https://api.veerio.app');
+    expect(out).toBe('https://api.larkfield.example and https://api.larkfield.example');
   });
 
   it('tolerates spaces inside the braces, so a near-miss still resolves', () => {
@@ -85,15 +85,15 @@ describe('substituteEnvTokens', () => {
   });
 
   it('rejects every token when the allowlist is unset, rather than substituting nothing quietly', () => {
-    process.env.VEERIO_API_URL = 'https://api.veerio.app';
+    process.env.LARKFIELD_API_URL = 'https://api.larkfield.example';
 
-    expect(() => substituteEnvTokens('{{env.VEERIO_API_URL}}', 'f.md')).toThrow(/not allowlisted/);
+    expect(() => substituteEnvTokens('{{env.LARKFIELD_API_URL}}', 'f.md')).toThrow(/not allowlisted/);
   });
 
   it('rejects an allowlisted variable that has no value in this environment', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
 
-    const substitute = () => substituteEnvTokens('{{env.VEERIO_API_URL}}', 'missions/ingest.yaml');
+    const substitute = () => substituteEnvTokens('{{env.LARKFIELD_API_URL}}', 'missions/ingest.yaml');
 
     expect(substitute).toThrow(WorkspaceTemplateError);
     expect(substitute).toThrow(/missions\/ingest\.yaml/);
@@ -101,17 +101,17 @@ describe('substituteEnvTokens', () => {
   });
 
   it('treats a blank value as unset — an empty URL fails later and further away', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = '   ';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = '   ';
 
-    expect(() => substituteEnvTokens('{{env.VEERIO_API_URL}}', 'f.md')).toThrow(/has no value/);
+    expect(() => substituteEnvTokens('{{env.LARKFIELD_API_URL}}', 'f.md')).toThrow(/has no value/);
   });
 
   it('rejects a value with a line break, which would splice new lines into a YAML file', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = 'https://api.veerio.app\nextraKey: injected';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api.larkfield.example\nextraKey: injected';
 
-    const substitute = () => substituteEnvTokens('base: {{env.VEERIO_API_URL}}', 'missions/ingest.yaml');
+    const substitute = () => substituteEnvTokens('base: {{env.LARKFIELD_API_URL}}', 'missions/ingest.yaml');
 
     expect(substitute).toThrow(WorkspaceTemplateError);
     expect(substitute).toThrow(/line break/);
@@ -125,8 +125,8 @@ describe('substituteEnvTokens', () => {
   });
 
   it('leaves Handlebars-like text that is not an env token completely alone', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = 'https://api.veerio.app';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api.larkfield.example';
 
     const authored = 'Render {{customer.name}}, {{#each items}}, {{env.lowercase}} and {{ENV.SHOUTED}}.';
 
@@ -150,17 +150,17 @@ describe('readWorkspaceTextFile', () => {
   });
 
   it('substitutes while reading a file off disk', () => {
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = 'https://api-dev.veerio.app';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api-dev.larkfield.example';
     const file = join(root, 'SKILL.md');
-    writeFileSync(file, 'Fetch {{env.VEERIO_API_URL}}/api/sources\n');
+    writeFileSync(file, 'Fetch {{env.LARKFIELD_API_URL}}/api/sources\n');
 
-    expect(readWorkspaceTextFile(file)).toBe('Fetch https://api-dev.veerio.app/api/sources\n');
+    expect(readWorkspaceTextFile(file)).toBe('Fetch https://api-dev.larkfield.example/api/sources\n');
   });
 
   it('names the real file path when a token cannot be resolved', () => {
     const file = join(root, 'mission.yaml');
-    writeFileSync(file, 'goal: call {{env.VEERIO_API_URL}}\n');
+    writeFileSync(file, 'goal: call {{env.LARKFIELD_API_URL}}\n');
 
     expect(() => readWorkspaceTextFile(file)).toThrow(file);
   });

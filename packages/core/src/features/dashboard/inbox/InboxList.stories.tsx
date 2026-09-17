@@ -6,7 +6,7 @@ import { INBOX_KINDS } from '@/services/inbox/kinds';
 import { InboxList } from './InboxList';
 
 /**
- * Needs you, on the shared `ListRow`. The rows here and the rows on Search,
+ * Review queue, on the shared `ListRow`. The rows here and the rows on Search,
  * Artifacts, Personalization and Learnings are the same component; only the
  * data differs.
  */
@@ -18,7 +18,7 @@ const meta: Meta<typeof InboxList> = {
     Story => (
       <NextIntlClientProvider locale="en">
         <div className="@container mx-auto max-w-5xl">
-          <TitleBar title="Needs you" description="Everything waiting on a person, oldest first." />
+          <TitleBar title="Review queue" description="Everything waiting on a person, oldest first." />
           <Story />
         </div>
       </NextIntlClientProvider>
@@ -33,7 +33,7 @@ type Story = StoryObj<typeof InboxList>;
 function item(over: Partial<InboxItem> & Pick<InboxItem, 'key' | 'kind' | 'title'>): InboxItem {
   return {
     shape: 'single',
-    subline: 'Redpoint IT › hubspot.update › proposed by revenue-lead',
+    subline: 'Contoso Supply › hubspot.update › proposed by revenue-lead',
     agentSlug: 'revenue-lead',
     teamSlug: 'revenue',
     risk: null,

@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { ChatDock } from '@/features/dashboard/chat/ChatDock';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { LeadDetail } from '@/features/personalization/LeadDetail';
 import { getAction } from '@/libs/actions/registry';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -75,7 +76,7 @@ export default async function LeadPage(props: {
   // feed applies: pending or failed and not snoozed shows the card (deciding
   // it here decides it everywhere, and a failed card carries its error with
   // Approve-as-retry); snoozed shows when it returns.
-  const runState: LeadRunState = { run: null, snoozedUntil: null, runFailed: false };
+  const runState: LeadRunState = { run: null, snoozedUntil: null, runFailed: false, pinned: [] };
   if (row.reviewActionRunId != null) {
     const now = new Date();
     const [found] = await db
@@ -91,6 +92,10 @@ export default async function LeadPage(props: {
         eq(actionRunSchema.id, row.reviewActionRunId),
       ))
       .limit(1);
+    // What the human already approved, if they have — the pin is what makes
+    // the audit answer "what did they approve" rather than "what does this
+    // look like now" (0112).
+    runState.pinned = found?.run.pinnedArtifacts ?? [];
     if (found?.run.status === 'pending' || found?.run.status === 'failed') {
       const snoozed = found.snoozedUntil != null && found.snoozedUntil > now;
       const expired = found.run.expiresAt != null && found.run.expiresAt <= now;
@@ -127,6 +132,32 @@ export default async function LeadPage(props: {
     }
   }
 
+  // The lead's three artifacts (0112). Materialised from the ledger row here
+  // as a backfill, so a lead briefed before the split has them the first time
+  // somebody opens it rather than only after the next sweep; the pipeline
+  // writes keep them in step from then on. Idempotent — identical content
+  // writes nothing.
+  const { ensureLeadArtifacts } = await import('@/services/personalization/artifacts');
+  const artifacts = await ensureLeadArtifacts(orgId, row.id).catch(() => []);
+
+  // Confidence, per dimension. Stored when the brief was written; computed
+  // here for a row that predates the column, so the page never shows one
+  // collapsed number where five different questions live.
+  const { computeConfidenceDimensions } = await import('@/services/personalization/confidence');
+  const dimensions = row.confidenceDimensions ?? computeConfidenceDimensions({
+    contactName: row.contactName,
+    contactTitle: row.contactTitle,
+    companyName: row.companyName,
+    entranceSource: row.entranceSource,
+    utmCampaign: row.utmCampaign,
+    mqlAt: row.mqlAt,
+    arrivedAt: row.arrivedAt,
+    engagementSent: row.engagementSent,
+    engagementOpened: row.engagementOpened,
+    claims: row.claims,
+    missing: row.missing,
+  });
+
   // Dates cross the server/client boundary as ISO strings.
   const lead: LeadRow = {
     id: row.id,
@@ -140,6 +171,7 @@ export default async function LeadPage(props: {
     engagementOpened: row.engagementOpened,
     status: row.status,
     confidence: row.confidence,
+    confidenceDimensions: dimensions as LeadRow['confidenceDimensions'],
     sections: row.sections,
     claims: row.claims,
     missing: row.missing,
@@ -147,8 +179,9 @@ export default async function LeadPage(props: {
     briefAttempts: row.briefAttempts,
     regenerateNote: row.regenerateNote,
     regenerateHistory: row.regenerateHistory,
-    draftSequence: row.draftSequence,
+    draftSequence: row.draftSequence.map((send, i) => ({ ...send, step: send.step ?? i + 1 })),
     recommendedSequence: row.recommendedSequence,
+    currentSequence: row.currentSequence ?? null,
     reviewActionRunId: row.reviewActionRunId,
     draftError: row.draftError,
     mqlAt: row.mqlAt?.toISOString() ?? null,
@@ -156,14 +189,17 @@ export default async function LeadPage(props: {
     briefedAt: row.briefedAt?.toISOString() ?? null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
     decidedBy: row.decidedBy,
+    briefVersion: row.briefVersion,
+    workspaceSha: row.workspaceSha,
     handoffSections: row.handoffSections,
     handoffTrigger: row.handoffTrigger,
     handoffAt: row.handoffAt?.toISOString() ?? null,
   };
 
-  // The dock: the agent conversation as a third column, scoped to this lead
-  // and open by default (agent-chat-surface.md §3, decided 2026-09-02). The
-  // floating bubble bails on this route, so this is the page's one surface.
+  // The dock: the agent conversation as an overlay on the page's right edge,
+  // scoped to this lead (agent-chat-surface.md §3, decided 2026-09-02; made an
+  // overlay 2026-09-16). The shell's dock bails on this route, so this is the
+  // page's one surface.
   const { agents } = await loadChatAgentContext(orgId);
 
   // The comment layer spans both: a note taken on the brief becomes a chip in
@@ -171,16 +207,31 @@ export default async function LeadPage(props: {
   // It reads the commentable regions from the rendered page, so an anchor
   // always points at the words the reviewer actually selected.
   return (
-    <CommentLayerProvider targetRef={`lead_brief:${row.id}`}>
+    <CommentLayerProvider
+      targetRef={`lead_brief:${row.id}`}
+      record={{ type: 'object', id: row.contactRef, label: row.contactName }}
+      // The sequence draft is in view exactly when a decision is waiting, so
+      // that is exactly when the selection offers *Add change* and `(+)`
+      // offers `@change`.
+      changeIntent={runState.run !== null}
+    >
+      {/* What this page IS about, declared once (R4 / #329). The rail beside
+          it reads this to know the record is already on screen and therefore
+          not to render it a second time (`pageShowsRecord`); it is the same
+          `RecordRef` the scoped dock resolves from `contacts:{id}`. */}
+      <RecordContext record={{ type: 'object', id: row.contactRef, label: row.contactName, href: `/gtm/lead/${hubspotId}` }} />
       <div className="min-w-0 flex-1">
-        {/* `guided`: with a decision waiting, the conversation takes it and
-            the page states what is pending — one decision surface per page. */}
-        <LeadDetail lead={lead} contactHref={contactHref} runState={runState} guided={agents.length > 0} />
+        {/* `guided`: the rewrite is asked for in the conversation and rides
+            the decision taken HERE — the page keeps the record and the verbs. */}
+        <LeadDetail lead={lead} artifacts={artifacts} contactHref={contactHref} runState={runState} guided={agents.length > 0} />
       </div>
       <ChatDock
         agents={agents}
         scopeRef={row.contactRef}
         scopeLabel={row.contactName}
+        // Full width by default (2026-09-16), with no exception: the record —
+        // the sends included — and its decision bar are on this page, so the
+        // rail is the conversation about them and waits on its edge tab.
         run={runState.run}
       />
     </CommentLayerProvider>

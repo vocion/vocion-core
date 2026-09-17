@@ -4,7 +4,7 @@ import process from 'node:process';
 import { expect, test } from '@playwright/test';
 
 /**
- * VEERIO-267 — who approved an action run, end to end.
+ * LARK-267 — who approved an action run, end to end.
  *
  * Drives `POST /api/v1/reviews/propose`, `POST /api/v1/reviews/decide` and the
  * queue reads with real HTTP against a real running app: no mocked database, no

@@ -30,7 +30,7 @@ function record(over: Record<string, unknown> = {}) {
     fields: {
       title: 'Open Mic Night',
       startDate: '2026-11-12',
-      venueName: 'Higher Ground',
+      venueName: 'Bellwater Hall',
       ...fields,
     },
     confidence: 0.9,
@@ -55,13 +55,13 @@ function run(records: ReturnType<typeof record>[], config = configWith(), over: 
 
 describe('candidate extractor validation', () => {
   it('fills in the source defaults before it checks the identity', () => {
-    const config = configWith({ defaults: { venueName: 'Higher Ground', venueCity: 'South Burlington' } });
+    const config = configWith({ defaults: { venueName: 'Bellwater Hall', venueCity: 'Riverton' } });
 
     const out = run([record({ fields: { venueName: '' } })], config);
 
     expect(out.records).toHaveLength(1);
-    expect(out.records[0]?.fields.venueName).toBe('Higher Ground');
-    expect(out.records[0]?.fields.venueCity).toBe('South Burlington');
+    expect(out.records[0]?.fields.venueName).toBe('Bellwater Hall');
+    expect(out.records[0]?.fields.venueCity).toBe('Riverton');
   });
 
   it('drops a record the model was not sure enough about', () => {
@@ -133,11 +133,11 @@ describe('candidate extractor validation', () => {
   });
 
   it('accepts a URL the page published only inside its JSON-LD', () => {
-    const out = run([record({ sourceUrl: 'https://highergroundmusic.com/e/open-mic' })], configWith(), {
-      jsonLd: [{ '@type': 'Event', 'url': 'https://highergroundmusic.com/e/open-mic' }],
+    const out = run([record({ sourceUrl: 'https://bellwaterhall.example/e/open-mic' })], configWith(), {
+      jsonLd: [{ '@type': 'Event', 'url': 'https://bellwaterhall.example/e/open-mic' }],
     });
 
-    expect(out.records[0]?.sourceUrl).toBe('https://highergroundmusic.com/e/open-mic');
+    expect(out.records[0]?.sourceUrl).toBe('https://bellwaterhall.example/e/open-mic');
   });
 
   it('collapses two records the document listed twice', () => {

@@ -28,3 +28,21 @@ describe('buildCrumbs', () => {
     expect(buildCrumbs({ pathname: '/sign-in', docTitle: '' })).toBeNull();
   });
 });
+
+describe('decision sheets', () => {
+  it('names the record rather than showing its escaped key', () => {
+    const crumbs = buildCrumbs({
+      pathname: '/dashboard/inbox/r/email~3Asomeone~40example~2Etest',
+      docTitle: '',
+      workspaceName: 'Fixture workspace',
+    });
+
+    expect(crumbs?.map(c => c.label)).toEqual(['Fixture workspace', 'Review', 'someone@example.test']);
+  });
+
+  it('drops the routing shim for an ask group too', () => {
+    const crumbs = buildCrumbs({ pathname: '/dashboard/inbox/g/plain-group', docTitle: '', workspaceName: null });
+
+    expect(crumbs?.map(c => c.label)).toEqual(['Review', 'plain-group']);
+  });
+});

@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({ options: { agent: { type: 'string' }, org: { type: 'string' }, msg: { type: 'string' } } });
   const orgId = values.org ?? 'proj-revenue-f8429a692aab3703f82a4f15169b8662';
   const agentSlug = values.agent ?? 'founder-gtm-lead';
-  const message = values.msg ?? 'Draft the email follow-ups I owe Eric Bloomfield and Kyle Getson.';
+  const message = values.msg ?? 'Draft the email follow-ups I owe Erin Blakely and Kyle Marsh.';
 
   const compiled = await getCompiledAgent(orgId, agentSlug);
   bindRequestEmit(compiled, () => {}, 'dump', undefined, undefined);

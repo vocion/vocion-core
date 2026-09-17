@@ -124,7 +124,7 @@ export const WorkspaceManifestSchema = z.object({
   extends: z.string().optional().describe('base pack pin, e.g. "core@1.4.0"; omit for no base layer'),
   /**
    * Activation allowlist for the pinned pack. `use: all` activates every
-   * default; an {agents,operations} selector activates only what it names
+   * default; an {agents,skills} selector activates only what it names
    * (agents pull their skills transitively). Omitted while `extends` is
    * set = activate nothing (`use: none`).
    */
@@ -481,6 +481,23 @@ export const AgentManifestSchema = z.object({
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),
+  /**
+   * What this agent reaches for, named by connector CATEGORY and never by
+   * vendor — `crm`, not `salesforce`. Same-category connectors are peers,
+   * so an agent can never quietly prefer one vendor's ledger over another's,
+   * and the catalog can say "needs a ledger" without naming a product.
+   *
+   * `degradesTo` is what it does with none of them connected. Every agent
+   * has an answer; a missing connector picks a tier, it does not fail. There
+   * is deliberately no permission field here — whether an agent may write is
+   * a property of the installation, not of the definition, and an agent's
+   * write ceiling is the union of its skills' own write paths.
+   */
+  requires: z.object({
+    connectors: z.array(SlugSchema).default([]),
+    optional: z.array(SlugSchema).default([]),
+    degradesTo: z.enum(['files', 'none']).default('files'),
+  }).default({ connectors: [], optional: [], degradesTo: 'files' }),
   connectorSources: z.array(z.string()).default([]).describe('source slugs (matching knowledge_source.slug) this agent can search'),
   objectTypes: z.array(z.string()).default([]).describe('business object type slugs'),
   documentSetIds: z.array(z.number()).default([]),
@@ -543,7 +560,7 @@ export const AgentManifestSchema = z.object({
    * harness. `provider` selects where the agent loop executes:
    * `local` (in-process deepagents loop, the default), `agentcore`
    * (the AWS AgentCore managed harness — provisioned by
-   * workspace:apply, invoked via InvokeHarness; operations execute
+   * workspace:apply, invoked via InvokeHarness; skills execute
    * client-side in vocion-core as inline functions), or `runtime`
    * (the BYOA artifact — packages/agent-runtime: our deepagents loop
    * hosted out-of-process, localhost in dev / AgentCore Runtime when

@@ -11,7 +11,7 @@
     "main_section_label": "Espace de travail",
     "organization_section_label": "Organisation",
     "chat": "Chat",
-    "inbox": "À traiter",
+    "inbox": "Revue",
     "search": "Rechercher",
     "observability": "Observabilité",
     "sources": "Connecteurs",
@@ -66,7 +66,8 @@
     "activity": "Activité",
     "members": "Membres",
     "system": "Système",
-    "profile": "Profil"
+    "profile": "Profil",
+    "marketplace": "Place de marché"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
@@ -201,10 +202,12 @@
     "queue_dismiss": "Fermer",
     "attach": "Ajouter à ce tour",
     "tag_artifact": "Document",
-    "tag_page": "Cette page"
+    "tag_page": "Cette page",
+    "tag_change": "Modifier le brouillon",
+    "working_with": "Travaille avec :"
   },
   "Inbox": {
-    "title": "À traiter",
+    "title": "File de revue",
     "tab_open": "Ouverts",
     "tab_decided": "Décidés",
     "tab_snoozed": "Reportés",
@@ -219,7 +222,11 @@
     "filter_kind": "Filtrer par type",
     "filter_facets": "Filtrer par action ou agent",
     "all": "Tout",
-    "clear": "Effacer"
+    "clear": "Effacer",
+    "filter_type": "Type",
+    "filter_agent": "Agent",
+    "filter_placeholder": "Filtrer ou rechercher…",
+    "filter_searching": "les affaires, contacts et agents"
   },
   "Review": {
     "all": "Tout",
@@ -237,5 +244,18 @@
     "shortcut_approve": "Approuver",
     "shortcut_decline": "Refuser",
     "shortcut_snooze": "Reporter"
+  },
+  "Marketplace": {
+    "title_bar_description": "Agents que vous n'avez pas encore recrutés. Chacun fonctionne dès le premier jour à partir de fichiers que vous importez — connectez un système plus tard pour l'enrichir.",
+    "view_profile": "Voir le profil",
+    "skill_count": "{count, plural, one {# compétence} other {# compétences}}",
+    "empty_title": "Tout votre catalogue est en service",
+    "empty_body": "Tous les agents du catalogue ont été recrutés. Pour en ajouter un que personne n'a livré, demandez à l'Ingénieur d'automatisation de le construire à partir de ce que vous faites déjà à la main.",
+    "empty_action": "Créer un agent",
+    "none_title": "Aucun catalogue disponible",
+    "none_body": "Ce déploiement a été livré sans le catalogue d'agents. Les agents peuvent toujours être définis directement dans l'espace de travail.",
+    "hire": "Recruter",
+    "hired": "{name} fait partie de votre équipe",
+    "hire_failed": "Impossible de recruter cet agent. Actualisez et réessayez."
   }
 }

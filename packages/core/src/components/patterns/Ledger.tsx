@@ -135,20 +135,28 @@ export function ProvenanceLine(props: { items: ReadonlyArray<Maybe<ProvenanceIte
 }
 
 /**
- * LedgerEntry — one assessed thing. Title and when on the first line, the
- * verdict and the routing state on the right; scores on the second; the
- * summary clamped to two lines with a "more" toggle; provenance as the footer;
- * and a slot for what a person did with it.
+ * LedgerEntry — one assessed thing, read top-down in about two seconds:
+ * **what meeting was this, what did Vocion decide, why, and what did the human
+ * do** (`docs/specs/discovery-ledger-v2.md`).
+ *
+ * The slots are in that order and the hierarchy is deliberate: the verdict
+ * line sits above the reason, the human line below it, and the model's
+ * internals — thresholds, prompt version, run id, transcript hash — go in
+ * `details`, collapsed. MANIFESTO §12: the simplest useful reading first, the
+ * evidence underneath. The decision history is the ledger; the model internals
+ * are supporting evidence.
  * @param props
  * @param props.title
  * @param props.when - Already formatted.
- * @param props.verdict - A `<VerdictBadge>`.
+ * @param props.verdict - The decision, as a `<VerdictBadge>` or a class chip.
  * @param props.state - The routing state: "routed", "matched", "dropped".
- * @param props.scores - `<ScoreChip>`s.
- * @param props.summary - The reasoning. Clamped to two lines until expanded.
- * @param props.detail - The line under the title: the match reason.
- * @param props.provenance - A `<ProvenanceLine>`.
- * @param props.human - What a person did: "review: pending →".
+ * @param props.scores - Confidence readings. Never a score without its class.
+ * @param props.summary - One sentence of why. Clamped to two lines when long.
+ * @param props.detail - The line under the title: who the meeting was with.
+ * @param props.provenance - A `<ProvenanceLine>`; lives inside `details` when there is one.
+ * @param props.human - What a person did, and what happened as a result.
+ * @param props.details - Evidence and decision details, collapsed behind a disclosure.
+ * @param props.detailsLabel - The disclosure's label. Default "Evidence & decision details".
  * @param props.className
  */
 export function LedgerEntry(props: {
@@ -161,10 +169,13 @@ export function LedgerEntry(props: {
   'detail'?: ReactNode;
   'provenance'?: ReactNode;
   'human'?: ReactNode;
+  'details'?: ReactNode;
+  'detailsLabel'?: string;
   'className'?: string;
   'data-testid'?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
   const summary = props.summary?.trim();
   // Roughly two lines at reading width; below that, no toggle to press.
   const clampable = (summary?.length ?? 0) > 180;
@@ -187,7 +198,7 @@ export function LedgerEntry(props: {
       {props.scores && <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">{props.scores}</div>}
 
       {summary && (
-        <div className="mt-2 max-w-3xl text-[13px] leading-relaxed text-foreground/80">
+        <div className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-foreground/80">
           <p className={cn(!expanded && 'line-clamp-2')}>{summary}</p>
           {clampable && (
             <button type="button" onClick={() => setExpanded(e => !e)} aria-expanded={expanded} className="mt-0.5 text-[12px] text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground">
@@ -197,12 +208,30 @@ export function LedgerEntry(props: {
         </div>
       )}
 
-      {(props.provenance || props.human) && (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <div className="min-w-0">{props.provenance}</div>
-          {props.human && <div className="text-[12px] text-muted-foreground">{props.human}</div>}
+      {props.human && <div className="mt-2 text-[12px] text-muted-foreground">{props.human}</div>}
+
+      {props.details && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            aria-expanded={open}
+            data-testid="ledger-details-toggle"
+            className="inline-flex items-center gap-1 text-[12px] text-muted-foreground underline decoration-border underline-offset-2 transition hover:text-foreground"
+          >
+            <span aria-hidden className={cn('transition-transform', open && 'rotate-90')}>›</span>
+            {props.detailsLabel ?? 'Evidence & decision details'}
+          </button>
+          {open && (
+            <div className="mt-2 space-y-2 border-l border-rule pl-3 text-[12px] text-muted-foreground" data-testid="ledger-details">
+              {props.details}
+              {props.provenance}
+            </div>
+          )}
         </div>
       )}
+
+      {!props.details && props.provenance && <div className="mt-2 min-w-0">{props.provenance}</div>}
     </article>
   );
 }

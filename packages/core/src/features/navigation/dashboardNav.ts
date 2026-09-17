@@ -20,6 +20,7 @@ import {
   Plug,
   ShieldCheck,
   Sparkles,
+  Store,
   TestTube,
   TrendingUp,
   UserPlus,
@@ -98,21 +99,22 @@ export type DashboardRoute = {
 export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── WORK ────────────────────────────────────────────────────────────────
   { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
-  { url: '/dashboard/inbox', title: 'Needs you', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
+  { url: '/dashboard/inbox', title: 'Review', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
   { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings' },
   // Everything an agent or a person made beside a conversation — live,
   // versioned, editable. Replaces Canvases, whose saved tile arrangements
   // nobody arranged twice (`/dashboard/canvases` 308s here).
   { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'] },
-  // Review is no longer a place: the queue is the `proposal` kind of Needs you
+  // Review is no longer a place: the queue is the `proposal` kind of Review queue
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.
-  { url: '/dashboard/inbox?kind=proposal', title: 'Needs you · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
+  { url: '/dashboard/inbox?kind=proposal', title: 'Review · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
   { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'] },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
   { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
   { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
+  { url: '/dashboard/marketplace', title: 'Marketplace', group: 'Team', icon: Store, i18nKey: 'marketplace', tabOf: '/dashboard/teams', keywords: ['catalog', 'hire', 'install', 'inactive agents'] },
   { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
   { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
   { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation'] },
@@ -145,12 +147,18 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/profile', title: 'Profile', group: 'You', icon: Users, i18nKey: 'profile', keywords: ['account', 'password', 'name'] },
 ];
 
-/** The route registered at exactly this path, if any. */
+/**
+ * The route registered at exactly this path, if any.
+ * @param url
+ */
 export function dashboardRoute(url: string): DashboardRoute | undefined {
   return DASHBOARD_ROUTES.find(r => r.url === url);
 }
 
-/** Routes a person may see: admin-only rows drop out for members. */
+/**
+ * Routes a person may see: admin-only rows drop out for members.
+ * @param isAdmin
+ */
 function visibleRoutes(isAdmin: boolean): DashboardRoute[] {
   return DASHBOARD_ROUTES.filter(r => isAdmin || !r.adminOnly);
 }
@@ -160,20 +168,29 @@ export function workRoutes(): DashboardRoute[] {
   return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly);
 }
 
-/** The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order. */
+/**
+ * The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order.
+ * @param isAdmin
+ */
 export function manageNavGroups(isAdmin: boolean): Array<{ group: DashboardGroup; routes: DashboardRoute[] }> {
   return DASHBOARD_GROUPS
     .filter(g => g.manage)
     .map(group => ({ group, routes: visibleRoutes(isAdmin).filter(r => r.group === group.id && !r.tabOf) }));
 }
 
-/** Every MANAGE row a person can pin — top-level pages AND their tabs (a tab is a destination too). */
+/**
+ * Every MANAGE row a person can pin — top-level pages AND their tabs (a tab is a destination too).
+ * @param isAdmin
+ */
 export function manageRoutes(isAdmin: boolean): DashboardRoute[] {
   const manageIds = new Set(DASHBOARD_GROUPS.filter(g => g.manage).map(g => g.id));
   return visibleRoutes(isAdmin).filter(r => manageIds.has(r.group));
 }
 
-/** The tabs of a combined page, owner first, in registry order. Empty when `url` owns no tabs. */
+/**
+ * The tabs of a combined page, owner first, in registry order. Empty when `url` owns no tabs.
+ * @param url
+ */
 export function tabsOf(url: string): DashboardRoute[] {
   const owner = dashboardRoute(url);
   const tabs = DASHBOARD_ROUTES.filter(r => r.tabOf === url);

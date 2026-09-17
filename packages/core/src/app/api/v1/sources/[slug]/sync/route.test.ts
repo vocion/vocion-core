@@ -31,7 +31,7 @@ const mockBearer = vi.mocked(authenticateBearer);
 const mockSession = vi.mocked(clerkAuth);
 
 const ORG = 'org_sources_sync_route';
-const SLUG = 'veerio-higher-ground';
+const SLUG = 'larkfield-bellwater-hall';
 
 function tokenPrincipal(orgId: string, grants: string[] = ['*']) {
   return {
@@ -55,7 +55,7 @@ function paramsFor(slug: string) {
 async function makeSource(slug = SLUG, orgId = ORG): Promise<number> {
   const [row] = await db
     .insert(knowledgeSourceSchema)
-    .values({ orgId, slug, kind: 'plugin', configJson: { urls: ['https://highergroundmusic.com/'], _connector: 'web' } })
+    .values({ orgId, slug, kind: 'plugin', configJson: { urls: ['https://bellwaterhall.example/'], _connector: 'web' } })
     .returning({ id: knowledgeSourceSchema.id });
   return row!.id;
 }

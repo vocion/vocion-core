@@ -161,13 +161,13 @@ describe('useChatSession', () => {
     await vi.waitFor(() => expect(result.current.booted).toBe(true));
 
     await act(async () => {
-      await result.current.sendMessage('/search spinutech governance');
+      await result.current.sendMessage('/search northwind governance');
     });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
 
     expect(body.agent_slug).toBe('__search__');
-    expect(body.message).toBe('spinutech governance');
+    expect(body.message).toBe('northwind governance');
     // The conversation stays with the workspace agent.
     expect(result.current.agent.slug).toBe('orchestrator');
     expect(result.current.messages[1]).toMatchObject({ role: 'assistant', agentName: 'Search only' });

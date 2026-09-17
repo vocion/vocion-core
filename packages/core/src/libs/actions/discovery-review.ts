@@ -53,14 +53,20 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
         eq(discoveryCandidateSchema.id, input.candidateId),
       ));
   },
-  // The structured card: Meeting (linked to Zoom), Company (linked to
-  // HubSpot), summary of what the classifier found, and what approving does.
+  // The structured card. The object is NAMED for a human — the meeting, not
+  // the generated "Discovery call detected: <serialized display name>" string
+  // that used to be the H1 — and the entities are the several parties a
+  // meeting actually involves rather than one field called "Company" holding
+  // an email address (`docs/specs/discovery-ledger-v2.md`).
+  //
   // Everything resolves fresh from the ledger row, so the card stays right
   // even if the proposal input predates a re-assessment.
   async reviewCard(ctx, input) {
     const { and, eq } = await import('drizzle-orm');
     const { db } = await import('@/libs/DB');
     const { discoveryCandidateSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
+    const { readClassification, DISCOVERY_CLASS_LABEL, READINESS_CLASS_LABEL, REASON_CODE_LABEL } = await import('@/services/discovery/classification');
+    const { entitiesFor } = await import('@/services/discovery/ledger');
 
     const [candidate] = await db
       .select()
@@ -88,70 +94,94 @@ export const discoveryReviewProposalAction: Action<typeof discoveryReviewInput> 
           .limit(1);
     const meetingMeta = (meetingDoc?.metadata ?? {}) as Record<string, unknown>;
     const shareUrl = typeof meetingMeta.shareUrl === 'string' ? meetingMeta.shareUrl : undefined;
-    const start = candidate?.meetingStart
-      ? ` — ${candidate.meetingStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
-      : '';
-    fields.push({ label: 'Meeting', value: `${meetingTitle}${start}`, ...(shareUrl ? { href: shareUrl } : {}) });
+    const attendees = (meetingMeta.attendees as unknown[] ?? []).filter((a): a is string => typeof a === 'string');
+    const when = candidate?.meetingStart
+      ? candidate.meetingStart.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })
+      : null;
 
-    // Company → HubSpot. matchRef is `contacts:9` / `companies:5` / `deals:3`
-    // (or a bare domain for calendly-external). The record link needs the
-    // portal id, read from the hubspot source config when set.
+    // The matched CRM record, for the entity block.
     const matchRef = candidate?.matchRef ?? input.company ?? null;
-    if (matchRef) {
-      const refMatch = /^(contacts|companies|deals):(.+)$/.exec(matchRef);
-      if (refMatch) {
-        const objectType = refMatch[1] as 'contacts' | 'companies' | 'deals';
-        const hubspotId = refMatch[2]!;
-        const [crmDoc] = await db
+    const [crmDoc] = matchRef && /^(?:contacts|companies|deals):/.test(matchRef)
+      ? await db
           .select({ metadata: knowledgeDocumentSchema.metadata, title: knowledgeDocumentSchema.title })
           .from(knowledgeDocumentSchema)
           .where(and(
             eq(knowledgeDocumentSchema.orgId, ctx.orgId),
             eq(knowledgeDocumentSchema.externalId, matchRef),
           ))
-          .limit(1);
-        const crmMeta = (crmDoc?.metadata ?? {}) as Record<string, unknown>;
-        // Company first (a contact match should still read as the company),
-        // then the record's own name, then whatever identifies it.
-        const label = [crmMeta.company, crmMeta.name, crmMeta.domain, crmMeta.primaryEmail, crmDoc?.title]
-          .find((v): v is string => typeof v === 'string' && v.length > 0) ?? matchRef;
-        const [source] = await db
-          .select({ configJson: knowledgeSourceSchema.configJson })
-          .from(knowledgeSourceSchema)
-          .where(and(
-            eq(knowledgeSourceSchema.orgId, ctx.orgId),
-            eq(knowledgeSourceSchema.slug, 'hubspot'),
-          ))
-          .limit(1);
-        const portalId = (source?.configJson as { portalId?: string | number } | null)?.portalId;
-        const typeCode = { contacts: '0-1', companies: '0-2', deals: '0-3' }[objectType];
-        fields.push({
-          label: 'Company',
-          value: label,
-          ...(portalId ? { href: `https://app.hubspot.com/contacts/${portalId}/record/${typeCode}/${hubspotId}` } : {}),
-        });
-      } else {
-        // Calendly-external: the matched external domain, no CRM record yet.
-        fields.push({ label: 'Company', value: `${matchRef} (not in CRM yet)` });
-      }
+          .limit(1)
+      : [];
+    const [source] = await db
+      .select({ configJson: knowledgeSourceSchema.configJson })
+      .from(knowledgeSourceSchema)
+      .where(and(
+        eq(knowledgeSourceSchema.orgId, ctx.orgId),
+        eq(knowledgeSourceSchema.slug, 'hubspot'),
+      ))
+      .limit(1);
+    const portalId = (source?.configJson as { portalId?: string | number } | null)?.portalId;
+    const entities = entitiesFor(
+      matchRef,
+      candidate?.matchType ?? 'calendly-external',
+      crmDoc ? { metadata: (crmDoc.metadata ?? {}) as Record<string, unknown>, title: crmDoc.title } : null,
+      attendees,
+      null,
+      portalId == null ? null : String(portalId),
+    );
+
+    fields.push({ label: 'Meeting', value: when ? `${meetingTitle} — ${when}` : meetingTitle, ...(shareUrl ? { href: shareUrl } : {}) });
+    if (entities.opportunity) {
+      fields.push({ label: 'Opportunity', value: entities.opportunity.label, ...(entities.opportunity.href ? { href: entities.opportunity.href } : {}) });
+    }
+    // An email address is not a company. When CRM resolution failed, say so and
+    // show what is actually known — much safer than labelling an email "Company".
+    fields.push(entities.accountResolved && entities.account
+      ? { label: 'Account', value: entities.account.label, ...(entities.account.href ? { href: entities.account.href } : {}) }
+      : { label: 'Account', value: entities.unresolvedKnown ? `Not resolved — ${entities.unresolvedKnown}` : 'Not resolved' });
+    if (entities.sponsorDomain) {
+      fields.push({ label: 'Sponsor / referral source', value: entities.sponsorDomain });
+    }
+    if (attendees.length > 0) {
+      fields.push({ label: 'Attendees', value: attendees.join(' · ') });
     }
 
-    const classification = candidate?.classification;
+    const classification = readClassification(candidate?.classification);
     const route = candidate?.route ?? input.route;
-    const scores = classification
-      ? ` (discovery ${Math.round(classification.isDiscoveryConfidence * 100)}%, proposal-ready ${Math.round(classification.proposalReadyConfidence * 100)}%)`
-      : '';
+
+    // "Approving will" states the EFFECT, transactionally. It never repeats a
+    // score: a person deciding needs to know what happens next, and the scores
+    // are already on the page with the class they belong to.
     const nextAction = route === 'generate'
-      ? `Generate the proposal${scores}. Approving starts the discovery follow-up mission: call summary, then a draft email proposed for your review.`
+      ? 'Create a draft proposal from this meeting and add it to the review queue for your review. Nothing is sent.'
       : route === 'confirm'
-        ? `Confirm first${scores}: a discovery call, but not clearly proposal-ready. Approving starts the follow-up mission; reject if it should wait for another conversation.`
-        : `Drop${scores}: the classifier says this is not a discovery call. Approving records your confirmation for calibration; nothing else runs.`;
+        ? 'Start the discovery follow-up: a call summary, then a draft follow-up email added to the review queue for your review. Nothing is sent.'
+        : classification
+          ? `Mark this assessment correct. No downstream workflow runs — Vocion classified this as ${REASON_CODE_LABEL[classification.reasonCode ?? 'insufficient-evidence'].toLowerCase()}.`
+          : 'Mark this assessment correct. No downstream workflow runs.';
+
+    const verdict = classification ? DISCOVERY_CLASS_LABEL[classification.classification] : 'Not assessed';
+    const readiness = classification ? READINESS_CLASS_LABEL[classification.proposalReadiness] : null;
 
     return {
-      title: `Discovery call detected: ${meetingTitle}`,
+      // The H1 names the object; the subtitle says what kind of record it is.
+      title: meetingTitle,
+      object: {
+        title: meetingTitle,
+        subtitle: when ? `Discovery assessment · ${when}` : 'Discovery assessment',
+        section: 'Discovery',
+      },
       system: 'Discovery',
+      confidenceSubject: verdict,
+      recommendation: {
+        headline: verdict,
+        detail: [
+          classification?.reasonCode ? REASON_CODE_LABEL[classification.reasonCode] : null,
+          readiness,
+        ].filter(Boolean).join(' · ') || undefined,
+      },
       fields,
-      summary: classification?.reasoning,
+      // One sentence on the card; the long reasoning stays behind Evidence.
+      summary: classification?.reasonSummary || classification?.reasoning,
       nextAction,
       verbs: { approve: 'Approve', reject: 'Reject' },
     };

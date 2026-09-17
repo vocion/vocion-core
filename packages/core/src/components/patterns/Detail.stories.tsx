@@ -40,8 +40,8 @@ export default meta;
 type Story = StoryObj;
 
 const CLAIMS = [
-  { text: 'Runs an iGaming affiliate marketing agency.', kind: 'Fact', source: 'https://incline.bet/about', date: '2026-08-30' },
-  { text: 'Compliance tracking is the likely pain point.', kind: 'Inference', source: 'https://incline.bet/compliance' },
+  { text: 'Runs an iGaming affiliate marketing agency.', kind: 'Fact', source: 'https://tideline.example/about', date: '2026-08-30' },
+  { text: 'Compliance tracking is the likely pain point.', kind: 'Inference', source: 'https://tideline.example/compliance' },
   { text: 'Opened both follow-ups within a day.', kind: 'engagement', source: 'hubspot:contacts/88201', date: '2026-08-25' },
 ];
 
@@ -50,9 +50,9 @@ function Page(props: { withBar?: boolean }) {
   const [note, setNote] = useState('');
   return (
     <DetailPage
-      crumbs={[{ label: 'Workspace', href: '/dashboard' }, { label: 'Personalization', href: '/gtm/personalization' }, { label: 'Pete Laverick' }]}
-      title="Pete Laverick"
-      subtitle="CEO · Incline Gaming Marketing Inc"
+      crumbs={[{ label: 'Workspace', href: '/dashboard' }, { label: 'Personalization', href: '/gtm/personalization' }, { label: 'Rowan Pike' }]}
+      title="Rowan Pike"
+      subtitle="CEO · Tideline Gaming Marketing Inc"
       meta={(
         <DetailMeta
           items={[
@@ -90,7 +90,7 @@ function Page(props: { withBar?: boolean }) {
         <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-foreground/80">The ebook was the entrance path and the compliance section is the one most agencies act on first. Two sends, four days apart.</p>
       </Section>
       <Section eyebrow="Prospect facts">
-        <FactList facts={[{ label: 'Role', value: 'CEO' }, { label: 'Company', value: 'Incline Gaming Marketing Inc' }, { label: 'Entrance', value: 'Paid social · LinkedIn' }]} />
+        <FactList facts={[{ label: 'Role', value: 'CEO' }, { label: 'Company', value: 'Tideline Gaming Marketing Inc' }, { label: 'Entrance', value: 'Paid social · LinkedIn' }]} />
       </Section>
       <Section eyebrow="Research that matters" id="research">
         <EvidenceList items={CLAIMS} />
@@ -140,7 +140,7 @@ export const Evidence: Story = { render: () => <Section eyebrow="Research that m
 export const Facts: Story = {
   render: () => (
     <div className="grid gap-10 sm:grid-cols-2">
-      <Section eyebrow="Rows"><FactList facts={[{ label: 'Role', value: 'CEO' }, { label: 'Company', value: 'Incline Gaming Marketing Inc' }, { label: 'Record', value: 'contacts/88201', href: 'https://app.hubspot.com' }]} /></Section>
+      <Section eyebrow="Rows"><FactList facts={[{ label: 'Role', value: 'CEO' }, { label: 'Company', value: 'Tideline Gaming Marketing Inc' }, { label: 'Record', value: 'contacts/88201', href: 'https://app.hubspot.com' }]} /></Section>
       <Section eyebrow="Column" tone="quiet"><FactList layout="column" facts={[{ label: 'Arrived', value: 'Aug 29, 2026' }, { label: 'Became MQL', value: 'Sep 1, 2026' }]} /></Section>
     </div>
   ),

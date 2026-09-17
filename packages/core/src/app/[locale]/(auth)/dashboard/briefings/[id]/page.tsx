@@ -1,12 +1,14 @@
 import type { InboxItem } from '@/services/InboxService';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { CommentLayerProvider } from '@/features/comments/CommentLayer';
 import { BriefingChatStarter } from '@/features/dashboard/BriefingChatStarter';
 import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
 import { BriefingSections } from '@/features/dashboard/BriefingSections';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { briefingHistory, getBriefing } from '@/services/briefings/store';
+import { recordRef } from '@/services/chat/recordContext';
 import { listInbox } from '@/services/InboxService';
 
 /**
@@ -58,33 +60,39 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
   const history = doc ? null : await briefingHistory(orgId, brief.teamSlug, { excludeId: brief.id });
 
   return (
-    <>
-      {/* A typed brief is a Detail page and carries its own crumbs and H1;
-          a pre-v2 markdown brief has no header of its own, so it gets one. */}
-      {doc
-        ? <BriefingView doc={doc} liveDecisions={liveDecisions} />
-        : (
-            <>
-              <TitleBar
-                title={brief.title}
-                description={brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-              />
-              <div data-briefing-root className="prose prose-sm max-w-none dark:prose-invert">
-                <BriefingSections briefingId={brief.id} briefingTitle={brief.title} content={brief.content} agentSlug={brief.agentSlug ?? undefined} />
-                {history && history.entries.length > 0 && (
-                  <p className="not-prose mt-6 text-[13px] text-muted-foreground">
-                    {`${history.total} briefings in all.`}
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-      <BriefingChatStarter
-        briefingId={brief.id}
-        briefingTitle={doc?.title ?? brief.title}
-        briefingContent={brief.content}
-        agentSlug={brief.agentSlug ?? undefined}
-      />
-    </>
+    // The brief is a commentable document: highlight a passage and the
+    // platform's one selection control offers *Ask about this*
+    // (docs/design/patterns.md § Select → talk). The regions are the Detail
+    // archetype's own `Section`s — nothing here traverses headings, and the
+    // page invents no control of its own. No `changeIntent`: a briefing has
+    // no draft to rewrite.
+    <CommentLayerProvider
+      targetRef={`briefing:${brief.id}`}
+      record={recordRef('briefing', brief.id, doc?.title ?? brief.title)}
+    >
+      <div className="min-w-0 flex-1">
+        {/* A typed brief is a Detail page and carries its own crumbs and H1;
+            a pre-v2 markdown brief has no header of its own, so it gets one. */}
+        {doc
+          ? <BriefingView doc={doc} liveDecisions={liveDecisions} />
+          : (
+              <>
+                <TitleBar
+                  title={brief.title}
+                  description={brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                />
+                <div data-briefing-root className="prose prose-sm max-w-none dark:prose-invert">
+                  <BriefingSections briefingId={brief.id} briefingTitle={brief.title} content={brief.content} agentSlug={brief.agentSlug ?? undefined} />
+                  {history && history.entries.length > 0 && (
+                    <p className="not-prose mt-6 text-[13px] text-muted-foreground">
+                      {`${history.total} briefings in all.`}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+        <BriefingChatStarter briefingId={brief.id} briefingTitle={doc?.title ?? brief.title} />
+      </div>
+    </CommentLayerProvider>
   );
 }

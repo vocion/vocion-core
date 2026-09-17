@@ -102,7 +102,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
         </span>
         {saved > 0 && (
           <Link href="/dashboard/inbox?kind=proposal" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
-            Needs you
+            Review queue
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>
         )}

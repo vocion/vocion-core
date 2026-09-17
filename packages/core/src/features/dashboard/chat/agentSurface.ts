@@ -17,6 +17,7 @@
  * which surface is on the page.
  */
 
+import type { ContextRef } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 
 export const AGENT_SURFACE_EVENT = 'vocion:open-agent-surface';
@@ -47,6 +48,13 @@ export type AgentSurfaceRequest = {
   /** Prefer this agent for the turn (a briefing's team lead, a team's lead). */
   agentSlug?: string;
   /**
+   * Composer tags the affordance armed — today `@change`, from the selection
+   * control on a page with a sequence draft in view. The surface adds them
+   * as chips, exactly as if the person had typed the word: one mechanism, two
+   * ways in (Manifesto §19, and `composerTags.ts`).
+   */
+  tags?: ContextRef[];
+  /**
    * Treat the request as a toggle: a mounted surface that is already open,
    * and has no intent to apply, collapses instead of re-focusing. The
    * titlebar control sends this so one button both opens and closes the rail
@@ -54,6 +62,18 @@ export type AgentSurfaceRequest = {
    * chat) ignores it — there is nothing to collapse.
    */
   toggle?: boolean;
+  /**
+   * What the drawer is scoped to, in the person's own words: *Ask about
+   * brief*, *Editing Send 2*, *Discuss recommendation*
+   * (`docs/specs/personalization-v2.md`).
+   *
+   * Scope is not a second panel and not a second conversation — it is one
+   * line in the rail's header naming the subject, so "make this less salesy"
+   * has an unambiguous referent instead of the person hoping the model knows
+   * which of three artifacts they meant. It is cleared by the turn that
+   * consumes it, exactly as the rest of the intent is.
+   */
+  scope?: { label: string };
   /**
    * Long-form text the fallback path carries into the first message when no
    * surface claims the request (the briefing body today). A mounted surface

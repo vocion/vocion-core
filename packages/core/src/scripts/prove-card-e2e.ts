@@ -13,7 +13,7 @@ import { chromium } from '@playwright/test';
 const BASE = process.env.E2E_BASE ?? 'https://dev.agents.metacto.com';
 const EMAIL = 'chris@metacto.com';
 const PW = process.env.E2E_PW ?? 'Vocion-Dogfood-2026!';
-const MSG = process.env.E2E_MSG ?? 'Draft the email follow-ups I owe Eric Bloomfield and Kyle Getson.';
+const MSG = process.env.E2E_MSG ?? 'Draft the email follow-ups I owe Erin Blakely and Kyle Marsh.';
 const SHOT = '/Users/chrisfitkin/card-proof.png';
 
 async function main(): Promise<void> {

@@ -23,13 +23,28 @@ import { flipDirection, toggleChip } from './listUrlState';
  * "Review 2" by role button.
  *
  * The chips are ONE line, always: `ChipRow` measures and folds the rest into
- * a "+N more" menu (the shape Needs you set in #348). No list wraps chips to
+ * a "+N more" menu (the shape Review queue set in #348). No list wraps chips to
  * a second row.
  */
 
 export type ToolbarTab = { key: string; label: string; count?: number };
 export type ToolbarSort = { key: string; label: string };
 export type ToolbarChip = { key: string; label: string; count?: number; title?: string };
+/**
+ * A single-value filter with its own control — "Decision ▾", "Human review ▾".
+ * Chips are categories of ONE kind, several at a time; a facet is one of
+ * several INDEPENDENT dimensions, one value each. A ledger that filters by
+ * classification, human disposition and reason needs three of these; putting
+ * all three in the chip row is what made the v1 filter unreadable.
+ */
+export type ToolbarFacet = {
+  name: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  /** The first option is the "all" option; give it the empty key. */
+  options: ReadonlyArray<{ key: string; label: string; count?: number }>;
+};
 
 type ChipsProp = {
   items: readonly ToolbarChip[];
@@ -97,13 +112,16 @@ export function ListToolbar(props: {
   };
   /** Categories, on one line; the overflow folds into "+N more". */
   chips?: ChipsProp;
+  /** Independent single-value dimensions, as labelled selects before the search box. */
+  facets?: readonly ToolbarFacet[];
   /** Anything else on the right of the row — a reset control, a count. */
   trailing?: ReactNode;
   className?: string;
 }) {
   const sortId = useId();
   const { tabs, search, sort, direction, chips } = props;
-  const hasRight = search || sort || direction || props.trailing;
+  const facets = props.facets ?? [];
+  const hasRight = search || sort || direction || props.trailing || facets.length > 0;
 
   return (
     <div data-pattern="list-toolbar" className={cn('flex flex-col', props.className)}>
@@ -134,6 +152,27 @@ export function ListToolbar(props: {
 
           {hasRight && (
             <div className={cn('flex flex-wrap items-center gap-2', tabs && 'pb-2')}>
+              {facets.map(f => (
+                <label key={f.name} className="inline-flex items-center gap-1.5">
+                  <span className="sr-only">{f.label}</span>
+                  <select
+                    value={f.value}
+                    onChange={e => f.onChange(e.target.value)}
+                    aria-label={f.label}
+                    data-facet={f.name}
+                    className={cn(
+                      'h-8 rounded-md bg-surface-soft px-2 text-sm outline-none focus:ring-2 focus:ring-ring/30',
+                      f.value && 'font-medium text-foreground ring-1 ring-foreground/20',
+                    )}
+                  >
+                    {f.options.map(o => (
+                      <option key={o.key || '__all__'} value={o.key}>
+                        {o.count === undefined ? o.label : `${o.label} · ${o.count}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
               {search && (
                 <label className="relative block">
                   <span className="sr-only">{search.label ?? search.placeholder ?? 'Find'}</span>

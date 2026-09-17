@@ -36,6 +36,8 @@ export const RECORD_TYPES = [
   'artifact',
   /** An ingested knowledge document — a Search result opened on its own page. */
   'document',
+  /** A researched lead brief (`lead_brief`), the GTM review queue's unit. */
+  'lead',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;
@@ -131,6 +133,29 @@ export type PageContext = {
   /** Records the person @-mentioned in the composer. */
   refs?: RecordRef[];
   /**
+   * The ARTIFACTS the page is showing — the brief, the recommendation, the
+   * draft sequence, the CRM snapshot it was built from.
+   *
+   * Why this is separate from `refs`: `refs` is what the PERSON tagged, and
+   * `record` is what the page is about. Neither says what the page has on
+   * screen, which is exactly the gap that let the chat answer "there's no
+   * brief or proposal to review here" beside a page rendering a brief, and
+   * assert engagement facts on a brief that marked those fields unavailable
+   * (`docs/specs/personalization-v2.md`, P0).
+   *
+   * These are `RecordRef`s of type `artifact`, resolved SERVER-side against
+   * the artifact store before the turn runs (`services/chat/grounding.ts`), so
+   * the client names what it is showing and the server decides what that
+   * actually says. Nothing the client sends becomes a fact.
+   */
+  artifacts?: RecordRef[];
+  /**
+   * The user-visible state of the page, as short label/value pairs: which tab
+   * is open, whether a decision is waiting, what the sequence state resolved
+   * to. The model needs it to answer "what am I looking at" without guessing.
+   */
+  state?: Array<{ label: string; value: string }>;
+  /**
    * Set by an "Ask about this" affordance: the conversation was opened FROM a
    * record, not from the hotkey. Drives the `chat.opened_from_context` event.
    */
@@ -152,6 +177,11 @@ const MAX_SELECTION = 2000;
 const MAX_REFS = 8;
 /** Composer `@tags` per turn — the autocomplete caps its own hit list at 12. */
 const MAX_TAG_REFS = 12;
+/** Artifacts a page may declare it is showing. Three today; room to grow. */
+const MAX_ARTIFACTS = 8;
+/** User-visible state pairs a page may declare. */
+const MAX_STATE = 8;
+const MAX_STATE_FIELD = 160;
 
 const RECORD_TYPE_SET: ReadonlySet<string> = new Set(RECORD_TYPES);
 
@@ -255,6 +285,30 @@ export function readPageContext(raw: unknown): PageContext | null {
     }
   }
 
+  if (Array.isArray(r.artifacts)) {
+    const artifacts = r.artifacts.slice(0, MAX_ARTIFACTS).map(readRecordRef).filter((x): x is RecordRef => x !== null);
+    if (artifacts.length > 0) {
+      ctx.artifacts = artifacts;
+    }
+  }
+
+  if (Array.isArray(r.state)) {
+    const state: Array<{ label: string; value: string }> = [];
+    for (const item of r.state.slice(0, MAX_STATE)) {
+      if (typeof item !== 'object' || item === null) {
+        continue;
+      }
+      const label = str((item as Record<string, unknown>).label, MAX_STATE_FIELD);
+      const value = str((item as Record<string, unknown>).value, MAX_STATE_FIELD);
+      if (label && value) {
+        state.push({ label, value });
+      }
+    }
+    if (state.length > 0) {
+      ctx.state = state;
+    }
+  }
+
   if (r.openedFrom === true) {
     ctx.openedFrom = true;
   }
@@ -282,6 +336,34 @@ export function mergeScopeRef(ctx: PageContext | null, scopeRef: string | null |
     return base;
   }
   return { ...base, refs: [...refs, ref].slice(0, MAX_REFS) };
+}
+
+/**
+ * **Is the record this conversation is about ALREADY rendered, in full, by the
+ * page the rail is sitting on?**
+ *
+ * The one predicate behind the platform rule "the rail carries the
+ * conversation, never a second copy of the page" (`docs/design/patterns.md`).
+ * A record page owns the record; the rail owns the talking about it. Where
+ * both are on screen the rail must not re-render what the page already shows
+ * — that is how the CEO ended up looking at the same four sends twice, in two
+ * shapes, on one screen (2026-09-16).
+ *
+ * It is deliberately a question about CONTEXT, not a prop: a surface already
+ * declares what it is about (`PageContext.record`), and a surface that
+ * declares nothing — the full-page chat — is by construction a surface with
+ * no record beside it, so the answer is false and the rail renders the record
+ * itself. Nothing has to be threaded down through the component tree for the
+ * two surfaces to divide the work.
+ * @param ctx - The page context the surface carries, if any.
+ * @param ref - The record the rail is talking about (its scope, or the record a pending decision is on).
+ * @returns True only when the page beside the rail is that same record's page.
+ */
+export function pageShowsRecord(ctx: PageContext | null | undefined, ref: RecordRef | null | undefined): boolean {
+  if (!ctx?.record || !ref) {
+    return false;
+  }
+  return ctx.record.type === ref.type && ctx.record.id === ref.id;
 }
 
 /**
@@ -349,13 +431,15 @@ function describeRecord(ref: RecordRef): string {
  * @param message - What the person typed.
  * @param ctx - The page they are on, or null for a context-free turn.
  * @param refs - Records tagged in the composer (`context_refs`), if any.
+ * @param grounding - The page's artifacts, resolved server-side and written out as canonical (`services/chat/grounding.ts`). Appended LAST so it is the closest thing to the model's answer.
  */
-export function withPageContext(message: string, ctx: PageContext | null, refs: RecordRef[] = []): string {
+export function withPageContext(message: string, ctx: PageContext | null, refs: RecordRef[] = [], grounding?: string | null): string {
   const tagged = refs.length > 0
     ? `\n\n--- records I tagged ---\nMy question is about these specifically; look them up rather than guessing:\n${refs.map(r => `- ${r.type} "${r.label || r.id}" (${r.type}:${r.id})`).join('\n')}`
     : '';
+  const ground = grounding?.trim() ? `\n\n${grounding.trim()}` : '';
   if (!ctx) {
-    return `${message}${tagged}`;
+    return `${message}${tagged}${ground}`;
   }
   const lines: string[] = [];
   if (ctx.thread) {
@@ -383,5 +467,8 @@ export function withPageContext(message: string, ctx: PageContext | null, refs: 
         ? 'Unless I say otherwise, take my question to be about this thread and what it is discussing. The `page_context` tool returns the same details as JSON.'
         : 'Unless I say otherwise, take my question to be about what that page shows.',
   );
-  return `${message}\n\n--- where I am ---\n${lines.join('\n')}${tagged}`;
+  if (ctx.state && ctx.state.length > 0) {
+    lines.push(`What the page currently shows: ${ctx.state.map(p => `${p.label}: ${p.value}`).join(' · ')}.`);
+  }
+  return `${message}\n\n--- where I am ---\n${lines.join('\n')}${tagged}${ground}`;
 }

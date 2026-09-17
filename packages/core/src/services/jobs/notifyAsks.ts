@@ -9,7 +9,7 @@
  * One mail per run, grouped, never more than one every `minIntervalMinutes`
  * (default 15) per org: the job reads `ask.notified = false` rows whose
  * `notify_at` has passed, mails them as one list with deep links into the
- * "Needs you" inbox, and marks them notified. Sent from the workspace's own
+ * "Review queue" inbox, and marks them notified. Sent from the workspace's own
  * mailbox when it has one (`services/mail/workspaceFrom.ts`), else the
  * deployment sender. With mail off the job is a no-op that reports what it
  * would have sent — the inbox itself is always the source of truth.
@@ -67,8 +67,8 @@ const KIND_LABEL: Record<string, string> = {
 export function renderAskNotification(asks: { id: number; kind: string; title: string; agentSlug: string | null; risk: string | null; groupTitle: string | null }[], workspaceName: string): { subject: string; text: string; html: string } {
   const base = appUrl();
   const subject = asks.length === 1
-    ? `Needs you — ${asks[0]!.title}`
-    : `Needs you — ${asks.length} decisions waiting (${workspaceName})`;
+    ? `Review queue — ${asks[0]!.title}`
+    : `Review queue — ${asks.length} decisions waiting (${workspaceName})`;
   const lines = asks.map((a) => {
     const who = a.agentSlug ? ` · asked by ${a.agentSlug}` : '';
     const risk = a.risk ? ` · ${a.risk} risk` : '';

@@ -329,6 +329,47 @@ is the ambiguity this whole mechanism removes.
 
 See [artifacts.md](./artifacts.md#guaranteeing-an-artifact-when-one-was-asked-for).
 
+### Intents — `@change`, beside `@artifact` (2026-09-16)
+
+`@artifact` says what the turn **owes**. `@change` says what it must **do**.
+
+On the personalization lead page one ask is not a question: *this must alter
+the sequence draft*. That used to be decided by a wording heuristic
+(`isRevisionAsk` — "shorten", "rewrite", "make…"), which is the same
+prompt-shaped guess `deliverable` exists to replace, one level down. It is a
+tag now:
+
+| Tag | `type` | `id` | What it changes |
+|---|---|---|---|
+| `@artifact` | `deliverable` | `artifact` | the turn must end in a document |
+| `@change` | `intent` | `change` | the ask routes to `rewriteDraft`, not to an answer |
+
+Same mechanism as `@artifact`, deliberately: it is offered by the same `@`
+popover, inserted by the same `(+)` menu, resolved by the same reader into the
+same chip, and **stripped from `context_refs` before the wire** because it
+points at no record (`composerTags.ts#isIntentTag`,
+`useChatSession#sendMessage`). The definition lives in
+`features/dashboard/chat/composerTags.ts` next to the artifact tag's.
+
+**How it gets armed.** Usually not by typing. Selecting a passage in the brief
+raises the standard selection control, whose second action — *Add change* —
+stores the anchored note AND arms the tag (`AgentSurfaceRequest.tags`, applied
+by the rail through `addContextRef`). So the person sees one pattern
+everywhere — select → talk — and the tag is what makes a particular ask act.
+`(+)` offers `@change` **only where a sequence draft is in view**; an intent
+that cannot be carried out is not listed.
+
+**What reading it does.** `ChatDock`'s send path calls
+`guided.askAbout(text, { contentId })` where `contentId` comes from
+`guidedFlow#contentIdForAsk` — the anchor's own content id when the selection
+was inside a send, else the send the text names ("send 2"), else the send under
+review. That goes to `ReviewService.rewriteDraft({ runId, hint, contentId })`,
+exactly as before. An ask carrying the tag is ALWAYS a revision: the person
+said so, and a wording heuristic has no business overruling them. Without the
+tag the heuristic still decides, so what reviewers already type keeps working.
+
+See [design/patterns.md](./design/patterns.md) → *Select → talk*.
+
 ## Failures reach the person (2026-09-16)
 
 The same turn also proved that a **failed delegation was invisible**. The
@@ -353,6 +394,40 @@ Three fixes, all structural:
    `services/chat/runCollector.ts`, so it can be tested) folds `tool_error`
    into `runs_json` as a failed step, and `ConversationRun.state` is persisted
    so a reload still tells a step that failed from one that worked.
+
+## The page's artifacts are canonical (2026-09-16)
+
+`PageContext` gained two fields, and one of them closes a trust hole rather
+than adding a convenience:
+
+- **`artifacts`** — the artifacts the page is SHOWING, as `RecordRef`s of type
+  `artifact`. Not `record` (what the page is *about*) and not `refs` (what the
+  person *tagged*): neither said what was on screen, which is how the rail came
+  to answer *"there's no brief or proposal to review here"* beside a page
+  rendering a brief, and to assert engagement facts on a brief that marked
+  those fields **unavailable** (`docs/specs/personalization-v2.md`).
+- **`state`** — the user-visible state as short label/value pairs: which tab is
+  open, whether a decision is waiting, what the sequence state resolved to.
+
+`services/chat/grounding.ts` resolves the ids **server-side, under the caller's
+org**, flattens each artifact to text (a typed sequence keeps its numbered
+sends, so "make Send 2 less salesy" has a referent), and appends one block to
+the turn after the where-I-am note. The client names what it is showing; the
+server decides what that says. Nothing a client sends becomes a fact.
+
+The block declares the artifacts canonical and names four epistemic classes the
+answer has to keep apart — **CRM fact, research finding, inference, and
+unavailable** — with the last spelled out, because it is the one that was being
+silently converted into a finding: *unavailable is not zero and not a finding;
+if the brief says engagement data was unavailable, you may not say the contact
+has not engaged.* Written in code, like `describeThread`'s gap sentence, for the
+same reason: a model told to "use the page context" writes "there's no brief
+here"; a model handed the brief does not.
+
+This is **grounding, not rendering.** What the rail may DRAW is unchanged — the
+rule that it never re-renders what the page shows (`docs/design/patterns.md`)
+and its predicate `pageShowsRecord` are untouched. The person sees only the
+*Working with:* chips naming what the turn carries.
 
 ## Slack → feedback → ask → work (2026-09-15)
 

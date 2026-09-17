@@ -45,7 +45,7 @@ export function queuePosition(index: number, total: number): string {
 
 /**
  * The page title for one item: the type in plain words, then who or what it
- * is about — "Enroll MQL in sequence — Dale Heim · Agentix". Falls back to the
+ * is about — "Enroll MQL in sequence — Dev Okonkwo · Vantage Automation". Falls back to the
  * card's own title when there is no subject.
  * @param opts - The type label plus the card's title and subject.
  * @param opts.label

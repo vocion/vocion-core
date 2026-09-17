@@ -38,8 +38,8 @@ function runWith(proposal: ReviewCardRun['proposal']): ReviewCardRun {
     card: {
       title: 'Open Mic Night',
       system: 'Events',
-      subject: { name: 'The Flynn' },
-      provenance: [{ label: 'Source', value: 'highergroundmusic.com' }],
+      subject: { name: 'The Corvina' },
+      provenance: [{ label: 'Source', value: 'bellwaterhall.example' }],
       contentHeading: { label: 'Candidate' },
       content: [],
       fields: [],
