@@ -240,6 +240,16 @@ else
     --assume-role-policy-document "$EVAL_TRUST" >/dev/null
 fi
 
+# Scoped as tightly as the service allows, because this role is assumed by AWS
+# itself and nobody here is watching what it does with it.
+#
+# Two statements read logs rather than one. StartQuery is the gate: it names the
+# log group, so that is where the scoping belongs. GetQueryResults and StopQuery
+# take a query id, not a log group, and DescribeLogGroups is a list call — those
+# three are not known to accept a log-group ARN, and a policy that scopes them
+# anyway would deny them at runtime and break evaluation for a reason nothing
+# would explain. Granting them broadly costs little: they can only return a
+# query this role already started, which StartQuery above controls.
 EVAL_POLICY=$(cat <<JSON
 {
   "Version": "2012-10-17",
@@ -248,14 +258,20 @@ EVAL_POLICY=$(cat <<JSON
       "Sid": "ReadAgentSpans",
       "Effect": "Allow",
       "Action": [
-        "logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery",
+        "logs:StartQuery",
         "logs:GetLogEvents", "logs:FilterLogEvents",
-        "logs:DescribeLogGroups", "logs:DescribeLogStreams"
+        "logs:DescribeLogStreams"
       ],
       "Resource": [
         "arn:aws:logs:${REGION}:${ACCOUNT}:log-group:aws/spans:*",
         "arn:aws:logs:${REGION}:${ACCOUNT}:log-group:/aws/bedrock-agentcore/runtimes/*"
       ]
+    },
+    {
+      "Sid": "ReadOwnQueryResults",
+      "Effect": "Allow",
+      "Action": ["logs:GetQueryResults", "logs:StopQuery", "logs:DescribeLogGroups"],
+      "Resource": "*"
     },
     {
       "Sid": "WriteEvaluationResults",
@@ -276,7 +292,10 @@ EVAL_POLICY=$(cat <<JSON
       "Sid": "InvokeJudgeModels",
       "Effect": "Allow",
       "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:${REGION}:${ACCOUNT}:inference-profile/*"
+      ]
     }
   ]
 }
