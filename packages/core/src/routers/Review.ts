@@ -173,19 +173,22 @@ export const proposeFromRecommendationRoute = os
     rationale: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
     /**
-     * What the agent thinks the reviewer should do. Required, like everywhere
-     * else a proposal is made: a card nobody recommended anything about
-     * cannot be measured against the decision a person then took. Advisory in
-     * the other direction — it never releases the action.
+     * What the agent thinks the reviewer should do. The question must be
+     * answered, like everywhere else a proposal is made, and `null` answers
+     * it: nothing judged this card. A caller that recommends nothing must say
+     * so rather than omit the key, because a card carrying a recommendation
+     * and a card carrying none are measured differently and the difference
+     * should be deliberate. Advisory in the other direction — it never
+     * releases the action.
      */
-    suggestedDecision: z.enum(SUGGESTED_DECISIONS),
+    suggestedDecision: z.enum(SUGGESTED_DECISIONS).nullable(),
     /**
-     * One short sentence for why that recommendation, required alongside it.
-     * Not `rationale` above: that argues the payload is right, this argues
-     * what should happen to the card, which is the whole content of a
-     * `reject`.
+     * One short sentence for why that recommendation, required alongside it
+     * and null when there is none. Not `rationale` above: that argues the
+     * payload is right, this argues what should happen to the card, which is
+     * the whole content of a `reject`.
      */
-    suggestedDecisionReason: z.string().trim().min(1),
+    suggestedDecisionReason: z.string().trim().min(1).nullable(),
     /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
     suggestedSnoozeUntil: z.string().optional(),
     /** Upsert key (object type + id + action) — re-surfacing updates in place. */
@@ -207,7 +210,7 @@ export const proposeFromRecommendationRoute = os
         confidence: input.confidence,
         rationale: input.rationale,
         suggestedDecision: input.suggestedDecision,
-        suggestedDecisionReason: input.suggestedDecisionReason.trim(),
+        suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
         suggestedSnoozeUntil: input.suggestedSnoozeUntil,
       },
       // Explicit key wins; otherwise derive a stable one from the action + its

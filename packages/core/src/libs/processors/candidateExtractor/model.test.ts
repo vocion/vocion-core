@@ -231,6 +231,34 @@ describe('candidate extractor model call', () => {
     expect(result.status === 'ok' && result.records[0]?.seriesNote).toHaveLength(140);
   });
 
+  it('keeps a referenced-object verdict and drops a malformed one, without losing the record', async () => {
+    // The verdict on a venue is what that venue's own card argues with. A
+    // model that spells one of them wrong must cost that one verdict — the
+    // card then says nothing — and never the document's records.
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{
+          fields: { title: 'Open Mic' },
+          confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules.',
+          referencedObjects: [
+            { objectType: 'venue-candidate', suggestedDecision: 'approve', suggestedDecisionReason: '  Printed with a street address, so it reads as a real room.  ' },
+            { objectType: 'promoter', suggestedDecision: 'maybe', suggestedDecisionReason: 'Not one of the three.' },
+          ],
+        }],
+      }),
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result.status === 'ok' && result.records[0]?.referencedObjects).toEqual([
+      { objectType: 'venue-candidate', suggestedDecision: 'approve', suggestedDecisionReason: 'Printed with a street address, so it reads as a real room.' },
+    ]);
+  });
+
   it('refuses before the call when the sync has no model calls left', async () => {
     const budget = createSyncBudget({ limits: { maxModelCalls: 0 } });
 

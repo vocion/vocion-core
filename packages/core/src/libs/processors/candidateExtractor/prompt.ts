@@ -88,6 +88,7 @@ Return ONLY a JSON object, with no prose before or after it and no code fences:
   - seriesOf    see below. Optional.
   - duplicateOf see below. Optional.
   - seriesNote  see below. Optional.
+  - referencedObjects Only when the operator policy below asks about objects these records point at. One entry per object type it names, each {"objectType": "...", "suggestedDecision": "approve" | "reject" | "snooze", "suggestedDecisionReason": "..."} — what you think a reviewer should do with THAT object, not with the record. Omit an entry you cannot judge from the document rather than guessing at one.
 
 Return an empty records array when the document describes nothing of the kind asked for. That is a valid, useful answer, an empty list is always better than an invented record.
 
@@ -138,6 +139,37 @@ export type ExtractionPrompt = {
 };
 
 /**
+ * What to ask about the objects these records point at, or null when the
+ * config names none.
+ *
+ * A `relatedProposals` rule files a referenced object — the venue an event
+ * names — as its own review card. Nothing else in the sync ever judges that
+ * object, so if this section is missing the card reaches a reviewer with no
+ * recommendation on it. Asking here costs no extra call: the model is already
+ * reading the line the object's name came off.
+ * @param config - The source's processor config.
+ */
+function referencedObjectsPolicy(config: CandidateExtractorConfig): string | null {
+  const rules = config.relatedProposals ?? [];
+  if (rules.length === 0) {
+    return null;
+  }
+
+  const lines: string[] = [
+    '## Objects these records point at (operator policy)',
+    'Each record below names something that is a record in its own right, and each of those gets its own review card. Return one "referencedObjects" entry per type you can judge from this document, saying what a reviewer should do with THAT object — not with the record that names it.',
+    'Judge the object itself: is what the document names a real one of these, spelt the way a reviewer could accept it? "approve" when it reads as real and complete enough to stand on its own, "reject" when the value is not one of these at all (a promoter rather than a place, a placeholder like "various locations"), "snooze" when the document names it but says too little to tell.',
+  ];
+  for (const rule of rules) {
+    const fromFields = Object.entries(rule.fromFields)
+      .map(([objectField, recordField]) => `${objectField} from the record's "${recordField}"`)
+      .join(', ');
+    lines.push(`- "${rule.objectType}": built from ${fromFields}.`);
+  }
+  return lines.join('\n');
+}
+
+/**
  * The operator's own policy, as the system message states it.
  *
  * Both halves are operator-authored, and both are labelled as policy rather
@@ -163,6 +195,11 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
           .join('\n')
       : '',
   ].filter(Boolean).join('\n'));
+
+  const referenced = referencedObjectsPolicy(config);
+  if (referenced) {
+    sections.push(referenced);
+  }
 
   sections.push([
     '## Judging each record (operator policy)',

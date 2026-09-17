@@ -11,7 +11,7 @@
  */
 
 import type { RecommendedActionPayload } from '@/services/agents/types';
-import { RECOMMENDED_ACTION_ADVICE } from '@/services/chat/recommendedActionAdvice';
+import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 
 export const CONVERSATION_AUTONOMY = ['ask-before-acting', 'act-within-bounds'] as const;
 export type ConversationAutonomy = (typeof CONVERSATION_AUTONOMY)[number];
@@ -67,7 +67,7 @@ export async function autoProposeRecommendation(opts: {
       proposal: {
         confidence: opts.rec.confidence,
         rationale: opts.rec.rationale,
-        ...RECOMMENDED_ACTION_ADVICE,
+        ...recommendedActionAdvice(opts.rec.rationale),
       },
       dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input),
     });

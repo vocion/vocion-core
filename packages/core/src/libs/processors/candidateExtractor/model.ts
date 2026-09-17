@@ -69,6 +69,30 @@ export type ExtractedRecord = {
    * `validate.ts` when that id did not survive.
    */
   seriesNote?: string;
+  /**
+   * The model's verdict on each object this record points at — the venue an
+   * event names, the employer a posting names — one entry per `objectType` the
+   * config's `relatedProposals` rules ask about.
+   *
+   * Asked for in the same call that reads the document, because the model is
+   * already looking at the line that names the object and a second call would
+   * buy nothing. `resolve.ts` files those objects as their own review cards,
+   * and this is what lets such a card carry a verdict somebody actually made
+   * rather than a sentence core wrote for it.
+   *
+   * Absent when the config asks about nothing, and absent per type when the
+   * model declined to judge one; the card then carries no recommendation,
+   * which is the honest reading and stays out of the agreement rate.
+   */
+  referencedObjects?: ReferencedObjectVerdict[];
+};
+
+/** What the model thinks of one object a record points at. */
+export type ReferencedObjectVerdict = {
+  /** The `relatedProposals` rule's `objectType`, as the prompt named it. */
+  objectType: string;
+  suggestedDecision: SuggestedDecision;
+  suggestedDecisionReason: string;
 };
 
 export type ExtractionResult
@@ -138,6 +162,17 @@ function envelopeSchema(maxRecords: number) {
       // can cost the whole document. A 141-character aside must never cost a
       // card, so this follows `runRef` and transforms instead.
       seriesNote: z.string().optional().transform(value => value?.slice(0, SERIES_NOTE_CAP)),
+      // Optional, unlike the record's own verdict above, and deliberately so:
+      // the prompt only asks for these when the config names related objects,
+      // and a model that judged the record but not the venue should still get
+      // its records stored. A malformed entry is dropped rather than failing
+      // the document — `resolve.ts` treats a missing verdict as "nothing
+      // judged this", which is exactly what a malformed one means.
+      referencedObjects: z.array(z.object({
+        objectType: z.string().min(1),
+        suggestedDecision: z.enum(SUGGESTED_DECISIONS),
+        suggestedDecisionReason: z.string().transform(value => value.trim()),
+      }).nullable().catch(null)).optional().transform(entries => entries?.filter(entry => entry !== null)),
     })).max(maxRecords).default([]),
   });
 }

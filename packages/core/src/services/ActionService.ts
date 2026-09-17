@@ -70,6 +70,16 @@ const DAY_IN_MS = 86_400_000;
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
 
 /**
+ * The envelope as the column holds it: a recommendation is either there with
+ * its reason, or the keys are absent. The null a caller passes to say "nothing
+ * judged this" never reaches storage.
+ */
+type StoredProposal<T> = Omit<T, 'suggestedDecision' | 'suggestedDecisionReason'> & {
+  suggestedDecision?: SuggestedDecision;
+  suggestedDecisionReason?: string;
+};
+
+/**
  * The proposal envelope as it should be stored.
  *
  * A reason belongs to a recommendation. An envelope carrying
@@ -81,15 +91,20 @@ const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
  * cannot be read.
  * @param proposal - The envelope a caller passed, or undefined.
  */
-function proposalForStorage<T extends { suggestedDecision?: unknown; suggestedDecisionReason?: string }>(proposal: T | undefined): T | null {
+function proposalForStorage<T extends { suggestedDecision?: SuggestedDecision | null; suggestedDecisionReason?: string | null }>(
+  proposal: T | undefined,
+): StoredProposal<T> | null {
   if (!proposal) {
     return null;
   }
-  if (proposal.suggestedDecision || proposal.suggestedDecisionReason === undefined) {
-    return proposal;
+  if (proposal.suggestedDecision) {
+    return proposal as StoredProposal<T>;
   }
-  const { suggestedDecisionReason: _dropped, ...rest } = proposal;
-  return rest as T;
+  // No recommendation: the reason goes with it, and the null itself is not
+  // worth storing — a missing key and a stored null read the same everywhere,
+  // and the missing key is what every row written before this looked like.
+  const { suggestedDecision: _noDecision, suggestedDecisionReason: _dropped, ...rest } = proposal;
+  return rest as StoredProposal<T>;
 }
 
 /**
@@ -183,13 +198,13 @@ export async function proposeAction(input: {
    * can only ever keep the proposal in the queue (see the guard below); it is
    * never read as a reason to let one run without a person.
    *
-   * Anything that sends an envelope must state both. That is the rule this
-   * type exists to enforce rather than ask for: a card nobody recommended
-   * anything about cannot be compared against the decision a person then
-   * takes, so a queue where only some cards carry an opinion measures a subset
-   * it never names. A producer with no model in the loop states the
-   * recommendation in its own words — see `candidateExtractor/resolve.ts` and
-   * `chat/autoPropose.ts` — rather than leaving it out.
+   * Anything that sends an envelope must answer the question, and `null` is a
+   * real answer: nothing judged this card. Both fields are required so that a
+   * producer cannot forget the question, and both may be null so that a
+   * producer with no model in the loop is not pushed into inventing a verdict
+   * — a fabricated `approve` scores in the agreement rate as though a model
+   * had made it, which flatters the agent for a sentence core wrote. A null
+   * pair stores neither field and sits outside that rate.
    *
    * `labels` names the payload fields the proposer wrote as a JUDGEMENT rather
    * than read off its source, so the decision can record what the reviewer did
@@ -200,8 +215,8 @@ export async function proposeAction(input: {
     rationale?: string;
     evidence?: string[];
     agentSlug?: string;
-    suggestedDecision: SuggestedDecision;
-    suggestedDecisionReason: string;
+    suggestedDecision: SuggestedDecision | null;
+    suggestedDecisionReason: string | null;
     suggestedSnoozeUntil?: string;
     labels?: string[];
   };

@@ -25,6 +25,7 @@
 import type { ProcessorSyncContext } from '../types';
 import type { CandidateExtractorConfig } from './config';
 import type { ValidatedRecord } from './validate';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { CANDIDATE_STATUS, normaliseForKey } from '@/libs/actions/objects-propose-candidate';
 
 /** How a value is compared, per the rule's `normalise` block for that field. */
@@ -171,6 +172,30 @@ export async function resolveRecords(opts: {
 }
 
 /**
+ * The recommendation and reason for one referenced object, as the model
+ * returned them, or a null pair when it judged the record but not the object.
+ *
+ * Both keys are always present, because the proposal envelope requires the
+ * question to be answered and takes null for "nothing judged this" — see
+ * `ActionService.proposeAction`.
+ * @param record - The record naming the object.
+ * @param objectType - The `relatedProposals` rule's object type.
+ */
+function verdictFor(
+  record: ValidatedRecord,
+  objectType: string,
+): { suggestedDecision: SuggestedDecision | null; suggestedDecisionReason: string | null } {
+  const verdict = record.referencedObjects?.find(entry => entry.objectType === objectType);
+  if (!verdict || !verdict.suggestedDecisionReason.trim()) {
+    return { suggestedDecision: null, suggestedDecisionReason: null };
+  }
+  return {
+    suggestedDecision: verdict.suggestedDecision,
+    suggestedDecisionReason: verdict.suggestedDecisionReason,
+  };
+}
+
+/**
  * Propose the related objects the records reference and the workspace does not
  * have, once per sync each, and thread each proposal's run id onto the records
  * that named it.
@@ -250,12 +275,13 @@ export async function proposeRelatedObjects(opts: {
             rationale: 'Referenced by a record extracted from this source, and not yet an approved object.',
             evidence: opts.evidence ? [opts.evidence] : undefined,
             agentSlug: opts.config.agentSlug,
-            // Every card carries a recommendation, this one in core's own
-            // words: no model judged this object, it exists because a record
-            // the model DID judge points at it. Approving it is what lets that
-            // record through, so that is what a reviewer is being asked for.
-            suggestedDecision: 'approve' as const,
-            suggestedDecisionReason: 'A record extracted from this source refers to it, and it is not an approved object yet.',
+            // The model's own verdict on this object, made in the same call
+            // that read the document (see `prompt.ts`'s referenced-objects
+            // policy). Null when it judged the record but not the object: a
+            // card that says nothing is honest, and core inventing an
+            // "approve" here scored in the agreement rate as though a model
+            // had made it.
+            ...verdictFor(record, rule.objectType),
           },
         });
         runId = proposed.runId;

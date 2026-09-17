@@ -93,6 +93,49 @@ function build() {
   });
 }
 
+describe('the referenced-objects policy', () => {
+  it('asks for a verdict on each object type the config names', () => {
+    // Without this section the venue card reaches a reviewer with nothing on
+    // it but core's own wording, which is what `resolve.ts` used to write.
+    const withVenues = candidateExtractorConfigSchema.parse({
+      objectType: 'event-candidate',
+      agentSlug: 'event-ingestion-lead',
+      dedupOn: ['title', 'startDate', 'venueName'],
+      titleFrom: 'title',
+      promptFragment: 'Only events open to the public.',
+      relatedProposals: [{
+        objectType: 'venue-candidate',
+        fromFields: { name: 'venueName', city: 'venueCity' },
+        dedupOn: ['name', 'city'],
+        writeRunIdTo: 'venueCandidateRun',
+      }],
+    });
+
+    const { system } = buildExtractionPrompt({
+      config: withVenues,
+      rules: '',
+      known: '',
+      jsonLd: '',
+      pageText: 'Open Mic Night at Higher Ground, South Burlington.',
+      uri: 'https://highergroundmusic.com/events',
+      maxInputTokens: 10_000,
+    });
+
+    expect(system).toContain('## Objects these records point at (operator policy)');
+    expect(system).toContain('"venue-candidate"');
+    // The fields the object is built from, so the model judges the right value.
+    expect(system).toContain('the record\'s "venueName"');
+  });
+
+  it('says nothing about referenced objects when the config names none', () => {
+    // A source with no related rules should not spend tokens on a section it
+    // can never act on, nor invite verdicts nothing will read.
+    const { system } = build();
+
+    expect(system).not.toContain('## Objects these records point at (operator policy)');
+  });
+});
+
 describe('extraction prompt containment', () => {
   beforeEach(() => {
     invoke.mockReset();

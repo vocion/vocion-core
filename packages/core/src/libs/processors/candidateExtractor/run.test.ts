@@ -247,6 +247,44 @@ describe('candidate extractor, one document end to end', () => {
     expect(arnold?.proposal).not.toHaveProperty('labels');
   });
 
+  it('carries the model\'s own verdict on the venue onto the venue card', async () => {
+    // The card a reviewer opens has to argue for itself in the words of
+    // something that actually looked at the page. Core writing "approve" here
+    // scored in the agreement rate as though the model had recommended it.
+    const judged = JSON.parse(answer().content);
+    for (const record of judged.records) {
+      record.referencedObjects = [{
+        objectType: 'venue-candidate',
+        suggestedDecision: 'reject',
+        suggestedDecisionReason: 'The page prints the promoter here, not the room the show is in.',
+      }];
+    }
+    invoke.mockResolvedValue({ ...answer(), content: JSON.stringify(judged) });
+
+    await run(context());
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const venue = runs.find(row => (row.input as { objectType?: string }).objectType === 'venue-candidate');
+
+    expect(venue?.proposal?.suggestedDecision).toBe('reject');
+    expect(venue?.proposal?.suggestedDecisionReason).toBe('The page prints the promoter here, not the room the show is in.');
+  });
+
+  it('leaves the venue card with no recommendation when the model judged only the records', async () => {
+    // Silence is the honest answer, and it stays out of the agreement rate.
+    // The alternative — core inventing an approve — is what this replaced.
+    invoke.mockResolvedValue(answer());
+
+    await run(context());
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const venue = runs.find(row => (row.input as { objectType?: string }).objectType === 'venue-candidate');
+
+    expect(venue).toBeDefined();
+    expect(venue?.proposal).not.toHaveProperty('suggestedDecision');
+    expect(venue?.proposal).not.toHaveProperty('suggestedDecisionReason');
+  });
+
   it('reports a skip instead of throwing when the model never answers', async () => {
     invoke.mockResolvedValue({ content: 'I could not read that page.' });
 
