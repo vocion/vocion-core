@@ -158,6 +158,20 @@ describe('candidate extractor outcomes', () => {
     });
   });
 
+  it('stores no recommendation when the model answered with an empty sentence', async () => {
+    // The envelope requires both halves, but required only means present: `""`
+    // parses. A card carrying a verdict with nothing under it is counted in
+    // the agreement rate against a reviewer who had nothing to read, so the
+    // blank sentence makes the whole verdict silence instead.
+    await propose([record({ suggestedDecision: 'approve', suggestedDecisionReason: '   ' })]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run!.proposal).not.toHaveProperty('suggestedDecision');
+    expect(run!.proposal).not.toHaveProperty('suggestedDecisionReason');
+    expect(run!.proposal).toMatchObject({ confidence: 0.86 });
+  });
+
   it('links the document to the candidate it created', async () => {
     await propose([record()]);
 

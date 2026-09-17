@@ -195,7 +195,17 @@ export const proposeFromRecommendationRoute = os
     dedupKey: z.string().optional(),
     /** Days until this suggestion goes stale (drops from the queue). */
     expiresInDays: z.number().positive().max(90).optional(),
-  }))
+  }).refine(
+    value => (value.suggestedDecision === null) === (value.suggestedDecisionReason === null),
+    {
+      // Half a recommendation is worse than none: a verdict with no sentence
+      // is scored against the reviewer's decision with nothing they could
+      // check, and a sentence with no verdict argues for an outcome the card
+      // never names. The two travel together or neither does.
+      error: 'suggestedDecision and suggestedDecisionReason must both be given or both be null',
+      path: ['suggestedDecisionReason'],
+    },
+  ))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const { proposeAction } = await import('@/services/ActionService');
@@ -294,8 +304,8 @@ export const rewriteDraftRoute = os
  * Stable upsert key from an action + its input, so re-proposing the same owed
  * action updates the pending item instead of stacking a duplicate. Keyed on
  * the action's primary target (recipient for a send, object id for a CRM write).
- * @param actionId
- * @param input
+ * @param actionId - The action being proposed.
+ * @param input - That action's input payload.
  */
 function deriveDedupKey(actionId: string, input: Record<string, unknown>): string | undefined {
   const s = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : undefined);

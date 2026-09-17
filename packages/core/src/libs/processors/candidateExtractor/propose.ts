@@ -19,11 +19,34 @@
 import type { SyncBudget } from '../budget';
 import type { CandidateExtractorConfig } from './config';
 import type { ValidatedRecord } from './validate';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { IngestDoc } from '@/services/IngestionService';
 import { candidateDedupKey, describeSchemaProblems } from '@/libs/actions/objects-propose-candidate';
 
 /** Extraction notes a card can carry, matching the action's own cap. */
 const NOTES_CHAR_CAP = 2000;
+
+/**
+ * The model's verdict on one record, or a null pair when the sentence owed
+ * alongside it came back empty.
+ *
+ * The envelope requires both halves, but required only means present: a model
+ * answering `""` satisfies the schema, and the card would then carry a verdict
+ * with nothing under it — counted in the agreement rate, unreadable by the
+ * person it was counted against. Silence is the honest reading of that, and it
+ * is the same reading `resolve.ts` takes for a referenced object.
+ * @param record - The validated record.
+ */
+function recordVerdict(record: ValidatedRecord): {
+  suggestedDecision: SuggestedDecision | null;
+  suggestedDecisionReason: string | null;
+} {
+  const reason = record.suggestedDecisionReason?.trim();
+  if (!reason) {
+    return { suggestedDecision: null, suggestedDecisionReason: null };
+  }
+  return { suggestedDecision: record.suggestedDecision, suggestedDecisionReason: reason };
+}
 
 /**
  * Log through a deferred import, never a static one.
@@ -182,10 +205,7 @@ export async function proposeRecords(opts: {
               suggestedDecision: 'reject' as const,
               suggestedDecisionReason: `Already waiting for review as action run #${record.duplicateOf}.`,
             }
-          : {
-              suggestedDecision: record.suggestedDecision,
-              suggestedDecisionReason: record.suggestedDecisionReason,
-            }),
+          : recordVerdict(record)),
       },
     });
 

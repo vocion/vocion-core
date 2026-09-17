@@ -251,10 +251,12 @@ export async function extractRecords(opts: {
 
   const model: BaseChatModel = await buildChatModelForOrg('extractor', opts.orgId, {
     temperature: 0,
-    // 4096, not 2048: `maxRecordsPerDocument` is 25 and a record carries a
-    // description, so a full answer does not fit 2048 tokens. A truncated one
-    // is invalid JSON, which costs the corrective retry and then the document.
-    maxTokens: 4096,
+    // 8192, not 4096: `maxRecordsPerDocument` is 25 and a record now carries a
+    // description, a verdict, the sentence explaining it and a verdict per
+    // referenced object. A truncated answer is invalid JSON, which costs the
+    // corrective retry and then the whole document, so the cap moves with the
+    // payload rather than trailing it.
+    maxTokens: 8192,
     streaming: false,
   });
 

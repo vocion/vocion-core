@@ -59,6 +59,17 @@ function call<T = unknown>(route: unknown, input: unknown): Promise<T> {
 }
 
 /**
+ * Run a payload through the procedure's own input schema, which calling the
+ * handler directly skips.
+ * @param route - The exported procedure.
+ * @param input - The payload a caller sent.
+ */
+function validate(route: unknown, input: unknown): { success: boolean; error?: { issues: Array<{ message: string }> } } {
+  const procedure = route as { '~orpc': { inputSchema: { safeParse: (value: unknown) => { success: boolean; error?: { issues: Array<{ message: string }> } } } } };
+  return procedure['~orpc'].inputSchema.safeParse(input);
+}
+
+/**
  * The envelope the route handed `proposeAction` on its last call.
  */
 function lastProposal(): Record<string, unknown> {
@@ -112,5 +123,33 @@ describe('proposeFromRecommendationRoute', () => {
     });
 
     expect(lastProposal().suggestedDecisionReason).toBe('Fits the listing rules.');
+  });
+
+  it.each([
+    [{ suggestedDecision: 'approve', suggestedDecisionReason: null }, 'a verdict with no sentence a reviewer could check'],
+    [{ suggestedDecision: null, suggestedDecisionReason: 'It is time.' }, 'a sentence arguing for an outcome the card never names'],
+  ])('refuses %j — %s', (advice, _why: string) => {
+    // Both halves travel together or neither does. Half a pair reaches the
+    // queue as a badge with nothing under it, and it is counted in the
+    // agreement rate all the same.
+    const checked = validate(proposeFromRecommendationRoute, {
+      actionId: 'objects.propose_candidate',
+      input: { id: 1 },
+      ...advice,
+    });
+
+    expect(checked.success).toBe(false);
+    expect(checked.error?.issues.some(issue => /both be given or both be null/.test(issue.message))).toBe(true);
+  });
+
+  it('accepts the null pair a caller sends when nothing judged the card', () => {
+    const checked = validate(proposeFromRecommendationRoute, {
+      actionId: 'objects.propose_candidate',
+      input: { id: 1 },
+      suggestedDecision: null,
+      suggestedDecisionReason: null,
+    });
+
+    expect(checked.success).toBe(true);
   });
 });
