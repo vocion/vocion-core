@@ -55,8 +55,8 @@ describe('the document is usable by a client generator', () => {
     Object.entries(methods).map(([method, operation]) => ({ path, method, operation })),
   );
 
-  it('is OpenAPI 3.1 with the security scheme the API actually accepts', () => {
-    expect(document.openapi).toBe('3.1.0');
+  it('is OpenAPI 3.0.3 — the version Swagger UI can actually render — with the security scheme the API accepts', () => {
+    expect(document.openapi).toBe('3.0.3');
     expect(document.components.securitySchemes).toHaveProperty('bearerToken');
   });
 

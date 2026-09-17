@@ -27,7 +27,7 @@ So the document is read out of the code. Nothing here is a list to maintain.
 | Path | What it is |
 |---|---|
 | `packages/core/src/libs/openapi/parseRouteModule.ts` | Reads one route file. Pure — takes source text, returns operations. |
-| `packages/core/src/libs/openapi/buildDocument.ts` | Assembles the OpenAPI 3.1 document. |
+| `packages/core/src/libs/openapi/buildDocument.ts` | Assembles the OpenAPI 3.0.3 document. |
 | `packages/core/src/scripts/generate-openapi.ts` | Walks `src/app/api/v1`, writes the document. |
 | `packages/core/src/libs/openapi/openapi.generated.json` | The committed document. |
 | `packages/core/src/app/api/v1/openapi/route.ts` | Serves it as JSON, behind the usual auth. |
@@ -56,6 +56,18 @@ them: a POST or DELETE fired from a page someone opened to read would be a real
 write against real records. A GET is safe to fire by accident, so that is all
 the page will send; a tenant token goes in the Authorize button, and anything
 that writes is called from the reader's own client.
+
+## Why 3.0.3 and not 3.1
+
+Swagger UI resolves a 3.1 document through `@swagger-api/apidom-ns-openapi-3-1`,
+and that package does not survive this app's bundler: expanding any operation
+throws `OpenApi3_1Element.refract is not a function` in the console and leaves
+the operation body spinning forever, with nothing on screen to say why. A 3.0.3
+document goes down Swagger UI's own resolver and renders. Nothing in this API
+needs 3.1 — no webhooks, no JSON Schema dialect, no type unions — so the whole
+cost is a version string. The e2e spec expands an operation and asserts the
+Responses table appears, so a future move back to 3.1 fails there rather than in
+a reader's browser.
 
 ## Regenerating
 

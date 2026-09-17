@@ -79,7 +79,7 @@ test.describe('GET /api/v1/openapi', () => {
 
     const document = await response.json();
 
-    expect(document.openapi).toBe('3.1.0');
+    expect(document.openapi).toBe('3.0.3');
     expect(document.info.title).toBe('Vocion API');
     expect(document.components.securitySchemes.bearerToken.scheme).toBe('bearer');
     expect(Object.keys(document.paths).length).toBeGreaterThan(20);
@@ -226,6 +226,13 @@ test.describe('the API reference page', () => {
     // a real write started by someone who opened the page to read.
     const firstGet = page.locator('.opblock-get').first();
     await firstGet.locator('.opblock-summary').click();
+
+    // An expanded operation must actually resolve. Swagger UI renders a
+    // spinner while it resolves the document and shows no error if the resolve
+    // throws — which is exactly what a 3.1 document did here, leaving every
+    // operation spinning forever. The Responses table is the proof it finished.
+    await expect(firstGet.locator('.responses-table')).toBeVisible();
+    await expect(firstGet.locator('.opblock-loading-animation')).toHaveCount(0);
 
     // `tryItOutEnabled` puts an expanded operation straight into try-out mode,
     // so the control to look for is Execute itself.

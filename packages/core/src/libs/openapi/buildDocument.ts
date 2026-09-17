@@ -71,7 +71,15 @@ export function buildOpenApiDocument(operations: RouteOperation[], version: stri
   }
 
   return {
-    openapi: '3.1.0',
+    // 3.0.3 rather than 3.1, and this is not a style choice. Swagger UI resolves
+    // a 3.1 document through `@swagger-api/apidom-ns-openapi-3-1`, which does
+    // not survive this app's bundler: `OpenApi3_1Element.refract is not a
+    // function` is thrown as soon as an operation is expanded, and the
+    // operation body spins forever with no error on screen. 3.0.3 goes down
+    // Swagger UI's own resolver instead and renders. Nothing here needs 3.1 —
+    // no webhooks, no JSON Schema dialects, no type unions — so the cost is a
+    // version string and the gain is a page that works.
+    openapi: '3.0.3',
     info: {
       title: 'Vocion API',
       version,
