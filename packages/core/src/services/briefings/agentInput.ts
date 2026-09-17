@@ -29,7 +29,10 @@ import { AgentActivitySchema, BriefingExceptionSchema, BriefingMetricSchema, Cri
 export const AgentMetricSchema = BriefingMetricSchema.omit({ previous: true, delta: true, direction: true });
 
 export const PublishBriefingInputSchema = z.object({
-  title: z.string().min(1).describe('e.g. "Revenue Briefing — Wed, Sep 16"'),
+  // Deliberately no date in the example. The model copied the one that used to
+  // be here verbatim, publishing a brief on the 17th titled "Wed, Sep 16".
+  // The publisher stamps the real date (`briefings/title.ts`).
+  title: z.string().min(1).describe('NAME the briefing, with no date in it — the publisher adds the date. e.g. "Revenue Briefing"'),
   rollup: z.boolean().optional().describe('true = the cross-team workspace briefing (workspace lead only). Team leads omit it.'),
   summary: z.string().optional().describe('ONE sentence on the state of the business. Not a section list, not a status report.'),
   metrics: z.array(AgentMetricSchema).max(12).default([]).describe('What you read, with provenance. Report everything worth reading; the code ranks and keeps the top few.'),
