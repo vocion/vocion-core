@@ -1,5 +1,5 @@
 /**
- * The YAML in the AgentCore guide has to be YAML the loader would accept.
+ * The YAML in the eval guides has to be YAML the loader would accept.
  *
  * A guide is the first thing someone copies from, and a wrong example costs
  * them an apply cycle and a confusing error about a field they did not write.
@@ -8,12 +8,43 @@
  * manifest per file — and nothing failed when they were.
  */
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { AutomationManifestSchema, EvalDatasetManifestSchema } from './schemas';
 
-const GUIDE = join(import.meta.dirname, '../../../../../docs/guides/agentcore-evals.md');
+/**
+ * Every guide whose YAML examples are meant to be copied and applied.
+ *
+ * Both are read by the same assertion because the failure they guard against is
+ * the same one: someone copies a block, applies it, and gets an error about a
+ * field they did not write.
+ */
+const GUIDES = [
+  join(import.meta.dirname, '../../../../../docs/guides/agentcore-evals.md'),
+  join(import.meta.dirname, '../../../../../docs/guides/evals.md'),
+];
+
+/** One fenced block, and which guide it came from, so a failure names the file. */
+type GuideBlock = {
+  guide: string;
+  index: number;
+  block: string;
+};
+
+/**
+ * Every YAML block across every guide, tagged with where it came from.
+ * @param guides - Absolute paths to the guides to read.
+ */
+function blocksAcross(guides: string[]): GuideBlock[] {
+  const collected: GuideBlock[] = [];
+  for (const guide of guides) {
+    yamlBlocksIn(readFileSync(guide, 'utf8')).forEach((block, index) => {
+      collected.push({ guide: basename(guide), index, block });
+    });
+  }
+  return collected;
+}
 
 /**
  * Every fenced YAML block in a Markdown document.
@@ -65,20 +96,29 @@ function describeBlock(doc: Record<string, unknown>): 'automation' | 'evalDatase
   return 'evalDataset';
 }
 
-describe('the AgentCore guide\'s examples', () => {
-  const blocks = yamlBlocksIn(readFileSync(GUIDE, 'utf8'));
+describe('the eval guides\' examples', () => {
+  const blocks = blocksAcross(GUIDES);
 
   it('has examples to check', () => {
-    // A rename or a rewrite that empties this file would otherwise make every
+    // A rename or a rewrite that empties a guide would otherwise make every
     // assertion below pass by having nothing to assert on.
     expect(blocks.length).toBeGreaterThan(3);
   });
 
+  it('covers every guide', () => {
+    // One guide losing all of its YAML would still leave the count above
+    // healthy, because the other guide's blocks would carry it.
+    for (const guide of GUIDES) {
+      expect(blocks.filter(entry => entry.guide === basename(guide))).not.toEqual([]);
+    }
+  });
+
   it('every example is something the workspace loader would accept', () => {
     const failures: string[] = [];
-    blocks.forEach((block, index) => {
-      const doc = parseYaml(block) as Record<string, unknown>;
+    for (const entry of blocks) {
+      const doc = parseYaml(entry.block) as Record<string, unknown>;
       const kind = describeBlock(doc);
+      const where = `${entry.guide} block ${entry.index}`;
       if (kind === 'evaluatorsFragment') {
         // Graft the fragment onto the smallest valid dataset so the evaluator
         // entries themselves are still checked.
@@ -92,16 +132,16 @@ describe('the AgentCore guide\'s examples', () => {
         };
         const result = EvalDatasetManifestSchema.safeParse(grafted);
         if (!result.success) {
-          failures.push(`block ${index} (evaluators fragment): ${result.error.issues.map(i => i.message).join('; ')}`);
+          failures.push(`${where} (evaluators fragment): ${result.error.issues.map(i => i.message).join('; ')}`);
         }
-        return;
+        continue;
       }
       const schema = kind === 'automation' ? AutomationManifestSchema : EvalDatasetManifestSchema;
       const result = schema.safeParse(doc);
       if (!result.success) {
-        failures.push(`block ${index} (${kind}): ${result.error.issues.map(i => i.message).join('; ')}`);
+        failures.push(`${where} (${kind}): ${result.error.issues.map(i => i.message).join('; ')}`);
       }
-    });
+    }
 
     expect(failures).toEqual([]);
   });
