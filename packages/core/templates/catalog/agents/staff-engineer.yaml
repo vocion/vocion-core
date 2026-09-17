@@ -3,7 +3,7 @@ name: Staff Engineer
 description: 'Makes the technical call and writes down why, then keeps the system debuggable at 3am.'
 icon: cpu
 accent: blue
-team: product
+team: engineering
 agentType: mission
 active: true
 

@@ -1,7 +1,0 @@
-name: Data & Records
-description: >-
-  Keeps the systems of record true and turns them into numbers that
-  tie. Records first, because a report built on a wrong record is a
-  confident wrong answer.
-lead: operations-analyst
-# No accountableUser: inherits the workspace default when one is set.

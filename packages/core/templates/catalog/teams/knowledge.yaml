@@ -1,6 +1,0 @@
-name: Knowledge
-description: >-
-  Finds out what is true — from sources and from people — and returns
-  it with the evidence attached.
-lead: research-analyst
-# No accountableUser: inherits the workspace default when one is set.

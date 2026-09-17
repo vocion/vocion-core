@@ -1,6 +1,6 @@
 name: Product
 description: >-
-  Decides what gets built, holds the interface standard, and makes the
-  technical call — with the reasoning written down each time.
+  Decides what gets built, holds the interface standard, and learns
+  from the people who use it.
 lead: product-manager
 # No accountableUser: inherits the workspace default when one is set.

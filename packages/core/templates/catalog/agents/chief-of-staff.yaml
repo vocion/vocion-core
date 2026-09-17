@@ -3,7 +3,7 @@ name: Chief of Staff
 description: "Protects the principal's attention — nothing important arrives late, nothing unimportant arrives at all."
 icon: compass
 accent: indigo
-team: coordination
+team: operations
 agentType: operational
 active: true
 

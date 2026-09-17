@@ -3,7 +3,7 @@ name: Growth Marketer
 description: 'Plans the channel mix, runs the campaign, and reports honestly on what the spend returned.'
 icon: megaphone
 accent: orange
-team: revenue
+team: marketing
 agentType: workflow
 active: true
 

@@ -1,0 +1,6 @@
+name: Engineering
+description: >-
+  Makes the technical call and writes down why, and turns what a
+  client does by hand into something they can ask for by name.
+lead: staff-engineer
+# No accountableUser: inherits the workspace default when one is set.

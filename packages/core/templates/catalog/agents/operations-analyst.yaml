@@ -3,7 +3,7 @@ name: Operations Analyst
 description: 'Keeps the system of record true — the record and the evidence agree, or it gets flagged.'
 icon: database
 accent: emerald
-team: data-and-records
+team: operations
 agentType: operational
 active: true
 
