@@ -7,7 +7,7 @@ import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
 import { BriefingSections } from '@/features/dashboard/BriefingSections';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { briefingHistory, getBriefing } from '@/services/briefings/store';
+import { agentNames, briefingHistory, getBriefing } from '@/services/briefings/store';
 import { recordRef } from '@/services/chat/recordContext';
 import { listInbox } from '@/services/InboxService';
 
@@ -56,8 +56,13 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
     liveDecisions = inbox.items.filter(i => keys.has(i.key));
   }
 
-  // A pre-v2 row has no history section of its own; give it the same preview.
-  const history = doc ? null : await briefingHistory(orgId, brief.teamSlug, { excludeId: brief.id });
+  // Previous briefings are read NOW, not from the document's snapshot — the
+  // snapshot predates every brief published since (see `BriefingView`). The
+  // publisher is named, not slugged, on the date line and on each history row.
+  const history = await briefingHistory(orgId, brief.teamSlug, { excludeId: brief.id });
+  const names = await agentNames(orgId, [brief.agentSlug, ...history.entries.map(e => e.agentSlug)]);
+  const nameOf = (slug: string | null | undefined) => (slug ? names.get(slug) ?? slug : null);
+  const liveHistory = { entries: history.entries.map(e => ({ ...e, publisher: nameOf(e.agentSlug) })), total: history.total };
 
   return (
     // The brief is a commentable document: highlight a passage and the
@@ -74,7 +79,7 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
         {/* A typed brief is a Detail page and carries its own crumbs and H1;
             a pre-v2 markdown brief has no header of its own, so it gets one. */}
         {doc
-          ? <BriefingView doc={doc} liveDecisions={liveDecisions} />
+          ? <BriefingView doc={doc} liveDecisions={liveDecisions} history={liveHistory} publisher={nameOf(brief.agentSlug)} />
           : (
               <>
                 <TitleBar
@@ -83,7 +88,7 @@ export default async function BriefingPage(props: { params: Promise<{ locale: st
                 />
                 <div data-briefing-root className="prose prose-sm max-w-none dark:prose-invert">
                   <BriefingSections briefingId={brief.id} briefingTitle={brief.title} content={brief.content} agentSlug={brief.agentSlug ?? undefined} />
-                  {history && history.entries.length > 0 && (
+                  {history.entries.length > 0 && (
                     <p className="not-prose mt-6 text-[13px] text-muted-foreground">
                       {`${history.total} briefings in all.`}
                     </p>

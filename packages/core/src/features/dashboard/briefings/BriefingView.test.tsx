@@ -134,6 +134,32 @@ describe('the briefing page', () => {
     expect(rows.length).toBeLessThanOrEqual(5);
   });
 
+  it('draws the previous briefings the page hands it — live — instead of the snapshot in the document, and only once', async () => {
+    // The document's snapshot predates every brief published after it; the
+    // page used to draw the snapshot AND a live list under it (2026-09-17).
+    const live = {
+      entries: [
+        { id: 90, title: 'Revenue Briefing — Thu, Sep 17, 2026', at: new Date('2026-09-17T13:03:00Z'), href: '/dashboard/briefings/90', teamSlug: null, publisher: 'Revenue Director' },
+      ],
+      total: 41,
+    };
+    render(<BriefingView doc={FIXTURE_BRIEFING} liveDecisions={LIVE} history={live} publisher="Revenue Director" />);
+
+    await expect.element(page.getByRole('link', { name: /Revenue Briefing — Thu, Sep 17, 2026/ })).toHaveAttribute('href', '/dashboard/briefings/90');
+
+    const rows = document.querySelectorAll('[data-testid="briefing-history"] [data-pattern="list-row"]');
+
+    expect(rows.length).toBe(1);
+    // The snapshot's rows are not drawn beside the live ones.
+    for (const e of FIXTURE_BRIEFING.history!.entries) {
+      expect(document.querySelector(`[data-testid="briefing-history"] a[href="${e.href}"]`)).toBeNull();
+    }
+    // Who wrote it, on the date line and on the row.
+    expect(document.body.textContent ?? '').toContain('by Revenue Director');
+    expect(rows[0]!.textContent).toContain('Revenue Director');
+    expect(document.body.textContent ?? '').toContain('View all briefings (41)');
+  });
+
   it('routes every actionable item to the surface that does the thing, never to the composer', async () => {
     surfaceCalls.length = 0;
     render(<BriefingView doc={FIXTURE_BRIEFING} liveDecisions={LIVE} />);
