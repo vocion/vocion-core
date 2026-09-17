@@ -47,6 +47,15 @@ export const NO_DOCK_ROUTES: RegExp[] = [];
  * reads it for collapse state any more.
  */
 export const RECORD_ROUTES: RegExp[] = [
+  // A decision IS a record page — the one a person is looking at while they
+  // ask. These were missing, because the dock was suppressed here and nothing
+  // else read the list, so `page_context.record` arrived empty and the agent
+  // could only see the page title. Chris, 2026-09-17: the assistant said so
+  // itself, *"the page context only gives me the title, not the underlying
+  // record"*, and then could not act on the sends in front of it.
+  /\/dashboard\/inbox\/(?!g(?:\/|$))[^/]+$/,
+  /\/dashboard\/inbox\/g\/[^/]+$/,
+  /\/dashboard\/inbox\/r\/[^/]+$/,
   // A briefing is the record a person came to work from (R4): the rail opens
   // beside it, and the page's own composer is gone — one surface (058 §6).
   /\/dashboard\/briefings(?:\/[^/]+)?$/,

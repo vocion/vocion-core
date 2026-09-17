@@ -67,6 +67,8 @@ function proposalFor(over: Record<string, unknown> = {}) {
     },
     confidence: 0.9,
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
+    suggested_decision: 'approve' as const,
+    suggested_decision_reason: 'Matches the listing criteria and nothing like it is already in the queue.',
   };
 }
 

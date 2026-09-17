@@ -70,6 +70,44 @@ const DAY_IN_MS = 86_400_000;
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
 
 /**
+ * The envelope as the column holds it: a recommendation is either there with
+ * its reason, or the keys are absent. The null a caller passes to say "nothing
+ * judged this" never reaches storage.
+ */
+type StoredProposal<T> = Omit<T, 'suggestedDecision' | 'suggestedDecisionReason'> & {
+  suggestedDecision?: SuggestedDecision;
+  suggestedDecisionReason?: string;
+};
+
+/**
+ * The proposal envelope as it should be stored.
+ *
+ * A reason belongs to a recommendation. An envelope carrying
+ * `suggestedDecisionReason` with no `suggestedDecision` would put a sentence
+ * arguing for an outcome on a card that recommends none, and every reader —
+ * the review card, the agreement metric, a person scrolling the ledger months
+ * later — would have to guess which outcome it argued for. Dropping it is the
+ * honest answer: nothing is inferred from it, and nothing is stored that
+ * cannot be read.
+ * @param proposal - The envelope a caller passed, or undefined.
+ */
+function proposalForStorage<T extends { suggestedDecision?: SuggestedDecision | null; suggestedDecisionReason?: string | null }>(
+  proposal: T | undefined,
+): StoredProposal<T> | null {
+  if (!proposal) {
+    return null;
+  }
+  if (proposal.suggestedDecision) {
+    return proposal as StoredProposal<T>;
+  }
+  // No recommendation: the reason goes with it, and the null itself is not
+  // worth storing — a missing key and a stored null read the same everywhere,
+  // and the missing key is what every row written before this looked like.
+  const { suggestedDecision: _noDecision, suggestedDecisionReason: _dropped, ...rest } = proposal;
+  return rest as StoredProposal<T>;
+}
+
+/**
  * The run of this dedup key a person already decided, when the action says a
  * repeat proposal should collapse into it.
  *
@@ -141,6 +179,7 @@ async function findDecidedRunForKey(
  * @param input.proposal.evidence
  * @param input.proposal.agentSlug
  * @param input.proposal.suggestedDecision
+ * @param input.proposal.suggestedDecisionReason - One short sentence for why that recommendation.
  * @param input.proposal.suggestedSnoozeUntil
  * @param input.proposal.labels - Payload field names the proposer wrote as a judgement of its own.
  * @param input.dedupKey
@@ -155,9 +194,17 @@ export async function proposeAction(input: {
   /**
    * Agent-proposal envelope — confidence (0–1), rationale, evidence uris, and
    * the advisory `suggestedDecision` saying what the agent thinks the reviewer
-   * should do with this. The recommendation can only ever keep the proposal in
-   * the queue (see the guard below); it is never read as a reason to let one
-   * run without a person.
+   * should do with this, with one short sentence for why. The recommendation
+   * can only ever keep the proposal in the queue (see the guard below); it is
+   * never read as a reason to let one run without a person.
+   *
+   * Anything that sends an envelope must answer the question, and `null` is a
+   * real answer: nothing judged this card. Both fields are required so that a
+   * producer cannot forget the question, and both may be null so that a
+   * producer with no model in the loop is not pushed into inventing a verdict
+   * — a fabricated `approve` scores in the agreement rate as though a model
+   * had made it, which flatters the agent for a sentence core wrote. A null
+   * pair stores neither field and sits outside that rate.
    *
    * `labels` names the payload fields the proposer wrote as a JUDGEMENT rather
    * than read off its source, so the decision can record what the reviewer did
@@ -168,7 +215,8 @@ export async function proposeAction(input: {
     rationale?: string;
     evidence?: string[];
     agentSlug?: string;
-    suggestedDecision?: SuggestedDecision;
+    suggestedDecision: SuggestedDecision | null;
+    suggestedDecisionReason: string | null;
     suggestedSnoozeUntil?: string;
     labels?: string[];
   };
@@ -265,7 +313,7 @@ export async function proposeAction(input: {
           status: 'pending',
           error: null,
           input: parsed as Record<string, unknown>,
-          proposal: input.proposal ?? null,
+          proposal: proposalForStorage(input.proposal),
           expiresAt: input.expiresAt ?? null,
           // The refresh is the completion edge of a regeneration: the new
           // payload landing on the same pending run clears the in-flight
@@ -327,7 +375,7 @@ export async function proposeAction(input: {
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
-      proposal: input.proposal ?? null,
+      proposal: proposalForStorage(input.proposal),
       dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
     })
@@ -394,7 +442,7 @@ export async function proposeAction(input: {
         .update(actionRunSchema)
         .set({
           proposal: {
-            ...(input.proposal ?? {}),
+            ...(proposalForStorage(input.proposal) ?? {}),
             autoApproved: true,
             autoApprovedThreshold: trust.threshold,
           } as never,

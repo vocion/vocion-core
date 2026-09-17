@@ -300,6 +300,31 @@ one of them rather than adding another. The worked example, and the tell that yo
 are duplicating a noun rather than extending it, are in
 [`docs/design/reduction.md`](./design/reduction.md).
 
+## 20. Show your work
+
+Every claim the system makes should be traceable to what produced it, in one move from where
+the claim is read.
+
+A system that states facts without showing where they came from is asking to be trusted on
+faith, and it only takes one wrong claim to lose that permanently. On 2026-09-17 the workspace
+lead answered *"what should I do right now?"* with a 10:30 call that was not on the calendar —
+read out of a briefing generated days earlier, presented as today, with nothing on screen to
+trace it back. Nobody could tell whether the product was wrong or the calendar was, and the
+right response to that is not to trust it less carefully; it is to make the question answerable.
+
+- A stated fact carries its source, inline, where it is stated.
+- A source is a link to the thing itself, not the name of a system.
+- A number carries what it is a number *of*, and how fresh it is (§12).
+- Anything dated is shown with its date when it is quoted out of its own context.
+- "I could not establish this" is a legitimate answer and always beats a confident guess.
+- The workings go behind progressive disclosure, never into the sentence (`docs/design/reduction.md`).
+
+This is §12 *hide complexity, never hide truth* with the emphasis reversed. §12 says the simple
+reading comes first. This says the evidence must always be **reachable** — one click, never a
+support request, never a database query. Hidden is fine. Unreachable is not.
+
+**If a person cannot check it, we have not earned the right to assert it.**
+
 ## The Vocion loop
 
 Every part of Vocion should reinforce the same cycle:
@@ -355,7 +380,8 @@ Before shipping anything, ask:
 12. Does this improve the business or the person doing the work?
 13. Is complexity hidden without hiding the truth?
 14. Does this feel good to use?
-15. Would we be proud to use this every day?
+15. Can a person trace every claim on this surface back to what produced it?
+16. Would we be proud to use this every day?
 
 **If we cannot answer those questions, it is not finished.**
 

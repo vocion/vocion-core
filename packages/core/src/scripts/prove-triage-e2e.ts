@@ -39,7 +39,7 @@ async function main(): Promise<void> {
       principal,
       dedupKey: `gmail.send:${PROBE}-${n}@example.com`,
       input: { to: `${PROBE}-${n}@example.com`, subject: `Probe ${n}`, body: `Hi there, I just wanted to reach out and check in to see if you had any thoughts on our previous conversation. I know things have been busy lately. Please let me know if you might have some time to chat at some point soon. Thanks so much!`, draft: true },
-      proposal: { confidence: 0.8, rationale: `Test triage item ${n}` },
+      proposal: { confidence: 0.8, rationale: `Test triage item ${n}`, suggestedDecision: 'approve', suggestedDecisionReason: `Probe item ${n}, seeded for the triage run.` },
     });
     seededIds.push(r.runId);
   }
