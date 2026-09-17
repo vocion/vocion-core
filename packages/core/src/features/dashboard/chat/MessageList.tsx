@@ -96,7 +96,16 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
-      <div className="mx-auto w-full max-w-4xl space-y-8">
+      {/*
+        One column edge. This container, the agent's prose and the composer
+        used to cap at three different widths (4xl / 2xl / 3xl), so a reply
+        stopped 224px short of the input box below it inside a container wider
+        than both — which read as a ragged left gutter rather than a column.
+        They are all 3xl now. The cap itself stays: a centred, measured reading
+        column is the point, and the width freed up goes to the sources rail,
+        which is the panel that actually needed it.
+      */}
+      <div className="mx-auto w-full max-w-3xl space-y-8">
         {blocksAfter(-1)}
         {messages.map((msg, i) => (
           <div key={i} className="space-y-8">
