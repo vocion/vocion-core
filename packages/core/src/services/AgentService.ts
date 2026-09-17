@@ -833,9 +833,17 @@ export async function runAgentDeep(opts: {
   });
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
-  await flushTraces();
 
+  // The turn is over the moment the answer is: say so BEFORE telemetry.
+  //
+  // `done` used to wait behind `await flushTraces()`. On a box whose Langfuse
+  // host is unreachable the SDK retries for 30–40 seconds, and for all of that
+  // time the person watched "Working…" under an answer that had visibly
+  // finished (Chris, 2026-09-17: *"why does this show 'working' for so long
+  // ... then it stops after like 40 seconds"*). Tracing is a record of the
+  // work, not part of it; it never gets to hold the person's turn open.
   emit({ type: 'done', response: finalText, traceId: trace.id });
+  await flushTraces();
 
   recordTurn(opts, recordedEvents, {
     response: finalText,

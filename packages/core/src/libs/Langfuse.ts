@@ -122,13 +122,24 @@ export function getLangfuseClient(): Langfuse | null {
  * This replaces the old exported `langfuse` singleton — flushing was the
  * only thing callers outside this module used it for.
  */
+/**
+ * How long a caller will wait for the flush before moving on. The SDK's own
+ * retry loop against an unreachable host runs 30–40 s; nothing that awaits
+ * this should be held that long — the flush keeps going in the background,
+ * and a trace that arrives late is still a trace.
+ */
+export const FLUSH_WAIT_MS = 3_000;
+
 export async function flushTraces(): Promise<void> {
   const client = getLangfuseClient();
   if (!client) {
     return;
   }
   try {
-    await client.flushAsync();
+    await Promise.race([
+      client.flushAsync(),
+      new Promise<void>(resolve => setTimeout(resolve, FLUSH_WAIT_MS)),
+    ]);
   } catch (error) {
     // Losing traces must never fail the work that produced them.
     log('warn', 'Langfuse flush failed; traces for this run may be missing', {
