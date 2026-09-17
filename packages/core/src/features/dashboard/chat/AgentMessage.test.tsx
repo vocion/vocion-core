@@ -265,3 +265,64 @@ describe('a tool failure says what failed', () => {
     expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
   });
 });
+
+describe('the work sits where it happened (interleaved, not hoisted)', () => {
+  const actor = { id: 'lead', kind: 'lead' as const, name: 'Revenue' };
+
+  it('renders each group of steps between the passages it fell between', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Reading the brief first.\n\nThree deals moved.',
+          runs: [
+            { type: 'tool', name: 'get_briefing', state: 'done' },
+            { type: 'text', text: 'Reading the brief first.' },
+            { type: 'tool', name: 'lookup_objects', state: 'done' },
+            { type: 'text', text: 'Three deals moved.' },
+          ],
+          trace: [
+            { id: 'a', actor, kind: 'tool', status: 'done', label: 'Read the briefing', anchor: 0 },
+            { id: 'b', actor, kind: 'search', status: 'done', label: 'Looked up 3 deals', anchor: 1 },
+          ],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText('Three deals moved.')).toBeInTheDocument();
+
+    // Document order: step a, passage 1, step b, passage 2.
+    const order = [
+      page.getByRole('button', { name: /Read the briefing/ }),
+      page.getByText('Reading the brief first.'),
+      page.getByRole('button', { name: /Looked up 3 deals/ }),
+      page.getByText('Three deals moved.'),
+    ].map(l => l.element());
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('a trace without anchors still renders hoisted, as it was persisted', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [{ type: 'text', text: 'Done.' }],
+          trace: [
+            { id: 'a', actor, kind: 'tool', status: 'done', label: 'Read the briefing' },
+            { id: 'b', actor, kind: 'search', status: 'done', label: 'Looked up 3 deals' },
+          ],
+        }}
+      />,
+    );
+
+    const folded = page.getByRole('button', { name: /Worked it out · 2 steps/ });
+
+    await expect.element(folded).toBeInTheDocument();
+    expect(folded.element().compareDocumentPosition(page.getByText('Done.').element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

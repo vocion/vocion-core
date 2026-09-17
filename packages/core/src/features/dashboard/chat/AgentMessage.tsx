@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Link } from '@/libs/I18nNavigation';
 import { ArtifactChips } from './ArtifactChips';
+import { liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
@@ -127,10 +128,24 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
   const [showError, setShowError] = useState(false);
-  // One consolidated work timeline instead of breadcrumbs scattered through
-  // the transcript; text runs render below it in order.
-  const toolRuns = runs.filter((r): r is Extract<AgentRun, { type: 'tool' }> => r.type === 'tool');
-  const textRuns = runs.filter((r): r is Extract<AgentRun, { type: 'text' }> => r.type === 'text');
+  // The turn in the order it happened: passages of prose with the work that
+  // fell between them rendered at that point, not hoisted to the top
+  // (`interleave.ts`). A message with a typed trace renders the trace only —
+  // the flat tool runs are the same steps without the attribution, and a
+  // specialist's calls would otherwise show twice, once nested under the
+  // delegation and once flat.
+  const typed = (message.trace?.length ?? 0) > 0;
+  const segments = segmentTurn(runs, message.trace).filter(seg => seg.kind === 'text' || !typed || seg.trace.length > 0);
+  // Legacy reasoning text has no anchor; it belongs at the top like it always did.
+  if (message.thinkingText && !segments.some(seg => seg.kind === 'work')) {
+    segments.unshift({ kind: 'work', runs: [], trace: [], index: 0 });
+  }
+  const workIndexes = segments.filter(seg => seg.kind === 'work').map(seg => seg.index);
+  const firstWork = workIndexes[0];
+  const lastWork = workIndexes[workIndexes.length - 1];
+  // Only the trailing group is still running; a group the agent has written
+  // past is finished, and folds to its one line like Claude Code's tool blocks.
+  const liveIndex = streaming ? liveWorkIndex(segments) : null;
 
   // No avatar glyph — the transcript is text-first (Claude-app pattern).
   // The small speaker label carries identity; with named humans and
@@ -194,66 +209,72 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           </div>
         )}
         <div className="mt-2 text-sm leading-relaxed">
-          {(toolRuns.length > 0 || streaming || message.thinkingText || (message.trace?.length ?? 0) > 0) && (
-            <WorkTimeline
-              runs={toolRuns}
-              streaming={streaming}
-              activity={activity}
-              thinkingText={message.thinkingText}
-              documents={message.documents}
-              trace={message.trace}
-              inspect={inspect}
-              failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
-            />
-          )}
-          {textRuns.map((run, i) => (
-            <div key={i} className="prose prose-sm max-w-none dark:prose-invert">
-              <Markdown
-                remarkPlugins={[remarkGfm]}
-                // Keep our private citation scheme; react-markdown's default
-                // sanitizer would strip `vocion-cite:` and drop the link.
-                urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
-                components={{
-                  a({ href, children, ...props }) {
-                    const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
-                    if (m !== null) {
-                      const n = Number(m);
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => onCitationClick?.(n)}
-                          className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
-                          aria-label={`Open source ${n}`}
-                        >
-                          {n}
-                        </button>
-                      );
-                    }
-                    // A same-origin dashboard route becomes a chip that
-                    // navigates in place (§9); anything else stays an
-                    // ordinary external link in a new tab.
-                    const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
-                    if (inApp) {
-                      const Icon = LINK_ICON[inApp.kind];
-                      return (
-                        <Link
-                          href={inApp.href}
-                          data-link-kind={inApp.kind}
-                          className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
-                        >
-                          <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                          <span className="truncate">{children}</span>
-                        </Link>
-                      );
-                    }
-                    return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
-                  },
-                }}
-              >
-                {citeLinkify(run.text)}
-              </Markdown>
-            </div>
-          ))}
+          {segments.map(seg => (seg.kind === 'work'
+            ? (
+                <WorkTimeline
+                  key={`work-${seg.index}`}
+                  runs={seg.runs}
+                  trace={seg.trace}
+                  streaming={liveIndex === seg.index}
+                  // The live indicator at the bottom of the turn names the
+                  // activity; the group shows its rows, not a second headline.
+                  liveHeadline={false}
+                  activity={activity}
+                  thinkingText={seg.index === firstWork ? message.thinkingText : undefined}
+                  documents={seg.index === lastWork ? message.documents : undefined}
+                  // The badge opens the group that holds the failure, not every group.
+                  inspect={seg.trace.some(n => n.status === 'error') || seg.runs.some(r => r.state === 'error') ? inspect : 0}
+                  failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
+                />
+              )
+            : (
+                <div key={`text-${seg.index}`} className="prose prose-sm max-w-none dark:prose-invert">
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    // Keep our private citation scheme; react-markdown's default
+                    // sanitizer would strip `vocion-cite:` and drop the link.
+                    urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
+                    components={{
+                      a({ href, children, ...props }) {
+                        const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
+                        if (m !== null) {
+                          const n = Number(m);
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onCitationClick?.(n)}
+                              className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                              aria-label={`Open source ${n}`}
+                            >
+                              {n}
+                            </button>
+                          );
+                        }
+                        // A same-origin dashboard route becomes a chip that
+                        // navigates in place (§9); anything else stays an
+                        // ordinary external link in a new tab.
+                        const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
+                        if (inApp) {
+                          const Icon = LINK_ICON[inApp.kind];
+                          return (
+                            <Link
+                              href={inApp.href}
+                              data-link-kind={inApp.kind}
+                              className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
+                            >
+                              <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                              <span className="truncate">{children}</span>
+                            </Link>
+                          );
+                        }
+                        return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
+                      },
+                    }}
+                  >
+                    {citeLinkify(seg.text)}
+                  </Markdown>
+                </div>
+              )))}
           {/* One card renders directly; several become the in-chat triage
               stepper (skip / save-for-later / queue-all). */}
           {(message.recommendations?.length ?? 0) > 0 && (
@@ -279,12 +300,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                two can never disagree.
             3. It names the current activity rather than only pulsing.
 
-            What this still does NOT do is interleave tool blocks with prose
-            chronologically the way those two products do — the work timeline
-            hoists every tool call to the top of the message, so the transcript
-            is "all the work, then all the words" rather than the order things
-            actually happened. That is the deeper fix and it is a change to
-            WorkTimeline's grouping, not to this line.
+            The tool blocks interleave with the prose chronologically too now
+            (`interleave.ts`) — each group of steps sits where it happened,
+            and a group the agent has written past folds to one line.
           */}
           {streaming && (
             <div
