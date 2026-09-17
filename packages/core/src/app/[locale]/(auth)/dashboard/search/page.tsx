@@ -26,15 +26,27 @@ type SearchDoc = {
  */
 export default async function SearchPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ q?: string; source?: string }>;
+  searchParams: Promise<{ q?: string; source?: string; n?: string }>;
 }) {
   const { locale } = await props.params;
-  const { q, source } = await props.searchParams;
+  const { q, source, n } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId, userId } = await auth();
 
   const query = (q ?? '').trim();
   const sourceFilter = (source ?? '').trim() || undefined;
+
+  // Paging lives in the URL, because search here is already a server
+  // round-trip and the toolbar already navigates. A longer result set then
+  // survives a reload, a back button and a shared link — none of which client
+  // state would have given us.
+  const PAGE = 25;
+  const MAX = 200;
+  const requested = Number.parseInt(n ?? '', 10);
+  const pageSize = Math.min(Number.isFinite(requested) && requested > 0 ? requested : PAGE, MAX);
+  // Ask for one more than we render: if it comes back, there is another page,
+  // and we never have to count the whole corpus to find that out.
+  const probe = Math.min(pageSize + 1, MAX + 1);
 
   // Filter chips: every source that actually has documents, with counts.
   let sources: SourceChipData[] = [];
@@ -58,6 +70,7 @@ export default async function SearchPage(props: {
         query,
         search_filters: sourceFilter ? { source_type: [sourceFilter] } : undefined,
         allowedSourceSlugs,
+        limit: probe,
       });
       const docs = (data?.top_documents ?? data?.results ?? []) as SearchDoc[];
       results = docs.map((d, i) => ({
@@ -77,7 +90,7 @@ export default async function SearchPage(props: {
   } else if (orgId) {
     // Default result set: the most recent documents across the corpus —
     // browse before you search, filterable by connector.
-    const recent = await listRecentDocuments(orgId, { sourceSlug: sourceFilter, limit: 25, allowedSourceSlugs });
+    const recent = await listRecentDocuments(orgId, { sourceSlug: sourceFilter, limit: probe, allowedSourceSlugs });
     results = recent.map(r => ({
       id: String(r.id),
       title: r.title ?? `document ${r.id}`,
@@ -90,6 +103,19 @@ export default async function SearchPage(props: {
     }));
   }
 
+  const hasMore = results.length > pageSize;
+  if (hasMore) {
+    results = results.slice(0, pageSize);
+  }
+  const moreParams = new URLSearchParams();
+  if (query) {
+    moreParams.set('q', query);
+  }
+  if (sourceFilter) {
+    moreParams.set('source', sourceFilter);
+  }
+  moreParams.set('n', String(Math.min(pageSize + PAGE, MAX)));
+
   return (
     <ListPage
       title="Search"
@@ -101,6 +127,8 @@ export default async function SearchPage(props: {
         sources={sources}
         results={results}
         error={error}
+        hasMore={hasMore}
+        moreHref={`/dashboard/search?${moreParams.toString()}`}
       />
     </ListPage>
   );

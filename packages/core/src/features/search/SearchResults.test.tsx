@@ -94,3 +94,46 @@ describe('SearchResults', () => {
     await expect.element(page.getByRole('alert')).toHaveTextContent('Search failed: connection refused');
   });
 });
+
+describe('load more', () => {
+  it('offers more results when more exist, and asks for the next page in the URL', async () => {
+    const push = vi.fn();
+    vi.doMock('@/libs/I18nNavigation', () => ({
+      Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
+      useRouter: () => ({ push }),
+      usePathname: () => '/dashboard/search',
+    }));
+
+    render(
+      <SearchResults
+        query="pipeline"
+        source={null}
+        sources={[]}
+        results={[result({ id: '1', title: 'Q3 plan' })]}
+        error={null}
+        hasMore
+        moreHref="/dashboard/search?q=pipeline&n=50"
+      />,
+    );
+
+    // A real, focusable control — infinite scroll alone strands a keyboard
+    // user and leaves nothing to press when the observer does not fire.
+    await expect.element(page.getByTestId('search-load-more')).toBeVisible();
+  });
+
+  it('shows no control when the results are all of them', async () => {
+    render(
+      <SearchResults
+        query="pipeline"
+        source={null}
+        sources={[]}
+        results={[result({ id: '1', title: 'Q3 plan' })]}
+        error={null}
+        hasMore={false}
+        moreHref={null}
+      />,
+    );
+
+    expect(page.getByTestId('search-load-more').elements()).toHaveLength(0);
+  });
+});
