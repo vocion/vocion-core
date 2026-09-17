@@ -164,13 +164,13 @@ function createBootstrapAdmin(): void {
 }
 
 test.describe('the API reference page', () => {
-  test('is behind the login, like the rest of the dashboard', async ({ page }) => {
-    await page.goto('/dashboard/api-reference');
+  test('is behind the login, like the rest of the app', async ({ page }) => {
+    await page.goto('/api-docs');
 
     await expect(page).toHaveURL(/sign-in/);
   });
 
-  test('renders the generated document for a signed-in reader, and searches it', async ({ page }) => {
+  test('renders the generated document as Swagger UI for a signed-in reader', async ({ page }) => {
     createBootstrapAdmin();
 
     await page.goto('/sign-in');
@@ -179,17 +179,19 @@ test.describe('the API reference page', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.waitForURL('**/dashboard**');
 
-    await page.goto('/dashboard/api-reference');
+    await page.goto('/api-docs');
 
-    // The count comes from the generated document, so this is the real spec
-    // reaching the real page — not a fixture shaped like one.
-    await expect(page.getByTestId('endpoint-count')).toContainText('endpoints');
-    await expect(page.getByText('/api/v1/agents', { exact: true })).toBeVisible();
+    // Swagger UI itself, on its own page: no dashboard sidebar around it.
+    await expect(page.locator('.swagger-ui')).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
 
-    await page.getByLabel('Search endpoints').fill('post worker-runs');
+    // The operations come from the generated document, so this is the real
+    // spec reaching the real page — not a fixture shaped like one.
+    await expect(page.locator('.opblock').first()).toBeVisible();
+    await expect(page.locator('.opblock-summary-path').filter({ hasText: '/api/v1/agents' }).first()).toBeVisible();
 
-    await expect(page.getByTestId('endpoint-count')).toContainText('of');
-    await expect(page.getByText('/api/v1/worker-runs/{id}/claim', { exact: true })).toBeVisible();
-    await expect(page.getByText('/api/v1/agents', { exact: true })).toHaveCount(0);
+    // The Authorize button is how a reader pastes a tenant token before
+    // trying an endpoint; no button means the security scheme did not survive.
+    await expect(page.getByRole('button', { name: /authorize/i }).first()).toBeVisible();
   });
 });

@@ -88,7 +88,7 @@ export default async function DevelopersPage() {
       >
         <ul className="flex flex-wrap gap-2 text-[13px]">
           <li>
-            <Link href="/dashboard/api-reference" className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 px-3 font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground">
+            <Link href="/api-docs" className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 px-3 font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground">
               <Code2 className="size-3.5" aria-hidden />
               API reference
             </Link>

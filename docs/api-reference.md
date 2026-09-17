@@ -30,11 +30,24 @@ So the document is read out of the code. Nothing here is a list to maintain.
 | `packages/core/src/scripts/generate-openapi.ts` | Walks `src/app/api/v1`, writes the document. |
 | `packages/core/src/libs/openapi/openapi.generated.json` | The committed document. |
 | `packages/core/src/app/api/v1/openapi/route.ts` | Serves it as JSON, behind the usual auth. |
-| `packages/core/src/features/api-docs/` | The page that renders it. |
-| `packages/core/src/app/[locale]/(auth)/dashboard/api-reference/page.tsx` | The page's route. |
+| `packages/core/src/features/api-docs/ApiReference.tsx` | Swagger UI, loaded in the browser only. |
+| `packages/core/src/app/[locale]/(auth)/api-docs/page.tsx` | The page's route, `/api-docs`. |
 
 The document is **committed** because production runs a bundle where `src/` does
 not exist — the server cannot walk the route tree at request time.
+
+## The page
+
+`/api-docs` is Swagger UI (`swagger-ui-react`), on a page of its own rather than
+inside the dashboard shell: this is the tab an integrator keeps open beside
+their editor, and the sidebar and breadcrumb are noise there. Signing in is
+still required — `api-docs` is in the proxy's protected segments — and the page
+links back to Developers.
+
+Swagger UI renders in the browser only (`ssr: false`); it reads `window` as it
+mounts. "Try it out" calls this same deployment, so a signed-in reader's
+requests carry their own session and act as them; a tenant token goes in the
+Authorize button instead.
 
 ## Regenerating
 

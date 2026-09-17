@@ -141,7 +141,6 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Organization — the account itself ──────────────────────────
   { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
   { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs'] },
-  { url: '/dashboard/api-reference', title: 'API reference', group: 'Organization', icon: BookOpen, keywords: ['api', 'openapi', 'swagger', 'endpoints', 'rest', 'spec', 'docs'] },
   { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, i18nKey: 'system', keywords: ['status', 'admin', 'settings', 'health'] },
 
   // ── YOU — personal, not the workspace's ─────────────────────────────────
