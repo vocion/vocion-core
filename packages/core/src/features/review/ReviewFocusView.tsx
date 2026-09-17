@@ -41,7 +41,7 @@ export type ActionRun = {
   input: Record<string, unknown>;
   invokedBy: string | null;
   createdAt: string | Date;
-  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze' } | null;
+  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze'; suggestedDecisionReason?: string } | null;
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
   error?: string | null;
@@ -221,6 +221,20 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
                   Why
                 </div>
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.rationale}</p>
+              </section>
+            )}
+            {/* Kept in its own section rather than folded into "Why" above.
+                That one is the case for the payload; this is the case for the
+                recommendation, and on a card the agent wants turned down they
+                are different arguments — merging them would read as the agent
+                contradicting itself. */}
+            {current.proposal?.suggestedDecisionReason && (
+              <section data-testid="review-generic-suggestion-reason" className="border-b border-rule py-6">
+                <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                  <Sparkles className="size-3.5 text-brand-amber-deep" aria-hidden />
+                  Why it suggests that
+                </div>
+                <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.suggestedDecisionReason}</p>
               </section>
             )}
             {/* What the recommendation rests on. Each citation opens in the

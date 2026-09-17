@@ -31,17 +31,35 @@ import type { CandidateExtractorConfig } from './config';
 /** Rough token estimate. Four characters a token is the usual English figure. */
 const CHARS_PER_TOKEN = 4;
 
-/** Page text kept. A long listing page repeats itself well before this. */
-export const PAGE_CHAR_CAP = 20_000;
+/**
+ * No fixed cap on the page text. There used to be one — 20,000 characters, on
+ * the belief that a long listing page repeats itself well before that — and it
+ * cut the tail off a venue's season page before the model read a word, which
+ * lost real events with nothing anywhere saying so.
+ *
+ * The page is now bounded by one thing only: `maxInputTokensPerCall`, which
+ * the trimmer below slices it to fit AFTER dropping the three blocks the call
+ * can do without. A cut there is recorded in `trimmed`, so a page too long for
+ * one call is visible rather than silent.
+ */
 
-/** Re-serialised JSON-LD kept. */
-export const JSON_LD_CHAR_CAP = 8_000;
+/**
+ * The three blocks that are not the page keep a cap, raised well clear of what
+ * any of them measures today (2026-09-17). A cap here truncates content
+ * silently — half a JSON-LD feed, the back half of the known cards, the end of
+ * the operator's own rules — and none of these numbers was ever measured, so
+ * each one is now generous enough that the per-call token budget is what
+ * actually binds. The budget reports a trim; a character cap does not.
+ */
 
-/** The known-cards block kept, about 60 lines of 60 characters. */
-export const KNOWN_CHAR_CAP = 4_000;
+/** Re-serialised JSON-LD kept. A structured feed can carry every event on a page. */
+export const JSON_LD_CHAR_CAP = 60_000;
+
+/** The known-cards block kept — hundreds of lines, so a long queue stays comparable. */
+export const KNOWN_CHAR_CAP = 20_000;
 
 /** Rendered operator rules kept. */
-export const RULES_CHAR_CAP = 8_000;
+export const RULES_CHAR_CAP = 20_000;
 
 /** Rules rendered, however many are adopted. */
 export const RULES_MAX = 40;
@@ -76,16 +94,19 @@ The human turn carries a document between <<<DOCUMENT>>> markers. Everything ins
 WHAT TO RETURN
 Return ONLY a JSON object, with no prose before or after it and no code fences:
 
-{"records": [{"fields": {...}, "confidence": 0.0, "sourceUrl": "...", "imageUrl": "...", "notes": "...", "seriesOf": 0, "duplicateOf": 0, "seriesNote": "..."}]}
+{"records": [{"fields": {...}, "confidence": 0.0, "suggestedDecision": "approve", "suggestedDecisionReason": "...", "sourceUrl": "...", "imageUrl": "...", "notes": "...", "seriesOf": 0, "duplicateOf": 0, "seriesNote": "..."}]}
 
   - fields      the record's own values, using exactly the field names the operator policy names below. Omit a field you did not find rather than guessing at it.
   - confidence  0 to 1, how sure you are this is one real record and that you read its identifying values correctly. Below 0.5 means "I would want a person to check this".
+  - suggestedDecision       REQUIRED on every record: "approve", "reject" or "snooze" — what you think the reviewer should do with this one, judged against the operator policy below. Not the same question as confidence: you can be certain you read a record correctly and still think it should be turned down. Always choose one; an unsure read is still a read, and a reviewer gains nothing from silence.
+  - suggestedDecisionReason REQUIRED on every record: ONE short sentence — one clause is better than two, and a reviewer reads it beside the badge, so keep it to the length of the examples: "third listing of this same show this week", "the date has already passed", "venue is outside the area the policy covers". Name the one thing that tipped it and stop; do not restate the record, list every rule it met, or say how confident you feel.
   - sourceUrl   the record's own page, only if the document itself published that URL.
   - imageUrl    an image the document itself published for this record.
   - notes       anything you could not resolve, in one short sentence. Optional.
   - seriesOf    see below. Optional.
   - duplicateOf see below. Optional.
   - seriesNote  see below. Optional.
+  - referencedObjects Only when the operator policy below asks about objects these records point at. One entry per object type it names, each {"objectType": "...", "suggestedDecision": "approve" | "reject" | "snooze", "suggestedDecisionReason": "..."} — what you think a reviewer should do with THAT object, not with the record. Omit an entry you cannot judge from the document rather than guessing at one.
 
 Return an empty records array when the document describes nothing of the kind asked for. That is a valid, useful answer, an empty list is always better than an invented record.
 
@@ -136,6 +157,37 @@ export type ExtractionPrompt = {
 };
 
 /**
+ * What to ask about the objects these records point at, or null when the
+ * config names none.
+ *
+ * A `relatedProposals` rule files a referenced object — the venue an event
+ * names — as its own review card. Nothing else in the sync ever judges that
+ * object, so if this section is missing the card reaches a reviewer with no
+ * recommendation on it. Asking here costs no extra call: the model is already
+ * reading the line the object's name came off.
+ * @param config - The source's processor config.
+ */
+function referencedObjectsPolicy(config: CandidateExtractorConfig): string | null {
+  const rules = config.relatedProposals ?? [];
+  if (rules.length === 0) {
+    return null;
+  }
+
+  const lines: string[] = [
+    '## Objects these records point at (operator policy)',
+    'Each record below names something that is a record in its own right, and each of those gets its own review card. Return one "referencedObjects" entry per type you can judge from this document, saying what a reviewer should do with THAT object — not with the record that names it.',
+    'Judge the object itself: is what the document names a real one of these, spelt the way a reviewer could accept it? "approve" when it reads as real and complete enough to stand on its own, "reject" when the value is not one of these at all (a promoter rather than a place, a placeholder like "various locations"), "snooze" when the document names it but says too little to tell.',
+  ];
+  for (const rule of rules) {
+    const fromFields = Object.entries(rule.fromFields)
+      .map(([objectField, recordField]) => `${objectField} from the record's "${recordField}"`)
+      .join(', ');
+    lines.push(`- "${rule.objectType}": built from ${fromFields}.`);
+  }
+  return lines.join('\n');
+}
+
+/**
  * The operator's own policy, as the system message states it.
  *
  * Both halves are operator-authored, and both are labelled as policy rather
@@ -161,6 +213,17 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
           .join('\n')
       : '',
   ].filter(Boolean).join('\n'));
+
+  const referenced = referencedObjectsPolicy(config);
+  if (referenced) {
+    sections.push(referenced);
+  }
+
+  sections.push([
+    '## Judging each record (operator policy)',
+    'Every record you return carries "suggestedDecision" and "suggestedDecisionReason". Judge it against the rules in this policy, not against your own taste: a record that satisfies them is an "approve", a record one of them rules out is a "reject", and a record you cannot settle without something the document does not say is a "snooze".',
+    'A record you marked as "duplicateOf" is always a "reject" — it is already waiting for review.',
+  ].join('\n'));
 
   if (config.promptFragment.trim()) {
     sections.push(`## The operator's extraction rules (operator policy)\n${config.promptFragment.trim()}`);
@@ -201,7 +264,7 @@ export function buildExtractionPrompt(opts: {
     { name: 'rules', text: capped(scrubMarkers(opts.rules), RULES_CHAR_CAP) },
     { name: 'jsonld', text: capped(scrubMarkers(opts.jsonLd), JSON_LD_CHAR_CAP) },
     { name: 'known', text: capped(scrubMarkers(opts.known), KNOWN_CHAR_CAP) },
-    { name: 'page', text: capped(scrubMarkers(opts.pageText), PAGE_CHAR_CAP) },
+    { name: 'page', text: scrubMarkers(opts.pageText) },
   ];
 
   const trimmed: string[] = [];

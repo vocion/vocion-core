@@ -64,6 +64,51 @@ export const MqlEnrollment: Story = {
   },
 };
 
+/**
+ * A card the agent wants turned down — the badge plus the sentence behind it.
+ *
+ * Worth a story of its own because it is the shape where the two pieces of
+ * writing on a card say different things: `rationale` argues the extraction is
+ * right, and the recommendation's reason argues the record should still not be
+ * in the queue.
+ */
+export const RecommendedRejection: Story = {
+  args: {
+    run: {
+      id: 8,
+      actionId: 'objects.propose_candidate',
+      status: 'pending',
+      invokedBy: 'agent:listing-scout',
+      proposal: {
+        confidence: 0.93,
+        rationale: 'Listed on the venue\'s own events page with a date, a time and a price.',
+        suggestedDecision: 'reject',
+        suggestedDecisionReason: 'Third listing of this same show this week — already in the queue as #412.',
+      },
+      input: {},
+      card: {
+        title: 'Open Mic Night · The Corvina',
+        system: 'Events',
+        subject: { name: 'The Corvina', role: 'Venue' },
+        provenance: [
+          { label: 'Source', value: 'bellwaterhall.example/events' },
+          { label: 'Starts', value: 'Sep 19, 2026 · 7:30pm' },
+        ],
+        recommendation: { headline: 'Turn down: duplicate listing', detail: 'The same show was read off the venue\'s featured block earlier this week.' },
+        contentHeading: { label: 'Candidate' },
+        content: [],
+        fields: [
+          { label: 'Title', value: 'Open Mic Night' },
+          { label: 'Venue', value: 'The Corvina' },
+          { label: 'Price', value: 'Free' },
+        ],
+        links: [],
+        verbs: { approve: 'Publish', reject: 'Turn down' },
+      },
+    },
+  },
+};
+
 /** Proposal review — document × 1, PDF preview + side-by-side. Verb: Send. No shell changes. */
 export const ProposalReview: Story = {
   args: {

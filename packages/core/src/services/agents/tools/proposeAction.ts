@@ -18,7 +18,7 @@ import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { listActions } from '@/libs/actions/registry';
-import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction } from '@/services/ActionService';
 
 export function proposeActionTool(ctx: RuntimeContext) {
@@ -26,15 +26,24 @@ export function proposeActionTool(ctx: RuntimeContext) {
 
   return tool(
     async (input) => {
-      const { action_id, action_input, confidence, rationale, evidence, suggested_decision, suggested_snooze_until } = input as {
+      const { action_id, action_input, confidence, rationale, evidence, suggested_decision, suggested_decision_reason, suggested_snooze_until } = input as {
         action_id: string;
         action_input: Record<string, unknown>;
         confidence: number;
         rationale: string;
         evidence?: string[];
-        suggested_decision?: SuggestedDecision;
+        suggested_decision: SuggestedDecision;
+        suggested_decision_reason: string;
         suggested_snooze_until?: string;
       };
+      // A model can satisfy a required string with spaces. The tool refuses
+      // that rather than queueing a card whose reason renders as a blank quote
+      // under the badge — and says what to send instead, since the answer is
+      // one sentence the model already has in mind.
+      const reason = parseSuggestedDecisionReason(suggested_decision_reason);
+      if (reason === undefined) {
+        return `Proposal refused: suggested_decision_reason is required. Send ONE short sentence for why you recommended "${suggested_decision}", in words a reviewer can check against the record.`;
+      }
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,
@@ -54,6 +63,7 @@ export function proposeActionTool(ctx: RuntimeContext) {
             rationale,
             evidence,
             suggestedDecision: suggested_decision,
+            suggestedDecisionReason: reason,
             suggestedSnoozeUntil: suggested_snooze_until,
           },
         });
@@ -92,7 +102,8 @@ export function proposeActionTool(ctx: RuntimeContext) {
         confidence: z.number().min(0).max(1).describe('Your confidence this change is correct, 0–1 (e.g. 0.85)'),
         rationale: z.string().describe('One or two sentences: WHY this change, citing the evidence'),
         evidence: z.array(z.string()).optional().describe('Source doc uris/ids backing the proposal (e.g. gmail message ids, hubspot record uris)'),
-        suggested_decision: z.enum(SUGGESTED_DECISIONS).optional().describe('What you think the reviewer should DO, which is a different question from how confident you are: "approve" to go ahead, "reject" if you believe this should be turned down, "snooze" if it is worth another look later. Say "reject" when that is genuinely your read — filing a record you think should be declined is how a person sees your judgement instead of only your silence. Advisory: a person always decides, and this never makes anything run on its own. Omit it if you have no view.'),
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('Required on every proposal. What you think the reviewer should DO, which is a different question from how confident you are: "approve" to go ahead, "reject" if you believe this should be turned down, "snooze" if it is worth another look later. Always pick the one that best fits the criteria you were given — an unsure read is still a read, and "I would lean to approving this" is worth more to a reviewer than silence. Say "reject" when that is genuinely your call: filing a record you think should be declined is how a person sees your judgement. Advisory: a person always decides, and this never makes anything run on its own.'),
+        suggested_decision_reason: z.string().describe('Required on every proposal. ONE short sentence for why you recommended that, in plain words a reviewer can check: "third listing of this same show this week", "date has already passed", "venue is outside the coverage area". Keep it to roughly that length — it is read beside a badge on a card, so one clause beats two, and a paragraph is wrong however true it is. This is not the same as `rationale` — that one argues your payload is right, this one argues what should happen to it, which is the whole content of a "reject". Name the one thing that tipped it, do not restate the payload, and do not say how confident you feel.'),
         suggested_snooze_until: z.string().optional().describe('ISO timestamp for when this is worth revisiting. Only meaningful with suggested_decision "snooze".'),
       }),
     },

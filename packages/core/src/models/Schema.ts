@@ -2607,10 +2607,11 @@ export const autonomyPolicySchema = pgTable(
  * (an `ask`, keyed by ask kind). `recommended` is what the agent advised — the
  * proposal's `suggestedDecision`, or the ask option marked `recommended` — and
  * `agreed` whether the person chose it. An action proposed with no explicit
- * recommendation carries an `implicit` approve: an agent only proposes work it
- * wants run, and the autonomy question is "had this executed without you,
- * would you have let it", which that answers. The adoption agreement metric
- * deliberately leaves those out; this ledger deliberately keeps them, labelled.
+ * recommendation stores a null `recommended`, never an inferred `approve`:
+ * silence is not a recommendation, and scoring it as one made an agent that
+ * said nothing look wrong every time a reviewer turned its work down. Such a
+ * row still records that a decision happened — it just sits outside the
+ * agreement rate, whose denominator counts only a stated recommendation.
  *
  * `auto_executed` is set when the run had already executed under a trust rule
  * before the person saw it — a rejection there is the strongest demotion signal
@@ -2632,7 +2633,13 @@ export const decisionAlignmentSchema = pgTable(
     decision: text('decision').notNull(),
     /** approve | reject | snooze | <option id>; null when nothing was recommended. */
     recommended: text('recommended'),
-    /** True when `recommended` was inferred (an action proposed without a suggestedDecision). */
+    /**
+     * Legacy. Marked a `recommended` that was inferred rather than stated,
+     * back when an action proposed without a `suggestedDecision` was recorded
+     * as an implicit `approve`. Nothing writes `true` any more — an unstated
+     * recommendation is a null `recommended` — and the column stays only so
+     * the rows written under the old rule remain readable as what they were.
+     */
     implicit: boolean('implicit').default(false).notNull(),
     /** Whether the decision matched the recommendation; null when nothing was recommended. */
     agreed: boolean('agreed'),
@@ -2676,6 +2683,18 @@ export const actionRunSchema = pgTable(
      */
     proposal: jsonb('proposal').$type<{
       confidence?: number;
+      /**
+       * Why the proposer believes this payload is RIGHT — the case for the
+       * record itself, citing what it read: "the Sep 14 call moved the close
+       * date; the deal stage in HubSpot still says Proposal Sent".
+       *
+       * Pairs with `suggestedDecisionReason` below and answers a different
+       * question. This one argues the content is correct; that one argues what
+       * should happen to it. They agree on an `approve` and diverge on a
+       * `reject`, where the payload can be flawless and the record still not
+       * belong in the queue — so a card that carries only this one leaves a
+       * reviewer to guess at the recommendation's grounds.
+       */
       rationale?: string;
       evidence?: string[];
       autoApproved?: boolean;
@@ -2707,6 +2726,24 @@ export const actionRunSchema = pgTable(
        * never as `approve`.
        */
       suggestedDecision?: 'approve' | 'reject' | 'snooze';
+      /**
+       * One short sentence for WHY the agent recommended what it did, in its
+       * own words — "third listing of this show this week", "date has passed",
+       * "venue outside the coverage area".
+       *
+       * Separate from `rationale` above on purpose. `rationale` argues that
+       * the payload is right; this argues what should happen to it, and the two
+       * come apart hardest exactly where it matters: a `reject` recommendation
+       * has a perfectly sound payload and a reason it should still be turned
+       * down. Kept so a person can see the argument before deciding, and so
+       * the recommendations themselves can be read back and judged later
+       * rather than only scored as a percentage.
+       *
+       * Asked for as one short sentence and stored whole — a reason cut at a
+       * character count reads worse than a long one. Absent on runs proposed
+       * before this shipped.
+       */
+      suggestedDecisionReason?: string;
       /**
        * Only meaningful alongside `suggestedDecision: 'snooze'`: an ISO
        * timestamp for when the agent thinks this is worth another look. A

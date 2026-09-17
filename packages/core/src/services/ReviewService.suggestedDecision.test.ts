@@ -60,6 +60,31 @@ describe('listPending with a suggestedDecision filter', () => {
     expect(snoozes.map(i => i.suggestedDecision)).toEqual(['snooze']);
   });
 
+  it('carries the reason on the row itself, so a lane can show why', async () => {
+    // On the thin row on purpose: a lane of "everything my screener wants
+    // turned down" would otherwise need one detail fetch per row just to say
+    // anything more useful than the badge.
+    await seedRun('objects.propose_candidate', {
+      confidence: 0.9,
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'The date has already passed.',
+    });
+
+    const [item] = await listPending(ORG, { suggestedDecision: 'reject' });
+
+    expect(item!.suggestedDecisionReason).toBe('The date has already passed.');
+  });
+
+  it('reads a row with a recommendation and no reason as having none', async () => {
+    // Every run proposed before the reason existed is this row. It must read
+    // as "nothing said", never as an empty sentence the card would render.
+    await seedRun('objects.propose_candidate', { confidence: 0.9, suggestedDecision: 'approve' });
+
+    const [item] = await listPending(ORG, { suggestedDecision: 'approve' });
+
+    expect(item!.suggestedDecisionReason).toBeUndefined();
+  });
+
   it('leaves out items the agent gave no view on', async () => {
     // An agent with no opinion is not an agent recommending approval, so an
     // envelope without the key must not answer a filter for one.
@@ -198,6 +223,26 @@ describe('recordActionSignal', () => {
     expect(event!.metadata).toMatchObject({ decision: 'rejected', suggestedDecision: 'reject' });
   });
 
+  it('stamps the reason beside the recommendation it explains', async () => {
+    // Read back months later, the recommendation alone says the agent and the
+    // reviewer disagreed; the reason says what the agent was looking at when
+    // it did, which is the part anyone evaluating the criteria needs.
+    const runId = await seedRun('objects.propose_candidate', {
+      confidence: 0.8,
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Third listing of this same show this week.',
+    });
+
+    await recordActionSignal({ orgId: ORG, runId, userId: 'usr-1', signal: 'approve' });
+    const [event] = await db.select().from(userActivityEventSchema);
+
+    expect(event!.metadata).toMatchObject({
+      decision: 'approved',
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Third listing of this same show this week.',
+    });
+  });
+
   it('leaves the field off when the agent gave no recommendation', async () => {
     const runId = await seedRun('objects.propose_candidate', { confidence: 0.8 });
 
@@ -205,6 +250,7 @@ describe('recordActionSignal', () => {
     const [event] = await db.select().from(userActivityEventSchema);
 
     expect(event!.metadata).not.toHaveProperty('suggestedDecision');
+    expect(event!.metadata).not.toHaveProperty('suggestedDecisionReason');
   });
 
   it('keeps an edit-then-approve as its own signal, still carrying the recommendation', async () => {

@@ -19,11 +19,34 @@
 import type { SyncBudget } from '../budget';
 import type { CandidateExtractorConfig } from './config';
 import type { ValidatedRecord } from './validate';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { IngestDoc } from '@/services/IngestionService';
 import { candidateDedupKey, describeSchemaProblems } from '@/libs/actions/objects-propose-candidate';
 
 /** Extraction notes a card can carry, matching the action's own cap. */
 const NOTES_CHAR_CAP = 2000;
+
+/**
+ * The model's verdict on one record, or a null pair when the sentence owed
+ * alongside it came back empty.
+ *
+ * The envelope requires both halves, but required only means present: a model
+ * answering `""` satisfies the schema, and the card would then carry a verdict
+ * with nothing under it — counted in the agreement rate, unreadable by the
+ * person it was counted against. Silence is the honest reading of that, and it
+ * is the same reading `resolve.ts` takes for a referenced object.
+ * @param record - The validated record.
+ */
+function recordVerdict(record: ValidatedRecord): {
+  suggestedDecision: SuggestedDecision | null;
+  suggestedDecisionReason: string | null;
+} {
+  const reason = record.suggestedDecisionReason?.trim();
+  if (!reason) {
+    return { suggestedDecision: null, suggestedDecisionReason: null };
+  }
+  return { suggestedDecision: record.suggestedDecision, suggestedDecisionReason: reason };
+}
 
 /**
  * Log through a deferred import, never a static one.
@@ -165,11 +188,24 @@ export async function proposeRecords(opts: {
         // and a declared field nobody wrote would score as cleared on every
         // approve.
         ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
-        // A card the model called a duplicate of a known one is a recommendation
-        // to turn it down; core keeps such a card pending for a person and only
-        // scores agreement with what the reviewer does. Everything else carries
-        // no recommendation until a measured threshold says approve is safe.
-        ...(record.duplicateOf !== undefined ? { suggestedDecision: 'reject' as const } : {}),
+        // What the model thinks should happen to this card, and why, in one
+        // sentence. Distinct from `rationale` above: that says where the card
+        // came from, this says what to do with it — and for a `reject` the two
+        // are nothing alike, because the extraction can be perfect and the
+        // record still not belong in the queue.
+        //
+        // A card the model called a duplicate of a known one is a `reject`
+        // whatever it recommended, and the reason says so in core's words
+        // rather than the model's: the duplicate id is our determination, and
+        // a reviewer reading "duplicate of #412" should be reading a claim we
+        // can stand behind. Still only a recommendation — core keeps the card
+        // pending for a person and scores agreement against what they do.
+        ...(record.duplicateOf !== undefined
+          ? {
+              suggestedDecision: 'reject' as const,
+              suggestedDecisionReason: `Already waiting for review as action run #${record.duplicateOf}.`,
+            }
+          : recordVerdict(record)),
       },
     });
 

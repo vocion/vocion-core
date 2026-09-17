@@ -34,7 +34,13 @@ const { buildDomainTools } = await import('./registry');
 const { discoveryTools, DISCOVERY_TOOL_NAMES } = await import('./discovery');
 
 const ORG = 'org_tooldisc';
-const NOW = new Date('2026-08-17T18:00:00.000Z');
+/**
+ * The fixture's "now". Relative to the real clock on purpose: the tools filter
+ * on `since_days` against `Date.now()`, so a pinned date rots — this file's
+ * three failures from 2026-09-17 were a 2026-08-17 fixture falling out of a
+ * 30-day window. Nothing here asserts a calendar date, only recency.
+ */
+const NOW = new Date();
 const EMBED = Array.from({ length: 1536 }, () => 0);
 const CANARY = 'XYLOPHONE-CONFIDENTIAL-7741';
 /**

@@ -63,7 +63,7 @@ describe('discovery.review_proposal handoff', () => {
       actionId: 'discovery.review_proposal',
       principal: detector(),
       input: proposalInput(),
-      proposal: { confidence: 0.92, rationale: 'clear discovery' },
+      proposal: { confidence: 0.92, rationale: 'clear discovery', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded discovery proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
@@ -97,7 +97,7 @@ describe('discovery.review_proposal handoff', () => {
       actionId: 'discovery.review_proposal',
       principal: detector(),
       input: proposalInput({ route: 'drop', isDiscovery: false, proposalReady: false }),
-      proposal: { confidence: 0.2, rationale: 'internal sync' },
+      proposal: { confidence: 0.2, rationale: 'internal sync', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded discovery proposal for this test.' },
     });
     await executeAction(proposed.runId!, ORG);
 
@@ -116,7 +116,7 @@ describe('discovery.review_proposal handoff', () => {
       actionId: 'discovery.review_proposal',
       principal: detector(),
       input: proposalInput(),
-      proposal: { confidence: 0.9, rationale: 'clear' },
+      proposal: { confidence: 0.9, rationale: 'clear', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded discovery proposal for this test.' },
     });
     const executedRun = await executeAction(proposed.runId!, ORG);
 
@@ -150,7 +150,7 @@ describe('discovery.review_proposal handoff', () => {
       actionId: 'discovery.review_proposal',
       principal: detector(),
       input: proposalInput(),
-      proposal: { confidence: 0.99, rationale: 'very confident' },
+      proposal: { confidence: 0.99, rationale: 'very confident', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded discovery proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
