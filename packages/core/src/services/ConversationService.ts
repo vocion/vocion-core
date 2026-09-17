@@ -52,6 +52,8 @@ export type ConversationTraceNode = {
   result?: string;
   confidence?: number;
   citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
+  /** How many text runs had started when this step began — its place between the passages. */
+  anchor?: number;
 };
 
 /* ------------------------------------------------------------------ */

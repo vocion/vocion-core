@@ -52,6 +52,11 @@ export class RunCollector {
     const merged: ConversationTraceNode = {
       ...prev,
       ...node,
+      // Where in the answer the step began, fixed on first sight: the text
+      // runs already flushed plus the one still accumulating. The live
+      // surface computes the same number the same way (`useChatSession`),
+      // so a reloaded transcript interleaves exactly as the streamed one did.
+      anchor: prev?.anchor ?? this.textRunCount(),
       text: (prev?.text ?? '') + (typeof node.delta === 'string' ? node.delta : ''),
       citations: node.citations ?? prev?.citations,
       result: node.result ?? prev?.result,
@@ -118,6 +123,11 @@ export class RunCollector {
     }
     this.flushText();
     this.runs.push({ type: 'tool', name, input: {}, output: message.slice(0, 4000), state: 'error' });
+  }
+
+  /** Text runs that exist or will exist before the next step: flushed ones plus the passage in progress. */
+  private textRunCount(): number {
+    return this.runs.filter(r => r.type === 'text').length + (this.currentText?.trim() ? 1 : 0);
   }
 
   private flushText(): void {

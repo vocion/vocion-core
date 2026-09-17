@@ -74,6 +74,15 @@ export type TraceNode = {
   result?: string;
   confidence?: number;
   citations?: TraceCitation[];
+  /**
+   * Where this step sits in the answer: how many text runs of the reply had
+   * started when the step began. `0` is "before the first words"; `n` is
+   * "after the n-th passage". The transcript renders each group of steps at
+   * that point, between the passages, in the order things actually happened
+   * (`interleave.ts`) instead of hoisting every tool call to the top. Absent
+   * on turns persisted before this existed, which render hoisted as before.
+   */
+  anchor?: number;
 };
 
 /** A2UI: a one-tap recommended action rendered as a card in the answer. */

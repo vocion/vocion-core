@@ -405,6 +405,14 @@ export function useChatSession({
   // reason tokens arrive as fast as response tokens, so they need batching too.
   const pendingTraceRef = useRef<Map<string, TraceNode>>(new Map());
   const traceDirtyRef = useRef(false);
+  // Where in the answer we are, for `TraceNode.anchor`: how many text runs
+  // have started this turn, and whether the newest run is one of them (so the
+  // next delta extends it rather than opening another). Mirrors the reducer's
+  // own extend-or-append rule without reading React state mid-event, and the
+  // same count the server's RunCollector stamps — so the live transcript and
+  // the reloaded one interleave the same way.
+  const textRunsRef = useRef(0);
+  const lastRunIsTextRef = useRef(false);
 
   const flushDeltas = useCallback(() => {
     if (flushFrameRef.current !== null) {
@@ -420,6 +428,10 @@ export function useChatSession({
     pendingResponseRef.current = '';
     pendingThinkingRef.current = '';
     traceDirtyRef.current = false;
+    if (responseText && !lastRunIsTextRef.current) {
+      textRunsRef.current += 1;
+      lastRunIsTextRef.current = true;
+    }
     const trace = traceDirty ? [...pendingTraceRef.current.values()] : null;
     appendToLatestAgent((m) => {
       let next = m;
@@ -478,6 +490,14 @@ export function useChatSession({
         // text), batched onto the animation frame like the other deltas.
         const node = evt as unknown as TraceNode & { delta?: string };
         const map = pendingTraceRef.current;
+        // A NEW step is anchored to its place in the answer. Flush first so a
+        // passage still in the buffer counts as started — it precedes the step.
+        if (!map.has(node.id)) {
+          if (pendingResponseRef.current) {
+            flushDeltas();
+          }
+          node.anchor = textRunsRef.current;
+        }
         map.set(node.id, mergeTraceNode(map.get(node.id), node));
         traceDirtyRef.current = true;
         setActivity(node.label);
@@ -517,6 +537,7 @@ export function useChatSession({
         // Pipeline Analyst…" instead of "Running task…".
         const live = describeToolCall(name, input, true);
         setActivity(live.detail ? `${live.label} ${live.detail}` : live.label);
+        lastRunIsTextRef.current = false;
         appendToLatestAgent(m => ({
           ...m,
           runs: [...(m.runs ?? []), { type: 'tool', name, input, state: 'pending' }],
@@ -592,6 +613,7 @@ export function useChatSession({
         const checked = readRecommendedAction(evt.recommendation);
         if (!checked.ok) {
           console.warn(`useChatSession: dropped an invalid recommended_action — ${checked.reason}`);
+          lastRunIsTextRef.current = false;
           appendToLatestAgent(m => ({
             ...m,
             runs: [...(m.runs ?? []), { type: 'tool', name: 'recommend_action', state: 'error', output: checked.reason }],
@@ -671,6 +693,7 @@ export function useChatSession({
         setPhase('idle');
         setActivity(null);
         const message = String(evt.message ?? 'error');
+        lastRunIsTextRef.current = false;
         appendToLatestAgent(m => ({
           ...m,
           runs: [...(m.runs ?? []), { type: 'tool', name: 'error', state: 'error', output: message }],
@@ -765,6 +788,8 @@ export function useChatSession({
   const resumeStream = useCallback(async (stash: StreamStash) => {
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
+    textRunsRef.current = 0;
+    lastRunIsTextRef.current = false;
     setMessages(prev => [...prev, { role: 'assistant', content: '', runs: [] }]);
     streamingRef.current = true;
     setPhase('thinking');
@@ -1023,9 +1048,11 @@ export function useChatSession({
     const text = pastedText
       ? `${command.text.trim()}\n\n--- pasted ---\n${pastedText}`.trim()
       : command.text;
-    // Fresh turn — reset the per-turn trace accumulator.
+    // Fresh turn — reset the per-turn trace accumulator and the anchor clock.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
+    textRunsRef.current = 0;
+    lastRunIsTextRef.current = false;
     setMessages(prev => [
       ...prev,
       { role: 'user', content: text },
