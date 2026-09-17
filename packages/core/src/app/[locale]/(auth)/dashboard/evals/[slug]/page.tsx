@@ -1,3 +1,5 @@
+import type { DatasetSyncTone } from './datasetSync';
+import type { EvalDatasetItem } from '@/services/evals/types';
 import { ArrowLeft, ArrowRight, CheckCircle2, OctagonAlert, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
@@ -6,11 +8,28 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { describeProviders } from '@/services/evals/providers/registry';
+import { describeDatasetSync } from '@/services/evals/publish';
 import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listRuns, listRunsPage } from '@/services/EvalService';
 import { ProviderChip } from '../ProviderChip';
 import { describeProvider } from '../providerCopy';
+import { summariseDatasetSync } from './datasetSync';
 import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
+
+/**
+ * How firmly each sync state is drawn.
+ *
+ * A failed copy is the only one worth colouring like a warning: behind is
+ * normal between an edit and the next run, and in step is the state nobody
+ * needs to notice.
+ */
+const SYNC_TONE_CLASSES: Record<DatasetSyncTone, string> = {
+  'local': 'border-border bg-muted/20 text-muted-foreground',
+  'pending': 'border-border bg-muted/20 text-muted-foreground',
+  'behind': 'border-border bg-muted/20 text-foreground',
+  'in-step': 'border-border bg-muted/20 text-muted-foreground',
+  'failed': 'border-amber-500/30 bg-amber-500/5 text-amber-800 dark:text-amber-200',
+};
 
 type Props = {
   params: Promise<{ locale: string; slug: string }>;
@@ -31,10 +50,13 @@ export default async function EvalDatasetDetailPage(props: Props) {
     notFound();
   }
 
-  const [allRuns, providers, evaluatorProblems] = await Promise.all([
+  const [allRuns, providers, evaluatorProblems, syncState] = await Promise.all([
     listRuns(orgId, dataset.id),
     describeProviders(orgId),
     listEvaluatorProblems(orgId, dataset.slug),
+    // The column's declared shape is looser than the one the eval code reads;
+    // `EvalService` narrows it the same way for the same reason.
+    describeDatasetSync(dataset.id, dataset.provider, (dataset.items ?? []) as EvalDatasetItem[], dataset.slug),
   ]);
 
   // One grader per dataset, named in the workspace file. Runs from before a
@@ -45,6 +67,16 @@ export default async function EvalDatasetDetailPage(props: Props) {
   const graderProblem = grader && !grader.available ? grader.reason : null;
   const labelFor = (id: string) => providers.find(p => p.id === id)?.label ?? id;
   const historicalProviders = [...new Set(allRuns.map(run => run.provider))].filter(id => id !== dataset.provider);
+
+  // Where the cases themselves live. A grader that holds its own copy of them
+  // can be holding older ones than the workspace file does, and a score means
+  // something different depending on which it graded.
+  const sync = summariseDatasetSync({
+    graderLabel,
+    keepsDataset: grader?.keepsDataset ?? false,
+    workspaceVersion: dataset.version,
+    state: syncState,
+  });
 
   // The list is paged; the chart is not. They answer different questions — one
   // is "what happened lately", the other is "which way is this going" — and a
@@ -123,6 +155,27 @@ export default async function EvalDatasetDetailPage(props: Props) {
           .
         </p>
       </div>
+
+      <section className={`mb-6 rounded-lg border px-4 py-3 text-xs ${SYNC_TONE_CLASSES[sync.tone]}`}>
+        <div className="font-semibold">{sync.headline}</div>
+        <p className="mt-1">{sync.detail}</p>
+        {sync.remoteId && (
+          <p className="mt-2 text-muted-foreground">
+            Dataset in
+            {' '}
+            {graderLabel}
+            :
+            {' '}
+            <code className="font-mono">{sync.remoteId}</code>
+            {sync.syncedAt && (
+              <>
+                {' · last copied '}
+                {new Date(sync.syncedAt).toLocaleString()}
+              </>
+            )}
+          </p>
+        )}
+      </section>
 
       {evaluatorProblems.length > 0 && (
         <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">

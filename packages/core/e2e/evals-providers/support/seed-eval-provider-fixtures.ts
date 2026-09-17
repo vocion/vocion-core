@@ -14,7 +14,12 @@
  *   - `e2e-changed-graders` — an AgentCore dataset that used to be scored by
  *     Vocion, across two dataset versions, so the grader chip, the note about
  *     older runs and the version boundary all have something to draw. An eval
- *     only ever has one grader now, so the second one can only be history.
+ *     only ever has one grader now, so the second one can only be history. It
+ *     also carries a published copy in AWS whose cases have since been edited,
+ *     which is the drift state.
+ *   - `e2e-not-copied` — an AgentCore dataset with no published copy at all,
+ *     which is both the first-run state and every AgentCore dataset that
+ *     existed before publishing did.
  *
  * Also files one activity event for the agent, which is what puts it on the
  * adoption page where the eval pass rate sits beside the agreement rate.
@@ -34,6 +39,7 @@ import { db } from '@/libs/DB';
 import {
   accountMembershipSchema,
   evalCaseResultSchema,
+  evalDatasetRemoteSchema,
   evalDatasetSchema,
   evalRunSchema,
   projectSchema,
@@ -46,7 +52,8 @@ const AGENT_SLUG = 'e2e-eval-agent';
 const UNTOUCHED = 'e2e-untouched';
 const ONE_GRADER = 'e2e-one-grader';
 const CHANGED_GRADERS = 'e2e-changed-graders';
-const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS];
+const NOT_COPIED = 'e2e-not-copied';
+const SLUGS = [UNTOUCHED, ONE_GRADER, CHANGED_GRADERS, NOT_COPIED];
 
 const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
 
@@ -165,6 +172,33 @@ async function createRun(values: {
   });
 }
 
+/**
+ * Record a dataset as published into a grader's account.
+ *
+ * `casesHash` is what decides whether the page says the copy is in step, so a
+ * hash that matches nothing is how the fixture asks for the drift state.
+ * @param values - Everything the row needs.
+ * @param values.orgId - Whose workspace.
+ * @param values.datasetId - Which dataset was published.
+ * @param values.casesHash - The content hash of the cases last published.
+ */
+async function createRemoteCopy(values: {
+  orgId: string;
+  datasetId: number;
+  casesHash: string;
+}): Promise<void> {
+  await db.insert(evalDatasetRemoteSchema).values({
+    orgId: values.orgId,
+    datasetId: values.datasetId,
+    provider: 'agentcore',
+    remoteId: 'ds-e2e-fixture',
+    remoteVersion: '2',
+    casesHash: values.casesHash,
+    status: 'ACTIVE',
+    syncedAt: daysAgo(3),
+  });
+}
+
 async function main(): Promise<void> {
   const email = emailArgument();
   const orgId = await orgIdForAdmin(email);
@@ -184,6 +218,14 @@ async function main(): Promise<void> {
   await createRun({ orgId, datasetId: changedGraders, provider: 'agentcore', passRate: 0.9, datasetVersion: 1, startedAt: daysAgo(3) });
   await createRun({ orgId, datasetId: changedGraders, provider: 'agentcore', passRate: 0.7, datasetVersion: 2, startedAt: daysAgo(1) });
 
+  // Published to AWS three days ago, and a case has been edited since.
+  await createRemoteCopy({ orgId, datasetId: changedGraders, casesHash: 'hash-of-an-earlier-version' });
+
+  // An AgentCore dataset with no remote row at all: what every AgentCore
+  // dataset looked like before publishing existed, and what a new one looks
+  // like until its first run.
+  await createDataset(orgId, NOT_COPIED, 1, 'agentcore');
+
   const [user] = await db.select({ id: userSchema.id }).from(userSchema).where(eq(userSchema.email, email));
   await db.insert(userActivityEventSchema).values({
     orgId,
@@ -201,6 +243,7 @@ async function main(): Promise<void> {
     untouchedSlug: UNTOUCHED,
     oneGraderSlug: ONE_GRADER,
     changedGradersSlug: CHANGED_GRADERS,
+    notCopiedSlug: NOT_COPIED,
   })}\n`);
 }
 

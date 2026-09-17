@@ -60,6 +60,14 @@ export type ProviderDescription = {
   available: boolean;
   /** Why not, when it is unavailable. Empty when it is. */
   reason: string;
+  /**
+   * True when this grader keeps a copy of the dataset in its own account.
+   *
+   * The page needs this before anything has been published, to tell "this
+   * eval's cases have not reached AWS yet" from "this grader reads the cases
+   * out of Postgres and never will".
+   */
+  keepsDataset: boolean;
 };
 
 /**
@@ -82,6 +90,7 @@ export async function describeProviders(orgId: string): Promise<ProviderDescript
         label: provider.label,
         available: availability.available,
         reason: availability.reason,
+        keepsDataset: typeof provider.publishDataset === 'function',
       });
     } catch (error) {
       console.error(`[evals] could not tell whether ${provider.id} is available for ${orgId}`, error);
@@ -90,6 +99,7 @@ export async function describeProviders(orgId: string): Promise<ProviderDescript
         label: provider.label,
         available: false,
         reason: (error as Error).message ?? 'could not check availability',
+        keepsDataset: typeof provider.publishDataset === 'function',
       });
     }
   }

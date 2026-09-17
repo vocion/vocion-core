@@ -14,6 +14,9 @@ describe('describeProvider', () => {
     // The two facts people ask about the first time they see the label.
     expect(describeProvider('agentcore').explanation).toContain('AWS');
     expect(describeProvider('agentcore').explanation).toContain('bills your own account');
+    // The cases leave Vocion too, not only the transcript — someone deciding
+    // whether to put customer wording in an eval needs that said up front.
+    expect(describeProvider('agentcore').explanation).toContain('copied into AgentCore');
     expect(describeProvider('vocion').explanation).toContain('Nothing leaves Vocion');
   });
 

@@ -16,6 +16,10 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * - With two graders, the filter appears, labels each run, and filtering
  *   really narrows the list rather than just highlighting a pill.
  *
+ * Plus where the cases themselves live: a grader that keeps its own copy of
+ * them can be holding older ones than the workspace file does, and the page
+ * has to say which without making an out-of-date copy look like a broken eval.
+ *
  * Plus the fourth thing the design asked for: the eval pass rate sitting
  * beside the agreement rate on the agent's adoption row.
  *
@@ -40,6 +44,7 @@ type SeedFixtures = {
   untouchedSlug: string;
   oneGraderSlug: string;
   changedGradersSlug: string;
+  notCopiedSlug: string;
 };
 
 function createBootstrapAdmin(): void {
@@ -214,6 +219,34 @@ test.describe('the eval section, with more than one grader', () => {
     // than being read as AgentCore's work.
     await expect(shownText(page, 'before this dataset changed graders', { exact: false })).toBeVisible();
     await expect(shownText(page, 'Graded by')).toHaveCount(1);
+  });
+
+  test('an AgentCore eval says its cases are copied into AWS, and whether that copy is current', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.changedGradersSlug}`);
+
+    // The cases were published three days ago and one has been edited since,
+    // so the version AWS holds is measuring something else.
+    await expect(shownText(page, 'copy is behind this workspace', { exact: false })).toBeVisible();
+    // Both versions, because "v7 here, v2 there" is the whole point.
+    await expect(shownText(page, 'Workspace v2', { exact: false })).toBeVisible();
+    // The id support needs to find the dataset in the AWS console.
+    await expect(shownText(page, 'ds-e2e-fixture', { exact: false })).toBeVisible();
+  });
+
+  test('an AgentCore eval that has never been published says so, rather than reading as failed', async ({ page }) => {
+    // Every AgentCore dataset that predates publishing looks like this, so it
+    // has to render as pending rather than as an error or an empty panel.
+    await page.goto(`/dashboard/evals/${fixtures.notCopiedSlug}`);
+
+    await expect(shownText(page, 'Not copied to AgentCore yet', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'Could not copy', { exact: false })).toHaveCount(0);
+  });
+
+  test('a Vocion eval is not offered a copy it will never have', async ({ page }) => {
+    await page.goto(`/dashboard/evals/${fixtures.oneGraderSlug}`);
+
+    await expect(shownText(page, 'stored in Vocion', { exact: false })).toBeVisible();
+    await expect(shownText(page, 'Not copied', { exact: false })).toHaveCount(0);
   });
 
   test('the trend chart marks where the dataset changed underneath the scores', async ({ page }) => {

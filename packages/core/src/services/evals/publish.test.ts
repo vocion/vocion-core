@@ -14,7 +14,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { evalDatasetRemoteSchema, evalDatasetSchema } = await import('@/models/Schema');
 const { eq } = await import('drizzle-orm');
-const { syncDatasetToProvider } = await import('./publish');
+const { describeDatasetSync, syncDatasetToProvider } = await import('./publish');
 
 const ORG = 'org_publish_sync';
 
@@ -198,5 +198,56 @@ describe('syncDatasetToProvider', () => {
 
     expect(rows).toHaveLength(2);
     expect(rows.map(row => row.provider).sort()).toEqual(['agentcore', 'azure-foundry']);
+  });
+});
+
+describe('describeDatasetSync', () => {
+  it('says nothing at all for a dataset nobody has tried to publish', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+
+    const state = await describeDatasetSync(dataset.id, 'agentcore', dataset.items, dataset.slug);
+
+    // The page turns this into "not copied yet", which is true; inventing a
+    // row here would make it read as a failed copy instead.
+    expect(state).toBeNull();
+  });
+
+  it('calls the copy in step when the cases have not moved', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const { provider } = publishingProvider();
+    await syncDatasetToProvider(ORG, dataset, provider as never);
+
+    const state = await describeDatasetSync(dataset.id, 'agentcore', dataset.items, dataset.slug);
+
+    expect(state?.drifted).toBe(false);
+    expect(state?.remoteId).toBe('ds-1');
+    expect(state?.remoteVersion).toBe('1');
+  });
+
+  it('spots cases edited since the last publish', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const { provider } = publishingProvider();
+    await syncDatasetToProvider(ORG, dataset, provider as never);
+
+    const edited = [{ input: 'one', expectedOutput: 'a refund is on the way' }];
+    const state = await describeDatasetSync(dataset.id, 'agentcore', edited, dataset.slug);
+
+    // Between someone editing the workspace file and the next run, the
+    // version number AgentCore holds is measuring other cases.
+    expect(state?.drifted).toBe(true);
+  });
+
+  it('keeps the failure visible for the page to show', async () => {
+    const dataset = await seedDataset([{ input: 'one' }]);
+    const failing = vi.fn(async () => {
+      throw new Error('AWS refused the dataset');
+    });
+    const { provider } = publishingProvider(failing as never);
+    await syncDatasetToProvider(ORG, dataset, provider as never);
+
+    const state = await describeDatasetSync(dataset.id, 'agentcore', dataset.items, dataset.slug);
+
+    expect(state?.syncError).toContain('AWS refused the dataset');
+    expect(state?.remoteId).toBeNull();
   });
 });

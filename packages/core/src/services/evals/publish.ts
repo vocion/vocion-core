@@ -206,3 +206,64 @@ async function releaseLock(key: string): Promise<void> {
     console.error('[evals] could not release the publish lock', error);
   }
 }
+
+/** Where a dataset's cases stand with the grader that holds them. */
+export type DatasetSyncState = {
+  /** The grader this state is about. */
+  provider: string;
+  /** The grader's own id for the dataset, once it has made one. */
+  remoteId: string | null;
+  /** The version the grader last cut. */
+  remoteVersion: string | null;
+  /** Whatever the grader last called the dataset's state. */
+  status: string | null;
+  /** Set when the last publish failed. */
+  syncError: string | null;
+  /** When we last tried. */
+  syncedAt: Date | null;
+  /** True when the cases here are not the ones the grader is holding. */
+  drifted: boolean;
+};
+
+/**
+ * Read the publish state for one dataset and grader, for the page to show.
+ *
+ * Drift is worked out here rather than stored, because it is a comparison
+ * between two things that each change on their own: someone edits a case in
+ * the workspace file long before the next run publishes it. A stored flag
+ * would be stale the moment the file was applied.
+ *
+ * Returns null when this grader has never been asked to hold this dataset —
+ * either because it keeps no dataset of its own, or because nothing has run
+ * yet. The page tells those two apart from the provider, not from here.
+ * @param datasetId - Which dataset.
+ * @param providerId - Which grader.
+ * @param items - The cases the dataset declares right now.
+ * @param slug - The dataset's slug, which is part of the published content.
+ */
+export async function describeDatasetSync(
+  datasetId: number,
+  providerId: string,
+  items: EvalDatasetItem[],
+  slug: string,
+): Promise<DatasetSyncState | null> {
+  const [row] = await db
+    .select()
+    .from(evalDatasetRemoteSchema)
+    .where(and(
+      eq(evalDatasetRemoteSchema.datasetId, datasetId),
+      eq(evalDatasetRemoteSchema.provider, providerId),
+    ));
+  if (!row) {
+    return null;
+  }
+  return {
+    provider: row.provider,
+    remoteId: row.remoteId,
+    remoteVersion: row.remoteVersion,
+    status: row.status,
+    syncError: row.syncError,
+    syncedAt: row.syncedAt,
+    drifted: row.casesHash !== casesHashFor(items, slug),
+  };
+}

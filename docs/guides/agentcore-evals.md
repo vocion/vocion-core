@@ -55,6 +55,54 @@ The way the two meet is a person promoting a bad live session into a dataset
 and writing the expected answer — after which it is a regression case like any
 other.
 
+## Where the cases live
+
+A dataset graded by AgentCore exists twice: in your workspace file, which is
+where you edit it, and as a real AgentCore dataset inside your own AWS account,
+which Vocion keeps in step.
+
+The copy happens at the top of a run, before a single agent call is made. If it
+is going to fail — bad credentials, a region without the feature, a dataset AWS
+will not accept — the failure lands before anyone has spent money on model
+calls.
+
+What it does, in order:
+
+- Hashes the cases. If the hash matches what was last published and the last
+  publish succeeded, nothing is sent at all. A nightly schedule on an untouched
+  dataset makes no AWS calls.
+- Otherwise it works out the difference against AWS's draft — cases added,
+  changed and dropped — sends only that, and cuts a new dataset version. Each
+  version is immutable, so a run can always say which cases it measured.
+- Requests are split at AWS's ceilings of 1,000 examples and 5 MB, so a large
+  dataset lands in several calls and one version.
+- Only one publisher per dataset at a time, held by a Postgres advisory lock. A
+  schedule firing next to a hand-pressed run makes the second one skip the copy
+  and run anyway, rather than queue behind an AWS round trip.
+
+**A failed copy does not stop the eval.** Scoring never reads the published
+dataset — each `Evaluate` call carries that case's expected answer, assertions
+and expected trajectory in the request body — so a run whose publish failed is
+scored exactly like any other. The failure is written down, the dataset page
+says the copy is out of date, and the next run tries again.
+
+The dataset page shows which of four states you are in: not copied yet, in step,
+behind (cases edited here since the last copy), or a copy that failed with the
+reason. It also shows AWS's own id for the dataset, which is what you need to
+find it in the Bedrock console.
+
+**Vocion never deletes a dataset from your AWS account.** Removing an eval from
+your workspace file stops Vocion running it; the AgentCore dataset and its
+versions stay where they are, and deleting them is a decision you make in your
+own account. That is deliberate — versions are the provenance behind scores
+someone may still be reading — but it does mean an abandoned eval leaves
+something behind.
+
+Cost: the judging is billed to your account as model usage, the same as any
+other AgentCore evaluator call. Whether AWS charges separately for storing a
+dataset and its versions is not something we have verified — check the Bedrock
+AgentCore pricing page before assuming the storage is free.
+
 ## What is deterministic, and what only looks it
 
 Exactly one thing AgentCore ships scores without a model call: **trajectory

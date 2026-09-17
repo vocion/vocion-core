@@ -26,7 +26,7 @@ const COPY: Record<string, ProviderCopy> = {
   agentcore: {
     label: 'AgentCore',
     explanation:
-      'Scored by AWS Bedrock AgentCore: the transcript is sent to AWS, its evaluators grade it, and the scores come back here. AWS bills your own account for the judging.',
+      'Scored by AWS Bedrock AgentCore. The cases themselves are copied into AgentCore as a dataset in your own AWS account and kept there, and each run\'s transcript is sent to AWS to be graded. AWS bills your own account for both.',
   },
 };
 
