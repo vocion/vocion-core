@@ -50,21 +50,25 @@ function packageVersion() {
 // CI often builds from a detached HEAD, where `git branch --show-current` is
 // empty; the ref the pipeline was given is the honest answer there.
 const branch = git('rev-parse --abbrev-ref HEAD');
+// A Docker build has no .git in its context (.dockerignore), so the values a
+// parent deploy knows are handed in as build-args and win when git cannot say.
+const env = name => process.env[name]?.trim() || null;
+const commit = git('rev-parse HEAD') ?? env('VOCION_BUILD_SHA') ?? 'unknown';
 const info = {
   version: packageVersion(),
-  commit: git('rev-parse HEAD') ?? 'unknown',
-  shortCommit: git('rev-parse --short HEAD') ?? 'unknown',
-  subject: git('log -1 --pretty=%s') ?? 'unknown',
+  commit,
+  shortCommit: git('rev-parse --short HEAD') ?? (commit === 'unknown' ? 'unknown' : commit.slice(0, 8)),
+  subject: git('log -1 --pretty=%s') ?? env('VOCION_BUILD_SUBJECT') ?? 'unknown',
   committedAt: git('log -1 --pretty=%cI') ?? 'unknown',
   branch: (branch === 'HEAD' ? null : branch)
-    ?? process.env.GITHUB_REF_NAME
-    ?? process.env.VOCION_BUILD_REF
+    ?? env('GITHUB_REF_NAME')
+    ?? env('VOCION_BUILD_REF')
     ?? 'unknown',
   builtAt: new Date().toISOString(),
   // The parent deploy repo pins this checkout as a submodule and knows its own
   // SHA; it passes it in so one page can show both halves of "what is running".
-  pin: process.env.VOCION_DEPLOY_PIN ?? null,
-  agentRuntimeImage: process.env.VOCION_AGENT_RUNTIME_IMAGE ?? null,
+  pin: env('VOCION_DEPLOY_PIN'),
+  agentRuntimeImage: env('VOCION_AGENT_RUNTIME_IMAGE'),
 };
 
 mkdirSync(join(core, 'src/generated'), { recursive: true });

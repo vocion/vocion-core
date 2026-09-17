@@ -94,6 +94,21 @@ WORKDIR /app/packages/core
 # here instead of left to be inferred. Kept at 6 GiB so it stays safe on the
 # smaller instance size, with Postgres, Temporal and Langfuse resident on the
 # same box while the image builds.
+# The build says what it is (#417): `public/version.txt` + the account-menu
+# stamp. `npm run build` runs this, but the image calls `next build` directly,
+# so the step is explicit here — the first deploy of #417 shipped an image with
+# no version.txt at all (2026-09-17). The context has no .git (.dockerignore),
+# so the parent's bootstrap hands in the core commit it is building.
+ARG VOCION_DEPLOY_PIN=
+ARG VOCION_BUILD_SHA=
+ARG VOCION_BUILD_SUBJECT=
+ARG VOCION_BUILD_REF=
+ARG VOCION_AGENT_RUNTIME_IMAGE=
+RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SHA}" \
+    VOCION_BUILD_SUBJECT="${VOCION_BUILD_SUBJECT}" VOCION_BUILD_REF="${VOCION_BUILD_REF}" \
+    VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
+    node packages/core/scripts/write-version.mjs
+
 RUN NODE_OPTIONS=--max-old-space-size=6144 \
     SKIP_ENV_VALIDATION=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
