@@ -24,6 +24,7 @@ import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/
 import { publishBriefingDocument } from '@/services/briefings/store';
 import { briefingTitle } from '@/services/briefings/title';
 import { BriefingContractError } from '@/services/briefings/validate';
+import { isFromToday, renderBriefingForAgent } from './briefingCitation';
 
 async function callerTeam(ctx: RuntimeContext): Promise<{ teamSlug: string | null; leadSlug: string | null }> {
   if (!ctx.agentSlug) {
@@ -54,11 +55,6 @@ async function latestBriefing(orgId: string, teamSlug: string | null) {
     .orderBy(desc(briefingSchema.createdAt))
     .limit(1);
   return row ?? null;
-}
-
-function isFromToday(d: Date): boolean {
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
 export function publishBriefingTool(ctx: RuntimeContext) {
@@ -92,8 +88,9 @@ export function publishBriefingTool(ctx: RuntimeContext) {
         'You supply observations and judgement ONLY. The product decides the rest and will overrule you:',
         'section presence and order, which metrics survive, every delta (computed against the previous brief by key),',
         'the on-track verdict (never green without a verified or observed measure with a target),',
-        'and the critical path, where every item must carry the date it falls on and anything not dated today is dropped —',
-        'a time of day is not a date, so never copy an item forward from a previous briefing,',
+        'and the critical path, where every item must carry BOTH the date it falls on and the evidence it rests on;',
+        'anything not dated today, or citing nothing, is dropped. A time of day is not a date, so never copy an item forward',
+        'from a previous briefing, and never put a meeting on the clock unless you can name the calendar event it comes from,',
         'which decisions are shown and how many (at most 3 unless you mark a genuine incident), and the history.',
         'Do not write a section that says nothing happened — omit it and it will not render.',
         'Never put agent names, job names, tool names, run ids, token counts, connector field names or table names in any narrative field:',
@@ -129,9 +126,7 @@ export function getBriefingTool(ctx: RuntimeContext) {
       if (!brief) {
         return `No ${label} briefing published yet. Call refresh_briefing to generate one.`;
       }
-      const when = brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      const status = isFromToday(brief.createdAt) ? `current (published today, ${when})` : `STALE — last published ${when}, not today; consider refresh_briefing`;
-      return `Latest ${label} briefing — "${brief.title}" — ${status}\n\n${brief.content}\n\n---\nREMINDER (harness): the brief above is CONTEXT, not your answer. If you surface actionable/owed touches to the user, your workspace rules still apply — emit the required recommend_action card for EACH touch you name BEFORE writing your answer; never substitute a "want me to draft it?" question for a card.`;
+      return renderBriefingForAgent(ctx, brief, label);
     },
     {
       name: 'get_briefing',

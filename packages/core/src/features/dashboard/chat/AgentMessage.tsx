@@ -12,6 +12,7 @@ import { ArtifactChips } from './ArtifactChips';
 import { classifyDashboardLink } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
+import { formatElapsed, useElapsed } from './useElapsed';
 import { WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
@@ -99,6 +100,7 @@ function citeLinkify(text: string): string {
 }
 
 export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId }: AgentMessageProps) => {
+  const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -224,30 +226,44 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
           )}
           {/*
-            The live state belongs where the eye is. The work timeline above is
-            the RECORD of the turn — it opens the message and collapses into
-            "Worked it out · 5 steps" when the turn lands. But once prose starts
-            arriving you are reading the bottom, and a pause there (a tool call
-            mid-stream, a slow first token) looked identical to a finished
-            answer: the only thing still moving was a spinner you had scrolled
-            past.
+            The live indicator is the LAST thing in the turn, always, while it
+            is running — the shape OpenClaw and Claude Code both use, and the
+            reason they read better than this did.
 
-            So this appears only AFTER text has started — before that the
-            timeline is already saying "Working…" a few lines up, and two live
-            indicators at once is worse than one in the wrong place.
+            Three things make it work, and the first version here had only one
+            of them:
+
+            1. It is ALWAYS present while streaming, not only once prose has
+               started. During the tool phase the bottom of the transcript was
+               still silent, which is the case Chris hit: the answer looked
+               finished while five tool calls were still running.
+            2. It carries the elapsed time, so a long pause reads as progress
+               rather than as a hang. Same timer as the header, shared, so the
+               two can never disagree.
+            3. It names the current activity rather than only pulsing.
+
+            What this still does NOT do is interleave tool blocks with prose
+            chronologically the way those two products do — the work timeline
+            hoists every tool call to the top of the message, so the transcript
+            is "all the work, then all the words" rather than the order things
+            actually happened. That is the deeper fix and it is a change to
+            WorkTimeline's grouping, not to this line.
           */}
-          {streaming && textRuns.some(r => r.text.trim() !== '') && (
+          {streaming && (
             <div
-              className="mt-2 flex items-center gap-2 text-[12px] text-muted-foreground"
+              className="mt-3 flex items-center gap-2 text-[12px] text-muted-foreground"
               role="status"
               aria-live="polite"
               data-testid="streaming-indicator"
             >
-              <span className="relative flex size-1.5 shrink-0">
+              <span className="relative flex size-1.5 shrink-0" aria-hidden>
                 <span className="absolute inline-flex size-full rounded-full bg-brand-amber opacity-60 motion-safe:animate-ping" />
                 <span className="relative inline-flex size-1.5 rounded-full bg-brand-amber" />
               </span>
-              <span>{activity ?? 'Working…'}</span>
+              <span>{activity ?? 'Working'}</span>
+              {elapsed >= 3 && (
+                <span className="font-mono text-[11px] text-muted-foreground/70 tabular-nums">{formatElapsed(elapsed)}</span>
+              )}
             </div>
           )}
         </div>

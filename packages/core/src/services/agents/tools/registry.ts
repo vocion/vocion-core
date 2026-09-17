@@ -24,6 +24,7 @@ import { apolloListTools } from './apolloLists';
 import { apolloPeopleTools } from './apolloPeople';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
+import { calendarTools } from './calendarEvents';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -154,6 +155,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Source-gated read-through caches (zoom / gmail sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),
+    ...calendarTools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),

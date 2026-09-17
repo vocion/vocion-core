@@ -270,18 +270,33 @@ export function enforceBriefing(doc: BriefingV2, vocab: RedactionVocabulary = {}
   // less evidence should produce a smaller output, never a confident one.
   if (out.criticalPath) {
     const today = localDay(now);
-    const kept = out.criticalPath.items.filter(i => i.date === today);
+    const kept: typeof out.criticalPath.items = [];
     for (const i of out.criticalPath.items) {
-      if (i.date === today) {
+      if (i.date !== today) {
+        dropped.push({
+          section: 'criticalPath',
+          rule: 'must-be-today',
+          message: i.date
+            ? `"${i.label}" dropped: dated ${i.date}, and the critical path is today (${today}). Never carry an item forward from a previous briefing.`
+            : `"${i.label}" dropped: no date. A time of day is not a date, and an undated claim about today cannot be checked.`,
+        });
         continue;
       }
-      dropped.push({
-        section: 'criticalPath',
-        rule: 'must-be-today',
-        message: i.date
-          ? `"${i.label}" dropped: dated ${i.date}, and the critical path is today (${today}). Never carry an item forward from a previous briefing.`
-          : `"${i.label}" dropped: no date. A time of day is not a date, and an undated claim about today cannot be checked.`,
-      });
+      // A date alone is not enough, because the model supplies the date too.
+      // The failure this catches is the one the date check cannot: an item
+      // written fresh, stamped with today, for a meeting that is not on the
+      // calendar. "You have a call at 10:30" is a claim about a specific
+      // document — a calendar event — and a claim with no reachable source is
+      // the thing principle 10 exists to stop.
+      if (i.evidence.length === 0) {
+        dropped.push({
+          section: 'criticalPath',
+          rule: 'must-cite-evidence',
+          message: `"${i.label}" dropped: no evidence. Every item on the critical path names a specific thing — a calendar event, a deal, a contract — and must cite it so a person can check it in one move. If you cannot point at one, the item does not go on the clock.`,
+        });
+        continue;
+      }
+      kept.push(i);
     }
     out.criticalPath = { items: kept };
   }

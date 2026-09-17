@@ -236,12 +236,21 @@ export const CriticalPathItemSchema = z.object({
    * because an undated claim about today cannot be checked by anyone.
    */
   date: z.string().optional().describe('REQUIRED in practice: the calendar date this is on, as YYYY-MM-DD. An item without it, or dated other than today, is dropped by the publisher — never carry an item forward from a previous briefing.'),
+  /**
+   * Required in practice, enforced by `enforceBriefing`.
+   *
+   * The date check above cannot catch everything, because the model supplies
+   * the date too: an item invented fresh and stamped with today passes it.
+   * "You have a call at 10:30" is a claim about a specific document — a
+   * calendar event — so the item has to name it. An item that cannot point at
+   * one does not belong on the clock.
+   */
   /** Minutes from midnight — how the renderer orders the list, so ordering is not string sorting. */
   order: z.number().int().nonnegative(),
   label: z.string().min(1),
   status: z.string().optional().describe('held, outcome pending | confirmed | at risk'),
   owner: z.string().optional(),
-  evidence: z.array(RecordRefSchema).default([]),
+  evidence: z.array(RecordRefSchema).default([]).describe('REQUIRED: the thing this item IS — the calendar event, deal, or contract. An item with no evidence is dropped, because a claim about your day that cannot be checked is worse than a shorter list.'),
 });
 export type CriticalPathItem = z.infer<typeof CriticalPathItemSchema>;
 

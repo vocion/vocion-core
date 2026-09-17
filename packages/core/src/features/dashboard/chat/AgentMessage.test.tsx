@@ -165,7 +165,12 @@ describe('the live indicator while streaming', () => {
     await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
   });
 
-  it('stays out of the way before any text arrives, so there is only ever one live indicator', async () => {
+  it('is present during the tool phase too, before any text has arrived', async () => {
+    // The first version gated this on text having started, which left the
+    // bottom of the transcript silent for the whole tool phase — the exact
+    // case that reads as a finished answer while five calls are still running.
+    // OpenClaw and Claude Code both keep the indicator present for the whole
+    // turn, and that is why they read better.
     await render(
       <AgentMessage
         agentName="RevOps Lead"
@@ -175,7 +180,8 @@ describe('the live indicator while streaming', () => {
       />,
     );
 
-    expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Reading the briefing');
   });
 
   it('disappears when the turn lands', async () => {
