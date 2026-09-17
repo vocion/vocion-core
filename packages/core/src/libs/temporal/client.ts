@@ -32,12 +32,34 @@ export function temporalNamespace(): string {
   return process.env.VOCION_TEMPORAL_NAMESPACE ?? 'default';
 }
 
+/**
+ * How long to wait for the connection before giving up.
+ *
+ * The library's own default is 10 seconds, which is too long for anything a
+ * person is waiting on. A request handler that calls this while Temporal is
+ * unreachable holds the HTTP request open for the whole 10 seconds and only
+ * then answers — long enough that browsers, test runners and load balancers
+ * have usually given up first, so the caller sees a hang rather than the
+ * honest error the handler was about to send. Five seconds is comfortably
+ * longer than a healthy connect and short enough to answer inside a request.
+ *
+ * Raise it with VOCION_TEMPORAL_CONNECT_TIMEOUT_MS where the server is far
+ * away or slow to accept.
+ */
+export function temporalConnectTimeoutMs(): number {
+  const configured = Number(process.env.VOCION_TEMPORAL_CONNECT_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 5_000;
+}
+
 /** Resolve (and cache) the Temporal client. Idempotent. */
 export async function getTemporalClient(): Promise<Client> {
   if (_client) {
     return _client;
   }
-  _conn = await Connection.connect({ address: temporalAddress() });
+  _conn = await Connection.connect({
+    address: temporalAddress(),
+    connectTimeout: temporalConnectTimeoutMs(),
+  });
   _client = new Client({ connection: _conn, namespace: temporalNamespace() });
   return _client;
 }

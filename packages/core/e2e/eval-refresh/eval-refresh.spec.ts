@@ -76,6 +76,11 @@ function seedFixtures(): SeedFixtures {
 async function refresh(request: APIRequestContext, slug: string, token?: string) {
   return request.post(`/api/v1/evals/${slug}/refresh`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},
+    // Longer than the 15 seconds the first test allows the route, on purpose.
+    // Playwright's own default is 10 seconds, so a route that answered slowly
+    // was cut off by the runner and reported as an opaque request timeout
+    // instead of the "took too long" assertion this spec is actually making.
+    timeout: 20_000,
   });
 }
 
