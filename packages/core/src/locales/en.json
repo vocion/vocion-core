@@ -249,18 +249,13 @@
     "title_bar_description": "Agents you have not hired yet. Every one works from uploads on day one — connect a system later to deepen it.",
     "view_profile": "View profile",
     "skill_count": "{count, plural, one {# skill} other {# skills}}",
-    "reaches_for": "Reaches for",
-    "reaches_for_none": "Nothing — works from what you upload",
     "empty_title": "Your whole catalog is working",
     "empty_body": "Every agent in the catalog has been hired. To add one nobody shipped for you, ask the Automation Engineer to build it from something you already do by hand.",
     "empty_action": "Build a new agent",
     "none_title": "No catalog available",
     "none_body": "This deployment shipped without the agent catalog. Agents can still be authored directly in the workspace.",
-    "back": "All agents",
     "hire": "Hire",
     "hired": "{name} is on your team",
-    "hire_failed": "Could not hire that agent. Refresh and try again.",
-    "how_it_works": "How it works",
-    "degrades_note": "Nothing is required. With none of these connected the agent works from files you upload, and connecting one later deepens it without a change here."
+    "hire_failed": "Could not hire that agent. Refresh and try again."
   }
 }
