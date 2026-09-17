@@ -5,7 +5,8 @@ import type { ContextRef } from './types';
 import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, PencilLine, Plus, Square, Target, Users, X } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
-import { insertTagAt, tagSlug } from './composerTags';
+import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
+import { insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
 
 /**
  * Sticky-bottom composer — an input and ONE primary action.
@@ -176,6 +177,29 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['⌘ J', 'Open or collapse the conversation'],
   ['?', 'These shortcuts'],
 ];
+
+/**
+ * The right-hand hint on a tag suggestion: what picking it will do.
+ *
+ * The intent tags are instructions rather than references — `@artifact` arms
+ * the deliverable contract, `@change` says the turn edits the open draft — and
+ * the raw ref type ("DELIVERABLE", "INTENT") named the mechanism instead of
+ * the effect. A record tag says what kind of record it is, which is the useful
+ * thing there.
+ * @param ref - The suggestion.
+ */
+function tagHint(ref: ContextRef): string {
+  if (ref.type === DELIVERABLE_REF_TYPE) {
+    return 'produce a document';
+  }
+  if (ref.type === INTENT_REF_TYPE) {
+    return 'edit the open draft';
+  }
+  if (ref.type === 'page') {
+    return 'this page';
+  }
+  return ref.type.replace(/[_-]+/g, ' ');
+}
 
 export function ChatComposer({
   value,
@@ -413,7 +437,11 @@ export function ChatComposer({
                   >
                     <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{h.label}</span>
-                    <span className="text-[10px] tracking-wide text-muted-foreground uppercase">{h.type}</span>
+                    {/* What picking it DOES, not what it is called internally.
+                        This printed the raw ref type, so the artifact tag
+                        offered itself as "DELIVERABLE" — a word from the
+                        contract, not from the person's problem. */}
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{tagHint(h)}</span>
                   </button>
                 </li>
               );
