@@ -372,10 +372,7 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
   // protocol test is the whole point, since zod's `.url()` waves `file://` and
   // `javascript:` through.
   const url = httpUrl(value.trim());
-  if (!HTTP_URL_RE.test(url) || !z.string().url().safeParse(url).success) {
-    return undefined;
-  }
-  return url;
+  return isFetchableUrl(url) ? url : undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -529,9 +526,10 @@ function splitFeed(page: FetchedPage): IngestDoc[] | null {
 /**
  * Split an ICS body on `BEGIN:VEVENT` … `END:VEVENT`.
  *
- * A text split and nothing more: no RFC 5545 unfolding of any field except
- * UID (the split key, which would otherwise be cut in half by a fold), no
- * TZID arithmetic, no RRULE expansion. A recurring event stays one document
+ * A text split and nothing more: no TZID arithmetic, no RRULE expansion. The
+ * only fields unfolded are the ones a later stage reads as a value rather than
+ * as text, because a fold would cut those in half: UID, the split key, and the
+ * URL properties the extractor's provenance gate compares against. A recurring event stays one document
  * unless the feed itself writes separate components with RECURRENCE-ID.
  * @param page - the fetched feed.
  */
@@ -562,11 +560,11 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
   const docs: IngestDoc[] = [];
   const seen = new Set<string>();
   for (const block of blocks) {
-    const uid = icsValue(block, 'UID', true);
+    const uid = icsValue(block, 'UID');
     if (!uid) {
       return null;
     }
-    const recurrenceId = icsValue(block, 'RECURRENCE-ID', false);
+    const recurrenceId = icsValue(block, 'RECURRENCE-ID');
     const externalId = `${page.url}#${uid}${recurrenceId ? `#${recurrenceId}` : ''}`;
     if (seen.has(externalId)) {
       // Two components the feed itself cannot tell apart. Splitting on a key
@@ -574,67 +572,237 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
       return null;
     }
     seen.add(externalId);
+    const published = icsPublishedUrls(block);
     docs.push({
       externalId,
       uri: externalId,
-      title: icsValue(block, 'SUMMARY', false) || uid,
+      title: icsValue(block, 'SUMMARY') || uid,
       content: block.join('\n'),
       // Feed-wide headers say nothing about one event inside it.
       etag: null,
       lastModifiedAt: null,
-      metadata: { contentType: page.contentType, feedUrl: page.url },
+      metadata: {
+        contentType: page.contentType,
+        feedUrl: page.url,
+        // Omitted when empty: an entry that publishes no URL must keep writing
+        // the metadata it wrote before, or every sync reports a refresh.
+        ...(published.length ? { publishedUrls: published } : {}),
+      },
     });
   }
   return docs;
 }
 
 /**
- * Read one property out of a VEVENT block.
- * @param lines - the block's lines, as written in the feed.
- * @param name - the property name, uppercase.
- * @param unfold - join RFC 5545 continuation lines. Only UID asks for this.
+ * Caps on what a feed entry may declare, so one broken or hostile feed cannot
+ * write an arbitrarily large row. `pageMetadata` states boundedness as a hard
+ * invariant for this column and caps the HTML path at `LINK_CAP`; `ATTACH`
+ * repeats without limit and an unfolded value concatenates every continuation
+ * line, so both need a ceiling here. The length is set above any real URL.
  */
-function icsValue(lines: string[], name: string, unfold: boolean): string {
+const PUBLISHED_URL_CAP = 50;
+const PUBLISHED_URL_CHAR_CAP = 2048;
+
+/** Properties whose value is a URL the entry publishes about itself. */
+const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
+
+/**
+ * The URLs a VEVENT publishes about itself: its own page, and its attachments.
+ *
+ * A document's URLs are how the extractor tells a link the page really carried
+ * from one a model invented. For an HTML page that list is the parsed links;
+ * a feed entry is not HTML and had no list at all, so every real URL a
+ * calendar entry carries was being discarded downstream.
+ *
+ * NOT written into `metadata.links`, though the shape would fit: that key has a
+ * second consumer in `ScreenshotService.screenshotsFromSite`, which keeps any
+ * link with an image extension and offers it as a workspace screenshot. A
+ * calendar poster is not a screenshot of the site, so the two provenance
+ * classes stay apart.
+ *
+ * NOT run through `usableUrl` either, deliberately: that rewrites `webcal:` to
+ * `https:`, and this list has to match the string the model read out of the raw
+ * body, so a rewrite here would break the exact comparison it exists for.
+ *
+ * Unfolding is not optional. RFC 5545 folds at 75 octets and these values run
+ * past 140 characters, so a conformant feed splits its own event URL across
+ * lines; read without unfolding it would arrive truncated.
+ *
+ * A relative value is dropped rather than resolved here. A calendar entry is
+ * the one feed shape that travels: a VEVENT can be syndicated far from the
+ * host that wrote it, so the feed URL is not reliably its base, and guessing
+ * one is how a wrong link gets published. A JSON entry does not travel that
+ * way, which is why `declaredUrls` does resolve.
+ * @param block - the VEVENT block's lines, as written in the feed.
+ */
+function icsPublishedUrls(block: string[]): string[] {
+  const out: string[] = [];
+  for (const name of ICS_URL_PROPERTIES) {
+    // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
+    // feed that ships inline base64 bytes on the first line and the poster URL
+    // on the second would otherwise lose the poster entirely.
+    for (const value of icsValues(block, name)) {
+      if (isFetchableUrl(value)) {
+        out.push(value);
+      }
+    }
+  }
+  return dedupe(out).slice(0, PUBLISHED_URL_CAP);
+}
+
+/**
+ * Whether a value is a URL something downstream could actually fetch.
+ *
+ * Both halves are needed and neither is enough: zod's `.url()` waves `file://`
+ * and `javascript:` through, while the protocol regex alone accepts
+ * `https:not a url`. Named for what it tests, the shape, and deliberately not
+ * for what `publishedUrls` means, which is a claim about provenance.
+ * @param value - the raw value.
+ */
+function isFetchableUrl(value: string): boolean {
+  return value.length <= PUBLISHED_URL_CHAR_CAP
+    && HTTP_URL_RE.test(value)
+    && z.string().url().safeParse(value).success;
+}
+
+/**
+ * Where a content line's name-and-parameters end and its value begins.
+ *
+ * Not simply the first colon: RFC 5545 lets a parameter value be quoted and a
+ * quoted value may contain one, as in `ATTACH;FILENAME="a:b":https://…`.
+ * Splitting on the first colon there would cut the value in half, which costs
+ * the attachment and, worse, can produce a string that still looks like a URL.
+ *
+ * An unbalanced quote is not conformant (RFC 5545 excludes a bare DQUOTE from
+ * a parameter value, which is why RFC 6868 exists), but a broken feed is not a
+ * reason to lose the whole file: a line whose quotes never close falls back to
+ * the first colon. Skipping it instead would leave that component with no UID,
+ * and `splitIcs` answers a missing UID by abandoning the split for every event
+ * in the feed.
+ * @param line - one content line, as written in the feed.
+ */
+function icsValueColon(line: string): number {
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      quoted = !quoted;
+    } else if (ch === ':' && !quoted) {
+      return i;
+    }
+  }
+  return quoted ? line.indexOf(':') : -1;
+}
+
+/** A line that continues the one above it, per RFC 5545 folding. */
+const ICS_FOLD_RE = /^[ \t]/;
+
+/**
+ * Every occurrence of one property in a VEVENT block, unfolded.
+ *
+ * `icsValue` answers with the first match, which is right for `UID` and
+ * `SUMMARY` because RFC 5545 allows one of each. `ATTACH` may repeat, so a
+ * caller that wants attachments has to read them all or it silently keeps
+ * whichever the feed happened to write first.
+ *
+ * Unfolding is unconditional because RFC 5545 section 3.1 makes a fold an
+ * artifact of how the line was written down, never part of the value: a value
+ * read without unfolding is simply truncated, whether it is a URL or a title.
+ *
+ * Properties of a nested component are not the event's own. A `VEVENT` carries
+ * its alarms inside it and an alarm has its own `ATTACH`, so a reader that did
+ * not track depth would declare an alarm's sound file as a URL the event
+ * published, and the extractor's gate would then let a model return it as the
+ * event's image. Depth is clamped at zero so one stray `END:` cannot silently
+ * drop every property after it.
+ * @param lines - the block's lines, starting at its own `BEGIN:`.
+ * @param name - the property name, uppercase.
+ */
+function icsValues(lines: string[], name: string): string[] {
+  const out: string[] = [];
+  // The block opens with its own `BEGIN:VEVENT`, so the event's properties sit
+  // at depth 1 and anything deeper belongs to a component inside it.
+  let depth = 0;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
-    // A line starting with a space or a tab is the continuation of the one
-    // above it, never a property of its own.
-    if (/^[ \t]/.test(line)) {
+    if (ICS_FOLD_RE.test(line)) {
       continue;
     }
-    const colon = line.indexOf(':');
+    const colon = icsValueColon(line);
     if (colon < 0) {
       continue;
     }
-    // `UID:x`, but also `DTSTART;TZID=America/New_York:x`.
-    if (line.slice(0, colon).split(';')[0]!.toUpperCase() !== name) {
+    const property = line.slice(0, colon).split(';')[0]!.toUpperCase();
+    if (property === 'BEGIN') {
+      depth += 1;
+      continue;
+    }
+    if (property === 'END') {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 1 || property !== name) {
       continue;
     }
     let value = line.slice(colon + 1);
-    if (unfold) {
-      for (let j = i + 1; j < lines.length && /^[ \t]/.test(lines[j]!); j += 1) {
-        value += lines[j]!.slice(1);
-      }
+    for (let j = i + 1; j < lines.length && ICS_FOLD_RE.test(lines[j]!); j += 1) {
+      value += lines[j]!.slice(1);
     }
-    return value.trim();
+    out.push(value.trim());
   }
-  return '';
+  return out;
+}
+
+/**
+ * Read one property out of a VEVENT block.
+ * @param lines - the block's lines, starting at its own `BEGIN:`.
+ * @param name - the property name, uppercase.
+ */
+function icsValue(lines: string[], name: string): string {
+  return icsValues(lines, name)[0] ?? '';
 }
 
 /**
  * The body as a top-level JSON array, when that is what it is.
  * @param page - the fetched page.
  */
+/** Where a JSON feed that wraps its entries in an object tends to keep them. */
+const FEED_ARRAY_PATHS = ['upcoming', 'items', 'events', 'data'] as const;
+
+/**
+ * The entries of a JSON feed, whether the body is the array or wraps one.
+ *
+ * A bare array is the easy case. Squarespace, and every CMS that answers a
+ * listing with its whole page model, returns an object instead: the site's
+ * settings, its navigation, and the entries under a key. Refusing those left
+ * the entire page model as one document, and since only the first
+ * `PAGE_CHAR_CAP` characters reach the model, what it read was the site
+ * settings and never an event. `looksLikeFeed` already admits such a body, so
+ * refusing to split it was the connector disagreeing with itself.
+ *
+ * Only the first populated key is taken. A listing that publishes `upcoming`
+ * beside `past` means the second one on purpose, and `splitJsonArray` abandons
+ * the whole file on a repeated id, which a recurring entry present in both
+ * would cause.
+ * @param page - the fetched feed.
+ */
 function topLevelJsonArray(page: FetchedPage): unknown[] | null {
   if (!page.contentType.includes('json')) {
     return null;
   }
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(page.raw);
-    return Array.isArray(parsed) ? parsed : null;
+    parsed = JSON.parse(page.raw);
   } catch {
     return null;
   }
+  for (const path of FEED_ARRAY_PATHS) {
+    const found = arrayFromBody(parsed, path);
+    if (found?.length) {
+      return found;
+    }
+  }
+  return Array.isArray(parsed) ? parsed : null;
 }
 
 /**
@@ -660,6 +828,7 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
       return null;
     }
     seen.add(externalId);
+    const published = declaredUrls(item, page.url);
     docs.push({
       externalId,
       uri: externalId,
@@ -667,7 +836,11 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
       content: body,
       etag: null,
       lastModifiedAt: null,
-      metadata: { contentType: page.contentType, feedUrl: page.url },
+      metadata: {
+        contentType: page.contentType,
+        feedUrl: page.url,
+        ...(published.length ? { publishedUrls: published } : {}),
+      },
     });
   }
   return docs;
@@ -677,6 +850,15 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
 const ITEM_KEY_FIELDS = ['@id', 'id', 'slug'] as const;
 /** Keys a JSON feed item might state its own name with, in order of trust. */
 const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
+/**
+ * Keys a JSON feed item might publish a URL of its own with.
+ *
+ * `fullUrl` and `assetUrl` are what a Squarespace entry uses, and they are the
+ * reason this list resolves relative values: `fullUrl` is a path, `/events/x`,
+ * and the gate it feeds compares exactly, so an unresolved path can never
+ * match what a model read and would drop the link it exists to keep.
+ */
+const ITEM_URL_FIELDS = ['url', 'link', 'fullUrl', 'image', 'thumbnail', 'assetUrl'] as const;
 
 /**
  * The item's own stable identifier, when it publishes one.
@@ -713,6 +895,42 @@ function declaredTitle(item: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * The URLs the item publishes about itself, for the same reason
+ * `icsPublishedUrls` exists: a JSON entry is not HTML, so nothing else in the
+ * pipeline knows which links it really carried.
+ *
+ * Only top-level string values are read. A URL nested inside an object is left
+ * alone rather than guessed at, because the shape of a feed item is the
+ * publisher's to choose and walking it would turn this into a parser.
+ *
+ * Bounded by construction: six property names, so at most six URLs.
+ * @param item - one entry from the array.
+ * @param baseUrl
+ */
+function declaredUrls(item: unknown, baseUrl: string): string[] {
+  if (!isRecord(item)) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const field of ITEM_URL_FIELDS) {
+    const value = item[field];
+    if (typeof value !== 'string') {
+      continue;
+    }
+    // Resolved against the feed's own URL, which is where the entry was
+    // published. A base that will not parse leaves the value as written, and
+    // a path that stays a path then fails the fetchable test below.
+    const url = absoluteUrl(value, baseUrl) ?? '';
+    // A CMS export routinely repeats one link under two keys, so the dedupe is
+    // what keeps the stored row honest rather than a formality.
+    if (isFetchableUrl(url)) {
+      out.push(url);
+    }
+  }
+  return dedupe(out).slice(0, PUBLISHED_URL_CAP);
 }
 
 /* ------------------------------------------------------------------ */
