@@ -792,6 +792,48 @@
       "when": 1787727802000,
       "tag": "0112_personalization_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1787727901000,
+      "tag": "0113_eval_score_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1787727902000,
+      "tag": "0114_eval_dataset_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1787727903000,
+      "tag": "0115_eval_dataset_remote",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1787727904000,
+      "tag": "0116_eval_publish_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1787727905000,
+      "tag": "0117_eval_batch_job",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1787727906000,
+      "tag": "0118_eval_online_config",
+      "breakpoints": true
     }
   ]
 }

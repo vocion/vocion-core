@@ -199,6 +199,25 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/reviews-propose',
       timeout: 60 * 1000,
     },
+    // #343 — the eval section with more than one grader: empty state, the
+    // provider filter, the version boundary on the trend chart, and the eval
+    // score on the adoption row. Self-seeding like `credentials`.
+    // Run with: npx playwright test --project=evals-providers
+    {
+      name: 'evals-providers',
+      testDir: './e2e/evals-providers',
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // #343 — the eval refresh route, real HTTP against a real running app.
+    // No browser: uses the `request` fixture only, so it never depends on the
+    // `setup` project.
+    // Run with: npx playwright test --project=eval-refresh
+    {
+      name: 'eval-refresh',
+      testDir: './e2e/eval-refresh',
+      timeout: 60 * 1000,
+    },
     // #320 — querying the queue by what the agent recommended (approve /
     // reject / snooze), over real HTTP against a real running app. No browser:
     // uses the `request` fixture only, so it never depends on `setup`.

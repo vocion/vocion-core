@@ -10,6 +10,9 @@
  *     workspace's accountable human (or `input.to`). `services/jobs/dailyTeamReport.ts`.
  *   - `notify-asks` — mails the accountable human about asks that opened since the
  *     last notification, grouped, throttled per org. `services/jobs/notifyAsks.ts`.
+ *   - `refresh-evals` — starts an eval refresh for every dataset, or the ones
+ *     named, so the trend line keeps growing without anyone pressing a button.
+ *     `services/jobs/refreshEvals.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
@@ -17,12 +20,14 @@
 
 import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
+import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
 
 type BuiltInJob = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
 const JOBS: Record<string, BuiltInJob> = {
   [DAILY_TEAM_REPORT_JOB]: runDailyTeamReportJob,
   [NOTIFY_ASKS_JOB]: runNotifyAsksJob,
+  [REFRESH_EVALS_JOB]: runRefreshEvalsJob,
 };
 
 export function builtInJobNames(): string[] {

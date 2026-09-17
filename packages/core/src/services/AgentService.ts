@@ -352,6 +352,13 @@ export async function runAgentDeep(opts: {
   missionRunId?: number;
   /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
   conversationId?: number;
+  /**
+   * What this turn's OpenTelemetry spans are grouped under, when the turn runs
+   * out of process. A caller that knows what the turn belongs to — the eval
+   * runner knows the case — should name it, so the spans can be found and
+   * graded as that one thing. See `services/evals/sessionIds.ts`.
+   */
+  sessionId?: string;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
