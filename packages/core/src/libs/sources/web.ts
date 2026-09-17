@@ -599,29 +599,111 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
 const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
 
 /**
- * The URLs a VEVENT publishes about itself: its own page, and its attachment.
+ * The URLs a VEVENT publishes about itself: its own page, and its attachments.
  *
  * A document's URLs are how the extractor tells a link the page really carried
  * from one a model invented. For an HTML page that list is the parsed links;
  * a feed entry is not HTML and had no list at all, so every real URL a
  * calendar entry carries was being discarded downstream.
  *
- * Unfolding is not optional here. RFC 5545 folds at 75 octets and these values
- * run past 140 characters, so a conformant feed splits its own event URL
- * across lines; read without unfolding it would arrive truncated.
+ * NOT written into `metadata.links`, though the shape would fit: that key has a
+ * second consumer in `ScreenshotService.screenshotsFromSite`, which keeps any
+ * link with an image extension and offers it as a workspace screenshot. A
+ * calendar poster is not a screenshot of the site, so the two provenance
+ * classes stay apart.
  *
- * Bounded by construction: two property names, so at most two URLs.
+ * NOT run through `usableUrl` either, deliberately: that rewrites `webcal:` to
+ * `https:`, and this list has to match the string the model read out of the raw
+ * body, so a rewrite here would break the exact comparison it exists for.
+ *
+ * Unfolding is not optional. RFC 5545 folds at 75 octets and these values run
+ * past 140 characters, so a conformant feed splits its own event URL across
+ * lines; read without unfolding it would arrive truncated.
+ *
+ * A relative value is dropped rather than resolved against the feed URL. The
+ * HTML path resolves hrefs through `absoluteUrl`; feeds are out of scope until
+ * one is seen publishing a relative URL, because guessing the base for an
+ * entry that may have been syndicated is how a wrong link gets published.
  * @param block - the VEVENT block's lines, as written in the feed.
  */
 function icsPublishedUrls(block: string[]): string[] {
   const out: string[] = [];
   for (const name of ICS_URL_PROPERTIES) {
-    const value = icsValue(block, name, true);
-    // ATTACH is also how a feed ships base64 bytes or a `mailto:`; only an
-    // http(s) value is a URL anything downstream can fetch.
-    if (HTTP_URL_RE.test(value)) {
-      out.push(value);
+    // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
+    // feed that ships inline base64 bytes on the first line and the poster URL
+    // on the second would otherwise lose the poster entirely.
+    for (const value of icsValues(block, name)) {
+      if (isPublishableUrl(value)) {
+        out.push(value);
+      }
     }
+  }
+  return dedupe(out);
+}
+
+/**
+ * Whether a value is a URL something downstream could actually fetch.
+ *
+ * The protocol test and the shape test are both needed, the same pairing
+ * `usableUrl` makes: zod's `.url()` waves `file://` and `javascript:` through,
+ * while the protocol regex alone accepts `https:not a url`.
+ * @param value - the raw property value.
+ */
+function isPublishableUrl(value: string): boolean {
+  return HTTP_URL_RE.test(value) && z.string().url().safeParse(value).success;
+}
+
+/**
+ * Where a content line's name-and-parameters end and its value begins.
+ *
+ * Not simply the first colon: RFC 5545 lets a parameter value be quoted and a
+ * quoted value may contain one, as in `ATTACH;FILENAME="a:b":https://…`.
+ * Splitting on the first colon there would cut the value in half, which costs
+ * the attachment and, worse, can produce a string that still looks like a URL.
+ * @param line - one content line, as written in the feed.
+ */
+function icsValueColon(line: string): number {
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      quoted = !quoted;
+    } else if (ch === ':' && !quoted) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Every occurrence of one property in a VEVENT block, always unfolded.
+ *
+ * `icsValue` answers with the first match, which is right for `UID` and
+ * `SUMMARY` because RFC 5545 allows one of each. `ATTACH` may repeat, so a
+ * caller that wants attachments has to read them all or it silently keeps
+ * whichever the feed happened to write first.
+ * @param lines - the block's lines, as written in the feed.
+ * @param name - the property name, uppercase.
+ */
+function icsValues(lines: string[], name: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (/^[ \t]/.test(line)) {
+      continue;
+    }
+    const colon = icsValueColon(line);
+    if (colon < 0) {
+      continue;
+    }
+    if (line.slice(0, colon).split(';')[0]!.toUpperCase() !== name) {
+      continue;
+    }
+    let value = line.slice(colon + 1);
+    for (let j = i + 1; j < lines.length && /^[ \t]/.test(lines[j]!); j += 1) {
+      value += lines[j]!.slice(1);
+    }
+    out.push(value.trim());
   }
   return out;
 }
@@ -630,8 +712,8 @@ function icsPublishedUrls(block: string[]): string[] {
  * Read one property out of a VEVENT block.
  * @param lines - the block's lines, as written in the feed.
  * @param name - the property name, uppercase.
- * @param unfold - join RFC 5545 continuation lines. UID and the URL
- * properties ask for this; a value read without it arrives truncated.
+ * @param unfold - join RFC 5545 continuation lines. UID asks for this; a value
+ * read without it arrives truncated.
  */
 function icsValue(lines: string[], name: string, unfold: boolean): string {
   for (let i = 0; i < lines.length; i += 1) {
@@ -641,11 +723,12 @@ function icsValue(lines: string[], name: string, unfold: boolean): string {
     if (/^[ \t]/.test(line)) {
       continue;
     }
-    const colon = line.indexOf(':');
+    const colon = icsValueColon(line);
     if (colon < 0) {
       continue;
     }
-    // `UID:x`, but also `DTSTART;TZID=America/New_York:x`.
+    // `UID:x`, but also `DTSTART;TZID=America/New_York:x`, and a quoted
+    // parameter value may itself contain a colon.
     if (line.slice(0, colon).split(';')[0]!.toUpperCase() !== name) {
       continue;
     }
@@ -768,7 +851,9 @@ function declaredTitle(item: unknown): string | undefined {
  *
  * Only top-level string values are read. A URL nested inside an object is left
  * alone rather than guessed at, because the shape of a feed item is the
- * publisher's to choose and walking it would turn this into a parser.
+ * publisher's to choose and walking it would turn this into a parser. A
+ * relative value is dropped rather than resolved, for the reason given on
+ * `icsPublishedUrls`.
  *
  * Bounded by construction: four property names, so at most four URLs.
  * @param item - one entry from the array.
@@ -784,11 +869,13 @@ function declaredUrls(item: unknown): string[] {
       continue;
     }
     const url = value.trim();
-    if (HTTP_URL_RE.test(url) && !out.includes(url)) {
+    // A CMS export routinely repeats one link under two keys, so the dedupe is
+    // what keeps the stored row honest rather than a formality.
+    if (isPublishableUrl(url)) {
       out.push(url);
     }
   }
-  return out;
+  return dedupe(out);
 }
 
 /* ------------------------------------------------------------------ */

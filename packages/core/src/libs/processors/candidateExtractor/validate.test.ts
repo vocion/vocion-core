@@ -138,8 +138,8 @@ describe('candidate extractor validation', () => {
 
   it('accepts the URLs a feed entry declared, having no links or JSON-LD of its own', () => {
     // A calendar entry is not HTML, so it parses to no links and no JSON-LD.
-    // Without the declared list every URL it really carries fails the gate,
-    // which is what emptied two thirds of the queue of its links and images.
+    // Without the declared list every URL it really carries fails the gate, and
+    // the card reaches a reviewer with no link back and no image.
     const out = run([record({ sourceUrl: 'https://venue.test/e/poster-night', imageUrl: 'https://cdn.venue.test/poster.png' })], configWith(), {
       publishedUrls: ['https://venue.test/e/poster-night', 'https://cdn.venue.test/poster.png'],
     });

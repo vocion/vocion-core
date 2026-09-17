@@ -4,8 +4,9 @@
  * the per-event split.
  *
  * The split is a TEXT split and the tests hold it to that: components come out
- * on `BEGIN:VEVENT` … `END:VEVENT`, the UID line is the only field unfolded,
- * and nothing expands an RRULE or does TZID arithmetic. Ids are the feed's own
+ * on `BEGIN:VEVENT` … `END:VEVENT`, only the fields a later stage keys or
+ * gates on are unfolded, and nothing expands an RRULE or does TZID arithmetic.
+ * Ids are the feed's own
  * keys, never the item's position in the feed, because one reorder or one
  * removal mid-feed would then rewrite every id after it and cost a re-embed
  * and a model call per document.
@@ -62,12 +63,17 @@ UID:evt-2@venue.test
 SUMMARY:Poster Night
 URL:https://venue.test/event/poster-night-with-a-title-long-enough-that
  -the-feed-folded-the-line
-ATTACH;FMTTYPE=image/png:https://cdn.venue.test/poster.png
+ATTACH;ENCODING=BASE64;VALUE=BINARY:R0lGODlhAQABAIAAAAAAAP
+ATTACH;FMTTYPE=image/png:https://cdn.venue.test/poster
+ .png
+ATTACH;FMTTYPE=application/pdf:https://cdn.venue.test/flyer.pdf
+ATTACH;FILENAME="a:b";FMTTYPE=image/png:https://cdn.venue.test/quoted.png
 END:VEVENT
 BEGIN:VEVENT
 UID:evt-3@venue.test
 SUMMARY:Publishes nothing fetchable
 ATTACH;ENCODING=BASE64;VALUE=BINARY:R0lGODlhAQABAIAAAAAAAP
+URL:https:not a url at all
 END:VEVENT
 END:VCALENDAR`;
 
@@ -224,7 +230,7 @@ describe('the ICS per-event split', () => {
     expect(docs[0]?.content).not.toContain('BEGIN:VCALENDAR');
   });
 
-  it('unfolds the UID line, and only the UID line', async () => {
+  it('unfolds a folded UID', async () => {
     stubFetch(() => typed(FOLDED_UID_ICS, 'text/calendar'));
 
     const { docs } = await run({ urls: [ICS_URL] });
@@ -243,17 +249,23 @@ describe('the ICS per-event split', () => {
     expect(docs[0]?.content).toContain('BEGIN:VCALENDAR');
   });
 
-  it('declares the URL and the image the component published, unfolding both', async () => {
+  it('declares every URL the component published, unfolding each one', async () => {
     stubFetch(() => typed(PUBLISHED_URLS_ICS, 'text/calendar'));
 
     const { docs } = await run({ urls: [ICS_URL] });
 
-    // The folded URL has to arrive whole: read a line at a time it would stop
-    // at "…long-enough-that" and the extractor would drop it as unpublished,
-    // which is the bug this whole change exists to fix.
+    // Three things at once, and each of them silently lost a real URL before:
+    // a folded value has to arrive whole, or it stops at "…long-enough-that";
+    // ATTACH repeats per RFC 5545, so reading only the first would keep the
+    // base64 bytes and drop the poster and the flyer behind them; and the
+    // base64 attachment is not a link, so it is skipped rather than stored.
+    // The last one also carries a quoted parameter holding a colon, which is
+    // legal and which a naive split on the first colon would cut in half.
     expect(docs[0]?.metadata?.publishedUrls).toEqual([
       'https://venue.test/event/poster-night-with-a-title-long-enough-that-the-feed-folded-the-line',
       'https://cdn.venue.test/poster.png',
+      'https://cdn.venue.test/flyer.pdf',
+      'https://cdn.venue.test/quoted.png',
     ]);
   });
 
@@ -262,9 +274,10 @@ describe('the ICS per-event split', () => {
 
     const { docs } = await run({ urls: [ICS_URL] });
 
-    // A base64 ATTACH is bytes, not a link. Writing an empty array instead of
-    // omitting the key would rewrite the metadata of every such document once
-    // and report a refresh for it.
+    // Base64 bytes are not a link, and `https:not a url at all` clears the
+    // protocol test while being unfetchable, so the shape test has to reject
+    // it. Writing an empty array instead of omitting the key would rewrite the
+    // metadata of every such document once and report a refresh for it.
     expect(docs[1]?.metadata).not.toHaveProperty('publishedUrls');
   });
 });
@@ -292,19 +305,22 @@ describe('the JSON per-event split', () => {
     const items = [{
       slug: 'one',
       url: 'https://venue.test/e/one',
+      // The same link under a second key, which a CMS export routinely does.
+      link: 'https://venue.test/e/one',
       image: 'https://cdn.venue.test/one.jpg',
-      offers: { url: 'https://tickets.test/one' },
-      link: 'mailto:box@venue.test',
+      thumbnail: 'https://cdn.venue.test/one-thumb.jpg',
+      offers: { url: 'https://tickethub.example/one' },
     }];
     stubFetch(() => Response.json(items));
 
     const { docs } = await run({ urls: ['https://venue.test/events.json'] });
 
     // `offers.url` is nested, so it is the publisher's shape to choose and
-    // walking it would make this a parser; `mailto:` is not fetchable.
+    // walking it would make this a parser. The repeated link is stored once.
     expect(docs[0]?.metadata?.publishedUrls).toEqual([
       'https://venue.test/e/one',
       'https://cdn.venue.test/one.jpg',
+      'https://cdn.venue.test/one-thumb.jpg',
     ]);
   });
 

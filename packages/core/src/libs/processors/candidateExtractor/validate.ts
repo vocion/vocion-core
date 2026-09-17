@@ -92,13 +92,14 @@ function isBlank(value: unknown): boolean {
 
 /**
  * Every URL the document itself published, the gate a model-returned URL has
- * to pass.
+ * to pass. Named apart from the `publishedUrls` option it reads, which is one
+ * of its three inputs rather than the whole answer.
  * @param links - `metadata.links`, the pre-strip list.
  * @param jsonLd - The page's JSON-LD blocks.
  * @param declared - `metadata.publishedUrls`, the URLs a non-HTML document
  * stated for itself, which is the only list a feed entry has.
  */
-function publishedUrls(
+function documentUrls(
   links: PageLink[] | undefined,
   jsonLd: unknown[] | undefined,
   declared: string[] | undefined,
@@ -153,10 +154,7 @@ export function validateRecords(opts: {
     counts[key] = (counts[key] ?? 0) + 1;
   };
 
-  // Named apart from the function so the call below reads as one thing feeding
-  // another, rather than the same word meaning two things.
-  const declaredByDocument = opts.publishedUrls;
-  const urls = publishedUrls(opts.links, opts.jsonLd, declaredByDocument);
+  const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls);
   const published = (url: string | undefined): boolean => {
     if (!url) {
       return false;
