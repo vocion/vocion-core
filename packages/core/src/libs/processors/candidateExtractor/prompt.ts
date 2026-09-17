@@ -31,17 +31,35 @@ import type { CandidateExtractorConfig } from './config';
 /** Rough token estimate. Four characters a token is the usual English figure. */
 const CHARS_PER_TOKEN = 4;
 
-/** Page text kept. A long listing page repeats itself well before this. */
-export const PAGE_CHAR_CAP = 20_000;
+/**
+ * No fixed cap on the page text. There used to be one — 20,000 characters, on
+ * the belief that a long listing page repeats itself well before that — and it
+ * cut the tail off a venue's season page before the model read a word, which
+ * lost real events with nothing anywhere saying so.
+ *
+ * The page is now bounded by one thing only: `maxInputTokensPerCall`, which
+ * the trimmer below slices it to fit AFTER dropping the three blocks the call
+ * can do without. A cut there is recorded in `trimmed`, so a page too long for
+ * one call is visible rather than silent.
+ */
 
-/** Re-serialised JSON-LD kept. */
-export const JSON_LD_CHAR_CAP = 8_000;
+/**
+ * The three blocks that are not the page keep a cap, raised well clear of what
+ * any of them measures today (2026-09-17). A cap here truncates content
+ * silently — half a JSON-LD feed, the back half of the known cards, the end of
+ * the operator's own rules — and none of these numbers was ever measured, so
+ * each one is now generous enough that the per-call token budget is what
+ * actually binds. The budget reports a trim; a character cap does not.
+ */
 
-/** The known-cards block kept, about 60 lines of 60 characters. */
-export const KNOWN_CHAR_CAP = 4_000;
+/** Re-serialised JSON-LD kept. A structured feed can carry every event on a page. */
+export const JSON_LD_CHAR_CAP = 60_000;
+
+/** The known-cards block kept — hundreds of lines, so a long queue stays comparable. */
+export const KNOWN_CHAR_CAP = 20_000;
 
 /** Rendered operator rules kept. */
-export const RULES_CHAR_CAP = 8_000;
+export const RULES_CHAR_CAP = 20_000;
 
 /** Rules rendered, however many are adopted. */
 export const RULES_MAX = 40;
@@ -246,7 +264,7 @@ export function buildExtractionPrompt(opts: {
     { name: 'rules', text: capped(scrubMarkers(opts.rules), RULES_CHAR_CAP) },
     { name: 'jsonld', text: capped(scrubMarkers(opts.jsonLd), JSON_LD_CHAR_CAP) },
     { name: 'known', text: capped(scrubMarkers(opts.known), KNOWN_CHAR_CAP) },
-    { name: 'page', text: capped(scrubMarkers(opts.pageText), PAGE_CHAR_CAP) },
+    { name: 'page', text: scrubMarkers(opts.pageText) },
   ];
 
   const trimmed: string[] = [];

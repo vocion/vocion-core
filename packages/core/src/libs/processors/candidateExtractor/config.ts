@@ -79,8 +79,12 @@ export const candidateExtractorConfigSchema = z.object({
   learningSteps: z.array(Slug).max(10).optional(),
   /** IANA timezone the date rules are evaluated in. */
   timezone: z.string().min(1).max(64).regex(/^[a-z][\w+-]*(?:\/[\w+-]+)*$/i, 'must be an IANA timezone name').optional(),
-  /** Records one document may produce. */
-  maxRecordsPerDocument: z.number().int().positive().max(200).default(25),
+  /**
+   * Records one document may produce. 200, not 25: a venue's season page lists
+   * far more than 25 events, and an answer over the cap is rejected outright
+   * rather than trimmed, so the old number quietly cost the whole page.
+   */
+  maxRecordsPerDocument: z.number().int().positive().max(1_000).default(200),
   /** Records the model is less sure of than this are dropped. */
   minConfidence: z.number().min(0).max(1).default(0.5),
   /** How far ahead a recurring series is expanded, one record per occurrence. */

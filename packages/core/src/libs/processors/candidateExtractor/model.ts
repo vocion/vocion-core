@@ -134,8 +134,10 @@ const runRef = z.union([z.number(), z.string()]).optional().transform(toRunId);
  * The envelope the answer must fit.
  *
  * `maxRecordsPerDocument` is enforced HERE rather than by trimming afterwards:
- * a document that claims 400 records is a document that was misread, and the
- * corrective retry is a better answer than silently keeping the first 25.
+ * a document claiming more records than the config allows was probably misread
+ * — a navigation index, a repeated feature block — and the corrective retry is
+ * a better answer than silently keeping a prefix of it. The cap it enforces is
+ * 200 by default rather than the old 25, so an honest season page passes.
  * @param maxRecords - The config's `maxRecordsPerDocument`.
  */
 function envelopeSchema(maxRecords: number) {
@@ -251,12 +253,18 @@ export async function extractRecords(opts: {
 
   const model: BaseChatModel = await buildChatModelForOrg('extractor', opts.orgId, {
     temperature: 0,
-    // 8192, not 4096: `maxRecordsPerDocument` is 25 and a record now carries a
-    // description, a verdict, the sentence explaining it and a verdict per
-    // referenced object. A truncated answer is invalid JSON, which costs the
-    // corrective retry and then the whole document, so the cap moves with the
-    // payload rather than trailing it.
-    maxTokens: 8192,
+    // The answer's ceiling, and in practice the real limit on how many records
+    // one document can yield: at roughly 250 tokens a record — fields, a
+    // verdict, the sentence explaining it, a verdict per referenced object —
+    // 16,000 holds about 60. A truncated answer is invalid JSON, which costs
+    // the corrective retry and then the whole document, so this is the number
+    // to raise when a source genuinely lists more than that on one page.
+    //
+    // Not higher, because this is not ours to choose alone: the extractor's
+    // model is per org, and a vendor whose own output ceiling is lower (16,384
+    // on several OpenAI models) refuses the call outright rather than
+    // returning less.
+    maxTokens: 16_000,
     streaming: false,
   });
 

@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSyncBudget } from '../budget';
-import { buildExtractionPrompt, EXTRACTOR_SYSTEM_PROMPT, JSON_LD_CHAR_CAP, KNOWN_CHAR_CAP, PAGE_CHAR_CAP } from './prompt';
+import { buildExtractionPrompt, EXTRACTOR_SYSTEM_PROMPT, JSON_LD_CHAR_CAP, KNOWN_CHAR_CAP } from './prompt';
 
 const invoke = vi.fn();
 const bindTools = vi.fn();
@@ -213,13 +213,32 @@ describe('extraction prompt containment', () => {
       rules: long(8_000),
       known: long(KNOWN_CHAR_CAP),
       jsonLd: long(JSON_LD_CHAR_CAP),
-      pageText: long(PAGE_CHAR_CAP),
+      pageText: long(20_000),
       maxInputTokens: 10_000,
     });
 
     // Without the policy in the overhead this call landed near 10,900 tokens.
     expect(built.estimatedTokens).toBeLessThanOrEqual(10_000);
     expect(built.trimmed.length).toBeGreaterThan(0);
+  });
+
+  it('keeps a page far longer than the old 20,000-character cap, up to the call budget', () => {
+    // The tail of a venue's season page is where the far-out dates live. The
+    // fixed page cap cut them off before the model read a word and said
+    // nothing about it; the only bound now is what one call can hold, and a
+    // cut THERE is reported in `trimmed`.
+    const tail = 'The Last Show Of The Season, 30 December.';
+    const built = buildExtractionPrompt({
+      config,
+      rules: '',
+      known: '',
+      jsonLd: '',
+      pageText: `${'x'.repeat(60_000)}\n${tail}`,
+      maxInputTokens: 60_000,
+    });
+
+    expect(built.human).toContain(tail);
+    expect(built.trimmed).not.toContain('page');
   });
 
   it('trims rules, then JSON-LD, then known cards, and slices the page last', () => {
@@ -229,7 +248,7 @@ describe('extraction prompt containment', () => {
       rules: long(RULES_SAMPLE),
       known: long(KNOWN_CHAR_CAP),
       jsonLd: long(JSON_LD_CHAR_CAP),
-      pageText: long(PAGE_CHAR_CAP),
+      pageText: long(20_000),
       maxInputTokens: 2_000,
     });
 

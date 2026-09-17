@@ -92,7 +92,7 @@ describe('candidate extractor model call', () => {
     expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledWith(
       'extractor',
       'org_extract',
-      { temperature: 0, maxTokens: 8192, streaming: false },
+      { temperature: 0, maxTokens: 16_000, streaming: false },
     );
   });
 
