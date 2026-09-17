@@ -319,8 +319,6 @@ export async function getBatchEvaluation(
  * @param credentials - The org's own access key.
  * @param credentials.accessKeyId - The key id.
  * @param credentials.secretAccessKey - The secret.
- * @param credentials.accessKeyId
- * @param credentials.secretAccessKey
  */
 export function batchClient(
   region: string,
