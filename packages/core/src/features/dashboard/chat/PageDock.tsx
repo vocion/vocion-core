@@ -12,7 +12,10 @@ import { parseConversationParam } from './resumeRule';
  * and, on a lead, the pending decision). The shell's dock bails there so a
  * page never carries two conversation surfaces (agent-chat-surface.md §6).
  */
-export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//];
+// A decision page mounts its own dock too, for the same reason the lead page
+// does: the rail needs the pending RUN to rewrite against (`@change`), and
+// only the page has it. The shell's dock knows the route, not the run.
+export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//, /\/dashboard\/inbox\/proposal-\d+/];
 
 /**
  * Screens that mount no dock at all.
