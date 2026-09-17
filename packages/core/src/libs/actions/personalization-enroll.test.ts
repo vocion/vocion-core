@@ -321,7 +321,7 @@ describe('Enroll into a Personalized Nurture rung', () => {
 
     const props = calls[patchIdx]!.body.properties as Record<string, string>;
 
-    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: 'Body 1', pn_email_4_subject: 'Subject 4', pn_email_4_body: 'Body 4' });
+    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: '<p>Body 1</p>', pn_email_4_subject: 'Subject 4', pn_email_4_body: '<p>Body 4</p>' });
     expect(props.pn_generated_at).toMatch(/^\d{13}$/);
   });
 

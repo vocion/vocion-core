@@ -17,13 +17,20 @@ describe('nurture slots', () => {
 
     expect(props).toEqual({
       pn_email_1_subject: 'A',
-      pn_email_1_body: 'a',
+      pn_email_1_body: '<p>a</p>',
       pn_email_2_subject: 'B',
-      pn_email_2_body: 'b',
+      pn_email_2_body: '<p>b</p>',
       pn_email_3_subject: 'C',
-      pn_email_3_body: 'c',
+      pn_email_3_body: '<p>c</p>',
       pn_generated_at: String(Date.UTC(2026, 8, 10)),
     });
+  });
+
+  it('writes the body as email HTML — paragraphs survive the sequence template', () => {
+    const props = nurtureSlotProperties([{ subject: 'A', body: 'Musa,\n\nFirst.\nSecond line.\n\nBest,' }]);
+
+    expect(props.pn_email_1_body).toBe('<p>Musa,</p><p>First.<br>Second line.</p><p>Best,</p>');
+    expect(props.pn_email_1_subject).toBe('A');
   });
 
   it('refuses more sends than slots rather than dropping copy', () => {

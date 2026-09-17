@@ -587,11 +587,13 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // The sequences API cannot carry per-enrollment copy, so the APPROVED
     // sends are staged for the sender on the contact's timeline. Non-fatal:
     // the enrollment already happened, and the result says which occurred.
+    // hs_note_body renders as HTML too — convert at the same boundary as the slots.
+    const { textToEmailHtml } = await import('@/libs/hubspot/emailHtml');
     const noteBody = [
       `Approved personalized sends for "${input.sequenceName}" (reviewed in Vocion):`,
       ...input.sends.map(s => `Send ${s.step}${s.day !== undefined ? ` · Day ${s.day}` : ''}\nSubject: ${s.subject}\n\n${s.body}`),
     ].join('\n\n---\n\n');
-    const note = await stageSendsAsNote(client, hubspotId, noteBody);
+    const note = await stageSendsAsNote(client, hubspotId, textToEmailHtml(noteBody));
 
     // The lane flip: reviewed sends persist on the lead (the reviewer's
     // edited copy — decide() re-wrote the input before execution), and the
