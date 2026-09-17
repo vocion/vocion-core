@@ -17,6 +17,7 @@ import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory
 import { createMemoryDigestMiddleware } from './memoryDigest.js';
 import { buildChatModel } from './model.js';
 import { readOnlyBackend } from './readOnlyBackend.js';
+import { sessionIdFor, withSession } from './telemetry.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
 
@@ -222,7 +223,7 @@ export async function runInvocation(
     toolEndpoint: req.tools.endpoint,
     toolClaim: req.tools.claim,
   };
-  return invocationContext.run(context, () => runTurn(req, emit));
+  return invocationContext.run(context, () => withSession(sessionIdFor(req), () => runTurn(req, emit)));
 }
 
 async function runTurn(

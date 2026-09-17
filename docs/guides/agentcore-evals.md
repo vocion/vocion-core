@@ -157,10 +157,11 @@ AWS offers evaluation in three shapes, and they answer different questions:
   live sessions continuously, writing scores to CloudWatch as they happen.
 
 The last two read your agent's OpenTelemetry traces out of CloudWatch, which
-means an agent instrumented and delivering spans there. Vocion's agents trace
-to Langfuse today, so on-demand is the shape that works without asking anyone
-to rebuild their observability. Nothing about the datasets or the evaluators
-changes if that later becomes possible — only who runs the cases.
+means an agent instrumented and delivering spans there. On-demand needs none of
+that — it is the shape Vocion's dataset runner uses, and it works wherever your
+agent runs. The other two need the tracing described in the next section.
+Nothing about the datasets or the evaluators changes either way; only who runs
+the cases.
 
 Worth being clear about what the live-traffic shape can and cannot tell you.
 Nobody wrote down the right answer for a real customer's question, so online
@@ -169,6 +170,108 @@ grounded in what the tools returned. That is a health signal, not a pass rate.
 The way the two meet is a person promoting a bad live session into a dataset
 and writing the expected answer — after which it is a regression case like any
 other.
+
+## Tracing the agent runtime, so AWS can see real runs
+
+Everything above scores cases Vocion ran on purpose. Batch evaluation, online
+evaluation and the GenAI Observability console all want something else: the
+spans from your agent's real work, in your own AWS account. The agent runtime
+emits those, and this section is how to turn them on and how to tell whether
+they arrived.
+
+**What you get.** Each turn becomes a trace in CloudWatch: the prompt, the
+reply, every tool call with its arguments and its result, and the timings. Two
+things follow from having them. A person can open the GenAI Observability
+console and watch a session without going through Vocion — which is what a
+client's own security or ops team usually wants. And batch evaluation becomes
+possible, because it finds sessions by reading the `aws/spans` log group rather
+than being handed a transcript.
+
+**What it costs.** Span ingestion is billed per span, and turning this on turns
+on a bill that grows with traffic. Transaction Search is what writes spans into
+CloudWatch Logs; `infra/agentcore/provision.sh` enables it and sets the
+indexing rule to 1%, which keeps the indexed (more expensive) portion small
+while every span is still stored and searchable. Check AWS's CloudWatch pricing
+page before enabling it in production — do not take a number from this guide.
+
+### Turning it on
+
+Tracing is on by default when you deploy the runtime:
+
+```bash
+ENV=dev AWS_PROFILE=veerio bash infra/agentcore/deploy-runtime.sh
+```
+
+To deploy a runtime that emits nothing:
+
+```bash
+OBSERVABILITY=false ENV=dev AWS_PROFILE=veerio bash infra/agentcore/deploy-runtime.sh
+```
+
+Two things have to be in place first, and `infra/agentcore/provision.sh` does
+both:
+
+- **Transaction Search on, in the region the runtime runs in.** Without it the
+  X-Ray OTLP endpoint takes the spans and nothing reaches CloudWatch Logs.
+- **The runtime role can write traces.** `xray:PutTraceSegments` is the action
+  the OTLP traces endpoint checks, and the role provision.sh creates has it.
+
+### How it is put together, and why
+
+The pieces are worth knowing because each one fails quietly rather than loudly.
+
+- **The exporter is AWS's OpenTelemetry distro**, loaded by `--require` in the
+  Dockerfile. It owns the connection to CloudWatch and signs the requests with
+  the runtime's own credentials. It is the one dependency that is installed in
+  the image rather than bundled, because it has to run before any of our code.
+- **The spans come from OpenInference's LangChain instrumentation**, registered
+  by hand in `packages/agent-runtime/src/telemetry.ts`. By hand because the
+  runtime ships as a single esbuild bundle, so there is no module loading left
+  for auto-instrumentation to hook. The scope name it emits,
+  `@arizeai/openinference-instrumentation-langchain`, is one AWS documents as
+  supported; a scope AWS does not recognise makes it refuse the whole session
+  with "Provided input has no spans with supported scope".
+- **`session.id` is set per turn**, from the caller's session id, and carried
+  on the OpenTelemetry context so every span in the turn picks it up —
+  including the ones from inside a tool. A span without it is accepted, looks
+  correct in the console, and matches no evaluation.
+
+The environment variables the deploy script sets, and what each one decides,
+are documented in `infra/agentcore/deploy-runtime.sh` next to the code that
+sets them.
+
+### Checking that spans actually arrive
+
+In order, cheapest first.
+
+```bash
+# 1. Is the runtime deployed with tracing on?
+aws --profile veerio --region us-west-2 bedrock-agentcore-control \
+  get-agent-runtime --agent-runtime-id "$RUNTIME_ID" \
+  --query 'environmentVariables.AGENT_OBSERVABILITY_ENABLED'
+
+# 2. Is Transaction Search on in this region?
+aws --profile veerio --region us-west-2 xray get-trace-segment-destination
+
+# 3. Did any spans land in the last hour?
+aws --profile veerio --region us-west-2 logs start-query \
+  --log-group-name 'aws/spans' \
+  --start-time "$(($(date +%s) - 3600))" --end-time "$(date +%s)" \
+  --query-string 'fields @timestamp, attributes.session.id, name | limit 20'
+```
+
+The runtime also says so itself. If it starts with
+`AGENT_OBSERVABILITY_ENABLED` set but nothing is carrying OpenTelemetry
+context — the usual cause being a container started without the `--require`
+flag — it logs a line naming that, because the alternative is spans that arrive
+with no session id and evaluations that quietly score nothing.
+
+Two symptoms and what they mean:
+
+| What you see | What it is |
+| --- | --- |
+| No trace at all in the console | Transaction Search off, or the role cannot write traces |
+| Traces present, but an evaluation scores nothing | Spans have no `session.id` — check the runtime's startup log |
 
 ## Where the cases live
 
