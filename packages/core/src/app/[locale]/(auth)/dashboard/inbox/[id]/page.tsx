@@ -2,6 +2,7 @@ import type { RunSummary } from '@/features/dashboard/inbox/RunDecision';
 import type { InboxSort } from '@/services/InboxService';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { AskReceipt } from '@/features/dashboard/inbox/AskReceipt';
 import { AskSheet } from '@/features/dashboard/inbox/AskSheet';
 import { agoLabel, decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
@@ -15,6 +16,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
+import { recordRef } from '@/services/chat/recordContext';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
@@ -134,7 +136,16 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
       const sort = ((INBOX_SORTS as readonly string[]).includes(sp.sort ?? '') ? sp.sort : 'oldest') as InboxSort;
       const queue = await listProposalQueue(orgId, { q: sp.q?.trim(), sort, actionKinds: list(sp.actionKind), agents: list(sp.agents) });
       const search = carried(sp);
-      return <ReviewFocus run={run} queue={queue} search={search} listHref={`/dashboard/inbox?kind=proposal${search.replace(/^\?/, '&')}`} />;
+      return (
+        <>
+          {/* Declare the record so the conversation beside this page knows
+              WHAT it is looking at. Without it `page_context.record` is empty
+              and the agent can only read the page title — which is why asking
+              it to change a send got an acknowledgement instead of an edit. */}
+          <RecordContext record={recordRef('ask', run.id, describeAction(run).title)} />
+          <ReviewFocus run={run} queue={queue} search={search} listHref={`/dashboard/inbox?kind=proposal${search.replace(/^\?/, '&')}`} />
+        </>
+      );
     }
 
     case 'mission': {

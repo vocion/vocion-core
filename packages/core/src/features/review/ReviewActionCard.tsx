@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
@@ -115,6 +116,34 @@ export function ReviewActionCard(props: {
   const [editAll, setEditAll] = useState(false);
   const card = run.card;
   const [contentEdits, setContentEdits] = useState<Record<string, ContentEdit>>({});
+
+  /**
+   * A rewrite asked for in the conversation lands HERE, in the copy you are
+   * looking at.
+   *
+   * Chris, 2026-09-17: *"I also would have liked it to update the inline
+   * content i'm looking at… when updating live could I get a light color
+   * highlight on changed text that fades out?"* The rail is the conversation,
+   * never a second copy of the page (`patterns.md`), so the page has to be
+   * what changes — and a change you did not watch happen needs to say where
+   * it landed, or you have to diff it by eye.
+   *
+   * `justChanged` holds the send ids that moved in the last couple of seconds;
+   * the renderer tints them and the tint fades on its own.
+   */
+  const [justChanged, setJustChanged] = useState<Record<string, number>>({});
+  useDraftRevision(run.id, (contentId, body) => {
+    setContentEdits(prev => ({ ...prev, [contentId]: { ...prev[contentId], body } }));
+    setJustChanged(prev => ({ ...prev, [contentId]: Date.now() }));
+  });
+  useEffect(() => {
+    const ids = Object.keys(justChanged);
+    if (ids.length === 0) {
+      return;
+    }
+    const t = setTimeout(() => setJustChanged({}), 2400);
+    return () => clearTimeout(t);
+  }, [justChanged]);
   const [propertyEdits, setPropertyEdits] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -420,6 +449,7 @@ export function ReviewActionCard(props: {
                     defaultExpanded={i === 0}
                     expanded={editAll ? true : undefined}
                     inline
+                    changed={Boolean(justChanged[item.id])}
                     edit={contentEdits[item.id]}
                     onEdit={item.kind === 'email'
                       ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
