@@ -3224,7 +3224,7 @@ export const actionRunSchema = pgTable(
      * does this look like now" stop being the same question — a regeneration
      * writes a new `artifact_version` and the page moves on. The pin is
      * written at decide time and never rewritten, so the audit answers the
-     * first question (MANIFESTO §3, §12).
+     * first question (design principles 1 and 9).
      */
     pinnedArtifacts: jsonb('pinned_artifacts').$type<Array<{
       artifactId: number;

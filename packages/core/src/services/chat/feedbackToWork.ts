@@ -1,7 +1,7 @@
 /**
  * Feedback said in a thread, turned into work a person can start.
  *
- * `docs/MANIFESTO.md` §9: *a learning system should be able to prove that it
+ * `docs/DESIGN-PRINCIPLES.md` §9: *a learning system should be able to prove that it
  * is learning*. Someone telling an agent "you should have had the thread
  * context here" has stated a requirement; the manifesto's test asks whether
  * the interaction taught the system anything. Left as a Slack message the

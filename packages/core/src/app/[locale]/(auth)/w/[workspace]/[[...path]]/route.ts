@@ -2,7 +2,7 @@
  * `/w/[workspace]/[[...path]]` — the workspace entry route.
  *
  * A link mailed or posted about one workspace must open THAT workspace, not
- * whichever one the reader's browser last had active (MANIFESTO §11: "where
+ * whichever one the reader's browser last had active (design principle 8: "where
  * am I" must be obvious). This handler resolves `[workspace]` as a project
  * slug within the signed-in user's account, makes it the active project by
  * setting `vocion_active_project` — the very cookie the sidebar switcher

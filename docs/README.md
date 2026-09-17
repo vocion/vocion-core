@@ -2,7 +2,7 @@
 
 ## Start here
 
-- [**Product Design Manifesto**](./MANIFESTO.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
+- [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.

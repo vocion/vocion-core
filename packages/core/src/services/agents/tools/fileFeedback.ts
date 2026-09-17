@@ -2,7 +2,7 @@
  * file_feedback — turn what someone just told you into work and into a rule.
  *
  * The manifesto's test for any interaction includes *did this interaction
- * teach the system something* (`docs/MANIFESTO.md` §9, "Improvement must be
+ * teach the system something* (`docs/DESIGN-PRINCIPLES.md` §9, "Improvement must be
  * visible"). A person who replies to an agent with "you should have had the
  * thread context here" has written a requirement. Read once and answered
  * politely, it teaches nothing; filed, it becomes a proposed rule a human can

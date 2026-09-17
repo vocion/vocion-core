@@ -44,7 +44,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
   // The workspace the shell is showing — named in the top bar so "where am I"
-  // is answered without opening the switcher (MANIFESTO §11).
+  // is answered without opening the switcher (design principle 8).
   let workspace: { slug: string; name: string } | null = null;
   if (orgId) {
     const [project] = await db

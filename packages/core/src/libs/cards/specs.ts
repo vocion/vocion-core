@@ -97,7 +97,7 @@ export type FileSpec = z.infer<typeof fileSpecSchema>;
  * three artifacts the personalization lead page is built from
  * (`docs/specs/personalization-v2.md`), and its editor is the sequence editor
  * rather than a textarea. Adding it cost this descriptor plus one card —
- * MANIFESTO §7, "the next content type costs a descriptor, not a subsystem".
+ * design principle 7, "the next content type costs a descriptor, not a subsystem".
  */
 export const sequenceSpecSchema = z.object({
   /** The CRM sequence the sends will be enrolled into, when one is chosen. */

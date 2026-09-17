@@ -19,7 +19,7 @@ A rule arrives here the second time the same note comes back on a different
 page. A note that comes back twice is not feedback about a page; it is a
 missing rule.
 
-The bar these patterns are held to is `docs/MANIFESTO.md`:
+The bar these patterns are held to is `docs/DESIGN-PRINCIPLES.md`:
 
 - **#4 Simple beats flexible** — one obvious action over five; a useful default
   over a setting. Each pattern has one primary verb and few props.
@@ -328,7 +328,7 @@ The Ledger reuses `ListToolbar` (facets, chips, search, sort) and
 
 **What meeting was this? What did the system decide? Why? What did the human
 do?** That ordering is the archetype, not a preference: the decision history is
-the ledger and the model internals are supporting evidence (MANIFESTO §12).
+the ledger and the model internals are supporting evidence (design principle 9).
 Thresholds, prompt version, run id and transcript hash are product telemetry —
 they go in `details`, collapsed. A number a person scans past on every row is
 paying rent it does not earn.
@@ -455,10 +455,10 @@ uppercase label — all three of which carry the structure without adding a box.
 This is the enforced form of the *Don't put a box in a box* bullet above, and
 of step 8 of the migration checklist.
 
-- **MANIFESTO §4 — Simple beats flexible.** "Prefer one obvious action over
+- **Design principle 4 — Simple beats flexible.** "Prefer one obvious action over
   five possible actions." A stack of cards inside a card offers five framings
   of one thing.
-- **MANIFESTO §16 — Beautiful is functional.** "Every screen should have
+- **Design principle 8 — Beautiful is functional.** "Every screen should have
   hierarchy. Every object should have space." Hierarchy comes from *space*.
   Chrome that repeats at every level conveys no hierarchy at all — it is
   "complexity disguised as sophistication", named in that section as a thing
@@ -566,7 +566,7 @@ no note required, the same motion on every Detail page.
 Live on: the personalization lead workspace (every `Section` on every tab) and the **Briefing detail** (every rendered section of the typed
 document, through `Section`). The briefing's own bespoke "Ask Vocion" pill is
 gone; two selection controls on two pages doing the same job was the defect,
-per MANIFESTO §19.
+per design principle 6.
 
 **Seam:** `dismissSelectionControl()` (`features/comments/AnchoredComments.tsx`)
 — a surface that opens over the page dismisses the control rather than sitting

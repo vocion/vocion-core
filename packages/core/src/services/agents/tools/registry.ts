@@ -127,7 +127,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     proposeActionTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
-    // Every interaction should teach the system something (MANIFESTO §9):
+    // Every interaction should teach the system something (design principle 11):
     // feedback said anywhere becomes a proposed rule and a recommendation.
     fileFeedbackTool(ctx),
     // Artifacts (0095/0101): render_* creates one, read_artifact/update_artifact

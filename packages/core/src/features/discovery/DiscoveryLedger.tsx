@@ -36,7 +36,7 @@ import { cn } from '@/utils/Helpers';
  * chip filters to them, and every count in the header is a filter you can
  * click. A ledger of 47 things the agent got right is mildly useful; a ledger
  * of the 6 times a person corrected it, why, and whether the next model
- * version improved, is the calibration loop MANIFESTO §6 and §9 ask for.
+ * version improved, is the calibration loop design principle 11 ask for.
  *
  * Thresholds, prompt version, run id, transcript hash and workspace sha are
  * product telemetry, not row-level hierarchy — they live behind

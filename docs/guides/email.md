@@ -6,7 +6,7 @@ per team and per member, board-level and red-team runs called out, the count of
 items waiting on a human, and the latest workspace briefing — delivered to the
 workspace's accountable human every morning.
 
-The mail follows the [Product Design Manifesto](../MANIFESTO.md): it answers,
+The mail follows the [Product Design Manifesto](../DESIGN-PRINCIPLES.md): it answers,
 in this order, **What changed? What needs me? Are we on track? What happens
 next?** Outcomes and the needs-you count lead; the per-team table follows;
 tokens, cents and run counts come last, as evidence for what was said above

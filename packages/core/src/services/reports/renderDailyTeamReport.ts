@@ -3,7 +3,7 @@
  * `{ subject, html, text, markdown }` out. No DB, no env, no clock (the data
  * carries `generatedAt`), so the snapshot test pins the exact mail.
  *
- * Order follows the Product Design Manifesto (`docs/MANIFESTO.md`) and the
+ * Order follows the Product Design Manifesto (`docs/DESIGN-PRINCIPLES.md`) and the
  * team-report spec (`docs/specs/team-report-v2.md`): the mail leads with
  * **Performance** — goal attainment per team with its provenance, human
  * load, cost per outcome, what needs attention — then answers **What

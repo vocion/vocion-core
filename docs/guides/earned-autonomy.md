@@ -7,7 +7,7 @@
 
 Yes, yes, and yes. This guide is how.
 
-The [manifesto](../MANIFESTO.md) says automation is earned (#8), every
+The [manifesto](../DESIGN-PRINCIPLES.md) says automation is earned (#8), every
 interaction should make the system smarter (#6), and improvement must be
 visible (#9). Earned autonomy is those three principles as one mechanism: every
 human decision becomes evidence, the evidence is shown next to every
