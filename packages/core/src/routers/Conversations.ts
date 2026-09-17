@@ -1,5 +1,7 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { listAttachmentsByMessage } from '@/services/ArtifactService';
+import { attachmentFromArtifact } from '@/services/chat/attachments';
 import {
   appendMessage,
   CONVERSATION_AUTONOMY,
@@ -36,8 +38,16 @@ export const get = os
     if (!conv) {
       throw ApiError.notFound({ id: input.id });
     }
-    const messages = await listMessages({ orgId, conversationId: input.id });
-    return { ...conv, messages };
+    const [messages, uploads] = await Promise.all([
+      listMessages({ orgId, conversationId: input.id }),
+      listAttachmentsByMessage({ orgId, conversationId: input.id }),
+    ]);
+    // The files a person attached ride on their message, so a reloaded
+    // transcript shows the chips they saw when they sent it.
+    return {
+      ...conv,
+      messages: messages.map(m => ({ ...m, attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact) })),
+    };
   });
 
 export const create = os

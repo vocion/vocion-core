@@ -55,6 +55,8 @@ export type RuntimeRunOptions = {
   orgId: string;
   agentSlug: string;
   message: string;
+  /** Files attached to this turn — carried to the container as text and inline image data. */
+  attachments?: import('@/services/chat/attachments').LoadedAttachment[];
   userId?: string;
   allowedSourceSlugs?: string[];
   missionSlug?: string;
@@ -169,6 +171,10 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const sessionId = opts.sessionId
     ?? (opts.conversationId ? conversationSessionId(opts.conversationId, opts.orgId) : undefined);
 
+  // The container has no database and no artifacts volume: a document travels
+  // as its text, an image as a data URL, both read here.
+  const { attachmentsForWire } = await import('@/services/chat/attachments');
+  const attachments = await attachmentsForWire(opts.attachments ?? []);
   const payload = {
     version: 1 as const,
     agent: {
@@ -187,6 +193,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     },
     message: opts.message,
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
     conversationHistory: omitHistory ? undefined : opts.conversationHistory,
     files,
     tools: { endpoint: TOOL_ENDPOINT(), catalog, claim },
