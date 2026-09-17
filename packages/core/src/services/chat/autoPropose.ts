@@ -67,7 +67,7 @@ export async function autoProposeRecommendation(opts: {
       proposal: {
         confidence: opts.rec.confidence,
         rationale: opts.rec.rationale,
-        ...recommendedActionAdvice(opts.rec.rationale),
+        ...recommendedActionAdvice(opts.rec),
       },
       dedupKey: deriveRecommendationDedupKey(opts.rec.actionId, opts.rec.input),
     });

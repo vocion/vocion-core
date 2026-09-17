@@ -75,7 +75,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
         agentSlug: rec.agentSlug,
         rationale: rec.rationale,
         confidence: rec.confidence,
-        ...recommendedActionAdvice(rec.rationale),
+        ...recommendedActionAdvice(rec),
       }) as { runId: number; status: string };
       setPhase({ status: 'proposed', runId: res.runId });
       onProposed?.(res.runId);

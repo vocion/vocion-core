@@ -86,6 +86,9 @@ export type RecommendedAction = {
   agentSlug?: string;
   /** Set when the server already filed it into the review queue (act-within-bounds). */
   runId?: number;
+  /** The agent's own recommendation for the queue card, and why. Both or neither. */
+  suggestedDecision?: 'approve' | 'reject' | 'snooze';
+  suggestedDecisionReason?: string;
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */

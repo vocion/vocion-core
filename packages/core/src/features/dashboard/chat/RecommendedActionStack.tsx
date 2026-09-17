@@ -51,7 +51,7 @@ export function RecommendedActionStack({ recs, autoPropose = false }: { recs: Re
       agentSlug: rec.agentSlug,
       rationale: rec.rationale,
       confidence: rec.confidence,
-      ...recommendedActionAdvice(rec.rationale),
+      ...recommendedActionAdvice(rec),
     });
   };
 

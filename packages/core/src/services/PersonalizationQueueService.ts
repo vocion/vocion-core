@@ -1197,6 +1197,13 @@ export type SaveDraftSequenceOptions = {
   sends: DraftSend[];
   /** The EXISTING sequence the agent recommends — from the sequence library read. */
   recommendedSequence: { id: string; name: string; reason?: string };
+  /**
+   * What the drafting agent thinks a reviewer should do with the card this
+   * call files, and why, in its own words. Absent only from a caller that
+   * never asked the model — the card then carries no recommendation rather
+   * than one written here on the agent's behalf.
+   */
+  advice?: { suggestedDecision?: 'approve' | 'reject' | 'snooze'; suggestedDecisionReason?: string };
   senderEmail: string;
   /** HubSpot user id from the library read — scopes verification and the later enrollment. */
   hubspotUserId?: string;
@@ -1328,12 +1335,11 @@ export async function saveDraftSequence(orgId: string, opts: SaveDraftSequenceOp
     proposal: {
       confidence: row.confidence ?? undefined,
       rationale: opts.recommendedSequence.reason,
-      // The agent picked this sequence and said why, so the recommendation is
-      // its own: releasing the drafts is what the card is for. When it picked
-      // one without saying why, the card carries no recommendation rather than
-      // a sentence core wrote on the agent's behalf — see
-      // `recommendedActionAdvice`.
-      ...recommendedActionAdvice(opts.recommendedSequence.reason),
+      // The drafting agent's own verdict on this lead, asked for by
+      // `save_draft_sequence`. Absent means the card carries no
+      // recommendation — never one written here on the agent's behalf, which
+      // the agreement rate would score as though the agent had made it.
+      ...recommendedActionAdvice(opts.advice ?? {}),
     },
   });
 

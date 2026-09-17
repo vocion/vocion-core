@@ -10,21 +10,25 @@
  */
 
 import type { RuntimeContext } from '../types';
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { listActions } from '@/libs/actions/registry';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 export function recommendActionTool(ctx: RuntimeContext) {
   const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
 
   return tool(
     async (input) => {
-      const { action_id, action_input, label, rationale, confidence } = input as {
+      const { action_id, action_input, label, rationale, confidence, suggested_decision, suggested_decision_reason } = input as {
         action_id: string;
         action_input: Record<string, unknown>;
         label: string;
         rationale?: string;
         confidence?: number;
+        suggested_decision: SuggestedDecision;
+        suggested_decision_reason: string;
       };
       ctx.emit({
         type: 'recommended_action',
@@ -35,6 +39,8 @@ export function recommendActionTool(ctx: RuntimeContext) {
           rationale,
           confidence,
           agentSlug: ctx.agentSlug,
+          suggestedDecision: suggested_decision,
+          suggestedDecisionReason: suggested_decision_reason,
         },
       });
       return `Surfaced a one-tap recommendation to the user: "${label}". They can prepare it for review with a single tap. Do NOT also paste the full draft as text — the card carries it.`;
@@ -48,6 +54,13 @@ export function recommendActionTool(ctx: RuntimeContext) {
         label: z.string().describe('Short human button label, e.g. "Draft the note to Carlo Marcelino"'),
         rationale: z.string().optional().describe('One line: why this action, now'),
         confidence: z.number().min(0).max(1).optional().describe('Your confidence 0–1 from grounding quality'),
+        // Required, and asked as a separate question from `rationale`: the
+        // card this becomes goes into the review queue with a recommendation
+        // on it, and whatever stands there is scored against what the reviewer
+        // then does. Core used to fill this in — an "approve" on every card,
+        // which the agreement rate read as the agent's own view.
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('What you think the reviewer should do with this once it reaches the queue: "approve", "reject" or "snooze". Almost always "approve" for something you are recommending — say "snooze" when it should wait for something you name, and "reject" when you are surfacing it for a person to turn down.'),
+        suggested_decision_reason: z.string().describe('ONE short sentence for why that recommendation, in your own words — "the renewal is 11 days out and nobody has replied", "worth doing, but not until the contract is signed". Not the same as `rationale`: that argues the payload is right, this argues what should happen to the card.'),
       }),
     },
   );
