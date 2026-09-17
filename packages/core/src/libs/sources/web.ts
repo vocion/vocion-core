@@ -640,8 +640,7 @@ function icsPublishedUrls(block: string[]): string[] {
   for (const name of ICS_URL_PROPERTIES) {
     // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
     // feed that ships inline base64 bytes on the first line and the poster URL
-    // on the second would otherwise lose the poster entirely. The event's own
-    // only, because an alarm inside it publishes nothing about the event.
+    // on the second would otherwise lose the poster entirely.
     for (const value of icsPublishedValues(block, name)) {
       if (isFetchableUrl(value)) {
         out.push(value);
@@ -781,20 +780,6 @@ function icsProperties(lines: string[], name: string): IcsProperty[] {
 }
 
 /**
- * Every occurrence of one property, wherever in the block it was written.
- *
- * Read without regard to nesting on purpose. The properties this answers,
- * `UID`, `SUMMARY` and `RECURRENCE-ID`, are what the split is keyed and titled
- * on, and a block whose components do not balance is still a block whose UID
- * we would rather find than lose every document of the source over.
- * @param lines - the block's lines, starting at its own `BEGIN:`.
- * @param name - the property name, uppercase.
- */
-function icsValues(lines: string[], name: string): string[] {
-  return icsProperties(lines, name).map(p => p.value);
-}
-
-/**
  * Every occurrence of one property that the event itself certainly published.
  *
  * Two exclusions, both about not putting words in a document's mouth. A
@@ -811,12 +796,24 @@ function icsPublishedValues(lines: string[], name: string): string[] {
 }
 
 /**
- * Read one property out of a VEVENT block.
+ * Read one property out of a VEVENT block: the event's own where it has one,
+ * and otherwise the first found at any depth.
+ *
+ * Both halves are load-bearing, and each covers the other's failure. Preferring
+ * the event's own matters because a nested component may carry the same
+ * property name: RFC 9074 gives a `VALARM` its own `UID`, and an `ACTION:EMAIL`
+ * alarm carries a `SUMMARY` that is the mail subject, so a feed writing its
+ * alarm above the event's own lines would otherwise key and title the document
+ * from the alarm. Falling back to any depth matters because a block whose
+ * components do not balance still has a `UID` we would rather find than lose
+ * every document of the source over, which is what `splitIcs` does when the key
+ * comes back empty.
  * @param lines - the block's lines, starting at its own `BEGIN:`.
  * @param name - the property name, uppercase.
  */
 function icsValue(lines: string[], name: string): string {
-  return icsValues(lines, name)[0] ?? '';
+  const found = icsProperties(lines, name);
+  return (found.find(p => p.own) ?? found[0])?.value ?? '';
 }
 
 /**
@@ -843,7 +840,18 @@ const FEED_ARRAY_PATHS = ['upcoming', 'items', 'events', 'data'] as const;
  * @param value - a candidate array from the body.
  */
 function entryArray(value: unknown): unknown[] | null {
-  return Array.isArray(value) && value.length > 0 && value.every(isRecord) ? value : null;
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  // Anything that is not an object is a hole and is dropped: a null, a number,
+  // a stray label. What decides the array is whether any entry survives that,
+  // so a list of nothing but strings is a navigation menu and no feed at all,
+  // while a good list with one hole in it still splits. Demanding that every
+  // element be an entry would let one hole cost the split for the whole source,
+  // which puts it back on a single whole-file document, and only the first
+  // `PAGE_CHAR_CAP` characters of that ever reach a model.
+  const entries = value.filter(isRecord);
+  return entries.length > 0 ? entries : null;
 }
 
 /**
@@ -885,15 +893,21 @@ function feedEntries(page: FetchedPage): unknown[] | null {
   if (bare || !isRecord(parsed)) {
     return bare;
   }
-  // A known key that is present but empty is the feed answering "nothing
-  // today", not failing to answer. Falling through to a sibling would swap
-  // every document of the source for its archive the day the last event
-  // passes, and swap them all back when the next one is posted: two full
-  // tombstone-and-re-embed cycles, plus a model call per stale entry, since a
-  // past date is only recognised after the model has read it.
-  const named = FEED_ARRAY_PATHS.find(path => Array.isArray(parsed[path]));
-  if (named !== undefined) {
-    return entryArray(parsed[named]);
+  for (const path of FEED_ARRAY_PATHS) {
+    const entries = entryArray(parsed[path]);
+    if (entries) {
+      return entries;
+    }
+  }
+  // A known key present but empty is the feed answering "nothing today", not
+  // failing to answer, so the file stays whole rather than falling through to a
+  // sibling. Otherwise the day a listing's last entry ages out, every document
+  // of the source is swapped for whatever the archive key holds and swapped
+  // back when the next one is published: two tombstone-and-re-embed cycles,
+  // plus a model call per stale entry, since the pipeline only learns an entry
+  // is stale after a model has read it.
+  if (FEED_ARRAY_PATHS.some(path => Array.isArray(parsed[path]) && parsed[path].length === 0)) {
+    return null;
   }
   const first = Object.keys(parsed).find(key => entryArray(parsed[key]));
   return first === undefined ? null : entryArray(parsed[first]);
@@ -908,9 +922,11 @@ function feedEntries(page: FetchedPage): unknown[] | null {
  */
 function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null {
   if (!items.length) {
-    // `entryArray` already refuses an empty list, so this is the belt to its
-    // braces: an empty array is a feed with nothing in it today, not a feed to
-    // split, and the whole file stays one document so the source owns one.
+    // Unreachable from the one caller, because `feedEntries` answers only with
+    // null or a non-empty list. Kept rather than dropped because of what
+    // breaking that invariant would cost: falling through would return an empty
+    // array, which is a connector yielding zero documents, which tombstones
+    // everything the source owns. Answering null costs one whole-file document.
     return null;
   }
   const docs: IngestDoc[] = [];
@@ -1005,8 +1021,10 @@ function declaredTitle(item: unknown): string | undefined {
  * alone rather than guessed at, because the shape of a feed item is the
  * publisher's to choose and walking it would turn this into a parser.
  *
- * Bounded twice over: the field list is fixed, and the same cap the ICS path
- * uses is applied anyway, so the bound survives someone adding a field here.
+ * Bounded twice over. The field list is fixed, and `PUBLISHED_URL_CAP` is
+ * applied on top of it, so the bound on how many URLs one entry may declare
+ * survives someone adding a field to the list. `PUBLISHED_URL_CHAR_CAP`, inside
+ * `isFetchableUrl`, bounds each value's length rather than the count.
  * @param item - one entry from the array.
  * @param baseUrl - the feed's own URL, which a relative value resolves against.
  */

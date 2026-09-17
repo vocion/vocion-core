@@ -118,15 +118,19 @@ function documentUrls(
   links: PageLink[] | undefined,
   jsonLd: unknown[] | undefined,
   declared: string[] | undefined,
-): { exact: Map<string, string>; blob: string } {
-  // Keyed by the squashed form so the lookup is whitespace-blind, valued by the
-  // string the document actually published, because that is what gets stored:
-  // matching on a folded URL and then keeping the model's spelling of it would
-  // put a newline in the `sourceUrl` a moderator clicks.
-  const exact = new Map<string, string>();
+): { exact: Set<string>; blob: string } {
+  // Held in the squashed form, which is also the form a match is stored in.
+  // RFC 3986 has no whitespace in a URL at all, so any that reaches here is an
+  // artifact of how a line was written down rather than part of the address.
+  // Keeping either side's spelling instead would put that whitespace in the
+  // `sourceUrl` a reviewer clicks: the model's, when it hands back a folded
+  // value it read; the document's, when a feed writes a space into its own
+  // ATTACH. Only ICS can carry one this far, since the HTML and JSON paths
+  // resolve through `absoluteUrl`, which percent-encodes.
+  const exact = new Set<string>();
   for (const link of links ?? []) {
     if (link?.url) {
-      exact.set(squashUrl(link.url), link.url);
+      exact.add(squashUrl(link.url));
     }
   }
   // A document that is not an HTML page has no parsed links and no JSON-LD, so
@@ -137,7 +141,7 @@ function documentUrls(
   // character by character into the set.
   for (const url of Array.isArray(declared) ? declared : []) {
     if (typeof url === 'string') {
-      exact.set(squashUrl(url), url);
+      exact.add(squashUrl(url));
     }
   }
   // JSON-LD carries URLs inside nested objects (`offers.url`, `image`), so a
@@ -178,19 +182,20 @@ export function validateRecords(opts: {
   };
 
   const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls);
-  // Answers with the document's own spelling of the URL rather than with a
-  // yes, because that spelling is what gets stored. A feed folds a long line
-  // and the model may hand the value back with the fold still in it; blessing
-  // that string and then keeping it puts a newline in the link a moderator
-  // clicks. The JSON-LD arm has no canonical form to offer, so it returns what
-  // it was given.
+  // Answers with the URL to store rather than with a yes, because the gate is
+  // the last place that knows both spellings. A feed folds a long line and the
+  // model may hand the value back with the fold still in it, so blessing the
+  // string and keeping it puts a newline in the link a reviewer clicks. The
+  // answer is the whitespace-free form, which is the address in both spellings.
+  // The JSON-LD arm matches on the raw value, so it has no such form to offer
+  // and returns what it was given.
   const published = (url: string | undefined): string | undefined => {
     if (!url) {
       return undefined;
     }
-    const declared = urls.exact.get(squashUrl(url));
-    if (declared !== undefined) {
-      return declared;
+    const squashed = squashUrl(url);
+    if (urls.exact.has(squashed)) {
+      return squashed;
     }
     return urls.blob !== '' && urls.blob.includes(url) ? url : undefined;
   };

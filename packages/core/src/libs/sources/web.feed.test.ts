@@ -139,13 +139,28 @@ ATTACH;FILENAME="never closed:https://elsewhere.example/forged.png
 END:VEVENT
 END:VCALENDAR`;
 
+const ALARM_FIRST_ICS = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+BEGIN:VALARM
+ACTION:EMAIL
+UID:alarm-uid-should-not-win
+SUMMARY:Alarm email subject
+END:VALARM
+UID:evt-12@venue.test
+SUMMARY:The Real Show
+END:VEVENT
+END:VCALENDAR`;
+
+// The over-long value goes FIRST on purpose. Written last it would sit past the
+// count cap and be dropped by it whatever the length cap did, so the test would
+// pass with no length rule at all.
 const CAPPED_ATTACH_ICS = [
   'BEGIN:VCALENDAR',
   'BEGIN:VEVENT',
   'UID:evt-11@venue.test',
   'SUMMARY:Sixty attachments',
-  ...Array.from({ length: 60 }, (_, i) => `ATTACH;FMTTYPE=image/png:https://cdn.venue.test/p${i}.png`),
   `ATTACH;FMTTYPE=image/png:https://cdn.venue.test/${'x'.repeat(2100)}.png`,
+  ...Array.from({ length: 60 }, (_, i) => `ATTACH;FMTTYPE=image/png:https://cdn.venue.test/p${i}.png`),
   'END:VEVENT',
   'END:VCALENDAR',
 ].join('\n');
@@ -422,6 +437,19 @@ describe('the ICS per-event split', () => {
     expect(docs.map(d => d.externalId)).toEqual([`${ICS_URL}#evt-9@venue.test`]);
   });
 
+  it('keys and titles from the event, not from an alarm written above it', async () => {
+    stubFetch(() => typed(ALARM_FIRST_ICS, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    // RFC 9074 gives a VALARM its own UID, and an ACTION:EMAIL alarm carries a
+    // SUMMARY that is the mail subject. Property order inside a component is
+    // free, so a feed may write the alarm first, and reading the first match at
+    // any depth would key and title the document from it.
+    expect(docs.map(d => d.externalId)).toEqual([`${ICS_URL}#evt-12@venue.test`]);
+    expect(docs[0]?.title).toBe('The Real Show');
+  });
+
   it('refuses to declare a URL it had to guess the value of', async () => {
     stubFetch(() => typed(FORGED_ATTACH_ICS, 'text/calendar'));
 
@@ -440,11 +468,14 @@ describe('the ICS per-event split', () => {
     const { docs } = await run({ urls: [ICS_URL] });
 
     // ATTACH repeats without limit and an unfolded value concatenates every
-    // continuation line, so the row a hostile feed can write has a ceiling.
+    // continuation line, so the row a hostile feed can write has a ceiling on
+    // both axes. The over-long value is written first, so with no length rule
+    // it would be the entry at index 0 rather than absent.
     const published = docs[0]?.metadata?.publishedUrls as string[];
 
     expect(published).toHaveLength(50);
     expect(published.every(u => u.length <= 2048)).toBe(true);
+    expect(published[0]).toBe('https://cdn.venue.test/p0.png');
     expect(published[0]).toBe('https://cdn.venue.test/p0.png');
   });
 
@@ -592,6 +623,39 @@ describe('the JSON per-event split', () => {
     // event is posted, and each stale entry costs a model call, because a past
     // date is only recognised after the model has read it.
     expect(docs.map(d => d.externalId)).toEqual(['https://venue.test/events.json']);
+  });
+
+  it('splits the entries around a hole rather than losing the whole source to it', async () => {
+    stubFetch(() => Response.json({ upcoming: [{ id: 'x1', title: 'One' }, null, { id: 'x2', title: 'Two' }] }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // One null is a hole in an otherwise good list. Demanding that every entry
+    // be an object would answer it by abandoning the split, which puts the
+    // source back on one whole-file document, and only its first characters
+    // ever reach the model.
+    expect(docs.map(d => d.title)).toEqual(['One', 'Two']);
+  });
+
+  it('treats a stray label among the entries as a hole too, not as a veto', async () => {
+    stubFetch(() => Response.json({ items: [{ id: 'y1', title: 'One' }, 'Home', { id: 'y2', title: 'Two' }] }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // A string is dropped the same way a null is. What decides the array is
+    // whether anything survives, which is why a list of nothing but strings is
+    // still a navigation menu and no feed at all.
+    expect(docs.map(d => d.title)).toEqual(['One', 'Two']);
+  });
+
+  it('keeps looking when a known key holds something that is not entries', async () => {
+    stubFetch(() => Response.json({ items: ['Home', 'About'], events: [{ id: 'e1', title: 'Real' }] }));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    // `items` is a known name holding a navigation menu. Letting the name alone
+    // settle it would stop the search there and leave the real entries unsplit.
+    expect(docs.map(d => d.title)).toEqual(['Real']);
   });
 
   it('splits on an unknown key when the body names none of the known ones', async () => {

@@ -153,7 +153,7 @@ describe('candidate extractor validation', () => {
     // document as written, folds and all. Comparing literally would drop
     // exactly the long URLs a fold exists for, so both sides lose whitespace.
     // What is kept is the declared string, never the model's: the stored value
-    // becomes the href on a moderator's card, and a newline in it is a dead
+    // becomes the href on a reviewer's card, and a newline in it is a dead
     // link that passed the gate.
     const declared = 'https://venue.test/e/a-title-long-enough-that-the-feed-folded-it';
 
@@ -178,6 +178,19 @@ describe('candidate extractor validation', () => {
     );
 
     expect(out.records[0]?.imageUrl).toBe(declared);
+  });
+
+  it('stores a URL without whitespace even when the document published it with some', () => {
+    // RFC 3986 has no whitespace in a URL, so a space in a declared value is an
+    // artifact of how the feed wrote the line down. Storing the document's
+    // spelling verbatim would hand a reviewer an unclickable link, and letting
+    // the last of two declarations that match win would pick which one by
+    // accident of order.
+    const out = run([record({ sourceUrl: 'https://venue.test/e/a-show' })], configWith(), {
+      publishedUrls: ['https://venue.test/e/a-show', 'https://venue.test/e/a-sh ow'],
+    });
+
+    expect(out.records[0]?.sourceUrl).toBe('https://venue.test/e/a-show');
   });
 
   it('ignores a declared list that is not a list of strings', () => {
