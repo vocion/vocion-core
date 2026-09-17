@@ -1,0 +1,71 @@
+packages/core/src/services/agents/tools/hubspotLeads.ts
+  s_3783e5a93299c9::t_04bf7d53b2484d 135-136
+  s_3783e5a93299c9::t_fa632dba5c38eb 1-13,15-70,76-134,137-174,176-233,235-238,244-287
+  s_3783e5a93299c9::t_72e25e91949c4c 175
+  s_3783e5a93299c9::t_8d2ebb888ab1ab 234,239-243
+  s_3783e5a93299c9::t_55213b17fd7e2f 14,71-75
+packages/core/src/services/agents/tools/hubspotCatalog.ts
+  s_3783e5a93299c9::t_1a3be015972a55 58
+  s_3783e5a93299c9::t_54456af1d8e9d0 1-57,59-137
+packages/core/src/libs/sources/hubspot.ts
+  s_3783e5a93299c9::t_6f341895756e49 133,137,144-146
+  s_3783e5a93299c9::t_55213b17fd7e2f 15
+  s_3783e5a93299c9::t_366fb8d5d64def 165,170,173,175,181-186,188-189,191,195-201
+  s_3783e5a93299c9::t_fbc254ee3c6472 18
+packages/core/src/libs/hubspot/client.ts
+  s_3783e5a93299c9::t_089a91a8051e23 1-40,45-167,172-178
+  s_3783e5a93299c9::t_55213b17fd7e2f 41-44,168-171
+packages/core/src/services/agents/tools/registry.ts
+  s_3783e5a93299c9::t_897944e374bd96 98
+  s_3783e5a93299c9::t_f98fa21aaa3e44 52-69
+  s_3783e5a93299c9::t_311a8baef81eea 30-32
+packages/core/src/interfaces/mcp/tools/agent-tools.test.ts
+  s_3783e5a93299c9::t_9f2879dbfc36ff 107,149,162,182,188
+packages/core/src/services/agents/tools/hubspotLeads.test.ts
+  s_3783e5a93299c9::t_55213b17fd7e2f 82-86
+  s_3783e5a93299c9::t_e7a13e6579f3ef 187,193
+  s_3783e5a93299c9::t_d3a85827d3f11d 1-81,87-186,188-192,194-234
+packages/core/src/services/agents/tools/hubspotCatalog.test.ts
+  s_3783e5a93299c9::t_ad82680ba95e97 1-142
+packages/core/src/services/agents/tools/crm.ts
+  s_3783e5a93299c9::t_815467191c8ee0 2,4-9,11-16
+  s_3783e5a93299c9::t_3edb178d79907e 159,163-164
+  s_3783e5a93299c9::t_a47bf6ea414fb9 200-202
+  s_3783e5a93299c9::t_0913ed46edf589 143,145,149-150
+  s_3783e5a93299c9::t_cc0f8eabb5344b 175,179-180
+packages/core/src/services/agents/tools/discovery.ts
+  s_3783e5a93299c9::t_9f2879dbfc36ff 164
+packages/core/src/services/agents/tools/hubspotDirect.ts
+  s_3783e5a93299c9::t_55213b17fd7e2f 19,51-54,102-105,123-128
+  s_3783e5a93299c9::t_4226c9fe0cf3b0 1-18,20-50,55-101,106-122,129-132
+packages/core/src/services/agents/tools/personalization.ts
+  s_3783e5a93299c9::t_9f2879dbfc36ff 71,73,88,130
+packages/core/src/services/PersonalizationQueueService.ts
+  s_3783e5a93299c9::t_9f2879dbfc36ff 18
+packages/core/src/libs/hubspot/client.test.ts
+  s_3783e5a93299c9::t_408374cb74ff08 1-71,73-96
+  s_3783e5a93299c9::t_55213b17fd7e2f 72
+packages/core/src/libs/actions/hubspot-update.ts
+  s_3783e5a93299c9::t_b8f3dfb3ef8ea9 13
+  s_3783e5a93299c9::t_ca0de094f679ac 33,37-41,43-44,46
+packages/core/src/services/agents/tools/crm.test.ts
+  s_3783e5a93299c9::t_9f2879dbfc36ff 147-149,161,171,181,194,201,212,223,233,243-244,257,280,292,298,308,318,336,352,364,372,381,390,401,449,474,501,513,523,536,546
+packages/core/src/services/agents/tools/discovery.test.ts
+  s_3783e5a93299c9::t_9f2879dbfc36ff 159-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5a19ec078d7a6904e5d24810b934f417d5b2eef8",
+  "prompts": {},
+  "sessions": {
+    "s_3783e5a93299c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db696632-8c1c-4a53-a475-6595a75ddf55",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

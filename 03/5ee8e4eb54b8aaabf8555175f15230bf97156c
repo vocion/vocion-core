@@ -1,0 +1,25 @@
+packages/core/src/libs/workspace/pack.test.ts
+  s_d612d610c8d4e3::t_d187eb57a1c1ba 79-82
+packages/core/src/libs/workspace/loader.ts
+  s_d612d610c8d4e3::t_a6ddfac46a8e48 280-285
+  s_d612d610c8d4e3::t_c819d2539eb2a9 161-180
+packages/core/src/libs/workspace/provenance.test.ts
+  s_d612d610c8d4e3::t_53adb3b1458608 32,38,57
+  s_d612d610c8d4e3::t_de5deab7a23e50 1-31,33-37,39-56,58-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "035ee8e4eb54b8aaabf8555175f15230bf97156c",
+  "prompts": {},
+  "sessions": {
+    "s_d612d610c8d4e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2dcc9c1a-cf8c-4faa-9af2-0a19bec551cb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

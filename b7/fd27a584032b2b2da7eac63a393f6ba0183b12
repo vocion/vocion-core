@@ -1,0 +1,51 @@
+packages/core/src/services/agents/harness.ts
+  s_033710d3f947f4::t_3a64cf9fe5b592 138-164
+  s_033710d3f947f4::t_febf3c2307c62a 2-24
+  s_033710d3f947f4::t_a7c0161e0c8812 1,25-120,130-137,165-171,177-203,205-289,291-302
+  s_033710d3f947f4::t_9f6045b89cf6b6 172-176,204,290
+  s_033710d3f947f4::t_f8e7f69071574c 121-129
+package-lock.json
+  s_033710d3f947f4::t_06526571d9a9e2 416-453,504-523,525-527,530-536,543-551,553-555,558-561,569-571,574-579,587-589,592-603,611-613,616-620,628-630,633-642,650-652,655-658,666-668,671-676,684-686,689-693,765-767,770-776,800-802,805-807,815-817,820-824,832-834,837,910-912,915,11599-11601,11604,11612-11614,11617-11618,11626-11628,11631-11632,11756-11758,11761-11762,11783-11785,11788-11789,11811-11813,37393-37394,37396
+packages/core/migrations/0040_agent_harness.sql
+  s_033710d3f947f4::t_7e8af0201cc5ba 1-8
+packages/core/migrations/meta/_journal.json
+  s_033710d3f947f4::t_cd0b48e77d67cc 284-290
+packages/core/package.json
+  s_033710d3f947f4::t_c85c614a803b1f 5,57-58,60
+packages/core/src/libs/llm/langchain.ts
+  s_033710d3f947f4::t_6b705997f30a90 123-124,163-169,177,190
+packages/core/src/libs/workspace/applier.ts
+  s_033710d3f947f4::t_d7161212e0ca4d 79-89,396,800
+packages/core/src/libs/workspace/schemas.ts
+  s_033710d3f947f4::t_52e9198864b851 84-103
+packages/core/src/models/Schema.ts
+  s_033710d3f947f4::t_ac3f976eb8ad87 538-560
+packages/core/src/services/AgentService.ts
+  s_033710d3f947f4::t_4aef748c0e535f 3,976,990-1001
+packages/core/src/services/LearningsService.ts
+  s_033710d3f947f4::t_5dccfe9bea1b94 255
+packages/core/src/services/agents/providers/agentcore.ts
+  s_033710d3f947f4::t_f1ce73c4cd5cca 1-419
+packages/core/src/services/agents/tools/runOperation.test.ts
+  s_033710d3f947f4::t_450af5f85d8110 1-93
+packages/core/src/services/agents/tools/runOperation.ts
+  s_033710d3f947f4::t_817f6b1a0dd4c4 21,28-45,82
+packages/core/src/services/agents/types.ts
+  s_033710d3f947f4::t_0f199dfdd76ccd 99-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b7fd27a584032b2b2da7eac63a393f6ba0183b12",
+  "prompts": {},
+  "sessions": {
+    "s_033710d3f947f4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "35e85350-9bd4-434e-8204-3a8fc61fbb8c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

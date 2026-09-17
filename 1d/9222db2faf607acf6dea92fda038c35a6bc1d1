@@ -1,0 +1,131 @@
+infra/agentcore/provision.sh
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-147
+packages/core/src/features/dashboard/WorkspaceDriftBanner.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-92
+packages/core/src/app/[locale]/(auth)/dashboard/missions/[slug]/page.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 14,45-49,52,102,105-106,108,111-122
+infra/agentcore/smoke-invoke.sh
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-58
+packages/core/src/app/[locale]/(auth)/dashboard/layout.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 8,80
+packages/core/src/services/agents/tools/registry.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-92
+packages/core/src/services/AgentService.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 991-992,1018-1029,1034-1039
+packages/agent-runtime/src/tools.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-66
+packages/core/src/services/agents/claims.test.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-66
+packages/core/src/services/agents/toolEndpoint.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-81
+packages/core/src/services/agents/harness.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 40,121
+package.json
+  s_68acdfc5a73723::t_09f4addc2aa2ab 12,18
+packages/core/src/libs/workspace/applier.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 480
+packages/agent-runtime/tsconfig.json
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-18
+packages/agent-runtime/Dockerfile
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-12
+packages/core/src/services/agents/toolEndpoint.test.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-111
+infra/agentcore/deploy-runtime.sh
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-87
+packages/agent-runtime/src/loop.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-248
+packages/agent-runtime/src/server.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-118
+packages/core/src/features/dashboard/chat/ChatShell.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 343-377
+packages/core/src/libs/sources/googleCalendar.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-129
+packages/core/migrations/meta/_journal.json
+  s_68acdfc5a73723::t_09f4addc2aa2ab 298-304
+infra/agentcore/provision-ci-role.sh
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-99
+packages/core/src/services/agents/types.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 64-70,112
+packages/core/migrations/0042_mission_agent_slug.sql
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-19
+.github/workflows/deploy-agent-runtime.yml
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-66
+packages/core/src/routers/Workspace.ts
+  s_68acdfc5a73723::t_8feab90ab4707f 10
+  s_68acdfc5a73723::t_09f4addc2aa2ab 6,8,11-12,193-198,201-219,221-266
+  s_68acdfc5a73723::t_ee7be15b91263f 4
+  s_68acdfc5a73723::t_0c2525e7336b9e 199-200
+  s_68acdfc5a73723::t_9e2c275060cd8b 220
+packages/core/src/services/agents/claims.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-95
+packages/agent-runtime/src/model.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-54
+packages/agent-runtime/src/tracing.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-179
+packages/agent-runtime/src/contract.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-133
+packages/core/src/services/MissionService.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 13,88-98,104
+CLAUDE.md
+  s_68acdfc5a73723::t_09f4addc2aa2ab 120-131
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 194
+packages/core/src/routers/index.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 74,92-93
+packages/agent-runtime/src/memory.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-156
+packages/core/src/app/[locale]/(auth)/dashboard/missions/page.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 62,64
+packages/core/src/scripts/google-oauth.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 27-30
+packages/core/src/features/dashboard/BriefingChatStarter.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-169
+packages/core/src/libs/crypto/credentialVault.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 30,33,120-123
+packages/core/src/app/api/internal/agent-tools/route.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-40
+packages/agent-runtime/src/index.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-10
+packages/core/src/services/agents/providers/runtime.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-242
+packages/agent-runtime/README.md
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-42
+.gitignore
+  s_68acdfc5a73723::t_09f4addc2aa2ab 79-81
+packages/agent-runtime/esbuild.config.mjs
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-22
+packages/core/src/libs/sources/registry.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 16-17,22,46-47,50
+packages/core/src/scripts/smoke-runtime.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-92
+packages/core/src/libs/sources/granola.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-161
+packages/core/src/models/Schema.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 546-547,797-802
+packages/core/src/libs/workspace/schemas.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 97,100-109,112,305-310
+packages/core/src/libs/sources/zoom.ts
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-187
+packages/core/src/app/[locale]/(auth)/dashboard/briefings/page.tsx
+  s_68acdfc5a73723::t_09f4addc2aa2ab 7,54,86-88
+packages/agent-runtime/package.json
+  s_68acdfc5a73723::t_09f4addc2aa2ab 1-29
+package-lock.json
+  s_68acdfc5a73723::t_84306904df7a75 13,417-435,474-515,587-589,592-593,595-597,615-617,620-623,631-633,636-641,649-651,654-665,673-675,678-682,690-692,695-704,712-714,717-720,728-730,733-755,763-765,768-802,873-890,892-894,897-903,927-929,932-934,942-944,947-951,959-961,964,1037-1039,1042,6087-6104,11744-11746,11749,11757-11759,11762-11763,11771-11773,11776-11777,11901-11903,11906-11907,11928-11930,11933-11934,11956-11958,13771-13781,14427-14430,37546-37975
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "1d9222db2faf607acf6dea92fda038c35a6bc1d1",
+  "prompts": {},
+  "sessions": {
+    "s_68acdfc5a73723": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c30560ac-9c9d-4f6e-aeef-d1874271e92b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

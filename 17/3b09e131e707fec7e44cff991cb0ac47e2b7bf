@@ -1,0 +1,20 @@
+packages/core/src/scripts/seed-personalization-queue.ts
+  s_8c230ca8a3ac3c::t_ca1344f6930d53 52-56
+  s_8c230ca8a3ac3c::t_fdc343fef67bd4 166-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "173b09e131e707fec7e44cff991cb0ac47e2b7bf",
+  "prompts": {},
+  "sessions": {
+    "s_8c230ca8a3ac3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f401c65f-a13c-4893-840f-e4e9b5880b2f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

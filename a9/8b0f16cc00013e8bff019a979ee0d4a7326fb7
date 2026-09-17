@@ -1,0 +1,28 @@
+packages/core/src/libs/hubspot/unenrollBridge.test.ts
+  s_eff1d3c156501c::t_ec5e0a1ee56ba3 1-146
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 28-35,40,90-91,237-290
+packages/core/src/libs/hubspot/sequences.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 111-145
+  s_eff1d3c156501c::t_62dfd72c512688 110
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_eff1d3c156501c::t_7aa5c50e3b867e 474-496,565-566
+packages/core/src/libs/hubspot/unenrollBridge.ts
+  s_eff1d3c156501c::t_9f4809b9333657 1-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a98b0f16cc00013e8bff019a979ee0d4a7326fb7",
+  "prompts": {},
+  "sessions": {
+    "s_eff1d3c156501c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f64fbb69-438c-4484-8061-6cab0080c431",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

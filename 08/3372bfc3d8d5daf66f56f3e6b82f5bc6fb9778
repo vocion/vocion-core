@@ -1,0 +1,139 @@
+packages/core/src/routers/Review.ts
+  s_5866b7be26c809::t_395f29d5ae4708 59-60,71-81
+packages/core/src/services/DiscoveryDetectionService.test.ts
+  s_5866b7be26c809::t_d6d95072b7f338 314,316-321,323-330,332-334,349,351-358,360-361,363,367-372,375,377-380,382,384-385,388-389,391,393-394,396-400,403,411,413,417-423,427-429,431,433,435-438,440-461,463-464,466-468,470,472-479,481-482,484,486-492,494-495,497-499,501-511,513,515-518,520-521,523-525,527-530,533-534,537-538,540,542-543,546-549,552-554,556,558-561,563,565-567,569-571,573-584,586-588,590-594,597,599-603,605,607,609,611,613-616,618,620-637,640-641,643-645,647,649-650,652-654,658,660-665,667,669-697,699,701-703,706-711,713,715
+  s_5866b7be26c809::t_f48557a88b64d8 11
+  s_5866b7be26c809::t_22168afd2e3c6d 2
+  s_5866b7be26c809::t_152ad0c590b0db 72,82
+  s_5866b7be26c809::t_66bd49e7c49c53 21
+  s_5866b7be26c809::t_2c44b1348d2754 666
+packages/core/src/services/missions/runtime.ts
+  s_5866b7be26c809::t_e2ce670ff64fa2 96
+packages/core/package.json
+  s_5866b7be26c809::t_8454e3dd1edff6 44
+packages/core/src/services/agents/types.ts
+  s_5866b7be26c809::t_4d95c0876d9a26 197-198
+  s_5866b7be26c809::t_c05c8b0c26db9a 216-217
+packages/core/src/services/adoption/events.ts
+  s_5866b7be26c809::t_7d50d4151eedc9 25-31
+  s_5866b7be26c809::t_447a55a862d252 74-88
+packages/core/src/libs/actions/types.ts
+  s_5866b7be26c809::t_d416e10b442aa9 24-43
+  s_5866b7be26c809::t_24ef20681f1ed7 57-68
+  s_5866b7be26c809::t_f0692619d60c2a 69-75
+packages/core/src/libs/sources/hubspot.ts
+  s_5866b7be26c809::t_02b13d83b31ef7 74
+  s_5866b7be26c809::t_9ad34c95cab565 32-33
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_5866b7be26c809::t_c8d428d2b06809 24-34
+  s_5866b7be26c809::t_3fe6f9f1f3666e 38,41
+  s_5866b7be26c809::t_6a3176dfac3b86 100-101,118-120,122-132,142-149
+  s_5866b7be26c809::t_986ccd328d60ce 444
+  s_5866b7be26c809::t_b6f3e611598368 755-761
+  s_5866b7be26c809::t_778c15e1a69864 150-151,599,601,605-606,629-634,644,646-659,662-667,671-676,678,687,689-703,710-715,717-723,725,727-740,742-754,762-777,779-796,799,801-961,966-969
+  s_5866b7be26c809::t_d6892d426ccfa2 152
+packages/core/src/services/agents/tools/registry.ts
+  s_5866b7be26c809::t_1788f66dff96f6 22
+  s_5866b7be26c809::t_afbaac1e277be3 72-73
+packages/core/src/features/dashboard/AppSidebar.tsx
+  s_5866b7be26c809::t_8fa23398f0c415 101
+  s_5866b7be26c809::t_688b861dda5caf 19
+packages/core/src/features/dashboard/ReviewFocus.tsx
+  s_5866b7be26c809::t_804dcc04f9339a 298
+  s_5866b7be26c809::t_11721d856ad590 59-62
+  s_5866b7be26c809::t_9bc2cfa9638457 273-297,299-303
+  s_5866b7be26c809::t_85c751a33fe2bd 17-24,33-34
+  s_5866b7be26c809::t_312a977a39d40c 334-335
+packages/core/src/models/Schema.ts
+  s_5866b7be26c809::t_723afbd88f2fe1 571-572
+  s_5866b7be26c809::t_5847fc019fc688 753-754
+  s_5866b7be26c809::t_6e0e867030bf90 1973-1984
+packages/core/src/app/[locale]/(auth)/dashboard/automation/page.tsx
+  s_5866b7be26c809::t_54ade050c0c29e 156
+  s_5866b7be26c809::t_ed8f0e287f5ab5 24-25
+  s_5866b7be26c809::t_2f99309cfdf23b 190-191
+  s_5866b7be26c809::t_d832d72a6d406a 133-135
+packages/core/migrations/0053_discovery_audit_trail.sql
+  s_5866b7be26c809::t_f79c7c173c9748 1-13
+packages/core/src/services/agents/tools/discovery.test.ts
+  s_5866b7be26c809::t_3d9d8fd9a523ac 58-60,62
+  s_5866b7be26c809::t_a16808d6e872ac 1-41,43-57,61,63-244
+  s_5866b7be26c809::t_3f55e2a8a16b16 42
+packages/core/src/libs/workspace/ownership.test.ts
+  s_5866b7be26c809::t_1ede69ebbbb082 6,92-170
+packages/core/src/libs/workspace/schemas.ts
+  s_5866b7be26c809::t_eaafe9cb4a5af5 397,399-405,411-413
+  s_5866b7be26c809::t_48721e34639d2b 206-212
+packages/core/src/libs/llm/index.ts
+  s_5866b7be26c809::t_7cd52ec4f28228 7
+packages/core/src/services/ActionService.ts
+  s_5866b7be26c809::t_6e0e38337aaec0 79-82,87
+  s_5866b7be26c809::t_96b7776dda2596 93
+  s_5866b7be26c809::t_4d925533a7c88b 135,139-146
+packages/core/src/libs/llm/langchain.ts
+  s_5866b7be26c809::t_b6f3e611598368 76-79
+  s_5866b7be26c809::t_6d9beafd651d64 80-83
+packages/core/src/services/adoption/track.ts
+  s_5866b7be26c809::t_9b48d168b9affb 63-66
+packages/core/src/services/AgentService.ts
+  s_5866b7be26c809::t_f0488aa457b219 1076
+  s_5866b7be26c809::t_39affb55e43b95 1001-1002
+packages/core/src/services/MissionService.ts
+  s_5866b7be26c809::t_f27cd99650c3f8 150-155,161,163-166,176-178
+packages/core/src/services/agents/harness.ts
+  s_5866b7be26c809::t_0d57715efa9947 287,294
+packages/core/src/app/api/v1/automations/[slug]/run/route.ts
+  s_5866b7be26c809::t_4796f9d6da3422 18
+packages/core/src/libs/workspace/automation-prompt.test.ts
+  s_5866b7be26c809::t_6f40a350e99f12 1-83
+packages/core/src/scripts/seed-discovery-window.ts
+  s_5866b7be26c809::t_0d674c1771ef0a 1-147,149-181
+  s_5866b7be26c809::t_97d9d4a6c5fa6b 148
+packages/core/src/app/[locale]/(auth)/dashboard/discovery/page.tsx
+  s_5866b7be26c809::t_ad2daa2569e517 1-168
+packages/core/src/libs/workspace/loader.ts
+  s_5866b7be26c809::t_b7a9b4bfb501d6 281
+  s_5866b7be26c809::t_f0eab00fd93ee1 13
+packages/core/src/services/agents/tools/discovery.ts
+  s_5866b7be26c809::t_79c0a0c8375221 26
+  s_5866b7be26c809::t_b67f26649016f1 1-25,27-230
+packages/core/src/libs/actions/discovery-review.ts
+  s_5866b7be26c809::t_f4c2ae2da9ede4 55-101,104-112,116-156
+  s_5866b7be26c809::t_f6cb201b5bede4 37-54
+  s_5866b7be26c809::t_60899679a64391 113-115
+  s_5866b7be26c809::t_8454f2a8e199e7 102-103
+packages/core/src/libs/workspace/ownership.ts
+  s_5866b7be26c809::t_d4b026f7449032 47-90
+packages/core/src/services/AutomationService.ts
+  s_5866b7be26c809::t_b6f3e611598368 129
+  s_5866b7be26c809::t_07bb7c804c2e8f 136,153-154,169-171
+packages/core/src/services/AutomationService.test.ts
+  s_5866b7be26c809::t_b3885597437b75 15,18-27
+  s_5866b7be26c809::t_b9d4f670b2f170 103,120,124-138
+  s_5866b7be26c809::t_74ae1aee8a9867 154
+  s_5866b7be26c809::t_2d93f942ef351e 28
+  s_5866b7be26c809::t_4b0df55380ce17 139-140
+packages/core/src/libs/sources/zoom.ts
+  s_5866b7be26c809::t_3c9e047331ef04 180-181
+  s_5866b7be26c809::t_25f43279c7da59 38
+packages/core/src/services/jobs/registry.ts
+  s_5866b7be26c809::t_70ff038d0750ef 5-11,16
+packages/core/migrations/meta/_journal.json
+  s_5866b7be26c809::t_609a527ec96adb 375-381
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "083372bfc3d8d5daf66f56f3e6b82f5bc6fb9778",
+  "prompts": {},
+  "sessions": {
+    "s_5866b7be26c809": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c3c22cca-7bb0-4e14-865a-f89ff38cca81",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+packages/core/src/services/agents/tools/discovery.ts
+  s_4fd54c8e599791::t_c17b24be1f7180 218
+  s_4fd54c8e599791::t_c9a48f9a411410 120
+packages/core/src/services/DiscoveryDetectionService.test.ts
+  s_4fd54c8e599791::t_e1e0a5bba26953 403,407,416-426
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_4fd54c8e599791::t_01d87a435f084f 1094,1103-1104
+  s_4fd54c8e599791::t_6802e9ff5c2b46 822,829-830
+  s_4fd54c8e599791::t_6c4c9439eb630f 777-778
+  s_4fd54c8e599791::t_9eb48832d6bcb1 1016-1022
+  s_4fd54c8e599791::t_d85987e062a8e4 715-745
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "017c6f4a9186858744ba07b01433cb8b867a3049",
+  "prompts": {},
+  "sessions": {
+    "s_4fd54c8e599791": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ddc29490-14e2-4c4d-aa58-23b9c4aab22d",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

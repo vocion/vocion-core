@@ -1,0 +1,84 @@
+packages/core/src/app/[locale]/(auth)/gtm/personalization/page.tsx
+  s_bcb2e7147850af::t_741895d6f06226 80,83-85
+  s_bcb2e7147850af::t_ba02ded6020b9e 110-113
+  s_bcb2e7147850af::t_7051a4914294a7 17-25
+  s_bcb2e7147850af::t_d550ac8dd84fa7 97
+  s_bcb2e7147850af::t_7d6da0ec5c974c 2
+  s_bcb2e7147850af::t_8561de7f82c92b 13
+  s_bcb2e7147850af::t_2297df73fc98ab 43-45,49-52,56-64
+  s_bcb2e7147850af::t_7fc3db12ab7d92 65
+packages/core/src/features/personalization/PersonalizationQueue.tsx
+  s_bcb2e7147850af::t_103b75382fbcb1 221-225
+  s_bcb2e7147850af::t_6ddafb619b9b15 182,184-218,228-274,277,279,287-302
+  s_bcb2e7147850af::t_c95f366f533758 219-220,226-227
+  s_bcb2e7147850af::t_6f0ffc70614630 318
+  s_bcb2e7147850af::t_b510f99280e545 5-6
+  s_bcb2e7147850af::t_160331aff9c346 311-317
+  s_bcb2e7147850af::t_fedf5dd9e8f8f9 326-327,331,335,358
+  s_bcb2e7147850af::t_4cf09ff85570f2 11,79-82
+  s_bcb2e7147850af::t_a95a535e92d059 15-17,19-28,44,47-51,57-59,62,68-70,73,83-85
+  s_bcb2e7147850af::t_8c05a93cc3ab90 90-92
+  s_bcb2e7147850af::t_bfe27b15476a66 86
+.gitignore
+  s_bcb2e7147850af::t_4269d433a0009c 1-80
+packages/core/src/services/agents/tools/personalization.test.ts
+  s_bcb2e7147850af::t_c572119e40ee73 404-463,468-474,479-560,562-827
+  s_bcb2e7147850af::t_4cf09ff85570f2 464-467,475-478,561
+packages/core/src/services/PersonalizationQueueService.ts
+  s_bcb2e7147850af::t_02a3e25909b946 526
+  s_bcb2e7147850af::t_1d917e5b28af6a 35,38-63
+  s_bcb2e7147850af::t_89f55fc414141f 117-121
+  s_bcb2e7147850af::t_4280b3d03ed081 323-326,337-341
+  s_bcb2e7147850af::t_182b2544df4340 23
+  s_bcb2e7147850af::t_b7ac2cbfe6734b 442-525,527-784
+  s_bcb2e7147850af::t_ef380c45fc99bb 64
+packages/core/src/services/playbooks/mount.test.ts
+  s_bcb2e7147850af::t_8e49b0fd0a7927 41
+  s_bcb2e7147850af::t_5ea23b7d48ecc1 42
+  s_bcb2e7147850af::t_7ac5d8696bbc7f 1-40,43-94
+packages/core/src/services/agents/tools/personalization.ts
+  s_bcb2e7147850af::t_f8bd02d22a9123 139-142,144-232,245-247
+  s_bcb2e7147850af::t_3b3eb28841fdb1 143
+  s_bcb2e7147850af::t_4cf09ff85570f2 37
+  s_bcb2e7147850af::t_b67e93a78df638 2-4,10,13-17,21-22
+  s_bcb2e7147850af::t_a23bf59760261e 30,32,34,38,47-49
+  s_bcb2e7147850af::t_747b75d8329adb 23
+packages/core/src/models/Schema.ts
+  s_bcb2e7147850af::t_b06e831316b9aa 2054-2071
+packages/core/src/features/personalization/PersonalizationQueue.test.tsx
+  s_bcb2e7147850af::t_4cf09ff85570f2 99,185,191
+  s_bcb2e7147850af::t_d176989cdb8c19 2,7-11
+  s_bcb2e7147850af::t_2d31aa78f2055d 14-16,19-24,37,40-42,50-56,61-64,67-76,78-79,81,83-98,100,131,137,142-144,146-149,151-152,156,160-161,163,165-166,169-178,181-184,186-190,192-196
+  s_bcb2e7147850af::t_3b3eb28841fdb1 150
+  s_bcb2e7147850af::t_c0caddec1788e8 12
+packages/core/src/app/api/v1/personalization/briefs/[id]/regenerate/route.ts
+  s_bcb2e7147850af::t_59bc2787e61e1d 1-55
+packages/core/src/interfaces/mcp/tools/playbook-tools.ts
+  s_bcb2e7147850af::t_3b259656326577 7
+  s_bcb2e7147850af::t_f39e7a252b43dd 78-80
+packages/core/migrations/meta/_journal.json
+  s_bcb2e7147850af::t_94a692c76e239d 410-416,419
+packages/core/migrations/0058_lead_brief_generation.sql
+  s_bcb2e7147850af::t_ee20c58a99d13d 1-26
+packages/core/src/features/personalization/RegenerateBriefControl.tsx
+  s_bcb2e7147850af::t_3ede188e8fda5c 1-109
+packages/core/src/services/playbooks/mount.ts
+  s_bcb2e7147850af::t_d77c622ce54fdc 26
+  s_bcb2e7147850af::t_cd5f54ddce0b49 121-127,139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "755438caf4a22ea33f8bb251597e73b2ee238441",
+  "prompts": {},
+  "sessions": {
+    "s_bcb2e7147850af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "003b5090-6a67-4c43-b4d2-094d9c825b20",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

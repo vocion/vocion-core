@@ -1,0 +1,19 @@
+packages/core/src/libs/actions/discovery-review.ts
+  s_1959de457b6f4d::t_5c79691b0d5dc8 182-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f071d295baabd99b9af4ca1db6babb994557f020",
+  "prompts": {},
+  "sessions": {
+    "s_1959de457b6f4d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a0b1482d-29fa-44d9-bb6c-955a7a8a117e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

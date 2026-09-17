@@ -1,0 +1,59 @@
+packages/core/package.json
+  s_7aea99fa9ec114::t_b10d0f65253ec8 69-70
+packages/core/src/services/ConsolidationService.test.ts
+  s_7aea99fa9ec114::t_2102edfec3162f 1-35,38-40,60-78,81-89,91-95,99-110,112-119,122-136,139-145,148-207,209-239
+  s_7aea99fa9ec114::t_6a73aa8b5214e7 37,41-59,79-80,90,96-98,111,120-121,137-138,146-147,208
+  s_7aea99fa9ec114::t_329642a2a30c21 36
+packages/core/migrations/0103_candidate_replaces.sql
+  s_7aea99fa9ec114::t_7126de6d1b4b00 1-9
+packages/core/migrations/meta/_journal.json
+  s_7aea99fa9ec114::t_7126de6d1b4b00 725-731
+packages/core/src/services/FeedbackWorkerService.ts
+  s_7aea99fa9ec114::t_7b7d7c4b93e46f 288-290,294-298
+packages/core/src/services/ConsolidationService.ts
+  s_7aea99fa9ec114::t_6a73aa8b5214e7 46-52,184
+  s_7aea99fa9ec114::t_69da46d3fc7bac 1-38,40-45,53-79,83-134,138-143,157-173,178-183,185-413
+  s_7aea99fa9ec114::t_d00b15c7b900c9 39,174-177
+  s_7aea99fa9ec114::t_7412aaad3ad5c2 80-82
+  s_7aea99fa9ec114::t_18066b2f650740 135-137
+  s_7aea99fa9ec114::t_60655c5aa8c509 144-156
+packages/core/src/services/ReviewService.decisionLearning.test.ts
+  s_7aea99fa9ec114::t_425e501417b026 189-191,194,196-197
+  s_7aea99fa9ec114::t_02a26b481a398b 193,195
+packages/core/src/services/LearningCandidateService.ts
+  s_7aea99fa9ec114::t_90c63455a755bd 280-299,345-357
+packages/core/src/services/EvalService.ts
+  s_7aea99fa9ec114::t_494254e5d444ce 254-268
+packages/core/src/services/feedback/runFeedbackQueue.ts
+  s_7aea99fa9ec114::t_2f6d0a55d681e2 40-55
+packages/core/src/features/agents/AgentMemoryPanel.tsx
+  s_7aea99fa9ec114::t_14c8cc53a11124 80-87
+packages/core/src/services/adoption/events.ts
+  s_7aea99fa9ec114::t_90c63455a755bd 185-192
+  s_7aea99fa9ec114::t_028286ab9023df 184
+packages/core/src/services/MemoryService.ts
+  s_7aea99fa9ec114::t_3a4308f51dfd00 776-862
+  s_7aea99fa9ec114::t_14c8cc53a11124 689-690,746-766,773
+packages/core/src/scripts/run-consolidation.ts
+  s_7aea99fa9ec114::t_7b7d7c4b93e46f 1-27
+packages/core/src/services/ReviewService.ts
+  s_7aea99fa9ec114::t_2f6d0a55d681e2 1286,1290,1298-1323
+packages/core/src/models/Schema.ts
+  s_7aea99fa9ec114::t_7126de6d1b4b00 2036-2041
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "31589fca963c9bc26b5a284c959b8300fc448d3a",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

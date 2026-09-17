@@ -1,0 +1,643 @@
+packages/core/src/features/dashboard/manage/PageTabs.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-38
+packages/core/src/libs/platforms/registry.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 60-63,577-632,634
+  s_7aea99fa9ec114::t_2fc75442d49bec 633,635-636
+packages/core/src/services/team-report/setup.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-48
+packages/core/src/services/inbox/kinds.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-29
+docs/agent-execution.md
+  s_7aea99fa9ec114::t_32b6401a928af6 156
+packages/core/src/features/dashboard/artifacts/kinds.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-67
+packages/core/src/services/team-report/derive.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-184
+packages/core/src/services/agents/tools/renderArtifacts.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2-12,39-47,49-56,58-80,86-88,90-92,101-104,112,116,129,137,140,144,157,161,169,180,184,192
+packages/core/src/features/dashboard/inbox/decisionPaths.alignment.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-122
+packages/core/src/services/autonomy/rungs.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-265
+packages/core/src/features/dashboard/inbox/InboxRow.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3,8,11-13,16-19,21-23,30,33-36,38-39,42,47,50-52,61,63,72-73,91-105,122-167
+packages/core/src/services/autonomy/AutonomyService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-443
+packages/core/src/features/dashboard/StickyActionBar.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-161
+packages/core/src/services/ChatSurfaceService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-3,6-7,10-13,201-202,213-216,219-236,244,246,249,252,278-299,304,308,310-323,325-339,341,343-395,397-412
+packages/core/src/libs/surfaces/slackMedia.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-173
+packages/core/src/features/dashboard/team-report/AutonomyReadings.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-38
+packages/core/src/features/dashboard/artifacts/ArtifactCard.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-28
+packages/core/src/services/chat/slackPosts.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-151
+packages/core/src/services/chat/pageContext.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 35-36,53-121,136-142,299-334,359-365,380-382
+packages/core/src/libs/analytics/ga4.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-312
+packages/core/src/features/dashboard/ObjectAgentActivity.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 8,18,101,103,129
+packages/core/src/services/chat/slackThread.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-199
+packages/core/src/services/TeamReportService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2-4,6-9,12-29,31,33-34,37-54,57-58,60-61,63,70,76-80,83-103,106,108-109,111-118,122-123,125,127-132,134-135,138-145
+packages/core/src/features/dashboard/artifacts/MarkdownArtifactEditor.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-51
+packages/core/src/models/Schema.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 761-791,817-820,823-828,1308-1314,2081-2088,2524-2621,3160-3165,3269-3271,3273-3285,3287-3288,3292-3313,3317-3319,3324,3328-3333,3354,3356-3363,3381-3389,3397-3437,3439,3444,3447-3449,3459-3461,3465
+  s_7aea99fa9ec114::t_56a1404b6afef3 1307
+  s_7aea99fa9ec114::t_17b40eba6c5bb4 3438,3440-3443,3445-3446,3450-3458,3462-3464
+packages/core/src/app/[locale]/(auth)/dashboard/chat/[id]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3,6,10-12,17,19,22,24,35-37,41,46-48
+packages/core/src/app/[locale]/(auth)/dashboard/developers/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-106
+packages/core/src/routers/Artifacts.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-9,12-13,18-20,22-24,26-27,33-45,47,49,56,70-77,80-106,108-119,121,123-126,128,132-133,136,143-144,147,150-151,154-158,161-163,165-176,180,184,188-189,193-194,197
+packages/core/src/app/[locale]/(auth)/dashboard/artifacts/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-39
+packages/core/src/services/adoption/events.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 59-66,157-170,219-232
+packages/core/vitest.config.mts
+  s_7aea99fa9ec114::t_32b6401a928af6 44-53
+packages/core/src/features/dashboard/breadcrumbModel.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-46
+packages/core/src/routers/TeamReport.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-139
+packages/core/src/app/[locale]/(auth)/dashboard/artifacts/[id]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-53
+packages/sdk/src/cards.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 32
+docs/guides/earned-autonomy.md
+  s_7aea99fa9ec114::t_32b6401a928af6 1-171
+packages/core/src/features/dashboard/AppSidebarHeader.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3,29,80,86-88,93,96-97,172-178
+  s_7aea99fa9ec114::t_99940253db80b2 179
+packages/core/src/features/dashboard/chat/ChatDock.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 11,17,20,29,176-179,205,249-259,439-444,453-474,485-493,495-511,614-617,619
+packages/core/src/features/dashboard/chat/useActionRunStatus.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 29-47,53-56,59,66,82,86-88
+  s_7aea99fa9ec114::t_9c562ba090db66 89-90
+packages/core/src/services/team-report/setup.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-76
+packages/core/src/components/ui/toast.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-83
+packages/core/src/features/dashboard/chat/AgentSurfaceButton.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 6,14-17,22,32,36-39
+packages/core/src/features/dashboard/team-report/PrimaryOutcome.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-72
+packages/core/src/features/review/ReviewActionCard.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 6,9-11,15,57-58,99-107,110-112,135,211,214-215,221,226-228,232-234,236-237,245,247,249,251-252,254-255,270,272,274-275,281-524,594-601
+packages/core/src/features/dashboard/team-report/LineageSheet.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-135
+packages/core/src/app/[locale]/(auth)/dashboard/canvases/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,6-11,13-14
+packages/core/src/services/reports/dailyTeamReport.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 23-27,30,47,51-99,248,257,276
+packages/core/src/features/dashboard/inbox/InboxControls.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3-4,6,10-12,14,17-22,28,31,34,38-39,42,45,73-74,87-106,112,114,116-118,120-121,137-138,142,149,152,155,160-170
+packages/core/src/features/dashboard/chat/RailHeader.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-91
+packages/core/src/features/dashboard/inbox/reviewRedirect.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-22
+packages/core/src/features/dashboard/nav/useNavPrefs.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 41
+packages/core/src/app/[locale]/(auth)/dashboard/inbox/r/[recordKey]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 4,6,9,14-17,35-36,39,41-42,44,53,56,58
+packages/core/src/features/dashboard/team-report/AdvancedMenu.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-56
+docs/README.md
+  s_7aea99fa9ec114::t_32b6401a928af6 11,15-34,53,66-67,70
+packages/core/src/features/review/reviewQueueModel.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-63
+packages/core/src/libs/analytics/credentials.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-116
+packages/core/src/libs/surfaces/types.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 55-82,108-114
+packages/core/src/services/inbox/inboxRef.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-64
+docs/guides/slack.md
+  s_7aea99fa9ec114::t_32b6401a928af6 30-45,148-189,207-209,211-235,240-242
+packages/core/src/features/dashboard/StickyActionBar.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-62
+packages/core/src/libs/cards/firstParty/dataTable.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 59,163
+packages/core/src/features/dashboard/chat/traceReducer.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2,70-109
+packages/core/src/features/dashboard/nav/workspaceSwitch.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 34,58,98
+docs/entities/trust.md
+  s_7aea99fa9ec114::t_32b6401a928af6 4-6,12-14,17-20,27-28,30-31,33-39,48,52-54,57-89,94-102,107
+packages/core/src/features/tools/ToolProviderKeyCard.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 238-239
+packages/core/src/app/[locale]/(auth)/dashboard/admin/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 14
+packages/core/src/libs/llm/langchain.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 47,53-69,304-318,322
+packages/core/src/libs/surfaces/slackRead.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-142
+packages/core/src/services/agents/tools/fileFeedback.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-64
+packages/core/src/services/agents/tools/findScreenshots.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-47
+packages/core/src/services/chat/feedbackToWork.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-205
+packages/core/src/services/agents/tools/registry.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 30,32-33,113,130-137
+packages/core/src/features/dashboard/chat/ArtifactChips.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-51
+packages/core/src/services/reports/renderDailyTeamReport.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 4,43-74,140,142,150-183,201,214
+packages/core/src/libs/workspace/schemas.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 5,143,146-361,364,366-372,387-390,393,724-733,735-740
+packages/core/src/features/dashboard/AppSidebar.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 4,6,8,10,18-19,26-49,92-99,113-116,118-123,125-130,132-149,154,156-158,202,220-225,236-251,258,273-303
+packages/core/src/features/dashboard/AppShell.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 67
+packages/core/src/features/dashboard/autonomy/AutonomyTable.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-182
+packages/core/src/features/dashboard/inbox/askOptions.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-42
+packages/core/src/services/LearningCandidateService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 115-116,135-142,160-161
+packages/core/src/features/dashboard/artifacts/useArtifactEvents.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-48
+packages/core/src/features/dashboard/artifacts/VersionMenu.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-86
+packages/core/src/features/navigation/dashboardNav.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-103
+packages/core/src/app/[locale]/(auth)/dashboard/p/[slug]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 34,153,284,402,404,413
+packages/core/src/libs/artifacts/exportPage.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-101
+packages/core/src/services/agents/types.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 69-74,83-90,92,191-202
+packages/core/e2e/queue/review-snooze-adoption.queue.spec.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 198
+packages/core/src/features/dashboard/chat/links.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 25-26
+packages/core/src/features/dashboard/chat/queueReducer.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-165
+packages/core/e2e/tour/teams-workspace-lead.tour.spec.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 94,168,185
+packages/core/src/features/dashboard/chat/AutonomyControl.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-105
+packages/core/src/services/AskService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 7,102,128-133,135,422-424
+packages/core/src/features/dashboard/chat/useChatSession.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 3,22,354-377,460,712,714,762-764,769,771,939-941,944-945,1071,1074,1079-1090,1092,1101,1117-1123,1125,1130-1134,1137-1146,1149-1163,1369-1397,1433-1448
+packages/core/src/features/dashboard/chat/ChatComposer.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3-6,10,13-15,17,19,22-36,39-41,70-105,108-121,137-139,164-171,173-174,256-263,266-279,281,297-298,300-311,314,317,339-387,425-434,436-467,471-473,478-479,483-486,488,491-523
+packages/core/src/features/dashboard/chat/AgentMessage.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 11,71-72,99,198-199
+  s_7aea99fa9ec114::t_a28631d26be8c3 200
+docs/agent-chat-surface.md
+  s_7aea99fa9ec114::t_32b6401a928af6 96-104,106-111,113-120,128-131,159-254,263,268
+packages/core/src/features/dashboard/chat/PageDock.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 51,89-90
+packages/core/src/app/[locale]/(auth)/dashboard/autonomy/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-45
+packages/core/src/features/dashboard/chat/useSendQueue.test.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-182
+packages/core/src/features/dashboard/chat/ChatDock.test.tsx
+  s_7aea99fa9ec114::t_f6baf6cbcf2194 42
+  s_7aea99fa9ec114::t_32b6401a928af6 147-149,216,221-231
+packages/core/src/app/[locale]/(auth)/dashboard/evals/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 37
+packages/core/src/features/review/TypeChips.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-39
+packages/core/src/services/reports/renderDailyTeamReport.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 6-14,25,81-152,179-180,202-228,311-317,351,368-381,515-518
+  s_7aea99fa9ec114::t_38fd9126f92740 519
+docs/entities/worker-run.md
+  s_7aea99fa9ec114::t_32b6401a928af6 80-85,100-103
+packages/core/src/services/agents/tools/editArtifacts.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-152
+packages/core/src/features/dashboard/nav/navPins.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 13,15-19
+docs/object-model.md
+  s_7aea99fa9ec114::t_32b6401a928af6 13,15-16,23,26,34-39,42,44,46-47,59
+packages/core/src/services/ScreenshotService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-98
+packages/core/src/app/[locale]/(auth)/dashboard/inbox/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,7,10,13-23,28,48-49,53,55-57,61,64,75,77-78,82
+packages/core/src/features/dashboard/artifacts/ArtifactPane.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-477
+packages/core/src/features/dashboard/artifacts/ConversationArtifactView.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-231
+packages/core/src/services/team-report/derive.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-137
+packages/core/src/features/review/TypeChips.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-62
+packages/core/src/services/alignment/AlignmentService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-238
+packages/core/src/services/AskService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 30-38
+packages/core/src/routers/Review.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 109-117,122-123
+packages/core/src/libs/analytics/credentials.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-135
+packages/core/src/features/dashboard/chat/composerQueue.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-57
+packages/core/src/libs/actions/hubspot-update.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 36
+packages/core/src/app/[locale]/(auth)/dashboard/team-report/[agentSlug]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 18-20,70,73-79,90-92
+packages/core/src/services/team-report/humanLoad.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-130
+packages/core/src/features/dashboard/inbox/InboxList.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,5-9,14-24
+packages/core/src/features/dashboard/inbox/pending.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-59
+packages/core/src/features/dashboard/manage/CombinedPageHeader.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-46
+packages/core/src/services/ApiTokenService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 246-250,403-407
+packages/core/src/libs/cards/firstParty/record.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 16,53
+packages/core/src/services/agents/tools/editArtifacts.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-105
+packages/core/src/services/chat/slackThread.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-227
+packages/core/src/features/dashboard/Breadcrumb.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 6,11-12,16,19,46-47
+packages/core/src/features/dashboard/chat/EmptyState.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 16-20,22-28,56-58,60-62,64,70-73,77-79,81-87,89-94,96-99,101,105-106,128
+packages/core/src/features/dashboard/inbox/chipFit.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-44
+packages/core/src/features/dashboard/nav/WorkspaceSwitcher.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 187
+packages/core/src/features/dashboard/inbox/AskReceipt.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3
+packages/core/src/locales/en.json
+  s_7aea99fa9ec114::t_32b6401a928af6 38,51-69,190-236
+packages/core/src/services/InboxService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-3,6-9,13-17,19-30,32-35,38-39,42-43,48-52,66,72,85-86,90,100-103,110-111,121-122,124-125,129-131,133-155,165,167,173,184-185,229-230,232,247-249,257,265-267,272,276,278-283,300-301,304-305,307,312-327,332-333,341,346-347,355,360-361,369,388-390,392,398,402-433,456-458,502-521,524,530-535,538-540,542-543,546-552,554-555,571-598,606,609,615-616,621
+packages/core/src/services/team-report/index.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-14
+packages/core/src/features/review/ReviewHeader.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-203
+docs/guides/team-performance.md
+  s_7aea99fa9ec114::t_32b6401a928af6 1-266
+packages/core/src/features/dashboard/artifacts/StandaloneArtifactView.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-31
+packages/core/src/features/dashboard/inbox/RunDecision.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-147
+packages/core/src/features/dashboard/inbox/noReviewLinks.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-63
+packages/core/src/features/dashboard/chat/railState.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 16-22
+docs/deployment/parent-project-pattern.md
+  s_7aea99fa9ec114::t_32b6401a928af6 208
+packages/core/src/features/dashboard/team-report/HeadlineRow.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-66
+packages/core/src/features/review/reviewQueueModel.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-54
+packages/core/migrations/meta/_journal.json
+  s_7aea99fa9ec114::t_6ab1ea45f7ee16 698-725
+packages/core/src/features/dashboard/chat/autonomyOptions.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-79
+packages/core/src/services/autonomy/AutonomyService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-205
+packages/core/src/libs/cards/firstParty/artifactCards.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-66
+packages/core/src/scripts/seed-discovery-window.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 207
+docs/guides/needs-you.md
+  s_7aea99fa9ec114::t_32b6401a928af6 1-157
+packages/core/src/features/dashboard/inbox/reviewRedirect.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-23
+packages/core/src/services/reports/dailyTeamReportShape.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 64-103,107-108
+packages/core/src/app/[locale]/(auth)/dashboard/conversations/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-132
+packages/core/src/libs/platforms/registry.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 220-299
+docs/workspace.md
+  s_7aea99fa9ec114::t_32b6401a928af6 41
+packages/core/src/features/dashboard/artifacts/TableArtifactEditor.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-138
+packages/core/src/libs/Env.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 32-36
+packages/core/src/features/dashboard/chat/RecommendedActionCard.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 8,218,221
+packages/core/migrations/0100_team_measures.sql
+  s_7aea99fa9ec114::t_32b6401a928af6 1-22
+docs/artifacts.md
+  s_7aea99fa9ec114::t_32b6401a928af6 1-155
+packages/core/src/services/team-report/evidence.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-197
+packages/core/src/app/api/artifacts/[id]/route.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 103,119
+packages/core/src/features/navigation/combinedPages.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-38
+packages/core/src/features/dashboard/useNavView.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 5-9,32-46
+docs/getting-started.md
+  s_7aea99fa9ec114::t_32b6401a928af6 140,152,755,768,998
+packages/core/src/features/dashboard/chat/HistoryPopover.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 7,80-90,94,96-98,104
+packages/core/src/features/dashboard/inbox/LearningDecision.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-190
+packages/core/src/features/dashboard/chat/types.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 107-118,131-132
+packages/core/src/features/dashboard/inbox/inboxMeta.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2-3,5-16,19-22,71-111
+packages/core/src/locales/fr.json
+  s_7aea99fa9ec114::t_32b6401a928af6 38,51-69,190-236
+packages/core/src/features/dashboard/team-report/format.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 3-4,7-8,33,47-62,89-91,93-102,110-127,132,134-153
+docs/entities/ask.md
+  s_7aea99fa9ec114::t_32b6401a928af6 7-14,34-38,43-46,93,96,155,157-158
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 22,49-65,282-283,337,346-349
+packages/core/src/features/dashboard/chat/ChatComposer.test.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 97-270
+docs/specs/team-report-v2.md
+  s_7aea99fa9ec114::t_32b6401a928af6 1-317
+packages/core/migrations/0101_artifact_version.sql
+  s_7aea99fa9ec114::t_32b6401a928af6 1-88
+packages/core/src/app/[locale]/(auth)/dashboard/team-report/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3-6,8-10,15,18,20-31,43,47,51-52,59,61-90,95-112,115-129,131-132,134-139,145-146,150,152,154,156,159-181,184-185,188-192,194,201-202,217
+packages/core/src/app/api/v1/chat-announcements/route.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-71
+packages/core/src/features/navigation/dashboardNav.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 8,12-13,24,32-39,41-66,69,71,73-74,77,79-95,98-145,148-180
+packages/core/migrations/0099_decision_alignment.sql
+  s_7aea99fa9ec114::t_32b6401a928af6 1-67
+packages/core/src/libs/actions/neverAuto.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-45
+packages/core/src/features/dashboard/inbox/ChipRow.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-135
+packages/core/src/services/ConversationService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 396-401,412-417,424,431,435-438,444-452,481-489
+packages/core/src/app/[locale]/(auth)/dashboard/skills/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,8-9,22-25,28-29,133-134
+packages/core/src/services/NavPrefService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 25,39
+packages/core/src/app/[locale]/(auth)/dashboard/teams/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,7,16,31-34,37-38,80
+packages/core/src/services/chat/feedbackSignal.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-112
+packages/core/src/app/[locale]/(auth)/dashboard/api-tokens/redirect.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-23
+packages/core/src/features/dashboard/AppSidebar.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3,6,13-22,36-44,46-53,70-75
+packages/core/src/services/agents/tools/renderArtifacts.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 7-8,27,31,34,39,45-59,70-79
+packages/core/src/services/TeamService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 30
+packages/core/src/components/ui/toast.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-220
+packages/core/src/features/dashboard/team-report/ContractGrid.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 5,8-11,14-15,24,29,32-38,40-41,43,45
+packages/core/src/features/dashboard/inbox/askOptions.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-30
+packages/core/src/features/dashboard/chat/EmptyState.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-57
+packages/core/migrations/0102_slack_post_feedback_source.sql
+  s_7aea99fa9ec114::t_32b6401a928af6 1-55
+packages/core/src/features/dashboard/chat/useActionRunStatus.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-41
+packages/core/src/features/dashboard/chat/autonomyOptions.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-62
+packages/core/src/services/team-report/measures.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-166
+packages/core/src/features/dashboard/chat/ChatComposer.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-87
+packages/core/src/features/dashboard/chat/ChatShell.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 10,13,135,171-178,233-236,238
+packages/core/src/libs/cards/firstParty/link.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 16,39
+packages/core/src/features/dashboard/team-report/ProvenanceChip.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-66
+packages/core/src/scripts/prove-triage-e2e.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 3,66,71
+packages/core/src/services/alignment/AlignmentService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-423
+packages/core/src/features/dashboard/chat/RecommendedActionStack.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 96-97
+packages/core/src/features/dashboard/inbox/decisionVerbs.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-94
+packages/core/src/features/dashboard/palette/paletteGroups.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2,28-29,33,57-64
+packages/core/src/features/review/contentKinds.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 26-27,29-33,61-63,65-69,76,81,83,85-86,91,93,100,102
+docs/entities/team.md
+  s_7aea99fa9ec114::t_32b6401a928af6 4-5,13,28-32,34-37,41-61,66-119,124-127,131-143,152-153,157
+packages/core/src/app/[locale]/(auth)/dashboard/workflows/[slug]/runs/[runId]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 184
+packages/core/src/features/dashboard/chat/queueReducer.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-178
+packages/core/src/features/dashboard/inbox/pending.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-30
+packages/core/src/app/[locale]/(auth)/dashboard/api-tokens/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 4-6,8,10-11
+packages/core/src/features/dashboard/inbox/chipFit.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-35
+docs/guides/web-analytics-measures.md
+  s_7aea99fa9ec114::t_32b6401a928af6 1-155
+packages/core/src/hooks/useLastViewedConversation.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 30-33
+packages/core/package.json
+  s_7aea99fa9ec114::t_32b6401a928af6 5
+packages/core/src/libs/workspace/pages.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 16,117
+packages/core/src/features/dashboard/team-report/TeamFacts.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-142
+packages/core/src/features/dashboard/inbox/decisionVerbs.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-63
+packages/core/src/features/dashboard/inbox/reviewRowToSheetAsk.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 4,41
+packages/core/src/services/inbox/pendingAction.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-61
+packages/core/src/features/review/ReviewActionCard.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 2-3,17-19,179-187
+  s_7aea99fa9ec114::t_a3eb46d770046c 188
+packages/core/src/libs/llm/thinkingPath.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-59
+packages/core/src/features/dashboard/inbox/AskSheet.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 4-5,10-14,16-18,32-33,40-50,55-67,74-77,79,82-83,109,118-119,150-164,166-189,194-205,207,209-214,234,241-242,249-279,285,292,294-304,307-323,325,327,333,341,350,357-364,371,406,409-414,419,428,430-431
+packages/core/src/features/dashboard/useNavView.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-2,43-71
+packages/core/src/services/ArtifactService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 8,10-12,14-17,19,22,24-27,29-39,49-87,89-106,108-109,111-114,116-120,123,125-126,128-144,146,148-184,189,191,193,196-199,201-202,204,206,208-209,211,213-222,224-233,238-254
+packages/core/src/libs/workspace/applier.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 229-235,662-665,681
+packages/core/src/libs/cards/firstParty/index.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 35
+packages/core/src/features/dashboard/artifacts/artifactReducer.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-140
+packages/core/src/features/review/UpNextMenu.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-75
+packages/core/src/libs/cards/firstParty/markdown.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 17,41
+packages/core/src/features/dashboard/chat/ChatMenu.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3,12-13,21-26,37-48,53-58
+  s_7aea99fa9ec114::t_f6baf6cbcf2194 9
+  s_7aea99fa9ec114::t_cf203fcc1c1ae2 59
+packages/core/src/libs/analytics/ga4.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-205
+packages/core/src/services/chat/feedbackToWork.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-121
+packages/core/src/features/dashboard/chat/ChatShell.test.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 24-29,60-63,91,106-111
+  s_7aea99fa9ec114::t_f6baf6cbcf2194 48
+packages/core/src/features/dashboard/artifacts/ArtifactLog.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-175
+packages/core/src/features/review/ReviewFocusView.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-272
+packages/core/src/services/ActionService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 22,354-356
+packages/core/src/features/dashboard/chat/MessageList.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 47-48,54,116
+packages/core/src/libs/surfaces/slack.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1,20-21,150-309,311-312,322,325-328,330-336,340-378,388-389,391-393,395-478,485
+packages/core/src/services/ScreenshotService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-238
+packages/core/src/features/dashboard/nav/PinnableNav.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 13,27-29,123-145
+packages/core/src/services/team-report/lineage.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-314
+packages/core/src/features/dashboard/artifacts/artifactReducer.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-113
+packages/core/src/routers/index.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 17-18,20,22-23,25-27,29,115,180-190,219-225,227
+packages/core/src/app/[locale]/(auth)/dashboard/review/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-2,5-9,12,14-15
+packages/core/src/routers/Autonomy.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-59
+packages/core/src/features/dashboard/TitleBar.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 5-6,11,22-23,25-28,30-37,40
+packages/core/src/routers/Workspace.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 352
+packages/core/src/services/ArtifactService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2-3,5-10,12-19,24,27,30-44,47,73-89,98-102,104,108-135,138-142,147,152-161,163,169,172,175-179,182-204,207-232,234-240,242-245,248-291,293-303,305,309-310,313-315,317-320,322-331,334-341,344,350-371,377,380-401,403,406-407,409-415,418-425,427-429,432-460,462-481,484-496
+packages/core/src/services/team-report/teamReport.pglite.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-569
+packages/core/src/app/[locale]/(auth)/dashboard/canvases/page.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-15
+packages/core/src/app/[locale]/(auth)/dashboard/tools/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,4-5,29-31,47-48
+packages/core/src/features/review/reviewShortcuts.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-29
+packages/core/src/libs/workspace/team-kpis.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 3-5,8-9,11-92,96-97,101-117,120-121,124,128-129,140-143,145-146,150-151,153-155,160-182
+packages/core/src/services/team-report/configure.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-152
+packages/core/src/app/[locale]/(auth)/dashboard/inbox/g/[groupKey]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 5,7,9,11,15-17,35-37,40,43,45-46,48,54
+packages/core/src/app/[locale]/(auth)/dashboard/inbox/[id]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-2,7-9,11-13,16,18-24,27-37,42-63,65,68-69,73-106,108-243
+packages/core/src/services/team-report/provenance.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-399
+packages/core/migrations/concurrent/0101_artifact_org_updated_index.sql
+  s_7aea99fa9ec114::t_32b6401a928af6 1-8
+packages/core/src/features/review/reviewShortcuts.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-45
+packages/core/src/services/agents/providers/externalWorker.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 45
+packages/core/src/features/navigation/combinedPages.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-31
+packages/core/src/features/dashboard/team-report/ConfigureWorkforce.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-379
+packages/core/src/features/dashboard/chat/useSendQueue.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-175
+packages/core/src/services/agents/tools/createArtifact.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2,5-9,18,71-72,74,81-82
+docs/guides/email.md
+  s_7aea99fa9ec114::t_32b6401a928af6 162,165
+packages/core/src/features/dashboard/ReviewFocus.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3-9,11-13,16-29,31-32,37-45,47,53-73,75-76,78,81-82,84-85,87,89-90,94-97,102,105-107,111,113-114,118-119,121-122,129,132-137,139-144,150-151,154,157,159,165,175-207,210-235
+packages/core/src/services/InboxService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-6,14,16,19,23,26-27,31-48,60,62-64,66,68-75,80,82,84-86,89,96-100,102-103,118-119,124-128,132,135-137,139,144,146-163,166-167,170,173,176-180,182-184,186-192,194-199
+docs/MANIFESTO.md
+  s_7aea99fa9ec114::t_32b6401a928af6 248-291,337-347
+packages/core/src/services/autonomy/rungs.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-126
+packages/core/src/features/dashboard/team-report/EvidenceDisclosure.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-91
+docs/guides/act-from-context.md
+  s_7aea99fa9ec114::t_32b6401a928af6 5,24
+packages/core/src/app/[locale]/(auth)/dashboard/agents/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,7-8,24-25,28-29,104-105
+packages/core/src/features/dashboard/inbox/toSheetAsk.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 8,10,12
+packages/core/src/features/dashboard/team-report/WorkforceSetup.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-102
+packages/core/e2e/queue/objects-propose-candidate.queue.spec.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 246
+packages/core/src/libs/llm/samplingSupport.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2,37-61
+packages/core/src/services/TeamReportService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2-3,5-9,11-14,16-18,20-23,25-26,29-31,34,36-41,44,46,78-86,90,92,95,97,99-101,103-105,109-152,176-177,184-193,198-212,215-216,221-222,225,260,263,267-269,310-343,346-347,350-353,359-362,367-368,370,374-375,381-384,387-388,390,438,440,455,463-473,479,487-490,492-505,516-525,528-529,532-541,551-553,555,560-561,563-564,595-596,598-599,602-608,612-613,619-622,625-626,628,633-635,637,640-646,648,650,652-656,658-659,664-716,719,733,735,737-738,744-745,756
+packages/core/src/libs/workspace/team-export.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-3,19,21,30-65,70-71,76,86-87
+packages/core/src/services/chat/feedbackSignal.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-53
+packages/core/src/features/dashboard/palette/paletteGroups.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 2-3,19-40
+packages/core/src/app/[locale]/(auth)/dashboard/models/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1,5,7,17-19,23,47,56
+packages/core/src/libs/llm/bedrockCredentials.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 8,181
+packages/core/src/services/inbox/inboxRef.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-34
+packages/core/src/services/ChatSurfaceService.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 7,12-16,22-26,45,118-120,196-225
+  s_7aea99fa9ec114::t_b72c9f7dfec003 226
+packages/core/src/app/[locale]/(auth)/dashboard/layout.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 3,27-33
+packages/core/src/features/dashboard/chat/agentSurface.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 50-56
+  s_7aea99fa9ec114::t_721f15b9e94f0c 49
+packages/core/src/features/review/ReviewFocus.stories.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-141
+packages/core/src/services/team-report/humanLoad.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-339
+packages/core/src/services/chat/recordContext.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 10-20,22
+packages/core/src/services/team-report/configure.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-82
+packages/core/src/features/dashboard/team-report/DimensionStrip.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 1-91
+docs/workspace-pages.md
+  s_7aea99fa9ec114::t_32b6401a928af6 27
+packages/core/src/features/dashboard/breadcrumbModel.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 1-30
+packages/core/src/features/dashboard/team-report/MemberTable.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 6,11-16,31-32,34,64
+packages/core/src/features/dashboard/chat/traceReducer.test.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 3,51-95
+packages/core/src/services/ReviewService.ts
+  s_7aea99fa9ec114::t_32b6401a928af6 17,23,466-467,520-524,862-866
+packages/core/src/libs/cards/firstParty/chart.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 59,170
+packages/core/src/app/[locale]/(auth)/dashboard/teams/[slug]/page.tsx
+  s_7aea99fa9ec114::t_32b6401a928af6 181
+CLAUDE.md
+  s_7aea99fa9ec114::t_32b6401a928af6 20-31
+packages/core/.artifacts/proj-2e116c41-eaea-4730-900e-c9f448ff0ebd-qa-readiness.csv
+  s_7aea99fa9ec114::t_d678c0ae78c891 1-2
+packages/core/src/services/reports/__snapshots__/renderDailyTeamReport.test.ts.snap
+  s_7aea99fa9ec114::t_6d5738371ff79f 21-22,28,50-59,80,144-153,174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4c5af85a350b8e4e30f8d88ee2731fefe720073b",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

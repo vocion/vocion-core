@@ -1,0 +1,47 @@
+packages/core/src/features/dashboard/AutomationRunStrip.tsx
+  s_dabaf601d68948::t_82ac560f53e6e3 1-155
+packages/core/src/components/ui/token-select.tsx
+  s_dabaf601d68948::t_808bdadac572fe 82-85,97-98,102,158-161,235
+  s_dabaf601d68948::t_b8067448bfa6e3 219-223
+  s_dabaf601d68948::t_28a23bd545608f 1-81,86-96,99-101,103-157,162-218,224-234,236-253
+packages/core/src/app/[locale]/(auth)/dashboard/activity/page.tsx
+  s_dabaf601d68948::t_e6f75a049fce56 25,108
+packages/core/src/features/dashboard/AutomationTestRun.tsx
+  s_dabaf601d68948::t_6affbed5866a19 28,41,232,295
+  s_dabaf601d68948::t_e6f75a049fce56 425
+packages/core/src/features/dashboard/RunLogFilters.tsx
+  s_dabaf601d68948::t_f386ef371d7e98 10,12
+packages/core/src/features/dashboard/AutomationRunLog.tsx
+  s_dabaf601d68948::t_e6f75a049fce56 7,18,27
+packages/core/src/app/[locale]/(auth)/dashboard/automation/runs/page.tsx
+  s_dabaf601d68948::t_e6f75a049fce56 12,42,57,73
+packages/core/src/app/[locale]/(auth)/dashboard/automation/[slug]/page.tsx
+  s_dabaf601d68948::t_b8067448bfa6e3 7
+  s_dabaf601d68948::t_e6f75a049fce56 25,38,79,87,93,102,146,152,155,159,164
+packages/core/src/features/dashboard/ReviewFocus.tsx
+  s_dabaf601d68948::t_164a463a84bff9 104,106,118
+  s_dabaf601d68948::t_e830c8cb9f1bef 128-132,134-135,139-159
+  s_dabaf601d68948::t_5087a536aaac72 288-289,292,296-298,302-303,317
+  s_dabaf601d68948::t_497439ab40355f 81-85
+  s_dabaf601d68948::t_987a25e083516d 8,11-13
+packages/core/src/services/ActivityService.ts
+  s_dabaf601d68948::t_f386ef371d7e98 3-4,219
+packages/core/src/features/dashboard/AutomationCardStatus.tsx
+  s_dabaf601d68948::t_64055cc5b90e0a 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9247483c67f111f95c4c3a234990cd4c4ed487f5",
+  "prompts": {},
+  "sessions": {
+    "s_dabaf601d68948": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8c9ccb39-792c-4455-9397-142f1ea8e666",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

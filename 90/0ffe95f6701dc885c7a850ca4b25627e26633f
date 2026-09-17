@@ -1,0 +1,56 @@
+CLAUDE.md
+  s_68acdfc5a73723::t_d6eed8a772f7c8 91-92,104,107-109,112
+packages/core/src/libs/workspace/dirty.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 23-25
+packages/core/src/libs/workspace/index.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 5
+packages/core/src/services/SkillService.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 21,80-83
+packages/core/src/libs/workspace/reader.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 21,33-34,66-68
+packages/core/src/routers/Workspace.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 7,39-45,72-73,76,96,126,130,151-152,175
+packages/core/src/app/[locale]/(auth)/dashboard/playbooks/[slug]/page.tsx
+  s_68acdfc5a73723::t_d6eed8a772f7c8 43-44,46-48,63
+packages/core/src/interfaces/mcp/tools/playbook-tools.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 8,74-77
+packages/core/package.json
+  s_68acdfc5a73723::t_d6eed8a772f7c8 38
+docs/workspace.md
+  s_68acdfc5a73723::t_d6eed8a772f7c8 1-158
+packages/core/src/libs/workspace/scaffold.test.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 1-110
+packages/core/src/scripts/apply-workspace.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 5,64-69,124-125
+package.json
+  s_68acdfc5a73723::t_d6eed8a772f7c8 32-34
+README.md
+  s_68acdfc5a73723::t_d6eed8a772f7c8 33,43,91,94-101,106
+  s_68acdfc5a73723::t_c5e7f0ece3810a 107
+packages/core/src/services/playbooks/mount.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 27,118-119,128-131
+requirements/skills.md
+  s_68acdfc5a73723::t_d6eed8a772f7c8 5,75
+packages/core/src/scripts/scaffold-workspace.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 1-94
+packages/core/src/libs/repo-root.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 48
+packages/core/src/libs/workspace/scaffold.ts
+  s_68acdfc5a73723::t_d6eed8a772f7c8 1-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "900ffe95f6701dc885c7a850ca4b25627e26633f",
+  "prompts": {},
+  "sessions": {
+    "s_68acdfc5a73723": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c30560ac-9c9d-4f6e-aeef-d1874271e92b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

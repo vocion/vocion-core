@@ -1,0 +1,19 @@
+packages/core/src/services/agents/skillTurn.ts
+  s_eff1d3c156501c::t_3b31facbbec8bb 169-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ad779fa527b742b7b7c5bd7f4430fb57c75c425c",
+  "prompts": {},
+  "sessions": {
+    "s_eff1d3c156501c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f64fbb69-438c-4484-8061-6cab0080c431",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

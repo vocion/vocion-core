@@ -1,0 +1,19 @@
+packages/core/src/features/dashboard/chat/ChatDock.tsx
+  s_7aea99fa9ec114::t_daea240d2c1018 177-180,182-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "649365233276674696574d3bdba47c9b4678899c",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

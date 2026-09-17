@@ -1,0 +1,29 @@
+docs/workspace.md
+  s_d612d610c8d4e3::t_c646ea6f1a84a2 114-162
+packages/core/src/libs/workspace/reader.ts
+  s_d612d610c8d4e3::t_4d30f576b2a9ce 14-19,24-26,30-31,34-35,44-46,78-87,108,117,125,130,141-148,151-172,174-196,202-204,212-213,215-226,228-231
+  s_d612d610c8d4e3::t_2cb5221f6d4027 198-201
+  s_d612d610c8d4e3::t_843899bd5d81cc 197
+packages/core/src/features/dashboard/PrimitiveFiles.tsx
+  s_d612d610c8d4e3::t_2b474f5766b12a 17-18
+  s_d612d610c8d4e3::t_ad081e7a13f0d6 119-126
+packages/core/src/libs/workspace/reader.test.ts
+  s_d612d610c8d4e3::t_9e2c4c1c177225 1-45,47-57,59-60,62,64-69,71-77,79-83
+  s_d612d610c8d4e3::t_2cb5221f6d4027 46,58,61,63,70,78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "15bc0cbcb66c1d03e4853e7cc0a7f9cbd6800c26",
+  "prompts": {},
+  "sessions": {
+    "s_d612d610c8d4e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2dcc9c1a-cf8c-4faa-9af2-0a19bec551cb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+packages/core/migrations/meta/_journal.json
+  s_20eded64b00e55::t_4967892690a947 347-353
+packages/core/src/libs/actions/discovery-review.ts
+  s_20eded64b00e55::t_57951e2edae7d1 1-6,17-48
+  s_20eded64b00e55::t_2a65a54e2668bd 7-16
+packages/core/src/libs/actions/registry.ts
+  s_20eded64b00e55::t_4967892690a947 8,29
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_20eded64b00e55::t_529d8b46999818 461,471-477,496-497,503-513,516-522,526-527,529,532,534-536,540
+  s_20eded64b00e55::t_fc4b5bf158d045 169-174
+  s_20eded64b00e55::t_e9b9011c68d030 218,223
+  s_20eded64b00e55::t_08993b8f70c35e 229
+  s_20eded64b00e55::t_a45a43a8d82903 254,272-274,276,287-302
+  s_20eded64b00e55::t_779f4066ac1d10 642,649-654,669,681
+  s_20eded64b00e55::t_cf74c9f8fc01d6 1-6,13-25,27,29-97,103-143,165-168,175-178,181-217,219-222,224-228,230-244,250-253,255-271,275,277-286,303-313,316-375,382-426,431-460,462,481-495,498-500,530,538-539,541-544,546,556-567,581-626,629-641,643-648,655-668,670-680,682-691
+  s_20eded64b00e55::t_28b745abec31b4 463-470,480,501-502,514-515,523-525,528,531,533,537
+  s_20eded64b00e55::t_4c24c31f774aa2 26,28,179-180,245-248,314-315,376-381,427-430,478-479,627-628
+  s_20eded64b00e55::t_81300b09ac97fa 545,549,554-555,568-580
+  s_20eded64b00e55::t_3af8ad5016b0d4 98-101,150-162,249,547-548,550-553
+  s_20eded64b00e55::t_d6a93d52e7eee3 7-12
+  s_20eded64b00e55::t_e524879efba298 144-149,163-164
+  s_20eded64b00e55::t_c65cb171a3dfd7 102
+packages/core/src/models/Schema.ts
+  s_20eded64b00e55::t_4967892690a947 1885-1941
+packages/core/src/libs/sources/hubspot.ts
+  s_20eded64b00e55::t_4967892690a947 21-23,53-56,62-72
+packages/core/src/scripts/discovery-sweep.ts
+  s_20eded64b00e55::t_ff1f29bffb4649 1-96
+packages/core/src/libs/sources/googleCalendar.ts
+  s_20eded64b00e55::t_4967892690a947 52-65,136
+packages/core/package.json
+  s_20eded64b00e55::t_4967892690a947 44
+packages/core/src/services/DiscoveryDetectionService.test.ts
+  s_20eded64b00e55::t_83f98f7abc7a84 2-105,107-114,116-122,124-128,130-132,141-144,146,148-166,168-172,174-179,181-185,187-195,197-198,220-225,227-276,278-288,290-303,305-367,369-372,374-379,466-474,476-480,482-484
+  s_20eded64b00e55::t_a1739d80874c31 199-219
+  s_20eded64b00e55::t_e1a150253f8524 133-134,136-139
+  s_20eded64b00e55::t_4c24c31f774aa2 106,115,123,129,145,167,173,180,186,196,277,289,304,368,373,411,475,481
+  s_20eded64b00e55::t_3af8ad5016b0d4 135,460
+  s_20eded64b00e55::t_f9da19060d099b 380,398,402,406,415-459,461-463
+  s_20eded64b00e55::t_d6395e6b8e7f2b 1
+  s_20eded64b00e55::t_679ae6be720f01 381-397,399-401,403-405,407-410,412-414,464-465
+  s_20eded64b00e55::t_86ae02df88fc76 226
+  s_20eded64b00e55::t_86de3ab85fb73f 140,147
+packages/core/migrations/0049_discovery_candidate.sql
+  s_20eded64b00e55::t_09a5119a36d10e 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0f09f10da53c2a0d326c87d82b37cea454b1ab14",
+  "prompts": {},
+  "sessions": {
+    "s_20eded64b00e55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1013436-0c77-4abc-b678-91f85b3a2d1f",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

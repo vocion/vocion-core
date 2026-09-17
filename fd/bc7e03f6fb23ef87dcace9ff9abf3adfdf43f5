@@ -1,0 +1,37 @@
+packages/core/src/services/agents/tools/discovery.test.ts
+  s_c81b9a333a8e07::t_7c7fc7b319a07a 159-178
+packages/core/src/services/DiscoveryDetectionService.test.ts
+  s_c81b9a333a8e07::t_c6ba940e41079c 225-282
+  s_c81b9a333a8e07::t_b6d790bbb9b597 487-516
+packages/core/src/services/DiscoveryDetectionService.ts
+  s_c81b9a333a8e07::t_18b84949747453 785,787,794
+  s_c81b9a333a8e07::t_d1a3f231a01bce 874
+  s_c81b9a333a8e07::t_1837b74e91f83d 269-271,273-285,291-295
+  s_c81b9a333a8e07::t_88348118cf38de 1146
+  s_c81b9a333a8e07::t_2dbd177c6fd827 272
+  s_c81b9a333a8e07::t_ac0ac16504bfe5 268,286-290
+  s_c81b9a333a8e07::t_84202dd976d4be 343-366
+packages/core/src/scripts/seed-discovery-window.ts
+  s_c81b9a333a8e07::t_9b58a16bfdb10d 154-187
+packages/core/src/services/agents/tools/discovery.ts
+  s_c81b9a333a8e07::t_92f034f061b83f 82,87-94
+  s_c81b9a333a8e07::t_a52cf2be71d7af 132
+  s_c81b9a333a8e07::t_0599704940fa4d 108,115-119
+  s_c81b9a333a8e07::t_6c0f6a537bd208 230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "fdbc7e03f6fb23ef87dcace9ff9abf3adfdf43f5",
+  "prompts": {},
+  "sessions": {
+    "s_c81b9a333a8e07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "df7db2e8-4540-41d5-98e5-0ff7109240c2",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

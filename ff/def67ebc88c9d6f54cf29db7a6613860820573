@@ -1,0 +1,64 @@
+packages/core/src/routers/Review.regenerate.test.ts
+  s_eff1d3c156501c::t_a82d5b08f81bbe 72-75,182,186,191,215,218,231,233,249,262,272,274
+  s_eff1d3c156501c::t_b822ee454cb913 174,183-185,187-190,206-214,216-217,219-230,232,234-248,250-261,263-271,273,275-276
+  s_eff1d3c156501c::t_8654d881dffa86 120
+  s_eff1d3c156501c::t_6432e2aade946f 46-47,50-57,65-71,76-84
+packages/core/src/features/dashboard/ReviewFocus.tsx
+  s_eff1d3c156501c::t_ad07316498f809 315-316
+  s_eff1d3c156501c::t_d9ec95c9c02a02 391
+  s_eff1d3c156501c::t_6498a46c9404fb 39-41
+  s_eff1d3c156501c::t_5e261c6c85be69 295-298,302-305,311-314
+packages/core/src/features/review/ReviewActionCard.tsx
+  s_eff1d3c156501c::t_e84a919f433719 5,8
+  s_eff1d3c156501c::t_212d2d582dae61 192-194,198-200,209-236
+  s_eff1d3c156501c::t_2bc2150c6deb05 430-433
+  s_eff1d3c156501c::t_c584b0300c3a4f 72-73,75,82-85,96-146
+  s_eff1d3c156501c::t_e6fb0efe017b2e 30-33
+  s_eff1d3c156501c::t_9399f97fe79368 147
+  s_eff1d3c156501c::t_a21b209f0eb7b5 339,381,387,425,442,446,450,457
+packages/core/src/routers/Review.ts
+  s_eff1d3c156501c::t_95a08369fbf049 219-220,235-238
+  s_eff1d3c156501c::t_1aedf01e79c689 364,366-371,382-400,405-417
+  s_eff1d3c156501c::t_05bca86faf776b 294-312
+packages/core/src/libs/actions/regenerating.ts
+  s_eff1d3c156501c::t_a943ed5c63016b 1-23
+packages/core/migrations/meta/_journal.json
+  s_eff1d3c156501c::t_2c35c406c4f8a9 613-619
+packages/core/migrations/0087_action_run_regenerating.sql
+  s_eff1d3c156501c::t_0e0bec192f2375 1-12
+packages/core/src/models/Schema.ts
+  s_eff1d3c156501c::t_77f0c0b88e5f9d 2335
+  s_eff1d3c156501c::t_82bd14f907140d 2336-2345
+packages/core/src/services/ActionService.test.ts
+  s_eff1d3c156501c::t_a82d5b08f81bbe 255,257
+  s_eff1d3c156501c::t_a1d027acfecc1b 244-254,256,258-261
+packages/core/src/services/ActionService.ts
+  s_eff1d3c156501c::t_e4709871102ab4 240-245
+packages/core/src/features/personalization/LeadDetail.tsx
+  s_eff1d3c156501c::t_13a45d4e61a508 307
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_eff1d3c156501c::t_53fdcc2e0ba2f4 116-118
+packages/core/src/features/review/ReviewActionCard.stories.tsx
+  s_eff1d3c156501c::t_2207ab4f4fb052 142-173
+packages/core/src/services/PersonalizationQueueService.ts
+  s_eff1d3c156501c::t_d53feefdd67780 1014-1017
+  s_eff1d3c156501c::t_4b896e784520dc 940-942
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_eff1d3c156501c::t_f20ceadc5b5fb7 348-349,352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ffdef67ebc88c9d6f54cf29db7a6613860820573",
+  "prompts": {},
+  "sessions": {
+    "s_eff1d3c156501c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f64fbb69-438c-4484-8061-6cab0080c431",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

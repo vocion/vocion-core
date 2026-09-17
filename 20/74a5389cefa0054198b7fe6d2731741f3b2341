@@ -1,0 +1,28 @@
+packages/core/templates/base/agents/revenue-director.yaml
+  s_d612d610c8d4e3::t_f4225fdbc3de96 1-37
+packages/core/src/libs/workspace/proving-vertical.test.ts
+  s_d612d610c8d4e3::t_151ccde8b4de9b 65
+  s_d612d610c8d4e3::t_909841e1eeed70 1-64,66-77
+packages/core/templates/base/agents/proposal-writer.yaml
+  s_d612d610c8d4e3::t_5addc76c9e5c9b 1-33
+packages/core/templates/base/operations/pipeline-health/skill.yaml
+  s_d612d610c8d4e3::t_b69ca3fcc39d2d 1-31
+packages/core/templates/base/operations/proposal-brief/skill.yaml
+  s_d612d610c8d4e3::t_dfd101070bf5d9 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "2074a5389cefa0054198b7fe6d2731741f3b2341",
+  "prompts": {},
+  "sessions": {
+    "s_d612d610c8d4e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2dcc9c1a-cf8c-4faa-9af2-0a19bec551cb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

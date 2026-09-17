@@ -1,0 +1,19 @@
+packages/core/src/features/dashboard/AppSidebar.stories.tsx
+  s_7aea99fa9ec114::t_3fe82e5c3e034a 2,25-30,53-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5967c37afdd399010e280d4b0a9a16fa494637dd",
+  "prompts": {},
+  "sessions": {
+    "s_7aea99fa9ec114": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d612cb7a-84f1-4ab9-a92a-4fb339c81b1c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

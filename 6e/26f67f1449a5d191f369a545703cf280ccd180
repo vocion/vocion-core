@@ -1,0 +1,32 @@
+packages/core/src/services/agents/tools/hubspotCompanies.ts
+  s_3783e5a93299c9::t_3d73581a5bd7e4 19
+  s_3783e5a93299c9::t_e512e2526846b1 286-416,422
+packages/core/src/services/agents/tools/hubspotLeads.test.ts
+  s_3783e5a93299c9::t_780ff3e05083d1 205-260
+packages/core/src/services/agents/tools/hubspotLeads.ts
+  s_3783e5a93299c9::t_13810ea8a92c96 17
+  s_3783e5a93299c9::t_ce1c0eb07a04c0 285-414,416
+packages/core/src/services/agents/tools/hubspotCompanies.test.ts
+  s_3783e5a93299c9::t_c4e1268264a760 188-212,214-223,225-231
+  s_3783e5a93299c9::t_cc82baca27ec6a 213
+  s_3783e5a93299c9::t_10c2ce84020c43 224
+packages/core/src/services/agents/tools/hubspotDirect.ts
+  s_3783e5a93299c9::t_c0e9e70398ae02 160
+  s_3783e5a93299c9::t_05927805cbf29e 133-159,161-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6e26f67f1449a5d191f369a545703cf280ccd180",
+  "prompts": {},
+  "sessions": {
+    "s_3783e5a93299c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db696632-8c1c-4a53-a475-6595a75ddf55",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

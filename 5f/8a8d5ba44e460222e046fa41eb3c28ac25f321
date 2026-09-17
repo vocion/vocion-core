@@ -1,0 +1,21 @@
+packages/core/src/services/adoption/track.ts
+  s_95f82f342db136::t_b7e1b519bdf958 7-19
+  s_95f82f342db136::t_6c649f6b16895e 70,89,152
+  s_95f82f342db136::t_5cc518094f90cc 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "5f8a8d5ba44e460222e046fa41eb3c28ac25f321",
+  "prompts": {},
+  "sessions": {
+    "s_95f82f342db136": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71e99a9-d80f-402b-b0bb-ed799488bf57",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

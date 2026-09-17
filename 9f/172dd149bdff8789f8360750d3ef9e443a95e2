@@ -1,0 +1,78 @@
+packages/core/src/features/navigation/surfaces.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-106
+packages/core/migrations/meta/_journal.json
+  s_fc2cdbeec6a27a::t_562f8319bb4298 396-402
+packages/core/src/features/navigation/SurfaceNav.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-40
+packages/core/src/app/[locale]/(auth)/gtm/personalization/page.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-78
+packages/core/src/scripts/reset-local-password.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 2-5,7,9-23,25-26,28,34-56,58-96,99-101,104-107,109-112,114-116,120-140
+packages/core/src/features/personalization/PersonalizationQueue.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-339
+packages/core/src/scripts/seed-discovery-window.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 207
+packages/core/src/features/dashboard/AppSidebar.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 3,35,57,60-61,108-110
+packages/core/src/libs/workspace/loader.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 9,268-277
+  s_fc2cdbeec6a27a::t_b5f0331a968a31 278
+packages/core/src/libs/workspace/surfaces.test.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-102
+packages/core/src/app/[locale]/(auth)/gtm/layout.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-23
+packages/core/package.json
+  s_fc2cdbeec6a27a::t_562f8319bb4298 45-47
+packages/core/src/app/[locale]/(auth)/dashboard/layout.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 2-3,26
+packages/core/src/features/navigation/surfaces.test.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-53
+packages/core/src/scripts/seed-personalization-queue.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-261
+packages/core/src/scripts/setup-local-projects.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-91
+packages/core/src/services/agents/tools/discovery.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 163
+packages/core/src/features/dashboard/AppShell.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-85
+packages/core/src/proxy.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 4,10-14
+packages/core/src/libs/workspace/schemas.ts
+  s_b2ae30dc97f6b0::t_9074368a73d092 48
+  s_fc2cdbeec6a27a::t_562f8319bb4298 49-54
+packages/core/src/libs/workspace/applier.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 594-597,600-605,611-612,617-625,631
+packages/core/src/features/personalization/confidence.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-20
+packages/core/src/features/personalization/PersonalizationQueue.test.tsx
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-104
+packages/core/src/models/Schema.ts
+  s_fc2cdbeec6a27a::t_562f8319bb4298 170-176,2004-2080
+  s_fc2cdbeec6a27a::t_a8ecaedfbf93b2 2081-2083
+packages/core/migrations/0056_lead_brief_and_surfaces.sql
+  s_fc2cdbeec6a27a::t_562f8319bb4298 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9f172dd149bdff8789f8360750d3ef9e443a95e2",
+  "prompts": {},
+  "sessions": {
+    "s_b2ae30dc97f6b0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68c5edf5-f92b-4bff-89a8-a479a486dad2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    },
+    "s_fc2cdbeec6a27a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f0cd6343-4fa2-43f1-b0c8-1ec3bc6669a3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

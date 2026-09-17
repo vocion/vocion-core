@@ -1,0 +1,21 @@
+packages/core/src/features/personalization/LeadDetail.tsx
+  s_3cdb38fcbab078::t_4b721687419835 134
+  s_3cdb38fcbab078::t_9167523ee1572e 303-306
+  s_3cdb38fcbab078::t_55d43647400dbc 130-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "478eaf17389d7010bd07b3fa75fd88d4acec2087",
+  "prompts": {},
+  "sessions": {
+    "s_3cdb38fcbab078": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e357338-522a-4343-8758-1f5cdec0e124",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

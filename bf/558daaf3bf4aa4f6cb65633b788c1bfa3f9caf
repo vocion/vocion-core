@@ -1,0 +1,49 @@
+packages/core/migrations/0088_project_regenerate_skills.sql
+  s_eff1d3c156501c::t_7fd0ec2a9bed22 1-9
+packages/core/src/services/agents/skillTurn.test.ts
+  s_eff1d3c156501c::t_7ac2ea1211d1b1 109,113
+  s_eff1d3c156501c::t_2101a0f8a5e451 1-108,110-112,114-220
+packages/core/src/libs/workspace/applier.ts
+  s_eff1d3c156501c::t_e1088e739bda6d 732-736,745,752,763-764,767-768,775,782
+packages/core/src/models/Schema.ts
+  s_eff1d3c156501c::t_9895ca2a3862bf 206-214
+packages/core/src/libs/workspace/schemas.ts
+  s_eff1d3c156501c::t_b9491dfb45b736 68-74
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_eff1d3c156501c::t_3317cecd659cc8 75-118,122-233
+  s_eff1d3c156501c::t_7ac2ea1211d1b1 119-121
+  s_eff1d3c156501c::t_d3231f9297e4cf 362-373,378,388-403,415
+packages/core/src/libs/actions/regenerateSkill.ts
+  s_eff1d3c156501c::t_25ed936b52a00e 1-28
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_eff1d3c156501c::t_403264529483da 79-80,84
+  s_eff1d3c156501c::t_292789a62e775a 15-27,29,31-32
+  s_eff1d3c156501c::t_e6a13c66e53162 388-522
+packages/core/src/libs/llm/langchain.ts
+  s_eff1d3c156501c::t_19b948948b2197 47-51,57
+  s_eff1d3c156501c::t_528a8e7ede84b1 76
+  s_eff1d3c156501c::t_45b8b07c03f56b 30
+packages/core/migrations/meta/_journal.json
+  s_eff1d3c156501c::t_551f0d97e6ec36 620-626
+packages/core/src/services/agents/skillTurn.ts
+  s_eff1d3c156501c::t_cd73308de6f7a5 1-30,32-249
+  s_eff1d3c156501c::t_7ac2ea1211d1b1 31
+packages/core/src/libs/Langfuse/features.ts
+  s_eff1d3c156501c::t_6efdc3779c7b4d 37-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bf558daaf3bf4aa4f6cb65633b788c1bfa3f9caf",
+  "prompts": {},
+  "sessions": {
+    "s_eff1d3c156501c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f64fbb69-438c-4484-8061-6cab0080c431",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

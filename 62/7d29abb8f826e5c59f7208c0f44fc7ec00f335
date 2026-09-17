@@ -1,0 +1,32 @@
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_8c230ca8a3ac3c::t_10546a7b780dbe 1-2,8,11,71-119,150
+packages/core/src/scripts/seed-personalization-queue.ts
+  s_8c230ca8a3ac3c::t_087b4e489a1e6d 47,49,73,95,204,251
+  s_8c230ca8a3ac3c::t_602f168ea51bde 161-167
+  s_8c230ca8a3ac3c::t_85563d94083b0f 214-250,252-262
+packages/core/src/features/personalization/LeadDetail.test.tsx
+  s_8c230ca8a3ac3c::t_b5b13073cc54cc 1-2,32-55,93,124,134,160,180,188-206,216,220,238,256
+packages/core/src/features/personalization/LeadDetail.tsx
+  s_8c230ca8a3ac3c::t_24aba00dd08fe3 19-22,46-55,87,89,91,104-108,144-145,148-149,155,158-159,163,228-232,234-253,287-288,291-292,294-298,304-305
+packages/core/src/features/personalization/LeadDetail.stories.tsx
+  s_8c230ca8a3ac3c::t_fa738eabb80cf8 122
+  s_8c230ca8a3ac3c::t_935ff1a59c8597 143
+  s_8c230ca8a3ac3c::t_c877c67600be13 78-82
+  s_8c230ca8a3ac3c::t_621b05d6ae52be 83-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "627d29abb8f826e5c59f7208c0f44fc7ec00f335",
+  "prompts": {},
+  "sessions": {
+    "s_8c230ca8a3ac3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f401c65f-a13c-4893-840f-e4e9b5880b2f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

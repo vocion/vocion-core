@@ -1,0 +1,36 @@
+packages/core/src/services/DiscoveryDetectionService.test.ts
+  s_20eded64b00e55::t_b70ae4d4ed1ed1 486-506
+  s_20eded64b00e55::t_9d82211f89e76c 21
+packages/core/src/services/jobs/discoverySweep.ts
+  s_20eded64b00e55::t_b539dc50df2fc3 1-38
+packages/core/src/libs/workspace/applier.ts
+  s_20eded64b00e55::t_81c82203419d2f 703
+  s_20eded64b00e55::t_db383faab0eba6 259
+packages/core/src/models/Schema.ts
+  s_20eded64b00e55::t_b057826a777f7e 751-752
+packages/core/src/services/jobs/registry.ts
+  s_20eded64b00e55::t_06f0a79e4d23c3 1-26
+packages/core/src/services/AutomationService.ts
+  s_20eded64b00e55::t_59fe9bdd0b2f6a 47,70-75
+  s_20eded64b00e55::t_477f12c6ea5828 76-77
+packages/core/src/scripts/discovery-sweep.ts
+  s_20eded64b00e55::t_7cf8cd8d8bc6c7 3-7,9,15,17-18,20,30,44,46
+packages/core/src/libs/workspace/schemas.ts
+  s_20eded64b00e55::t_6278fd474a355f 375-377,379-382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "93f79040132cda449fb4c85a00af385af91272e4",
+  "prompts": {},
+  "sessions": {
+    "s_20eded64b00e55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1013436-0c77-4abc-b678-91f85b3a2d1f",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
