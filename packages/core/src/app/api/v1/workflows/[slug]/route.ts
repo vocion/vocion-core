@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server';
 import { getWorkflow, startWorkflow } from '@/services/WorkflowService';
 import { authApi, jsonError } from '../../_shared';
 
+/**
+ * GET /api/v1/workflows/:slug
+ *
+ * One workflow in full: its trigger, its steps, and the `inputSchema` saying
+ * what a caller should send when starting a run with POST to this same path.
+ * 404 when this workspace has no workflow with that slug.
+ * @param req - Request.
+ * @param context - Route params.
+ * @param context.params
+ */
 export async function GET(req: Request, context: { params: Promise<{ slug: string }> }) {
   const auth = await authApi(req);
   if ('status' in auth) {

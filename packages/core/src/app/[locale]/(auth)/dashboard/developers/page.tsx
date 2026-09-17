@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { BookOpen, ExternalLink } from 'lucide-react';
+import { BookOpen, Code2, ExternalLink } from 'lucide-react';
 import { headers } from 'next/headers';
 import { ApiTokensPanel } from '@/features/api-tokens/ApiTokensPanel';
 import { DashboardSection } from '@/features/dashboard/DashboardSection';
@@ -87,6 +87,12 @@ export default async function DevelopersPage() {
         description="How the workforce is authored and driven — the API is for starting work and approving it, not for defining agents (that is always files)."
       >
         <ul className="flex flex-wrap gap-2 text-[13px]">
+          <li>
+            <Link href="/dashboard/api-reference" className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 px-3 font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground">
+              <Code2 className="size-3.5" aria-hidden />
+              API reference
+            </Link>
+          </li>
           <li>
             <Link href="/dashboard/docs" className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 px-3 font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground">
               <BookOpen className="size-3.5" aria-hidden />
