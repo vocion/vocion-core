@@ -6,8 +6,8 @@ vi.mock('@/services/ActionService', () => ({ proposeAction: (...args: unknown[])
 const { autoProposeRecommendation, deriveRecommendationDedupKey, readAutonomy } = await import('./autoPropose');
 
 describe('readAutonomy', () => {
-  it('defaults to asking before acting on anything unknown', () => {
-    expect(readAutonomy(undefined)).toBe('ask-before-acting');
+  it('is done-for-you when nothing was said, and asks on a value it does not know', () => {
+    expect(readAutonomy(undefined)).toBe('act-within-bounds');
     expect(readAutonomy('yolo')).toBe('ask-before-acting');
     expect(readAutonomy('act-within-bounds')).toBe('act-within-bounds');
   });
