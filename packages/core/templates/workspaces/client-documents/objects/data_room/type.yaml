@@ -1,9 +1,12 @@
 slug: data_room
 label: Data room
 description: >-
-  The source of record for one client engagement — status, deliverables, cast,
-  sources with their weight, and the open items that keep nothing from falling
-  through. Documents are written from it and filed back into it.
+  The collection around one entity — a deal, a project, an engagement:
+  everything ingested about it (transcripts, threads, attachments, by weight)
+  and everything written from it (decision logs, documents, working files),
+  plus the room's own knowledge — rules, notes, a dated timeline, highlights —
+  that keeps the collection growing on its own. A sales room persists into
+  delivery; the anchor and the stage move, the collection stays.
 icon: folder-open
 schema:
   type: object
@@ -23,14 +26,34 @@ schema:
     stage:
       type: string
       description: Engagement stage in the CRM's own words (Discovery, Proposal sent, Signed, In delivery).
+    anchor:
+      type: object
+      description: The entity the room is the collection around, and where it lives.
+      properties:
+        type: {type: string, description: 'deal, company, project, engagement, ticket…'}
+        system: {type: string, description: 'hubspot, jira, github…'}
+        id: {type: string}
+        url: {type: string}
+        label: {type: string}
+        amount: {type: number}
     deal:
       type: object
-      description: The CRM deal this room is linked to, both directions.
+      description: Older shape of an anchor of type deal; read as one.
       properties:
         system: {type: string}
         id: {type: string}
         url: {type: string}
         amount: {type: number}
+    rules:
+      type: array
+      description: >-
+        Rules for collecting and working the room, one line each — how things
+        are called, what files here, what never leaves it. The agent reads
+        them before anything else in the room.
+      items: {type: string}
+    notes:
+      type: string
+      description: The room's wiki, markdown — where things are, who owns what, conventions.
     cast:
       type: array
       description: Every person on the engagement, with role and email.
@@ -51,6 +74,53 @@ schema:
           title: {type: string}
           artifactId: {type: integer}
           status: {type: string, enum: [planned, drafted, sent, signed]}
+    milestones:
+      type: array
+      description: The dated timeline — what was planned and what was delivered, and when.
+      items:
+        type: object
+        properties:
+          date: {type: string, format: date}
+          title: {type: string}
+          status: {type: string, enum: [planned, done]}
+          artifactId: {type: integer}
+          note: {type: string}
+    highlights:
+      type: array
+      description: >-
+        Kept as they appear in material — a client's own words, a measured
+        result, a win, a challenge met — with who and when, so the case study
+        writes itself instead of being reconstructed at the end.
+      items:
+        type: object
+        properties:
+          kind: {type: string, enum: [quote, metric, win, challenge, testimonial, risk]}
+          text: {type: string}
+          who: {type: string}
+          date: {type: string}
+          source: {type: string}
+          addedAt: {type: string}
+    sources:
+      type: array
+      description: >-
+        What is filed to the room, by weight (⭐⭐⭐ = read before writing
+        anything), with provenance — channel, date, who filed it and, for an
+        automatic filing, the score and evidence.
+      items:
+        type: object
+        properties:
+          documentId: {type: integer}
+          artifactId: {type: integer}
+          title: {type: string}
+          kind: {type: string, enum: [transcript, email, attachment, note, decision-log]}
+          rating: {type: integer, minimum: 1, maximum: 3}
+          channel: {type: string}
+          date: {type: string}
+          retrievedAt: {type: string}
+          note: {type: string}
+          filedBy: {type: string, enum: [auto, agent, human]}
+          score: {type: number}
+          evidence: {type: array, items: {type: string}}
     domains:
       type: array
       description: Email domains that identify this client's people — how a transcript or thread is matched to the room.
@@ -59,13 +129,23 @@ schema:
       type: array
       description: Other names the engagement goes by in calendar titles and subjects.
       items: {type: string}
+    autoFile:
+      type: boolean
+      description: false keeps the collector from filing into this room on its own.
+    unfiled:
+      type: array
+      description: Knowledge documents a person took back out; never auto-filed again.
+      items: {type: integer}
 sourceRelevance:
   zoom: 2.0
+  granola: 2.0
   gmail: 1.5
   drive: 1.0
   hubspot: 1.0
 classificationPrompt: >-
-  Given a call transcript, email thread or shared document, decide which client
-  engagement it belongs to. Match on attendee or sender email domains first,
-  then on the client's name or codename in the title or subject. Report a
-  confidence from 0 to 1 and the evidence you matched on.
+  Given a call transcript, email thread or shared document, decide which data
+  room it belongs to. Match on attendee or sender email domains first, then
+  on the client's name, codename or aliases in the title or subject, then on
+  people from the room's cast in the text. Apply the room's own rules when it
+  has any. Report a confidence from 0 to 1 and the evidence you matched on;
+  below a clear match, ask rather than file.
