@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DASHBOARD_GROUPS, DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
-import { buildPaletteGroups, ROUTE_GROUP_ORDER } from './paletteGroups';
+import { buildPaletteGroups, paletteFilter, ROUTE_GROUP_ORDER } from './paletteGroups';
 
 describe('buildPaletteGroups', () => {
   it('leads with Ask when the query is free text, and hides it when empty', () => {
@@ -80,5 +80,21 @@ describe('buildPaletteGroups', () => {
     expect(commands.find(r => r.action === 'new-conversation')).toMatchObject({ label: 'New chat', shortcut: '⌘⇧O' });
     expect(commands.find(r => r.action === 'all-conversations')).toMatchObject({ url: '/dashboard/conversations', shortcut: '⌘⇧H' });
     expect(groups.find(g => g.heading === 'Workspace')?.rows.find(r => r.url === '/dashboard/chat')?.shortcut).toBe('⌘⇧L');
+  });
+
+  it('ranks the page whose name starts with the query above the free-text rows — "Cha" means Chat', () => {
+    const chat = paletteFilter('Chat ask agent', 'Cha');
+    const ask = paletteFilter('ask Cha', 'Cha');
+    const search = paletteFilter('search knowledge Cha', 'Cha');
+    const wordStart = paletteFilter('Teams & agents chat', 'cha');
+    const substring = paletteFilter('Merchant reviews', 'cha');
+
+    expect(chat).toBeGreaterThan(ask);
+    expect(chat).toBeGreaterThan(search);
+    expect(chat).toBeGreaterThan(wordStart);
+    expect(wordStart).toBeGreaterThan(substring);
+    expect(substring).toBeGreaterThan(ask);
+    expect(paletteFilter('Briefings', 'zzz')).toBe(0);
+    expect(paletteFilter('anything', '   ')).toBe(1);
   });
 });

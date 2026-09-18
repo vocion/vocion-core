@@ -5,7 +5,7 @@ import type { AgentOption } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
@@ -168,7 +168,20 @@ function ChatShellInner({
   useEffect(() => {
     sessionRef.current = session;
   });
-  const onCommand = useChatCommands(session.handleNewChat);
+  // Starting over always lands the caret in the box — ⌘⇧O, `/new`, the ⋯ menu,
+  // the history popover — so the next words go straight in (Chris, 2026-09-18).
+  const startNewChat = useCallback(() => {
+    sessionRef.current.handleNewChat();
+    focusAgentComposer(null);
+  }, []);
+  const onCommand = useChatCommands(startNewChat);
+  // Arriving on the page (⌘⇧L, the sidebar, a link) focuses the composer once
+  // the saved thread has settled; keyboard-only never has to click the box.
+  useEffect(() => {
+    if (session.booted) {
+      focusAgentComposer(null);
+    }
+  }, [session.booted]);
   // A turn went out: the quoted passage has been consumed.
   const turnCount = session.messages.length;
   useEffect(() => {
@@ -183,6 +196,7 @@ function ChatShellInner({
     }
     startedNew.current = true;
     sessionRef.current.handleNewChat();
+    focusAgentComposer(null);
     router.replace('/dashboard/chat');
   }, [startNew, session.booted, router]);
   const queueProps = useComposerQueueProps(session);
@@ -234,7 +248,7 @@ function ChatShellInner({
             recent={session.recentChats}
             currentId={session.conversationId}
             onPick={id => void session.handlePickConversation(id)}
-            onNewChat={session.handleNewChat}
+            onNewChat={startNewChat}
             search={session.searchConversations}
           />
           {/* The conversation's rung rides with the conversation's identity on
@@ -245,7 +259,7 @@ function ChatShellInner({
             copy={autonomyCopy}
             label={t('autonomy')}
           />
-          <ChatMenu onNewChat={session.handleNewChat} />
+          <ChatMenu onNewChat={startNewChat} />
         </div>
       </ShellBarActionsPortal>
 
