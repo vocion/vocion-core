@@ -582,6 +582,33 @@ export async function listArtifactsForRecord(opts: {
 }
 
 /**
+ * The same, for many records of one type at once — a board that shows the
+ * latest document per room asks once, not once per row.
+ * @param opts - The org, the record type and the record ids.
+ * @param opts.orgId - The project id.
+ * @param opts.recordType - e.g. `object`.
+ * @param opts.recordIds - The records' ids, as the artifact rows store them.
+ */
+export async function listArtifactsForRecords(opts: {
+  orgId: string;
+  recordType: string;
+  recordIds: string[];
+}): Promise<ArtifactRow[]> {
+  if (opts.recordIds.length === 0) {
+    return [];
+  }
+  return db
+    .select()
+    .from(artifactSchema)
+    .where(and(
+      eq(artifactSchema.orgId, opts.orgId),
+      eq(artifactSchema.recordType, opts.recordType),
+      inArray(artifactSchema.recordId, opts.recordIds),
+    ))
+    .orderBy(asc(artifactSchema.createdAt), asc(artifactSchema.id));
+}
+
+/**
  * Create the artifact for `(record, role)`, or write a NEW VERSION of the one
  * that is already there — never a silent overwrite, and never a second
  * artifact for the same role.

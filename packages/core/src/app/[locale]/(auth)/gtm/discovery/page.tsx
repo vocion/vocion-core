@@ -6,7 +6,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { loadDiscoveryLedger } from '@/services/discovery/ledger';
 
 /**
- * Discovery ledger — the operational record of every call the detection agent
+ * Discovery calls (the discovery ledger) — the operational record of every call the detection agent
  * assessed: the meeting, who it was with, what Vocion decided, why, and what a
  * person did with that. The model's internals (thresholds, prompt version, run
  * id, transcript hash) sit behind a disclosure on each row.
@@ -36,7 +36,7 @@ export default async function DiscoveryLedgerPage(props: {
 
   return (
     <ListPage
-      title="Discovery ledger"
+      title="Discovery calls"
       description="Every call the detection agent assessed — what it decided, why, and what you did with it."
     >
       {entries.length === 0

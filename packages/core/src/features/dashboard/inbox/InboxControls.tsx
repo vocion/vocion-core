@@ -121,7 +121,7 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
    * Namespaced by dimension so a selection can be split back into the three
    * URL params it came from. `FilterBar` neither knows nor cares what the
    * prefixes mean — which is what lets the same bar serve Search, the
-   * Discovery ledger and Personalization without learning their vocabularies.
+   * Discovery calls and Personalization without learning their vocabularies.
    */
   const tokenOptions: TokenOption[] = [
     ...INBOX_KINDS.filter(k => counts[k] > 0 || kinds.includes(k)).map(k => ({

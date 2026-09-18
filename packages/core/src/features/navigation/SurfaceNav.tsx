@@ -2,7 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import type { SurfaceId } from './surfaces';
-import { Radar, Shapes, Sparkles } from 'lucide-react';
+import { FileText, Radar, Shapes, Sparkles } from 'lucide-react';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { groupEnabledSurfaces } from './surfaces';
 
@@ -16,8 +16,9 @@ import { groupEnabledSurfaces } from './surfaces';
  */
 
 const SURFACE_ICONS: Record<string, LucideIcon> = {
-  radar: Radar,
-  sparkles: Sparkles,
+  'file-text': FileText,
+  'radar': Radar,
+  'sparkles': Sparkles,
 };
 
 /** Unknown icon name renders as a generic shape rather than crashing the shell. */
