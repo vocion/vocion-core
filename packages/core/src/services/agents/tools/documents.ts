@@ -120,7 +120,8 @@ export function renderDocumentTool(ctx: RuntimeContext) {
           author: authorOf(ctx),
           visibility: ctx.missionRunId ? 'system' : 'user',
           folder: args.folder ?? null,
-          record: recordScope(ctx),
+          // The room the agent names wins; else the record the person is on.
+          record: args.room_id ? { type: 'object', id: String(args.room_id), role: 'document' } : recordScope(ctx),
           title,
           html: args.html,
           playbook: args.playbook,
@@ -140,6 +141,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
       name: 'render_document',
       description: 'Create a PAGINATED, PRINT-READY document artifact — a proposal, scope doc, partnership update — from self-contained HTML in the house sheet framework (US-Letter `.sheet`s, pinned `.foot`, inline <style>, logos as data URIs). It renders in real Chrome, audits every sheet (footer alignment, overflow, clipping, PDF page count, unresolved assets) and returns the receipt with a screenshot URL per sheet. Fix anything the receipt lists with edit_document before you say the document is done. For prose that is not a paginated document use render_markdown.',
       schema: z.object({
+        room_id: z.number().int().positive().optional().describe('The data room this document belongs to. Pass it whenever you are writing from a room — the document then shows on the room and on the Proposals board. Defaults to the room the person has open.'),
         title: z.string().max(200).optional().describe('Artifact title. Defaults to the <title>, which is also the PDF filename — use "<Subject> - <What it is> (<Firm>) v<N.N>".'),
         html: z.string().min(200).describe('The complete HTML document: <!doctype html> … </html>, with <article class="sheet"> per page.'),
         look: z.boolean().optional().describe('Also run the vision pass over the rendered sheets (a model call). Default false; use it on the final pass.'),

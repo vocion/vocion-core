@@ -1,19 +1,24 @@
 slug: proposals-current
-name: Every Proposal-stage room has a verified document
+name: Every proposal that should exist, exists and is verified
 description: >-
   The standing responsibility of the Proposal Writer — not a one-off run.
+  The watcher behind the Proposals board: what needs a proposal, what has one,
+  whether it verified.
 goal: >-
-  Every data room at Proposal stage carries a current document that
-  render-verified clean, or an open item that says exactly what is missing
-  before one can be written. Nothing reaches a client unverified.
+  Every engagement that should have a proposal has one: a data room at
+  Proposal stage carries a current document that render-verified clean, or an
+  open item on the room says exactly what is missing; a discovery call a
+  person confirmed, with no room or proposal behind it, gets an open item
+  recommending one. Nothing reaches a client unverified.
 agent: proposal-writer
 autonomyPolicy:
   level: 2
 successCriteria:
-  - Every Proposal-stage room has a document whose latest verify receipt reads clean, or an open item naming the gap
+  - Every Proposal-stage room has a document whose latest verify receipt reads clean, or an open item "Draft the proposal" naming the gap
+  - Every discovery call a person confirmed in the last 30 days has a room at Proposal stage, or an open item recommending the proposal, with the call cited
   - No document older than the room's newest starred source without a note saying why
   - Every export is a PDF a person can open from the room
 desiredArtifacts:
   - The proposal document per Proposal-stage room, verified
   - One line per room in the check report — verified, issues, or missing
-schedule: '0 15 * * 1'
+schedule: '0 15 * * 1-5'

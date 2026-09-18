@@ -59,6 +59,14 @@ export type ArtifactPaneProps = {
   onUpdated?: (artifact: ArtifactEntry) => void;
   onClose?: () => void;
   className?: string;
+  /**
+   * Who scrolls. `pane` (default): the body scrolls inside a bounded pane —
+   * the rail, the preview. `page`: the body grows to its content and the page
+   * scrolls once — the standalone artifact page, where a pane that scrolled
+   * inside a page that also scrolled was two scrollbars for one document
+   * (Chris, 2026-09-18).
+   */
+  scroll?: 'pane' | 'page';
 };
 
 export function ArtifactPane(props: ArtifactPaneProps) {
@@ -223,7 +231,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   }, [artifact.authorKind, artifact.authorId, artifact.updatedAt, artifact.version, props.selfId]);
 
   return (
-    <section className={cn('flex h-full min-h-0 flex-col rounded-xl border border-border/70 bg-background', props.className)} aria-label={`Artifact: ${artifact.title}`} data-artifact-pane={artifact.id}>
+    <section className={cn('flex flex-col rounded-xl border border-border/70 bg-background', (props.scroll ?? 'pane') === 'pane' && 'h-full min-h-0', props.className)} aria-label={`Artifact: ${artifact.title}`} data-artifact-pane={artifact.id}>
       <header className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         {editingTitle
@@ -376,7 +384,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
         </div>
       )}
 
-      <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto p-4" data-artifact-body>
+      <div ref={bodyRef} className={cn('p-4', (props.scroll ?? 'pane') === 'pane' ? 'min-h-0 flex-1 overflow-auto' : 'flex-1')} data-artifact-body>
         {artifact.pending
           ? (
               <div className="animate-pulse space-y-2" aria-label="Writing…">

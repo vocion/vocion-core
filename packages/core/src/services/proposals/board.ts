@@ -19,7 +19,7 @@ import type { DocumentVerification } from '@/libs/cards/specs';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { DataRoom } from '@/services/DataRoomService';
 import { verificationChip } from '@/libs/documents/audit';
-import { listArtifactsForRecords } from '@/services/ArtifactService';
+import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { countOpenAsksByGroup } from '@/services/AskService';
 import { DATA_ROOM_TYPE, listDataRooms, roomGroupKey, roomHref } from '@/services/DataRoomService';
 
@@ -127,6 +127,26 @@ export function proposalRows(
 }
 
 /**
+ * Deliverable artifacts a room lists but does not anchor — artifact id → room
+ * id. Pure; the loader fetches these and files them under the room so the
+ * board reads one truth with the room page (2026-09-18: a proposal rendered in
+ * chat sat in `deliverables` and the board said "no document").
+ * @param rooms - Proposal-stage rooms.
+ * @param byRoom - Artifacts already anchored, by room id.
+ */
+export function unanchoredDeliverables(rooms: DataRoom[], byRoom: Map<number, ArtifactRow[]>): Map<number, number> {
+  const wanted = new Map<number, number>();
+  for (const r of rooms) {
+    for (const d of r.meta.deliverables ?? []) {
+      if (d.artifactId && !(byRoom.get(r.id) ?? []).some(a => a.id === d.artifactId)) {
+        wanted.set(d.artifactId, r.id);
+      }
+    }
+  }
+  return wanted;
+}
+
+/**
  * The board for one workspace: rooms, then their artifacts and open counts in
  * one query each.
  * @param orgId - The project.
@@ -145,6 +165,15 @@ export async function loadProposalBoard(orgId: string): Promise<ProposalRow[]> {
   for (const a of artifacts) {
     const id = Number(a.recordId);
     byRoom.set(id, [...(byRoom.get(id) ?? []), a]);
+  }
+  // A deliverable that names an artifact the room does not anchor yet (a
+  // document rendered before the room was named) counts as the room's too.
+  const wanted = unanchoredDeliverables(rooms, byRoom);
+  if (wanted.size > 0) {
+    for (const a of await listArtifactsByIds({ orgId, ids: [...wanted.keys()] })) {
+      const roomId = wanted.get(a.id)!;
+      byRoom.set(roomId, [...(byRoom.get(roomId) ?? []), a]);
+    }
   }
   const openByRoom = new Map<number, number>();
   for (const id of ids) {

@@ -1,7 +1,7 @@
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { DataRoom } from '@/services/DataRoomService';
 import { describe, expect, it } from 'vitest';
-import { latestDocument, proposalRows, proposalStage } from './board';
+import { latestDocument, proposalRows, proposalStage, unanchoredDeliverables } from './board';
 
 const room = (id: number, meta: DataRoom['meta'], status: string | null = 'active', updatedAt: Date | null = null): DataRoom =>
   ({ id, title: `Room ${id}`, status, meta, createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt });
@@ -62,5 +62,15 @@ describe('proposalRows', () => {
     expect(rows[1]!.document).toMatchObject({ id: 20, verify: 'verified' });
     expect(rows[0]).toMatchObject({ stage: 'sent', document: null, openItems: 0 });
     expect(rows[0]!.record).toEqual({ type: 'object', id: '2', label: 'Room 2', href: '/dashboard/rooms/2' });
+  });
+});
+
+describe('unanchoredDeliverables', () => {
+  it('names the deliverable artifacts a room lists but does not anchor, and skips the ones it does', () => {
+    const room = { id: 22, meta: { deliverables: [{ title: 'v2', artifactId: 251 }, { title: 'v1', artifactId: 250 }, { title: 'planned' }] } } as unknown as DataRoom;
+    const anchored = new Map<number, ArtifactRow[]>([[22, [{ id: 251 } as ArtifactRow]]]);
+
+    expect([...unanchoredDeliverables([room], anchored).entries()]).toEqual([[250, 22]]);
+    expect(unanchoredDeliverables([room], new Map([[22, [{ id: 250 } as ArtifactRow, { id: 251 } as ArtifactRow]]])).size).toBe(0);
   });
 });

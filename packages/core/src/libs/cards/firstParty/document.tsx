@@ -36,7 +36,7 @@ export function DocumentCardView({ data, surface }: { data: DocumentCardData; su
       title={title}
       sheets={data.sheets}
       verification={data.verification}
-      {...(id ? { record: { type: 'artifact', id: String(id), label: title, href: `/dashboard/artifacts/${id}` }, openHref: `/api/artifacts/${id}/document.html` } : {})}
+      {...(id ? { record: { type: 'artifact', id: String(id), label: title, href: `/dashboard/artifacts/${id}` }, openHref: `/dashboard/artifacts/${id}/open` } : {})}
     />
   );
 }

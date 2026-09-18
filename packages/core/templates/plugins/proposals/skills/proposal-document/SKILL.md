@@ -62,8 +62,9 @@ second document to make a change.
   moves. Pinning reveals overflow instead of hiding it — that is the point.
 - **One footer form for the whole document.** The "Prepared by" `.fsplit`
   variant is the cover only; every other sheet is the page number alone.
-- `@page{size:Letter portrait;margin:0}`, a fixed `⤓ PDF` button calling
-  `window.print()`.
+- `@page{size:Letter portrait;margin:0}`. No print button inside the
+  document: the frame around it carries PDF and Open, and a control drawn on
+  the sheet prints with it. (One "PDF" was showing twice, 2026-09-18.)
 - **Force print colours** — `print-color-adjust:exact` on `html` and again
   inside `@media print` with `!important` — or the brand rule and the sage
   panels vanish on the client's own printer. Headless print has them on, so a
