@@ -9,6 +9,7 @@
  */
 
 import type { SearchConfig, SearchDocument } from './types';
+import { dayDistance, DEFAULT_TIME_ZONE, formatDate } from '@/libs/time/zone';
 
 export type RawDoc = {
   document_id?: string;
@@ -117,13 +118,6 @@ export function toSearchDocument(doc: RawDoc, citationIndex?: number): SearchDoc
  * @param doc
  * @param i
  */
-/**
- * UTC midnight for a date, so "how many days ago" counts calendar days.
- * @param d
- */
-function utcDay(d: Date): number {
-  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86_400_000);
-}
 
 /**
  * A document's date written so a model cannot mistake it for today.
@@ -141,9 +135,10 @@ function utcDay(d: Date): number {
  * read "(YESTERDAY — not today)" and still call it today's.
  * @param raw - An ISO date string, or anything `Date` can parse.
  * @param now - Reference instant; injectable so tests do not depend on the clock.
+ * @param timeZone
  * @returns A stamp like `Tue Sep 16, 2026 (YESTERDAY — not today)`, or '' when unparseable.
  */
-export function dateStamp(raw: string | undefined, now: Date = new Date()): string {
+export function dateStamp(raw: string | undefined, now: Date = new Date(), timeZone: string = DEFAULT_TIME_ZONE): string {
   if (!raw) {
     return '';
   }
@@ -153,14 +148,8 @@ export function dateStamp(raw: string | undefined, now: Date = new Date()): stri
   }
   // The year is part of the stamp on purpose — "Sep 16" alone is ambiguous
   // across years and reads as recent whatever year it is from.
-  const label = d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-  const days = utcDay(now) - utcDay(d);
+  const label = formatDate(d, timeZone);
+  const days = dayDistance(d, now, timeZone);
   let rel: string;
   if (days === 0) {
     rel = 'TODAY';
@@ -181,8 +170,9 @@ export function dateStamp(raw: string | undefined, now: Date = new Date()): stri
  * @param doc
  * @param i
  * @param now - Reference instant for the date stamp; injectable for tests.
+ * @param timeZone
  */
-export function renderDocLine(doc: RawDoc, i: number, now: Date = new Date()): string {
+export function renderDocLine(doc: RawDoc, i: number, now: Date = new Date(), timeZone: string = DEFAULT_TIME_ZONE): string {
   const blurb = doc.blurb ?? doc.content ?? '';
   const title = doc.semantic_identifier ?? doc.document_id ?? '(no title)';
   const source = doc.source_type ?? 'unknown';
@@ -194,7 +184,7 @@ export function renderDocLine(doc: RawDoc, i: number, now: Date = new Date()): s
     ? (meta as { start: string }).start
     : undefined;
   const rawDate = eventStart ?? doc.updated_at ?? doc.last_modified ?? doc.doc_updated_at;
-  const dateStr = dateStamp(rawDate, now);
+  const dateStr = dateStamp(rawDate, now, timeZone);
   const host = (meta as { host?: string }).host ?? '';
   const duration = (meta as { duration_minutes?: number }).duration_minutes
     ? `${(meta as { duration_minutes: number }).duration_minutes} min`

@@ -259,7 +259,7 @@ export async function publishBriefingDocument(
   const { dateLabel, updatedLabel } = briefingLabels(now, opts.timeZone ?? 'UTC');
   // The publisher dates the briefing; the model only names it (`title.ts`).
   // Done here, on the one path every publish takes, rather than in each tool.
-  const title = briefingTitle(input.title, now);
+  const title = briefingTitle(input.title, now, opts.timeZone ?? 'UTC');
   const publishedBy = opts.agentSlug ? `agent:${opts.agentSlug}` : (opts.userId ?? null);
 
   // A workspace brief composes from the teams' latest; a team brief composes

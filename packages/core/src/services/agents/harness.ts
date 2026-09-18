@@ -37,9 +37,12 @@ import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
 import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
+import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
+import { resolveTimeZone } from '@/libs/time/zone';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
@@ -198,8 +201,11 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   // emitter pattern in `runAgentDeep` in services/AgentService.ts.)
   const noopEmit: RuntimeContext['emit'] = () => {};
   const harnessConfig = row.harnessConfig ?? {};
+  const defaultTimeZone = await workspaceTimeZone(orgId);
   const ctx: RuntimeContext = {
     orgId,
+    timeZone: defaultTimeZone,
+    defaultTimeZone,
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
@@ -276,12 +282,12 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   // A model with no clock cannot tell a stale document from a current one, and
   // will always resolve that ambiguity in favour of answering. So: state the
   // time, and say plainly that a dated document older than today is history.
-  const nowIso = new Date().toISOString();
-  const CLOCK = [
-    `NOW: ${nowIso} (UTC). Today is ${new Date().toUTCString().slice(0, 16)}.`,
-    'Times you state must say their zone. Never say "today", "this morning" or "right now" about anything you read in a document without first checking that document\'s own date against NOW — a briefing, report or transcript dated before today is HISTORY, and presenting its schedule as the current day is the worst error you can make on this surface.',
-    'If a document you are quoting is not dated, say that you cannot tell when it is from rather than assuming it is current.',
-  ].join(' ');
+  // The time itself is NOT written here: this prompt is compiled once and the
+  // graph is cached across requests for hours, so a NOW baked into it was the
+  // time of whichever request built the graph (found 2026-09-18). Each turn
+  // states NOW at the top of the person's message instead (`clockLine`, in
+  // `runAgentDeep`), in the person's own zone.
+  const CLOCK = CLOCK_RULES;
   systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
   systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
@@ -415,10 +421,14 @@ export function bindRequestEmit(
   missionRunId?: number,
   conversationId?: number,
   pageContext?: RuntimeContext['pageContext'],
+  timeZone?: string,
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
   internal.__ctx.pageContext = pageContext;
+  // The person's zone for this turn, else the workspace's — never the last
+  // caller's, since the graph (and this ctx) is shared across requests.
+  internal.__ctx.timeZone = resolveTimeZone(timeZone, internal.__ctx.defaultTimeZone);
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;

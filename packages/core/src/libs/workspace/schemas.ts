@@ -1,6 +1,7 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { agentSkillsNameError } from '@/libs/skills/name';
+import { isValidTimeZone } from '@/libs/time/zone';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
 export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
@@ -81,6 +82,12 @@ export const WorkspaceManifestSchema = z.object({
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
+    /**
+     * IANA time zone the workspace lives in (`America/Los_Angeles`). The day
+     * boundary for missions, briefings and every run no browser is behind; a
+     * person's own turns carry their browser's zone and win over it.
+     */
+    timezone: z.string().refine(v => isValidTimeZone(v), { message: 'timezone must be an IANA zone such as America/Los_Angeles' }).optional(),
     /**
      * Which vendor produces this workspace's embeddings, and which model.
      * Omitted keys fall back to `VOCION_EMBEDDING_PROVIDER` /

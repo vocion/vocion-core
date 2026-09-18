@@ -16,6 +16,7 @@
  * it, in one move from where it is read.
  */
 import type { RuntimeContext } from '../types';
+import { DEFAULT_TIME_ZONE, formatDateTime, sameDay } from '@/libs/time/zone';
 
 /** The fields of a briefing row this rendering needs. */
 export type CitableBriefing = {
@@ -29,9 +30,12 @@ export type CitableBriefing = {
  * Whether a briefing was published today, in local terms.
  * @param d - The briefing's `createdAt`.
  * @param now - Reference instant; injectable so tests do not depend on the clock.
+ * @param timeZone
  */
-export function isFromToday(d: Date, now: Date = new Date()): boolean {
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+export function isFromToday(d: Date, now: Date = new Date(), timeZone: string = DEFAULT_TIME_ZONE): boolean {
+  // The PERSON's day, not the server's: at 5:30pm Pacific the UTC day has
+  // already turned, and this used to call the morning's brief stale.
+  return sameDay(d, now, timeZone);
 }
 
 /**
@@ -53,14 +57,10 @@ export function renderBriefingForAgent(
   label: string,
   now: Date = new Date(),
 ): string {
-  const when = brief.createdAt.toLocaleString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-  const status = isFromToday(brief.createdAt, now)
+  const tz = ctx.timeZone ?? DEFAULT_TIME_ZONE;
+  // Zone named: a bare "4:00 PM" was read as ET, PT and UTC by turns.
+  const when = formatDateTime(brief.createdAt, tz);
+  const status = isFromToday(brief.createdAt, now, tz)
     ? `current (published today, ${when})`
     : `STALE — last published ${when}, not today; consider refresh_briefing`;
 

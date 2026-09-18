@@ -743,6 +743,9 @@ async function applyWorkspaceLeadConfig(
     ? loaded.manifest.defaults.regenerateSkills
     : null;
   const goal = loaded.manifest.goal ?? null;
+  // The workspace's zone, declarative like the rest: omitted clears the column
+  // and the runs fall back to the server default (`workspaceTimeZone`).
+  const timeZone = loaded.manifest.defaults?.timezone ?? null;
   // voice.yaml, declarative like the rest: the whole file lands on the column
   // and deleting the file clears it, dropping the workspace back to core's
   // platform floor.
@@ -758,6 +761,7 @@ async function applyWorkspaceLeadConfig(
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
       voiceRules: projectSchema.voiceRules,
+      timeZone: projectSchema.timeZone,
       goal: projectSchema.goal,
       mailboxAddress: projectSchema.mailboxAddress,
       mailboxEnabled: projectSchema.mailboxEnabled,
@@ -816,6 +820,7 @@ async function applyWorkspaceLeadConfig(
     && regenerateUnchanged
     && voiceUnchanged
     && (project.goal ?? null) === goal
+    && (project.timeZone ?? null) === timeZone
     && project.mailboxEnabled === mailboxEnabled
     && (project.mailboxAddress ?? null) === mailboxAddress
   ) {
@@ -824,7 +829,7 @@ async function applyWorkspaceLeadConfig(
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, voiceRules, goal, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, voiceRules, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

@@ -251,6 +251,12 @@ export const projectSchema = pgTable(
      */
     mailboxAddress: text('mailbox_address'),
     mailboxEnabled: boolean('mailbox_enabled').default(false).notNull(),
+    /**
+     * IANA zone the workspace lives in (`defaults.timezone` in workspace.yaml).
+     * The day boundary for everything no browser is behind — missions,
+     * briefings, mail — and the fallback when a turn arrives without one.
+     */
+    timeZone: text('time_zone'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

@@ -132,7 +132,7 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
 
       ctx.emit({ type: 'documents', documents: shown.map((d, i) => toSearchDocument(d, base + i + 1)) });
 
-      return shown.map((d, i) => renderDocLine(d, base + i)).join('\n\n');
+      return shown.map((d, i) => renderDocLine(d, base + i, new Date(), ctx.timeZone)).join('\n\n');
     },
     {
       name: 'search_knowledge',
