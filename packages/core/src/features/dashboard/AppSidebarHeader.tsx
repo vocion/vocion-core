@@ -239,16 +239,22 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
                 does anyone who opens this menu. The title carries the commit
                 subject and build time, and /version.txt serves the same stamp
                 without a login. */}
-            <a
-              href="/version.txt"
-              target="_blank"
-              rel="noreferrer"
-              data-testid="build-version"
-              title={`${build.subject}\ncommit ${build.commit}\nbranch ${build.branch}\nbuilt ${build.builtAt}`}
-              className="block px-2 py-1.5 font-mono text-[11px] text-muted-foreground/70 transition hover:text-foreground"
-            >
-              {versionLabel(build)}
-            </a>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href="/version.txt"
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="build-version"
+                  className="block px-2 py-1.5 font-mono text-[11px] text-muted-foreground/70 transition hover:text-foreground"
+                >
+                  {versionLabel(build)}
+                </a>
+              </TooltipTrigger>
+              <TooltipContent side="left" collisionPadding={8} className="max-w-72 text-left whitespace-pre-line">
+                {`${build.subject}\ncommit ${build.commit}\nbranch ${build.branch}\nbuilt ${build.builtAt}`}
+              </TooltipContent>
+            </Tooltip>
             {/* Deployments override via NEXT_PUBLIC_BRAND_ATTRIBUTION (same
                 pattern as the NEXT_PUBLIC_BRAND_* logo vars). */}
             <div className="px-2 py-1.5 text-[11px] text-muted-foreground/70">

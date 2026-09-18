@@ -7,6 +7,7 @@ import { memo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { Link } from '@/libs/I18nNavigation';
@@ -187,14 +188,20 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             // Which level answered — one quiet icon (Chris, 2026-09-18: "the
             // icon is enough … at most put it in a tooltip"). The words live in
             // the tooltip; never a vendor or a model id.
-            <span
-              data-testid="turn-model"
-              title={`${LEVEL_WORDS.strength[message.model.strength]}${message.model.thinking !== 'off' ? ` · thinking ${LEVEL_WORDS.thinking[message.model.thinking]}` : ''}`}
-              aria-label={`Answered at ${LEVEL_WORDS.strength[message.model.strength]}`}
-              className="inline-flex items-center text-muted-foreground/60"
-            >
-              <Gauge className="size-3" aria-hidden />
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  data-testid="turn-model"
+                  aria-label={`Answered at ${LEVEL_WORDS.strength[message.model.strength]}`}
+                  className="inline-flex items-center text-muted-foreground/60"
+                >
+                  <Gauge className="size-3" aria-hidden />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" collisionPadding={8}>
+                {`${LEVEL_WORDS.strength[message.model.strength]}${message.model.thinking !== 'off' ? ` · thinking ${LEVEL_WORDS.thinking[message.model.thinking]}` : ''}`}
+              </TooltipContent>
+            </Tooltip>
           )}
           {/* The badge is the way IN to the failure, not a label over it: it
               opens the trace at the failed step, which carries the message and

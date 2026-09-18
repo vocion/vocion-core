@@ -15,6 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   buildConfigFromFields,
   configFieldsFor,
@@ -2070,15 +2071,19 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
               : 'Strapi admin → Settings → API Tokens'}
             className="w-full rounded-md border border-input bg-background py-2 pr-10 pl-3 text-sm"
           />
-          <button
-            type="button"
-            onClick={() => setTokenVisible(visible => !visible)}
-            aria-label={tokenVisible ? 'Hide token' : 'Show token'}
-            title={tokenVisible ? 'Hide token' : 'Show token'}
-            className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
-          >
-            {tokenVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setTokenVisible(visible => !visible)}
+                aria-label={tokenVisible ? 'Hide token' : 'Show token'}
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+              >
+                {tokenVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{tokenVisible ? 'Hide token' : 'Show token'}</TooltipContent>
+          </Tooltip>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           Read-only is enough — it only ever reads the collections you pick. A full-access token gets you nothing extra

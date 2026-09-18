@@ -9,6 +9,7 @@
 
 import { X } from 'lucide-react';
 import { useState, useTransition } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from '@/libs/I18nNavigation';
 
 export function UnfileSource({ roomId, documentId, artifactId, title }: { roomId: number; documentId?: number; artifactId?: number; title: string }) {
@@ -17,23 +18,27 @@ export function UnfileSource({ roomId, documentId, artifactId, title }: { roomId
   const [failed, setFailed] = useState(false);
   const qs = documentId ? `document=${documentId}` : `artifact=${artifactId}`;
   return (
-    <button
-      type="button"
-      disabled={busy}
-      aria-label={`Remove ${title} from this room`}
-      title="Remove from this room"
-      data-room-unfile
-      onClick={() => start(async () => {
-        const res = await fetch(`/api/v1/rooms/${roomId}/sources?${qs}`, { method: 'DELETE' });
-        if (!res.ok) {
-          setFailed(true);
-          return;
-        }
-        router.refresh();
-      })}
-      className={`inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-50 ${failed ? 'text-destructive' : ''}`}
-    >
-      <X className="size-3.5" aria-hidden />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          disabled={busy}
+          aria-label={`Remove ${title} from this room`}
+          data-room-unfile
+          onClick={() => start(async () => {
+            const res = await fetch(`/api/v1/rooms/${roomId}/sources?${qs}`, { method: 'DELETE' });
+            if (!res.ok) {
+              setFailed(true);
+              return;
+            }
+            router.refresh();
+          })}
+          className={`inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-50 ${failed ? 'text-destructive' : ''}`}
+        >
+          <X className="size-3.5" aria-hidden />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Remove from this room</TooltipContent>
+    </Tooltip>
   );
 }
