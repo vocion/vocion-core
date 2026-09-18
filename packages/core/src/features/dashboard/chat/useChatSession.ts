@@ -3,7 +3,7 @@
 import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
-import type { PageContext } from '@/services/chat/pageContext';
+import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
@@ -624,6 +624,14 @@ export function useChatSession({
           }
           return { ...m, runs: nextRuns, trace: nextTrace };
         });
+        return;
+      }
+      case 'record_created': {
+        // A room or proposal the turn just made opens beside the conversation
+        // (Chris, 2026-09-18: "maybe preview should open automatically").
+        flushDeltas();
+        const made = (evt as unknown as { record: { type: RecordRef['type']; id: string } }).record;
+        openPreview({ type: made.type, id: made.id }, null);
         return;
       }
       case 'documents': {

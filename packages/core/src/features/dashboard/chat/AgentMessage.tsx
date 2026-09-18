@@ -2,17 +2,18 @@
 
 import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
-import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { Link } from '@/libs/I18nNavigation';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
-import { classifyDashboardLink } from './links';
+import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
 import { formatElapsed, useElapsed } from './useElapsed';
@@ -33,6 +34,7 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'ask': Inbox,
   'briefing': Newspaper,
   'object': LayoutDashboard,
+  'room': FolderOpen,
   'review': ClipboardCheck,
   'learning': FileText,
   'eval': ClipboardCheck,
@@ -136,7 +138,6 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
   const [showError, setShowError] = useState(false);
-  const [showModel, setShowModel] = useState(false);
   // The turn in the order it happened: passages of prose with the work that
   // fell between them rendered at that point, not hoisted to the top
   // (`interleave.ts`). A message with a typed trace renders the trace only —
@@ -183,20 +184,17 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             </button>
           )}
           {message.model && (
-            // Which level answered, and how hard it thought — in the person's
-            // words (fast / balanced / deep), never a vendor. The concrete id
-            // is a detail they can open, not a label they have to read.
-            <button
-              type="button"
+            // Which level answered — one quiet icon (Chris, 2026-09-18: "the
+            // icon is enough … at most put it in a tooltip"). The words live in
+            // the tooltip; never a vendor or a model id.
+            <span
               data-testid="turn-model"
-              onClick={() => setShowModel(v => !v)}
-              aria-expanded={showModel}
-              className="tracking-normal text-muted-foreground/70 normal-case transition hover:text-foreground"
-              title={showModel ? 'Hide model details' : 'Show model details'}
+              title={`${LEVEL_WORDS.strength[message.model.strength]}${message.model.thinking !== 'off' ? ` · thinking ${LEVEL_WORDS.thinking[message.model.thinking]}` : ''}`}
+              aria-label={`Answered at ${LEVEL_WORDS.strength[message.model.strength]}`}
+              className="inline-flex items-center text-muted-foreground/60"
             >
-              {LEVEL_WORDS.strength[message.model.strength]}
-              {message.model.thinking !== 'off' ? ` · thinking: ${LEVEL_WORDS.thinking[message.model.thinking]}` : ''}
-            </button>
+              <Gauge className="size-3" aria-hidden />
+            </span>
           )}
           {/* The badge is the way IN to the failure, not a label over it: it
               opens the trace at the failed step, which carries the message and
@@ -218,13 +216,6 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             </button>
           )}
         </div>
-        {message.model && showModel && (
-          <div data-testid="turn-model-detail" className="mt-1 font-mono text-[11px] text-muted-foreground">
-            {message.model.model}
-            {' · '}
-            {message.model.provider}
-          </div>
-        )}
         {hasToolError && showError && (
           <div
             data-testid="tool-error-detail"
@@ -292,6 +283,15 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                             <Link
                               href={inApp.href}
                               data-link-kind={inApp.kind}
+                              // A room peeks on a plain click and navigates on ⌘-click,
+                              // the same rule as a list row (`usePreviewList`).
+                              onClick={(e) => {
+                                const peek = previewRefFor(inApp);
+                                if (peek && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                                  e.preventDefault();
+                                  openPreview(peek, e.currentTarget);
+                                }
+                              }}
                               className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
                             >
                               <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
