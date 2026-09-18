@@ -118,7 +118,12 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   const notes: string[] = [];
   const today = calendarToday(config.timezone);
 
-  const metadata = (ctx.document.metadata ?? {}) as { jsonLd?: unknown[]; links?: PageLink[]; publishedUrls?: string[] };
+  const metadata = (ctx.document.metadata ?? {}) as {
+    jsonLd?: unknown[];
+    links?: PageLink[];
+    publishedUrls?: string[];
+    ogImage?: string;
+  };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
   const [known, rules, objectSchema] = await Promise.all([
@@ -178,6 +183,11 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links: metadata.links,
     jsonLd: jsonLdBlocks,
     publishedUrls: metadata.publishedUrls,
+    // The document's own image. Not sent to the model: `extractFromHtml`
+    // already writes it as the first line of `content`, so restating it in its
+    // own block would buy the call nothing and cost it tokens. What it was
+    // missing is a stage that knows the document published it.
+    ogImage: metadata.ogImage,
     knownIds: known.ids,
     today,
   });
