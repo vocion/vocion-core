@@ -300,12 +300,31 @@ export function fileToDataRoomTool(ctx: RuntimeContext) {
         decisionLog: args.decision_log,
         author,
       });
+      // The decision log's "open items created by this call" are filed in the
+      // same call. Red team, 2026-09-18 on production: the agent wrote "I
+      // flagged two open items on the room" and had called nothing — the
+      // claim was in its reply, the tool_call log was empty, the room read
+      // "Nothing open". One call that files both leaves no step to narrate.
+      const filedItems: string[] = [];
+      for (const item of coerceJson(args.open_items) ?? []) {
+        const ask = await addOpenItem(ctx.orgId, roomId, {
+          title: item.title,
+          body: item.body,
+          urgent: item.urgent,
+          owner: item.owner,
+          sourceRef: `data-room:${roomId}:${(args.date ?? 'undated')}:${item.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
+        }, author.id);
+        filedItems.push(`#${ask.id} ${ask.title}${item.urgent ? ' 🔴' : ''}`);
+      }
       const stars = '⭐'.repeat(source.rating);
-      return `Filed "${source.title}" (${source.kind}, ${stars}${channel ? `, via ${channel}` : ''}) into data room #${room.id} "${room.title}" — ${how}.${decisionLog ? ` Decision log filed as artifact #${decisionLog.id}.` : ' No decision log filed — a transcript without one is storage, not a source; add decision_log when you have read it.'} ${room.meta.sources?.length ?? 0} sources on the room.`;
+      const itemsLine = filedItems.length
+        ? ` Open items filed on the room: ${filedItems.join('; ')}.`
+        : ' No open items filed — if the call created any, pass them in open_items; they are not filed from the decision log text.';
+      return `Filed "${source.title}" (${source.kind}, ${stars}${channel ? `, via ${channel}` : ''}) into data room #${room.id} "${room.title}" — ${how}.${decisionLog ? ` Decision log filed as artifact #${decisionLog.id}.` : ' No decision log filed — a transcript without one is storage, not a source; add decision_log when you have read it.'}${itemsLine} ${room.meta.sources?.length ?? 0} sources on the room.`;
     },
     {
       name: 'file_to_data_room',
-      description: 'File a transcript, email thread, note or attachment into a data room with provenance (channel, date), a weight (⭐1–3; 3 = read before writing anything) and, for a call, its DECISION LOG: participants, headlines, numbered decisions and corrections, open items created. Omit `room_id` to match the material to a room by attendee domains and title: a clear match files, a plausible one asks a person, no match asks whether it is a new opportunity. Never opens a room on its own.',
+      description: 'File a transcript, email thread, note or attachment into a data room with provenance (channel, date), a weight (⭐1–3; 3 = read before writing anything) and, for a call, its DECISION LOG plus the OPEN ITEMS it created (pass them in open_items — they are filed in this call; nothing is filed from the log text alone). Omit `room_id` to match the material to a room by attendee domains and title: a clear match files, a plausible one asks a person, no match asks whether it is a new opportunity. Never opens a room on its own.',
       schema: z.object({
         room_id: z.number().int().positive().optional().describe('The room. Omit to match automatically.'),
         document_id: z.number().int().positive().optional().describe('The ingested knowledge document (a Zoom recording, a Gmail thread) — from search_knowledge or get_zoom_transcript.'),
@@ -317,6 +336,12 @@ export function fileToDataRoomTool(ctx: RuntimeContext) {
         date: z.string().max(20).optional().describe('YYYY-MM-DD of the call or message.'),
         note: z.string().max(300).optional(),
         decision_log: z.string().max(60_000).optional().describe('Markdown: participants · headlines · numbered decisions and corrections · open items created by this call.'),
+        open_items: z.array(z.object({
+          title: z.string().min(1).max(200),
+          body: z.string().max(2000).optional(),
+          urgent: z.boolean().optional(),
+          owner: z.string().max(120).optional(),
+        })).max(20).optional().describe('The open items the call created, filed on the room in this same call (each becomes an ask a person marks done). Listing them in decision_log alone files nothing.'),
         text: z.string().max(200_000).optional().describe('Pasted material with no document id — used for matching and kept as a note artifact.'),
         emails: z.array(z.string()).max(30).optional().describe('Attendee or sender emails, when known — the strongest matching signal.'),
       }),

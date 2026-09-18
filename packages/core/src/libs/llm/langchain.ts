@@ -68,6 +68,20 @@ export function anthropicAdaptiveThinking(model: string): boolean {
   return /claude-(?:sonnet-4-6|opus-4-[678]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
 }
 
+/**
+ * The output cap when a caller sets none. LangChain's own table stops at the
+ * 4.x family — `claude-sonnet-5` falls to its 4096 fallback, shared with
+ * adaptive thinking — and production showed what that buys (2026-09-18): a
+ * `render_document` call whose HTML ran past the cap arrived as truncated JSON
+ * with no `html`, twice, while a 6 KB markdown squeaked through. The 5 family
+ * answers up to 64k; 32k leaves room for a long tool argument and the
+ * thinking that precedes it. Older models keep LangChain's 16384.
+ * @param model - The bare Anthropic model id.
+ */
+export function defaultAnthropicMaxTokens(model: string): number {
+  return /claude-(?:sonnet-5|opus-5|fable-5|mythos-5)/.test(model) ? 32_000 : 16_384;
+}
+
 export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock' | 'scripted';
 
 /** Every value `VOCION_LLM_PROVIDER` may be set to, for validation + error text. */
@@ -326,7 +340,7 @@ export function buildChatModel(
           streaming,
           apiKey,
           thinking: { type: 'adaptive' },
-          ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+          maxTokens: opts.maxTokens ?? defaultAnthropicMaxTokens(model),
         }));
       }
       if (thinkingBudget !== null) {
