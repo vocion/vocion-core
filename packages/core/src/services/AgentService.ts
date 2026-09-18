@@ -13,6 +13,7 @@ import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
+import { labelStep } from './agents/stepLabeler';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 
@@ -614,6 +615,10 @@ export async function runAgentDeep(opts: {
   // buffering.
   const answerStreamer = new AnswerStreamer();
   let answering = false;
+  // Step names from a cheap model (`stepLabeler.ts`), one job per tool
+  // start; each lands as a `trace_node` patch when it resolves. Awaited
+  // briefly at the end so the persisted trace carries the names too.
+  const labelJobs: Promise<void>[] = [];
 
   try {
     const stream = await compiled.graph.streamEvents(input as never, {
@@ -628,6 +633,20 @@ export async function runAgentDeep(opts: {
       const nodes = tracer.handle(ev);
       for (const node of nodes) {
         emit(node);
+      }
+      if (ev.event === 'on_tool_start') {
+        for (const node of nodes) {
+          if (node.status === 'start' && tracer.wantsLabels(node.id)) {
+            const tool = ev.name ?? 'tool';
+            const args = parseJsonArgs(ev.data?.input);
+            labelJobs.push(labelStep({ orgId: opts.orgId, tool, args }).then((labels) => {
+              const patch = tracer.applyLabels(node.id, labels);
+              if (patch) {
+                emit(patch);
+              }
+            }).catch(() => {}));
+          }
+        }
       }
       // Track a delegate's active search so its emitted documents get attributed.
       if (ev.event === 'on_tool_start') {
@@ -753,6 +772,12 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
+
+    // Give late step names a moment to land before the turn closes, so the
+    // persisted trace reads like the live one did. Never more than a beat.
+    if (labelJobs.length > 0) {
+      await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
+    }
   } catch (err) {
     const message = (err as Error).message ?? 'agent run failed';
     // The run died. Close anything still open as a FAILURE first, so the

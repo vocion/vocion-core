@@ -174,6 +174,12 @@ export type TraceNodeEvent = {
   delta?: string;
   /** Output summary — a count or short synopsis. Never a raw dump. */
   result?: string;
+  /**
+   * Both tenses of the step's name, once known (`libs/chat/stepLabels.ts`):
+   * `label` is the one for the current status; a renderer that has the pair
+   * re-derives it when the status changes.
+   */
+  labels?: { running: string; done: string };
   /** For skills / drafts / delegates. */
   confidence?: number;
   /** Sources this node surfaced — bubbles up to the message-level "Grounded in". */

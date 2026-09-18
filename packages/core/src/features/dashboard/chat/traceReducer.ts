@@ -1,5 +1,6 @@
 import type { TraceNode } from './types';
 import type { ArtifactPayload } from '@/services/agents/types';
+import { stepLabelFor } from '@/libs/chat/stepLabels';
 
 /**
  * Fold one `trace_node` SSE event into the turn's accumulating trace.
@@ -14,7 +15,8 @@ import type { ArtifactPayload } from '@/services/agents/types';
  */
 export function mergeTraceNode(prev: TraceNode | undefined, event: TraceNode & { delta?: string }): TraceNode {
   const { delta, ...node } = event;
-  return {
+  const labels = node.labels ?? prev?.labels;
+  const merged: TraceNode = {
     ...prev,
     ...node,
     text: (prev?.text ?? '') + (delta ?? ''),
@@ -24,7 +26,15 @@ export function mergeTraceNode(prev: TraceNode | undefined, event: TraceNode & {
     tool: node.tool ?? prev?.tool,
     args: node.args ?? prev?.args,
     detail: node.detail ?? prev?.detail,
+    labels,
   };
+  // Once the pair is known the tense follows the status, whichever event
+  // carried which: a `done` that predates the labeler's patch, or a patch
+  // that arrives after `done`, both read "Read the brand guide".
+  if (labels && merged.status !== 'error') {
+    merged.label = stepLabelFor(labels, merged.status);
+  }
+  return merged;
 }
 
 /**
@@ -34,7 +44,9 @@ export function mergeTraceNode(prev: TraceNode | undefined, event: TraceNode & {
  * @param trace
  */
 export function finalizeTrace(trace: TraceNode[] | undefined): TraceNode[] {
-  return (trace ?? []).map(n => (n.status === 'error' || n.status === 'done' ? n : { ...n, status: 'done' as const }));
+  return (trace ?? []).map(n => (n.status === 'error' || n.status === 'done'
+    ? n
+    : { ...n, status: 'done' as const, ...(n.labels ? { label: stepLabelFor(n.labels, 'done') } : {}) }));
 }
 
 /**

@@ -320,7 +320,7 @@ describe('the work sits where it happened (interleaved, not hoisted)', () => {
       />,
     );
 
-    const folded = page.getByRole('button', { name: /Worked it out · 2 steps/ });
+    const folded = page.getByRole('button', { name: /Looked up 3 deals and read the briefing · 2 steps/ });
 
     await expect.element(folded).toBeInTheDocument();
     expect(folded.element().compareDocumentPosition(page.getByText('Done.').element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
