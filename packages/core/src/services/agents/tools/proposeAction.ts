@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction } from '@/services/ActionService';
+import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
 
 export function proposeActionTool(ctx: RuntimeContext) {
   const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
@@ -49,6 +50,11 @@ export function proposeActionTool(ctx: RuntimeContext) {
           orgId: ctx.orgId,
           actionId: action_id,
           input: action_input,
+          // Same key the review router and the auto-proposer derive, so the
+          // second proposal for the same target refreshes the first instead of
+          // stacking beside it (2026-09-18: runs 768 and 769, one deal, both
+          // pending). Absent, ActionService dedupes on nothing.
+          dedupKey: deriveRecommendationDedupKey(action_id, action_input),
           principal: {
             kind: 'agent',
             id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
