@@ -39,6 +39,15 @@ export type ReviewItem = {
   snoozedUntil?: Date | null;
   note?: string | null;
   /**
+   * When the item entered the queue. On the thin row because "how long has
+   * this been waiting" is a queue's own question, and a client that sorts or
+   * ages a queue should not have to fetch each item's detail to ask it.
+   *
+   * All three planes have the column, so this is never undefined for a reason
+   * the caller has to reason about.
+   */
+  createdAt?: Date | null;
+  /**
    * What the agent recommended doing with this — `approve`, `reject` or
    * `snooze`. Undefined when the agent gave no view, and on every workflow and
    * mission item, which carry no proposal envelope at all.
@@ -296,6 +305,7 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
       assignedTo: reviewAssignmentSchema.assignedTo,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
+      createdAt: workflowRunSchema.createdAt,
     })
     .from(workflowRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'workflow', workflowRunSchema.id))
@@ -312,6 +322,7 @@ async function listWorkflowPlane(orgId: string, opts: ListOptions, now: Date, ca
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    createdAt: row.createdAt,
     // Stated, not omitted: `getReviewDetail` returns null for this plane, and
     // a key that is present on the detail but missing from the list is the
     // shape a client reads with `?? false` and gets wrong.
@@ -349,6 +360,7 @@ async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap
       assignedTo: reviewAssignmentSchema.assignedTo,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
+      createdAt: missionRunSchema.createdAt,
     })
     .from(missionRunSchema)
     .leftJoin(reviewAssignmentSchema, assignmentJoin(orgId, 'mission', missionRunSchema.id))
@@ -365,6 +377,7 @@ async function listMissionPlane(orgId: string, opts: ListOptions, now: Date, cap
     assignedTo: row.assignedTo,
     snoozedUntil: row.snoozedUntil,
     note: row.note,
+    createdAt: row.createdAt,
     // Same as the workflow plane: present and null, never absent.
     approvedByAgent: null,
   }));
@@ -423,6 +436,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
       assignedTo: reviewAssignmentSchema.assignedTo,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
+      createdAt: actionRunSchema.createdAt,
       suggestedDecision: suggestedDecisionColumn,
       suggestedDecisionReason: suggestedDecisionReasonColumn,
       approvedByAgent: actionRunSchema.approvedByAgent,
@@ -453,6 +467,7 @@ async function listActionPlane(orgId: string, opts: ListOptions, now: Date, cap?
     // that approval already happened, the execution is what threw. Carried on
     // every item either way, so a client reads one shape across the queue.
     approvedByAgent: row.approvedByAgent,
+    createdAt: row.createdAt,
     // Spread rather than assigned, so an item that was not asked for a payload
     // has no key at all rather than a key holding undefined. That is what lets
     // `include` be provably additive: JSON.stringify of an unasked row is
