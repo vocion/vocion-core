@@ -33,6 +33,7 @@ import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
+import { ModelControl } from '@/features/dashboard/chat/ModelControl';
 import { QuotedPassage } from '@/features/dashboard/chat/QuotedPassage';
 import { useComposerTags } from '@/features/dashboard/chat/tagSearch';
 import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
@@ -267,6 +268,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
             {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
             <ChatComposer
               onCommand={onCommand}
+              controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
               value={session.composerValue}
               onChange={session.setComposerValue}
               onSubmit={() => void session.sendMessage(session.composerValue)}

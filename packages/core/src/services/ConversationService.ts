@@ -336,6 +336,25 @@ export async function setConversationAutonomy(opts: { orgId: string; id: number;
   return row ?? null;
 }
 
+/**
+ * Set how strong a model answers this thread and how much it thinks
+ * (`libs/llm/modelPrefs.ts`). Per conversation, like autonomy: appetite
+ * differs by task, not by day.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.strength
+ * @param opts.effort
+ */
+export async function setConversationModel(opts: { orgId: string; id: number; strength: 'fast' | 'balanced' | 'deep'; effort: 'off' | 'low' | 'medium' | 'high' }) {
+  const [row] = await db
+    .update(conversationSchema)
+    .set({ modelStrength: opts.strength, thinkingEffort: opts.effort })
+    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Feedback (0094)                                                     */
 /* ------------------------------------------------------------------ */

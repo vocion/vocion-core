@@ -8,6 +8,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Link } from '@/libs/I18nNavigation';
+import { shortModelName } from '@/libs/llm/modelPrefs';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
@@ -173,6 +174,14 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               {' '}
               {sourceCount}
             </button>
+          )}
+          {message.model && (
+            // Which model answered, and how hard it thought — a fact the turn
+            // carries, so a person can tell a Haiku answer from a Deep one.
+            <span data-testid="turn-model" className="tracking-normal text-muted-foreground/70 normal-case" title={`${message.model.model} · ${message.model.provider}`}>
+              {shortModelName(message.model.model)}
+              {message.model.thinking && message.model.thinking !== 'off' ? ` · thinking ${message.model.thinking}` : ''}
+            </span>
           )}
           {/* The badge is the way IN to the failure, not a label over it: it
               opens the trace at the failed step, which carries the message and

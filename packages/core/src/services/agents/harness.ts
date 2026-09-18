@@ -137,6 +137,8 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
 export type ModelOverride = {
   model: string;
   provider?: LangChainProvider;
+  /** Per-conversation thinking effort (`libs/llm/modelPrefs.ts`), when the person chose one. */
+  thinking?: 'off' | 'low' | 'medium' | 'high';
 };
 
 /**
@@ -151,7 +153,7 @@ export type ModelOverride = {
 export function chatModelOptionsWithOverride(
   harnessConfig: HarnessModelConfig,
   override: ModelOverride | undefined,
-): ReturnType<typeof chatModelOptionsFor> {
+): ReturnType<typeof chatModelOptionsFor> & { thinking?: ModelOverride['thinking'] } {
   const base = chatModelOptionsFor(harnessConfig);
   if (!override) {
     return base;
@@ -162,7 +164,7 @@ export function chatModelOptionsWithOverride(
       `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
     );
   }
-  return { ...base, provider, model: override.model };
+  return { ...base, provider, model: override.model, ...(override.thinking ? { thinking: override.thinking } : {}) };
 }
 
 /* ------------------------------------------------------------------ */

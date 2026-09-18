@@ -114,6 +114,12 @@ export type ChatComposerProps = {
    * rail edge while the box was inset).
    */
   above?: React.ReactNode;
+  /**
+   * The surface's per-conversation controls, hosted in the bar beside (+):
+   * model strength and thinking (`ModelControl`), and — once it moves out of
+   * the header — autonomy. One cluster, every surface.
+   */
+  controls?: React.ReactNode;
   /** Files attached to the next message — already uploaded; these are the chips. */
   attachments?: ChatAttachment[];
   /** An upload is in flight: a spinner chip, and Send waits for it. */
@@ -248,6 +254,7 @@ export function ChatComposer({
   copy,
   attachable = [],
   above,
+  controls,
   attachments = [],
   uploading = false,
   attachError,
@@ -792,6 +799,7 @@ export function ChatComposer({
                   </PopoverPrimitive.Portal>
                 </PopoverPrimitive.Root>
               )}
+              {controls}
               <textarea
                 ref={textareaRef}
                 data-agent-composer

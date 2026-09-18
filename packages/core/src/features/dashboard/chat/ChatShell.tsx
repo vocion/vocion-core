@@ -20,6 +20,7 @@ import { EmptyState, NoAgentsState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
 import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
@@ -336,6 +337,7 @@ function ChatShellInner({
                 )
               : undefined}
             onCommand={onCommand}
+            controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
             value={session.composerValue}
             onChange={session.setComposerValue}
             onSubmit={() => void session.sendMessage(session.composerValue)}

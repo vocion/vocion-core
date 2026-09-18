@@ -18,6 +18,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatBedrockConverse } from '@langchain/aws';
 import { ChatOpenAI } from '@langchain/openai';
 import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
+import { thinkingBudgetFor } from './modelPrefs';
 import { resolveOrgProviderKey } from './orgKey';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
@@ -161,7 +162,7 @@ function isLangChainProvider(value: string): value is LangChainProvider {
  * Returned values are normalised to lowercase.
  * @param role
  */
-function resolveProvider(role: ModelRole): LangChainProvider {
+export function resolveProvider(role: ModelRole): LangChainProvider {
   const roleSpecific = process.env[`VOCION_LLM_PROVIDER_${role.toUpperCase()}`];
   const fallback = process.env.VOCION_LLM_PROVIDER;
   const raw = (roleSpecific || fallback || 'anthropic').toLowerCase();
@@ -222,6 +223,16 @@ export function resolvedModelId(role: ModelRole): string {
 }
 
 /**
+ * The model id a role resolves to on a NAMED provider — the agent's vendor
+ * rather than the env's (`services/AgentService.ts` model preferences).
+ * @param role
+ * @param provider
+ */
+export function resolvedModelIdFor(role: ModelRole, provider: LangChainProvider): string {
+  return resolveModel(role, provider);
+}
+
+/**
  * Extended-thinking opt-in (Anthropic only).
  *
  * When `VOCION_THINKING_BUDGET` is set to a positive integer (tokens,
@@ -270,6 +281,14 @@ export type BuildChatModelOptions = {
   streaming?: boolean;
   /** Cap on output tokens. Unset = the provider integration's default. */
   maxTokens?: number;
+  /**
+   * Extended thinking for THIS model, chosen per conversation
+   * (`libs/llm/modelPrefs.ts`). Wins over `VOCION_THINKING_BUDGET`: `off`
+   * sends no thinking even when the env turns it on; an effort sends its
+   * budget on budgeted models and adaptive thinking on models that size
+   * their own. Anthropic and Bedrock-Claude only; ignored elsewhere.
+   */
+  thinking?: 'off' | 'low' | 'medium' | 'high';
   /**
    * Provider key to authenticate with. Wins over the env var, and is how an
    * org's own stored key reaches the model. Unset falls back to the server's
@@ -327,7 +346,7 @@ export function buildChatModel(
       if (!apiKey) {
         throw new Error(`ANTHROPIC_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
-      const thinkingBudget = resolveThinkingBudget(role);
+      const thinkingBudget = opts.thinking ? thinkingBudgetFor(opts.thinking) : resolveThinkingBudget(role);
       if (thinkingBudget !== null && anthropicAdaptiveThinking(model)) {
         // 4.6+: the switch is still VOCION_THINKING_BUDGET (set = on), but the
         // number is not sent — the model sizes its own thinking. No

@@ -1,5 +1,6 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { MODEL_STRENGTHS, THINKING_EFFORTS } from '@/libs/llm/modelPrefs';
 import { listArtifactsByIdsForChips, listAttachmentsByMessage } from '@/services/ArtifactService';
 import { artifactChipsByMessage } from '@/services/chat/artifactChips';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
@@ -15,6 +16,7 @@ import {
   renameConversation,
   searchConversations,
   setConversationAutonomy,
+  setConversationModel,
   setMessageFeedback,
   tailMessages,
 } from '@/services/ConversationService';
@@ -169,6 +171,18 @@ export const feedback = os
   });
 
 /** How recommended actions behave in one thread (0094). */
+/** How strong a model answers this thread and how much it thinks (`libs/llm/modelPrefs.ts`). */
+export const setModel = os
+  .input(z.object({ id: z.number().int().positive(), strength: z.enum(MODEL_STRENGTHS), effort: z.enum(THINKING_EFFORTS) }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const row = await setConversationModel({ orgId, id: input.id, strength: input.strength, effort: input.effort });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return { id: row.id, strength: row.modelStrength ?? 'balanced', effort: row.thinkingEffort ?? 'off' };
+  });
+
 export const setAutonomy = os
   .input(z.object({ id: z.number().int().positive(), autonomy: z.enum(CONVERSATION_AUTONOMY) }))
   .handler(async ({ input }) => {

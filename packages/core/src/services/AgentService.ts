@@ -7,6 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
@@ -394,6 +395,13 @@ export async function runAgentDeep(opts: {
    * an honest single path. Never cached — see `getCompiledAgent`.
    */
   modelOverride?: import('./agents/harness').ModelOverride;
+  /**
+   * The conversation's model preferences (`libs/llm/modelPrefs.ts`): how
+   * strong a model, how much it thinks. Applied only on the in-process loop
+   * — never moving a turn off the harness the agent runs on — and only when
+   * they ask for something beyond the agent's own defaults.
+   */
+  modelPrefs?: import('@/libs/llm/modelPrefs').ModelPrefs;
 }): Promise<{
   response: string;
   traceId: string;
@@ -499,7 +507,14 @@ export async function runAgentDeep(opts: {
     return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
   }
 
-  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
+  // The person's per-thread choice of model and thinking, mapped onto the
+  // agent's own vendor. Nothing to do when they left both at the default.
+  // Dynamic imports, like the harness itself: the Temporal worker reaches
+  // this file and must never statically load the LLM module.
+  const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
+  const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
+  const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, opts.modelPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
+  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride });
   bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext, opts.timeZone);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
@@ -553,6 +568,12 @@ export async function runAgentDeep(opts: {
   boundCtx.traceId = trace.id;
 
   emit({ type: 'thinking' });
+  {
+    // Say which model answers, so the turn can show it (principle 10).
+    const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
+    const provider = chosen.provider ?? resolveProvider('main');
+    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, ...(chosen.thinking ? { thinking: chosen.thinking } : {}) });
+  }
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
 
@@ -913,3 +934,29 @@ export type RunUsage = {
   /** Model turns — one per LLM call, so retries and tool loops count. */
   turns: number;
 };
+
+/**
+ * The model override a conversation's preferences ask for, on the agent's
+ * own vendor — or undefined when they ask for nothing beyond its defaults.
+ * @param harness - The agent's harness block.
+ * @param prefs - The person's per-thread choice.
+ * @param env - The env's main provider, the agent's own model options, and the per-provider default lookup.
+ * @param env.provider
+ * @param env.defaults
+ * @param env.defaults.provider
+ * @param env.defaults.model
+ * @param env.modelFor
+ */
+function modelOverrideForPrefs(
+  harness: import('./agents/harness').HarnessModelConfig,
+  prefs: import('@/libs/llm/modelPrefs').ModelPrefs | undefined,
+  env: { provider: import('@/libs/llm/langchain').LangChainProvider; defaults: { provider?: import('@/libs/llm/langchain').LangChainProvider; model?: string }; modelFor: (role: 'main', provider: import('@/libs/llm/langchain').LangChainProvider) => string },
+): import('./agents/harness').ModelOverride | undefined {
+  void harness;
+  if (!prefs || (prefs.strength === 'balanced' && prefs.effort === 'off')) {
+    return undefined;
+  }
+  const provider = env.defaults.provider ?? env.provider;
+  const model = modelForStrength(provider, prefs.strength) ?? env.defaults.model ?? env.modelFor('main', provider);
+  return { model, provider, thinking: prefs.effort };
+}

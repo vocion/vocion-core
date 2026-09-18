@@ -56,6 +56,7 @@ import {
   rename as renameConv,
   search as searchConvs,
   setAutonomy as setConvAutonomy,
+  setModel as setConvModel,
   tail as tailConv,
 } from './Conversations';
 import {
@@ -253,6 +254,7 @@ export const router = {
     tail: tailConv,
     feedback: feedbackConvMessage,
     setAutonomy: setConvAutonomy,
+    setModel: setConvModel,
   },
   learnings: {
     listSteps: listLearningSteps,
