@@ -29,6 +29,7 @@ import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
 import { discoveryTools } from './discovery';
+import { documentTools } from './documents';
 import { editArtifactTools } from './editArtifacts';
 import { fetchUrlTool } from './fetchUrl';
 import { fileFeedbackTool } from './fileFeedback';
@@ -142,6 +143,11 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // on for every agent.
     ...renderArtifactTools(ctx),
     ...editArtifactTools(ctx),
+    // Documents: paginated, print-ready HTML with the render-verify loop built
+    // in (render_document / read_document / edit_document / verify_document /
+    // export_document_pdf). Same rule as render_*: no side effect outside the
+    // conversation, so on for every agent.
+    ...documentTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

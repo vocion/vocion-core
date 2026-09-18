@@ -115,7 +115,59 @@ export const sequenceSpecSchema = z.object({
 });
 export type SequenceSpec = z.infer<typeof sequenceSpecSchema>;
 
-export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence'] as const;
+/**
+ * One rendered sheet of a `document` artifact, as the render-verify loop
+ * measured it. `footerY` is the footer rule's offset from the sheet top in CSS
+ * px (null when the sheet has no `.foot`); every sheet in a healthy document
+ * reports the same value, and one that reads higher or lower is overflowing.
+ * `overflowPx` is how far the `.body` content runs past its box — the sheet
+ * clips it silently, so this is the number a person cannot see.
+ */
+export const documentSheetAuditSchema = z.object({
+  n: z.number().int().positive(),
+  label: z.string().max(200).optional(),
+  footerY: z.number().nullable(),
+  overflowPx: z.number(),
+  clipped: z.array(z.string().max(200)).max(12).default([]),
+  /** Served URL of this sheet's PNG, when screenshots were taken. */
+  image: z.string().optional(),
+});
+export type DocumentSheetAudit = z.infer<typeof documentSheetAuditSchema>;
+
+/**
+ * The verification a document carries with each version — what the loop
+ * found, so the pane can say "13 sheets · footers aligned · PDF 13 pages"
+ * and the agent can read the same facts back without re-rendering.
+ */
+export const documentVerificationSchema = z.object({
+  at: z.string(),
+  sheets: z.array(documentSheetAuditSchema).max(80),
+  footerAligned: z.boolean(),
+  pdfPages: z.number().int().nullable(),
+  /** Served URL of the PDF the verification printed, when one was. */
+  pdf: z.string().optional(),
+  unresolvedAssets: z.array(z.string().max(300)).max(20).default([]),
+  issues: z.array(z.string().max(300)).max(40).default([]),
+  ok: z.boolean(),
+});
+export type DocumentVerification = z.infer<typeof documentVerificationSchema>;
+
+/**
+ * A paginated, print-ready HTML document — US-Letter `.sheet`s that print to
+ * the PDF a client reads. The HTML is self-contained (styles inline, assets as
+ * data URIs); the engine (`libs/documents/`) renders, measures and prints it.
+ * `sheets` is the count parsed at write time; `verification` is the last
+ * render-verify pass over this exact version.
+ */
+export const documentSpecSchema = z.object({
+  title: z.string().optional(),
+  html: z.string().min(1).max(1_500_000),
+  sheets: z.number().int().nonnegative().optional(),
+  verification: documentVerificationSchema.optional(),
+});
+export type DocumentSpec = z.infer<typeof documentSpecSchema>;
+
+export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Card slug per artifact kind — the `__card` the canvas/chat resolve with. */
@@ -127,6 +179,7 @@ export const CARD_SLUG_FOR_KIND: Record<ArtifactKind, string> = {
   link: 'link',
   file: 'link',
   sequence: 'sequence',
+  document: 'document',
 };
 
 export const SPEC_SCHEMA_FOR_KIND = {
@@ -137,6 +190,7 @@ export const SPEC_SCHEMA_FOR_KIND = {
   link: linkSpecSchema,
   file: fileSpecSchema,
   sequence: sequenceSpecSchema,
+  document: documentSpecSchema,
 } as const;
 
 /**
@@ -144,8 +198,14 @@ export const SPEC_SCHEMA_FOR_KIND = {
  * artifacts render through the link card, so their spec is reshaped here.
  * @param kind
  * @param spec
+ * @param artifactId - The row id, when the payload is for a stored artifact.
  */
-export function cardPayloadFor(kind: ArtifactKind, spec: Record<string, unknown>): Record<string, unknown> {
+export function cardPayloadFor(kind: ArtifactKind, spec: Record<string, unknown>, artifactId?: number): Record<string, unknown> {
+  if (kind === 'document') {
+    // The frame needs to know which artifact a selection is about; the row
+    // id is not part of the spec, so it rides in under a reserved key.
+    return { __card: CARD_SLUG_FOR_KIND[kind], ...spec, ...(artifactId ? { __artifactId: artifactId } : {}) };
+  }
   if (kind === 'file') {
     const f = spec as Partial<FileSpec>;
     return { __card: 'link', href: artifactHref(f.url), title: f.filename ?? 'file', description: [f.contentType, f.bytes ? `${Math.max(1, Math.round(f.bytes / 1024))} KB` : null].filter(Boolean).join(' · ') };

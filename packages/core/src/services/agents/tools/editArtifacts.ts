@@ -81,6 +81,12 @@ export function readArtifactTool(ctx: RuntimeContext) {
       if (!row) {
         return `No artifact #${found.id} in this workspace.`;
       }
+      if (row.kind === 'document') {
+        // Never the HTML: a document is read by outline and by sheet through
+        // read_document, and changed with edit_document.
+        const { html: _html, ...rest } = row.spec as Record<string, unknown>;
+        return JSON.stringify({ id: row.id, kind: row.kind, title: row.title, version: row.currentVersion, folder: row.folder, spec: rest, note: 'This is a paginated document. Use read_document to read its outline or a sheet, and edit_document to change it.' });
+      }
       return JSON.stringify({
         id: row.id,
         kind: row.kind,
@@ -109,6 +115,12 @@ export function updateArtifactTool(ctx: RuntimeContext) {
       }
       try {
         const spec = args.spec === undefined ? undefined : coerceJson(args.spec);
+        if (spec !== undefined || args.content_markdown !== undefined) {
+          const row = await getArtifact({ orgId: ctx.orgId, id: found.id });
+          if (row?.kind === 'document') {
+            return `update_artifact cannot rewrite a document's content — use edit_document(${found.id}, ops) so the change is by sheet and render-verified. Title and folder changes are fine here.`;
+          }
+        }
         if (spec === undefined && args.content_markdown === undefined && args.title === undefined && args.folder === undefined) {
           return 'update_artifact needs at least one of `spec`, `content_markdown`, `title` or `folder`.';
         }

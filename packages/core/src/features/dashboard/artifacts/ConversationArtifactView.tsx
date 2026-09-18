@@ -20,12 +20,15 @@
  */
 
 import type { ArtifactEntry } from './artifactReducer';
+import type { AgentSurfaceRequest } from '@/features/dashboard/chat/agentSurface';
 import type { AgentOption, ChatMessageArtifact } from '@/features/dashboard/chat/types';
 import type { ArtifactPayload } from '@/services/agents/types';
-import { Minimize2, PanelRight } from 'lucide-react';
+import type { PageContext } from '@/services/chat/pageContext';
+import { Minimize2, PanelRight, Quote, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
@@ -69,13 +72,33 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
 
   // What the agent is told "this" means. Rebuilt whenever the open artifact
   // changes so a turn sent right after switching panes is about the new one.
-  const pageContext = useMemo(() => ({
+  const baseContext = useMemo(() => ({
     path: `/dashboard/chat/${props.conversationId}`,
     title: props.conversationTitle,
     ...(openId === null
       ? {}
       : { record: { type: 'artifact' as const, id: String(openId), label: openTitle, href: `/dashboard/artifacts/${openId}` } }),
   }), [openId, openTitle, props.conversationId, props.conversationTitle]);
+
+  // This view IS the page's agent surface (there is no dock beside a
+  // full-page conversation), so it claims every entry-point request — the
+  // document frame's "Ask" / "Change" on a highlighted passage, above all —
+  // the way the rail does: the passage rides out with the next turn as
+  // `page_context.selection`, the prompt lands in the composer, focus follows.
+  const [intent, setIntent] = useState<AgentSurfaceRequest | null>(null);
+  const pageContext = useMemo<PageContext>(() => {
+    const c = intent?.context;
+    if (!c) {
+      return baseContext;
+    }
+    return {
+      ...baseContext,
+      ...(c.record ? { record: c.record } : {}),
+      ...(c.selection ? { selection: c.selection } : {}),
+      ...(c.refs ? { refs: c.refs } : {}),
+      openedFrom: true as const,
+    };
+  }, [baseContext, intent]);
 
   const session = useChatSession({
     agents: props.agents,
@@ -121,6 +144,40 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
 
   useArtifactEvents({ conversationId: props.conversationId, isStreaming: session.isStreaming, dispatch });
 
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  });
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onRequest(e: Event) {
+      e.preventDefault();
+      const req = agentSurfaceRequestOf(e);
+      if (req.prompt !== undefined || req.context) {
+        setIntent(req);
+        if (req.prompt !== undefined) {
+          sessionRef.current.setComposerValue(req.prompt);
+        }
+        if (req.send && req.prompt?.trim()) {
+          void sessionRef.current.sendMessage(req.prompt);
+        }
+      }
+      for (const tag of req.tags ?? []) {
+        sessionRef.current.addContextRef(tag);
+      }
+      focusAgentComposer(rootRef.current);
+    }
+    window.addEventListener(AGENT_SURFACE_EVENT, onRequest);
+    return () => window.removeEventListener(AGENT_SURFACE_EVENT, onRequest);
+  }, []);
+  // A turn went out: the intent has been consumed.
+  const turnCount = session.messages.length;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setIntent(null);
+  }, [turnCount]);
+  const quoted = intent?.context?.selection?.text;
+
   // The URL names the open artifact, so a link is a link to what you saw.
   useEffect(() => {
     const qs = pane.openId ? `?artifact=${pane.openId}` : '';
@@ -159,7 +216,7 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   }, [pane.artifacts, session.messages]);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col">
       <ShellBarActionsPortal>
         <div className="flex items-center gap-1">
           {pane.openId === null && pane.artifacts.length > 0 && (
@@ -198,6 +255,15 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                 )}
             {session.pendingHitl && (
               <HitlGate gate={session.pendingHitl} onApprove={session.handleApproveHitl} onReject={session.handleRejectHitl} disabled={session.isStreaming} />
+            )}
+            {quoted && (
+              <div className="mb-1.5 flex items-start gap-2 rounded-xl border border-border bg-surface-soft px-2.5 py-1.5 text-xs text-foreground/85" data-quoted-passage role="status">
+                <Quote className="mt-0.5 size-3 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="line-clamp-2 min-w-0 flex-1 italic">{quoted}</span>
+                <button type="button" onClick={() => setIntent(null)} aria-label="Drop the quoted passage" className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+                  <X className="size-3" />
+                </button>
+              </div>
             )}
             <ChatComposer
               value={session.composerValue}

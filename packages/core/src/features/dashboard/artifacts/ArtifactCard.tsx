@@ -12,7 +12,7 @@ import { resolveCard } from '@/libs/cards';
 import { cardPayloadFor } from '@/libs/cards/specs';
 
 export function ArtifactCard({ artifact, surface }: { artifact: ArtifactPayload; surface: 'chat' | 'artifact' }) {
-  const resolved = useMemo(() => resolveCard(cardPayloadFor(artifact.kind, artifact.spec), { surface }), [artifact, surface]);
+  const resolved = useMemo(() => resolveCard(cardPayloadFor(artifact.kind, artifact.spec, artifact.id > 0 ? artifact.id : undefined), { surface }), [artifact, surface]);
   const { Renderer } = resolved.renderer;
   return (
     <div data-artifact-id={artifact.id} data-card={resolved.slug}>

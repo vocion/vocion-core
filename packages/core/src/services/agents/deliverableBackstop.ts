@@ -44,6 +44,8 @@ export const ARTIFACT_TOOLS: ReadonlySet<string> = new Set([
   'render_record',
   'create_artifact',
   'update_artifact',
+  'render_document',
+  'edit_document',
 ]);
 
 /** At or above this word count an answer is a document, whatever else it has. */

@@ -1,0 +1,87 @@
+{
+  "turns": [
+    {
+      "match": "draft the proposal",
+      "steps": [
+        {
+          "tool": "render_document",
+          "args": {
+            "title": "Northwind - Hiring Agents Proposal (Metacto) v1.0",
+            "html": { "$file": "../fixtures/generated/northwind-overflow.html" }
+          }
+        },
+        {
+          "tool": "edit_document",
+          "args": {
+            "ops": [{ "op": "replace_sheet", "n": 3, "html": { "$file": "../fixtures/generated/sheet-screener-trimmed.html" } }],
+            "change_summary": "trimmed the screener sheet back above the footer"
+          }
+        }
+      ],
+      "reply": "The proposal is open beside you: 5 sheets. The first render overflowed on the Applicant Screener sheet, so I trimmed it; the receipt now reads no issues and the PDF is 5 pages."
+    },
+    {
+      "match": "three agents",
+      "steps": [
+        {
+          "tool": "edit_document",
+          "args": {
+            "ops": [{ "op": "insert_sheet", "after": 4, "html": { "$file": "../fixtures/generated/sheet-agent-3.html" } }],
+            "change_summary": "added the Offer Coordinator as the third agent"
+          }
+        }
+      ],
+      "reply": "Added the Offer Coordinator as the third agent sheet, after the Store Router. 6 sheets, footers renumbered, verified."
+    },
+    {
+      "match": "per opening",
+      "steps": [
+        {
+          "tool": "edit_document",
+          "args": {
+            "ops": [{ "op": "replace_sheet", "n": 6, "html": { "$file": "../fixtures/generated/sheet-pricing-per-role.html" } }],
+            "change_summary": "priced per open role at the typical 20"
+          }
+        }
+      ],
+      "reply": "The investment sheet now reads $100 per open role per month at your typical 20, with hosting and model usage stated separately."
+    },
+    {
+      "match": "cut page 2",
+      "steps": [
+        {
+          "tool": "edit_document",
+          "args": {
+            "ops": [{ "op": "remove_sheet", "n": 2 }],
+            "change_summary": "cut the How it works sheet"
+          }
+        }
+      ],
+      "reply": "Cut the How it works sheet. 5 sheets now, footers renumbered, verified."
+    },
+    {
+      "match": "change this",
+      "steps": [
+        {
+          "tool": "edit_document",
+          "args": {
+            "ops": [{ "op": "replace_text", "find": "The agent flags; the Northwind team decides.", "replace": "The agent flags. The Northwind team decides.", "all": true }],
+            "change_summary": "split the flags/decides sentence on every agent sheet"
+          }
+        }
+      ],
+      "reply": "Split that sentence wherever it appears. Verified."
+    },
+    {
+      "match": "export",
+      "steps": [{ "tool": "export_document_pdf", "args": {} }],
+      "reply": "The PDF is filed beside the document, named from its title."
+    },
+    {
+      "match": "verify",
+      "steps": [{ "tool": "verify_document", "args": { "look": false } }],
+      "reply": "Verified: footers aligned, nothing overflows, PDF page count matches."
+    }
+  ],
+  "fallback": "This scripted agent only knows the proposal loop: draft the proposal, make it three agents, price it per opening, cut page 2, change this, export, verify."
+}
