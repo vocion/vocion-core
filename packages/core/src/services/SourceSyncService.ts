@@ -1172,6 +1172,29 @@ export async function runSync(opts: {
       const { watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
       await watchForHandoffTriggers(opts.orgId, log);
     }
+    // The data rooms grow from what just landed: a recording or thread that
+    // clearly belongs to a room is filed with its score (undoable on the
+    // room), a deal that reached Proposal stage gets its room. Same
+    // never-fail-the-sync rule; `VOCION_DATA_ROOM_AUTOFILE=0` switches it off.
+    if (process.env.VOCION_DATA_ROOM_AUTOFILE !== '0') {
+      try {
+        const { collectAfterSync } = await import('@/services/dataRooms/collector');
+        await collectAfterSync(opts.orgId, {
+          sourceId: opts.sourceId,
+          sourceSlug: row.slug,
+          connector: connectorSlug,
+          incremental: !!opts.incremental,
+          created: result.created,
+          updated: result.updated,
+          unchanged: result.unchanged,
+          tombstoned: result.tombstoned,
+          errors: result.errors,
+          completedAt: cutoff.toISOString(),
+        });
+      } catch (err) {
+        log('error', 'data room collection failed after the sync', { sourceId: opts.sourceId, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     return result;
   } catch (err) {
     // Wait here too, for the same reason.

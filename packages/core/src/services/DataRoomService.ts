@@ -1,5 +1,16 @@
 /**
- * Data rooms — the source of record for one client engagement.
+ * Data rooms — the collection around one entity.
+ *
+ * Core definition (Chris, 2026-09-18): a data room is **the collection of
+ * ingested objects and generated artifacts related to one entity**, plus the
+ * standing knowledge that keeps the collection growing on its own — a wiki
+ * (`notes`), `rules` for collection and association, a dated timeline and the
+ * highlights worth keeping. The entity is the room's `anchor`: a CRM deal at
+ * Proposal stage today, a company, a project, a ticket tomorrow. A workspace
+ * extends the room for its use case through the object type's schema, its
+ * skills and its document playbooks — never through a second room noun. A
+ * sales room persists into delivery: the anchor and the stage move, the
+ * collection stays (Jamie, 2026-09-18).
  *
  * A room is a `business_object` of type `data_room` (workspace-authored; a
  * minimal type is created on first use so the tools work before a template
@@ -28,7 +39,7 @@ import { artifactHref } from '@/libs/tools/artifacts/url';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, objectDocumentLinkSchema } from '@/models/Schema';
 import { createArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
 import { listAskGroup, upsertAsk } from '@/services/AskService';
-import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, listBusinessObjects, updateBusinessObject } from '@/services/BusinessObjectService';
+import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, listBusinessObjects, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
 
 export const DATA_ROOM_TYPE = 'data_room';
 
@@ -48,6 +59,41 @@ export type RoomSource = {
   date?: string;
   retrievedAt: string;
   note?: string;
+  /**
+   * Who put it here. `auto` is the collector filing on a clear match after a
+   * sync; `agent` is a tool call in a conversation; `human` is a person. An
+   * auto filing carries its score and evidence so it can be checked — and
+   * undone with one click (design principle: done for you, with undo).
+   */
+  filedBy?: 'auto' | 'agent' | 'human';
+  score?: number;
+  evidence?: string[];
+};
+
+/**
+ * The entity the room is the collection around. `type` is the workspace's
+ * word for it — `deal`, `company`, `project`, `engagement`, `ticket` — and
+ * `system`/`id`/`url` say where it lives. `deal` on the meta is the older
+ * shape of the same thing and is read as an anchor of type `deal`.
+ */
+export type RoomAnchor = { type: string; system?: string; id?: string; url?: string; label?: string; amount?: number };
+
+/** One dated line of the engagement's timeline — planned or done. */
+export type RoomMilestone = { date: string; title: string; status: 'planned' | 'done'; artifactId?: number; note?: string };
+
+/**
+ * Something worth keeping from the material as it lands — a client's own
+ * words, a measured result, a win, a challenge and how it was met. The case
+ * study writes itself from these instead of being reconstructed at the end.
+ */
+export type RoomHighlight = {
+  kind: 'quote' | 'metric' | 'win' | 'challenge' | 'testimonial' | 'risk';
+  text: string;
+  who?: string;
+  date?: string;
+  /** Where it came from — a source title, a transcript timestamp. */
+  source?: string;
+  addedAt: string;
 };
 
 export type RoomMeta = {
@@ -56,12 +102,24 @@ export type RoomMeta = {
   status?: string;
   statusAt?: string;
   stage?: string;
+  /** Older shape of `anchor` for a CRM deal; read through `roomAnchor`. */
   deal?: { system?: string; id?: string; url?: string; amount?: number };
+  anchor?: RoomAnchor;
   cast?: RoomPerson[];
   deliverables?: RoomDeliverable[];
   domains?: string[];
   aliases?: string[];
   sources?: RoomSource[];
+  /** The room's wiki — standing knowledge in markdown: what is where, terminology, conventions. */
+  notes?: string;
+  /** Rules for collecting, associating and working the room, one line each. Read by the agent before anything else. */
+  rules?: string[];
+  milestones?: RoomMilestone[];
+  highlights?: RoomHighlight[];
+  /** `false` keeps the collector out of this room; filings then come only from tools and people. */
+  autoFile?: boolean;
+  /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
+  unfiled?: number[];
 };
 
 export type DataRoom = {
@@ -91,6 +149,27 @@ const toRoom = (row: { id: number; title: string; status: string | null; metadat
 
 export const roomGroupKey = (id: number): string => `data-room:${id}`;
 export const roomHref = (id: number): string => `/dashboard/rooms/${id}`;
+
+/**
+ * The room's entity, whichever shape the meta carries. `anchor` wins; a
+ * legacy `deal` reads as an anchor of type `deal`.
+ * @param meta - The room's metadata.
+ */
+export function roomAnchor(meta: RoomMeta): RoomAnchor | null {
+  if (meta.anchor?.type) {
+    return meta.anchor;
+  }
+  if (meta.deal && (meta.deal.id || meta.deal.url)) {
+    return { type: 'deal', ...meta.deal };
+  }
+  return null;
+}
+
+/**
+ * Whether the collector may file into this room on its own. Default yes.
+ * @param room
+ */
+export const autoFiles = (room: DataRoom): boolean => room.status !== 'closed' && room.meta.autoFile !== false;
 
 /**
  * The `data_room` type, created minimally when the workspace has not authored
@@ -160,10 +239,32 @@ export type CreateDataRoomInput = {
   stage?: string;
   status?: string;
   deal?: RoomMeta['deal'];
+  anchor?: RoomAnchor;
   cast?: RoomPerson[];
+  notes?: string;
+  rules?: string[];
+  autoFile?: boolean;
 };
 
 const clean = (list: string[] | undefined): string[] => [...new Set((list ?? []).map(s => s.trim().toLowerCase()).filter(Boolean))];
+/**
+ * Rules and other free lines: trimmed, deduplicated, case kept.
+ * @param list
+ */
+const cleanLines = (list: string[] | undefined): string[] => [...new Set((list ?? []).map(s => s.trim()).filter(Boolean))];
+
+/**
+ * The rules after a change: removals apply to what was there, then additions
+ * land — so replacing the whole list (remove all, add the new list) keeps a
+ * rule that appears in both. Pure; exported for the test.
+ * @param existing - The rules on the room.
+ * @param add - Rules to add.
+ * @param remove - Rules to remove, by exact text.
+ */
+export function mergeRules(existing: string[] | undefined, add: string[] | undefined, remove: string[] | undefined): string[] {
+  const drop = new Set((remove ?? []).map(r => r.trim()));
+  return cleanLines([...(existing ?? []).filter(r => !drop.has(r.trim())), ...(add ?? [])]);
+}
 
 /**
  * Open a room for an engagement.
@@ -180,11 +281,17 @@ export async function createDataRoom(orgId: string, userId: string, input: Creat
     ...(input.stage ? { stage: input.stage } : {}),
     ...(input.status ? { status: input.status, statusAt: now } : {}),
     ...(input.deal ? { deal: input.deal } : {}),
+    ...(input.anchor ? { anchor: input.anchor } : input.deal ? { anchor: { type: 'deal', ...input.deal } } : {}),
+    ...(input.notes ? { notes: input.notes } : {}),
+    ...(input.autoFile === undefined ? {} : { autoFile: input.autoFile }),
+    rules: cleanLines(input.rules),
     cast: input.cast ?? [],
     deliverables: [],
     domains: clean(input.domains),
     aliases: clean(input.aliases),
     sources: [],
+    milestones: [],
+    highlights: [],
   };
   const row = await createBusinessObject({ typeSlug: DATA_ROOM_TYPE, title: input.title, status: 'active', metadata: meta }, orgId, userId);
   return toRoom(row!);
@@ -198,6 +305,19 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   addCast?: RoomPerson[];
   /** Close the room (`status: 'closed'`) or reopen it. */
   closed?: boolean;
+  /** Replace the notes (the wiki) wholesale… */
+  notes?: string;
+  /** …or add a dated section to the end of them. */
+  appendNotes?: string;
+  /** Rules to add (deduplicated by text). */
+  addRules?: string[];
+  /** Rules to remove, by exact text. */
+  removeRules?: string[];
+  /** A milestone to add or update (matched by date + title). */
+  milestone?: RoomMilestone;
+  /** Highlights to add. Duplicates by text are dropped. */
+  highlights?: Array<Omit<RoomHighlight, 'addedAt'>>;
+  autoFile?: boolean;
 };
 
 /**
@@ -228,6 +348,46 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
   }
   if (patch.deal !== undefined) {
     meta.deal = { ...(meta.deal ?? {}), ...patch.deal };
+    if (!meta.anchor || meta.anchor.type === 'deal') {
+      meta.anchor = { type: 'deal', ...(meta.anchor ?? {}), ...patch.deal };
+    }
+  }
+  if (patch.anchor !== undefined) {
+    meta.anchor = { ...(meta.anchor ?? {}), ...patch.anchor };
+    if (meta.anchor.type === 'deal') {
+      const { type: _t, label: _l, ...deal } = meta.anchor;
+      meta.deal = { ...(meta.deal ?? {}), ...deal };
+    }
+  }
+  if (patch.notes !== undefined) {
+    meta.notes = patch.notes;
+  }
+  if (patch.appendNotes?.trim()) {
+    const stamp = new Date().toISOString().slice(0, 10);
+    meta.notes = [meta.notes?.trimEnd(), `\n### ${stamp}\n\n${patch.appendNotes.trim()}`].filter(Boolean).join('\n').trim();
+  }
+  if (patch.addRules?.length || patch.removeRules?.length) {
+    meta.rules = mergeRules(meta.rules, patch.addRules, patch.removeRules);
+  }
+  if (patch.milestone) {
+    const list = [...(meta.milestones ?? [])];
+    const key = (m: RoomMilestone) => `${m.date}|${m.title.toLowerCase()}`;
+    const i = list.findIndex(m => key(m) === key(patch.milestone!));
+    if (i === -1) {
+      list.push(patch.milestone);
+    } else {
+      list[i] = { ...list[i]!, ...patch.milestone };
+    }
+    meta.milestones = list.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  if (patch.highlights?.length) {
+    const have = new Set((meta.highlights ?? []).map(h => h.text.trim().toLowerCase()));
+    const addedAt = new Date().toISOString();
+    const fresh = patch.highlights.filter(h => h.text.trim() && !have.has(h.text.trim().toLowerCase())).map(h => ({ ...h, text: h.text.trim(), addedAt }));
+    meta.highlights = [...(meta.highlights ?? []), ...fresh];
+  }
+  if (patch.autoFile !== undefined) {
+    meta.autoFile = patch.autoFile;
   }
   if (patch.domains) {
     meta.domains = clean([...(meta.domains ?? []), ...patch.domains]);
@@ -287,6 +447,10 @@ export type FileInput = {
    */
   decisionLog?: string;
   author: { kind: 'agent' | 'human'; id: string | null };
+  /** `auto` when the collector files on a match; defaults to the author's kind. */
+  filedBy?: RoomSource['filedBy'];
+  score?: number;
+  evidence?: string[];
 };
 
 /**
@@ -338,6 +502,9 @@ export async function fileToDataRoom(orgId: string, id: number, input: FileInput
     ...(input.date ? { date: input.date } : {}),
     retrievedAt,
     ...(input.note ? { note: input.note } : {}),
+    filedBy: input.filedBy ?? input.author.kind,
+    ...(input.score === undefined ? {} : { score: input.score }),
+    ...(input.evidence?.length ? { evidence: input.evidence } : {}),
   };
   const sources = [...(room.meta.sources ?? [])];
   const i = sources.findIndex(s => (input.documentId && s.documentId === input.documentId) || (input.artifactId && s.artifactId === input.artifactId));
@@ -346,7 +513,10 @@ export async function fileToDataRoom(orgId: string, id: number, input: FileInput
   } else {
     sources[i] = { ...sources[i]!, ...source };
   }
-  const [updated] = await updateBusinessObject({ id, metadata: { ...room.meta, sources } as Record<string, unknown> }, orgId);
+  // A person or agent filing a document deliberately outranks an earlier
+  // "take it out": the dismissal is lifted so the collector may keep it current.
+  const unfiled = input.documentId && input.filedBy !== 'auto' ? (room.meta.unfiled ?? []).filter(d => d !== input.documentId) : room.meta.unfiled;
+  const [updated] = await updateBusinessObject({ id, metadata: { ...room.meta, sources, ...(unfiled ? { unfiled } : {}) } as Record<string, unknown> }, orgId);
   return { room: updated ? toRoom(updated) : room, source, decisionLog };
 }
 
@@ -387,6 +557,89 @@ export async function addOpenItem(orgId: string, id: number, item: { title: stri
     },
   });
   return ask;
+}
+
+/**
+ * Take a source back out of a room — the undo of a filing. The entry leaves
+ * `metadata.sources`, the document link goes, and a decision log filed with
+ * it stays (it is an artifact with its own history; a person deletes it
+ * deliberately). Returns the entry removed, or null when nothing matched.
+ * @param orgId - The project.
+ * @param id - The room id.
+ * @param ref - Which source: by knowledge document or by artifact.
+ * @param ref.documentId
+ * @param ref.artifactId
+ */
+export async function unfileFromDataRoom(orgId: string, id: number, ref: { documentId?: number; artifactId?: number }): Promise<{ room: DataRoom; removed: RoomSource } | null> {
+  const room = await getDataRoom(orgId, id);
+  if (!room) {
+    return null;
+  }
+  const sources = [...(room.meta.sources ?? [])];
+  const i = sources.findIndex(s => (ref.documentId && s.documentId === ref.documentId) || (ref.artifactId && s.artifactId === ref.artifactId));
+  if (i === -1) {
+    return null;
+  }
+  const [removed] = sources.splice(i, 1);
+  if (removed!.documentId) {
+    const links = await db
+      .select({ id: objectDocumentLinkSchema.id })
+      .from(objectDocumentLinkSchema)
+      .where(and(eq(objectDocumentLinkSchema.objectId, id), eq(objectDocumentLinkSchema.onyxDocumentId, String(removed!.documentId))));
+    for (const l of links) {
+      await removeDocumentLink(l.id, orgId);
+    }
+  }
+  const unfiled = removed!.documentId ? [...new Set([...(room.meta.unfiled ?? []), removed!.documentId])] : room.meta.unfiled;
+  const [updated] = await updateBusinessObject({ id, metadata: { ...room.meta, sources, ...(unfiled ? { unfiled } : {}) } as Record<string, unknown> }, orgId);
+  return { room: updated ? toRoom(updated) : room, removed: removed! };
+}
+
+/**
+ * The two asks a filing that is not clear becomes: "file this into X?" for a
+ * plausible match, "new opportunity?" for none. Shared by the tool and the
+ * collector so a person sees the same card whoever hesitated.
+ * @param orgId - The project.
+ * @param createdBy - Who is asking.
+ * @param agentSlug - The agent, when one is.
+ * @param material - What is being filed.
+ * @param material.title
+ * @param material.documentId
+ * @param match - The match outcome for it.
+ */
+export async function proposeFiling(orgId: string, createdBy: string | null, agentSlug: string | null, material: { title: string; documentId?: number }, match: MatchOutcome): Promise<{ ask: Ask; kind: 'confirm' | 'new-room' }> {
+  const describe = (n = 3) => match.candidates.slice(0, n).map(c => `#${c.room.id} ${c.room.title} (${Math.round(c.score * 100)}%: ${c.evidence.join(', ')})`).join('; ');
+  if (match.confidence === 'medium' && match.best) {
+    const { ask } = await upsertAsk({
+      orgId,
+      createdBy,
+      ask: {
+        kind: 'recommendation',
+        title: `File "${material.title}" into ${match.best.room.title}?`,
+        body: `It looks like it belongs there (${match.best.evidence.join(', ')}), but not clearly enough to file on its own.\n\nCandidates: ${describe()}`,
+        options: match.candidates.slice(0, 3).map((c, i) => ({ id: `room-${c.room.id}`, label: c.room.title, recommended: i === 0, confidence: c.score })).concat([{ id: 'new-room', label: 'A new room', recommended: false, confidence: 0 }]),
+        contextUrl: roomHref(match.best.room.id),
+        sourceRef: material.documentId ? `data-room:file:${material.documentId}` : null,
+        risk: 'low',
+        agentSlug,
+      },
+    });
+    return { ask, kind: 'confirm' };
+  }
+  const { ask } = await upsertAsk({
+    orgId,
+    createdBy,
+    ask: {
+      kind: 'recommendation',
+      title: `New opportunity? "${material.title}" matches no data room`,
+      body: `Nothing filed yet. Open a room for it if this is a new engagement${match.candidates.length ? `; nearest rooms: ${describe()}` : ''}.`,
+      options: [{ id: 'open-room', label: 'Open a data room', recommended: true, confidence: 0.5 }, { id: 'ignore', label: 'Not an engagement', recommended: false }],
+      sourceRef: material.documentId ? `data-room:new:${material.documentId}` : null,
+      risk: 'low',
+      agentSlug,
+    },
+  });
+  return { ask, kind: 'new-room' };
 }
 
 /* ------------------------------------------------------------------ */
@@ -523,27 +776,36 @@ export async function knowledgeDocument(orgId: string, id: number): Promise<Know
 
 /**
  * The whole room as one markdown file — the "download context for an LLM"
- * bundle: the README first (status, deliverables, cast, sources by weight,
- * open items), then every decision log, then the outline of every document.
- * @param orgId - The project.
- * @param id - The room id.
+ * bundle, and exactly what `read_data_room` hands the agent. Order is the
+ * order to read in: the rules first (they govern everything below), the
+ * status, the notes (the wiki), the entity and stage, then the material by
+ * weight, the timeline, the highlights, the open items, every decision log,
+ * and the outline of every document. Pure: the detail in, markdown out.
+ * @param room - The room with its artifacts and items.
  */
-export async function exportDataRoom(orgId: string, id: number): Promise<string | null> {
-  const room = await getDataRoomDetail(orgId, id);
-  if (!room) {
-    return null;
-  }
+export function renderDataRoom(room: DataRoomDetail): string {
   const m = room.meta;
   const stars = (n: number) => '⭐'.repeat(Math.max(1, Math.min(3, n)));
+  const anchor = roomAnchor(m);
   const lines: string[] = [`# ${room.title} — data room`, ''];
   if (m.client || m.codename || m.stage) {
     lines.push([m.client ? `Client: ${m.client}` : null, m.codename ? `Codename: ${m.codename}` : null, m.stage ? `Stage: ${m.stage}` : null].filter(Boolean).join(' · '), '');
   }
+  if (anchor) {
+    lines.push(`Anchor: ${anchor.type}${anchor.label ? ` "${anchor.label}"` : ''}${anchor.system ? ` in ${anchor.system}` : ''}${anchor.id ? ` (${anchor.id})` : ''}${anchor.url ? ` — ${anchor.url}` : ''}${anchor.amount ? ` · $${anchor.amount.toLocaleString('en-US')}` : ''}`, '');
+  }
+  if (m.rules?.length) {
+    lines.push('## Rules for this room', '');
+    for (const r of m.rules) {
+      lines.push(`- ${r}`);
+    }
+    lines.push('');
+  }
   if (m.status) {
     lines.push(`> **Status${m.statusAt ? ` as of ${m.statusAt.slice(0, 10)}` : ''}.** ${m.status}`, '');
   }
-  if (m.deal?.id || m.deal?.url) {
-    lines.push(`Deal: ${m.deal.system ?? 'CRM'} ${m.deal.id ?? ''}${m.deal.url ? ` — ${m.deal.url}` : ''}${m.deal.amount ? ` · $${m.deal.amount.toLocaleString('en-US')}` : ''}`, '');
+  if (m.notes?.trim()) {
+    lines.push('## Notes', '', m.notes.trim(), '');
   }
   if (m.deliverables?.length) {
     lines.push('## Deliverables', '');
@@ -563,7 +825,23 @@ export async function exportDataRoom(orgId: string, id: number): Promise<string 
   if (sources.length) {
     lines.push('## Sources', '');
     for (const s of sources) {
-      lines.push(`- ${stars(s.rating)} ${s.date ? `**${s.date}** · ` : ''}${s.title} — ${s.kind}${s.channel ? ` via ${s.channel}` : ''}, filed ${s.retrievedAt.slice(0, 10)}${s.note ? `. ${s.note}` : ''}`);
+      const how = s.filedBy === 'auto' ? `, filed automatically${s.score === undefined ? '' : ` at ${Math.round(s.score * 100)}%`}${s.evidence?.length ? ` (${s.evidence.join(', ')})` : ''}` : '';
+      lines.push(`- ${stars(s.rating)} ${s.date ? `**${s.date}** · ` : ''}${s.title} — ${s.kind}${s.channel ? ` via ${s.channel}` : ''}, filed ${s.retrievedAt.slice(0, 10)}${how}${s.note ? `. ${s.note}` : ''}`);
+    }
+    lines.push('');
+  }
+  if (m.milestones?.length) {
+    lines.push('## Timeline', '', '| Date | Milestone | Status |', '|---|---|---|');
+    for (const ms of [...m.milestones].sort((a, b) => a.date.localeCompare(b.date))) {
+      lines.push(`| ${ms.date} | ${ms.title}${ms.note ? ` — ${ms.note}` : ''}${ms.artifactId ? ` (artifact #${ms.artifactId})` : ''} | ${ms.status} |`);
+    }
+    lines.push('');
+  }
+  if (m.highlights?.length) {
+    lines.push('## Highlights', '');
+    for (const h of m.highlights) {
+      const attribution = [h.who, h.date, h.source].filter(Boolean).join(', ');
+      lines.push(`- **${h.kind}** · ${h.kind === 'quote' ? `"${h.text}"` : h.text}${attribution ? ` — ${attribution}` : ''}`);
     }
     lines.push('');
   }
@@ -575,7 +853,7 @@ export async function exportDataRoom(orgId: string, id: number): Promise<string 
     done.forEach(i => lines.push(`- ~~${i.title}~~ (${i.status}${i.decisionNote ? `: ${i.decisionNote}` : ''})`));
     lines.push('');
   }
-  const logs = room.artifacts.filter(a => a.kind === 'markdown');
+  const logs = room.artifacts.filter(a => a.kind === 'markdown' && (a.recordRole ?? '').startsWith('decision-log'));
   for (const a of logs) {
     lines.push(`## ${a.title}`, '', String((a.spec as { md?: string }).md ?? ''), '');
   }
@@ -588,7 +866,25 @@ export async function exportDataRoom(orgId: string, id: number): Promise<string 
     }
     lines.push('');
   }
+  const working = room.artifacts.filter(a => !docs.includes(a) && !logs.includes(a) && !(a.recordRole ?? '').startsWith('source:'));
+  if (working.length) {
+    lines.push('## Working files', '');
+    for (const a of working) {
+      lines.push(`- ${a.title} · ${a.kind} · v${a.currentVersion}${a.recordRole ? ` · ${a.recordRole}` : ''}`);
+    }
+    lines.push('');
+  }
   return lines.join('\n');
+}
+
+/**
+ * The room's bundle, read from the database. Null when the id is not a room.
+ * @param orgId - The project.
+ * @param id - The room id.
+ */
+export async function exportDataRoom(orgId: string, id: number): Promise<string | null> {
+  const room = await getDataRoomDetail(orgId, id);
+  return room ? renderDataRoom(room) : null;
 }
 
 /**

@@ -4226,6 +4226,99 @@
         ]
       }
     },
+    "/api/v1/rooms/{id}": {
+      "get": {
+        "operationId": "get_rooms_id",
+        "summary": "`GET /api/v1/rooms/:id` — the room as JSON (title, status, meta).",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`GET /api/v1/rooms/:id` — the room as JSON (title, status, meta).\n`PATCH /api/v1/rooms/:id` — a person editing the room's own knowledge from\nits page: the notes (the wiki), the rules, whether the collector may file\ninto it. Everything else changes through the agent's `update_data_room`,\nso the page stays one obvious path per field. A dashboard session or a\n`vcn_live_` token; the caller's org must own the room.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_rooms_id",
+        "summary": "PATCH /api/v1/rooms/{id}",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/rooms/{id}/export": {
       "get": {
         "operationId": "get_rooms_id_export",
@@ -4269,6 +4362,72 @@
             "description": "The id from the URL.",
             "schema": {
               "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/rooms/{id}/sources": {
+      "delete": {
+        "operationId": "delete_rooms_id_sources",
+        "summary": "`DELETE /api/v1/rooms/:id/sources?document=<id>` (or `?artifact=<id>`) — take a source out of a room: the undo of a filing, the collector's included.",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`DELETE /api/v1/rooms/:id/sources?document=<id>` (or `?artifact=<id>`) —\ntake a source out of a room: the undo of a filing, the collector's\nincluded. The document stays in the knowledge base; the room forgets the\nlink and will not auto-file that document again. A dashboard session or a\n`vcn_live_` token; the caller's org must own the room.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "artifact",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
             }
           }
         ]

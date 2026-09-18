@@ -53,6 +53,7 @@ const KNOWN: Record<string, StepLabels> = {
   create_data_room: { running: 'Opening a data room…', done: 'Opened a data room' },
   update_data_room: { running: 'Updating the data room…', done: 'Updated the data room' },
   file_to_data_room: { running: 'Filing into the data room…', done: 'Filed into the data room' },
+  unfile_from_data_room: { running: 'Taking it out of the data room…', done: 'Took it out of the data room' },
   add_open_item: { running: 'Adding an open item…', done: 'Added an open item' },
   propose_action: { running: 'Proposing an action…', done: 'Proposed an action' },
   recommend_action: { running: 'Preparing a recommendation…', done: 'Recommended an action' },
