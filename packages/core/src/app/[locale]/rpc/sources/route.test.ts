@@ -14,6 +14,7 @@ vi.mock('@/libs/sources/registry', () => ({ listConnectors: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({ credentialStatusForOrg: vi.fn() }));
 vi.mock('@/services/SourceSyncService', () => ({
   addSource: vi.fn(),
+  chunkCountsForOrg: vi.fn(async () => ({})),
   documentCountsForOrg: vi.fn(),
   latestSyncStateForOrg: vi.fn(),
   listSources: vi.fn(),
@@ -136,8 +137,8 @@ describe('GET /rpc/sources', () => {
       // the workspace already holds instead of asking for the key again.
       // `syncless` + `inspectable` are what put Test connection on a row
       // where a syncing source shows Sync now.
-      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false },
-      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false },
+      { slug: 'strapi', name: 'Strapi', description: 'Strapi CMS', icon: 'Database', authKind: 'apikey', credentialPlatform: 'strapi', syncless: false, inspectable: false, requiredScopes: null },
+      { slug: 'web', name: 'Web', description: 'Crawl a site', icon: 'Globe', authKind: 'none', credentialPlatform: null, syncless: false, inspectable: false, requiredScopes: null },
     ]);
   });
 

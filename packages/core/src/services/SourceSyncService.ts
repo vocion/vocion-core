@@ -1390,6 +1390,25 @@ export async function documentCountsForOrg(orgId: string): Promise<Record<number
   return map;
 }
 
+/**
+ * Chunks per source — the size a connector actually occupies in retrieval,
+ * which a document count alone does not say (one PDF can be 400 chunks).
+ * @param orgId - Org whose sources to count for.
+ */
+export async function chunkCountsForOrg(orgId: string): Promise<Record<number, number>> {
+  const rows = await db
+    .select({ sourceId: knowledgeDocumentSchema.sourceId, count: sql<number>`count(${knowledgeChunkSchema.id})::int` })
+    .from(knowledgeChunkSchema)
+    .innerJoin(knowledgeDocumentSchema, eq(knowledgeChunkSchema.documentId, knowledgeDocumentSchema.id))
+    .where(eq(knowledgeDocumentSchema.orgId, orgId))
+    .groupBy(knowledgeDocumentSchema.sourceId);
+  const map: Record<number, number> = {};
+  for (const r of rows) {
+    map[r.sourceId] = Number(r.count);
+  }
+  return map;
+}
+
 /** What the last (or current) sync run of one source is doing, for the UI. */
 export type SourceSyncState = {
   /**

@@ -48,6 +48,13 @@ type ZoomRecordingList = {
 
 type ZoomMeeting = NonNullable<ZoomRecordingList['meetings']>[number];
 
+/** The granular scopes a Server-to-Server OAuth app needs for this connector's reads. */
+export const ZOOM_REQUIRED_SCOPES: readonly string[] = [
+  'user:read:list_users:admin',
+  'cloud_recording:read:list_user_recordings:admin',
+  'cloud_recording:read:list_recording_files:admin',
+];
+
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 async function mintToken(authBaseUrl: string, credentials: Record<string, unknown> | undefined): Promise<string> {
@@ -186,6 +193,10 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   icon: 'Video',
   authKind: 'oauth',
   configSchema: zoomConfigSchema,
+  // What the Server-to-Server app must be granted. Zoom's own error names the
+  // missing ones by these ids (code 4711, 2026-09-18 on prod), so the page can
+  // mark exactly which to add.
+  requiredScopes: ZOOM_REQUIRED_SCOPES,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = zoomConfigSchema.parse(ctx.config);
     const token = await mintToken(cfg.authBaseUrl, ctx.credentials);

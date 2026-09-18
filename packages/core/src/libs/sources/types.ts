@@ -117,4 +117,11 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
    * company-search check — so nobody spends it without being told.
    */
   inspectNote?: string;
+  /**
+   * The OAuth scopes the third party must grant for `sync` to work, when the
+   * connector knows them. The Connectors page lists them on the connected row
+   * and marks the ones a failed run's error named as missing, so "scope
+   * missing" is fixed from the page rather than from a support thread.
+   */
+  requiredScopes?: readonly string[];
 };
