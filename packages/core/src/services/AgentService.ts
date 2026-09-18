@@ -665,6 +665,10 @@ export async function runAgentDeep(opts: {
       for (const node of nodes) {
         emit(node);
       }
+      // "Composing render_document…" while a long tool call is still streaming.
+      for (const side of tracer.takeSideEvents()) {
+        emit(side);
+      }
       if (ev.event === 'on_tool_start') {
         for (const node of nodes) {
           if (node.status === 'start' && tracer.wantsLabels(node.id)) {

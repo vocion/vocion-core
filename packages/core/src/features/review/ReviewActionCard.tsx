@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
+import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { useDraftRevision } from '@/features/personalization/draftRevision';
@@ -191,7 +192,7 @@ export function ReviewActionCard(props: {
     let alive = true;
     const check = async () => {
       try {
-        const s = await client.review.actionStatus({ id: run.id });
+        const s = await (isPollableRunId(run.id) ? client.review.actionStatus({ id: run.id }) : Promise.reject(new Error('not a run')));
         if (!alive) {
           return;
         }
