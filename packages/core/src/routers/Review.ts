@@ -286,6 +286,25 @@ export const actionStatusRoute = os
     };
   });
 
+/**
+ * The context beside one proposal — the contact, the exchange so far, the
+ * sequence — for a surface that decides a run outside the record sheet (the
+ * dock's card, a domain console). The record sheet reads the same service
+ * server-side.
+ */
+export const contextRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { reviewRowById } = await import('@/services/inbox/reviewRows');
+    const { loadReviewContext } = await import('@/services/inbox/reviewContext');
+    const row = await reviewRowById(orgId, input.id);
+    if (!row) {
+      throw ApiError.notFound(`no action ${input.id}`);
+    }
+    return loadReviewContext(orgId, row);
+  });
+
 /** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
 export const rewriteDraftRoute = os
   .input(z.object({

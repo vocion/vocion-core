@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { AskOption } from '@/models/Schema';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ExternalLink, RotateCcw } from 'lucide-react';
@@ -98,8 +99,10 @@ function nextFor(endpoint: 'ask' | 'review', decision: string): string {
  * what that button says. Pressed, never automatic.
  * @param props.onDecided - Told about each answer as it lands, so a parent
  * can move the row into a decided list it already renders without a refetch.
+ * @param props.extra
+ * @param props.aside
  */
-export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kind, crumbs, exit = DEFAULT_EXIT, onDecided }: {
+export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kind, crumbs, exit = DEFAULT_EXIT, onDecided, extra, aside }: {
   asks: SheetAsk[];
   title?: string | null;
   kind?: InboxKind;
@@ -114,6 +117,15 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
   allowOther?: boolean;
   exit?: SheetExit;
   onDecided?: (ask: SheetAsk, decision: { id: string; label: string }) => void;
+  /**
+   * What the reviewer must read before the options — the reason for the
+   * proposal and the email itself, on a review item. Rendered between the
+   * body's lead and the option rows, in the reading order a decision needs:
+   * why, what is recommended, the thing, then the choice.
+   */
+  extra?: (ask: SheetAsk) => ReactNode;
+  /** Glanceable context beside the question on a wide screen, below it on a phone. */
+  aside?: (ask: SheetAsk) => ReactNode;
 }) {
   const router = useRouter();
   const multi = asks.length > 1;
@@ -333,8 +345,10 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
       : `${chosen ?? 'Choose an answer'}${chosen ? ` · ${last ? 'Submit' : 'Next'}` : ''}`
     : (chosen && chosen !== verbs.primary.label ? `${verbs.primary.label} · ${chosen}` : verbs.primary.label);
 
+  const sideNode = aside?.(current);
+  const extraNode = extra?.(current);
   return (
-    <div className="mx-auto w-full max-w-3xl" data-testid="ask-sheet" data-pending={pending || undefined}>
+    <div className={sideNode ? 'mx-auto w-full max-w-6xl' : 'mx-auto w-full max-w-3xl'} data-testid="ask-sheet" data-pending={pending || undefined}>
       <ReviewHeader
         crumbs={sheetCrumbs}
         title={sentenceCase(current.title)}
@@ -348,99 +362,105 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
           ? <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium tracking-wide uppercase ${riskTone(current.risk)}`}>{`${current.risk} risk`}</span>
           : undefined}
       />
-      {body.lead && (
-        <div className="prose prose-sm mt-4 mb-4 max-w-none text-muted-foreground dark:prose-invert">
-          <Markdown remarkPlugins={[remarkGfm]}>{body.lead}</Markdown>
-        </div>
-      )}
+      <div className={sideNode ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-10' : undefined}>
+        <div className="min-w-0">
+          {body.lead && (
+            <div className="prose prose-sm mt-4 mb-4 max-w-none text-muted-foreground dark:prose-invert">
+              <Markdown remarkPlugins={[remarkGfm]}>{body.lead}</Markdown>
+            </div>
+          )}
+          {extraNode}
 
-      <div role="radiogroup" aria-label="Your answer" aria-busy={pending || undefined} className={`mt-4 space-y-2 transition ${locked ? 'opacity-70' : ''}`}>
-        {rows.map(option => (
-          <OptionRow
-            key={option.id}
-            option={isNearDuplicate(option.description, paragraph) ? { ...option, description: undefined } : option}
-            selected={answer.decision === option.id}
-            disabled={locked}
-            onSelect={() => setAnswer(current.id, { decision: option.id })}
-          />
-        ))}
-        {allowOther && (
-          <OptionRow
-            option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
-            selected={answer.decision === OTHER}
-            disabled={locked}
-            onSelect={() => setAnswer(current.id, { decision: OTHER })}
-          />
-        )}
-        {answer.decision === OTHER && (
-          <textarea
-            value={answer.note}
-            onChange={e => setAnswer(current.id, { note: e.target.value })}
-            rows={4}
-            disabled={locked}
-            placeholder="What should happen instead?"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-          />
-        )}
-      </div>
-
-      {done && (
-        <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400" data-testid="ask-answered">
-          <Check className="size-4" aria-hidden />
-          {`Answered: ${chosen ?? answer.decision}`}
-        </p>
-      )}
-
-      {!done && answer.decision !== '' && answer.decision !== OTHER && (
-        <details className="mt-3">
-          <summary className="inline-flex min-h-10 cursor-pointer items-center text-sm text-muted-foreground hover:text-foreground">Add a note</summary>
-          <textarea
-            value={answer.note}
-            onChange={e => setAnswer(current.id, { note: e.target.value })}
-            rows={3}
-            disabled={locked}
-            placeholder="Optional — travels back with the answer."
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-          />
-        </details>
-      )}
-
-      {hasDetails && (
-        <details className="mt-4 rounded-md border border-border">
-          <summary className="flex min-h-11 cursor-pointer items-center gap-1.5 px-3 text-sm font-medium">
-            <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
-            {body.rest ? 'Show details' : 'Details'}
-          </summary>
-          <div className="space-y-3 border-t border-border px-3 py-3">
-            {evidence.length > 0 && (
-              <section aria-label="Evidence">
-                <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Evidence</h3>
-                <EvidenceRefs sources={evidence} />
-              </section>
+          <div role="radiogroup" aria-label="Your answer" aria-busy={pending || undefined} className={`mt-4 space-y-2 transition ${locked ? 'opacity-70' : ''}`}>
+            {rows.map(option => (
+              <OptionRow
+                key={option.id}
+                option={isNearDuplicate(option.description, paragraph) ? { ...option, description: undefined } : option}
+                selected={answer.decision === option.id}
+                disabled={locked}
+                onSelect={() => setAnswer(current.id, { decision: option.id })}
+              />
+            ))}
+            {allowOther && (
+              <OptionRow
+                option={{ id: OTHER, label: 'Other', description: 'Answer in your own words. The team reads it and may come back with a follow-up.' }}
+                selected={answer.decision === OTHER}
+                disabled={locked}
+                onSelect={() => setAnswer(current.id, { decision: OTHER })}
+              />
             )}
-            {body.rest && (
-              <div className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
-                <Markdown remarkPlugins={[remarkGfm]}>{body.rest}</Markdown>
-              </div>
-            )}
-            {current.contextMd && (
-              <div className={`prose prose-sm max-w-none dark:prose-invert ${body.rest ? 'border-t border-border pt-3' : ''}`}>
-                <Markdown remarkPlugins={[remarkGfm]}>{current.contextMd}</Markdown>
-              </div>
-            )}
-            {current.contextUrl && (
-              <a href={current.contextUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary underline-offset-2 hover:underline">
-                Open the context
-                <ExternalLink className="size-3.5" aria-hidden />
-              </a>
+            {answer.decision === OTHER && (
+              <textarea
+                value={answer.note}
+                onChange={e => setAnswer(current.id, { note: e.target.value })}
+                rows={4}
+                disabled={locked}
+                placeholder="What should happen instead?"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+              />
             )}
           </div>
-        </details>
-      )}
 
-      {outcome && !outcome.ok && (
-        <div role="alert" className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{outcome.error}</div>
-      )}
+          {done && (
+            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400" data-testid="ask-answered">
+              <Check className="size-4" aria-hidden />
+              {`Answered: ${chosen ?? answer.decision}`}
+            </p>
+          )}
+
+          {!done && answer.decision !== '' && answer.decision !== OTHER && (
+            <details className="mt-3">
+              <summary className="inline-flex min-h-10 cursor-pointer items-center text-sm text-muted-foreground hover:text-foreground">Add a note</summary>
+              <textarea
+                value={answer.note}
+                onChange={e => setAnswer(current.id, { note: e.target.value })}
+                rows={3}
+                disabled={locked}
+                placeholder="Optional — travels back with the answer."
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+              />
+            </details>
+          )}
+
+          {hasDetails && (
+            <details className="mt-4 rounded-md border border-border">
+              <summary className="flex min-h-11 cursor-pointer items-center gap-1.5 px-3 text-sm font-medium">
+                <ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+                {body.rest ? 'Show details' : 'Details'}
+              </summary>
+              <div className="space-y-3 border-t border-border px-3 py-3">
+                {evidence.length > 0 && (
+                  <section aria-label="Evidence">
+                    <h3 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Evidence</h3>
+                    <EvidenceRefs sources={evidence} />
+                  </section>
+                )}
+                {body.rest && (
+                  <div className="prose prose-sm max-w-none text-muted-foreground dark:prose-invert">
+                    <Markdown remarkPlugins={[remarkGfm]}>{body.rest}</Markdown>
+                  </div>
+                )}
+                {current.contextMd && (
+                  <div className={`prose prose-sm max-w-none dark:prose-invert ${body.rest ? 'border-t border-border pt-3' : ''}`}>
+                    <Markdown remarkPlugins={[remarkGfm]}>{current.contextMd}</Markdown>
+                  </div>
+                )}
+                {current.contextUrl && (
+                  <a href={current.contextUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1 text-sm text-primary underline-offset-2 hover:underline">
+                    Open the context
+                    <ExternalLink className="size-3.5" aria-hidden />
+                  </a>
+                )}
+              </div>
+            </details>
+          )}
+
+          {outcome && !outcome.ok && (
+            <div role="alert" className="mt-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-700 dark:text-red-300">{outcome.error}</div>
+          )}
+        </div>
+        {sideNode && <div className="mt-8 lg:mt-4">{sideNode}</div>}
+      </div>
 
       <StickyActionBar
         primary={{ 'label': primaryLabel, 'onClick': () => void next(), 'disabled': !canAdvance || pending, 'busy': pending, 'icon': multi && !last && !done ? ArrowRight : Check, 'data-testid': 'ask-submit' }}

@@ -21,9 +21,12 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
     d.amount !== null ? `Amount ${amountLabel(d.amount, d.currency)}` : null,
     d.confidence !== null ? `Confidence ${confidenceLabel(d.confidence)}` : null,
   ].filter(Boolean).join(' · ');
+  // The reason is rendered in full by the sheet's "Why you're seeing this"
+  // block (`ReviewReason`) when the caller passes `reason`; here the body
+  // keeps only what changes and the facts, so nothing is said twice and the
+  // reason is never an italic afterthought (Chris, 2026-09-18).
   const body = [
     changes,
-    d.rationale ? `_${d.rationale}_` : null,
     facts || null,
   ].filter(Boolean).join('\n\n');
   const raw = `\`\`\`json\n${JSON.stringify(row.input, null, 2)}\n\`\`\``;

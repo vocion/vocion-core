@@ -1,8 +1,13 @@
 'use client';
 
 import type { SheetAsk } from './AskSheet';
+import type { EmailPreviewModel } from '@/services/inbox/emailPreview';
+import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
 import { useState } from 'react';
+import { EmailPreview } from '@/features/review/EmailPreview';
+import { ReviewContextRail } from '@/features/review/ReviewContextRail';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
+import { ReviewReason } from '@/features/review/ReviewReason';
 import { Link } from '@/libs/I18nNavigation';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { AskSheet } from './AskSheet';
@@ -36,11 +41,20 @@ export type DecidedProposal = {
  * @param props.title - The record's name.
  * @param props.crumbs - Breadcrumb for the header.
  */
-export function RecordSheet({ open, decided, title, crumbs }: {
+/** Why one proposal is on the sheet — the reason, who, since when. */
+export type SheetReason = { reason: string; runId: number; since: string | null; agentSlug: string | null };
+
+export function RecordSheet({ open, decided, title, crumbs, reasons = {}, emails = {}, contexts = {} }: {
   open: SheetAsk[];
   decided: DecidedProposal[];
   title: string;
   crumbs: Array<{ label: string; href?: string }>;
+  /** Per open proposal id: the agent's reason, rendered first and in full. */
+  reasons?: Record<number, SheetReason>;
+  /** Per open proposal id: the email as an email, when the proposal is one. */
+  emails?: Record<number, EmailPreviewModel>;
+  /** Per open proposal id: the contact, the exchange so far, the sequence — beside the decision. */
+  contexts?: Record<number, ReviewContextModel>;
 }) {
   const [justDecided, setJustDecided] = useState<DecidedProposal[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -71,6 +85,16 @@ export function RecordSheet({ open, decided, title, crumbs }: {
               allowOther={false}
               kind="proposal"
               crumbs={crumbs}
+              // Reading order for a decision (Chris, 2026-09-18): why this is
+              // here, what is recommended (the pre-selected row), the email
+              // itself, then the choice — with the contact's context beside it.
+              extra={ask => (
+                <>
+                  {reasons[ask.id] && <ReviewReason {...reasons[ask.id]!} />}
+                  {emails[ask.id] && <EmailPreview email={emails[ask.id]!} />}
+                </>
+              )}
+              aside={ask => (contexts[ask.id] ? <ReviewContextRail context={contexts[ask.id]!} /> : null)}
               onDecided={(ask, decision) => setJustDecided(d => [
                 { id: ask.id, title: ask.title, subline: ask.subline ?? decision.label, status: decision.id === 'approve' ? 'done' : 'rejected', decidedAt: null },
                 ...d,

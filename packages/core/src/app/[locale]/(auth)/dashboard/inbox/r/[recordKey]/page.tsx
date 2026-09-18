@@ -8,7 +8,9 @@ import { recordSheetView } from '@/features/dashboard/inbox/recordSheetView';
 import { reviewRowToSheetAsk } from '@/features/dashboard/inbox/reviewRowToSheetAsk';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { emailPreviewFrom } from '@/services/inbox/emailPreview';
 import { parseRecordKeyParam } from '@/services/inbox/recordKey';
+import { loadReviewContext } from '@/services/inbox/reviewContext';
 import { listReviewRowsForRecord } from '@/services/inbox/reviewRows';
 
 /**
@@ -52,9 +54,20 @@ export default async function RecordSheetPage(props: { params: Promise<{ locale:
     );
   }
   const { open, decided, name } = view;
+  // What the reviewer needs to decide, read once on the server: the reason
+  // in full, the email as an email, and the contact's context (CRM, mailbox
+  // mirror, sequence). The context is read for the proposals about an
+  // address; a deal update has no mailbox to check.
+  const contextRows = open.slice(0, 3);
+  const contexts = Object.fromEntries((await Promise.all(contextRows.map(async r => [r.id, await loadReviewContext(orgId, r)] as const))).filter(([, c]) => c.email !== null));
+  const reasons = Object.fromEntries(open.filter(r => r.described.rationale).map(r => [r.id, { reason: r.described.rationale!, runId: r.id, since: r.createdAt.toISOString(), agentSlug: r.described.agentSlug }]));
+  const emails = Object.fromEntries(open.map(r => [r.id, emailPreviewFrom(r.actionId, r.input)] as const).filter(([, e]) => e !== null));
 
   return (
     <RecordSheet
+      reasons={reasons}
+      emails={emails as Record<number, NonNullable<ReturnType<typeof emailPreviewFrom>>>}
+      contexts={contexts}
       open={open.map(reviewRowToSheetAsk)}
       decided={decided.map(r => ({
         id: r.id,

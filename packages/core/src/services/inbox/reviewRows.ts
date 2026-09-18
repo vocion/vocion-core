@@ -176,3 +176,46 @@ export async function listReviewRowsForRecord(orgId: string, recordKey: string):
   const match = (r: ReviewRow) => recordKeyOf(r) === recordKey;
   return { open: open.filter(match), decided: decided.filter(match) };
 }
+
+/**
+ * One action-plane row by id, described — for a surface that holds a run id
+ * and needs the row's context.
+ * @param orgId
+ * @param id
+ */
+export async function reviewRowById(orgId: string, id: number): Promise<ReviewRow | null> {
+  const [row] = await db
+    .select({
+      id: actionRunSchema.id,
+      actionId: actionRunSchema.actionId,
+      status: actionRunSchema.status,
+      input: actionRunSchema.input,
+      proposal: actionRunSchema.proposal,
+      invokedBy: actionRunSchema.invokedBy,
+      createdAt: actionRunSchema.createdAt,
+      executedAt: actionRunSchema.executedAt,
+      decidedAt: actionRunSchema.decidedAt,
+      decidedBy: actionRunSchema.decidedBy,
+    })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, id)))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  const [described] = await withRecordNames(orgId, [{
+    id: row.id,
+    actionId: row.actionId,
+    status: row.status,
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt ?? row.executedAt ?? null,
+    decidedBy: row.decidedBy ?? null,
+    snoozedUntil: null,
+    note: null,
+    assignedTo: null,
+    input: row.input ?? {},
+    proposal: (row.proposal as Record<string, unknown> | null) ?? null,
+    invokedBy: row.invokedBy,
+  }]);
+  return described ?? null;
+}

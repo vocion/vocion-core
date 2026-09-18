@@ -104,6 +104,7 @@ import { list as listProjects, setActive as setActiveProject } from './Projects'
 import {
   actionStatusRoute,
   cancel,
+  contextRoute,
   decideActionRoute,
   getWorkflowRunRoute,
   listAutoExecutedRoute,
@@ -296,6 +297,7 @@ export const router = {
     recordSignal: recordSignalRoute,
     rewriteDraft: rewriteDraftRoute,
     actionStatus: actionStatusRoute,
+    context: contextRoute,
     submitFeedback,
     listWorkflowRuns: listWorkflowRunsRoute,
     getWorkflowRun: getWorkflowRunRoute,
