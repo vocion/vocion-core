@@ -258,6 +258,31 @@ export async function listAskGroup(orgId: string, groupKey: string): Promise<Ask
 }
 
 /**
+ * How many asks are still open in each of several groups — the open-items
+ * count a board shows per room, in one query. Groups with nothing open are
+ * absent from the map.
+ * @param orgId
+ * @param groupKeys
+ */
+export async function countOpenAsksByGroup(orgId: string, groupKeys: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (groupKeys.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({ groupKey: askSchema.groupKey, n: sql<number>`count(*)::int` })
+    .from(askSchema)
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), inArray(askSchema.groupKey, groupKeys)))
+    .groupBy(askSchema.groupKey);
+  for (const r of rows) {
+    if (r.groupKey) {
+      out.set(r.groupKey, Number(r.n));
+    }
+  }
+  return out;
+}
+
+/**
  * `open` | `decided` | `all`, or one exact status.
  * `decided` is every status a person has already answered with.
  */

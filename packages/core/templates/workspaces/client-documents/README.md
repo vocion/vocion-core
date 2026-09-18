@@ -17,6 +17,13 @@ objects/data_room/type.yaml        the room's shape and how material is matched 
 brand.yaml + brand/                the seller's brand guide: palette tokens, logos, voice rules (read by get_brand)
 ```
 
+`surfaces: [proposals]` in `workspace.yaml` switches on the **Proposals** app
+under GTM (`/gtm/proposals`): every room at Proposal stage with its latest
+document and verify state, open items, and a Draft action that hands the room
+to the Proposal Writer. The app is registered in core
+(`features/navigation/surfaces.ts`, read model `services/proposals/board.ts`);
+the workspace only names it.
+
 Apply it to a project:
 
 ```bash

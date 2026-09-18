@@ -19,7 +19,7 @@ const meta: Meta<typeof DiscoveryLedger> = {
   decorators: [
     Story => (
       <NextIntlClientProvider locale="en">
-        <ListPage title="Discovery ledger" description="Every call the detection agent assessed — what it decided, why, and what you did with it.">
+        <ListPage title="Discovery calls" description="Every call the detection agent assessed — what it decided, why, and what you did with it.">
           <Story />
         </ListPage>
       </NextIntlClientProvider>
