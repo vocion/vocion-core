@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
+import { canOpenArtifact } from '@/libs/share/audience';
 import { getArtifact, toPayload } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 
@@ -29,6 +30,24 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
   const row = await getArtifact({ orgId, id: artifactId });
   if (!row) {
     notFound();
+  }
+  // Shared with its owner only (`libs/share/audience.ts`): say so, plainly.
+  if (!canOpenArtifact({ audience: row.shareAudience, ownerId: row.shareOwnerId ?? null }, { userId: userId ?? null, isMember: true, hasToken: false })) {
+    return (
+      <div className="flex h-[calc(100vh-8rem)] flex-col gap-2">
+        <p className="text-[12px] text-muted-foreground"><Link href="/dashboard/artifacts" className="hover:text-foreground">Artifacts</Link></p>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="max-w-sm text-center">
+            <h1 className="text-base font-semibold text-foreground">
+              “
+              {row.title}
+              ” is shared with its owner only
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">Ask them to widen the audience to this workspace.</p>
+          </div>
+        </div>
+      </div>
+    );
   }
   const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId }) : null;
 

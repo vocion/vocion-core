@@ -5,6 +5,7 @@ import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
+import { canOpenArtifact } from '@/libs/share/audience';
 import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
@@ -206,12 +207,17 @@ registerPreview('artifact', {
       return null;
     }
     const [row] = await db
-      .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, spec: artifactSchema.spec, url: artifactSchema.url, folder: artifactSchema.folder, version: artifactSchema.currentVersion, updatedAt: artifactSchema.updatedAt, author: artifactSchema.lastAuthorId })
+      .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, spec: artifactSchema.spec, url: artifactSchema.url, folder: artifactSchema.folder, version: artifactSchema.currentVersion, updatedAt: artifactSchema.updatedAt, author: artifactSchema.lastAuthorId, shareAudience: artifactSchema.shareAudience, shareOwnerId: artifactSchema.shareOwnerId })
       .from(artifactSchema)
       .where(and(eq(artifactSchema.orgId, ctx.orgId), eq(artifactSchema.id, id)))
       .limit(1);
     if (!row) {
       return null;
+    }
+    // Shared with its owner only: the title is a fact of the workspace, the
+    // body is not (`libs/share/audience.ts`).
+    if (!canOpenArtifact({ audience: row.shareAudience, ownerId: row.shareOwnerId ?? null }, { userId: ctx.userId, isMember: true, hasToken: false })) {
+      return { ref, title: row.title, sourceLabel: 'Artifact', kind: row.kind, unresolved: { reason: 'Shared with its owner only. Ask them to widen the audience.', reference: `artifact ${row.id}` } };
     }
     const spec = row.spec as Record<string, unknown>;
     // `md` FIRST, because that is what every markdown artifact actually
@@ -228,6 +234,7 @@ registerPreview('artifact', {
       ref,
       title: row.title,
       sourceLabel: 'Artifact',
+      kind: row.kind,
       subtitle: row.folder ?? undefined,
       facts: facts(
         { label: 'Kind', value: row.kind },

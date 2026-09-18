@@ -7,11 +7,14 @@
  * tool can do that the browser cannot is create without a conversation.
  */
 
+import type { ArtifactRow } from '@/services/ArtifactService';
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
+import { artifactSharePath, signArtifactShare } from '@/libs/share/artifactShareToken';
+import { SHARE_AUDIENCES } from '@/libs/share/audience';
 import { track } from '@/services/adoption/track';
-import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
+import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, setArtifactShare, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 import { reviseDocument } from '@/services/documents/DocumentEngine';
 import { ApiError } from './ApiError';
@@ -132,6 +135,46 @@ export const update = os
       }
       return rethrow(err);
     }
+  });
+
+/**
+ * What the share picker shows: the audience, its owner, and the public path when there is one.
+ * @param row
+ */
+function shareInfo(row: ArtifactRow) {
+  return {
+    audience: row.shareAudience,
+    ownerId: row.shareOwnerId ?? null,
+    publicPath: row.shareAudience === 'anyone' ? artifactSharePath(signArtifactShare({ artifactId: row.id, orgId: row.orgId })) : null,
+  };
+}
+
+/** The share state of one artifact. */
+export const share = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const row = await getArtifact({ orgId, id: input.id });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return shareInfo(row);
+  });
+
+/**
+ * Choose who an artifact opens for. `anyone` mints the public link; choosing
+ * anything narrower afterwards kills every copy of it, because the public
+ * route re-checks the audience on every request.
+ */
+export const setShare = os
+  .input(z.object({ id: z.number().int().positive(), audience: z.enum(SHARE_AUDIENCES) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const row = await setArtifactShare({ orgId, id: input.id, audience: input.audience, userId: userId ?? null });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return shareInfo(row);
   });
 
 export const setFolder = os

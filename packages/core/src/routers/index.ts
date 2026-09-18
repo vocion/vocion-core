@@ -15,6 +15,7 @@ import {
 import { createPlatformKeyRoute, createTokenRoute, listPlatformsRoute, listTokensRoute, revealPlatformKeyRoute, revokeTokenRoute } from './ApiTokens';
 import {
   folders as artifactFoldersRoute,
+  share as artifactShareRoute,
   exportPage as exportArtifactPageRoute,
   get as getArtifactRoute,
   version as getArtifactVersionRoute,
@@ -24,6 +25,7 @@ import {
   remove as removeArtifactRoute,
   restore as restoreArtifactVersionRoute,
   setFolder as setArtifactFolderRoute,
+  setShare as setArtifactShareRoute,
   update as updateArtifactRoute,
 } from './Artifacts';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
@@ -236,6 +238,8 @@ export const router = {
     restore: restoreArtifactVersionRoute,
     remove: removeArtifactRoute,
     exportPage: exportArtifactPageRoute,
+    share: artifactShareRoute,
+    setShare: setArtifactShareRoute,
   },
   conversations: {
     list: listConvs,

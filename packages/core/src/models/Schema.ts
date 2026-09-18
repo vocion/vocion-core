@@ -3958,6 +3958,10 @@ export const artifactSchema = pgTable(
      * would move the audit answer.
      */
     visibility: text('visibility').$type<'user' | 'system'>().default('user').notNull(),
+    /** Who a share opens for (`libs/share/audience.ts`): me | workspace | anyone. Defaulted, so nothing changes for a row nobody touched. */
+    shareAudience: text('share_audience').$type<'me' | 'workspace' | 'anyone'>().default('workspace').notNull(),
+    /** The person who chose `me`; null otherwise. */
+    shareOwnerId: text('share_owner_id'),
     /** Denormalised head author, so the log lists "last editor" without a join. */
     lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
     lastAuthorId: text('last_author_id'),

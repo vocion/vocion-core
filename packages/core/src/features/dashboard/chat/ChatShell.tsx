@@ -10,7 +10,8 @@ import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
-import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
+import { AboutRecordChip } from './AboutRecordChip';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
@@ -196,9 +197,20 @@ function ChatShellInner({
     }
     startedNew.current = true;
     sessionRef.current.handleNewChat();
+    // A record carried in without a question ("Chat about this" from a page
+    // with no rail) becomes the About chip; the person writes the first line.
+    const about = takeChatAbout();
+    if (about) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- the URL said "new": one deliberate reset, not a cascade
+      setIntent({ context: { path: window.location.pathname, title: document.title, record: about, openedFrom: true } });
+    }
+    // Drop only `new`: a `preview=` opened beside the fresh thread stays.
+    const params = new URLSearchParams(window.location.search);
+    params.delete('new');
+    const qs = params.toString();
     focusAgentComposer(null);
-    router.replace('/dashboard/chat');
-  }, [startNew, session.booted, router]);
+    router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
+  }, [startNew, session.booted, router, pathname]);
   const queueProps = useComposerQueueProps(session);
   // `@` and `(+)` offer the same list: the artifact contract, then the records
   // this surface knows. The full page is not on a record, so there is no page
@@ -315,7 +327,14 @@ function ChatShellInner({
           )}
 
           <ChatComposer
-            above={intent?.context?.selection ? <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(null)} /> : undefined}
+            above={intent?.context?.selection || intent?.context?.record
+              ? (
+                  <>
+                    {intent.context.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
+                    {intent.context.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
+                  </>
+                )
+              : undefined}
             onCommand={onCommand}
             value={session.composerValue}
             onChange={session.setComposerValue}

@@ -18,7 +18,6 @@ import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
-import { AgentMark } from './AgentMark';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
@@ -586,8 +585,9 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           corner, so the row keeps clear of it rather than stacking under it. */}
       <div className={`flex h-12 shrink-0 items-center gap-1 border-b border-border pl-3 ${narrow ? 'pr-11' : 'pr-1.5'}`}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {!scopeRef && <AgentMark name={headerName} className="size-6 justify-center" decorative />}
-          <span className="truncate text-sm font-semibold">{headerName}</span>
+          {/* Unscoped, the rail is titled "Chat" with the bubble — not the workspace's name, which the sidebar already says (Chris, 2026-09-18). */}
+          {!scopeRef && <MessageSquare className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+          <span className="truncate text-sm font-semibold">{scopeRef ? headerName : t('rail_title')}</span>
           {/* The drawer's scope, when an affordance opened it with one
               (`docs/specs/personalization-v2.md`): one line naming the
               subject, so an ask has an unambiguous referent. Not a panel and
