@@ -1,0 +1,20 @@
+# The data-rooms plugin — one room per entity (a deal, a project, an
+# engagement): everything ingested about it, everything written from it, and
+# the room's own rules and notes that keep the collection growing on its own.
+#
+# Core ships the MECHANISM (the room noun, matching, filing, the collector, the
+# page, the tools — `services/DataRoomService.ts`); this plugin ships the
+# MEANING: the room's schema, the skill that says how to work one, the keeper
+# that keeps rooms current, and the team that is graded on it. A workspace
+# turns it on with `plugins: [data-rooms]` and overrides any file by slug.
+slug: data-rooms
+name: Data rooms
+version: 1.0.0
+description: One room per engagement — the source of record documents are written from — with sources filed automatically after every sync, rules and notes the agent keeps, and open items on the review queue.
+recommend:
+  when:
+    - a person asks where a transcript, thread or document about a client or deal was filed
+    - a document (proposal, scope, update) needs to be written from what is known about one engagement
+    - the same client or deal comes up across several conversations and nothing collects it
+    - a deal reaches a proposal or negotiation stage in the CRM
+  connectors: [hubspot, zoom, gmail, drive, granola]

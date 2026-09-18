@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   BarChart3,
+  Blocks,
   BookOpen,
   CalendarClock,
   CheckSquare,
@@ -103,6 +104,12 @@ export type DashboardRoute = {
   pinnable?: true;
   /** A pinnable row that starts pinned for everyone until they unpin it. */
   defaultPinned?: true;
+  /**
+   * The plugin that owns this page (`workspace.yaml` `plugins:`). The row —
+   * sidebar, palette, breadcrumb owner — shows only while that plugin is on;
+   * the route itself stays reachable, so a deep link never 404s.
+   */
+  plugin?: string;
 };
 
 export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
@@ -135,7 +142,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // written from: status, cast, sources by weight, open items as asks. Under
   // Knowledge beside Objects (a room IS a record); the WORK view keeps its
   // five doors, and the rooms are one ⌘K away.
-  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Workspace', icon: FolderOpen, pinnable: true, keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
+  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Workspace', icon: FolderOpen, pinnable: true, plugin: 'data-rooms', keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
   { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },
 
@@ -144,6 +151,10 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench, i18nKey: 'tools', tabOf: '/dashboard/skills', keywords: ['capabilities', 'web search', 'keys'] },
   { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu, i18nKey: 'vision_models', tabOf: '/dashboard/skills', keywords: ['rekognition', 'classifier', 'analyze'] },
   { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', keywords: ['tests', 'datasets'] },
+  // The plugin catalogue: what this core can turn on for the workspace — wiki,
+  // data rooms, proposals — each with what it adds and an on/off switch that
+  // edits workspace.yaml and applies. Under Build because it is capability.
+  { url: '/dashboard/plugins', title: 'Plugins', group: 'Build', icon: Blocks, keywords: ['plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
 
   // ── MANAGE · Insights — how it is going ─────────────────────────────────
   { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },
@@ -174,26 +185,59 @@ export function dashboardRoute(url: string): DashboardRoute | undefined {
 }
 
 /**
- * Routes a person may see: admin-only rows drop out for members.
- * @param isAdmin
+ * Who is looking, for gating rows: admin-only rows drop out for members, and
+ * a plugin-owned row shows only while its plugin is on. `enabledPlugins`
+ * undefined means "don't gate on plugins" (a caller with no project in hand).
  */
-function visibleRoutes(isAdmin: boolean): DashboardRoute[] {
-  return DASHBOARD_ROUTES.filter(r => isAdmin || !r.adminOnly);
+export type NavViewer = { isAdmin?: boolean; enabledPlugins?: readonly string[] };
+
+/**
+ * Whether a route is offered to this viewer.
+ * @param r - The route.
+ * @param viewer - Who is looking.
+ */
+export function routeVisible(r: DashboardRoute, viewer: NavViewer): boolean {
+  if (r.adminOnly && !viewer.isAdmin) {
+    return false;
+  }
+  if (r.plugin && viewer.enabledPlugins && !viewer.enabledPlugins.includes(r.plugin)) {
+    return false;
+  }
+  return true;
 }
 
-/** The WORK view's rows, in order. Palette-only aliases are not rows. */
-export function workRoutes(): DashboardRoute[] {
-  return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly);
+/**
+ * Routes a person may see: admin-only rows drop out for members, plugin rows
+ * for workspaces without the plugin.
+ * @param viewer - Who is looking (a bare boolean is the legacy `isAdmin`).
+ */
+function visibleRoutes(viewer: NavViewer | boolean): DashboardRoute[] {
+  const v = typeof viewer === 'boolean' ? { isAdmin: viewer } : viewer;
+  return DASHBOARD_ROUTES.filter(r => routeVisible(r, v));
 }
 
-/** The WORK rows that are always there — the surface itself: Chat, Review. */
-export function workCoreRoutes(): DashboardRoute[] {
-  return workRoutes().filter(r => !r.pinnable);
+/**
+ * The WORK view's rows, in order. Palette-only aliases are not rows.
+ * @param viewer - Who is looking; omitted = every row.
+ */
+export function workRoutes(viewer: NavViewer = {}): DashboardRoute[] {
+  return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly && routeVisible(r, { ...viewer, isAdmin: true }));
 }
 
-/** The WORK rows a person pins into the Workspace group; unpinned they sit under "More". */
-export function workPinnableRoutes(): DashboardRoute[] {
-  return workRoutes().filter(r => r.pinnable);
+/**
+ * The WORK rows that are always there — the surface itself: Chat, Review.
+ * @param viewer - Who is looking.
+ */
+export function workCoreRoutes(viewer: NavViewer = {}): DashboardRoute[] {
+  return workRoutes(viewer).filter(r => !r.pinnable);
+}
+
+/**
+ * The WORK rows a person pins into the Workspace group; unpinned they sit under "More".
+ * @param viewer - Who is looking.
+ */
+export function workPinnableRoutes(viewer: NavViewer = {}): DashboardRoute[] {
+  return workRoutes(viewer).filter(r => r.pinnable);
 }
 
 /** The pinnable WORK rows everyone starts with pinned (Briefings). */
@@ -201,21 +245,21 @@ export const DEFAULT_WORK_PINS: readonly string[] = DASHBOARD_ROUTES.filter(r =>
 
 /**
  * The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order.
- * @param isAdmin
+ * @param viewer - Who is looking (a bare boolean is the legacy `isAdmin`).
  */
-export function manageNavGroups(isAdmin: boolean): Array<{ group: DashboardGroup; routes: DashboardRoute[] }> {
+export function manageNavGroups(viewer: NavViewer | boolean): Array<{ group: DashboardGroup; routes: DashboardRoute[] }> {
   return DASHBOARD_GROUPS
     .filter(g => g.manage)
-    .map(group => ({ group, routes: visibleRoutes(isAdmin).filter(r => r.group === group.id && !r.tabOf) }));
+    .map(group => ({ group, routes: visibleRoutes(viewer).filter(r => r.group === group.id && !r.tabOf) }));
 }
 
 /**
  * Every MANAGE row a person can pin — top-level pages AND their tabs (a tab is a destination too).
- * @param isAdmin
+ * @param viewer - Who is looking (a bare boolean is the legacy `isAdmin`).
  */
-export function manageRoutes(isAdmin: boolean): DashboardRoute[] {
+export function manageRoutes(viewer: NavViewer | boolean): DashboardRoute[] {
   const manageIds = new Set(DASHBOARD_GROUPS.filter(g => g.manage).map(g => g.id));
-  return visibleRoutes(isAdmin).filter(r => manageIds.has(r.group));
+  return visibleRoutes(viewer).filter(r => manageIds.has(r.group));
 }
 
 /**

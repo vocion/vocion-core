@@ -138,11 +138,49 @@ export const WorkspaceManifestSchema = z.object({
   use: z.union([z.literal('all'), ActivationSelectorSchema]).optional(),
   /**
    * Suppress a core default even under `use: all` — the escape hatch. A
-   * disabled slug is omitted from the merged workspace entirely.
+   * disabled slug is omitted from the merged workspace entirely. Applies to
+   * plugin-provided slugs too.
    */
   disable: ActivationSelectorSchema.optional(),
+  /**
+   * Plugins to turn on, by slug (`templates/plugins/<slug>/plugin.yaml`). A
+   * plugin is a bundle of agents, skills, object types, missions, automations,
+   * teams, pages and trust rules that composes UNDER the workspace the way the
+   * base pack does — always fully active, overridable by slug with
+   * `extends: core`, suppressible with `disable:`. Dependencies (`depends:`)
+   * are pulled in automatically. Omit for none.
+   */
+  plugins: z.array(SlugSchema).default([]),
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
+
+/**
+ * `plugin.yaml` — the identity of a workspace plugin shipped inside
+ * vocion-core at `packages/core/templates/plugins/<slug>/`. A plugin is the
+ * abstract rung of the ladder made installable: the same directory shape as
+ * a workspace (agents/, skills/, objects/, missions/, automations/, teams/,
+ * pages/, trust.yaml), turned on with one line in workspace.yaml.
+ *
+ * `recommend.when` is what the chat reads to suggest a plugin that is off:
+ * short phrases naming the conversation patterns it serves. `connectors` are
+ * the connector slugs it works better with, so the same suggestion can say
+ * which system to connect.
+ */
+export const PluginManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().min(1),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'plugin version must be semver x.y.z'),
+  description: z.string().min(1).describe('one line: what turning it on gives a person'),
+  /** Other plugins this one needs; turned on with it, ordered before it. */
+  depends: z.array(SlugSchema).default([]),
+  /** Core-registered surfaces (`features/navigation/surfaces.ts`) this plugin switches on. */
+  surfaces: z.array(z.string()).default([]),
+  recommend: z.object({
+    when: z.array(z.string().min(1)).default([]),
+    connectors: z.array(z.string().min(1)).default([]),
+  }).default({ when: [], connectors: [] }),
+});
+export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
 /**
  * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's
@@ -282,8 +320,21 @@ export const VerifiedMeasureSourceSchema = z.discriminatedUnion('connector', [
  * is that an account gained a member, and the measure's own `label` is where
  * the workspace's word for that belongs.
  */
-export const OBSERVED_ROW_KINDS = ['workspace-members'] as const;
+export const OBSERVED_ROW_KINDS = ['workspace-members', 'artifacts', 'data-rooms', 'data-room-sources'] as const;
 export type ObservedRowKind = typeof OBSERVED_ROW_KINDS[number];
+
+/**
+ * Narrows `rows: artifacts` — the artifact table is every kind of output, and
+ * a measure is about one of them: the wiki's pages (`folder: wiki`), the
+ * proposals rendered (`kind: document, playbook: proposal`), the ones that
+ * render-verified clean (`verified: true`). All optional, all ANDed.
+ */
+export const ObservedRowsWhereSchema = z.object({
+  kind: z.string().min(1).optional(),
+  folder: z.string().min(1).optional(),
+  playbook: z.string().min(1).optional(),
+  verified: z.boolean().optional(),
+}).partial();
 
 /**
  * `observed` — Vocion saw it happen in our own tables: `action_run` rows that
@@ -296,9 +347,14 @@ export const ObservedMeasureSourceSchema = z.object({
   actions: ActionIdList.optional(),
   counts: CountsKey.optional(),
   rows: z.enum(OBSERVED_ROW_KINDS).optional(),
+  /** Only with `rows: artifacts`. */
+  where: ObservedRowsWhereSchema.optional(),
 }).refine(
   s => [s.actions, s.counts, s.rows].filter(v => v !== undefined).length === 1,
   'observed source names exactly one of actions, a counts key or rows',
+).refine(
+  s => s.where === undefined || s.rows === 'artifacts',
+  '`where` narrows `rows: artifacts` only',
 );
 
 /**

@@ -1,0 +1,22 @@
+name: Proposals
+description: >-
+  Writes the client document from its data room and does not call it done
+  until the render-verify receipt reads clean.
+goal: Every Proposal-stage engagement has a verified current document.
+lead: proposal-writer
+# No accountableUser: inherits the workspace default.
+measures:
+  - key: proposals_rendered
+    label: Proposals rendered
+    dimension: velocity
+    target: 2
+    unit: documents
+    window: 30d
+    source: { kind: observed, rows: artifacts, where: { kind: document, playbook: proposal } }
+  - key: proposals_verified
+    label: Proposals verified clean
+    dimension: quality
+    target: 2
+    unit: documents
+    window: 30d
+    source: { kind: observed, rows: artifacts, where: { kind: document, playbook: proposal, verified: true } }

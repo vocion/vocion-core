@@ -238,7 +238,53 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
     .set({ headVersionId: version!.id })
     .where(and(eq(artifactSchema.orgId, input.orgId), eq(artifactSchema.id, artifact.id)))
     .returning();
+  announceSaved(withHead ?? artifact, 'created', input.author);
   return { artifact: withHead ?? artifact, version: version! };
+}
+
+/**
+ * Tell the rest of the system an artifact was saved — the `artifact.saved`
+ * event for automations (the wiki indexes its pages this way) and the
+ * adoption stream. Fire-and-forget: a save never waits on a subscriber, and a
+ * subscriber that fails is logged, never surfaced to the writer. Dynamic
+ * imports keep this module free of the event bus's dependency graph.
+ * @param row - The saved artifact, head already moved.
+ * @param change - v1, or a later version.
+ * @param author - Who saved it.
+ */
+function announceSaved(row: ArtifactRow, change: 'created' | 'revised', author: Author): void {
+  void (async () => {
+    try {
+      const { ARTIFACT_SAVED, emitEvent } = await import('@/services/EventService');
+      await emitEvent({
+        orgId: row.orgId,
+        type: ARTIFACT_SAVED,
+        payload: {
+          artifactId: row.id,
+          kind: row.kind,
+          folder: row.folder ? row.folder.split('/')[0]! : null,
+          title: row.title,
+          version: row.currentVersion,
+          change,
+          authorKind: author.kind,
+          recordType: row.recordType ?? null,
+          recordId: row.recordId ?? null,
+        },
+        dedupeKey: `artifact.saved:${row.id}:${row.currentVersion}`,
+        invokedBy: authorId(author) ?? `artifact:${row.id}`,
+      });
+      if (change === 'created') {
+        const { track } = await import('@/services/adoption/track');
+        await track({ orgId: row.orgId, userId: authorId(author) ?? 'system' }, 'artifact.created', {
+          agentSlug: author.kind === 'agent' ? (author.id ?? '').replace(/^agent:/, '') || undefined : undefined,
+          meta: { kind: row.kind.slice(0, 20), ...(row.folder ? { folder: row.folder.split('/')[0]!.slice(0, 40) } : {}) },
+        });
+      }
+    } catch (err) {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('artifact.saved announcement failed', { artifactId: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  })();
 }
 
 export type UpdateArtifactInput = {
@@ -339,6 +385,7 @@ export async function updateArtifact(input: UpdateArtifactInput): Promise<{ arti
     })
     .where(and(eq(artifactSchema.orgId, input.orgId), eq(artifactSchema.id, existing.id)))
     .returning();
+  announceSaved(artifact!, 'revised', input.author);
   return { artifact: artifact!, version, collapsed };
 }
 

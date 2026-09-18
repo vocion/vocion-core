@@ -1,0 +1,19 @@
+slug: proposals-weekly-check
+name: Monday proposals check
+description: >-
+  Wakes the Proposal Writer on Monday to check the standing mission over
+  every room at Proposal stage.
+status: active
+agent: proposal-writer
+when:
+  schedule: '0 15 * * 1'
+do:
+  checkMission: proposals-current
+  prompt: >-
+    List the data rooms whose stage is a proposal stage. For each: read the
+    room, find its latest document, and run verify_document if the receipt is
+    not clean or the document predates the newest starred source. Fix what
+    the receipt names, sheet by sheet, and re-verify. Where no document can be
+    written yet, add one open item naming exactly what is missing. Do not
+    export or send anything. Report one line per room: verified, issues fixed,
+    or missing and why.

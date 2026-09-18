@@ -73,9 +73,11 @@ export type WorkspaceNavPage = {
   section: string;
 };
 
-export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
+export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = [], workspacePages = [], needsYouCount = 0, ...props }: React.ComponentProps<typeof Sidebar> & {
   /** Shows admin-only nav items (Adoption). Gating is enforced server-side; this only hides the link. */
   isAdmin?: boolean;
+  /** Plugins the workspace turned on (`project.enabledPlugins`); a plugin-owned row (Data rooms) shows only while its plugin is on. */
+  enabledPlugins?: readonly string[];
   /** Optional surfaces the workspace switched on — see `features/navigation/surfaces.ts`. */
   enabledSurfaces?: SurfaceId[];
   /** Tenant pages from the workspace's pages/ dir — the Pages group. */
@@ -126,8 +128,9 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
     badge: r.url === '/dashboard/inbox' ? needsYouCount : undefined,
     ...(r.pinnable ? {} : { pinnable: false as const }),
   }), [label, needsYouCount]);
-  const workCore = useMemo(() => workCoreRoutes().map(toWorkItem), [toWorkItem]);
-  const workOptional = useMemo(() => workPinnableRoutes().map(toWorkItem), [toWorkItem]);
+  const viewer = useMemo(() => ({ isAdmin, enabledPlugins }), [isAdmin, enabledPlugins]);
+  const workCore = useMemo(() => workCoreRoutes(viewer).map(toWorkItem), [toWorkItem, viewer]);
+  const workOptional = useMemo(() => workPinnableRoutes(viewer).map(toWorkItem), [toWorkItem, viewer]);
   const workPins = resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: DEFAULT_WORK_PINS });
   const workspaceItems = [...workCore, ...applyPins(workOptional, workPins), ...withoutPins(workOptional, workPins)];
   const workShown = workCore.length + applyPins(workOptional, workPins).length;
@@ -149,13 +152,13 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
 
   // Every MANAGE destination — pages and their tabs — so a pin to either resolves.
   const manageItems = useMemo<PinnableItem[]>(
-    () => manageRoutes(isAdmin).map(r => ({ title: label(r), url: r.url, icon: r.icon, origin: 'manage' as const })),
-    [isAdmin, label],
+    () => manageRoutes(viewer).map(r => ({ title: label(r), url: r.url, icon: r.icon, origin: 'manage' as const })),
+    [viewer, label],
   );
 
   // The MANAGE sections: top-level rows, each combined page carrying its
   // other tabs (shown beneath it while open; a pinned tab moves up to Pinned).
-  const manageSections = useMemo(() => manageNavGroups(isAdmin).map(({ group, routes }) => ({
+  const manageSections = useMemo(() => manageNavGroups(viewer).map(({ group, routes }) => ({
     label: label(group),
     items: routes.map((r): PinnableItem => ({
       title: label(r),
@@ -164,7 +167,7 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
       origin: 'manage',
       tabs: tabsOf(r.url).filter(tab => tab.tabOf).map(tab => ({ title: label(tab), url: tab.url, icon: tab.icon, origin: 'manage' as const })),
     })),
-  })), [isAdmin, label]);
+  })), [viewer, label]);
 
   const pinnable = useMemo(() => [...pageItems, ...manageItems], [pageItems, manageItems]);
   const pinned = applyPins(pinnable, prefs.pins);

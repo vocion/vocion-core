@@ -1,0 +1,21 @@
+slug: wiki-current
+name: The wiki is true, small and read
+description: >-
+  The standing responsibility of the Wiki curator — not a one-off run.
+goal: >-
+  The workspace wiki carries every standing fact the agents act on — the
+  voice, the rules that hold, who is who, the decisions — and nothing else.
+  What became standing this week is on its page; what two pages said once is
+  said once; what nobody reads is gone.
+agent: wiki-curator
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every correction a person made twice, or made to a page's claim, is on the page within a week
+  - No two pages carry the same standing fact
+  - Every page has a one-line summary and was read or cited in the last month, or is proposed for removal
+  - Every write carries its reason and an honest confidence; nothing under the bar is claimed as done
+desiredArtifacts:
+  - The five-line curation report per check
+  - Wiki pages, each short, each with a summary
+schedule: '0 15 * * 5'

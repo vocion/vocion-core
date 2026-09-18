@@ -184,6 +184,15 @@ export const projectSchema = pgTable(
      */
     enabledSurfaces: jsonb('enabled_surfaces').$type<string[]>().default([]).notNull(),
     /**
+     * Plugins this workspace turned on (migration 0124), by slug, dependency-
+     * closed and in load order — `workspace.yaml` `plugins:` as the loader
+     * resolved it (`libs/workspace/plugins.ts`). Replaced wholesale at apply.
+     * Read by the shell (plugin-owned nav rows), the agent runtime
+     * (plugin-owned tools, the capabilities note) and the collectors that
+     * only run for a workspace that asked for them. Empty = no plugins.
+     */
+    enabledPlugins: jsonb('enabled_plugins').$type<string[]>().default([]).notNull(),
+    /**
      * Which vendor and model produce this workspace's embeddings. Authored as
      * `defaults.embeddingProvider` / `defaults.embeddingModel` in
      * workspace.yaml; NULL keys fall back to `VOCION_EMBEDDING_PROVIDER` /
@@ -798,7 +807,7 @@ export type TeamKpi = {
 export type TeamMeasureSource
   = | { kind: 'verified'; connector: 'hubspot'; query: { object: 'deals' | 'contacts' | 'companies'; filter: { dealStages?: string[]; pipelines?: string[]; dealStatus?: 'open' | 'closed'; lifecycleStages?: string[]; industries?: string[]; ownerIds?: string[] }; aggregate: string } }
     | { kind: 'verified'; connector: 'web-analytics'; query: { metric: 'sessions' | 'users' | 'conversions' | 'signups'; filter: { pathPrefix?: string; channel?: string; event?: string } } }
-    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' }
+    | { kind: 'observed'; actions?: string[]; counts?: string; rows?: 'workspace-members' | 'artifacts' | 'data-rooms' | 'data-room-sources'; where?: { kind?: string; folder?: string; playbook?: string; verified?: boolean } }
     | { kind: 'human-confirmed'; actions?: string[]; askKinds?: string[] }
     | { kind: 'agent-reported'; counts: string };
 

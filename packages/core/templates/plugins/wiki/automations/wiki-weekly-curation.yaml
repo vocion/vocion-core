@@ -1,0 +1,20 @@
+slug: wiki-weekly-curation
+name: Friday wiki curation
+description: >-
+  Wakes the Wiki curator on Friday afternoon to check the standing mission:
+  consolidate the week into the wiki, merge, prune, report.
+status: active
+agent: wiki-curator
+when:
+  schedule: '0 15 * * 5'
+do:
+  checkMission: wiki-current
+  prompt: >-
+    Read the week: new learnings, decided review items and their notes, rules
+    and notes people added to data rooms, corrections made in conversation.
+    Decide what became a standing fact and write it to the right page with an
+    honest confidence — revise the page, or append a dated section to a
+    running one. Merge pages that say one thing. Propose removal (low
+    confidence) of a page nobody has needed in a month. If the wiki is empty,
+    start the four pages from what the workspace already knows. Report in
+    five lines: written, queued, merged, left alone, could not establish.

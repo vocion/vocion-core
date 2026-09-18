@@ -325,6 +325,12 @@ export type RuntimeContext = {
   delegations?: Map<string, string>;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
+  /**
+   * Plugins the workspace has on (`project.enabled_plugins`), resolved once at
+   * graph build. Plugin-owned tool sets (wiki, data rooms) are present only
+   * when their plugin is; `list_capabilities` reads it to say what is off.
+   */
+  enabledPlugins?: string[];
   /** Per-agent retrieval tuning. */
   searchConfig: SearchConfig;
   /**

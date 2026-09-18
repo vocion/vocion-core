@@ -169,6 +169,53 @@ export const ADOPTION_EVENTS = {
       version: z.number().int().positive(),
     }),
   },
+  /**
+   * An artifact came into being — by an agent, a person or a system pass.
+   * System-writable because most artifacts are agent output; the read side
+   * still counts humans only for per-user metrics. `folder` is the top-level
+   * folder (`wiki`), so a plugin's output can be counted without a new event.
+   */
+  'artifact.created': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      kind: z.string().max(20),
+      folder: z.string().max(40).optional(),
+    }),
+  },
+  /**
+   * A wiki page was written through `wiki.write_page` — created, revised, or
+   * found unchanged. `append` says a dated section was added rather than the
+   * page rewritten. The count against `artifact.created` with folder `wiki`
+   * is how much of the wiki the agents grow versus people.
+   */
+  'wiki.page_written': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      mode: z.enum(['created', 'revised', 'unchanged']),
+      append: z.boolean().optional(),
+    }),
+  },
+  /**
+   * A data room was opened, and a source was filed into one. `by` says who:
+   * the collector after a sync, an agent in a turn, or a person. The two
+   * counts are the data-rooms plugin's outcome measures, read from here.
+   */
+  'room.created': {
+    agent: true,
+    system: true,
+    meta: z.object({ by: z.enum(['collector', 'agent', 'human']) }),
+  },
+  'room.source_filed': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      by: z.enum(['collector', 'agent', 'human']),
+      /** Match score bucket for collector filings; absent for a named filing. */
+      score: z.enum(['high', 'medium']).optional(),
+    }),
+  },
   'learning.added': { agent: true },
   /**
    * Feedback proposed a rule nobody had proposed before, so a candidate is

@@ -8,7 +8,7 @@ which base pack (if any) the workspace builds on.
 |---|---|
 | **Path** | `workspace.yaml` (or `workspace.yml`) at the workspace root |
 | **Schema** | `WorkspaceManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
-| **Applied to** | `project` (lead, goal, surfaces, mailbox) + a `workspace_version` audit row |
+| **Applied to** | `project` (lead, goal, surfaces, plugins, mailbox) + a `workspace_version` audit row |
 | **Layering** | Not composable — the manifest is always the workspace's own |
 
 ## Fields
@@ -25,6 +25,7 @@ which base pack (if any) the workspace builds on.
 | `mailbox` | object | no | Email as a chat surface. `mailbox: { enabled: true }` gives the workspace `<slug>@<VOCION_MAIL_DOMAIN>`; `address:` names one on that domain instead. Mail to it is answered by the workspace lead and threads into a conversation (`surface = email`); unknown senders become an `ask`. Stored on `project.mailboxAddress` / `mailboxEnabled`. Errors at apply if the deployment has no `VOCION_MAIL_DOMAIN` or the address is off it. See [the email guide](../guides/email.md). |
 | `defaults.model` | string | no | Model every agent falls back to. |
 | `defaults.temperature` | string | no | Temperature every agent falls back to. |
+| `plugins` | string[] | no (default `[]`) | Plugins to turn on, by slug (`packages/core/templates/plugins/<slug>/`). Each is a bundle of agents, skills, object types, missions, automations, teams, pages and trust rules that composes under the workspace like the base pack — always active, overridable by slug with `extends: core`, suppressible with `disable:`. Dependencies (`depends:` in `plugin.yaml`) load first. The resolved list lands on `project.enabled_plugins`; a plugin's `surfaces` join `surfaces` below. See [`docs/plugins.md`](../plugins.md). |
 | `surfaces` | string[] | no (default `[]`) | Optional dashboard surfaces to switch on, by registry id. Today: `personalization`, `discovery` (see `packages/core/src/features/navigation/surfaces.ts`). An unknown id fails the load. |
 | `extends` | string | no | Base-pack pin, e.g. `core@2.1.0`, or bare `core` to track the pack's current version. Omit for no base layer at all. |
 | `use` | `all` \| selector | no | Which base-pack defaults to activate. See [base pack](./base-pack.md). Omitted while `extends` is set means activate nothing. |

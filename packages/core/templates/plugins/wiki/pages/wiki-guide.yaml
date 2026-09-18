@@ -1,0 +1,6 @@
+slug: wiki-guide
+title: How the wiki works
+description: What belongs in the wiki, who writes it, and how to change it.
+icon: book-open
+nav: { section: Workspace, order: 6, hidden: true }
+archetype: markdown

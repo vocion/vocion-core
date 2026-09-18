@@ -1,8 +1,9 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { enabledPluginsFromWorkspaceDir } from '@/libs/workspace/plugins';
 import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 /**
@@ -21,6 +22,9 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
  * does not need to know about them, and deleting the YAML deletes the page.
  * They render at `/dashboard/p/<slug>` and are listed in the sidebar under
  * their `nav.section` (default "Workspace").
+ *
+ * An enabled plugin (`workspace.yaml` `plugins:`) contributes its own
+ * `pages/` the same way; a workspace page with the same slug replaces it.
  */
 
 const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
@@ -84,6 +88,16 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('documents'), source: SlugSchema, limit: z.number().int().positive().max(500).default(100) }),
   z.object({ kind: z.literal('agents'), active: z.boolean().optional() }),
+  // What agents and people MADE — the artifact log, scoped by folder and/or
+  // kind. A wiki is a folder of markdown artifacts; a proposal log is the
+  // document kind under one playbook. `meta` carries kind, folder, version,
+  // playbook and the record the artifact belongs to.
+  z.object({
+    kind: z.literal('artifacts'),
+    folder: z.string().optional(),
+    artifactKind: z.string().optional(),
+    limit: z.number().int().positive().max(500).default(100),
+  }),
 ]);
 
 export const PageManifestSchema = z.object({
@@ -131,6 +145,13 @@ export const PageManifestSchema = z.object({
 });
 
 export type PageManifest = z.infer<typeof PageManifestSchema>;
+/** A validated page plus where it came from, so its prose resolves beside it. */
+export type LoadedPage = PageManifest & {
+  /** Absolute directory the YAML was read from. */
+  sourceDir: string;
+  /** `workspace`, or the slug of the plugin that ships it. */
+  origin: 'workspace' | `plugin:${string}`;
+};
 export type PageField = z.infer<typeof FieldSchema>;
 export type PageStat = z.infer<typeof StatSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
@@ -155,45 +176,63 @@ export type PageLoadIssue = { file: string; message: string };
  * Read + validate every page manifest in the workspace. Invalid files are
  * skipped and reported — a broken page never takes the dashboard down.
  */
-export function readWorkspacePages(): { pages: PageManifest[]; issues: PageLoadIssue[] } {
-  const dir = workspacePagesDir();
-  if (!dir) {
-    return { pages: [], issues: [] };
-  }
-  const pages: PageManifest[] = [];
+export function readWorkspacePages(): { pages: LoadedPage[]; issues: PageLoadIssue[] } {
+  const ws = workspaceDir();
+  const pages: LoadedPage[] = [];
   const issues: PageLoadIssue[] = [];
-  for (const f of readdirSync(dir).filter(f => /\.ya?ml$/.test(f)).sort()) {
-    try {
-      const raw = parseYaml(readWorkspaceTextFile(join(dir, f)));
-      const result = PageManifestSchema.safeParse(raw);
-      if (!result.success) {
-        issues.push({ file: f, message: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-        continue;
+  const seen = new Set<string>();
+
+  const readDir = (dir: string, origin: LoadedPage['origin'], tenant: boolean) => {
+    if (!existsSync(dir)) {
+      return;
+    }
+    for (const f of readdirSync(dir).filter(f => /\.ya?ml$/.test(f) && f !== 'tour.yaml' && f !== 'tour.yml').sort()) {
+      try {
+        // Only tenant files carry {{env.NAME}} tokens; a plugin ships the same bytes to everyone.
+        const raw = parseYaml(tenant ? readWorkspaceTextFile(join(dir, f)) : readFileSync(join(dir, f), 'utf8'));
+        const result = PageManifestSchema.safeParse(raw);
+        if (!result.success) {
+          issues.push({ file: f, message: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+          continue;
+        }
+        // The workspace reads first, so a same-slug plugin page is the one that yields.
+        if (seen.has(result.data.slug)) {
+          continue;
+        }
+        seen.add(result.data.slug);
+        pages.push({ ...result.data, sourceDir: dir, origin });
+      } catch (e) {
+        issues.push({ file: f, message: e instanceof Error ? e.message : String(e) });
       }
-      pages.push(result.data);
-    } catch (e) {
-      issues.push({ file: f, message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  if (ws) {
+    readDir(join(ws, 'pages'), 'workspace', true);
+    for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
+      readDir(join(plugin.sourcePath, 'pages'), `plugin:${plugin.manifest.slug}`, false);
     }
   }
   pages.sort((a, b) => a.nav.order - b.nav.order || a.title.localeCompare(b.title));
   return { pages, issues };
 }
 
-export function readWorkspacePage(slug: string): PageManifest | null {
+export function readWorkspacePage(slug: string): LoadedPage | null {
   return readWorkspacePages().pages.find(p => p.slug === slug) ?? null;
 }
 
 /**
- * Markdown content for a `markdown` archetype page (or a list page's intro).
+ * Markdown content for a `markdown` archetype page (or a list page's intro),
+ * read beside the YAML that declared it — a plugin page's prose ships with the
+ * plugin, a workspace page's with the workspace.
  * @param manifest
  */
-export function readWorkspacePageContent(manifest: PageManifest): string | null {
-  const dir = workspacePagesDir();
-  if (!dir) {
+export function readWorkspacePageContent(manifest: LoadedPage): string | null {
+  const file = join(manifest.sourceDir, manifest.contentFile ?? `${manifest.slug}.md`);
+  if (!existsSync(file)) {
     return null;
   }
-  const file = join(dir, manifest.contentFile ?? `${manifest.slug}.md`);
-  return existsSync(file) ? readWorkspaceTextFile(file) : null;
+  return manifest.origin === 'workspace' ? readWorkspaceTextFile(file) : readFileSync(file, 'utf8');
 }
 
 // ---------------------------------------------------------------------------

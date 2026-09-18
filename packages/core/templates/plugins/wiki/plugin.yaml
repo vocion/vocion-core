@@ -1,0 +1,26 @@
+# The wiki plugin — the workspace's slow-changing, long-term context, kept by
+# the agents and read by every agent before it acts.
+#
+# Learned from nine weeks of a hand-run founder wiki: the pages that carried
+# weight were the handful an agent read before writing (the voice, the
+# standing rules, who is who); the hand-appended ledgers and the "copy from the
+# app, paste into the wiki" steps died within a week. So here the WRITER is
+# always the agent — done for you above a confidence bar, reviewed below it —
+# and a person edits, undoes, or asks. A page is a markdown artifact in the
+# `wiki` folder: versions, restore, preview, share and citation come free.
+#
+# Core ships the MECHANISM (the artifact noun, the `wiki.write_page` action,
+# the tools, the mount into every agent's context, `artifact.saved` +
+# `index-artifact`); this plugin ships the MEANING: what belongs in a wiki, the
+# curator, its cadence, the bar, and the pages.
+slug: wiki
+name: Wiki
+version: 1.0.0
+description: The workspace's long-term memory — voice, standing rules, who is who, decisions that hold — written by the agents (done for you, with undo), mounted into every agent's context, searchable, curated weekly.
+recommend:
+  when:
+    - a person repeats a standing fact, a preference or a rule they have said before
+    - a person asks where something is written down, or says "remember this" about something that is not one small rule
+    - an agent needs the voice, the house style, a glossary or who owns what and has to ask instead of reading
+    - the same correction has been made in more than one conversation
+  connectors: []

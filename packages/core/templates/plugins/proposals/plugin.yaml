@@ -1,0 +1,21 @@
+# The proposals plugin — the client document written from a data room:
+# proposals, scope docs, partnership updates, as paginated, print-ready sheets
+# that render-verify before a person sees them.
+#
+# Core ships the MECHANISM (the `document` artifact kind, the render-verify
+# engine, the tools, the Proposals surface); this plugin ships the MEANING: the
+# writer, the house sheet framework and its rules, the standing mission that
+# keeps every Proposal-stage room's document verified, and the team graded on
+# it. Depends on data-rooms: a document is written FROM a room.
+slug: proposals
+name: Proposals
+version: 1.0.0
+description: The Proposal Writer, the house sheet framework, and the Proposals app — every engagement at Proposal stage with its latest document, its render-verify verdict and one Draft action.
+depends: [data-rooms]
+surfaces: [proposals]
+recommend:
+  when:
+    - a person asks for a proposal, scope document, statement of work or partnership update for a client
+    - a deal reaches a proposal stage and nothing is drafting the document
+    - a document is being rewritten in chat as prose when the client will read it as a PDF
+  connectors: [hubspot, drive]

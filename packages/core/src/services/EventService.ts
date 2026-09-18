@@ -82,6 +82,30 @@ export type SourceSyncCompletedPayload = {
  * reply or meeting timestamp past what the watcher had seen, and past the
  * enrollment decision. One event per new timestamp, deduped on it.
  */
+/**
+ * An artifact was created or a new version of it was written — by an agent, a
+ * person or a system pass. Emitted fire-and-forget from `ArtifactService` so a
+ * save never waits on its subscribers. The wiki plugin subscribes with
+ * `filter: { folder: wiki }` to index pages for search (`index-artifact`).
+ */
+export const ARTIFACT_SAVED = 'artifact.saved';
+
+/** Payload of `artifact.saved`. Scalars only — `when.filter` compares with `===`. */
+export type ArtifactSavedPayload = {
+  artifactId: number;
+  kind: string;
+  /** Top-level folder (`wiki`), or null. */
+  folder: string | null;
+  title: string;
+  version: number;
+  /** `created` for v1, `revised` after. */
+  change: 'created' | 'revised';
+  /** `agent` | `human` | `system`. */
+  authorKind: string;
+  recordType: string | null;
+  recordId: string | null;
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 

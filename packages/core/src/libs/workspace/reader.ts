@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { basename, join, relative, sep } from 'node:path';
 import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { fromRepoRoot } from '@/libs/repo-root';
+import { pluginRoots, PLUGINS_REL } from './plugins';
 
 /**
  * Read the files that back a primitive instance from the tenant context
@@ -266,8 +267,27 @@ function readWorkspaceLayer(kind: PrimitiveKind, slug: string, contextPath: stri
  * @param slug - primitive slug
  */
 function readCoreLayer(kind: PrimitiveKind, slug: string): PrimitiveFile[] {
+  // The inherited layer is the base pack or an enabled plugin. Plugins are
+  // read first because a plugin may shadow a base slug; the first layer that
+  // has the file wins, which is the compose order the loader uses.
+  for (const root of pluginRoots()) {
+    const files = readLayerFiles(kind, slug, root, `${PLUGINS_REL}/${basename(root)}`);
+    if (files.length > 0) {
+      return files;
+    }
+  }
+  return readLayerFiles(kind, slug, fromRepoRoot(BASE_PACK_REL), BASE_PACK_REL);
+}
+
+/**
+ * One inherited layer's same-slug files for a primitive, read-only.
+ * @param kind - primitive kind
+ * @param slug - primitive slug
+ * @param packRoot - absolute layer directory
+ * @param relRoot - the layer directory relative to the repo root, for display
+ */
+function readLayerFiles(kind: PrimitiveKind, slug: string, packRoot: string, relRoot: string): PrimitiveFile[] {
   const dirName = slugToDirname(slug);
-  const packRoot = fromRepoRoot(BASE_PACK_REL);
   if (!existsSync(packRoot)) {
     return [];
   }
@@ -277,7 +297,7 @@ function readCoreLayer(kind: PrimitiveKind, slug: string): PrimitiveFile[] {
     return content === null
       ? null
       : {
-          path: `${BASE_PACK_REL}/${rel}`,
+          path: `${relRoot}/${rel}`,
           content,
           language: detectLanguage(name),
           layer: 'core' as const,

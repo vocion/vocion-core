@@ -514,8 +514,10 @@ describe('Regenerate, tiered (the fast path)', () => {
     expect(runs[0]!.regeneratingSince).toBeNull();
     expect((runs[0]!.input as { sends: Array<{ subject: string }> }).sends.map(s => s.subject)).toEqual(['Your platform hires', 'A softer step']);
 
-    // The fast path never touches the research pipeline: no reset, no event.
-    expect(await db.select().from(eventLogSchema)).toHaveLength(0);
+    // The fast path never touches the research pipeline: no reset, no
+    // personalization event. (An `artifact.saved` announcement for the brief
+    // artifact is not the pipeline — it is the artifact log's own signal.)
+    expect((await db.select().from(eventLogSchema)).filter(e => !e.type.startsWith('artifact.'))).toHaveLength(0);
   });
 
   it('research feedback: needsResearch falls back to the reset + event path, keeping the back-link', async () => {
