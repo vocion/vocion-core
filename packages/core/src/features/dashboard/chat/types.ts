@@ -72,6 +72,8 @@ export type TraceNode = {
   /** Accumulated reasoning text (from `delta` progress events). */
   text?: string;
   result?: string;
+  /** Both tenses of the step's name, once known; `label` is re-derived from it as the status changes. */
+  labels?: { running: string; done: string };
   confidence?: number;
   citations?: TraceCitation[];
   /**

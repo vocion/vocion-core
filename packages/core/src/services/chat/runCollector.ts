@@ -13,6 +13,7 @@
  */
 
 import type { ConversationRun, ConversationTraceNode } from '@/services/ConversationService';
+import { stepLabelFor } from '@/libs/chat/stepLabels';
 
 export type CollectedDoc = { document_id: string; semantic_identifier: string; link: string; source_type: string; blurb: string; citationIndex?: number; foundBy?: string };
 
@@ -64,7 +65,11 @@ export class RunCollector {
       tool: node.tool ?? prev?.tool,
       args: node.args ?? prev?.args,
       detail: node.detail ?? prev?.detail,
+      labels: node.labels ?? prev?.labels,
     };
+    if (merged.labels && merged.status !== 'error') {
+      merged.label = stepLabelFor(merged.labels, merged.status as 'start' | 'progress' | 'done');
+    }
     delete (merged as { delta?: string }).delta;
     delete (merged as { type?: string }).type;
     this.trace.set(id, merged);

@@ -1,3 +1,4 @@
+import type { TraceActor, TraceCitation, TraceNodeEvent, TraceNodeKind } from './types';
 /**
  * Typed trace emitter.
  *
@@ -24,9 +25,11 @@
  * Pure + stateful but deterministic: feed it recorded events and it produces
  * the same nodes every time (see traceEmitter.test.ts). No LLM, no IO.
  */
-import type { TraceActor, TraceCitation, TraceNodeEvent, TraceNodeKind } from './types';
+import type { StepLabels } from '@/libs/chat/stepLabels';
 
 /** The subset of a raw LangChain v2 stream event we consume. */
+import { fallbackStepLabels, stepLabelFor } from '@/libs/chat/stepLabels';
+
 export type RawStreamEvent = {
   event?: string;
   name?: string;
@@ -321,7 +324,10 @@ function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject
     case 'draft':
       return running ? 'Preparing a recommendation' : 'Recommended an action';
     default:
-      return running ? `Using ${subject}`.trim() : `Used ${subject}`.trim();
+      // "Used get_brand" named the mechanism; the deterministic table names
+      // the act (`libs/chat/stepLabels.ts`). The model half may refine it
+      // later through `applyLabels`.
+      return stepLabelFor(fallbackStepLabels(subject), status);
   }
 }
 
@@ -390,6 +396,12 @@ export class TraceEmitter {
   private readonly openReason = new Map<string, { actor: TraceActor; parentId?: string }>();
   /** node id → subject for the label (the query / skill name), so the `done` label matches `start`. */
   private readonly nodeSubjects = new Map<string, string>();
+  /** node id → the pair a labeler supplied, so `done` uses the same words as `start`. */
+  private readonly nodeLabels = new Map<string, StepLabels>();
+  /** node id → the last status emitted, so a late label patch never rewinds a finished step. */
+  private readonly nodeStatus = new Map<string, TraceNodeEvent['status']>();
+  /** node id → (actor, parent, kind) for patches. */
+  private readonly nodeMeta = new Map<string, { actor: TraceActor; parentId?: string; kind: TraceNodeKind }>();
   /**
    * Delegations that started and have not yet ended, so a run that dies
    * mid-delegation can still close them as failures. A delegate node left at
@@ -417,6 +429,44 @@ export class TraceEmitter {
   /** All citations surfaced this turn (lead + every specialist). */
   citations(): TraceCitation[] {
     return this.allCitations;
+  }
+
+  /**
+   * Whether a step is worth asking the labeler about: a plain tool or skill
+   * call the lead or a specialist made. Searches keep their query, drafts
+   * and delegations have names of their own.
+   * @param id - The node id from a `start` event.
+   */
+  wantsLabels(id: string): boolean {
+    const meta = this.nodeMeta.get(id);
+    return Boolean(meta && (meta.kind === 'tool' || meta.kind === 'skill'));
+  }
+
+  /**
+   * A labeler finished naming a step. Records the pair so the `done` event
+   * uses the same words, and returns a patch event for the step at its
+   * CURRENT status — a label that arrives after the step finished says
+   * "Read the brand guide", never rewinds it to "Reading…".
+   * @param id - The node id.
+   * @param labels - The pair.
+   */
+  applyLabels(id: string, labels: StepLabels): TraceNodeEvent | null {
+    const meta = this.nodeMeta.get(id);
+    if (!meta) {
+      return null;
+    }
+    this.nodeLabels.set(id, labels);
+    const status = this.nodeStatus.get(id) ?? 'start';
+    return {
+      type: 'trace_node',
+      id,
+      parentId: meta.parentId,
+      actor: meta.actor,
+      kind: meta.kind,
+      status,
+      label: stepLabelFor(labels, status),
+      labels,
+    };
   }
 
   /**
@@ -559,6 +609,8 @@ export class TraceEmitter {
             ? (detail ?? 'a skill')
             : tool;
         this.nodeSubjects.set(id, subject);
+        this.nodeMeta.set(id, { actor, parentId, kind });
+        this.nodeStatus.set(id, 'start');
         return [{
           type: 'trace_node',
           id,
@@ -607,6 +659,7 @@ export class TraceEmitter {
           // is still an `on_tool_end`; rendering it as "Used X" would say the
           // opposite of what happened.
           const subject = this.nodeSubjects.get(id) ?? tool;
+          this.nodeStatus.set(id, 'error');
           return [{
             type: 'trace_node',
             id,
@@ -637,6 +690,8 @@ export class TraceEmitter {
         }
 
         const subject = this.nodeSubjects.get(id) ?? tool;
+        this.nodeStatus.set(id, 'done');
+        const pair = this.nodeLabels.get(id);
         return [{
           type: 'trace_node',
           id,
@@ -644,7 +699,8 @@ export class TraceEmitter {
           actor,
           kind,
           status: 'done',
-          label: labelFor(kind, 'done', subject),
+          label: pair ? stepLabelFor(pair, 'done') : labelFor(kind, 'done', subject),
+          ...(pair ? { labels: pair } : {}),
           result,
           resultDetail,
           citations: citations && citations.length ? citations : undefined,
@@ -672,6 +728,7 @@ export class TraceEmitter {
         if (kind === 'delegate') {
           this.openDelegations.delete(id);
         }
+        this.nodeStatus.set(id, 'error');
         return [{
           type: 'trace_node',
           id,

@@ -1426,6 +1426,7 @@ export const conversationMessageSchema = pgTable('conversation_message', {
     resultDetail?: string;
     text?: string;
     result?: string;
+    labels?: { running: string; done: string };
     confidence?: number;
     citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
   }>>(),
