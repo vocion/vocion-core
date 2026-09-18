@@ -2,6 +2,10 @@ import type { RunSummary } from '@/features/dashboard/inbox/RunDecision';
 import type { InboxSort } from '@/services/InboxService';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { CommentLayerProvider } from '@/features/comments/CommentLayer';
+import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
+import { ChatDock } from '@/features/dashboard/chat/ChatDock';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { AskReceipt } from '@/features/dashboard/inbox/AskReceipt';
 import { AskSheet } from '@/features/dashboard/inbox/AskSheet';
 import { agoLabel, decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
@@ -9,12 +13,13 @@ import { LearningDecision } from '@/features/dashboard/inbox/LearningDecision';
 import { RunDecision } from '@/features/dashboard/inbox/RunDecision';
 import { toSheetAsk } from '@/features/dashboard/inbox/toSheetAsk';
 import { ReviewFocus } from '@/features/dashboard/ReviewFocus';
-import { describeAction } from '@/features/review/ReviewFocusView';
+import { describeAction } from '@/features/review/describeAction';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { scoreFor } from '@/services/alignment/AlignmentService';
 import { getAsk } from '@/services/AskService';
+import { recordRef } from '@/services/chat/recordContext';
 import { parseInboxRef } from '@/services/inbox/inboxRef';
 import { loadPendingAction } from '@/services/inbox/pendingAction';
 import { askGroupHref } from '@/services/inbox/recordKey';
@@ -132,9 +137,48 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
         );
       }
       const sort = ((INBOX_SORTS as readonly string[]).includes(sp.sort ?? '') ? sp.sort : 'oldest') as InboxSort;
-      const queue = await listProposalQueue(orgId, { q: sp.q?.trim(), sort, actionKinds: list(sp.actionKind), agents: list(sp.agents) });
+      const [queue, { agents }] = await Promise.all([
+        listProposalQueue(orgId, { q: sp.q?.trim(), sort, actionKinds: list(sp.actionKind), agents: list(sp.agents) }),
+        loadChatAgentContext(orgId),
+      ]);
       const search = carried(sp);
-      return <ReviewFocus run={run} queue={queue} search={search} listHref={`/dashboard/inbox?kind=proposal${search.replace(/^\?/, '&')}`} />;
+      const record = recordRef('ask', run.id, describeAction(run).title);
+      const path = `/dashboard/inbox/${id}`;
+      // The same wiring the lead page has, and for the same two reasons. The
+      // rail beside a decision could read the title and nothing else: with no
+      // run in hand there was nothing for `@change` to rewrite ("I don't have
+      // edit access to that review queue page"), and with no comment layer a
+      // highlighted sentence raised no control. Chris, 2026-09-17: *"why can't
+      // I edit with chat / when I highlight text why don't I get the
+      // contextual chat tooltip?"* The shell's dock bails on this route
+      // (`OWN_DOCK_ROUTES`), so this is the page's one surface.
+      return (
+        <CommentLayerProvider
+          targetRef={`action_run:${run.id}`}
+          record={record}
+          // The sends are in view exactly when the card is, so that is when
+          // the selection offers *Add change* and `(+)` offers `@change`.
+          changeIntent={Boolean(run.card)}
+        >
+          {/* Declare the record so the conversation beside this page knows
+              WHAT it is looking at (`pageShowsRecord`). */}
+          <RecordContext record={record} />
+          <div className="min-w-0 flex-1">
+            <ReviewFocus run={run} queue={queue} search={search} listHref={`/dashboard/inbox?kind=proposal${search.replace(/^\?/, '&')}`} />
+          </div>
+          {agents.length > 0 && (
+            <ChatDock
+              agents={agents}
+              scopeLabel="Everything"
+              pageContext={{ path, title: describeAction(run).title, record }}
+              defaultCollapsed
+              // The decision waiting on this page, so `@change` rewrites the
+              // sends in view rather than acknowledging the request.
+              run={run.card ? { ...run, card: run.card } : null}
+            />
+          )}
+        </CommentLayerProvider>
+      );
     }
 
     case 'mission': {

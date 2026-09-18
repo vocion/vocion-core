@@ -117,6 +117,8 @@ function record(over: Record<string, unknown> = {}) {
     fields: Record<string, unknown>;
     confidence: number;
     issues: string[];
+    suggestedDecision: 'approve' | 'reject' | 'snooze';
+    suggestedDecisionReason: string;
     duplicateOf?: number;
     seriesOf?: number;
   } = {
@@ -128,6 +130,9 @@ function record(over: Record<string, unknown> = {}) {
     },
     confidence: 0.9,
     issues: [],
+    // Every extracted record carries a recommendation now, labelling included.
+    suggestedDecision: 'approve',
+    suggestedDecisionReason: 'Public listing with a date and a venue.',
     ...rest,
   };
   return built;

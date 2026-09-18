@@ -215,7 +215,7 @@ install that cannot answer.
 ## Feedback in a thread becomes work
 
 Someone replying "you should have had the thread context here" has written a
-requirement. `docs/MANIFESTO.md` §9 asks whether an interaction taught the
+requirement. `docs/DESIGN-PRINCIPLES.md` §9 asks whether an interaction taught the
 system anything, and a message read once teaches nothing, so a mention that
 reads as feedback takes a second path:
 

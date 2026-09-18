@@ -11,22 +11,9 @@ import { os } from '@orpc/server';
 import { z } from 'zod';
 import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
 import { track } from '@/services/adoption/track';
-import {
-  ArtifactError,
-  deleteArtifact,
-  getArtifact,
-  getArtifactVersion,
-  listArtifactFolders,
-  listArtifacts,
-  listArtifactsForConversation,
-  listArtifactVersions,
-  restoreArtifactVersion,
-  setArtifactFolder,
-  toPayload,
-  toVersionPayload,
-  updateArtifact,
-} from '@/services/ArtifactService';
+import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
+import { reviseDocument } from '@/services/documents/DocumentEngine';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -105,6 +92,24 @@ export const update = os
   .handler(async ({ input }) => {
     const auth = await guardAuth();
     try {
+      // A person's hand edit to a document's HTML goes through the engine, so
+      // it is render-verified like an agent's edit: same door, same verdict.
+      if (input.spec && typeof input.spec.html === 'string') {
+        const existing = await getArtifact({ orgId: auth.orgId, id: input.id });
+        if (existing?.kind === 'document') {
+          const { artifact, version } = await reviseDocument({
+            orgId: auth.orgId,
+            id: input.id,
+            html: input.spec.html,
+            title: input.title ?? null,
+            author: { kind: 'human', id: auth.userId },
+            changeSummary: input.changeSummary ?? 'Edited HTML by hand',
+            ...(input.ifVersion ? { ifVersion: input.ifVersion } : {}),
+          });
+          void track(auth, 'artifact.edited', { resource: ['artifact', artifact.id], meta: { kind: artifact.kind, action: 'edited', version: version.version } });
+          return { artifact: toPayload(artifact), version: toVersionPayload(version), collapsed: false };
+        }
+      }
       const { artifact, version, collapsed } = await updateArtifact({
         orgId: auth.orgId,
         id: input.id,

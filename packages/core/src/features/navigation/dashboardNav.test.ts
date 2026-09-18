@@ -3,9 +3,12 @@ import {
   DASHBOARD_GROUPS,
   DASHBOARD_ROUTES,
   dashboardRoute,
+  DEFAULT_WORK_PINS,
   manageNavGroups,
   manageRoutes,
   tabsOf,
+  workCoreRoutes,
+  workPinnableRoutes,
   workRoutes,
 } from './dashboardNav';
 
@@ -30,7 +33,11 @@ describe('dashboardNav registry', () => {
   it('keeps WORK to the daily driver — no reports, no developers, no configuration, and no second decision door', () => {
     const work = workRoutes().map(r => r.url);
 
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search']);
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search', '/dashboard/rooms']);
+    // Chat and Review are the surface; the rest earn a row by being pinned, Briefings from the start.
+    expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox']);
+    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search', '/dashboard/rooms']);
+    expect(DEFAULT_WORK_PINS).toEqual(['/dashboard/briefings']);
     // Artifacts replaced Canvases, which never earned a row of its own.
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/canvases')).toBe(false);
     expect(work).not.toContain('/dashboard/team-report');
@@ -60,7 +67,7 @@ describe('dashboardNav registry', () => {
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
       ['/dashboard/skills', '/dashboard/evals'],
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],
-      ['/dashboard/members', '/dashboard/developers', '/dashboard/admin'],
+      ['/dashboard/members', '/dashboard/developers', '/api-docs', '/dashboard/admin'],
     ]);
     expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/marketplace']);
     expect(tabsOf('/dashboard/skills').map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/tools', '/dashboard/models']);

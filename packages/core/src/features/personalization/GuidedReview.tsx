@@ -291,7 +291,7 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
  * (`components/ui/surface.tsx`, `docs/design/patterns.md`): a bordered surface
  * never contains another bordered surface. Same content, same actions,
  * separated by a hairline in the `--rule` token with an eyebrow label
- * (MANIFESTO §4, §16).
+ * (design principles 4 and 8).
  * @param root0 - Block props.
  * @param root0.eyebrow - The small uppercase label naming the block.
  * @param root0.title - The block's headline.

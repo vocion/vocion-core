@@ -185,6 +185,19 @@ describe('urlsFrom, the protocol gate', () => {
     expect(errors(events)).toEqual([]);
     expect(events.some(e => e.kind === 'skipped' && e.message?.includes('5 unusable'))).toBe(true);
   });
+
+  it('keeps a very long entry, because a registry has no length budget', async () => {
+    const long = `https://a.test/${'x'.repeat(2500)}`;
+    stubFetch(url => url === REGISTRY ? Response.json([long]) : htmlPage());
+
+    const { docs, events } = await run({ urlsFrom: { url: REGISTRY } });
+
+    // The feed paths cap what a document may DECLARE about itself, because a
+    // hostile feed writes that row. A registry is a list a person configured,
+    // so it gets no such ceiling and the two must not share one check.
+    expect(docs.map(d => d.externalId)).toEqual([long]);
+    expect(errors(events)).toEqual([]);
+  });
 });
 
 describe('urlsFrom, dedupe and cap', () => {

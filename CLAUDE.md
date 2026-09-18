@@ -4,38 +4,47 @@
 
 Vocion is a multi-tenant SaaS application built on Next.js 16. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
 
-## Product design manifesto — read before any product decision
+## Design principles — read before any product decision
 
-`docs/MANIFESTO.md` is the bar for every feature, page, default, entity field, and agent behaviour
-in this repo. Its core pattern is **Outcome → Accountability → Measurement → Learning → Automation
-→ Capability**, and its operating rule is *hide complexity, never hide truth*. Before proposing or
-shipping product surface, answer its test — what outcome does this improve, can we measure whether
-it worked, who is accountable, can it be simpler, does the user know what to do next, did this
-interaction teach the system something, is complexity hidden without hiding the truth. A PR
-description for user-facing work should say which of those it serves. Prefer a useful default over
-a setting, one obvious action over five, and lead every surface with the outcome (the Outcome
-Contract: purpose, owner, KPI, baseline, target, permissions, quality threshold, escalation,
-current performance, autonomy level) with activity metrics as the evidence layer underneath.
+`docs/DESIGN-PRINCIPLES.md` is the bar for every feature, page, default, entity field and agent
+behaviour in this repo. Four values and twelve principles. A PR description for user-facing work
+should say which of them it serves.
 
-Two rules from §18–§19 bind day-to-day engineering here, so they are worth restating:
+**The four values**, which settle arguments:
 
-- **Implementation is the forcing function.** Build what real work demanded, not what was
-  imagined. If a change cannot name the thing it unblocked, it is not ready to build.
-- **Map onto the nouns we have.** Vocion's vocabulary is small — record, artifact,
-  ask, conversation, run, measure — and a new feature maps onto one rather than
-  adding another. Anything that needs to be referenced, edited, versioned,
-  previewed or cited is an **artifact**; implementing versioning or a history list
-  a second time is the tell that you are duplicating a noun instead of extending
-  one. Worked examples and the reduction pass (*less evidence should produce a
-  smaller output, not a longer explanation of why evidence is missing*) are in
+1. **Outcomes people own** over work the system performed.
+2. **One obvious path** over every possible option.
+3. **Evidence you can reach** over answers you must trust.
+4. **Autonomy that was earned** over automation that was configured.
+
+**The test**, before shipping anything: is this an outcome or an activity, and who owns it? Is this
+one obvious path, or another option? Can a person check it, in one move from where the claim is
+read? Did real work demand this, and can the change name the thing it unblocked?
+
+Four principles bind day-to-day engineering here, so they are worth restating:
+
+- **Principle 6 — one shape, used everywhere.** Extend an existing component or interaction
+  pattern rather than building a second one beside it, *especially* when the gap is real: a real
+  gap closed generically improves the whole platform, while the same gap closed locally improves
+  one screen and degrades the rest. Two surfaces doing the same job is a defect.
+- **Principle 7 — map onto the nouns we have.** The vocabulary is small — record, artifact, ask,
+  conversation, run, measure — and a new feature maps onto one rather than adding another. Anything
+  that needs to be referenced, edited, versioned, previewed or cited is an **artifact**;
+  implementing versioning or a history list a second time is the tell that you are duplicating a
+  noun instead of extending one. Worked examples and the reduction pass (*less evidence should
+  produce a smaller output, not a longer explanation of why evidence is missing*) are in
   `docs/design/reduction.md`.
-- **Extend the core; keep specifics at the edge.** Ask *how can we simplify this* and *how can we
-  make this universal* before adding any surface. Extend an existing component or interaction
-  pattern rather than building a second one beside it — especially when the gap is real, because
-  a real gap closed generically improves the whole platform while the same gap closed locally
-  improves one screen and degrades the rest. Anything true only for one industry, customer or
-  vertical workflow is a **concretion**: it belongs in a template, workspace or the marketplace,
-  never in the core. Two surfaces doing the same job is a defect.
+- **Principle 10 — show your work.** Every claim is traceable to what produced it, in one move from
+  where it is read. Anything dated is shown with its date. "I could not establish this" beats a
+  confident guess.
+- **Principle 12 — build what use demanded.** Build what real work demanded, not what was imagined;
+  if a change cannot name the thing it unblocked, it is not ready to build. And anything true only
+  of one industry, customer or vertical workflow is a **concretion** — it belongs in a template,
+  workspace or the marketplace, never in the core.
+
+Lead every surface with the outcome (the Outcome Contract: purpose, owner, KPI, baseline, target,
+permissions, quality threshold, escalation, current performance, autonomy level), with activity
+metrics as the evidence layer underneath.
 
 ## Tech Stack
 
@@ -465,7 +474,7 @@ requirements/                       # Product specs and case studies
   with deterministic wrapping of a long-form answer, a gated backstop pass only
   for the short-answer case, and a prompt line carried into the out-of-process
   loop as the weakest lever. See `docs/agent-chat-surface.md` → *Deliverables*.
-- **Manifesto first.** Product decisions are judged against `docs/MANIFESTO.md` (see the section
+- **Principles first.** Product decisions are judged against `docs/DESIGN-PRINCIPLES.md` (see the section
   near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config

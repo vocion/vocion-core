@@ -1,0 +1,6 @@
+name: Finance
+description: >-
+  Closes the period with numbers that tie, and turns the ledger into
+  the reports the business steers on.
+lead: controller
+# No accountableUser: inherits the workspace default when one is set.

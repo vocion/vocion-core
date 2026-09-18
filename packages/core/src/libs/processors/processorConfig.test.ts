@@ -26,7 +26,7 @@ describe('candidate-extractor config', () => {
   it('fills in the defaults a manifest did not state', () => {
     const parsed = candidateExtractorConfigSchema.parse(minimal);
 
-    expect(parsed.maxRecordsPerDocument).toBe(25);
+    expect(parsed.maxRecordsPerDocument).toBe(200);
     expect(parsed.minConfidence).toBe(0.5);
     expect(parsed.recurrenceHorizonDays).toBe(60);
     expect(parsed.onViolation).toBe('dropValue');
@@ -184,17 +184,20 @@ describe('the sync budget', () => {
     }).limits?.modelTimeoutMs).toBe(30_000);
   });
 
-  it('sizes the sync caps for one model call per document, and still only lets a source lower them', () => {
-    // A document is one feed entry or one detail page now, not one listing
-    // page, so the cap is per document. The second dev shadow (2026-09-15)
-    // crawled 59 detail pages on one source, spent all 25 calls and skipped 44
-    // documents; the fourth (2026-09-16, Bellwater Hall, 117 documents) spent
-    // 400,000 tokens after 88 calls at about 4,500 a detail page and left 29
-    // documents unread, so the token cap is 150 calls at the measured cost.
-    expect(SYNC_BUDGET_DEFAULTS.maxModelCalls).toBe(150);
-    expect(SYNC_BUDGET_DEFAULTS.maxInputTokensPerSync).toBe(800_000);
+  it('sizes the sync caps well clear of a healthy sync, and still only lets a source lower them', () => {
+    // A document is one feed entry or one detail page, not one listing page.
+    // The dev shadows measured what a call costs — about 4,500 input tokens
+    // for a detail page — and the earlier caps (150 calls, 800,000 tokens)
+    // were sized to fit a first cautious rollout, which meant a big source
+    // stopped part-read: 59 detail pages on one source spent all its calls and
+    // skipped 44 documents. These ceilings sit far above anything measured, so
+    // a sync ends because it ran out of PAGES, never because it ran out of
+    // budget part-way through a venue.
+    expect(SYNC_BUDGET_DEFAULTS.maxModelCalls).toBe(600);
+    expect(SYNC_BUDGET_DEFAULTS.maxInputTokensPerSync).toBe(5_000_000);
     expect(createSyncBudget({ limits: { maxModelCalls: 40 } }).caps.maxModelCalls).toBe(40);
-    expect(createSyncBudget({ limits: { maxInputTokensPerSync: 1_000_000 } }).caps.maxInputTokensPerSync).toBe(800_000);
+    // A source may still only lower a cap — never raise one past the ceiling.
+    expect(createSyncBudget({ limits: { maxInputTokensPerSync: 9_000_000 } }).caps.maxInputTokensPerSync).toBe(5_000_000);
     expect(createSyncBudget({ limits: { maxInputTokensPerSync: 200_000 } }).caps.maxInputTokensPerSync).toBe(200_000);
   });
 

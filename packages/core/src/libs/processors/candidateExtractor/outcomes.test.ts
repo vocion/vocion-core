@@ -67,6 +67,8 @@ function record(over: Record<string, unknown> = {}) {
     },
     confidence: 0.86,
     issues: [] as string[],
+    suggestedDecision: 'approve' as const,
+    suggestedDecisionReason: 'Public listing with a date and a venue.',
     ...rest,
   };
 }
@@ -132,18 +134,42 @@ describe('candidate extractor outcomes', () => {
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(1);
   });
 
-  it('recommends reject on a card the model called a duplicate, and nothing otherwise', async () => {
+  it('overrides the model on a card it called a duplicate, and leaves every other verdict alone', async () => {
+    // A duplicate is core's determination, not the model's, so the card says
+    // reject in core's words whatever the model recommended. Every other card
+    // carries the model's own verdict through untouched — the queue has no
+    // row with nothing recommended on it.
     await propose([
       record({ duplicateOf: 41, fields: { title: 'Open Mic Night', seriesMatch: 'possible duplicate of 41' } }),
-      record(),
+      record({ suggestedDecision: 'snooze', suggestedDecisionReason: 'The venue has not confirmed the date yet.' }),
     ]);
 
     const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
     const byTitle = Object.fromEntries(runs.map(r => [(r.input as { title?: string }).title, r]));
 
-    expect(byTitle['Open Mic Night']?.proposal).toMatchObject({ suggestedDecision: 'reject' });
+    expect(byTitle['Open Mic Night']?.proposal).toMatchObject({
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Already waiting for review as action run #41.',
+    });
     expect(byTitle['Open Mic Night']?.status).toBe('pending');
-    expect((byTitle['The Music of Moonrise Live']?.proposal as { suggestedDecision?: string }).suggestedDecision).toBeUndefined();
+    expect(byTitle['The Music of Moonrise Live']?.proposal).toMatchObject({
+      suggestedDecision: 'snooze',
+      suggestedDecisionReason: 'The venue has not confirmed the date yet.',
+    });
+  });
+
+  it('stores no recommendation when the model answered with an empty sentence', async () => {
+    // The envelope requires both halves, but required only means present: `""`
+    // parses. A card carrying a verdict with nothing under it is counted in
+    // the agreement rate against a reviewer who had nothing to read, so the
+    // blank sentence makes the whole verdict silence instead.
+    await propose([record({ suggestedDecision: 'approve', suggestedDecisionReason: '   ' })]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run!.proposal).not.toHaveProperty('suggestedDecision');
+    expect(run!.proposal).not.toHaveProperty('suggestedDecisionReason');
+    expect(run!.proposal).toMatchObject({ confidence: 0.86 });
   });
 
   it('links the document to the candidate it created', async () => {
@@ -199,6 +225,40 @@ describe('candidate extractor outcomes', () => {
       },
       title: 'The Music of Moonrise Live',
       identity: ['The Music of Moonrise Live', '2026-11-01', 'Bellwater Hall'],
+    });
+  });
+
+  it('stores what the model recommended, and why, on the card it made', async () => {
+    // The pair is the whole point of the field: a reviewer reads the reason
+    // before deciding, and later the two can be compared against what they
+    // actually did. A stored recommendation with no reason is a percentage
+    // nobody can interpret.
+    await propose([record({ suggestedDecision: 'snooze', suggestedDecisionReason: 'The venue has not confirmed the date.' })]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).toMatchObject({
+      suggestedDecision: 'snooze',
+      suggestedDecisionReason: 'The venue has not confirmed the date.',
+    });
+  });
+
+  it('turns down a duplicate in our own words, whatever the model recommended', async () => {
+    // The duplicate id is core's determination, not the model's read, so the
+    // reason a reviewer sees has to be one we can stand behind — and a model
+    // that both flagged the duplicate and recommended approving it must not
+    // leave an "approve" on the card.
+    await propose([record({
+      duplicateOf: 412,
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Looks like a solid listing.',
+    })]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).toMatchObject({
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Already waiting for review as action run #412.',
     });
   });
 

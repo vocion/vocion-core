@@ -25,6 +25,16 @@ async function resolveKey(orgId: string, step: string, ruleId: string): Promise<
   }
 }
 
+/**
+ * PATCH /api/v1/learnings/:step/rules/:ruleId  { ruleText }
+ *
+ * Rewrite one learning rule in place. `ruleText` is required and replaces the
+ * rule's whole body — this is not a merge. 404 when the step is not a
+ * namespace in this org, or the rule is not in it.
+ * @param req - Request.
+ * @param context - Route params.
+ * @param context.params
+ */
 export async function PATCH(req: Request, context: { params: Promise<{ step: string; ruleId: string }> }) {
   const caller = await authApi(req);
   if (isErrorResponse(caller)) {
@@ -53,6 +63,16 @@ export async function PATCH(req: Request, context: { params: Promise<{ step: str
   return NextResponse.json(result.rule);
 }
 
+/**
+ * DELETE /api/v1/learnings/:step/rules/:ruleId
+ *
+ * Remove one learning rule. Returns the store key that was removed, so a
+ * caller can see which file went. 404 when the step is not a namespace in this
+ * org, or the rule is not in it.
+ * @param req - Request.
+ * @param context - Route params.
+ * @param context.params
+ */
 export async function DELETE(req: Request, context: { params: Promise<{ step: string; ruleId: string }> }) {
   const caller = await authApi(req);
   if (isErrorResponse(caller)) {

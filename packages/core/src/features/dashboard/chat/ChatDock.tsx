@@ -18,6 +18,7 @@ import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
+import { AgentMark } from './AgentMark';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
@@ -44,6 +45,7 @@ import {
 } from './railState';
 import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
+import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 
 export type ChatDockProps = {
@@ -278,6 +280,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
   }, [pageContext, intent, recordDismissed]);
   const session = useChatSession({ agents, scopeRef, pageContext: effectiveContext, resumeConversationId });
   const queueProps = useComposerQueueProps(session);
+  const onCommand = useChatCommands(session.handleNewChat);
   // The rail IS on a page, so `(+)` offers `@page` and the record in view
   // beside `@artifact` — the same list `@` resolves against. `@change` joins
   // it only where a sequence draft is in view, which is exactly where the
@@ -335,6 +338,10 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     function onRequest(e: Event) {
       e.preventDefault();
       const req = agentSurfaceRequestOf(e);
+      // ⌘⇧O / `/new` / the palette: start over in this rail, then open it.
+      if (req.newChat) {
+        sessionRef.current.handleNewChat();
+      }
       // A toggle request with nothing to apply closes an open rail, so the
       // titlebar control is one button that both opens and collapses. A
       // request carrying intent always opens — someone asking about a record
@@ -579,11 +586,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           corner, so the row keeps clear of it rather than stacking under it. */}
       <div className={`flex h-12 shrink-0 items-center gap-1 border-b border-border pl-3 ${narrow ? 'pr-11' : 'pr-1.5'}`}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {!scopeRef && (
-            <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-md bg-brand-amber-tint text-[11px] font-semibold text-brand-amber-deep">
-              {headerName.slice(0, 1).toUpperCase()}
-            </span>
-          )}
+          {!scopeRef && <AgentMark name={headerName} className="size-6 justify-center" decorative />}
           <span className="truncate text-sm font-semibold">{headerName}</span>
           {/* The drawer's scope, when an affordance opened it with one
               (`docs/specs/personalization-v2.md`): one line naming the
@@ -780,6 +783,13 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           tags={session.contextRefs}
           onAddTag={session.addContextRef}
           onRemoveTag={session.removeContextRef}
+          attachments={session.attachments}
+          uploading={session.uploading > 0}
+          attachError={session.attachError}
+          onDismissAttachError={session.clearAttachError}
+          onAttachFiles={files => void session.attachFiles(files)}
+          onRemoveAttachment={session.removeAttachment}
+          onCommand={onCommand}
         />
       </div>
     </>

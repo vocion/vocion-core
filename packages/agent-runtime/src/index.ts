@@ -6,5 +6,8 @@
 
 import process from 'node:process';
 import { startServer } from './server.js';
+import { startTelemetry } from './telemetry.js';
 
+// Before the first request, so no invocation is served untraced.
+startTelemetry();
 startServer(Number(process.env.PORT ?? 8080));

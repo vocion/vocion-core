@@ -4,7 +4,7 @@
 
 Context as code. Skills as plugins. Review surfaces built in.
 
-**Powerful systems should feel simple.** The [Product Design Manifesto](./docs/MANIFESTO.md) is the bar every feature in this repository is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth.
+**Powerful systems should feel simple.** The [Product Design Manifesto](./docs/DESIGN-PRINCIPLES.md) is the bar every feature in this repository is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth.
 
 **New here?** [**Getting started — build an agent workforce from zero**](./docs/getting-started.md) walks you from an empty directory to a working workforce, one file type at a time. No code required.
 
@@ -237,7 +237,7 @@ grant trademark rights.
 
 ## Docs
 
-- [`docs/MANIFESTO.md`](./docs/MANIFESTO.md) — the Product Design Manifesto: the principles and the twelve-question test every product decision must pass
+- [`docs/DESIGN-PRINCIPLES.md`](./docs/DESIGN-PRINCIPLES.md) — the Product Design Manifesto: the principles and the twelve-question test every product decision must pass
 - [`docs/getting-started.md`](./docs/getting-started.md) — **start here**: zero to a working agent workforce, with an example of every entity type
 - [`AGENTS.md`](./AGENTS.md) — setup and conventions written for a coding agent working in this repo
 - [`llms.txt`](./llms.txt) — machine-readable index of this repo's public docs

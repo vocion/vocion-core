@@ -228,6 +228,17 @@ export function stripEmptySections(doc: BriefingV2): BriefingV2 {
 }
 
 /**
+ * The local calendar day as `YYYY-MM-DD` — the same sense of "today" the rest
+ * of the briefing code uses, so a brief published at 23:50 and read at 00:10
+ * does not disagree with itself about which day it covers.
+ * @param d - The instant to take the day from.
+ */
+function localDay(d: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
  * Make a document obey the contract instead of complaining that it does not:
  * trim to every budget, redact the narrative, drop empty sections. What the
  * composer runs, and the last thing `publish_briefing` does before it stores
@@ -238,10 +249,57 @@ export function stripEmptySections(doc: BriefingV2): BriefingV2 {
  * that card is dropped and the caller is told.
  * @param doc - The document.
  * @param vocab - The workspace's own vocabulary.
+ * @param now
  */
-export function enforceBriefing(doc: BriefingV2, vocab: RedactionVocabulary = {}): { doc: BriefingV2; dropped: BriefingIssue[] } {
+export function enforceBriefing(doc: BriefingV2, vocab: RedactionVocabulary = {}, now: Date = new Date()): { doc: BriefingV2; dropped: BriefingIssue[] } {
   const dropped: BriefingIssue[] = [];
   const out: BriefingV2 = { ...doc };
+
+  // THE CRITICAL PATH IS A CLAIM ABOUT TODAY, so the publisher checks it.
+  //
+  // On 2026-09-17 a briefing served a call from the previous day as "10:30am
+  // CT today". Nothing was lying: a critical-path item carried a time of day
+  // and no date at all, so an item carried forward from yesterday's briefing
+  // was indistinguishable from one happening in an hour — to the model that
+  // wrote it, to the renderer, and to the reader.
+  //
+  // The prompt already said not to do this, and a CLOCK block already stated
+  // NOW. Neither helped, because the check was left to the model. So the
+  // publisher does it: an item that is not dated today is dropped, exactly as
+  // a decision card with no `whyNow` is dropped, and for the same reason —
+  // less evidence should produce a smaller output, never a confident one.
+  if (out.criticalPath) {
+    const today = localDay(now);
+    const kept: typeof out.criticalPath.items = [];
+    for (const i of out.criticalPath.items) {
+      if (i.date !== today) {
+        dropped.push({
+          section: 'criticalPath',
+          rule: 'must-be-today',
+          message: i.date
+            ? `"${i.label}" dropped: dated ${i.date}, and the critical path is today (${today}). Never carry an item forward from a previous briefing.`
+            : `"${i.label}" dropped: no date. A time of day is not a date, and an undated claim about today cannot be checked.`,
+        });
+        continue;
+      }
+      // A date alone is not enough, because the model supplies the date too.
+      // The failure this catches is the one the date check cannot: an item
+      // written fresh, stamped with today, for a meeting that is not on the
+      // calendar. "You have a call at 10:30" is a claim about a specific
+      // document — a calendar event — and a claim with no reachable source is
+      // the thing principle 10 exists to stop.
+      if (i.evidence.length === 0) {
+        dropped.push({
+          section: 'criticalPath',
+          rule: 'must-cite-evidence',
+          message: `"${i.label}" dropped: no evidence. Every item on the critical path names a specific thing — a calendar event, a deal, a contract — and must cite it so a person can check it in one move. If you cannot point at one, the item does not go on the clock.`,
+        });
+        continue;
+      }
+      kept.push(i);
+    }
+    out.criticalPath = { items: kept };
+  }
 
   if (out.today) {
     const before = out.today.metrics.length;

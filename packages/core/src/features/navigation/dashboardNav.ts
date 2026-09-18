@@ -11,6 +11,7 @@ import {
   Database,
   FileCode2,
   FileStack,
+  FolderOpen,
   GitBranch,
   Inbox,
   LineChart,
@@ -94,22 +95,30 @@ export type DashboardRoute = {
   tabTitle?: string;
   /** `DashboardLayout` message key for `tabTitle`. */
   tabI18nKey?: DashboardLayoutKey;
+  /**
+   * A WORK row that earns its place: shown in the Workspace group only while
+   * pinned, otherwise one row down under "More". Chat and Review are never
+   * this — they are the surface (Chris, 2026-09-18).
+   */
+  pinnable?: true;
+  /** A pinnable row that starts pinned for everyone until they unpin it. */
+  defaultPinned?: true;
 };
 
 export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── WORK ────────────────────────────────────────────────────────────────
   { url: '/dashboard/chat', title: 'Chat', group: 'Workspace', icon: MessageSquare, i18nKey: 'chat', keywords: ['ask', 'agent'] },
   { url: '/dashboard/inbox', title: 'Review', group: 'Workspace', icon: Inbox, i18nKey: 'inbox', keywords: ['inbox', 'decisions', 'asks', 'approvals', 'proposals', 'review', 'queue'] },
-  { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings' },
+  { url: '/dashboard/briefings', title: 'Briefings', group: 'Workspace', icon: Newspaper, i18nKey: 'briefings', pinnable: true, defaultPinned: true },
   // Everything an agent or a person made beside a conversation — live,
   // versioned, editable. Replaces Canvases, whose saved tile arrangements
   // nobody arranged twice (`/dashboard/canvases` 308s here).
-  { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'] },
+  { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'], pinnable: true },
   // Review is no longer a place: the queue is the `proposal` kind of Review queue
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.
   { url: '/dashboard/inbox?kind=proposal', title: 'Review · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
-  { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'] },
+  { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'], pinnable: true },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
   { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
@@ -122,6 +131,11 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
   { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database, i18nKey: 'objects' },
+  // One room per client engagement — the source of record the documents are
+  // written from: status, cast, sources by weight, open items as asks. Under
+  // Knowledge beside Objects (a room IS a record); the WORK view keeps its
+  // five doors, and the rooms are one ⌘K away.
+  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Workspace', icon: FolderOpen, pinnable: true, keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
   { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },
 
@@ -141,6 +155,10 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Organization — the account itself ──────────────────────────
   { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
   { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs'] },
+  // The one row that leaves the dashboard shell: the reference is a full-page
+  // Swagger UI an integrator keeps open beside their editor, so it renders on
+  // its own route rather than inside the sidebar layout.
+  { url: '/api-docs', title: 'Swagger Docs', group: 'Organization', icon: BookOpen, keywords: ['api', 'openapi', 'swagger', 'reference', 'endpoints', 'docs'] },
   { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, i18nKey: 'system', keywords: ['status', 'admin', 'settings', 'health'] },
 
   // ── YOU — personal, not the workspace's ─────────────────────────────────
@@ -167,6 +185,19 @@ function visibleRoutes(isAdmin: boolean): DashboardRoute[] {
 export function workRoutes(): DashboardRoute[] {
   return DASHBOARD_ROUTES.filter(r => r.group === 'Workspace' && !r.paletteOnly);
 }
+
+/** The WORK rows that are always there — the surface itself: Chat, Review. */
+export function workCoreRoutes(): DashboardRoute[] {
+  return workRoutes().filter(r => !r.pinnable);
+}
+
+/** The WORK rows a person pins into the Workspace group; unpinned they sit under "More". */
+export function workPinnableRoutes(): DashboardRoute[] {
+  return workRoutes().filter(r => r.pinnable);
+}
+
+/** The pinnable WORK rows everyone starts with pinned (Briefings). */
+export const DEFAULT_WORK_PINS: readonly string[] = DASHBOARD_ROUTES.filter(r => r.pinnable && r.defaultPinned).map(r => r.url);
 
 /**
  * The MANAGE view's sections, each with its top-level rows (tabs excluded) in registry order.

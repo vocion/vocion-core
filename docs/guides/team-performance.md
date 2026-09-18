@@ -10,7 +10,7 @@ much human help do they need, and where is something going wrong. This guide
 is the model behind the page — what a team declares, where every number comes
 from, what Vocion derives, and how a workspace gets from nothing to a report.
 
-The [manifesto](../MANIFESTO.md) principles it serves: #1 outcomes over
+The [manifesto](../DESIGN-PRINCIPLES.md) principles it serves: #1 outcomes over
 activity, #2 if it matters measure it, #3 accountability has an owner, #12
 hide complexity never truth, #13 measure the business and the person.
 

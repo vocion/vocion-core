@@ -291,7 +291,7 @@ export const LeadView = (props: {
     run && { label: 'Review run', value: `#${run.id}` },
     ...artifacts.map(a => ({ label: `Artifact · ${a.role}`, value: `#${a.id} · v${a.version}` })),
     // What the human actually approved, if they already have. This is the
-    // whole reason a decision pins versions (MANIFESTO §3).
+    // whole reason a decision pins versions (design principle 1).
     ...runState.pinned.map(p => ({ label: `Approved · ${p.role}`, value: `#${p.artifactId} · v${p.version}` })),
   ].filter((x): x is { label: string; value: string } => Boolean(x));
 

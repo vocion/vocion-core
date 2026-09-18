@@ -82,7 +82,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'waiting' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.4 },
+      proposal: { confidence: 0.4, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     const run = await readRun(out.runId);
@@ -100,7 +100,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'auto' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.95 },
+      proposal: { confidence: 0.95, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     const run = await readRun(out.runId);
@@ -124,7 +124,7 @@ describe('approved_by_agent', () => {
       input: { value: 'over the api' },
       principal: proposingAgent(),
       invokedBy: 'token:42',
-      proposal: { confidence: 0.9, agentSlug: 'event-scout' },
+      proposal: { confidence: 0.9, agentSlug: 'event-scout', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     const run = await readRun(out.runId);
@@ -142,7 +142,7 @@ describe('approved_by_agent', () => {
       input: { value: 'anonymous' },
       principal: proposingAgent(),
       invokedBy: 'token:42',
-      proposal: { confidence: 0.9 },
+      proposal: { confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     const run = await readRun(out.runId);
@@ -158,7 +158,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'by hand' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.4 },
+      proposal: { confidence: 0.4, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     await executeAction(out.runId, ORG, { reviewedBy: 'user_123' });
@@ -175,7 +175,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'no thanks' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.4 },
+      proposal: { confidence: 0.4, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     await rejectAction(out.runId, ORG, 'wrong venue', { reviewedBy: 'user_123' });
@@ -192,7 +192,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'auto then reversed' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.9 },
+      proposal: { confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     await rejectAction(out.runId, ORG, 'should not have gone out', { reviewedBy: 'user_123' });
@@ -215,7 +215,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'first pass' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.9 },
+      proposal: { confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
       dedupKey: 'test.trusted-write:kit-1',
     });
 
@@ -228,7 +228,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'second pass' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.1 },
+      proposal: { confidence: 0.1, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
       dedupKey: 'test.trusted-write:kit-1',
     });
 
@@ -260,7 +260,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.guarded-send',
       input: { value: 'never auto' },
       principal: { kind: 'agent', id: 'agent:event-scout', grants: ['send_email'], autonomy: 2, scope: { orgId: ORG } } as Principal,
-      proposal: { confidence: 0.99 },
+      proposal: { confidence: 0.99, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     const run = await readRun(out.runId);
@@ -300,7 +300,7 @@ describe('approved_by_agent', () => {
       actionId: 'test.trusted-write',
       input: { value: 'clean auto-approval' },
       principal: proposingAgent(),
-      proposal: { confidence: 0.9 },
+      proposal: { confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded proposal for this test.' },
     });
 
     // The guard behind the rule above: only an open row — `pending` or

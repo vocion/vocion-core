@@ -6,6 +6,8 @@
  * lock-step. New runtime, same events.
  */
 
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
+
 /* ------------------------------------------------------------------ */
 /* Event shape — what the SSE adapter emits over the wire             */
 /* ------------------------------------------------------------------ */
@@ -63,6 +65,18 @@ export type RecommendedActionPayload = {
    * run's status instead of a "Prepare" button. Additive; absent on tap-mode.
    */
   runId?: number;
+  /**
+   * What the agent thinks a reviewer should do with this once it is filed,
+   * and one short sentence for why — the agent's own answer, asked for by
+   * `recommend_action`. They travel together: filing this card sends them as
+   * the proposal's recommendation.
+   *
+   * Optional on the type because an event can arrive without them (an older
+   * client, a model that skipped the field). The card then files with no
+   * recommendation rather than one core invented for it.
+   */
+  suggestedDecision?: SuggestedDecision;
+  suggestedDecisionReason?: string;
 };
 
 /**
@@ -76,7 +90,7 @@ export type RecommendedActionPayload = {
 export type ArtifactPayload = {
   id: number;
   conversationId: number | null;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
   title: string;
   spec: Record<string, unknown>;
   url?: string | null;

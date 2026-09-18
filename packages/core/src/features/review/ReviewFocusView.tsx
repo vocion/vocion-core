@@ -12,6 +12,7 @@ import { decisionCrumbs } from '@/features/dashboard/inbox/inboxMeta';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
+import { describeAction } from './describeAction';
 import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
@@ -40,7 +41,7 @@ export type ActionRun = {
   input: Record<string, unknown>;
   invokedBy: string | null;
   createdAt: string | Date;
-  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze' } | null;
+  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze'; suggestedDecisionReason?: string } | null;
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
   error?: string | null;
@@ -51,28 +52,9 @@ export type ActionRun = {
   typeLabel?: string;
 };
 
-const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
-
-/**
- * The human answer to "what am I approving?" for an item with no presenter —
- * action verb + target system + object, from the action id and its input.
- * @param p
- */
-export function describeAction(p: ActionRun): { title: string; system: string; isEmail: boolean } {
-  const input = p.input;
-  if (p.card) {
-    return { title: p.card.title, system: p.card.system ?? p.actionId.split('.')[0] ?? 'system', isEmail: false };
-  }
-  if (p.actionId === 'gmail.send') {
-    const draft = input.draft === true;
-    return { title: `${draft ? 'Draft email' : 'Send email'} → ${str(input.to) || 'recipient'}`, system: 'Gmail', isEmail: true };
-  }
-  if (p.actionId.startsWith('hubspot.')) {
-    const objectType = str(input.objectType) || 'record';
-    return { title: `Update HubSpot ${objectType === 'companies' ? 'company' : objectType.replace(/s$/, '')} record`, system: 'HubSpot CRM', isEmail: false };
-  }
-  return { title: p.actionId, system: p.actionId.split('.')[0] ?? 'system', isEmail: false };
-}
+// Re-exported so existing client importers are untouched; the definition is
+// in a server-safe module because server components need it too.
+export { describeAction };
 
 export type ReviewFocusViewProps = {
   loaded: boolean;
@@ -239,6 +221,20 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
                   Why
                 </div>
                 <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.rationale}</p>
+              </section>
+            )}
+            {/* Kept in its own section rather than folded into "Why" above.
+                That one is the case for the payload; this is the case for the
+                recommendation, and on a card the agent wants turned down they
+                are different arguments — merging them would read as the agent
+                contradicting itself. */}
+            {current.proposal?.suggestedDecisionReason && (
+              <section data-testid="review-generic-suggestion-reason" className="border-b border-rule py-6">
+                <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                  <Sparkles className="size-3.5 text-brand-amber-deep" aria-hidden />
+                  Why it suggests that
+                </div>
+                <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/80">{current.proposal.suggestedDecisionReason}</p>
               </section>
             )}
             {/* What the recommendation rests on. Each citation opens in the

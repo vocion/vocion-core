@@ -122,7 +122,7 @@ measures:
 ## Outcome contract
 
 The team report (`/dashboard/team-report`) presents every team as the outcome
-contract the [Product Design Manifesto](../MANIFESTO.md) asks for — *Outcome →
+contract the [Product Design Manifesto](../DESIGN-PRINCIPLES.md) asks for — *Outcome →
 Accountability → Measurement → Learning → Automation → Capability* — and reads
 each field from what the workspace already authors:
 

@@ -16,6 +16,15 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 
+vi.mock('@/libs/I18nNavigation', () => ({
+  // The surfaces read the router for `/history`, `?new=1` and the preview's chat CTA — a stub is enough here.
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => '/dashboard/chat',
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
+    <a href={href} {...rest}>{children}</a>
+  ),
+}));
+
 const { client } = await import('@/libs/Orpc');
 const { ChatShell } = await import('./ChatShell');
 

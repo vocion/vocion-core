@@ -1,0 +1,6 @@
+name: Operations
+description: >-
+  Runs the week and holds the plan — the standing coordination work,
+  plus the analyst who keeps the systems of record true.
+lead: chief-of-staff
+# No accountableUser: inherits the workspace default when one is set.

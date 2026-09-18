@@ -3,7 +3,7 @@ name: People Ops Partner
 description: 'Runs the employee lifecycle — hire, onboard, review, pay — so none of it depends on somebody remembering.'
 icon: user-check
 accent: lime
-eyebrow: People
+team: legal-and-people
 agentType: workflow
 active: true
 

@@ -3,7 +3,7 @@ name: Automation Engineer
 description: 'Turns how the client already works into new catalog entries, so the catalog grows without core.'
 icon: wand
 accent: emerald
-eyebrow: Shared service
+team: engineering
 agentType: mission
 active: true
 

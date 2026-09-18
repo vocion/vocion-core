@@ -55,6 +55,12 @@ export type AgentSurfaceRequest = {
    */
   tags?: ContextRef[];
   /**
+   * Start over: the surface forgets the current thread and the next send
+   * opens a fresh one — ⌘⇧O, `/new`, the palette's New chat, the ⋯ menu.
+   * Unclaimed, the caller navigates to `/dashboard/chat?new=1`.
+   */
+  newChat?: boolean;
+  /**
    * Treat the request as a toggle: a mounted surface that is already open,
    * and has no intent to apply, collapses instead of re-focusing. The
    * titlebar control sends this so one button both opens and closes the rail

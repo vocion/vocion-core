@@ -3,7 +3,7 @@ name: UX Researcher
 description: 'Learns from people rather than sources, and turns transcripts into themes somebody can act on.'
 icon: users
 accent: violet
-eyebrow: Knowledge
+team: product
 agentType: mission
 active: true
 

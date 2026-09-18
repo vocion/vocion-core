@@ -115,21 +115,27 @@ function answer() {
         {
           fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'], recurrence: 'every Thursday', price: 'Free' },
           confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules and nothing like it is already queued.',
           sourceUrl: 'https://bellwaterhall.example/e/open-mic',
         },
         {
           fields: { title: 'The Music of Moonrise Live', startDate: day(21), venueName: 'Bellwater Hall', categories: ['Music', 'Interpretive Dance'], price: '$28' },
           confidence: 0.8,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules and nothing like it is already queued.',
         },
         // Duplicated by a "featured" block at the top of the same page.
         {
           fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'] },
           confidence: 0.7,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules and nothing like it is already queued.',
         },
         // Already happened.
-        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Bellwater Hall' }, confidence: 0.9 },
+        { fields: { title: 'Last Month\'s Benefit', startDate: day(-30), venueName: 'Bellwater Hall' }, confidence: 0.9, suggestedDecision: 'reject', suggestedDecisionReason: 'The date has already passed.' },
         // The model was not sure.
-        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Bellwater Hall' }, confidence: 0.2 },
+        { fields: { title: 'Rumoured Show', startDate: day(14), venueName: 'Bellwater Hall' }, confidence: 0.2, suggestedDecision: 'snooze', suggestedDecisionReason: 'Only a rumour on the page; worth another look closer to the date.' },
       ],
     }),
     usage_metadata: { input_tokens: 3200, output_tokens: 420 },
@@ -241,6 +247,44 @@ describe('candidate extractor, one document end to end', () => {
     expect(arnold?.proposal).not.toHaveProperty('labels');
   });
 
+  it('carries the model\'s own verdict on the venue onto the venue card', async () => {
+    // The card a reviewer opens has to argue for itself in the words of
+    // something that actually looked at the page. Core writing "approve" here
+    // scored in the agreement rate as though the model had recommended it.
+    const judged = JSON.parse(answer().content);
+    for (const record of judged.records) {
+      record.referencedObjects = [{
+        objectType: 'venue-candidate',
+        suggestedDecision: 'reject',
+        suggestedDecisionReason: 'The page prints the promoter here, not the room the show is in.',
+      }];
+    }
+    invoke.mockResolvedValue({ ...answer(), content: JSON.stringify(judged) });
+
+    await run(context());
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const venue = runs.find(row => (row.input as { objectType?: string }).objectType === 'venue-candidate');
+
+    expect(venue?.proposal?.suggestedDecision).toBe('reject');
+    expect(venue?.proposal?.suggestedDecisionReason).toBe('The page prints the promoter here, not the room the show is in.');
+  });
+
+  it('leaves the venue card with no recommendation when the model judged only the records', async () => {
+    // Silence is the honest answer, and it stays out of the agreement rate.
+    // The alternative — core inventing an approve — is what this replaced.
+    invoke.mockResolvedValue(answer());
+
+    await run(context());
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const venue = runs.find(row => (row.input as { objectType?: string }).objectType === 'venue-candidate');
+
+    expect(venue).toBeDefined();
+    expect(venue?.proposal).not.toHaveProperty('suggestedDecision');
+    expect(venue?.proposal).not.toHaveProperty('suggestedDecisionReason');
+  });
+
   it('keeps the URLs a feed entry declared, having no links or JSON-LD to check against', async () => {
     // The join this file exists to cover: the connector writes the URLs onto
     // the document, the processor has to hand them to the gate. Tested in the
@@ -263,6 +307,8 @@ describe('candidate extractor, one document end to end', () => {
         records: [{
           fields: { title: 'Poster Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'] },
           confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'A public listing with its own date and venue.',
           sourceUrl: 'https://venue.test/e/poster-night',
           imageUrl: 'https://cdn.venue.test/poster.png',
         }],

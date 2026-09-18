@@ -22,6 +22,10 @@ export const maxDuration = 120;
  *
  * Errors end the stream with {"phase":"done","ok":false,"error":"…"}. Every
  * tool call is recorded as a tool_call row with the caller as invoker.
+ *
+ * Query parameters:
+ * - `classifier` — `1` also runs the classifier pass and streams its
+ *   `{"phase":"classifier"}` event before the final one.
  * @param req
  * @param ctx
  * @param ctx.params

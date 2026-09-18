@@ -236,6 +236,11 @@ export * from './fireAutomation';
 /* Daily Langfuse trace pruning (Temporal Schedule). */
 export * from './langfuseRetention';
 export * from './reapWorkerRuns';
+/**
+ * Eval runs started by the refresh button or the eval Schedule. Lives in an
+ * activity because the agent, the judge and the AWS client are all real I/O.
+ */
+export * from './runEvalDataset';
 /* Source-sync activity (Temporal Schedules). */
 export * from './sourceSync';
 export * from './startMissionRun';

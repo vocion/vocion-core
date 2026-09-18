@@ -5,6 +5,8 @@ import { page, userEvent } from 'vitest/browser';
 import { DiscoveryLedger } from './DiscoveryLedger';
 
 vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
+  usePathname: () => '/dashboard',
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
 

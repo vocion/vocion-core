@@ -107,8 +107,8 @@ function CatalogEntryScreen({ entry, skills, hired }: {
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            {entry.eyebrow && (
-              <span className="font-mono text-[11px] tracking-wide text-muted-foreground">{entry.eyebrow}</span>
+            {entry.teamName && (
+              <span className="font-mono text-[11px] tracking-wide text-muted-foreground">{entry.teamName}</span>
             )}
             <span className="font-mono text-[11px] text-muted-foreground/70">{entry.slug}</span>
           </div>
@@ -122,6 +122,18 @@ function CatalogEntryScreen({ entry, skills, hired }: {
       {/* ── Body: flat left rail + main column ─────────────────────────── */}
       <div className="mt-8 grid gap-x-12 gap-y-10 lg:grid-cols-[16rem_minmax(0,1fr)]">
         <aside className="order-2 flex flex-col gap-5 lg:sticky lg:top-24 lg:order-1 lg:self-start lg:border-r lg:border-border/70 lg:pr-6">
+          {entry.teamName && (
+            <RailGroup label="Team">
+              <div className="flex items-center gap-2">
+                <span className="size-1.5 shrink-0 rounded-full" style={{ background: a.stripe }} aria-hidden />
+                <span className="text-sm font-medium text-foreground">{entry.teamName}</span>
+              </div>
+              {/* Hiring brings the team with it, so say so before somebody
+                  wonders where the new team on their org chart came from. */}
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Created on your org chart when you hire this agent.</p>
+            </RailGroup>
+          )}
+
           <RailGroup label="Skills">
             {skills.length === 0
               ? <p className="text-xs text-muted-foreground">None declared.</p>

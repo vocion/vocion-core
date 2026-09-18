@@ -179,7 +179,7 @@ workspace page (`archetype: markdown`; a table becomes a GFM table). Charts,
 records, links and files say plainly that there is no archetype for them yet.
 Nothing is written to the workspace repo from the app; the person commits the
 files. That is the manifesto's loop: a view one person needed once becomes a
-page everyone has ([MANIFESTO.md](./MANIFESTO.md) §6–7).
+page everyone has ([DESIGN-PRINCIPLES.md](./DESIGN-PRINCIPLES.md) §6–7).
 
 ## Serving files — never from `public/`
 

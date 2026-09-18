@@ -137,3 +137,192 @@ describe('a tool error is inspectable (2026-09-16)', () => {
     expect(block).toContain('proj-2df61364');
   });
 });
+
+describe('the live indicator while streaming', () => {
+  const streamed = {
+    role: 'assistant' as const,
+    content: 'Here is where things stand.',
+    runs: [{ type: 'text' as const, text: 'Here is where things stand.' }],
+  };
+
+  it('shows what is happening at the BOTTOM once prose has started', async () => {
+    // The work timeline opens the message and is the record of the turn. But
+    // once text is arriving you are reading the bottom, and a pause there —
+    // a tool call mid-stream, a slow token — looked exactly like a finished
+    // answer, because the only thing still moving had scrolled off the top.
+    await render(<AgentMessage agentName="RevOps Lead" message={streamed} streaming activity="Searching the CRM" />);
+
+    // Scoped to the indicator on purpose: the activity also names the timeline
+    // header above, and the point of this test is that it now reads at the
+    // bottom too.
+    await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Searching the CRM');
+  });
+
+  it('falls back to a plain label when there is no activity to name', async () => {
+    await render(<AgentMessage agentName="RevOps Lead" message={streamed} streaming />);
+
+    await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+  });
+
+  it('is present during the tool phase too, before any text has arrived', async () => {
+    // The first version gated this on text having started, which left the
+    // bottom of the transcript silent for the whole tool phase — the exact
+    // case that reads as a finished answer while five calls are still running.
+    // OpenClaw and Claude Code both keep the indicator present for the whole
+    // turn, and that is why they read better.
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{ role: 'assistant', content: '', runs: [] }}
+        streaming
+        activity="Reading the briefing"
+      />,
+    );
+
+    await expect.element(page.getByTestId('streaming-indicator')).toBeVisible();
+    await expect.element(page.getByTestId('streaming-indicator')).toHaveTextContent('Reading the briefing');
+  });
+
+  it('disappears when the turn lands', async () => {
+    await render(<AgentMessage agentName="RevOps Lead" message={streamed} />);
+
+    expect(page.getByTestId('streaming-indicator').elements()).toHaveLength(0);
+  });
+});
+
+describe('a tool failure says what failed', () => {
+  // The badge was a way IN to the trace, which is right — but it opened the
+  // trace at the failed step, and a failure arriving as a typed trace node has
+  // no row among the tool runs to open to. So a turn whose visible steps all
+  // succeeded showed a red "Tool error" that led nowhere.
+  it('names the tool and shows its message on click', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [
+            { type: 'tool', name: 'render_markdown', state: 'error', output: 'ArtifactError: spec.md must be a string' },
+            { type: 'text', text: 'Done.' },
+          ],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('tool-error-badge')).toHaveTextContent('render_markdown failed');
+
+    await userEvent.click(page.getByTestId('tool-error-badge'));
+
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('spec.md must be a string');
+  });
+
+  it('finds a failure that arrived as a typed trace node, not a run', async () => {
+    // The exact case that produced a badge with nothing behind it.
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [{ type: 'text', text: 'Done.' }],
+          trace: [{ id: 'n1', actor: { id: 'revops', kind: 'lead', name: 'RevOps Lead' }, kind: 'tool', label: 'update_artifact', status: 'error', detail: 'artifact 91 not found' }],
+        }}
+      />,
+    );
+
+    await userEvent.click(page.getByTestId('tool-error-badge'));
+
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('artifact 91 not found');
+  });
+
+  it('still says something useful when the failure carried no message', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [{ type: 'tool', name: 'web_search', state: 'error' }, { type: 'text', text: 'Done.' }],
+        }}
+      />,
+    );
+
+    await userEvent.click(page.getByTestId('tool-error-badge'));
+
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('returned no message');
+  });
+
+  it('shows no badge when nothing failed', async () => {
+    await render(
+      <AgentMessage
+        agentName="RevOps Lead"
+        message={{ role: 'assistant', content: 'Done.', runs: [{ type: 'text', text: 'Done.' }] }}
+      />,
+    );
+
+    expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
+  });
+});
+
+describe('the work sits where it happened (interleaved, not hoisted)', () => {
+  const actor = { id: 'lead', kind: 'lead' as const, name: 'Revenue' };
+
+  it('renders each group of steps between the passages it fell between', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Reading the brief first.\n\nThree deals moved.',
+          runs: [
+            { type: 'tool', name: 'get_briefing', state: 'done' },
+            { type: 'text', text: 'Reading the brief first.' },
+            { type: 'tool', name: 'lookup_objects', state: 'done' },
+            { type: 'text', text: 'Three deals moved.' },
+          ],
+          trace: [
+            { id: 'a', actor, kind: 'tool', status: 'done', label: 'Read the briefing', anchor: 0 },
+            { id: 'b', actor, kind: 'search', status: 'done', label: 'Looked up 3 deals', anchor: 1 },
+          ],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText('Three deals moved.')).toBeInTheDocument();
+
+    // Document order: step a, passage 1, step b, passage 2.
+    const order = [
+      page.getByRole('button', { name: /Read the briefing/ }),
+      page.getByText('Reading the brief first.'),
+      page.getByRole('button', { name: /Looked up 3 deals/ }),
+      page.getByText('Three deals moved.'),
+    ].map(l => l.element());
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it('a trace without anchors still renders hoisted, as it was persisted', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Done.',
+          runs: [{ type: 'text', text: 'Done.' }],
+          trace: [
+            { id: 'a', actor, kind: 'tool', status: 'done', label: 'Read the briefing' },
+            { id: 'b', actor, kind: 'search', status: 'done', label: 'Looked up 3 deals' },
+          ],
+        }}
+      />,
+    );
+
+    const folded = page.getByRole('button', { name: /Worked it out · 2 steps/ });
+
+    await expect.element(folded).toBeInTheDocument();
+    expect(folded.element().compareDocumentPosition(page.getByText('Done.').element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

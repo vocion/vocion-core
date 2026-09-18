@@ -237,6 +237,8 @@ test('a reviewer\'s feedback becomes a learning, and a restatement of it does no
     const res = await api.post('/api/v1/reviews/propose', {
       data: {
         actionId: 'gmail.send',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'The deal has gone quiet and nothing else has been sent this week.',
         input: { to: `buyer+${RUN_TAG}-${label}@example.com`, subject: `${RUN_TAG} ${label}`, body: 'Checking in.' },
         agentSlug: 'sales-assistant',
         confidence: 0.7,

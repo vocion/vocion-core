@@ -35,7 +35,7 @@ outcome.
 The comparison view puts those seven figures side by side with a change
 column, then lists the cases that changed verdict, then every case. The same
 comparison is published as a briefing to the agent's team. Per the
-[Product Design Manifesto](../MANIFESTO.md), the report leads with the
+[Product Design Manifesto](../DESIGN-PRINCIPLES.md), the report leads with the
 outcome — cost per completed case, pass rate, handoffs removed — and the
 token, turn and cent tables sit underneath as the evidence for it.
 

@@ -28,6 +28,7 @@ import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitc
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { openManageView } from '@/features/dashboard/useNavView';
 import { Link } from '@/libs/I18nNavigation';
+import { buildInfo, versionLabel } from '@/libs/version';
 import { ShellBarActionsOutlet } from './ShellBarActions';
 
 /**
@@ -60,6 +61,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
     .join('')
     .toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?';
   const attribution = process.env.NEXT_PUBLIC_BRAND_ATTRIBUTION || 'Vocion · Apache 2.0';
+  const build = buildInfo();
 
   // Bare `F` opens search when nothing is being typed (Vercel/ElevenLabs).
   useEffect(() => {
@@ -232,6 +234,24 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
               Sign out
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {/* WHAT IS RUNNING.
+                "Is my fix deployed?" was answered by SSHing to the box and
+                reading a submodule pin out of a deploy repo — by hand, and
+                twice wrongly, which sent two fixes chasing a bug that was
+                already fixed but not shipped. The build knows this; now so
+                does anyone who opens this menu. The title carries the commit
+                subject and build time, and /version.txt serves the same stamp
+                without a login. */}
+            <a
+              href="/version.txt"
+              target="_blank"
+              rel="noreferrer"
+              data-testid="build-version"
+              title={`${build.subject}\ncommit ${build.commit}\nbranch ${build.branch}\nbuilt ${build.builtAt}`}
+              className="block px-2 py-1.5 font-mono text-[11px] text-muted-foreground/70 transition hover:text-foreground"
+            >
+              {versionLabel(build)}
+            </a>
             {/* Deployments override via NEXT_PUBLIC_BRAND_ATTRIBUTION (same
                 pattern as the NEXT_PUBLIC_BRAND_* logo vars). */}
             <div className="px-2 py-1.5 text-[11px] text-muted-foreground/70">

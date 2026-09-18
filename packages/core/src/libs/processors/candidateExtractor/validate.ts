@@ -119,6 +119,14 @@ function documentUrls(
   jsonLd: unknown[] | undefined,
   declared: string[] | undefined,
 ): { exact: Set<string>; blob: string } {
+  // Held in the squashed form, which is also the form a match is stored in.
+  // RFC 3986 has no whitespace in a URL at all, so any that reaches here is an
+  // artifact of how a line was written down rather than part of the address.
+  // Keeping either side's spelling instead would put that whitespace in the
+  // `sourceUrl` a reviewer clicks: the model's, when it hands back a folded
+  // value it read; the document's, when a feed writes a space into its own
+  // ATTACH. Only ICS can carry one this far, since the HTML and JSON paths
+  // resolve through `absoluteUrl`, which percent-encodes.
   const exact = new Set<string>();
   for (const link of links ?? []) {
     if (link?.url) {
@@ -174,11 +182,22 @@ export function validateRecords(opts: {
   };
 
   const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls);
-  const published = (url: string | undefined): boolean => {
+  // Answers with the URL to store rather than with a yes, because the gate is
+  // the last place that knows both spellings. A feed folds a long line and the
+  // model may hand the value back with the fold still in it, so blessing the
+  // string and keeping it puts a newline in the link a reviewer clicks. The
+  // answer is the whitespace-free form, which is the address in both spellings.
+  // The JSON-LD arm matches on the raw value, so it has no such form to offer
+  // and returns what it was given.
+  const published = (url: string | undefined): string | undefined => {
     if (!url) {
-      return false;
+      return undefined;
     }
-    return urls.exact.has(squashUrl(url)) || (urls.blob !== '' && urls.blob.includes(url));
+    const squashed = squashUrl(url);
+    if (urls.exact.has(squashed)) {
+      return squashed;
+    }
+    return urls.blob !== '' && urls.blob.includes(url) ? url : undefined;
   };
 
   const kept: ValidatedRecord[] = [];
@@ -265,19 +284,34 @@ export function validateRecords(opts: {
       }
     }
 
-    if (record.sourceUrl && !published(record.sourceUrl)) {
-      record.issues.push('the source URL was not published by the document, so it was dropped');
-      delete record.sourceUrl;
+    if (record.sourceUrl) {
+      const declared = published(record.sourceUrl);
+      if (declared === undefined) {
+        record.issues.push('the source URL was not published by the document, so it was dropped');
+        delete record.sourceUrl;
+      } else {
+        record.sourceUrl = declared;
+      }
     }
-    if (record.imageUrl && !published(record.imageUrl)) {
-      record.issues.push('the image URL was not published by the document, so it was dropped');
-      delete record.imageUrl;
+    if (record.imageUrl) {
+      const declared = published(record.imageUrl);
+      if (declared === undefined) {
+        record.issues.push('the image URL was not published by the document, so it was dropped');
+        delete record.imageUrl;
+      } else {
+        record.imageUrl = declared;
+      }
     }
     if (config.imageFrom) {
       const fromField = record.fields[config.imageFrom];
-      if (typeof fromField === 'string' && fromField !== '' && !published(fromField)) {
-        delete record.fields[config.imageFrom];
-        record.issues.push(`${config.imageFrom}: dropped, the document did not publish that URL`);
+      if (typeof fromField === 'string' && fromField !== '') {
+        const declared = published(fromField);
+        if (declared === undefined) {
+          delete record.fields[config.imageFrom];
+          record.issues.push(`${config.imageFrom}: dropped, the document did not publish that URL`);
+        } else {
+          record.fields[config.imageFrom] = declared;
+        }
       }
     }
 

@@ -3,7 +3,7 @@
 Reading a brief, an ask, or a team's row and then *doing something about it*
 should be one motion, not a copy-paste into a chat. This guide covers the four
 pieces that make that true (release "Rail + Artifacts + Airy", slice R4) and how a
-page opts in. Design bar: [Product Design Manifesto](../MANIFESTO.md) §10–§11 —
+page opts in. Design bar: [Product Design Manifesto](../DESIGN-PRINCIPLES.md) §10–§11 —
 humans manage outcomes, and the interface surfaces decisions and next actions.
 
 ## 1. Structured page context

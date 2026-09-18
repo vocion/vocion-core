@@ -2,7 +2,7 @@
 
 ## Start here
 
-- [**Product Design Manifesto**](./MANIFESTO.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
+- [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.
@@ -11,6 +11,7 @@
 - [**Artifacts — one live thing beside the conversation**](./artifacts.md) — `render_*` / `read_artifact` / `update_artifact`, the `artifact` + `artifact_version` tables, the pane a person and an agent both edit, the version rules (restore never rewrites, human saves collapse), the log at `/dashboard/artifacts`, and exporting one as a workspace page.
 - [**Routing — the workspace in the URL**](./routing.md) — why `/w/<slug>/…` exists, what the entry route does, and the phase-2 design for `/{account}/{workspace}/…` as the canonical URL.
 - [**Dashboard patterns — List, Detail, Ledger**](./design/patterns.md) — the UI pattern library every dashboard page composes from: which archetype for which page, anatomy, do/don't, and the migration checklist for the remaining pages.
+- [**The API reference — generated from the handlers**](./api-reference.md) — how the OpenAPI document is read out of `/api/v1`, how to regenerate it, and how to write a route's doc comment so it reads well.
 - [**Review operations in the base pack**](./review-ops.md) — the review-queue agents and approval-drafting skills that ship in `core@2.1.0`, how to activate them, and how to override one.
 
 ## Dashboard map
@@ -67,6 +68,8 @@ about them.
 - [Team performance](./guides/team-performance.md) — the measurement model behind `/dashboard/team-report`: measures with provenance (verified · observed · human-confirmed · agent-reported), what Vocion derives (attainment, trend, cost per outcome, human load), the setup state, evidence chains and outcome lineage.
 - [Web analytics as a measure source](./guides/web-analytics-measures.md) — read qualified traffic, users, conversions and signups from GA4 so an adoption number carries a **verified** chip instead of an agent's own count; the service-account role it needs, and why an unconfigured measure shows "not connected" rather than 0.
 - [Email](./guides/email.md) — outbound mail (Resend), the `daily-team-report` and `notify-asks` jobs, and a mailbox per workspace: mail `revenue@…` and the workspace lead answers in a threaded reply.
+- [Evals in Vocion](./guides/evals.md) — **start here.** What an eval is, the four kinds of test you can run and when to reach for each, a worked tutorial graded first by Vocion and then by AWS, how the grader plugs in so a third one could be added, where to read the results, and what to do when a number looks wrong.
+- [Evals graded by AWS AgentCore](./guides/agentcore-evals.md) — point a dataset at Amazon Bedrock AgentCore instead of Vocion's own judge: the IAM key it needs, the workspace YAML, which ground truth each evaluator level accepts, what costs tokens and what does not, and what AWS's refusal messages actually mean.
 - [The model-upgrade test](./guides/model-upgrade-test.md) — run one role's eval dataset on today's model and a new release, compare on cost per passed case.
 - [Needs you — the one decision surface](./guides/needs-you.md) — every kind of thing waiting on a person (proposals, asks, stopped runs, suggested rules) in one list; the detail by kind, the verbs and keys, and how each decision feeds learning and autonomy. `/dashboard/review` forwards here.
 - [Acting from context](./guides/act-from-context.md) — structured page/record context on every turn, the `page_context` tool, `<AskAboutThis>`, opening the surface with intent, recommended-action status streaming back, and the `act-within-bounds` autonomy path.

@@ -1,0 +1,6 @@
+name: Account Operations
+description: >-
+  Turns accepted briefs into assigned work, and keeps the approvals
+  and blockers visible while it runs.
+lead: account-operations-manager
+# No accountableUser: inherits the workspace default when one is set.

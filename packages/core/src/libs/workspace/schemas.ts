@@ -961,20 +961,149 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  * Eval dataset authoring schema (v0.2). Each
  * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
+/**
+ * One deterministic check we run ourselves.
+ *
+ * A closed list, deliberately. Arbitrary code in a manifest would need a
+ * sandbox and a timeout and would be a way out of the app; this covers what
+ * people mean by "check it actually did the thing", and the escape hatch for
+ * anything beyond it is an AgentCore `codeBased` evaluator — a Lambda the
+ * customer owns and deploys.
+ */
+const EvalCheckSchema = z.union([
+  z.object({ toolCalled: z.string() }),
+  z.object({ toolNotCalled: z.string() }),
+  z.object({ outputMatches: z.string().describe('regular expression the answer must match') }),
+  z.object({ outputContains: z.string() }),
+  z.object({ outputNotContains: z.string() }),
+  z.object({ latencyUnderMs: z.number().int().positive() }),
+  z.object({ turnsUnder: z.number().int().positive() }),
+]);
+
+/** A rating scale for a custom judge. Mirrors AgentCore's `RatingScale` union. */
+const RatingScaleSchema = z.union([
+  z.object({
+    categorical: z.array(z.object({
+      label: z.string(),
+      value: z.number(),
+      description: z.string().optional(),
+    })).min(1),
+  }),
+  z.object({
+    numerical: z.array(z.object({
+      value: z.number(),
+      description: z.string().optional(),
+    })).min(1),
+  }),
+]);
+
+/**
+ * Who grades this dataset, and with what.
+ *
+ * Three shapes, because the providers genuinely differ:
+ *
+ * - `provider: vocion` — our own judge and the `checks` on each case. Nothing
+ *   else to configure.
+ * - `provider: agentcore` with `builtin` — AWS's own evaluators, named by id.
+ *   `TrajectoryInOrderMatch` and friends cost no tokens; the rest are judges
+ *   and do.
+ * - `provider: agentcore` with `instructions` — a custom judge we create in
+ *   the customer's AWS account, so AgentCore stays the single place those run.
+ *
+ * `lambdaArn` is accepted and stored but nothing in this repo deploys it: a
+ * `codeBased` evaluator is a Lambda the customer builds themselves, and we
+ * only reference it. See `docs/guides/agentcore-evals.md`.
+ */
+const EvalEvaluatorManifestSchema = z.object({
+  provider: z.string().describe('vocion | agentcore'),
+  slug: SlugSchema.optional().describe('name for a custom evaluator; omit for built-ins'),
+  builtin: z.array(z.string()).optional().describe('AWS evaluator ids, e.g. Builtin.ToolSelectionAccuracy'),
+  level: z.enum(['TOOL_CALL', 'TRACE', 'SESSION']).optional(),
+  instructions: z.string().optional().describe('grading prompt for a custom judge'),
+  ratingScale: RatingScaleSchema.optional(),
+  model: z.string().optional().describe('which model judges; the provider default when omitted'),
+  lambdaArn: z.string().optional().describe('an existing Lambda the customer deployed; referenced, never created'),
+});
+
 export const EvalDatasetManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string(),
   description: z.string().optional(),
   agentSlug: z.string().describe('which agent slug this dataset evaluates'),
   version: z.number().int().positive().default(1),
+  /**
+   * Which grader scores this dataset — one, not several.
+   *
+   * `vocion` is our own judge and the default, so every dataset authored
+   * before this field existed keeps behaving the same way. `agentcore` sends
+   * the transcript to AWS. To compare the two, copy the dataset and point the
+   * copy at the other grader: then the comparison is something someone set up
+   * on purpose, with its own history, rather than two disagreeing numbers on
+   * one page.
+   */
+  provider: z.enum(['vocion', 'agentcore']).default('vocion'),
+  /**
+   * The evaluators this dataset's grader should use. Each one names its own
+   * provider, which must be the dataset's — a dataset scored by Vocion cannot
+   * carry an AgentCore evaluator, because nothing would ever run it.
+   */
+  evaluators: z.array(EvalEvaluatorManifestSchema).optional(),
   items: z.array(z.object({
-    input: z.string().describe('the user message to send to the agent'),
+    // A case with nothing to say has nothing to measure: the agent is never
+    // called, and a grader that keeps its own copy of the dataset refuses the
+    // whole file. Refusing it here names the file and the case instead.
+    input: z.string().trim().min(1, 'an eval case needs an input to send the agent').describe('the user message to send to the agent'),
     expectedOutput: z.string().optional().describe('substantive-equivalence guidance, not literal match'),
     rubric: z.string().optional().describe('per-case rubric the judge uses'),
     tags: z.array(z.string()).optional(),
+    /**
+     * The tools this case should call, in order. Ground truth for AgentCore's
+     * trajectory evaluators, which are the only scoring it does without a
+     * model call.
+     */
+    expectedTrajectory: z.array(z.string()).optional(),
+    /**
+     * Facts the answer must state. Read by a judge model, not string-matched —
+     * these make the judge's task well defined, they do not replace it. For a
+     * real string comparison use `checks`.
+     */
+    assertions: z.array(z.string()).optional(),
+    /** Deterministic checks run in this process. No model, no AWS account. */
+    checks: z.array(EvalCheckSchema).optional(),
   })).min(1),
+}).superRefine((dataset, ctx) => {
+  // An evaluator whose provider is not the dataset's would never run: nothing
+  // asks that grader for a score. Better to refuse the file than to apply it
+  // and leave someone waiting for a number that cannot arrive.
+  for (const evaluator of dataset.evaluators ?? []) {
+    if (evaluator.provider !== dataset.provider) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['evaluators'],
+        message: `evaluator "${evaluator.slug ?? evaluator.builtin?.join(', ') ?? 'unnamed'}" is for ${evaluator.provider}, but this dataset is graded by ${dataset.provider}`,
+      });
+    }
+  }
+
+  // `checks` run inside our own judge and nowhere else, so on a dataset graded
+  // by anyone else they are written, applied, and then silently never run —
+  // and the case still reports a pass rate, which reads as if they had. Refuse
+  // the file instead. A dataset that needs deterministic checks belongs to
+  // Vocion; inside AgentCore the equivalent is a `codeBased` evaluator.
+  if (dataset.provider !== 'vocion') {
+    dataset.items.forEach((item, index) => {
+      if (item.checks?.length) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['items', index, 'checks'],
+          message: `case ${index + 1} has checks, which only run under the vocion grader — this dataset is graded by ${dataset.provider}`,
+        });
+      }
+    });
+  }
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
+export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;
 
 export const LearningStepManifestSchema = z.object({
   name: SlugSchema,

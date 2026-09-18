@@ -227,6 +227,35 @@ describe('ArtifactService', () => {
     expect((await listArtifacts({ orgId: ORG, search: 'pipeline by stage' })).map(r => r.id)).toContain(artifact.id);
   });
 
+  it('keeps system output out of the log a person browses, without deleting it', async () => {
+    // In production, 13 of 39 artifacts were mission check reports and 7 were
+    // outreach recommendations already rendered on their decision card — more
+    // than half the list was something nobody would open on purpose. A flag
+    // rather than a deletion, because `action_run.pinned_artifacts` pins the
+    // exact versions a human approved and the audit answer must not move.
+    const c = await conv('Mission check');
+    const { artifact: mine } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Northwind research brief', spec: { md: 'Brief.' }, author: AGENT });
+    const { artifact: exhaust } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Discovery Calls Mission — Check #186', spec: { md: 'Found nothing.' }, author: AGENT, visibility: 'system' });
+
+    const listed = (await listArtifacts({ orgId: ORG })).map(r => r.id);
+
+    expect(listed).toContain(mine.id);
+    expect(listed).not.toContain(exhaust.id);
+
+    // Still there, still versioned, still reachable for an audit.
+    const all = (await listArtifacts({ orgId: ORG, visibility: 'all' })).map(r => r.id);
+
+    expect(all).toContain(exhaust.id);
+    expect(await getArtifact({ orgId: ORG, id: exhaust.id })).toMatchObject({ title: 'Discovery Calls Mission — Check #186' });
+  });
+
+  it('defaults an artifact to user-visible, so nothing disappears by omission', async () => {
+    const c = await conv();
+    const { artifact } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Weekly note', spec: { md: 'x' }, author: AGENT });
+
+    expect((await listArtifacts({ orgId: ORG })).map(r => r.id)).toContain(artifact.id);
+  });
+
   it('exports a markdown artifact as a workspace page and refuses the kinds that have no archetype', async () => {
     const c = await conv();
     const { artifact: doc } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Deal desk · Monday', spec: { md: 'Call the account.' }, author: AGENT });

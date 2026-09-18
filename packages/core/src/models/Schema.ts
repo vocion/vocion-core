@@ -1596,13 +1596,41 @@ export const evalDatasetSchema = pgTable(
     name: text('name').notNull(),
     /** Which agent slug this dataset targets. Required — datasets are agent-scoped. */
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * Which grader scores this dataset: `vocion` for our own judge, `agentcore`
+     * for AWS.
+     *
+     * One grader per dataset, chosen in the workspace file. Two graders scoring
+     * the same cases produced two numbers that disagreed with no way to say
+     * which was right, and a run list that looked like the agent had been run
+     * twice. Comparing graders is still possible — copy the dataset and point
+     * the copy at the other one — but it is then an explicit thing someone set
+     * up, not the default reading of every page.
+     */
+    provider: text('provider').default('vocion').notNull(),
     description: text('description'),
-    /** Test cases. Each: input + optional expectedOutput + optional rubric. */
+    /**
+     * Test cases, the same shape `EvalDatasetItem` in
+     * `services/evals/types.ts` describes. Spelled out again here rather than
+     * imported, because a model reaching into a service is a cycle waiting to
+     * happen.
+     *
+     * It listed only the first four fields once, while the applier wrote all
+     * of them and every reader cast the column back to the full type. A
+     * declaration that lies costs the next writer the ground truth AgentCore
+     * scores against, so it says everything we store.
+     */
     items: jsonb('items').$type<Array<{
       input: string;
       expectedOutput?: string;
       rubric?: string;
       tags?: string[];
+      /** Tool names the agent should call, in order. */
+      expectedTrajectory?: string[];
+      /** Natural-language facts the answer must contain, read by a judge. */
+      assertions?: string[];
+      /** Deterministic checks, run in this process. `EvalCheck` in the same file. */
+      checks?: Array<Record<string, unknown>>;
     }>>().default([]).notNull(),
     version: integer('version').default(1).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -1631,8 +1659,37 @@ export const evalRunSchema = pgTable('eval_run', {
    * is what every run before this column existed used.
    */
   model: text('model'),
+  /**
+   * Which scorer produced this run's scores — `vocion` for our own judge,
+   * `agentcore` for AWS. One execution can be graded by several providers,
+   * one run row each, so their histories stay separate while the transcript
+   * they graded is the same one.
+   */
+  provider: text('provider').default('vocion').notNull(),
+  /**
+   * The dataset's `version` at the moment this run happened. A trend line
+   * that blends runs taken against different item sets is lying about
+   * improvement, and `workspaceSha` only catches prompt drift. NULL on runs
+   * recorded before this column existed — they genuinely do not know which
+   * items they used, and saying so is better than guessing.
+   */
+  datasetVersion: integer('dataset_version'),
+  /**
+   * The one execution a set of provider runs share. Set by the refresh
+   * workflow and unique per provider, so a retried activity collides instead
+   * of adding a second trend point for work that only happened once. NULL for
+   * a run started outside a workflow.
+   */
+  runGroupId: text('run_group_id'),
   /** running | succeeded | failed */
   status: text('status').default('running').notNull(),
+  /**
+   * Why the run failed, in the grader's own words. A run that died because AWS
+   * refused the whole request is a different problem from one whose cases
+   * failed on their merits, and a bare "failed" badge tells a reader neither.
+   * NULL while a run is running and on every run that finished.
+   */
+  errorMessage: text('error_message'),
   metrics: jsonb('metrics').$type<{
     passRate?: number;
     toolCallCount?: number;
@@ -1681,11 +1738,315 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
     turns: number;
     toolCalls: number;
   }>(),
+  /**
+   * The tool names this case called, in the order it called them. AgentCore's
+   * trajectory evaluators compare this against an expected sequence, and that
+   * comparison is the one thing AgentCore scores without a model call. Before
+   * this column only the count survived, in `usage.toolCalls`, which cannot
+   * tell "looked up the order then refunded" from "refunded then looked up".
+   * Empty array on a case whose agent run threw; NULL on rows written before
+   * the column existed.
+   */
+  trajectory: text('trajectory').array(),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
 });
 
+/**
+ * One evaluator's opinion of one run, or of one case within it.
+ *
+ * Separate from `eval_case_result` because a case graded by AgentCore comes
+ * back as an array — one result per evaluator, on scales that do not compare
+ * to each other. "Tool selection was 0.8" and "the answer was Perfectly
+ * Correct" are both true of the same case and neither is the score.
+ *
+ * `runId` rather than `caseResultId` alone: a transcript belongs to exactly
+ * one run, so a second provider's run row would have no case children and
+ * nothing could join its scores back to it.
+ *
+ * `caseResultId` is nullable because TRACE- and SESSION-level evaluators
+ * judge a whole run rather than one case, and forcing those onto a case would
+ * leave them nowhere to go.
+ *
+ * Rows are append-only. A score measures one execution at one moment;
+ * overwriting it to show "the latest" destroys the history the trend line is
+ * made of. Re-scoring means a new run.
+ */
+export const evalScoreSchema = pgTable('eval_score', {
+  id: serial('id').primaryKey(),
+  runId: integer('run_id').notNull().references(() => evalRunSchema.id, { onDelete: 'cascade' }),
+  /** NULL for a score about the whole run rather than one case. */
+  caseResultId: integer('case_result_id').references(() => evalCaseResultSchema.id, { onDelete: 'cascade' }),
+  /** `vocion` | `agentcore`. Open text so a third provider needs no migration. */
+  provider: text('provider').notNull(),
+  /** Our evaluator name, or AWS's id such as `Builtin.ToolSelectionAccuracy`. */
+  evaluatorSlug: text('evaluator_slug').notNull(),
+  /** The provider's own display name, when it gives one. */
+  evaluatorName: text('evaluator_name'),
+  evaluatorArn: text('evaluator_arn'),
+  /** TOOL_CALL | TRACE | SESSION — the grain this evaluator judges at. */
+  level: text('level').default('TRACE').notNull(),
+  /** Numeric score, normally 0..1. NULL when the evaluator only returns a label. */
+  value: real('value'),
+  /**
+   * The provider's own categorical verdict, stored exactly as it came back.
+   * Never coerced to pass/fail: "Perfectly Correct" and "Yes" come from
+   * different rating scales, and only the evaluator's name gives one meaning.
+   */
+  label: text('label'),
+  explanation: text('explanation'),
+  /** What the judging itself cost, when the provider reports it. */
+  tokenUsage: jsonb('token_usage').$type<{
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  }>(),
+  /** Set when this evaluator failed. A failure is recorded, never scored as zero. */
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  /**
+   * The grader's own response, untouched.
+   *
+   * The columns above are the ones the dashboard aggregates, and they stay
+   * columns for that reason — a pass rate that has to dig through JSON cannot
+   * be indexed or grouped. Everything a grader returns that we have not
+   * modelled lands here instead of being dropped, and a field moves out into a
+   * column of its own the moment something reads it to draw a number.
+   */
+  raw: jsonb('raw').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, table => [
+  index('eval_score_run_idx').on(table.runId),
+  index('eval_score_run_evaluator_idx').on(table.runId, table.provider, table.evaluatorSlug),
+  index('eval_score_case_idx').on(table.caseResultId),
+]);
+
+/**
+ * An evaluator a workspace authored, and where it lives remotely once synced.
+ *
+ * Workspace apply writes the desired state here and stops. The AWS call that
+ * creates the remote evaluator happens later, in a Temporal activity, because
+ * apply makes no external calls today and must not start failing for every
+ * other resource in the file when AWS is unreachable.
+ *
+ * `remoteId` is what makes the sync idempotent — reusing it turns the second
+ * sync into an update instead of a duplicate evaluator in the AWS account.
+ */
+export const evalEvaluatorSchema = pgTable('eval_evaluator', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  datasetSlug: text('dataset_slug').notNull(),
+  provider: text('provider').notNull(),
+  slug: text('slug').notNull(),
+  /** TOOL_CALL | TRACE | SESSION. NULL for a built-in, which carries its own. */
+  level: text('level'),
+  /** Instructions, rating scale and model for a judge; or a Lambda ARN. */
+  config: jsonb('config').$type<Record<string, unknown>>().default({}).notNull(),
+  /** The provider's id for this evaluator. NULL until the first sync lands. */
+  remoteId: text('remote_id'),
+  remoteArn: text('remote_arn'),
+  syncedAt: timestamp('synced_at', { mode: 'date' }),
+  /** Why the last sync failed. Kept so the UI can say so rather than look synced. */
+  syncError: text('sync_error'),
+  /**
+   * Set when the workspace file stopped declaring this evaluator.
+   *
+   * Retired rather than deleted, the same way an unauthored workflow is
+   * retired: a retired evaluator grades nothing, but it keeps its `remoteId`,
+   * so putting it back in the file reuses the evaluator that already exists in
+   * the customer's AWS account. Deleting the row would strand that evaluator —
+   * we never call AWS `DeleteEvaluator` — and the next create would collide
+   * with its name and fail to sync.
+   */
+  retiredAt: timestamp('retired_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  uniqueIndex('eval_evaluator_org_dataset_slug_idx').on(table.orgId, table.datasetSlug, table.provider, table.slug),
+]);
+
+/**
+ * Where a dataset lives in a grader's own account.
+ *
+ * A dataset graded by AgentCore is published into the customer's AWS account
+ * as a real dataset with its own versions, so "an AgentCore eval" is one, and
+ * so a support engineer can open it in the console. Nothing about scoring
+ * depends on it: `Evaluate` carries the expected answer in the request, and
+ * reproducibility comes from `eval_run.datasetVersion`. That is exactly why a
+ * failed publish is recorded here and the run goes ahead anyway.
+ *
+ * Its own table rather than columns on `eval_dataset`, because a dataset's
+ * `provider` is mutable — a rewritten workspace file can flip it — and a row
+ * per provider means flipping to Vocion and back needs no clearing logic, and
+ * a third grader needs no migration.
+ */
+export const evalDatasetRemoteSchema = pgTable('eval_dataset_remote', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  datasetId: integer('dataset_id').notNull().references(() => evalDatasetSchema.id, { onDelete: 'cascade' }),
+  /** Which grader's account this row describes. */
+  provider: text('provider').notNull(),
+  /** The grader's id for the dataset. NULL until the first publish lands. */
+  remoteId: text('remote_id'),
+  /** The version the grader published, as it names it — AWS counts from "1". */
+  remoteVersion: text('remote_version'),
+  /**
+   * Hash of the cases we last published, and the whole reason a run usually
+   * makes no AWS calls at all. Left untouched when a publish fails partway, so
+   * the next attempt resends the complete diff rather than assuming half of it
+   * landed.
+   */
+  casesHash: text('cases_hash'),
+  /** The grader's status at the last sync: ACTIVE, CREATE_FAILED, and so on. */
+  status: text('status'),
+  /** Why the last publish failed. Kept so the page can say so rather than look synced. */
+  syncError: text('sync_error'),
+  /** When the last publish was attempted, whether or not it landed. */
+  syncedAt: timestamp('synced_at', { mode: 'date' }),
+  /**
+   * Held by whoever is publishing this dataset right now, until this moment.
+   *
+   * A lease rather than a Postgres advisory lock because the work it guards is
+   * a sequence of AWS calls: an advisory lock is tied to one connection, and
+   * every query here comes off a pool, so the unlock would usually land on a
+   * different connection and free nothing. A row that outlives the process
+   * holding it is the other half of the same problem — hence an expiry rather
+   * than a flag, so a crashed publish does not lock the dataset forever.
+   */
+  publishLeaseUntil: timestamp('publish_lease_until', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  uniqueIndex('eval_dataset_remote_dataset_provider_idx').on(table.datasetId, table.provider),
+]);
+
+/**
+ * One AgentCore batch evaluation job, and where it got to.
+ *
+ * The on-demand path needs no table like this: `Evaluate` answers in the same
+ * call, so there is nothing to come back to. A batch job runs for minutes on
+ * AWS's side and outlives the process that started it, so its identifiers have
+ * to be written down before the wait begins — otherwise a restart loses the
+ * job while AWS carries on billing for it.
+ *
+ * It also holds the two identifiers that make the whole batch path worth
+ * having: the job id and the output log group, so a person can open the result
+ * in their own AWS console and check the number without going through Vocion.
+ */
+export const evalBatchJobSchema = pgTable('eval_batch_job', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  runId: integer('run_id').notNull().references(() => evalRunSchema.id, { onDelete: 'cascade' }),
+  /** Which region's AgentCore holds the job — needed to build the console link. */
+  region: text('region').notNull(),
+  /**
+   * Our idempotency key, written before the job is started.
+   *
+   * A Temporal activity is at-least-once, so the start call can run twice for
+   * one run. AWS reuses the existing job when it sees the same token, which
+   * turns a retry into a no-op instead of a second job billing for the same
+   * sessions twice.
+   */
+  clientToken: text('client_token').notNull(),
+  /** AWS's id for the job. NULL between the row being written and the start landing. */
+  batchEvaluationId: text('batch_evaluation_id'),
+  batchEvaluationArn: text('batch_evaluation_arn'),
+  /** AWS's own status word, kept verbatim: PENDING, IN_PROGRESS, COMPLETED… */
+  status: text('status').notNull().default('PENDING'),
+  /**
+   * Why this job is not a clean success.
+   *
+   * Set for a failed job, for one that finished with errors, and for one that
+   * completed having graded nothing — which AWS reports as success and is what
+   * a wrong service name or log group looks like.
+   */
+  failure: text('failure'),
+  /** How many sessions AWS found, graded, failed on and skipped. */
+  sessionsTotal: integer('sessions_total').notNull().default(0),
+  sessionsCompleted: integer('sessions_completed').notNull().default(0),
+  sessionsFailed: integer('sessions_failed').notNull().default(0),
+  sessionsIgnored: integer('sessions_ignored').notNull().default(0),
+  /** Where AWS wrote the per-session detail, for a person to open. */
+  outputLogGroup: text('output_log_group'),
+  outputLogStream: text('output_log_stream'),
+  startedAt: timestamp('started_at', { mode: 'date' }).defaultNow().notNull(),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  // One batch job per run. A second job over the same sessions measures the
+  // same thing twice and bills for it twice.
+  uniqueIndex('eval_batch_job_run_idx').on(table.runId),
+  index('eval_batch_job_status_idx').on(table.status),
+]);
+
+/**
+ * The standing online evaluation configuration for one workspace.
+ *
+ * Unlike a batch job this is not a record of something that happened — it is a
+ * mirror of a resource that exists in the customer's AWS account and is
+ * spending their money right now. So the row is a pointer plus the last thing
+ * AWS said about it, refreshed rather than accumulated, and the two status
+ * columns are kept apart on purpose: a config can exist and be switched off,
+ * which costs nothing, and that is the difference someone asking "is this
+ * billing me?" needs to see.
+ *
+ * One per org and region. A second config over the same traffic would sample
+ * it twice and bill for it twice.
+ */
+export const evalOnlineConfigSchema = pgTable('eval_online_config', {
+  id: serial('id').primaryKey(),
+  orgId: text('org_id').notNull(),
+  /** Which region's AgentCore holds it — needed to build the console link. */
+  region: text('region').notNull(),
+  /** AWS's id and ARN for the configuration. */
+  configId: text('config_id').notNull(),
+  configArn: text('config_arn').notNull(),
+  /** The resource's own lifecycle word: CREATING, ACTIVE, UPDATE_FAILED… */
+  status: text('status').notNull().default('CREATING'),
+  /**
+   * Whether it is sampling traffic right now, and therefore billing.
+   *
+   * Separate from `status` because they answer different questions. An ACTIVE
+   * config that is disabled is a resource sitting there costing nothing.
+   */
+  enabled: boolean('enabled').notNull().default(false),
+  /** How much live traffic is scored, as a percentage. The cost dial. */
+  samplingPercentage: integer('sampling_percentage').notNull().default(5),
+  /** Which evaluators are running. Never a ground-truth one — see agentcoreOnline.ts. */
+  evaluatorIds: text('evaluator_ids').array().notNull().default([]),
+  /** Where AWS writes the per-session results, for a person to open. */
+  outputLogGroup: text('output_log_group'),
+  /** Whatever AWS last said went wrong. */
+  failureReason: text('failure_reason'),
+  /** When we last asked AWS what state this was in. */
+  syncedAt: timestamp('synced_at', { mode: 'date' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+}, table => [
+  uniqueIndex('eval_online_config_org_region_idx').on(table.orgId, table.region),
+]);
+
 export const evalDatasetRelations = relations(evalDatasetSchema, ({ many }) => ({
   runs: many(evalRunSchema),
+  remotes: many(evalDatasetRemoteSchema),
+}));
+
+export const evalDatasetRemoteRelations = relations(evalDatasetRemoteSchema, ({ one }) => ({
+  dataset: one(evalDatasetSchema, {
+    fields: [evalDatasetRemoteSchema.datasetId],
+    references: [evalDatasetSchema.id],
+  }),
 }));
 export const evalRunRelations = relations(evalRunSchema, ({ one, many }) => ({
   dataset: one(evalDatasetSchema, {
@@ -1693,6 +2054,18 @@ export const evalRunRelations = relations(evalRunSchema, ({ one, many }) => ({
     references: [evalDatasetSchema.id],
   }),
   results: many(evalCaseResultSchema),
+  scores: many(evalScoreSchema),
+}));
+
+export const evalScoreRelations = relations(evalScoreSchema, ({ one }) => ({
+  run: one(evalRunSchema, {
+    fields: [evalScoreSchema.runId],
+    references: [evalRunSchema.id],
+  }),
+  caseResult: one(evalCaseResultSchema, {
+    fields: [evalScoreSchema.caseResultId],
+    references: [evalCaseResultSchema.id],
+  }),
 }));
 
 /* ------------------------------------------------------------------ */
@@ -2607,10 +2980,11 @@ export const autonomyPolicySchema = pgTable(
  * (an `ask`, keyed by ask kind). `recommended` is what the agent advised — the
  * proposal's `suggestedDecision`, or the ask option marked `recommended` — and
  * `agreed` whether the person chose it. An action proposed with no explicit
- * recommendation carries an `implicit` approve: an agent only proposes work it
- * wants run, and the autonomy question is "had this executed without you,
- * would you have let it", which that answers. The adoption agreement metric
- * deliberately leaves those out; this ledger deliberately keeps them, labelled.
+ * recommendation stores a null `recommended`, never an inferred `approve`:
+ * silence is not a recommendation, and scoring it as one made an agent that
+ * said nothing look wrong every time a reviewer turned its work down. Such a
+ * row still records that a decision happened — it just sits outside the
+ * agreement rate, whose denominator counts only a stated recommendation.
  *
  * `auto_executed` is set when the run had already executed under a trust rule
  * before the person saw it — a rejection there is the strongest demotion signal
@@ -2632,7 +3006,13 @@ export const decisionAlignmentSchema = pgTable(
     decision: text('decision').notNull(),
     /** approve | reject | snooze | <option id>; null when nothing was recommended. */
     recommended: text('recommended'),
-    /** True when `recommended` was inferred (an action proposed without a suggestedDecision). */
+    /**
+     * Legacy. Marked a `recommended` that was inferred rather than stated,
+     * back when an action proposed without a `suggestedDecision` was recorded
+     * as an implicit `approve`. Nothing writes `true` any more — an unstated
+     * recommendation is a null `recommended` — and the column stays only so
+     * the rows written under the old rule remain readable as what they were.
+     */
     implicit: boolean('implicit').default(false).notNull(),
     /** Whether the decision matched the recommendation; null when nothing was recommended. */
     agreed: boolean('agreed'),
@@ -2676,6 +3056,18 @@ export const actionRunSchema = pgTable(
      */
     proposal: jsonb('proposal').$type<{
       confidence?: number;
+      /**
+       * Why the proposer believes this payload is RIGHT — the case for the
+       * record itself, citing what it read: "the Sep 14 call moved the close
+       * date; the deal stage in HubSpot still says Proposal Sent".
+       *
+       * Pairs with `suggestedDecisionReason` below and answers a different
+       * question. This one argues the content is correct; that one argues what
+       * should happen to it. They agree on an `approve` and diverge on a
+       * `reject`, where the payload can be flawless and the record still not
+       * belong in the queue — so a card that carries only this one leaves a
+       * reviewer to guess at the recommendation's grounds.
+       */
       rationale?: string;
       evidence?: string[];
       autoApproved?: boolean;
@@ -2707,6 +3099,24 @@ export const actionRunSchema = pgTable(
        * never as `approve`.
        */
       suggestedDecision?: 'approve' | 'reject' | 'snooze';
+      /**
+       * One short sentence for WHY the agent recommended what it did, in its
+       * own words — "third listing of this show this week", "date has passed",
+       * "venue outside the coverage area".
+       *
+       * Separate from `rationale` above on purpose. `rationale` argues that
+       * the payload is right; this argues what should happen to it, and the two
+       * come apart hardest exactly where it matters: a `reject` recommendation
+       * has a perfectly sound payload and a reason it should still be turned
+       * down. Kept so a person can see the argument before deciding, and so
+       * the recommendations themselves can be read back and judged later
+       * rather than only scored as a percentage.
+       *
+       * Asked for as one short sentence and stored whole — a reason cut at a
+       * character count reads worse than a long one. Absent on runs proposed
+       * before this shipped.
+       */
+      suggestedDecisionReason?: string;
       /**
        * Only meaningful alongside `suggestedDecision: 'snooze'`: an ISO
        * timestamp for when the agent thinks this is worth another look. A
@@ -2814,7 +3224,7 @@ export const actionRunSchema = pgTable(
      * does this look like now" stop being the same question — a regeneration
      * writes a new `artifact_version` and the page moves on. The pin is
      * written at decide time and never rewritten, so the audit answers the
-     * first question (MANIFESTO §3, §12).
+     * first question (design principles 1 and 9).
      */
     pinnedArtifacts: jsonb('pinned_artifacts').$type<Array<{
       artifactId: number;
@@ -3526,6 +3936,17 @@ export const artifactSchema = pgTable(
     headVersionId: integer('head_version_id'),
     /** Path-like grouping for the log, e.g. `revenue/weekly`. Flat text, not a tree. */
     folder: text('folder'),
+    /**
+     * Who this artifact is FOR (0119). `user` is what a person opens — briefs,
+     * docs, tables, charts, files, sequences. `system` is produced as part of
+     * the work and read only when someone is auditing: mission check reports,
+     * outreach recommendations already rendered on their decision card.
+     *
+     * A flag rather than a deletion, because `action_run.pinned_artifacts`
+     * records the exact versions a human approved; dropping a recommendation
+     * would move the audit answer.
+     */
+    visibility: text('visibility').$type<'user' | 'system'>().default('user').notNull(),
     /** Denormalised head author, so the log lists "last editor" without a join. */
     lastAuthorKind: text('last_author_kind').$type<'agent' | 'human' | 'system'>().default('agent').notNull(),
     lastAuthorId: text('last_author_id'),

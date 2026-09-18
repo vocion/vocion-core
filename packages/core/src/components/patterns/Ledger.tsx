@@ -142,7 +142,7 @@ export function ProvenanceLine(props: { items: ReadonlyArray<Maybe<ProvenanceIte
  * The slots are in that order and the hierarchy is deliberate: the verdict
  * line sits above the reason, the human line below it, and the model's
  * internals — thresholds, prompt version, run id, transcript hash — go in
- * `details`, collapsed. MANIFESTO §12: the simplest useful reading first, the
+ * `details`, collapsed. design principle 9: the simplest useful reading first, the
  * evidence underneath. The decision history is the ledger; the model internals
  * are supporting evidence.
  * @param props

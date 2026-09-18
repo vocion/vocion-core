@@ -15,7 +15,7 @@ import type { RedactionVocabulary } from './redact';
 import type { BriefingIssue } from './validate';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import type { InboxItem } from '@/services/InboxService';
-import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema, briefingSchema, teamSchema } from '@/models/Schema';
 import { scoresByKey } from '@/services/alignment/AlignmentService';
@@ -28,6 +28,8 @@ import { fallbackWhyNow, rankDecisions, splitLanes, toDecisionCard } from './dec
 import { BriefingV2Schema } from './document';
 import { briefingHref } from './links';
 import { renderBriefingMarkdown } from './render';
+import { replacesPrior } from './republish';
+import { briefingTitle } from './title';
 import { assertBriefingV2 } from './validate';
 
 export type StoredBriefing = {
@@ -37,6 +39,8 @@ export type StoredBriefing = {
   createdAt: Date;
   teamSlug: string | null;
   agentSlug: string | null;
+  /** Who published — `agent:<slug>`, `job:<name>`, or a user id. */
+  publishedBy: string | null;
   /** The typed document, when the row carries one. Null on pre-v2 rows. */
   document: BriefingV2 | null;
 };
@@ -62,10 +66,11 @@ const COLUMNS = {
   createdAt: briefingSchema.createdAt,
   teamSlug: briefingSchema.teamSlug,
   agentSlug: briefingSchema.agentSlug,
+  publishedBy: briefingSchema.publishedBy,
   document: briefingSchema.document,
 };
 
-function toStored(row: { id: number; title: string; content: string; createdAt: Date; teamSlug: string | null; agentSlug: string | null; document: unknown }): StoredBriefing {
+function toStored(row: { id: number; title: string; content: string; createdAt: Date; teamSlug: string | null; agentSlug: string | null; publishedBy: string | null; document: unknown }): StoredBriefing {
   return { ...row, document: parseStoredDocument(row.document) };
 }
 
@@ -86,6 +91,18 @@ export async function getBriefing(orgId: string, id: number): Promise<StoredBrie
  */
 export async function latestBriefing(orgId: string, teamSlug: string | null): Promise<StoredBriefing | null> {
   const [row] = await db.select(COLUMNS).from(briefingSchema).where(and(eq(briefingSchema.orgId, orgId), teamSlug === null ? isNull(briefingSchema.teamSlug) : eq(briefingSchema.teamSlug, teamSlug))).orderBy(desc(briefingSchema.createdAt)).limit(1);
+  return row ? toStored(row) : null;
+}
+
+/**
+ * The newest brief in ANY scope — so a reader of a stale rollup can be told
+ * that a team published this morning. On 2026-09-18 the workspace lead read
+ * Thursday's rollup and called the day from the calendar while the revops
+ * team's Friday brief sat unread one scope over.
+ * @param orgId - Tenant.
+ */
+export async function newestBriefing(orgId: string): Promise<StoredBriefing | null> {
+  const [row] = await db.select(COLUMNS).from(briefingSchema).where(eq(briefingSchema.orgId, orgId)).orderBy(desc(briefingSchema.createdAt)).limit(1);
   return row ? toStored(row) : null;
 }
 
@@ -119,10 +136,10 @@ export async function briefingHistory(
   orgId: string,
   teamSlug: string | null,
   opts: { excludeId?: number; limit?: number } = {},
-): Promise<{ entries: BriefingHistoryEntry[]; total: number }> {
+): Promise<{ entries: Array<BriefingHistoryEntry & { agentSlug: string | null }>; total: number }> {
   const scope = and(eq(briefingSchema.orgId, orgId), teamSlug === null ? isNull(briefingSchema.teamSlug) : eq(briefingSchema.teamSlug, teamSlug));
   const [rows, [counted]] = await Promise.all([
-    db.select({ id: briefingSchema.id, title: briefingSchema.title, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug })
+    db.select({ id: briefingSchema.id, title: briefingSchema.title, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug, agentSlug: briefingSchema.agentSlug })
       .from(briefingSchema)
       .where(scope)
       .orderBy(desc(briefingSchema.createdAt))
@@ -132,8 +149,28 @@ export async function briefingHistory(
   const entries = rows
     .filter(r => r.id !== opts.excludeId)
     .slice(0, opts.limit ?? MAX_HISTORY_ENTRIES)
-    .map(r => ({ id: r.id, title: r.title, at: r.createdAt, href: briefingHref(r.id), teamSlug: r.teamSlug }));
+    .map(r => ({ id: r.id, title: r.title, at: r.createdAt, href: briefingHref(r.id), teamSlug: r.teamSlug, agentSlug: r.agentSlug }));
   return { entries, total: counted?.n ?? entries.length };
+}
+
+/**
+ * Display names for agent slugs, so a page can say *by Revenue Director*
+ * rather than `revenue-director` (spec §7: system vocabulary stays off the
+ * narrative). A slug with no agent row maps to itself.
+ * @param orgId - Tenant.
+ * @param slugs - Agent slugs to resolve.
+ */
+export async function agentNames(orgId: string, slugs: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const wanted = [...new Set(slugs.filter((s): s is string => typeof s === 'string' && s.length > 0))];
+  const out = new Map<string, string>();
+  if (wanted.length === 0) {
+    return out;
+  }
+  const rows = await db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, wanted)));
+  for (const r of rows) {
+    out.set(r.slug, r.name ?? r.slug);
+  }
+  return out;
 }
 
 /**
@@ -217,9 +254,13 @@ export async function publishBriefingDocument(
   orgId: string,
   input: PublishBriefingInput,
   opts: { teamSlug: string | null; agentSlug?: string | null; userId?: string | null; now?: Date; timeZone?: string },
-): Promise<{ id: number; doc: BriefingV2; dropped: BriefingIssue[] }> {
+): Promise<{ id: number; doc: BriefingV2; dropped: BriefingIssue[]; replaced: boolean }> {
   const now = opts.now ?? new Date();
   const { dateLabel, updatedLabel } = briefingLabels(now, opts.timeZone ?? 'UTC');
+  // The publisher dates the briefing; the model only names it (`title.ts`).
+  // Done here, on the one path every publish takes, rather than in each tool.
+  const title = briefingTitle(input.title, now);
+  const publishedBy = opts.agentSlug ? `agent:${opts.agentSlug}` : (opts.userId ?? null);
 
   // A workspace brief composes from the teams' latest; a team brief composes
   // from its own reading only — a team briefing inside a team briefing is the
@@ -243,7 +284,7 @@ export async function publishBriefingDocument(
   ]);
 
   const { doc, dropped } = composeWorkspaceBriefing({
-    title: input.title,
+    title,
     dateLabel,
     updatedLabel,
     teamSlug: opts.teamSlug,
@@ -263,15 +304,27 @@ export async function publishBriefingDocument(
   // The contract is checked on the way out, not asked for on the way in.
   assertBriefingV2(doc, vocab);
 
-  const [row] = await db.insert(briefingSchema).values({
-    orgId,
+  const values = {
     title: doc.title.slice(0, 200),
     content: renderBriefingMarkdown(doc),
     document: doc,
-    publishedBy: opts.agentSlug ? `agent:${opts.agentSlug}` : (opts.userId ?? null),
+    publishedBy,
     agentSlug: opts.agentSlug ?? null,
     teamSlug: opts.teamSlug,
-  }).returning({ id: briefingSchema.id });
+  };
 
-  return { id: row!.id, doc, dropped };
+  // A second publish from the same publisher into the same scope minutes
+  // after the first is the same briefing again — the agent retried after the
+  // contract trimmed something, or called the tool twice — not a new edition.
+  // It REPLACES the first row rather than sitting beside it, so the Briefings
+  // page never shows two identical entries a minute apart (`republish.ts`).
+  const latest = await latestBriefing(orgId, opts.teamSlug);
+  if (latest && replacesPrior({ createdAt: latest.createdAt, publishedBy: latest.publishedBy }, publishedBy, now)) {
+    await db.update(briefingSchema).set({ ...values, createdAt: now }).where(and(eq(briefingSchema.orgId, orgId), eq(briefingSchema.id, latest.id)));
+    return { id: latest.id, doc, dropped, replaced: true };
+  }
+
+  const [row] = await db.insert(briefingSchema).values({ orgId, ...values, createdAt: now }).returning({ id: briefingSchema.id });
+
+  return { id: row!.id, doc, dropped, replaced: false };
 }

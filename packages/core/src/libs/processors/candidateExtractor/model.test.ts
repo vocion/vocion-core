@@ -57,7 +57,7 @@ function call(overrides: Partial<Parameters<typeof extractRecords>[0]> = {}) {
  */
 function goodAnswer(usage?: Record<string, unknown>) {
   return {
-    content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9}]}',
+    content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9,"suggestedDecision":"approve","suggestedDecisionReason":"Fits the operator rules."}]}',
     ...(usage ? { usage_metadata: usage } : {}),
   };
 }
@@ -92,7 +92,7 @@ describe('candidate extractor model call', () => {
     expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledWith(
       'extractor',
       'org_extract',
-      { temperature: 0, maxTokens: 4096, streaming: false },
+      { temperature: 0, maxTokens: 16_000, streaming: false },
     );
   });
 
@@ -113,6 +113,50 @@ describe('candidate extractor model call', () => {
 
     expect(result.status).toBe('ok');
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('makes a record with no recommendation cost the corrective retry', async () => {
+    // The whole point of requiring it: a card nobody recommended anything
+    // about cannot be compared against what the reviewer then did, so it is
+    // worth one more model call rather than a card that measures nothing.
+    invoke.mockResolvedValueOnce({ content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9}]}' });
+    invoke.mockResolvedValueOnce(goodAnswer());
+
+    const result = await call();
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe('ok');
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecision).toBe('approve');
+  });
+
+  it('carries the recommendation and its reason through to the record', async () => {
+    invoke.mockResolvedValue({
+      content: '{"records":[{"fields":{"title":"Open Mic"},"confidence":0.9,"suggestedDecision":"reject","suggestedDecisionReason":"  The date has already passed.  "}]}',
+    });
+
+    const result = await call();
+
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecision).toBe('reject');
+    // Trimmed on the way in, so the review card never renders the padding.
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toBe('The date has already passed.');
+  });
+
+  it('keeps a long reason whole rather than cutting it mid-word', async () => {
+    // The prompt asks for one short sentence, but a model that writes two must
+    // not have the second chopped at a character count — half a word tells a
+    // reviewer less than the long version does. The card clamps what it shows.
+    const long = `The venue sits outside the coverage area, ${'and the run repeats every Tuesday, '.repeat(9)}so a person should turn it down.`;
+
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: long }],
+      }),
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecisionReason).toBe(long);
   });
 
   it('strips code fences the way the classifier does', async () => {
@@ -176,7 +220,7 @@ describe('candidate extractor model call', () => {
     // never cost a card, so this one transforms rather than rejects.
     invoke.mockResolvedValue({
       content: JSON.stringify({
-        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, seriesOf: 41, seriesNote: 'x'.repeat(400) }],
+        records: [{ fields: { title: 'Open Mic' }, confidence: 0.9, suggestedDecision: 'approve', suggestedDecisionReason: 'Fits the operator rules.', seriesOf: 41, seriesNote: 'x'.repeat(400) }],
       }),
     });
 
@@ -185,6 +229,34 @@ describe('candidate extractor model call', () => {
     expect(result.status).toBe('ok');
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(result.status === 'ok' && result.records[0]?.seriesNote).toHaveLength(140);
+  });
+
+  it('keeps a referenced-object verdict and drops a malformed one, without losing the record', async () => {
+    // The verdict on a venue is what that venue's own card argues with. A
+    // model that spells one of them wrong must cost that one verdict — the
+    // card then says nothing — and never the document's records.
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{
+          fields: { title: 'Open Mic' },
+          confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'Fits the operator rules.',
+          referencedObjects: [
+            { objectType: 'venue-candidate', suggestedDecision: 'approve', suggestedDecisionReason: '  Printed with a street address, so it reads as a real room.  ' },
+            { objectType: 'promoter', suggestedDecision: 'maybe', suggestedDecisionReason: 'Not one of the three.' },
+          ],
+        }],
+      }),
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result.status === 'ok' && result.records[0]?.referencedObjects).toEqual([
+      { objectType: 'venue-candidate', suggestedDecision: 'approve', suggestedDecisionReason: 'Printed with a street address, so it reads as a real room.' },
+    ]);
   });
 
   it('refuses before the call when the sync has no model calls left', async () => {

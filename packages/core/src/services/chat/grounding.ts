@@ -36,6 +36,8 @@ import type { PageContext, RecordRef } from './pageContext';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { verificationReceipt } from '@/libs/documents/audit';
+import { inspectDocument, outlineText } from '@/libs/documents/sheets';
 import { artifactSchema } from '@/models/Schema';
 
 /** How much of one artifact travels. Enough to answer from; not a whole book. */
@@ -84,6 +86,13 @@ export function artifactText(row: Pick<ArtifactRow, 'kind' | 'title' | 'spec'>):
       return `${label}\nSubject: ${String(s.subject ?? '')}\n${String(s.body ?? '')}`;
     }).join('\n\n');
     return [head, body].filter(Boolean).join('\n\n');
+  }
+  if (row.kind === 'document' && typeof spec.html === 'string') {
+    // The outline, never the HTML: a proposal is 100 KB and the model needs
+    // to know what it IS (title, sheets, last verdict) to talk about it; it
+    // reads a sheet's markup with read_document when it means to change one.
+    const v = spec.verification as Parameters<typeof verificationReceipt>[0] | undefined;
+    return [outlineText(inspectDocument(spec.html)), v ? `Last render-verify: ${verificationReceipt(v)}` : 'Not render-verified yet.'].join('\n');
   }
   if (row.kind === 'link' && typeof spec.href === 'string') {
     return `${String(spec.title ?? row.title)} — ${spec.href}`;

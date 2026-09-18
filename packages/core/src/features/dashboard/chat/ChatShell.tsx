@@ -1,12 +1,16 @@
 'use client';
 
+import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption } from './types';
+import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
-import { AGENT_SURFACE_EVENT, focusAgentComposer } from './agentSurface';
+import { PreviewPanel } from '@/features/preview/PreviewPanel';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
 import { ChatMenu } from './ChatMenu';
@@ -15,9 +19,11 @@ import { EmptyState, NoAgentsState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { QuotedPassage } from './QuotedPassage';
 import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
 import { useComposerTags } from './tagSearch';
+import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 
 /**
@@ -57,6 +63,8 @@ export type ChatShellProps = {
   greeting?: { eyebrow?: string; workspace: string };
   /** A thread the URL names (`?conversation=<id>`) — resume it instead of starting fresh (§9). */
   conversationId?: number | null;
+  /** `?new=1` — forget this browser session's thread and start fresh (⌘⇧O from a page with no surface). */
+  startNew?: boolean;
 };
 
 /**
@@ -81,6 +89,7 @@ export type ChatShellProps = {
  * @param props.suggestions - Empty-state chips.
  * @param props.greeting - Empty-state greeting.
  * @param props.conversationId
+ * @param props.startNew
  */
 export function ChatShell({
   agents,
@@ -88,6 +97,7 @@ export function ChatShell({
   suggestions = [],
   greeting,
   conversationId = null,
+  startNew = false,
 }: ChatShellProps) {
   if (agents.length === 0) {
     return <NoAgentsToChatWith />;
@@ -100,6 +110,7 @@ export function ChatShell({
       suggestions={suggestions}
       greeting={greeting}
       conversationId={conversationId}
+      startNew={startNew}
     />
   );
 }
@@ -129,9 +140,51 @@ function ChatShellInner({
   suggestions = [],
   greeting,
   conversationId = null,
+  startNew = false,
 }: ChatShellProps) {
   const t = useTranslations('Chat');
-  const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId });
+  const router = useRouter();
+  const pathname = usePathname();
+  // Intent handed to this surface — a passage highlighted in the transcript
+  // ("Reply"), or in a document — rides out with the next turn as
+  // `page_context.selection`, exactly as the rail does it.
+  const [intent, setIntent] = useState<AgentSurfaceRequest | null>(null);
+  const pageContext = useMemo<PageContext | undefined>(() => {
+    const c = intent?.context;
+    if (!c) {
+      return undefined;
+    }
+    return {
+      path: c.path || pathname,
+      title: c.title,
+      ...(c.record ? { record: c.record } : {}),
+      ...(c.selection ? { selection: c.selection } : {}),
+      ...(c.refs ? { refs: c.refs } : {}),
+      openedFrom: true as const,
+    };
+  }, [intent, pathname]);
+  const session = useChatSession({ agents, initialComposerValue, suggestions, greeting, resumeConversationId: conversationId, pageContext });
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  });
+  const onCommand = useChatCommands(session.handleNewChat);
+  // A turn went out: the quoted passage has been consumed.
+  const turnCount = session.messages.length;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setIntent(null);
+  }, [turnCount]);
+  // `?new=1`: once the saved thread has settled, forget it and clear the URL.
+  const startedNew = useRef(false);
+  useEffect(() => {
+    if (!startNew || !session.booted || startedNew.current) {
+      return;
+    }
+    startedNew.current = true;
+    sessionRef.current.handleNewChat();
+    router.replace('/dashboard/chat');
+  }, [startNew, session.booted, router]);
   const queueProps = useComposerQueueProps(session);
   // `@` and `(+)` offer the same list: the artifact contract, then the records
   // this surface knows. The full page is not on a record, so there is no page
@@ -150,6 +203,19 @@ function ChatShellInner({
   useEffect(() => {
     function onRequest(e: Event) {
       e.preventDefault();
+      const req = agentSurfaceRequestOf(e);
+      if (req.newChat) {
+        sessionRef.current.handleNewChat();
+      }
+      if (req.prompt !== undefined || req.context) {
+        setIntent(req);
+        if (req.prompt !== undefined) {
+          sessionRef.current.setComposerValue(req.prompt);
+        }
+      }
+      for (const tag of req.tags ?? []) {
+        sessionRef.current.addContextRef(tag);
+      }
       focusAgentComposer(null);
     }
     window.addEventListener(AGENT_SURFACE_EVENT, onRequest);
@@ -235,6 +301,8 @@ function ChatShellInner({
           )}
 
           <ChatComposer
+            above={intent?.context?.selection ? <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(null)} /> : undefined}
+            onCommand={onCommand}
             value={session.composerValue}
             onChange={session.setComposerValue}
             onSubmit={() => void session.sendMessage(session.composerValue)}
@@ -254,9 +322,22 @@ function ChatShellInner({
             tags={session.contextRefs}
             onAddTag={session.addContextRef}
             onRemoveTag={session.removeContextRef}
+            attachments={session.attachments}
+            uploading={session.uploading > 0}
+            attachError={session.attachError}
+            onDismissAttachError={session.clearAttachError}
+            onAttachFiles={files => void session.attachFiles(files)}
+            onRemoveAttachment={session.removeAttachment}
           />
         </div>
 
+        {/* An artifact chip opens its preview in the one right column. On
+            this route nothing else hosts that column — the dock is not
+            mounted here — so the click wrote the URL param and nothing drew
+            it (Chris, 2026-09-17: *"clicking on 'Right now…' doesn't open
+            anything"*). PreviewPanel paints only when no dock owns the
+            column and only while a preview is open. */}
+        <PreviewPanel />
         <SourcesPanel
           documents={session.allDocuments}
           open={session.sourcesOpen && session.allDocuments.length > 0}

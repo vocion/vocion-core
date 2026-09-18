@@ -7,14 +7,19 @@ import { authApi, isErrorResponse, readJsonBody, writeApiErrorResponse } from '.
  *
  * Put a proposed action into the review queue. Body:
  *
- *   { actionId, input, agentSlug?, rationale?, confidence?, suggestedDecision?,
- *     suggestedSnoozeUntil?, dedupKey?, expiresInDays? }
+ *   { actionId, input, suggestedDecision, suggestedDecisionReason, agentSlug?,
+ *     rationale?, confidence?, suggestedSnoozeUntil?, dedupKey?,
+ *     expiresInDays? }
  *
- * `suggestedDecision` is what the proposing agent thinks the reviewer should
- * do — `approve`, `reject` or `snooze`. It is advisory: it never releases the
- * action, and a `reject` or `snooze` recommendation additionally keeps the
- * item out of the trust ladder's reach. Anything outside those three values is
- * a 400 rather than a silently dropped field.
+ * `suggestedDecision` and `suggestedDecisionReason` are REQUIRED. The first is
+ * what the proposing agent thinks the reviewer should do — `approve`, `reject`
+ * or `snooze` — and the second is one short sentence for why, in words the
+ * reviewer can check against the card. Both are advisory: they never release
+ * the action, and a `reject` or `snooze` recommendation additionally keeps the
+ * item out of the trust ladder's reach. Omitting either, or sending a decision
+ * outside those three values, is a 400 rather than a silently dropped field —
+ * a card carrying no opinion cannot be compared against the decision a person
+ * then takes, which is the whole point of storing them.
  *
  * The proposal always lands `pending` — it rides the normal autonomy gate, so
  * this endpoint can never fire an action outright. Repeating a call with the
@@ -57,10 +62,12 @@ export async function POST(req: Request) {
       agentSlug: typeof body.agentSlug === 'string' ? body.agentSlug : undefined,
       rationale: typeof body.rationale === 'string' ? body.rationale : undefined,
       confidence: typeof body.confidence === 'number' ? body.confidence : undefined,
-      // Passed through as the caller wrote it, valid or not: apiProposeReview
-      // is where it is checked, so a bad value comes back as a 400 naming the
-      // three it could have been instead of vanishing on the way in.
-      suggestedDecision: typeof body.suggestedDecision === 'string' ? body.suggestedDecision : undefined,
+      // Passed through as the caller wrote it, valid or not, and required
+      // rather than optional: apiProposeReview is where both are checked, so a
+      // missing or bad value comes back as a 400 saying so instead of
+      // vanishing on the way in.
+      suggestedDecision: typeof body.suggestedDecision === 'string' ? body.suggestedDecision : '',
+      suggestedDecisionReason: typeof body.suggestedDecisionReason === 'string' ? body.suggestedDecisionReason : '',
       suggestedSnoozeUntil: typeof body.suggestedSnoozeUntil === 'string' ? body.suggestedSnoozeUntil : undefined,
       dedupKey: typeof body.dedupKey === 'string' ? body.dedupKey : undefined,
       expiresInDays: typeof body.expiresInDays === 'number' ? body.expiresInDays : undefined,

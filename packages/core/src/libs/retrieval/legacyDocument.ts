@@ -46,6 +46,11 @@ export type LegacySearchArgs = {
   orgId?: string;
   /** Per-user connection ACL — forwarded to retrieval as an intersection. */
   allowedSourceSlugs?: string[];
+  /**
+   * How many hits to retrieve. Defaults to 15, which is a page of results
+   * rather than a hard ceiling — the Search page raises it to load more.
+   */
+  limit?: number;
 };
 
 export async function searchLegacyShape(args: LegacySearchArgs): Promise<{ top_documents: LegacyDocumentShape[]; results?: LegacyDocumentShape[] }> {
@@ -69,7 +74,7 @@ export async function searchLegacyShape(args: LegacySearchArgs): Promise<{ top_d
     sourceSlugs: args.search_filters?.source_type,
     allowedSourceSlugs: args.allowedSourceSlugs,
     mode: 'hybrid',
-    k: 15,
+    k: Math.min(Math.max(args.limit ?? 15, 1), 200),
   });
 
   let docs: LegacyDocumentShape[] = hits.map(h => ({
@@ -80,7 +85,12 @@ export async function searchLegacyShape(args: LegacySearchArgs): Promise<{ top_d
     blurb: h.content.slice(0, 500),
     content: h.content,
     score: h.score,
-    metadata: { chunkIdx: h.chunkIdx },
+    // The document's own date and metadata. Without these the Search page
+    // rendered every result undated, and the `time_cutoff` and
+    // `metadata_filters` post-filters below silently matched nothing —
+    // they read fields this projection never set (see #407, same cause).
+    updated_at: h.updatedAt?.toISOString(),
+    metadata: { ...h.metadata, chunkIdx: h.chunkIdx },
   }));
 
   // Apply post-filters since pgvector doesn't push these down yet.
