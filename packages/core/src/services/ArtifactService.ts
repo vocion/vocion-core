@@ -440,6 +440,25 @@ export async function setArtifactShare(opts: { orgId: string; id: number; audien
   return row ?? null;
 }
 
+/**
+ * Put an artifact on a record after the fact — the document a chat rendered
+ * before anyone named the room, filed as that room's deliverable. One truth:
+ * a deliverable with an `artifactId` IS the record's artifact, so the board
+ * and the room page read the same row. Unchanged when already anchored there.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.record
+ */
+export async function anchorArtifact(opts: { orgId: string; id: number; record: ArtifactRecordScope }): Promise<ArtifactRow | null> {
+  const [row] = await db
+    .update(artifactSchema)
+    .set({ recordType: opts.record.type, recordId: opts.record.id, recordRole: opts.record.role, updatedAt: new Date() })
+    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
 export async function setArtifactFolder(opts: { orgId: string; id: number; folder: string | null }): Promise<ArtifactRow | null> {
   const [row] = await db
     .update(artifactSchema)

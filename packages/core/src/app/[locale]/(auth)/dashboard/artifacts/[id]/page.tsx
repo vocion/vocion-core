@@ -51,8 +51,9 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
   }
   const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId }) : null;
 
+  // One scroll: the pane grows to its content and the page scrolls (`scroll="page"`).
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col gap-2">
+    <div className="flex flex-col gap-2">
       <p className="text-[12px] text-muted-foreground">
         <Link href="/dashboard/artifacts" className="hover:text-foreground">Artifacts</Link>
         {conversation && (

@@ -25,7 +25,7 @@ export function StandaloneArtifactView({ artifact, selfId, workspaceSlug }: {
       selfId={selfId}
       workspaceSlug={workspaceSlug}
       onUpdated={setCurrent}
-      className="min-h-0 flex-1"
+      scroll="page"
     />
   );
 }

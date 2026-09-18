@@ -37,7 +37,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { businessObjectSchema, businessObjectTypeSchema, knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, objectDocumentLinkSchema } from '@/models/Schema';
-import { createArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
+import { anchorArtifact, createArtifact, listArtifactsForRecord } from '@/services/ArtifactService';
 import { listAskGroup, upsertAsk } from '@/services/AskService';
 import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObject, getObjectTypeBySlug, listBusinessObjects, removeDocumentLink, updateBusinessObject } from '@/services/BusinessObjectService';
 
@@ -431,6 +431,12 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
     meta.cast = cast;
   }
   if (patch.deliverable) {
+    // A deliverable that names an artifact anchors it to the room, so the
+    // Proposals board and the room page read one truth (2026-09-18: a proposal
+    // rendered in chat was listed here and shown as "no document").
+    if (patch.deliverable.artifactId) {
+      await anchorArtifact({ orgId, id: patch.deliverable.artifactId, record: { type: 'object', id: String(id), role: 'document' } });
+    }
     const list = [...(meta.deliverables ?? [])];
     const i = list.findIndex(d => d.title.toLowerCase() === patch.deliverable!.title.toLowerCase());
     if (i === -1) {
