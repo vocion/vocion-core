@@ -1,4 +1,4 @@
--- 0121 — how strong a model, how much it thinks, per conversation.
+-- 0122 — how strong a model, how much it thinks, per conversation.
 --
 -- A person had no say in which model answered or how hard it thought; both
 -- were the agent's YAML and the server's env. Chris, 2026-09-18: *"why don't I

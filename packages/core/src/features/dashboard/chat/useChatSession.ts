@@ -503,7 +503,7 @@ export function useChatSession({
       case 'run_meta': {
         // Which model answers this turn — the footer's fact, never a guess.
         const meta = evt as unknown as TurnModel & { type: 'run_meta' };
-        appendToLatestAgent(m => ({ ...m, model: { model: meta.model, provider: meta.provider, ...(meta.thinking ? { thinking: meta.thinking } : {}) } }));
+        appendToLatestAgent(m => ({ ...m, model: { model: meta.model, provider: meta.provider, strength: meta.strength ?? 'balanced', thinking: meta.thinking ?? 'off' } }));
         return;
       }
       case 'thinking':

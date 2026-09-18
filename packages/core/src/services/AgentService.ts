@@ -3,6 +3,7 @@ import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
+import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
@@ -572,7 +573,8 @@ export async function runAgentDeep(opts: {
     // Say which model answers, so the turn can show it (principle 10).
     const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
     const provider = chosen.provider ?? resolveProvider('main');
-    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, ...(chosen.thinking ? { thinking: chosen.thinking } : {}) });
+    // The abstract levels are what the person sees; the concrete id is a detail they can expand.
+    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: opts.modelPrefs?.strength ?? 'balanced', thinking: opts.modelPrefs?.effort ?? 'off' });
   }
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
@@ -957,6 +959,11 @@ function modelOverrideForPrefs(
     return undefined;
   }
   const provider = env.defaults.provider ?? env.provider;
-  const model = modelForStrength(provider, prefs.strength) ?? env.defaults.model ?? env.modelFor('main', provider);
+  // One server-side table maps a level to a model (`libs/llm/modelPrefs.ts`);
+  // a deployment can point a level elsewhere with VOCION_MODEL_<LEVEL>_<PROVIDER>
+  // (e.g. VOCION_MODEL_DEEP_ANTHROPIC) without touching the table or the UI,
+  // which never names a vendor.
+  const envModel = prefs.strength === 'balanced' ? undefined : process.env[`VOCION_MODEL_${prefs.strength.toUpperCase()}_${provider.toUpperCase()}`]?.trim();
+  const model = envModel || modelForStrength(provider, prefs.strength) || env.defaults.model || env.modelFor('main', provider);
   return { model, provider, thinking: prefs.effort };
 }

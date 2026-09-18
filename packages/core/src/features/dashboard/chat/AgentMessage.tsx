@@ -8,7 +8,6 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Link } from '@/libs/I18nNavigation';
-import { shortModelName } from '@/libs/llm/modelPrefs';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
@@ -19,6 +18,12 @@ import { formatElapsed, useElapsed } from './useElapsed';
 import { WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
+/** The abstract levels' words for the turn footer — the same words the composer's control shows; never a vendor or a model id. */
+const LEVEL_WORDS = {
+  strength: { fast: 'Fast', balanced: 'Balanced', deep: 'Deep' },
+  thinking: { off: 'off', low: 'light', medium: 'standard', high: 'deep' },
+} as const;
+
 const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'agent': Bot,
   'team': Users,
@@ -130,6 +135,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
   const [showError, setShowError] = useState(false);
+  const [showModel, setShowModel] = useState(false);
   // The turn in the order it happened: passages of prose with the work that
   // fell between them rendered at that point, not hoisted to the top
   // (`interleave.ts`). A message with a typed trace renders the trace only —
@@ -176,12 +182,20 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             </button>
           )}
           {message.model && (
-            // Which model answered, and how hard it thought — a fact the turn
-            // carries, so a person can tell a Haiku answer from a Deep one.
-            <span data-testid="turn-model" className="tracking-normal text-muted-foreground/70 normal-case" title={`${message.model.model} · ${message.model.provider}`}>
-              {shortModelName(message.model.model)}
-              {message.model.thinking && message.model.thinking !== 'off' ? ` · thinking ${message.model.thinking}` : ''}
-            </span>
+            // Which level answered, and how hard it thought — in the person's
+            // words (fast / balanced / deep), never a vendor. The concrete id
+            // is a detail they can open, not a label they have to read.
+            <button
+              type="button"
+              data-testid="turn-model"
+              onClick={() => setShowModel(v => !v)}
+              aria-expanded={showModel}
+              className="tracking-normal text-muted-foreground/70 normal-case transition hover:text-foreground"
+              title={showModel ? 'Hide model details' : 'Show model details'}
+            >
+              {LEVEL_WORDS.strength[message.model.strength]}
+              {message.model.thinking !== 'off' ? ` · thinking: ${LEVEL_WORDS.thinking[message.model.thinking]}` : ''}
+            </button>
           )}
           {/* The badge is the way IN to the failure, not a label over it: it
               opens the trace at the failed step, which carries the message and
@@ -203,6 +217,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             </button>
           )}
         </div>
+        {message.model && showModel && (
+          <div data-testid="turn-model-detail" className="mt-1 font-mono text-[11px] text-muted-foreground">
+            {message.model.model}
+            {' · '}
+            {message.model.provider}
+          </div>
+        )}
         {hasToolError && showError && (
           <div
             data-testid="tool-error-detail"

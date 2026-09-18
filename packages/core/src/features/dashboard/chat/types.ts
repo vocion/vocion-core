@@ -106,7 +106,7 @@ export type RecommendedAction = {
 export type ConversationAutonomy = 'ask' | 'act-within-bounds';
 
 /** Which model answered a turn and how hard it thought — the turn's footer (`run_meta` event). */
-export type TurnModel = { model: string; provider: string; thinking?: 'off' | 'low' | 'medium' | 'high' };
+export type TurnModel = { model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' };
 
 /**
  * A record the person pointed the conversation at — an `@` tag in the

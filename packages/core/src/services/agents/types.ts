@@ -254,7 +254,7 @@ export type AgentEvent
      */
     | { type: 'memories_mounted'; paths: string[] }
     /** Which model answers this turn, and how hard it thinks — shown on the turn (`libs/llm/modelPrefs.ts`). */
-    | { type: 'run_meta'; model: string; provider: string; thinking?: 'off' | 'low' | 'medium' | 'high' }
+    | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
