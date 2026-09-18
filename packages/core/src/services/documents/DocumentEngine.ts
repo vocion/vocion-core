@@ -50,13 +50,15 @@ export type VerifyOutcome = {
  * @param html
  * @param title
  * @param verification
+ * @param playbook
  */
-export function documentSpec(html: string, title: string | undefined, verification?: DocumentVerification): DocumentSpec {
+export function documentSpec(html: string, title: string | undefined, verification?: DocumentVerification, playbook?: string): DocumentSpec {
   const outline = inspectDocument(html);
   return {
     ...(title ? { title } : outline.title ? { title: outline.title } : {}),
     html,
     sheets: outline.sheetCount,
+    ...(playbook ? { playbook } : {}),
     ...(verification ? { verification } : {}),
   };
 }
@@ -155,6 +157,8 @@ export type CreateDocumentInput = {
   record?: ArtifactRecordScope | null;
   title?: string;
   html: string;
+  /** The playbook that shaped it (`proposal`, `scope`, `partnership-update`…). */
+  playbook?: string;
   verify?: VerifyOptions;
 };
 
@@ -165,7 +169,7 @@ export type CreateDocumentInput = {
  */
 export async function createDocument(input: CreateDocumentInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; outcome: VerifyOutcome }> {
   const outcome = await verifyHtml(input.orgId, input.html, input.verify);
-  const spec = documentSpec(input.html, input.title, outcome.verification);
+  const spec = documentSpec(input.html, input.title, outcome.verification, input.playbook);
   const title = input.title?.trim() || spec.title || 'Document';
   const { artifact, version } = await createArtifact({
     orgId: input.orgId,
@@ -220,7 +224,8 @@ export async function reviseDocument(input: ReviseDocumentInput): Promise<{ arti
     applied = [...applied, ...edited.applied];
   }
   const outcome = await verifyHtml(input.orgId, html, input.verify);
-  const spec = documentSpec(html, input.title ?? (existing.spec as Partial<DocumentSpec>).title, outcome.verification);
+  const prior = existing.spec as Partial<DocumentSpec>;
+  const spec = documentSpec(html, input.title ?? prior.title, outcome.verification, prior.playbook);
   const { artifact, version } = await updateArtifact({
     orgId: input.orgId,
     id: input.id,
@@ -254,7 +259,8 @@ export async function verifyDocumentArtifact(input: { orgId: string; id: number;
   }
   const html = (existing.spec as Partial<DocumentSpec>).html ?? '';
   const outcome = await verifyHtml(input.orgId, html, input.verify);
-  const spec = documentSpec(html, (existing.spec as Partial<DocumentSpec>).title, outcome.verification);
+  const prior = existing.spec as Partial<DocumentSpec>;
+  const spec = documentSpec(html, prior.title, outcome.verification, prior.playbook);
   const { artifact } = await updateArtifact({
     orgId: input.orgId,
     id: input.id,

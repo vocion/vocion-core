@@ -1,19 +1,102 @@
 {
   "turns": [
     {
+      "match": "open a data room",
+      "steps": [
+        {
+          "tool": "create_data_room",
+          "args": {
+            "title": "Northwind — Hiring agents",
+            "client": "Northwind",
+            "domains": [
+              "northwind.example"
+            ],
+            "aliases": [
+              "northwind logistics"
+            ],
+            "stage": "Proposal",
+            "status": "Third call held 2026-09-16; volume corrected to ~20 openings a month. Proposal to be repriced per open role before Friday.",
+            "cast": [
+              {
+                "name": "Amy Larkin",
+                "role": "VP People",
+                "email": "amy@northwind.example",
+                "side": "client"
+              },
+              {
+                "name": "Jordan Reyes",
+                "role": "Store operations",
+                "email": "jordan@northwind.example",
+                "side": "client"
+              },
+              {
+                "name": "Pat Reyes",
+                "role": "Partner",
+                "email": "pat@metacto.example",
+                "side": "seller"
+              }
+            ]
+          }
+        },
+        {
+          "tool": "add_open_item",
+          "args": {
+            "title": "Reprice the proposal per open role at the typical 20",
+            "body": "Amy corrected the volume on the third call: ~20 openings a month, not a dozen.",
+            "urgent": true,
+            "owner": "Pat",
+            "source_ref": "call:2026-09-16:item-2"
+          }
+        }
+      ],
+      "reply": "Opened the data room for Northwind — Hiring agents, with the cast from the third call and one urgent open item: reprice per open role."
+    },
+    {
+      "match": "file the third call",
+      "steps": [
+        {
+          "tool": "file_to_data_room",
+          "args": {
+            "title": "Third call — Amy Larkin",
+            "kind": "transcript",
+            "rating": 3,
+            "channel": "zoom",
+            "date": "2026-09-16",
+            "text": "Third call — Northwind hiring agents\nParticipants: Amy Larkin <amy@northwind.example> (VP People, Northwind), Jordan Reyes <jordan@northwind.example> (Store operations, Northwind), Pat Reyes <pat@metacto.example> (Metacto)\n\nAmy: So on volume, it's a little less than 30 openings a month… usually is in the 20 ballpark.\nPat: Got it. The room carried about a dozen, so that changes the pricing model.\nAmy: And the part I hate is the paperwork after we say yes.\nJordan: The stores never know who applied where.\nPat: Then the record comes first, and the two agents read it.",
+            "decision_log": "**Participants:** Amy Larkin (VP People, Northwind) · Jordan Reyes (Store operations, Northwind) · Pat Reyes (Metacto)\n\n**Headlines:** volume is ~20 openings a month, not a dozen; the offer paperwork is the pain after a yes; stores lack visibility of applicants.\n\n## Decisions and corrections\n\n1. **Volume is far smaller than the room recorded.** Amy, twice: \"a little less than 30 openings… usually is in the 20 ballpark.\" The room carried \"about a dozen\". Pricing model changes to per open role.\n2. **The record comes first.** Pat: \"the record comes first, and the two agents read it.\"\n3. **A third agent is wanted for offers.** Amy: \"the part I hate is the paperwork after we say yes.\" Planned first for the roadmap review.\n\n## Open items created by this call\n\n1. Confirm the openings number against last quarter's applications (owner: Amy).\n2. Reprice per open role at the typical 20 (owner: Pat).",
+            "emails": [
+              "amy@northwind.example",
+              "jordan@northwind.example"
+            ]
+          }
+        }
+      ],
+      "reply": "Filed the third call into Northwind — Hiring agents at three stars, matched on the northwind.example domain, with a 3-item decision log on top."
+    },
+    {
       "match": "draft the proposal",
       "steps": [
         {
           "tool": "render_document",
           "args": {
             "title": "Northwind - Hiring Agents Proposal (Metacto) v1.0",
-            "html": { "$file": "../fixtures/generated/northwind-overflow.html" }
+            "html": {
+              "$file": "../fixtures/generated/northwind-overflow.html"
+            }
           }
         },
         {
           "tool": "edit_document",
           "args": {
-            "ops": [{ "op": "replace_sheet", "n": 3, "html": { "$file": "../fixtures/generated/sheet-screener-trimmed.html" } }],
+            "ops": [
+              {
+                "op": "replace_sheet",
+                "n": 3,
+                "html": {
+                  "$file": "../fixtures/generated/sheet-screener-trimmed.html"
+                }
+              }
+            ],
             "change_summary": "trimmed the screener sheet back above the footer"
           }
         }
@@ -26,7 +109,15 @@
         {
           "tool": "edit_document",
           "args": {
-            "ops": [{ "op": "insert_sheet", "after": 4, "html": { "$file": "../fixtures/generated/sheet-agent-3.html" } }],
+            "ops": [
+              {
+                "op": "insert_sheet",
+                "after": 4,
+                "html": {
+                  "$file": "../fixtures/generated/sheet-agent-3.html"
+                }
+              }
+            ],
             "change_summary": "added the Offer Coordinator as the third agent"
           }
         }
@@ -39,7 +130,15 @@
         {
           "tool": "edit_document",
           "args": {
-            "ops": [{ "op": "replace_sheet", "n": 6, "html": { "$file": "../fixtures/generated/sheet-pricing-per-role.html" } }],
+            "ops": [
+              {
+                "op": "replace_sheet",
+                "n": 6,
+                "html": {
+                  "$file": "../fixtures/generated/sheet-pricing-per-role.html"
+                }
+              }
+            ],
             "change_summary": "priced per open role at the typical 20"
           }
         }
@@ -52,7 +151,12 @@
         {
           "tool": "edit_document",
           "args": {
-            "ops": [{ "op": "remove_sheet", "n": 2 }],
+            "ops": [
+              {
+                "op": "remove_sheet",
+                "n": 2
+              }
+            ],
             "change_summary": "cut the How it works sheet"
           }
         }
@@ -65,7 +169,14 @@
         {
           "tool": "edit_document",
           "args": {
-            "ops": [{ "op": "replace_text", "find": "The agent flags; the Northwind team decides.", "replace": "The agent flags. The Northwind team decides.", "all": true }],
+            "ops": [
+              {
+                "op": "replace_text",
+                "find": "The agent flags; the Northwind team decides.",
+                "replace": "The agent flags. The Northwind team decides.",
+                "all": true
+              }
+            ],
             "change_summary": "split the flags/decides sentence on every agent sheet"
           }
         }
@@ -74,12 +185,24 @@
     },
     {
       "match": "export",
-      "steps": [{ "tool": "export_document_pdf", "args": {} }],
+      "steps": [
+        {
+          "tool": "export_document_pdf",
+          "args": {}
+        }
+      ],
       "reply": "The PDF is filed beside the document, named from its title."
     },
     {
       "match": "verify",
-      "steps": [{ "tool": "verify_document", "args": { "look": false } }],
+      "steps": [
+        {
+          "tool": "verify_document",
+          "args": {
+            "look": false
+          }
+        }
+      ],
       "reply": "Verified: footers aligned, nothing overflows, PDF page count matches."
     }
   ],

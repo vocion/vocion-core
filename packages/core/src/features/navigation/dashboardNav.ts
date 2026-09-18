@@ -11,6 +11,7 @@ import {
   Database,
   FileCode2,
   FileStack,
+  FolderOpen,
   GitBranch,
   Inbox,
   LineChart,
@@ -105,6 +106,9 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // versioned, editable. Replaces Canvases, whose saved tile arrangements
   // nobody arranged twice (`/dashboard/canvases` 308s here).
   { url: '/dashboard/artifacts', title: 'Artifacts', group: 'Workspace', icon: FileStack, keywords: ['canvas', 'canvases', 'documents', 'tables', 'charts', 'versions', 'history'] },
+  // One room per client engagement — the source of record the documents are
+  // written from: status, cast, sources by weight, open items as asks.
+  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Workspace', icon: FolderOpen, keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
   // Review is no longer a place: the queue is the `proposal` kind of Review queue
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.

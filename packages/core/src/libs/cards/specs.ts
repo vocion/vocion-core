@@ -163,6 +163,12 @@ export const documentSpecSchema = z.object({
   title: z.string().optional(),
   html: z.string().min(1).max(1_500_000),
   sheets: z.number().int().nonnegative().optional(),
+  /**
+   * Which playbook shaped it — `proposal`, `scope`, `partnership-update`,
+   * `email-copy`, `work-sample`… A tag the log filters on and a skill can
+   * name; free text so a workspace's playbooks need no core change.
+   */
+  playbook: z.string().max(60).optional(),
   verification: documentVerificationSchema.optional(),
 });
 export type DocumentSpec = z.infer<typeof documentSpecSchema>;

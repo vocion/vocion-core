@@ -123,6 +123,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
           record: recordScope(ctx),
           title,
           html: args.html,
+          playbook: args.playbook,
           verify: { look: args.look ?? false },
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
@@ -142,6 +143,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
         title: z.string().max(200).optional().describe('Artifact title. Defaults to the <title>, which is also the PDF filename — use "<Subject> - <What it is> (<Firm>) v<N.N>".'),
         html: z.string().min(200).describe('The complete HTML document: <!doctype html> … </html>, with <article class="sheet"> per page.'),
         look: z.boolean().optional().describe('Also run the vision pass over the rendered sheets (a model call). Default false; use it on the final pass.'),
+        playbook: z.string().max(60).optional().describe('The playbook that shaped it: proposal, scope, partnership-update, email-copy, work-sample.'),
         folder: z.string().max(120).optional().describe('Optional path-like grouping for the artifacts log, e.g. "clients/acme".'),
       }),
     },

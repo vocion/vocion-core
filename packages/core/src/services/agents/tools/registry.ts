@@ -28,6 +28,7 @@ import { calendarTools } from './calendarEvents';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
+import { dataRoomTools } from './dataRooms';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
 import { editArtifactTools } from './editArtifacts';
@@ -148,6 +149,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // export_document_pdf). Same rule as render_*: no side effect outside the
     // conversation, so on for every agent.
     ...documentTools(ctx),
+    // Data rooms: the source of record per engagement. Reads and filing are
+    // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
+    ...dataRoomTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),
