@@ -19,7 +19,7 @@ import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel'
 import { SequencePointer } from '@/features/personalization/SequencePointer';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
-import { AutonomyControl } from './AutonomyControl';
+import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -784,12 +784,14 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onAttachFiles={files => void session.attachFiles(files)}
           onRemoveAttachment={session.removeAttachment}
           onCommand={onCommand}
-          controls={(
-            <>
-              <AutonomyControl value={session.autonomy} onChange={session.setAutonomy} copy={autonomyCopy} label={t('autonomy')} />
-              <ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />
-            </>
-          )}
+          controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+          settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, t('autonomy_thread'))]}
+          onSetting={(id, opt) => {
+            const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
+            if (rung) {
+              session.setAutonomy(rung);
+            }
+          }}
         />
       </div>
     </>

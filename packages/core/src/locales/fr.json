@@ -209,6 +209,7 @@
     "feedback_save": "Envoyer",
     "feedback_saved": "Merci — l’équipe la lit à son prochain cycle.",
     "autonomy": "Autonomie",
+    "autonomy_thread": "Ce fil",
     "conversations": "Conversations",
     "chat_options": "Options de discussion",
     "queue_placeholder": "Mettre un message en file… ⌘⏎ pour envoyer maintenant",

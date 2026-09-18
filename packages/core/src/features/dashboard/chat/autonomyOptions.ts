@@ -1,3 +1,4 @@
+import type { ComposerMenuSetting } from './composerMenu';
 import type { ConversationAutonomy } from './types';
 
 /**
@@ -89,4 +90,32 @@ export function isRaisedAutonomy(mode: ConversationAutonomy | undefined): boolea
  */
 export function isRestrictedAutonomy(mode: ConversationAutonomy | undefined): boolean {
   return mode === 'ask';
+}
+
+/** The (+) menu's id for the autonomy rows; `onSetting` matches on it. */
+export const AUTONOMY_SETTING_ID = 'autonomy';
+
+/**
+ * The rung as a (+) menu section — the composer bar lost its dedicated icon
+ * on 2026-09-18 ("this bar is getting too busy"), and the choice lives with
+ * everything else the turn can carry.
+ * @param value - The conversation's rung.
+ * @param copy - Translated strings.
+ * @param title - The section title ("This thread").
+ */
+export function autonomyMenuSetting(value: ConversationAutonomy | undefined, copy: AutonomyCopy, title: string): ComposerMenuSetting {
+  return {
+    id: AUTONOMY_SETTING_ID,
+    title,
+    selected: value ?? DEFAULT_AUTONOMY,
+    options: autonomyOptions(copy).map(o => ({ id: o.value, label: o.label, hint: o.hint })),
+  };
+}
+
+/**
+ * Read a picked option id back into a rung; anything else is ignored.
+ * @param optionId
+ */
+export function autonomyFromOption(optionId: string): ConversationAutonomy | null {
+  return optionId === 'ask' || optionId === 'act-within-bounds' ? optionId : null;
 }

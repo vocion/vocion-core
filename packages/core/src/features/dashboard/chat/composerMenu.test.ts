@@ -2,7 +2,7 @@ import type { ContextRef } from './types';
 import { describe, expect, it } from 'vitest';
 import { buildComposerMenu, selectableItems } from './composerMenu';
 
-const WORDS = { commands: 'Commands', tag: 'Tag', attach: 'Add to this turn', attachFile: 'Attach a file', attachFileHint: 'Image, PDF or text', shortcuts: 'Shortcuts' };
+const WORDS = { commands: 'Commands', tag: 'Tag', attach: 'Add to this turn', attachFile: 'Attach a file', attachFileHint: 'Image, PDF or text', shortcuts: 'Shortcuts', shortcutsHint: 'Keys and commands', more: 'More' };
 const SHORTCUTS = [['Enter', 'Send'], ['?', 'These shortcuts']] as const;
 const page: ContextRef = { type: 'page', id: 'p', label: 'This page' };
 const artifact: ContextRef = { type: 'deliverable', id: 'artifact', label: 'A document' };
@@ -27,12 +27,13 @@ describe('the composer menu', () => {
   it('(+) opens everything you can add — the file first, then the records, then the commands', () => {
     const sections = buildComposerMenu({ ...base, mode: 'plus', attachable: [page, artifact], canAttachFiles: true });
 
-    expect(sections.map(s => s.id)).toEqual(['attach', 'commands']);
+    expect(sections.map(s => s.id)).toEqual(['attach', 'commands', 'more']);
     expect(sections[0]!.items.map(i => i.kind)).toEqual(['file', 'tag', 'tag']);
+    expect(sections[2]!.items).toEqual([{ kind: 'help', id: 'help', label: 'Shortcuts', hint: 'Keys and commands' }]);
     expect(sections[0]!.items.map(i => ('hint' in i ? i.hint : null))).toEqual(['Image, PDF or text', '@page', '@artifact']);
     expect(sections[1]!.items.map(i => i.label)).toEqual(['/new', '/history', '/search', '/help']);
     // No file support, no commands wired: only the records.
-    expect(buildComposerMenu({ ...base, mode: 'plus', attachable: [page], canAttachFiles: false, commandsEnabled: false }).map(s => s.id)).toEqual(['attach']);
+    expect(buildComposerMenu({ ...base, mode: 'plus', attachable: [page], canAttachFiles: false, commandsEnabled: false }).map(s => s.id)).toEqual(['attach', 'more']);
   });
 
   it('? is the shortcut reference, and the arrow keys skip it', () => {
@@ -46,6 +47,13 @@ describe('the composer menu', () => {
   it('walks the selectable rows across sections in panel order', () => {
     const sections = buildComposerMenu({ ...base, mode: 'plus', attachable: [page], canAttachFiles: true });
 
-    expect(selectableItems(sections).map(i => i.id)).toEqual(['attach-file', 'tag:page:p', 'command:new', 'command:history', 'command:search', 'command:help']);
+    expect(selectableItems(sections).map(i => i.id)).toEqual(['attach-file', 'tag:page:p', 'command:new', 'command:history', 'command:search', 'command:help', 'help']);
+  });
+
+  it('(+) carries the thread\'s settings as radio rows, the current one marked', () => {
+    const sections = buildComposerMenu({ ...base, mode: 'plus', commandsEnabled: false, settings: [{ id: 'autonomy', title: 'This thread', selected: 'act', options: [{ id: 'act', label: 'Done for you', hint: 'Runs with undo' }, { id: 'ask', label: 'Ask first', hint: 'Waits for you' }] }] });
+
+    expect(sections.map(s => s.id)).toEqual(['setting:autonomy', 'more']);
+    expect(sections[0]!.items.map(i => i.kind === 'setting' && [i.optionId, i.selected])).toEqual([['act', true], ['ask', false]]);
   });
 });

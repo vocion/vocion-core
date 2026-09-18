@@ -43,12 +43,27 @@ export type ComposerMenuItem
   = | { kind: 'command'; id: string; label: string; hint: string; shortcut?: string; command: SlashCommand }
     | { kind: 'tag'; id: string; label: string; hint: string; ref: ContextRef }
     | { kind: 'file'; id: 'attach-file'; label: string; hint: string }
+    | { kind: 'setting'; id: string; label: string; hint: string; settingId: string; optionId: string; selected: boolean }
+    | { kind: 'help'; id: 'help'; label: string; hint: string }
     | { kind: 'shortcut'; id: string; label: string; keys: string };
 
 export type ComposerMenuSection = {
-  id: 'commands' | 'tags' | 'attach' | 'shortcuts';
+  id: 'commands' | 'tags' | 'attach' | 'shortcuts' | 'more' | `setting:${string}`;
   title: string;
   items: ComposerMenuItem[];
+};
+
+/**
+ * A per-thread setting the (+) menu offers as a section of radio rows — the
+ * autonomy rung today (Chris, 2026-09-18: "this bar is getting too busy … move
+ * all other options into the plus menu"). The surface owns the value; the
+ * menu only shows it and reports a pick.
+ */
+export type ComposerMenuSetting = {
+  id: string;
+  title: string;
+  options: Array<{ id: string; label: string; hint: string }>;
+  selected: string;
 };
 
 export type ComposerMenuInput = {
@@ -63,11 +78,13 @@ export type ComposerMenuInput = {
   canAttachFiles?: boolean;
   /** Whether slash commands are wired on this surface. */
   commandsEnabled?: boolean;
+  /** Per-thread settings shown in the (+) menu (the autonomy rung). */
+  settings?: ComposerMenuSetting[];
   /** The right-hand hint for a tag row — what picking it does. */
   tagHint: (ref: ContextRef) => string;
   /** The shortcut reference, `[keys, what]`. */
   shortcuts: ReadonlyArray<readonly [keys: string, what: string]>;
-  words: { commands: string; tag: string; attach: string; attachFile: string; attachFileHint: string; shortcuts: string };
+  words: { commands: string; tag: string; attach: string; attachFile: string; attachFileHint: string; shortcuts: string; shortcutsHint: string; more: string };
 };
 
 /**
@@ -118,12 +135,21 @@ export function buildComposerMenu(input: ComposerMenuInput): ComposerMenuSection
       if (attach.length > 0) {
         sections.push({ id: 'attach', title: input.words.attach, items: attach });
       }
+      for (const setting of input.settings ?? []) {
+        sections.push({
+          id: `setting:${setting.id}`,
+          title: setting.title,
+          items: setting.options.map(o => ({ kind: 'setting' as const, id: `setting:${setting.id}:${o.id}`, label: o.label, hint: o.hint, settingId: setting.id, optionId: o.id, selected: o.id === setting.selected })),
+        });
+      }
       if (input.commandsEnabled !== false) {
         const items = commandItems('');
         if (items.length > 0) {
           sections.push({ id: 'commands', title: input.words.commands, items });
         }
       }
+      // The shortcut reference is one row here; `?` and `/help` reach it too.
+      sections.push({ id: 'more', title: input.words.more, items: [{ kind: 'help', id: 'help', label: input.words.shortcuts, hint: input.words.shortcutsHint }] });
       break;
     }
     case 'help': {

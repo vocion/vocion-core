@@ -30,7 +30,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
-import { AutonomyControl } from '@/features/dashboard/chat/AutonomyControl';
+import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/features/dashboard/chat/autonomyOptions';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
@@ -272,12 +272,14 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
             {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
             <ChatComposer
               onCommand={onCommand}
-              controls={(
-                <>
-                  <AutonomyControl value={session.autonomy} onChange={session.setAutonomy} copy={autonomyCopy} label={tc('autonomy')} />
-                  <ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />
-                </>
-              )}
+              controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+              settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, tc('autonomy_thread'))]}
+              onSetting={(id, opt) => {
+                const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
+                if (rung) {
+                  session.setAutonomy(rung);
+                }
+              }}
               value={session.composerValue}
               onChange={session.setComposerValue}
               onSubmit={() => void session.sendMessage(session.composerValue)}

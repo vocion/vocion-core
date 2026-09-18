@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComposerMenuItem, ComposerMenuMode, ComposerMenuSection } from './composerMenu';
-import { Paperclip, Slash } from 'lucide-react';
+import { Check, CircleHelp, Paperclip, Slash } from 'lucide-react';
 import { selectableItems, TAG_ICON } from './composerMenu';
 
 /**
@@ -53,9 +53,9 @@ export function ComposerMenuPanel({ mode, sections, cursor, onPick, onHover }: {
               }
               const i = order.get(item.id) ?? -1;
               const selected = i === cursor;
-              const Icon = item.kind === 'command' ? Slash : item.kind === 'file' ? Paperclip : TAG_ICON[item.ref.type];
+              const Icon = item.kind === 'command' ? Slash : item.kind === 'file' ? Paperclip : item.kind === 'help' ? CircleHelp : item.kind === 'setting' ? null : TAG_ICON[item.ref.type];
               return (
-                <li key={item.id} role="option" aria-selected={selected}>
+                <li key={item.id} role="option" aria-selected={selected} data-setting-selected={item.kind === 'setting' && item.selected ? 'true' : undefined}>
                   <button
                     type="button"
                     data-testid={item.kind === 'tag' && mode === 'plus' ? 'composer-attach-item' : undefined}
@@ -68,7 +68,9 @@ export function ComposerMenuPanel({ mode, sections, cursor, onPick, onHover }: {
                     }}
                     className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${selected ? 'bg-muted' : 'hover:bg-muted/60'}`}
                   >
-                    <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    {Icon
+                      ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      : <span className="flex size-3.5 shrink-0 items-center justify-center">{item.kind === 'setting' && item.selected && <Check className="size-3.5 text-foreground" aria-hidden />}</span>}
                     <span className="min-w-0 flex-1 truncate">
                       <span className={item.kind === 'command' ? 'font-medium' : undefined}>{item.label}</span>
                       {item.hint && <span className="ml-2 text-[12px] text-muted-foreground">{item.hint}</span>}

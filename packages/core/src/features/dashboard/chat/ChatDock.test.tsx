@@ -429,12 +429,15 @@ describe('ChatDock', () => {
     await expect.element(page.getByRole('link', { name: 'All conversations' })).not.toBeInTheDocument();
   });
 
-  it('puts the autonomy rung in the header, not in the composer', async () => {
+  it('keeps the autonomy rung inside the (+) menu — the bar is (+), the gauge, send', async () => {
     await render(wrap(<ChatDock agents={AGENTS} scopeLabel="Everything" defaultCollapsed={false} />));
 
-    // The chip names the current rung; the composer has one action left.
-    await expect.element(page.getByTestId('autonomy-chip')).toBeInTheDocument();
-    await expect.element(page.getByRole('radiogroup', { name: 'Autonomy' })).not.toBeInTheDocument();
+    expect(page.getByTestId('autonomy-chip').elements()).toHaveLength(0);
+
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    await expect.element(page.getByRole('option', { name: /Done for you/ })).toBeVisible();
+    await expect.element(page.getByRole('option', { name: /Ask first/ })).toBeVisible();
   });
 
   it('resumes the user\'s scoped conversation instead of the global pointer', async () => {
