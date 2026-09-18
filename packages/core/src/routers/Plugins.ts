@@ -1,7 +1,7 @@
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
 import { listPlugins, listPluginSlugs } from '@/libs/workspace/plugins';
-import { enabledPluginsForOrg, setPluginEnabled } from '@/services/PluginService';
+import { enabledPluginsForOrg, setPluginEnabled, workspaceWriteBlocker } from '@/services/PluginService';
 import { guardAuth, guardRole } from './AuthGuards';
 import { workspacePathForProject } from './Workspace';
 
@@ -13,10 +13,13 @@ import { workspacePathForProject } from './Workspace';
  */
 
 export const list = os.handler(async () => {
-  const { orgId } = await guardAuth();
+  const { orgId, projectId } = await guardAuth();
   const enabled = await enabledPluginsForOrg(orgId!);
+  const dir = await workspacePathForProject(projectId!);
   return {
     enabled,
+    /** Why the switch is off on this host, or null when a toggle can write. */
+    writeBlocker: dir ? workspaceWriteBlocker(dir) : 'this project has no workspace directory on this host',
     plugins: listPlugins().map(p => ({
       slug: p.manifest.slug,
       name: p.manifest.name,

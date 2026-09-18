@@ -19,13 +19,28 @@ import { client } from '@/libs/Orpc';
  * @param props.canToggle
  * @param props.dependents - Plugins that depend on this one (turning it off turns them off too).
  */
-export function PluginToggle(props: { slug: string; enabled: boolean; canToggle: boolean; dependents?: string[] }) {
+export function PluginToggle(props: { slug: string; enabled: boolean; canToggle: boolean; dependents?: string[]; blocker?: string | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!props.canToggle) {
-    return <span className="text-xs text-muted-foreground">{props.enabled ? 'On' : 'Off'}</span>;
+  if (!props.canToggle || props.blocker) {
+    // A member sees the state; an admin on a read-only (deploy-managed) host
+    // sees the state and, on hover, the door that does work.
+    const state = (
+      <span className="text-xs text-muted-foreground">
+        {props.enabled ? 'On' : 'Off'}
+        {props.blocker ? ' · edit in the repo' : ''}
+      </span>
+    );
+    return props.blocker
+      ? (
+          <Tooltip>
+            <TooltipTrigger asChild><span data-testid={`plugin-toggle-${props.slug}`}>{state}</span></TooltipTrigger>
+            <TooltipContent>{props.blocker}</TooltipContent>
+          </Tooltip>
+        )
+      : state;
   }
 
   const toggle = async () => {

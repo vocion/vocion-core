@@ -12,10 +12,13 @@ import { PageContextProvider } from '@/features/dashboard/context/PageContextPro
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
+import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
+import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
+import { listPlugins } from '@/libs/workspace/plugins';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { listAgentBudgets } from '@/services/BudgetService';
@@ -92,6 +95,15 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
+  // Where each enabled plugin's rows sit (plugin.yaml `nav.section`): its
+  // pages, the core routes it owns and its surfaces fold into one section, so
+  // the generic Pages and surface groups skip what a plugin claimed.
+  const pages = readWorkspacePages().pages;
+  const nav = pluginNav({
+    plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
+    pages,
+    routes: DASHBOARD_ROUTES,
+  });
   // This workspace's spend vs cap this period — the header avatar's ring and
   // the menu's usage row. Hidden entirely when no budget exists.
   const usage = orgId
@@ -113,9 +125,10 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         collapsible="icon"
         isAdmin={isAdmin}
         enabledPlugins={enabledPlugins}
-        enabledSurfaces={enabledSurfaces}
+        enabledSurfaces={enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id))}
+        pluginNav={nav}
         needsYouCount={waiting}
-        workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
+        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
       <SidebarInset>
         <ShellBarActionsProvider>
@@ -153,4 +166,13 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+/** The plugin catalogue, or nothing — a broken plugin.yaml must never take the shell down. */
+function safeListPlugins(): ReturnType<typeof listPlugins> {
+  try {
+    return listPlugins();
+  } catch {
+    return [];
+  }
 }

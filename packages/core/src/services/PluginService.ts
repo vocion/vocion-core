@@ -14,7 +14,7 @@
  * a workspace.yaml is documentation as much as config.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { parseDocument, YAMLSeq } from 'yaml';
@@ -46,6 +46,27 @@ export async function enabledPluginsForOrg(orgId: string): Promise<string[]> {
  */
 export async function pluginEnabled(orgId: string, slug: string): Promise<boolean> {
   return (await enabledPluginsForOrg(orgId)).includes(slug);
+}
+
+/**
+ * Whether the switch can write this workspace's manifest. On a deploy-managed
+ * box the workspace is a read-only mount of a git checkout (`EROFS` on
+ * 2026-09-18, agents.metacto.com), and the right door is the repo. Returns the
+ * reason a person can act on, or null when writable.
+ * @param workspaceDir - Workspace directory (relative to the repo root or absolute).
+ */
+export function workspaceWriteBlocker(workspaceDir: string): string | null {
+  const file = join(fromRepoRoot(workspaceDir), 'workspace.yaml');
+  try {
+    accessSync(file, constants.W_OK);
+    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return 'this project has no workspace.yaml on this host';
+    }
+    return 'the workspace on this host is read-only (deploy-managed) — add the plugin to `plugins:` in workspace.yaml in the workspace repo and deploy';
+  }
 }
 
 /**
@@ -97,6 +118,10 @@ export type PluginToggleResult = {
 export async function setPluginEnabled(opts: { orgId: string; workspaceDir: string; slug: string; enabled: boolean; appliedBy: string }): Promise<PluginToggleResult> {
   if (!listPluginSlugs().includes(opts.slug)) {
     throw new Error(`unknown plugin "${opts.slug}" — this core ships: ${listPluginSlugs().join(', ')}`);
+  }
+  const blocker = workspaceWriteBlocker(opts.workspaceDir);
+  if (blocker) {
+    throw new Error(`cannot change plugins here: ${blocker}`);
   }
   const dir = fromRepoRoot(opts.workspaceDir);
   const current = readAuthoredPlugins(dir);

@@ -6,7 +6,8 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { PluginToggle } from '@/features/dashboard/plugins/PluginToggle';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { enabledPluginsForOrg } from '@/services/PluginService';
+import { workspacePathForProject } from '@/routers/Workspace';
+import { enabledPluginsForOrg, workspaceWriteBlocker } from '@/services/PluginService';
 import { ORG_ROLE } from '@/types/Auth';
 
 /**
@@ -25,8 +26,11 @@ export default async function PluginsPage(props: { params: Promise<{ locale: str
   if (!orgId) {
     return notFound();
   }
-  const [plugins, enabled] = await Promise.all([Promise.resolve(listPlugins()), enabledPluginsForOrg(orgId)]);
+  const [plugins, enabled, dir] = await Promise.all([Promise.resolve(listPlugins()), enabledPluginsForOrg(orgId), workspacePathForProject(orgId)]);
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
+  // On a deploy-managed host the workspace is a read-only checkout: the switch
+  // shows the state and names the door (the repo) instead of failing on click.
+  const blocker = dir ? workspaceWriteBlocker(dir) : 'this project has no workspace directory on this host';
   const dependentsOf = (slug: string) => plugins.filter(p => p.manifest.depends.includes(slug)).map(p => p.manifest.slug);
 
   return (
@@ -56,7 +60,7 @@ export default async function PluginsPage(props: { params: Promise<{ locale: str
                       </>
                     )}
                     chip={<StatusPill status={on ? 'completed' : 'inactive'} label={on ? 'On' : 'Off'} size="sm" />}
-                    actions={<PluginToggle slug={p.manifest.slug} enabled={on} canToggle={isAdmin} dependents={dependentsOf(p.manifest.slug)} />}
+                    actions={<PluginToggle slug={p.manifest.slug} enabled={on} canToggle={isAdmin} blocker={blocker} dependents={dependentsOf(p.manifest.slug)} />}
                   />
                 );
               })}

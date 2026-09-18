@@ -45,11 +45,21 @@ export const pluginEnableAction: Action<typeof pluginEnableInput> = {
   grant: 'manage_workspace',
   external: false,
   dedupKeyFor: input => `plugin.enable:${input.slug}:${input.enabled ? 'on' : 'off'}`,
-  async precheck(_ctx, input) {
+  async precheck(ctx, input) {
     if (!listPluginSlugs().includes(input.slug)) {
       return `no plugin "${input.slug}" ships with this core; the catalogue is: ${listPluginSlugs().join(', ')}`;
     }
-    return undefined;
+    // Refuse before a card exists when the write cannot happen here — a
+    // deploy-managed box mounts the workspace read-only (EROFS, 2026-09-18),
+    // and a "Failed" card teaches nobody anything. The person gets the door.
+    const { workspacePathForProject } = await import('@/routers/Workspace');
+    const dir = await workspacePathForProject(ctx.orgId);
+    if (!dir) {
+      return 'this project has no workspace directory on this host, so plugins are changed in the workspace repo: add the slug to `plugins:` in workspace.yaml and deploy';
+    }
+    const { workspaceWriteBlocker } = await import('@/services/PluginService');
+    const blocker = workspaceWriteBlocker(dir);
+    return blocker ? `plugins cannot be changed from here: ${blocker}` : undefined;
   },
   async reviewCard(_ctx, input) {
     const plugin = loadPlugin(input.slug);
