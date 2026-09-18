@@ -24,7 +24,7 @@ import type { AgentSurfaceRequest } from '@/features/dashboard/chat/agentSurface
 import type { AgentOption, ChatMessageArtifact } from '@/features/dashboard/chat/types';
 import type { ArtifactPayload } from '@/services/agents/types';
 import type { PageContext } from '@/services/chat/pageContext';
-import { Minimize2, PanelRight, Quote, X } from 'lucide-react';
+import { Minimize2, PanelRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -33,8 +33,10 @@ import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
 import { MessageList } from '@/features/dashboard/chat/MessageList';
+import { QuotedPassage } from '@/features/dashboard/chat/QuotedPassage';
 import { useComposerTags } from '@/features/dashboard/chat/tagSearch';
 import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
+import { useChatCommands } from '@/features/dashboard/chat/useChatCommands';
 import { useChatSession } from '@/features/dashboard/chat/useChatSession';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { cn } from '@/utils/Helpers';
@@ -134,6 +136,8 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   // three surfaces get the tags, because one that only worked on two of them
   // would read as a bug.
   const tagProps = useComposerTags(props.agents, pageContext);
+  // `/new` from the artifact view is a different page: the fresh thread opens there.
+  const onCommand = useChatCommands(() => router.push('/dashboard/chat?new=1'));
 
   // Open THIS conversation (the hook boots on the last-viewed pointer).
   useEffect(() => {
@@ -151,8 +155,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     function onRequest(e: Event) {
-      e.preventDefault();
       const req = agentSurfaceRequestOf(e);
+      if (req.newChat) {
+        // A fresh thread is a different page from this one: let the caller navigate.
+        return;
+      }
+      e.preventDefault();
       if (req.prompt !== undefined || req.context) {
         setIntent(req);
         if (req.prompt !== undefined) {
@@ -256,16 +264,9 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
             {session.pendingHitl && (
               <HitlGate gate={session.pendingHitl} onApprove={session.handleApproveHitl} onReject={session.handleRejectHitl} disabled={session.isStreaming} />
             )}
-            {quoted && (
-              <div className="mb-1.5 flex items-start gap-2 rounded-xl border border-border bg-surface-soft px-2.5 py-1.5 text-xs text-foreground/85" data-quoted-passage role="status">
-                <Quote className="mt-0.5 size-3 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="line-clamp-2 min-w-0 flex-1 italic">{quoted}</span>
-                <button type="button" onClick={() => setIntent(null)} aria-label="Drop the quoted passage" className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground">
-                  <X className="size-3" />
-                </button>
-              </div>
-            )}
+            {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
             <ChatComposer
+              onCommand={onCommand}
               value={session.composerValue}
               onChange={session.setComposerValue}
               onSubmit={() => void session.sendMessage(session.composerValue)}

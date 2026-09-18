@@ -28,10 +28,10 @@ import { workspaceGreeting } from '@/services/chat/workspaceLabel';
  */
 export default async function ChatPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string }>;
+  searchParams: Promise<{ agent?: string; prompt?: string; conversation?: string; new?: string }>;
 }) {
   const { locale } = await props.params;
-  const { prompt: seededPrompt, conversation } = await props.searchParams;
+  const { prompt: seededPrompt, conversation, new: startNew } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
 
@@ -59,6 +59,9 @@ export default async function ChatPage(props: {
         suggestions={chips.map(c => ({ label: c.label, prompt: c.prompt }))}
         initialComposerValue={seededPrompt}
         conversationId={parseConversationParam(conversation)}
+        // `?new=1` — ⌘⇧O or the palette from a page with no chat surface: start
+        // a fresh thread instead of resuming this browser session's.
+        startNew={startNew === '1'}
       />
     </div>
   );

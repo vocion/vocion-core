@@ -2,6 +2,7 @@
 
 import type { PaletteEntity } from '@/features/dashboard/palette/paletteGroups';
 import { CommandPalette } from '@/features/dashboard/CommandPalette';
+import { ChatHotkeyListener } from './ChatHotkeyListener';
 
 /**
  * The keyboard entry point, mounted once by the shell. ⌘K (Ctrl+K) now opens
@@ -14,5 +15,11 @@ import { CommandPalette } from '@/features/dashboard/CommandPalette';
  * @param props.agents - The workspace's chat agents, already loaded for the dock.
  */
 export function AgentSurfaceHotkey({ isAdmin = false, agents = [] }: { isAdmin?: boolean; agents?: PaletteEntity[] }) {
-  return <CommandPalette isAdmin={isAdmin} agents={agents} />;
+  return (
+    <>
+      <CommandPalette isAdmin={isAdmin} agents={agents} />
+      {/* ⌘⇧O new chat · ⌘⇧L go to chat · ⌘⇧H all conversations (`chatHotkeys.ts`). */}
+      <ChatHotkeyListener />
+    </>
+  );
 }

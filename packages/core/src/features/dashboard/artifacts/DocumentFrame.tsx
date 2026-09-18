@@ -24,6 +24,7 @@ import type { RecordRef } from '@/services/chat/pageContext';
 import { ExternalLink, FileDown, MessageSquareText, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
+import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { verificationChip } from '@/libs/documents/audit';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
@@ -175,22 +176,16 @@ export function DocumentFrame(props: {
           data-document-iframe
         />
         {hit && (
-          <div
-            role="toolbar"
-            aria-label="Selected passage"
-            className="absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-md"
-            style={{ left: Math.max(60, Math.min(hit.x, hostWidth - 60)), top: Math.max(28, hit.y - 6) }}
-            data-document-selection-control
-          >
-            <button type="button" onClick={() => open('ask')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium hover:bg-muted">
-              <MessageSquareText className="size-3.5" aria-hidden />
-              Ask
-            </button>
-            <button type="button" onClick={() => open('change')} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium hover:bg-muted">
-              <Pencil className="size-3.5" aria-hidden />
-              Change
-            </button>
-          </div>
+          <SelectionToolbar
+            x={hit.x}
+            y={hit.y}
+            width={hostWidth}
+            actions={[
+              { label: 'Ask', icon: MessageSquareText, onClick: () => open('ask') },
+              { label: 'Change', icon: Pencil, onClick: () => open('change') },
+            ]}
+            testId="document"
+          />
         )}
       </div>
     </div>

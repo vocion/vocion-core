@@ -17,6 +17,8 @@ vi.mock('next/navigation', () => ({
 // The back link renders through the locale-aware Link; the tests only need an
 // anchor with the right href.
 vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
+  usePathname: () => '/dashboard',
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
 

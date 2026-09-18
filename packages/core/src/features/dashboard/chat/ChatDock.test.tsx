@@ -15,6 +15,9 @@ vi.mock('@/libs/Orpc', () => ({
 }));
 
 vi.mock('@/libs/I18nNavigation', () => ({
+  // The surfaces read the router for `/history`, `?new=1` and the preview's chat CTA — a stub is enough here.
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => '/dashboard/chat',
   // The dock's back-to-everything link — a plain anchor is enough for tests.
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
     <a href={href} {...rest}>{children}</a>

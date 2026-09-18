@@ -95,6 +95,18 @@ export async function latestBriefing(orgId: string, teamSlug: string | null): Pr
 }
 
 /**
+ * The newest brief in ANY scope — so a reader of a stale rollup can be told
+ * that a team published this morning. On 2026-09-18 the workspace lead read
+ * Thursday's rollup and called the day from the calendar while the revops
+ * team's Friday brief sat unread one scope over.
+ * @param orgId - Tenant.
+ */
+export async function newestBriefing(orgId: string): Promise<StoredBriefing | null> {
+  const [row] = await db.select(COLUMNS).from(briefingSchema).where(eq(briefingSchema.orgId, orgId)).orderBy(desc(briefingSchema.createdAt)).limit(1);
+  return row ? toStored(row) : null;
+}
+
+/**
  * The brief a new one computes its deltas against: the previous brief in the
  * SAME scope. Same scope matters — a workspace brief compared against a
  * team's would compute nonsense deltas on keys that mean different things.

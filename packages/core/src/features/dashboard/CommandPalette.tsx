@@ -1,7 +1,7 @@
 'use client';
 
 import type { PaletteConversation, PaletteEntity, PaletteRow } from '@/features/dashboard/palette/paletteGroups';
-import { BookOpen, Bot, Compass, Loader, LogOut, MessageSquare, Moon, Network, PanelLeft, PanelRight, Plus, Search, Sparkles, Sun } from 'lucide-react';
+import { BookOpen, Bot, Compass, Loader, LogOut, MessageSquare, MessagesSquare, Moon, Network, PanelLeft, PanelRight, Plus, Search, Sparkles, Sun } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { useTheme } from 'next-themes';
 import { usePathname, useRouter } from 'next/navigation';
@@ -141,9 +141,12 @@ export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boo
         ask(query.trim());
         return;
       case 'new-conversation':
-        // `?new=1` asks the chat surface for a fresh thread instead of the
-        // last-viewed one (the rail honours it; older cores ignore it).
-        go('/dashboard/chat?new=1');
+        // The ONE entry function (§6): a mounted surface starts over in place;
+        // none mounted, the chat page opens asking for a fresh thread.
+        close();
+        if (!requestAgentSurface({ newChat: true })) {
+          router.push('/dashboard/chat?new=1');
+        }
         return;
       case 'open-rail':
         close();
@@ -220,6 +223,7 @@ function RowIcon({ row }: { row: PaletteRow }) {
   switch (row.action) {
     case 'ask': return <Sparkles />;
     case 'new-conversation': return <Plus />;
+    case 'all-conversations': return <MessagesSquare />;
     case 'open-rail': return <PanelRight />;
     case 'toggle-sidebar': return <PanelLeft />;
     case 'toggle-theme': return row.label.includes('light') ? <Sun /> : <Moon />;

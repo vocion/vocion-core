@@ -8,6 +8,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Link } from '@/libs/I18nNavigation';
+import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink } from './links';
@@ -147,16 +148,16 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   // past is finished, and folds to its one line like Claude Code's tool blocks.
   const liveIndex = streaming ? liveWorkIndex(segments) : null;
 
-  // No avatar glyph — the transcript is text-first (Claude-app pattern).
-  // The small speaker label carries identity; with named humans and
-  // multiple agents sharing a surface, the NAME is the signal, not a
-  // decorative circle.
+  // A small brand mark carries the speaker (2026-09-18) — the uppercase name
+  // on every turn was the same two words a hundred times; the surface's
+  // header says it once. The name stays for a screen reader and on hover,
+  // and a routed turn is still attributed ("via …", §9.10).
   return (
     <div className="group flex">
       {/* Width comes from the column in MessageList, not a second cap here. */}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
-          <span>{agentName}</span>
+          <AgentMark name={agentName} />
           {via && (
             <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
           )}
