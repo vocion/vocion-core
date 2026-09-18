@@ -1,6 +1,7 @@
+import { Buffer } from 'node:buffer';
 import { afterAll, describe, expect, it } from 'vitest';
 import { evaluateDocument } from './audit';
-import { closeRenderer, renderAvailable, renderDocument } from './render';
+import { closeRenderer, countPdfPagesByStructure, renderAvailable, renderDocument } from './render';
 
 /**
  * Real Chromium. The framework's whole point is that the print CSS and the
@@ -53,6 +54,14 @@ describe.skipIf(!available.ok)('renderDocument (real Chromium)', () => {
     expect(Math.round(r.sheets[0]!.height)).toBe(1056);
     expect(r.pdfPages).toBe(3);
     expect(evaluateDocument({ sheets: r.sheets, pdfPages: r.pdfPages, unresolvedAssets: r.unresolvedAssets }).ok).toBe(true);
+  }, 60_000);
+
+  it('the page count is readable off the PDF structure without a parser', async () => {
+    const r = await renderDocument(doc(), { screenshots: false, pdf: true });
+
+    expect(r.pdf).toBeDefined();
+    expect(countPdfPagesByStructure(r.pdf!)).toBe(3);
+    expect(countPdfPagesByStructure(Buffer.from('%PDF-1.7 nothing here'))).toBeNull();
   }, 60_000);
 
   it('a pinned footer stays put while the body overflows, and the overflow is measured', async () => {

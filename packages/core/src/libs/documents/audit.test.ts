@@ -53,6 +53,12 @@ describe('footerBaseline', () => {
 });
 
 describe('verificationReceipt', () => {
+  it('says the PDF was printed when it was, even with no page count', () => {
+    const v = evaluateDocument({ sheets: [sheet(1, 984)], pdfPages: null, pdf: '/api/artifacts/x/y.pdf', unresolvedAssets: [] });
+
+    expect(verificationReceipt(v)).toContain('PDF printed · page count unavailable');
+  });
+
   it('is one summary line, then one line per issue, then the images when asked', () => {
     const v = evaluateDocument({ sheets: [{ ...sheet(1, 984), image: '/api/artifacts/x/1.png' }, sheet(2, 1000, 16)], pdfPages: 2, unresolvedAssets: [] });
     const text = verificationReceipt(v, { images: true });

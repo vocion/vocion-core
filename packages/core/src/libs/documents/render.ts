@@ -251,11 +251,34 @@ export async function countPdfPages(pdf: Buffer): Promise<number | null> {
     const parser = new PDFParse({ data: new Uint8Array(pdf) });
     try {
       const info = await parser.getInfo();
-      return typeof info.total === 'number' ? info.total : null;
+      if (typeof info.total === 'number') {
+        return info.total;
+      }
     } finally {
       await parser.destroy().catch(() => {});
     }
   } catch {
-    return null;
+    // pdf-parse (pdfjs) needs DOM globals the Alpine runtime lacks —
+    // "DOMMatrix is not defined" on agents.metacto.com, 2026-09-18 — so the
+    // count fell through to null and every receipt said the PDF was not
+    // printed when it was. Chromium writes plain page objects (no object
+    // streams), so the structure is countable without a parser.
   }
+  return countPdfPagesByStructure(pdf);
+}
+
+/**
+ * The page count read off the PDF's own structure: the root `/Pages` node's
+ * `/Count`, else the number of `/Type /Page` objects. Null when neither is
+ * visible (compressed object streams), never a guess.
+ * @param pdf - The PDF bytes.
+ */
+export function countPdfPagesByStructure(pdf: Buffer): number | null {
+  const text = pdf.toString('latin1');
+  const counts = [...text.matchAll(/\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)/g)].map(m => Number(m[1]));
+  if (counts.length > 0) {
+    return Math.max(...counts);
+  }
+  const pages = (text.match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+  return pages > 0 ? pages : null;
 }
