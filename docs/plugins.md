@@ -99,12 +99,12 @@ slug: wiki
 name: Wiki
 version: 1.0.0
 description: One line — what turning it on gives a person.
-depends: []            # other plugin slugs, loaded first
-surfaces: []           # core-registered surfaces to switch on (features/navigation/surfaces.ts)
+depends: [] # other plugin slugs, loaded first
+surfaces: [] # core-registered surfaces to switch on (features/navigation/surfaces.ts)
 recommend:
-  when:                # what the chat reads to suggest it
+  when: # what the chat reads to suggest it
     - a person repeats a standing fact or rule they have said before
-  connectors: []       # connector slugs it works better with
+  connectors: [] # connector slugs it works better with
 ```
 
 A plugin's slug must match its directory name. Everything else is the same

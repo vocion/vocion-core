@@ -8,7 +8,7 @@ import { PluginToggle } from '@/features/dashboard/plugins/PluginToggle';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
-import { listPluginSlugs, listPlugins, loadPlugin, pluginContents, readPluginReadme, readPluginTeams } from '@/libs/workspace/plugins';
+import { listPlugins, listPluginSlugs, loadPlugin, pluginContents, readPluginReadme, readPluginTeams } from '@/libs/workspace/plugins';
 import { enabledPluginsForOrg } from '@/services/PluginService';
 import { ORG_ROLE } from '@/types/Auth';
 

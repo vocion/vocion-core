@@ -141,7 +141,7 @@ and overrides any of its files by slug, exactly as it does with the base pack:
 
 ```yaml
 # workspace.yaml
-plugins: [wiki, data-rooms, proposals]   # dependencies come along; OMIT → none
+plugins: [wiki, data-rooms, proposals] # dependencies come along; OMIT → none
 ```
 
 Three ship today — `wiki`, `data-rooms`, `proposals` — and the **Plugins** page
