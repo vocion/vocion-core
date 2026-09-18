@@ -9,7 +9,8 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listPlugins, listPluginSlugs, loadPlugin, pluginContents, readPluginReadme, readPluginTeams } from '@/libs/workspace/plugins';
-import { enabledPluginsForOrg } from '@/services/PluginService';
+import { workspacePathForProject } from '@/routers/Workspace';
+import { enabledPluginsForOrg, workspaceWriteBlocker } from '@/services/PluginService';
 import { ORG_ROLE } from '@/types/Auth';
 
 /**
@@ -30,6 +31,8 @@ export default async function PluginDetailPage(props: { params: Promise<{ locale
   const teams = readPluginTeams(plugin);
   const readme = readPluginReadme(plugin);
   const enabled = await enabledPluginsForOrg(orgId);
+  const dir = await workspacePathForProject(orgId);
+  const blocker = dir ? workspaceWriteBlocker(dir) : 'this project has no workspace directory on this host';
   const on = enabled.includes(slug);
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   const dependents = listPlugins().filter(p => p.manifest.depends.includes(slug)).map(p => p.manifest.slug);
@@ -76,7 +79,7 @@ export default async function PluginDetailPage(props: { params: Promise<{ locale
           </div>
         )}
         description={plugin.manifest.description}
-        actions={<PluginToggle slug={slug} enabled={on} canToggle={isAdmin} dependents={dependents} />}
+        actions={<PluginToggle slug={slug} enabled={on} canToggle={isAdmin} blocker={blocker} dependents={dependents} />}
       />
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">

@@ -175,6 +175,18 @@ export const PluginManifestSchema = z.object({
   depends: z.array(SlugSchema).default([]),
   /** Core-registered surfaces (`features/navigation/surfaces.ts`) this plugin switches on. */
   surfaces: z.array(z.string()).default([]),
+  /**
+   * Where the plugin's rows sit in the sidebar — its pages, the core routes it
+   * owns (`DashboardRoute.plugin`) and its surfaces, all together. Default
+   * `Workspace`: beside Chat and Review, pinned by default. Name a section only
+   * when the plugin is part of a named app — `GTM` puts its rows under that
+   * heading with the app's other surfaces. A page's own `nav.section` still
+   * wins for that page when it names one.
+   */
+  nav: z.object({
+    section: z.string().min(1).default('Workspace'),
+    order: z.number().default(0),
+  }).default({ section: 'Workspace', order: 0 }),
   recommend: z.object({
     when: z.array(z.string().min(1)).default([]),
     connectors: z.array(z.string().min(1)).default([]),

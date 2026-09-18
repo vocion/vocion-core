@@ -75,6 +75,14 @@ Pages (`pages/*.yaml`) ride the same rule: an enabled plugin's pages join the
 sidebar, and a workspace page with the same slug replaces the plugin's. A
 plugin page's prose (`<slug>.md`) is read beside its YAML.
 
+**Where its rows sit** is decided once, in `plugin.yaml` `nav.section`
+(`features/navigation/pluginNav.ts`): the plugin's pages, the core routes it
+owns (`DashboardRoute.plugin`, e.g. Data rooms) and the surfaces it switches on
+all land in that section. The default is `Workspace` — beside Chat and Review,
+pinned by default. A plugin names a section only when it is part of a named
+app: `proposals` says `nav: {section: GTM}` and sits under GTM with the
+workspace's own Personalization and Discovery surfaces, one heading.
+
 ## Anatomy of a plugin
 
 ```
@@ -101,6 +109,7 @@ version: 1.0.0
 description: One line — what turning it on gives a person.
 depends: [] # other plugin slugs, loaded first
 surfaces: [] # core-registered surfaces to switch on (features/navigation/surfaces.ts)
+nav: {section: Workspace} # where ALL its rows sit — pages, owned routes, surfaces. Default Workspace; name an app (GTM) to join it
 recommend:
   when: # what the chat reads to suggest it
     - a person repeats a standing fact or rule they have said before

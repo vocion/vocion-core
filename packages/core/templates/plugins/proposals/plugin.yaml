@@ -13,6 +13,9 @@ version: 1.0.0
 description: The Proposal Writer, the house sheet framework, and the Proposals app — every engagement at Proposal stage with its latest document, its render-verify verdict and one Draft action.
 depends: [data-rooms]
 surfaces: [proposals]
+# Part of the GTM app: its rows sit under that heading with Personalization
+# and Discovery. data-rooms and wiki take the default, Workspace.
+nav: {section: GTM}
 recommend:
   when:
     - a person asks for a proposal, scope document, statement of work or partnership update for a client
