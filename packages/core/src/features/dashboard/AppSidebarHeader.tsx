@@ -1,10 +1,10 @@
 'use client';
 
-import { ArrowLeftRight, Bell, BookOpen, LogOut, Monitor, Moon, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
+import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Breadcrumb } from '@/features/dashboard/Breadcrumb';
 import { AgentSurfaceButton } from '@/features/dashboard/chat/AgentSurfaceButton';
 import { openCommandPalette } from '@/features/dashboard/commandPaletteEvent';
-import { FeedbackButton } from '@/features/dashboard/FeedbackButton';
+import { FeedbackDialog } from '@/features/dashboard/FeedbackButton';
 import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitch';
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { openManageView } from '@/features/dashboard/useNavView';
@@ -35,7 +35,8 @@ import { ShellBarActionsOutlet } from './ShellBarActions';
  * The dashboard top bar (ElevenLabs pattern, Chris 2026-09-15): breadcrumb
  * left, starting with the workspace name; a search-shaped "Search everything
  * ⌘K" field centred (opens the palette; a bare `F` does too); on the right
- * Feedback · Docs · Ask · a reserved notifications bell · the account avatar,
+ * Ask · a reserved notifications bell · the account avatar (Feedback and Docs
+ * moved off the bar on 2026-09-18 — into this menu and the Manage view),
  * which wears a thin ring showing this workspace's budget used when a budget
  * exists. The avatar menu leads with that spend and the current workspace
  * (⇄ opens the sidebar switcher), then theme, profile, members, sign out and
@@ -53,6 +54,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
   const t = useTranslations('ThemeSwitcher');
   const tl = useTranslations('DashboardLayout');
   const user = session?.user;
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const initials = user?.name
     ?.split(' ')
     .map(p => p[0])
@@ -103,18 +105,9 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
         {/* Page-owned controls (e.g. chat's New chat / Switch agent) land here. */}
         <ShellBarActionsOutlet />
 
-        <FeedbackButton />
-
-        <a
-          href="https://www.vocion.ai/docs"
-          target="_blank"
-          rel="noreferrer"
-          className="hidden h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground md:inline-flex"
-        >
-          <BookOpen className="size-4" aria-hidden />
-          {tl('docs')}
-        </a>
-
+        {/* Feedback and Docs left the bar on 2026-09-18 (Chris: "clean up this
+            main header"): Feedback is a row in the account menu below, Docs
+            is a row in the Manage workspace view of the sidebar. */}
         {/* The titlebar entry point — one function, whichever surface the
             page carries (agent-chat-surface.md §6). Amber sparkle only. */}
         <span className="[&_button]:text-brand-amber-deep [&_button:hover]:bg-surface-hover">
@@ -228,6 +221,10 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
                 Members
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
+              <MessageSquareText className="mr-2 size-4 text-muted-foreground" aria-hidden />
+              Send feedback
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut({ callbackUrl: '/sign-in' })}>
               <LogOut className="mr-2 size-4" />
@@ -263,6 +260,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
+        <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       </div>
     </header>
   );

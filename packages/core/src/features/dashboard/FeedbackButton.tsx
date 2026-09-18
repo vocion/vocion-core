@@ -14,8 +14,31 @@ type Status = 'idle' | 'sending' | 'sent' | 'error';
  * written on.
  */
 export function FeedbackButton() {
-  const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  return (
+    <FeedbackDialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        className="hidden h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground md:inline-flex"
+        aria-label="Send feedback"
+      >
+        <MessageSquareText className="size-4" aria-hidden />
+        Feedback
+      </DialogTrigger>
+    </FeedbackDialog>
+  );
+}
+
+/**
+ * The feedback dialog itself, controlled — so a menu item (the account menu,
+ * since 2026-09-18: the header lost its Feedback and Docs buttons) can open it
+ * without owning a trigger. `children` is an optional trigger.
+ * @param props
+ * @param props.open
+ * @param props.onOpenChange
+ * @param props.children - An optional `DialogTrigger`.
+ */
+export function FeedbackDialog({ open, onOpenChange, children }: { open: boolean; onOpenChange: (open: boolean) => void; children?: React.ReactNode }) {
+  const pathname = usePathname();
   const [text, setText] = useState('');
   const [status, setStatus] = useState<Status>('idle');
 
@@ -37,7 +60,7 @@ export function FeedbackButton() {
       setStatus('sent');
       setText('');
       setTimeout(() => {
-        setOpen(false);
+        onOpenChange(false);
         setStatus('idle');
       }, 900);
     } catch {
@@ -45,8 +68,8 @@ export function FeedbackButton() {
     }
   }
 
-  function onOpenChange(next: boolean) {
-    setOpen(next);
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
     if (!next) {
       setStatus('idle');
     }
@@ -55,15 +78,9 @@ export function FeedbackButton() {
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
     >
-      <DialogTrigger
-        className="hidden h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground md:inline-flex"
-        aria-label="Send feedback"
-      >
-        <MessageSquareText className="size-4" aria-hidden />
-        Feedback
-      </DialogTrigger>
+      {children}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Send feedback</DialogTitle>

@@ -10,7 +10,7 @@ import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, C
 import { useSidebar } from '@/components/ui/useSidebar';
 import { focusAgentComposer, requestAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { COMMAND_PALETTE_EVENT } from '@/features/dashboard/commandPaletteEvent';
-import { buildPaletteGroups } from '@/features/dashboard/palette/paletteGroups';
+import { buildPaletteGroups, paletteFilter } from '@/features/dashboard/palette/paletteGroups';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { client } from '@/libs/Orpc';
 
@@ -172,7 +172,7 @@ export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boo
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={o => (o ? setOpen(true) : close())} title="Search and commands" description="Jump to a page, an agent or a conversation, or ask Vocion.">
+    <CommandDialog open={open} onOpenChange={o => (o ? setOpen(true) : close())} title="Search and commands" description="Jump to a page, an agent or a conversation, or ask Vocion." commandProps={{ filter: paletteFilter }}>
       <CommandInput placeholder="Search, or ask Vocion anything…" value={query} onValueChange={setQuery} />
       <CommandList>
         <CommandEmpty>Nothing matches. Press Enter to ask Vocion instead.</CommandEmpty>
