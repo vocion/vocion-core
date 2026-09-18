@@ -81,6 +81,10 @@
       "description": "Endpoints under /api/v1/reviews."
     },
     {
+      "name": "rooms",
+      "description": "Endpoints under /api/v1/rooms."
+    },
+    {
       "name": "runs",
       "description": "Endpoints under /api/v1/runs."
     },
@@ -4210,6 +4214,54 @@
               "type": "string"
             }
           },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/rooms/{id}/export": {
+      "get": {
+        "operationId": "get_rooms_id_export",
+        "summary": "`GET /api/v1/rooms/:id/export` — the whole data room as one markdown file: the \"download context for an LLM\" bundle.",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The body is `text/markdown`, not JSON.",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`GET /api/v1/rooms/:id/export` — the whole data room as one markdown file:\nthe \"download context for an LLM\" bundle. Same text `read_data_room` hands\nthe agent, so what a person pastes into a chat is what the agent wrote from.\nA dashboard session or a `vcn_live_` token; the caller's org must own the room.",
+        "parameters": [
           {
             "name": "id",
             "in": "path",
