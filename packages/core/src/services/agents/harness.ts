@@ -109,7 +109,7 @@ export type HarnessModelConfig = {
  * @param harnessConfig - The agent's harness block, or an empty object.
  */
 export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
-  provider?: 'anthropic' | 'openai' | 'bedrock';
+  provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
 } {

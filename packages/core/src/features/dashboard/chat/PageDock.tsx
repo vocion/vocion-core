@@ -65,6 +65,9 @@ export const RECORD_ROUTES: RegExp[] = [
   /\/dashboard\/missions\/runs\/[^/]+$/,
   /\/dashboard\/missions\/(?!new$|runs(?:\/|$))[^/]+$/,
   /\/dashboard\/objects\/(?!type(?:\/|$))[^/]+$/,
+  // A data room is the record a person writes a document from; the rail opens
+  // beside it scoped to the room.
+  /\/dashboard\/rooms\/[^/]+$/,
   /\/dashboard\/agents\/[^/]+$/,
   /\/dashboard\/connectors\/[^/]+$/,
   /\/dashboard\/evals\/[^/]+\/runs\/[^/]+$/,

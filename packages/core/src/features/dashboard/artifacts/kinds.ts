@@ -1,5 +1,5 @@
 import type { ArtifactPayload } from '@/services/agents/types';
-import { BarChart3, FileText, IdCard, Link2, MailPlus, Paperclip, Table2 } from 'lucide-react';
+import { BarChart3, Files, FileText, IdCard, Link2, MailPlus, Paperclip, Table2 } from 'lucide-react';
 
 /** One noun and one glyph per artifact kind — the badge, the chip and the log all read from here. */
 export const ARTIFACT_KIND_LABEL: Record<ArtifactPayload['kind'], string> = {
@@ -10,6 +10,7 @@ export const ARTIFACT_KIND_LABEL: Record<ArtifactPayload['kind'], string> = {
   link: 'Link',
   file: 'File',
   sequence: 'Sequence',
+  document: 'Document',
 };
 
 export const ARTIFACT_KIND_ICON = {
@@ -20,6 +21,7 @@ export const ARTIFACT_KIND_ICON = {
   link: Link2,
   file: Paperclip,
   sequence: MailPlus,
+  document: Files,
 } satisfies Record<ArtifactPayload['kind'], typeof Table2>;
 
 /**

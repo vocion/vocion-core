@@ -680,6 +680,12 @@ export function useChatSession({
 
       case 'done':
         flushDeltas();
+        // `done` IS the terminal event (#421): the answer is complete even
+        // though the socket stays open for the ~3s it takes the route to
+        // persist the row. Release the send guard here, not at socket close —
+        // otherwise a message typed in that window is dropped in silence
+        // while the button still reads "Send message".
+        streamingRef.current = false;
         // Backfill `content` from the streamed text runs. Streaming only
         // accumulates into `runs`; `conversation_history` reads `content`
         // (and drops empty entries), so without this the agent never sees

@@ -90,7 +90,7 @@ export type RecommendedActionPayload = {
 export type ArtifactPayload = {
   id: number;
   conversationId: number | null;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
   title: string;
   spec: Record<string, unknown>;
   url?: string | null;

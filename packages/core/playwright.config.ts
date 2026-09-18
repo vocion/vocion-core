@@ -173,6 +173,24 @@ export default defineConfig<ChromaticConfig>({
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no `setup` project dependency.
     // Run with: npx playwright test --project=credentials
+    // The document loop by chat — draft, edit by chat, highlight → change,
+    // export — replayed against the scripted model with a screenshot per
+    // step. The server must run with the scripted model and the sample
+    // workspace: `npm run e2e:documents` sets both.
+    // Defined only when the server is the scripted model
+    // (`VOCION_LLM_PROVIDER=scripted`), so a plain `npx playwright test` — locally
+    // or in CI — never drives the chat at a stub key.
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
+      ? [
+          {
+            name: 'documents',
+            testDir: './e2e/documents',
+            timeout: projectTimeout(240 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 1000 } },
+          },
+        ]
+      : []),
     {
       name: 'credentials',
       testDir: './e2e/credentials',

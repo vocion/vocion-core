@@ -21,6 +21,7 @@ import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { resolveOrgProviderKey } from './orgKey';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
+import { buildScriptedChatModel } from './scripted';
 
 /**
  * Model roles. Add a new role here (not a new env var) when you need
@@ -67,10 +68,10 @@ export function anthropicAdaptiveThinking(model: string): boolean {
   return /claude-(?:sonnet-4-6|opus-4-[678]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
 }
 
-export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
+export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock' | 'scripted';
 
 /** Every value `VOCION_LLM_PROVIDER` may be set to, for validation + error text. */
-const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock'];
+const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock', 'scripted'];
 
 /** Defaults if the per-role / per-provider env vars are not set. */
 const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
@@ -118,6 +119,13 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     embedder: 'amazon.titan-embed-text-v1',
     skillTurn: 'us.anthropic.claude-sonnet-4-6',
     extractor: 'us.anthropic.claude-sonnet-4-6',
+  },
+  scripted: {
+    main: 'scripted',
+    classifier: 'scripted',
+    embedder: 'scripted',
+    skillTurn: 'scripted',
+    extractor: 'scripted',
   },
 };
 
@@ -285,6 +293,11 @@ export function buildChatModel(
   opts: BuildChatModelOptions = {},
 ): BaseChatModel {
   const provider = opts.provider ?? resolveProvider(role);
+  if (provider === 'scripted') {
+    // A written part, for reproducible chat use cases (`./scripted.ts`).
+    // No key, no network, no replay cache: the script IS the recording.
+    return buildScriptedChatModel();
+  }
   const model = opts.model ?? resolveModel(role, provider);
   const temperature = opts.temperature ?? 0;
   // Record/replay (demo sandbox): the LangChain cache only intercepts
@@ -407,6 +420,9 @@ export async function buildChatModelForOrg(
     return buildChatModel(role, opts);
   }
   const provider = opts.provider ?? resolveProvider(role);
+  if (provider === 'scripted') {
+    return buildChatModel(role, { ...opts, provider });
+  }
   if (provider === 'bedrock') {
     // Bedrock resolves a pair, not a key, so it cannot go through
     // `resolveOrgProviderKey` — that helper returns a single string and for the

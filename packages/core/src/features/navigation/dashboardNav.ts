@@ -11,6 +11,7 @@ import {
   Database,
   FileCode2,
   FileStack,
+  FolderOpen,
   GitBranch,
   Inbox,
   LineChart,
@@ -122,6 +123,11 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
   { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database, i18nKey: 'objects' },
+  // One room per client engagement — the source of record the documents are
+  // written from: status, cast, sources by weight, open items as asks. Under
+  // Knowledge beside Objects (a room IS a record); the WORK view keeps its
+  // five doors, and the rooms are one ⌘K away.
+  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Knowledge', icon: FolderOpen, keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
   { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },
 

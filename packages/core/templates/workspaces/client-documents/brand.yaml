@@ -1,0 +1,59 @@
+# The seller's brand guide — read by `get_brand` before any client-facing
+# document is written. Palette canonical in the company's own brand doc; keep
+# the hexes in sync there and here. Seed a new workspace's file with
+# `brand_lookup` on the company's site, then correct it by hand.
+name: Metacto
+descriptor: We build AI and agent systems, custom to how a company already works.
+website: https://metacto.com
+palette:
+  orange: '#F18700'
+  dark-teal: '#1F353F'
+  cream: '#FBFAF6'
+  teal: '#1C6D69'
+  seafoam: '#65AC98'
+  charcoal: '#373737'
+  light-gray: '#DADADA'
+  yellow: '#FCBE45'
+  blue: '#43A5C2'
+  sage: '#EAF2EE'
+roles:
+  ink: dark-teal
+  body: charcoal
+  accent: orange
+  teal: teal
+  background: cream
+  rule: light-gray
+fonts:
+  heading: Barlow
+  headingWeight: 800
+  body: Inter
+  stylesheet: https://fonts.googleapis.com/css2?family=Barlow:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap
+logos:
+  mark: brand/metacto-mark.svg
+  wordmark: brand/metacto-mark.svg
+voice:
+  - Metacto takes a capital M in prose. Never the old all-caps casing.
+  - Plain, understated, conversational-professional. Helpful first, expert not salesman.
+  - Contractions everywhere. Not stuffy; clear and plainspoken.
+  - No em-dashes in prose. Split the sentence, or a colon after a bold label.
+  - No antithesis constructions ("not X, but Y"). State the point flat.
+  - No aphorisms, alliterative labels or cute flourishes. Keep the substance, drop the packaging.
+  - No consultant jargon for the client's world. "the systems you run today", never "your estate".
+  - Never promise a business outcome. Commit capabilities; baseline at kickoff and measure together.
+  - Name sources; never "studies show".
+  - Confirmation asks stay short and positive. Assume the yes; cut any line that invites a no.
+  - Say a qualifier once. Do not grade the client's plan.
+  - 'Write "the <client> team", never "<person>''s team". Staffing is capabilities, never headcount.'
+  - Numerals, not spelled-out numbers.
+  - Say plainly what the system will not do. The agent flags; the client's team decides.
+banned:
+  - before anything moves
+  - tell me plainly
+  - moving the needle
+  - I hope this email finds you well
+  - touch base
+  - per our last conversation
+  - synergy
+  - please let me know if you have any questions
+  - no pressure either way
+  - say so and I'll leave it there

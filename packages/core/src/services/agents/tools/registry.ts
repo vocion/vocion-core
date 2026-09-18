@@ -28,13 +28,16 @@ import { calendarTools } from './calendarEvents';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
+import { dataRoomTools } from './dataRooms';
 import { discoveryTools } from './discovery';
+import { documentTools } from './documents';
 import { editArtifactTools } from './editArtifacts';
 import { fetchUrlTool } from './fetchUrl';
 import { fileFeedbackTool } from './fileFeedback';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
+import { getBrandTool } from './getBrand';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
@@ -116,6 +119,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // every agent that writes TO a company, so it ships on by default and
     // reports plainly when no Firecrawl key is configured.
     brandLookupTool(ctx),
+    // The workspace's own brand guide (brand.yaml) — palette, logos, voice —
+    // the shape a client-facing document needs. Read-only; on for every agent.
+    getBrandTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     runCodeTool(ctx),
@@ -142,6 +148,14 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // on for every agent.
     ...renderArtifactTools(ctx),
     ...editArtifactTools(ctx),
+    // Documents: paginated, print-ready HTML with the render-verify loop built
+    // in (render_document / read_document / edit_document / verify_document /
+    // export_document_pdf). Same rule as render_*: no side effect outside the
+    // conversation, so on for every agent.
+    ...documentTools(ctx),
+    // Data rooms: the source of record per engagement. Reads and filing are
+    // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
+    ...dataRoomTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

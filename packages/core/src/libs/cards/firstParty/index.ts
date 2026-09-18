@@ -11,6 +11,7 @@
 import { registerCard } from '../registry';
 import { chartCard } from './chart';
 import { dataTableCard } from './dataTable';
+import { documentCard } from './document';
 import { jsonDumpCard } from './jsonDump';
 import { keyValueCard } from './keyValue';
 import { linkCard } from './link';
@@ -42,6 +43,9 @@ export function registerFirstPartyCards(): void {
   // The typed draft sequence (0112) — the personalization lead page's third
   // artifact, previewed here and edited where its decision is.
   registerCard(sequenceCard);
+  // The paginated document (render_document) — rendered the way it prints,
+  // with its render-verify verdict.
+  registerCard(documentCard);
   registered = true;
 }
 
