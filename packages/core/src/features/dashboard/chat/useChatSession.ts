@@ -161,6 +161,15 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
   return { messages, documents };
 }
 
+/** The browser's IANA zone, or undefined where Intl cannot say (the server then uses the workspace's). */
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type UseChatSessionOptions = {
   /** Agents available to pick from. The caller guarantees at least one entry. */
   agents: AgentOption[];
@@ -1137,6 +1146,8 @@ export function useChatSession({
           // R4: page context travels on every surface; a scoped dock also sends
           // its scope so the server folds it in as a ref (mergeScopeRef).
           ...(pageContextRef.current ? { page_context: pageContextRef.current } : {}),
+          // The person's zone: the server judges "today" in it for this turn.
+          time_zone: browserTimeZone(),
           ...(scopeRef ? { scope_ref: scopeRef } : {}),
           ...(recordRefs.length > 0 ? { context_refs: recordRefs } : {}),
           // The files, by artifact id — the server resolves them under this

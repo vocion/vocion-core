@@ -290,6 +290,14 @@ export type RuntimeContext = {
    * `bindRequestEmit`; undefined for schedules, MCP and API callers.
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
+  /**
+   * The zone THIS turn's dates are judged in: the person's browser zone when
+   * a turn carries one, else the workspace's (`defaultTimeZone`). Set per
+   * request in `bindRequestEmit`; the tools read it at call time.
+   */
+  timeZone?: string;
+  /** The workspace's zone (`project.time_zone`), resolved once at graph build. */
+  defaultTimeZone?: string;
   /** Which harness runs the loop — stamped on tool_call rows. */
   provider?: 'local' | 'agentcore' | 'runtime';
   /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */

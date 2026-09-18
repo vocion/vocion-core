@@ -11,6 +11,7 @@
 import type { PageContext } from '@/services/chat/pageContext';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { formatDateTime } from '@/libs/time/zone';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { enqueue } from '@/services/FeedbackWorkerService';
@@ -253,24 +254,48 @@ export async function appendMessage(opts: {
   return msg!;
 }
 
+/** A person's turn is re-stamped with its time after this long a silence. */
+const HISTORY_STAMP_GAP_MS = 6 * 60 * 60 * 1000;
+
 /**
  * Render persisted messages as the {role, content} list the agent
  * expects in its history. Tool runs are intentionally dropped —
  * they're UI ornaments only. (See rev-ai's to_history_turns.)
- * @param messages
+ * @param messages - Persisted rows, oldest first; `createdAt` enables the sent-time stamp.
+ * @param opts - Options.
+ * @param opts.timeZone - The person's zone for the stamps; absent, no stamps.
  */
 export function toHistoryTurns(messages: Array<{
   role: string;
   content: string;
-}>): Array<{ role: 'user' | 'assistant'; content: string }> {
+  createdAt?: Date | string | null;
+}>, opts: { timeZone?: string } = {}): Array<{ role: 'user' | 'assistant'; content: string }> {
   const out: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  // When a zone is given, a person's turn is stamped with when it was sent —
+  // the first one always, later ones after a gap of six hours or more — so
+  // the model can tell yesterday's question from one asked a minute ago.
+  // History used to reach the model as bare role and content (2026-09-18).
+  let previous: Date | null = null;
   for (const m of messages) {
     if (!m.content.trim()) {
       continue;
     }
-    if (m.role === 'user' || m.role === 'assistant') {
-      out.push({ role: m.role, content: m.content });
+    if (m.role !== 'user' && m.role !== 'assistant') {
+      continue;
     }
+    let content = m.content;
+    const at = m.createdAt ? new Date(m.createdAt) : null;
+    const dated = at !== null && !Number.isNaN(at.getTime());
+    if (m.role === 'user' && dated && opts.timeZone) {
+      const gapMs = previous ? at.getTime() - previous.getTime() : Number.POSITIVE_INFINITY;
+      if (gapMs >= HISTORY_STAMP_GAP_MS) {
+        content = `[sent ${formatDateTime(at, opts.timeZone)}] ${content}`;
+      }
+    }
+    if (dated) {
+      previous = at;
+    }
+    out.push({ role: m.role, content });
   }
   return out;
 }

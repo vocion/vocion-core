@@ -8,6 +8,7 @@ import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { tokenCostCents } from '@/libs/pricing';
+import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
@@ -362,6 +363,8 @@ export async function runAgentDeep(opts: {
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
+  /** The person's IANA time zone for this turn (from the browser); the workspace's when absent. */
+  timeZone?: string;
   /**
    * What this turn OWES (`libs/chat/deliverable.ts`). `artifact` means the
    * turn must end with an artifact beside the conversation; if the loop does
@@ -496,7 +499,7 @@ export async function runAgentDeep(opts: {
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext, opts.timeZone);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
@@ -570,7 +573,10 @@ export async function runAgentDeep(opts: {
   // With attachments the user turn is content blocks — the message and each
   // document's text, then the images; without, the plain string it always was.
   const { composeUserContent } = await import('./chat/attachments');
-  const userContent = await composeUserContent(opts.message, opts.attachments ?? []);
+  // NOW rides on the turn, not in the (cached) system prompt — see the CLOCK
+  // note in `harness.ts`. The person's zone, UTC beside it, the day named.
+  const clock = clockLine(new Date(), boundCtx.timeZone ?? DEFAULT_TIME_ZONE);
+  const userContent = await composeUserContent(`${clock}\n\n${opts.message}`, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,

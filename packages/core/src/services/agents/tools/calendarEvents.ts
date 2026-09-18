@@ -29,6 +29,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { resolveGoogleAccessToken } from '@/libs/sources/googleAuth';
+import { dayKey, DEFAULT_TIME_ZONE, formatDate, formatDateTime, startOfDay } from '@/libs/time/zone';
 import { firstCredentialed, sourcesForConnector } from './zoomTranscript';
 
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -82,14 +83,18 @@ export function relativeTime(at: Date, now: Date): string {
  * One event as a line the model can quote without re-deriving anything.
  * @param ev
  * @param now
+ * @param tz
  */
-function renderEvent(ev: CalEvent, now: Date): string {
+function renderEvent(ev: CalEvent, now: Date, tz: string): string {
   const at = startsAt(ev);
   const allDay = !ev.start?.dateTime && Boolean(ev.start?.date);
+  // The person's zone, named — the model used to get a bare UTC instant and
+  // relabel it in whatever zone it assumed (2026-09-18: "2:30pm ET" for an
+  // 11:30am Pacific session).
   const when = allDay
     ? `${ev.start?.date} (all day)`
     : at
-      ? `${at.toISOString()} · ${relativeTime(at, now)}`
+      ? `${formatDateTime(at, tz)} · ${relativeTime(at, now)}`
       : '(no start time)';
   const who = (ev.attendees ?? [])
     .map(a => a.displayName ?? a.email)
@@ -109,13 +114,14 @@ function renderEvent(ev: CalEvent, now: Date): string {
  * @param events - Events from the API, any order.
  * @param now - Reference instant.
  * @param windowLabel - Human description of the window that was queried.
+ * @param tz
  */
-export function renderCalendar(events: CalEvent[], now: Date, windowLabel: string): string {
+export function renderCalendar(events: CalEvent[], now: Date, windowLabel: string, tz: string = DEFAULT_TIME_ZONE): string {
   const live = events.filter(e => e.status !== 'cancelled');
   if (live.length === 0) {
     // A real answer. The failure this tool exists to prevent is an invented
     // schedule, and "nothing is on it" must be sayable.
-    return `NOW: ${now.toISOString()} (UTC).\nNothing on the calendar for ${windowLabel}. Say exactly that — do not fill the gap from a briefing, a transcript, or memory.`;
+    return `NOW: ${formatDateTime(now, tz)} (${tz}) · ${now.toISOString()} UTC.\nNothing on the calendar for ${windowLabel}. Say exactly that — do not fill the gap from a briefing, a transcript, or memory.`;
   }
 
   const sorted = [...live].sort((a, b) => (startsAt(a)?.getTime() ?? 0) - (startsAt(b)?.getTime() ?? 0));
@@ -128,15 +134,15 @@ export function renderCalendar(events: CalEvent[], now: Date, windowLabel: strin
     return at !== null && at.getTime() < now.getTime();
   });
 
-  const out = [`NOW: ${now.toISOString()} (UTC). Calendar for ${windowLabel}, read live just now.`];
+  const out = [`NOW: ${formatDateTime(now, tz)} (${tz}) · ${now.toISOString()} UTC. Calendar for ${windowLabel}, read live just now.`];
   out.push('', ahead.length > 0 ? `STILL AHEAD (${ahead.length}):` : 'STILL AHEAD: nothing left today.');
   for (const e of ahead) {
-    out.push(renderEvent(e, now));
+    out.push(renderEvent(e, now, tz));
   }
   if (past.length > 0) {
     out.push('', `ALREADY HAPPENED (${past.length}) — past tense only, never present these as upcoming:`);
     for (const e of past) {
-      out.push(renderEvent(e, now));
+      out.push(renderEvent(e, now, tz));
     }
   }
   out.push(
@@ -147,15 +153,19 @@ export function renderCalendar(events: CalEvent[], now: Date, windowLabel: strin
 }
 
 /**
- * Midnight-to-midnight around a day, in UTC, as the API wants it.
+ * Midnight-to-midnight around a day in the person's zone, as UTC instants for the API.
  * @param day
  * @param now
+ * @param tz
  */
-function dayWindow(day: string | undefined, now: Date): { timeMin: string; timeMax: string; label: string } {
-  const base = day ? new Date(`${day}T00:00:00Z`) : now;
-  const start = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
-  const end = new Date(start.getTime() + 86_400_000);
-  const label = day || `today (${start.toISOString().slice(0, 10)})`;
+function dayWindow(day: string | undefined, now: Date, tz: string): { timeMin: string; timeMax: string; label: string } {
+  const key = day ?? dayKey(now, tz);
+  const start = startOfDay(key, tz);
+  // The next local midnight, so a DST day is still one whole day.
+  const [y, m, d] = key.split('-').map(n => Number.parseInt(n, 10)) as [number, number, number];
+  const nextKey = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  const end = startOfDay(nextKey, tz);
+  const label = day ? `${formatDate(start, tz)} (${tz})` : `today, ${formatDate(start, tz)} (${tz})`;
   return { timeMin: start.toISOString(), timeMax: end.toISOString(), label };
 }
 
@@ -181,7 +191,8 @@ export function calendarTools(ctx: RuntimeContext) {
       }
 
       const now = new Date();
-      const { timeMin, timeMax, label } = dayWindow(day, now);
+      const tz = ctx.timeZone ?? DEFAULT_TIME_ZONE;
+      const { timeMin, timeMax, label } = dayWindow(day, now, tz);
       const span = Math.min(Math.max(days_ahead ?? 0, 0), 14);
       const end = new Date(new Date(timeMax).getTime() + span * 86_400_000).toISOString();
       const windowLabel = span > 0 ? `${label} and the next ${span} day(s)` : label;
@@ -202,7 +213,7 @@ export function calendarTools(ctx: RuntimeContext) {
           return `Calendar read failed (${res.status}). Say the calendar could not be read; do not substitute a schedule from another document.`;
         }
         const list = (await res.json()) as { items?: CalEvent[] };
-        return renderCalendar(list.items ?? [], now, windowLabel);
+        return renderCalendar(list.items ?? [], now, windowLabel, tz);
       } catch (err) {
         return `Calendar read failed: ${(err as Error).message ?? 'unknown'}. Say the calendar could not be read; do not substitute a schedule from another document.`;
       }

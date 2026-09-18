@@ -53,6 +53,11 @@ export async function POST(request: Request): Promise<Response> {
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
+  // The person's zone, from the browser — the day boundary for this turn's
+  // dates. Invalid or missing falls back to the workspace's.
+  const { isValidTimeZone } = await import('@/libs/time/zone');
+  const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
+  const timeZone: string = isValidTimeZone(body.time_zone) ? body.time_zone : await workspaceTimeZone(orgId);
   // `@` tags (§9.10): besides routing the turn's `agent_slug`, the tagged
   // records reach the model as a note under the message.
   const contextRefs = readContextRefs(body.context_refs);
@@ -153,7 +158,9 @@ export async function POST(request: Request): Promise<Response> {
     ]);
     // A past message that carried files says so in the replay — the names,
     // not the contents — so the agent asks rather than guesses.
-    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })));
+    // Stamped with when each turn was sent, so the model can tell yesterday's
+    // question from one asked a minute ago (`toHistoryTurns`).
+    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
     const userMsg = await appendMessage({
       orgId,
       conversationId,
@@ -248,6 +255,7 @@ export async function POST(request: Request): Promise<Response> {
           conversationId: conversationId ?? undefined,
           conversationHistory,
           pageContext: pageContext ?? undefined,
+          timeZone,
           ...(deliverable ? { deliverable } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
           onEvent: sendEvent,

@@ -1,3 +1,5 @@
+import { DEFAULT_TIME_ZONE, formatDate } from '@/libs/time/zone';
+
 /**
  * The date on a briefing's title is stamped by code, not written by the model.
  *
@@ -27,17 +29,15 @@ const TRAILING_DATE
  * the publisher.
  * @param modelTitle - Whatever the model supplied.
  * @param now - When it is being published. Injectable so tests do not depend on the clock.
+ * @param timeZone
  * @returns e.g. `Revenue Briefing — Thu, Sep 17, 2026`.
  */
-export function briefingTitle(modelTitle: string, now: Date = new Date()): string {
+export function briefingTitle(modelTitle: string, now: Date = new Date(), timeZone: string = DEFAULT_TIME_ZONE): string {
   // Strip any date the model wrote. Whatever it says, it is a guess, and a
   // guess that disagrees with the row's own `created_at` is worse than none.
   const name = modelTitle.replace(TRAILING_DATE, '').trim().replace(/[\s—–\-,:]+$/, '').trim();
-  const stamped = now.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  // The workspace's day, not the server's: a brief published at 5:30pm
+  // Pacific used to be titled for tomorrow.
+  const stamped = formatDate(now, timeZone);
   return `${name || 'Briefing'} — ${stamped}`;
 }
