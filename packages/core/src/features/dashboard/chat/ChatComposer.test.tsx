@@ -292,10 +292,15 @@ const TAG_SEARCH = async (q: string) =>
   [ARTIFACT_TAG_REF, PAGE_TAG_REF].filter(r => r.label.toLowerCase().includes(q.toLowerCase()));
 
 describe('ChatComposer @artifact and the (+) menu', () => {
-  it('has no (+) unless the surface offers something, so a bare composer is unchanged', async () => {
+  it('always has the (+): a bare composer offers only the shortcut reference from it', async () => {
     await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
 
-    expect(page.getByTestId('composer-attach').elements()).toHaveLength(0);
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    const options = page.getByRole('option');
+
+    expect(options.elements()).toHaveLength(1);
+    await expect.element(options.first()).toHaveTextContent('Shortcuts');
   });
 
   it('lists what can be pulled into the turn, with the tag each one types', async () => {
@@ -459,11 +464,15 @@ describe('attachments — files in the next turn', () => {
     await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
-  it('the paperclip opens a file picker and hands the files over', async () => {
+  it('the (+) menu offers the file picker and hands the files over', async () => {
     const onAttachFiles = vi.fn();
     await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={onAttachFiles} />);
 
-    await expect.element(page.getByRole('button', { name: 'Attach a file' })).toBeInTheDocument();
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    await expect.element(page.getByRole('option', { name: /Attach a file/ })).toBeVisible();
+
+    await userEvent.keyboard('{Escape}');
 
     const input = page.getByTestId('composer-file-input');
     await input.upload(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
@@ -481,6 +490,8 @@ describe('attachments — files in the next turn', () => {
   it('has no paperclip when the surface cannot take files', async () => {
     await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
 
-    expect(page.getByRole('button', { name: 'Attach a file' }).elements()).toHaveLength(0);
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    expect(page.getByRole('option', { name: /Attach a file/ }).elements()).toHaveLength(0);
   });
 });

@@ -1,10 +1,10 @@
 'use client';
 
-import type { ComposerMenuItem, ComposerMenuMode } from './composerMenu';
+import type { ComposerMenuItem, ComposerMenuMode, ComposerMenuSetting } from './composerMenu';
 import type { QueuedMessage } from './queueReducer';
 import type { SlashCommand, SlashCommandAction } from './slashCommands';
 import type { ChatAttachment, ContextRef } from './types';
-import { ArrowUp, CircleHelp, CornerDownLeft, FileText, Loader2, Paperclip, Plus, Square, X } from 'lucide-react';
+import { ArrowUp, CornerDownLeft, FileText, Loader2, Plus, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
 import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
@@ -85,6 +85,10 @@ export type ChatComposerProps = {
   commandHint?: string;
   /** Runs a slash command the surface owns (`/new`, `/history`); absent, a slash is text. */
   onCommand?: (action: SlashCommandAction) => void;
+  /** Per-thread settings the (+) menu offers as radio rows — the autonomy rung. */
+  settings?: ComposerMenuSetting[];
+  /** A setting row was picked. */
+  onSetting?: (settingId: string, optionId: string) => void;
   /** Messages typed during this turn, waiting for it to land. Oldest first. */
   queued?: QueuedMessage[];
   /** Enter while streaming — append to the queue rather than send. */
@@ -180,7 +184,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team, mission or the page'],
-  ['Drop · paste · 📎', 'Attach an image, PDF or text file'],
+  ['(+) · drop · paste', 'Attach an image, PDF or text file'],
   ['@artifact', 'This turn ends in a document'],
   ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
@@ -189,7 +193,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['⌘ ⇧ L', 'Go to chat'],
   ['⌘ ⇧ H', 'All conversations'],
   ['⌘ J', 'Open or collapse the conversation'],
-  ['?', 'These shortcuts'],
+  ['? · /help · (+)', 'These shortcuts'],
 ];
 
 /**
@@ -233,6 +237,8 @@ export function ChatComposer({
   tagSearch,
   commandHint,
   onCommand,
+  settings = [],
+  onSetting,
   queued = [],
   onQueue,
   onDropQueued,
@@ -300,9 +306,10 @@ export function ChatComposer({
         attachable,
         canAttachFiles: canAttach,
         commandsEnabled: Boolean(onCommand),
+        settings,
         tagHint,
         shortcuts: SHORTCUTS,
-        words: { commands: 'Commands', tag: 'Tag', attach: words.attach, attachFile: 'Attach a file', attachFileHint: 'Image, PDF or text', shortcuts: 'Shortcuts' },
+        words: { commands: 'Commands', tag: 'Tag', attach: words.attach, attachFile: 'Attach a file', attachFileHint: 'Image, PDF or text', shortcuts: 'Shortcuts', shortcutsHint: 'Keys and commands', more: 'More' },
       })
     : [];
   const menuItems = selectableItems(sections);
@@ -431,6 +438,16 @@ export function ChatComposer({
     if (item.kind === 'file') {
       setPanel(null);
       fileInputRef.current?.click();
+      return;
+    }
+    if (item.kind === 'help') {
+      setPanel('help');
+      return;
+    }
+    if (item.kind === 'setting') {
+      setPanel(null);
+      onSetting?.(item.settingId, item.optionId);
+      textareaRef.current?.focus();
       return;
     }
     if (item.kind !== 'tag') {
@@ -703,14 +720,14 @@ export function ChatComposer({
           // plus a soft ground shift. No halo, no thickened border.
           className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint"
         >
-          {/* 📎 — the pointer path to a file; drop and paste are the others. */}
+          {/* The file input behind the (+) menu's "Attach a file" row; drop and paste are the other paths. */}
           {canAttach && (
             <>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                // Out of the accessibility tree: the paperclip is the control, and
+                // Out of the accessibility tree: the (+) menu row is the control, and
                 // a role query for the composer's textbox must find one element.
                 aria-hidden
                 tabIndex={-1}
@@ -722,15 +739,6 @@ export function ChatComposer({
                   e.target.value = '';
                 }}
               />
-              <button
-                type="button"
-                data-testid="composer-attach-file"
-                aria-label="Attach a file"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground"
-              >
-                <Paperclip className="size-4" aria-hidden />
-              </button>
             </>
           )}
           {/*
@@ -740,18 +748,19 @@ export function ChatComposer({
                 * typing `@`. Same 32px round target and muted tone as the help
                 * mark on the other end of the box.
                 */}
-          {(attachable.length > 0 || canAttach || onCommand) && (
-            <button
-              type="button"
-              data-testid="composer-attach"
-              aria-label={words.attach}
-              aria-expanded={panel === 'plus'}
-              onClick={() => setPanel(p => (p === 'plus' ? null : 'plus'))}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground"
-            >
-              <Plus className="size-4" aria-hidden />
-            </button>
-          )}
+          {/* (+) — the one menu: add to the turn, the thread's settings,
+              commands, the shortcut reference (Chris, 2026-09-18: "just a (+)
+              left with menu, and a little gauge icon survives on the bar"). */}
+          <button
+            type="button"
+            data-testid="composer-attach"
+            aria-label={words.attach}
+            aria-expanded={panel === 'plus'}
+            onClick={() => setPanel(p => (p === 'plus' ? null : 'plus'))}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground"
+          >
+            <Plus className="size-4" aria-hidden />
+          </button>
           {controls}
           <textarea
             ref={textareaRef}
@@ -775,17 +784,6 @@ export function ChatComposer({
             className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
             style={{ minHeight: 24, maxHeight: 220 }}
           />
-          {(tagSearch || onCommand) && (
-            <button
-              type="button"
-              aria-label="Shortcuts"
-              aria-expanded={panel === 'help'}
-              onClick={() => setPanel(p => (p === 'help' ? null : 'help'))}
-              className="hidden size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground sm:flex"
-            >
-              <CircleHelp className="size-4" aria-hidden />
-            </button>
-          )}
           {/*
                 * One primary action, still (#345). While streaming with an
                 * empty box it is Stop; the moment there is something to say it

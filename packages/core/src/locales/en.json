@@ -209,6 +209,7 @@
     "feedback_save": "Send",
     "feedback_saved": "Thanks — the team reads this on its next cycle.",
     "autonomy": "Autonomy",
+    "autonomy_thread": "This thread",
     "conversations": "Conversations",
     "chat_options": "Chat options",
     "queue_placeholder": "Queue a message… ⌘⏎ to send now",

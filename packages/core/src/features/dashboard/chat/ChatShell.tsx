@@ -12,7 +12,7 @@ import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
-import { AutonomyControl } from './AutonomyControl';
+import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
 import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
@@ -329,12 +329,14 @@ function ChatShellInner({
             onCommand={onCommand}
             // The thread's settings, in the bar: its rung (done for you / ask
             // first) and its model — one cluster, every surface (2026-09-18).
-            controls={(
-              <>
-                <AutonomyControl value={session.autonomy} onChange={session.setAutonomy} copy={autonomyCopy} label={t('autonomy')} />
-                <ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />
-              </>
-            )}
+            controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+            settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, t('autonomy_thread'))]}
+            onSetting={(id, opt) => {
+              const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
+              if (rung) {
+                session.setAutonomy(rung);
+              }
+            }}
             value={session.composerValue}
             onChange={session.setComposerValue}
             onSubmit={() => void session.sendMessage(session.composerValue)}
