@@ -12,6 +12,7 @@ import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
+import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
@@ -98,9 +99,13 @@ const AUTONOMY_KEY = 'vocion:chat:autonomy';
 
 function readPreferredAutonomy(): ConversationAutonomy {
   try {
-    return localStorage.getItem(AUTONOMY_KEY) === 'act-within-bounds' ? 'act-within-bounds' : 'ask';
+    const stored = localStorage.getItem(AUTONOMY_KEY);
+    // Either rung the person chose stands; nothing stored means the default
+    // (done for you since 2026-09-18 — the old code read a missing value as
+    // 'ask' and every fresh thread vetoed the done-for-you policy).
+    return stored === 'ask' || stored === 'act-within-bounds' ? stored : DEFAULT_AUTONOMY;
   } catch {
-    return 'ask';
+    return DEFAULT_AUTONOMY;
   }
 }
 
@@ -348,7 +353,7 @@ export function useChatSession({
   const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string }>>([]);
   // How recommended actions behave in this thread (0094). Starts from the
   // person's last choice; a resumed thread brings its own.
-  const [autonomy, setAutonomyState] = useState<ConversationAutonomy>('ask');
+  const [autonomy, setAutonomyState] = useState<ConversationAutonomy>(DEFAULT_AUTONOMY);
   // How strong a model, how much it thinks — per thread, like autonomy.
   const [modelPrefs, setModelPrefsState] = useState<ModelPrefs>(DEFAULT_MODEL_PREFS);
   const modelPrefsRef = useRef(modelPrefs);
@@ -1133,8 +1138,9 @@ export function useChatSession({
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
         setActiveConversation(agent.slug, conv.id);
-        if (autonomy !== 'ask') {
-          // The person's standing choice applies to the thread it just created.
+        if (autonomy !== DEFAULT_AUTONOMY) {
+          // The person's standing choice applies to the thread it just created
+          // (the row is born at the default; only a different rung needs writing).
           client.conversations.setAutonomy({ id: conv.id, autonomy }).catch((error) => {
             console.warn('useChatSession: could not persist the autonomy setting', error);
           });
@@ -1694,10 +1700,11 @@ export function useChatSession({
 }
 
 /**
- * The autonomy rung a persisted conversation carries, defaulting to `ask`.
+ * The autonomy rung a persisted conversation carries; a row that says nothing
+ * usable is at the default.
  * @param conv - A conversation row as the router returns it.
  */
 function readAutonomy(conv: unknown): ConversationAutonomy {
   const a = (conv as { autonomy?: unknown } | null)?.autonomy;
-  return a === 'act-within-bounds' ? 'act-within-bounds' : 'ask';
+  return a === 'ask' || a === 'act-within-bounds' ? a : DEFAULT_AUTONOMY;
 }
