@@ -283,6 +283,8 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     'If a document you are quoting is not dated, say that you cannot tell when it is from rather than assuming it is current.',
   ].join(' ');
   systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
+  // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
+  systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't

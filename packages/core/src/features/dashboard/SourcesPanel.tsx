@@ -1,41 +1,20 @@
 'use client';
 
-import type { LucideIcon } from 'lucide-react';
+import type { ConnectorTile, Source } from './connectors/connectorRows';
 import type { ConfigField, ConfigFieldOption, ConfigFieldValue } from '@/libs/sources/configFields';
 import {
-  AlertTriangle,
-  BarChart3,
-  Calendar,
   CheckCircle2,
   CircleAlert,
-  Contact,
-  Database,
   Eye,
   EyeOff,
-  FileJson,
-  FileText,
-  FolderOpen,
-  Globe,
   KeyRound,
   Loader2,
-  Mail,
-  Megaphone,
-  MessageSquare,
-  NotebookPen,
-  NotebookText,
-  Pencil,
   Plug,
   Plus,
   RefreshCw,
-  Search,
-  SquareKanban,
   Trash2,
-  Video,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { EmptyState } from '@/components/ui/empty-state';
-import { Link } from '@/libs/I18nNavigation';
 import {
   buildConfigFromFields,
   configFieldsFor,
@@ -43,57 +22,8 @@ import {
   fieldValuesFromConfig,
   initialFieldValues,
 } from '@/libs/sources/configFields';
-
-type Source = {
-  id: number;
-  slug: string;
-  kind: string;
-  config: Record<string, unknown>;
-  lastSyncedAt: string | null;
-  enabled: string;
-  createdAt: string;
-  authKind: 'none' | 'apikey' | 'oauth';
-  objectType: string | null;
-  documentCount: number;
-  credentialConnected: boolean;
-  credentialUpdatedAt: string | null;
-  /**
-   * Why the credential this connector points at cannot be used, or null when
-   * it can. Distinct from `credentialConnected: false`, which means nobody has
-   * connected the source yet — one needs a key, the other needs the key it
-   * already names put back in service.
-   */
-  credentialBroken: 'revoked' | 'expired' | 'missing' | null;
-  /** True when this connector ingests nothing, so its row shows Test connection rather than Sync now. */
-  syncless: boolean;
-  /** True when the connector can look at the service and report what the credential opens. */
-  inspectable: boolean;
-  /** What a test costs, said before the button is pressed, or null when it costs nothing. */
-  inspectNote: string | null;
-  /** The latest sync run for this source, whoever started it. Null if never synced. */
-  sync: {
-    status: 'running' | 'completed' | 'failed' | 'superseded' | 'abandoned';
-    startedAt: string;
-    completedAt: string | null;
-    error: string | null;
-    counts: Record<string, number>;
-  } | null;
-};
-
-type ConnectorTile = {
-  slug: string;
-  name: string;
-  description: string;
-  icon: string;
-  authKind: 'none' | 'apikey' | 'oauth';
-  /**
-   * The stored-credential platform this connector authenticates with, or null
-   * when it uses an OAuth grant or needs no credential at all.
-   */
-  credentialPlatform: string | null;
-  syncless: boolean;
-  inspectable: boolean;
-};
+import { ConnectorList } from './connectors/ConnectorList';
+import { buildConnectorRows, connectorSlugFor } from './connectors/connectorRows';
 
 /** How often to re-read the list while a sync is running somewhere. */
 const RUNNING_SYNC_POLL_MS = 5000;
@@ -152,7 +82,7 @@ export function SourcesPanel() {
   const [sources, setSources] = useState<Source[]>([]);
   const [connectors, setConnectors] = useState<ConnectorTile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [picker, setPicker] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [addingKind, setAddingKind] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [connectingSource, setConnectingSource] = useState<Source | null>(null);
@@ -200,6 +130,8 @@ export function SourcesPanel() {
     return () => clearInterval(timer);
   }, [someoneIsSyncing, refreshQuietly]);
 
+  const rows = useMemo(() => buildConnectorRows(connectors, sources), [connectors, sources]);
+
   const handleSync = useCallback(async (id: number) => {
     setSyncingId(id);
     setError(null);
@@ -225,14 +157,17 @@ export function SourcesPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Each connector crawls a system and feeds chunks into the org's knowledge base. Native pgvector retrieval — no external services.
+          Every system Vocion can read, in one list. Connected ones sit at the top and open to their last run, size and progress.
         </p>
         <button
           type="button"
-          onClick={() => setPicker(true)}
-          className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
+          onClick={() => {
+            searchRef.current?.focus();
+            searchRef.current?.scrollIntoView({ block: 'nearest' });
+          }}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
         >
           <Plus className="size-4" />
           Add connector
@@ -268,44 +203,20 @@ export function SourcesPanel() {
               Loading connectors…
             </div>
           )
-        : sources.length === 0
-          ? (
-              <EmptyState
-                icon={Globe}
-                title="No connectors yet"
-                description="Add a web URL, file upload, or connect a third-party system to populate this org's knowledge base."
-                action={{ label: 'Add connector', onClick: () => setPicker(true) }}
-              />
-            )
-          : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {sources.map(s => (
-                  <SourceRow
-                    key={s.id}
-                    source={s}
-                    syncing={syncingId === s.id}
-                    onSync={() => handleSync(s.id)}
-                    onTest={() => setTestingSource(s)}
-                    onEdit={() => setEditingSource(s)}
-                    onDelete={() => setDeletingSource(s)}
-                    onConnect={() => setConnectingSource(s)}
-                  />
-                ))}
-              </div>
-            )}
-
-      {picker
-        ? (
-            <ConnectorPicker
-              connectors={connectors}
-              onClose={() => setPicker(false)}
-              onPick={(slug) => {
-                setPicker(false);
-                setAddingKind(slug);
-              }}
+        : (
+            <ConnectorList
+              rows={rows}
+              syncingId={syncingId}
+              searchRef={searchRef}
+              onConnectNew={slug => setAddingKind(slug)}
+              onSync={s => void handleSync(s.id)}
+              onTest={setTestingSource}
+              onEdit={setEditingSource}
+              onDelete={setDeletingSource}
+              onConnect={setConnectingSource}
             />
-          )
-        : null}
+          )}
+
       {addingKind
         ? (
             <AddSourceDialog
@@ -881,183 +792,6 @@ function ConnectCredentialDialog({ source, onClose, onConnected }: {
  * Sentence for a credential that exists but cannot be used.
  * @param reason - Why it cannot be used.
  */
-function describeBrokenCredential(reason: 'revoked' | 'expired' | 'missing'): string {
-  if (reason === 'revoked') {
-    return 'Credential revoked';
-  }
-  if (reason === 'expired') {
-    return 'Credential expired';
-  }
-  return 'Credential missing';
-}
-
-/**
- * The credential state on a connector row.
- *
- * Three states, not two. A connector nobody has connected needs a key; one
- * pointing at a credential somebody revoked needs that key put back in service,
- * and saying "needs credentials" for it would hide what actually happened.
- * @param props - Component props.
- * @param props.source - The source whose credential state is being shown.
- */
-function CredentialBadge({ source }: { source: Source }) {
-  if (source.credentialBroken) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-destructive">
-        <AlertTriangle className="size-3.5" />
-        {describeBrokenCredential(source.credentialBroken)}
-      </span>
-    );
-  }
-  if (source.credentialConnected) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-        <CheckCircle2 className="size-3.5" />
-        Connected
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-      <KeyRound className="size-3.5" />
-      Needs credentials
-    </span>
-  );
-}
-
-function SourceRow({ source, syncing, onSync, onTest, onEdit, onDelete, onConnect }: {
-  source: Source;
-  syncing: boolean;
-  onSync: () => void;
-  onTest: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onConnect: () => void;
-}) {
-  const last = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
-  const lastLabel = last ? formatRelative(last) : 'never';
-  const needsCreds = source.authKind !== 'none' && !source.credentialConnected;
-  // A run this tab did not start still holds the source — another tab, the
-  // scheduler, or one still going after a reload. Pressing Sync now would only
-  // earn a 409, so show it as busy instead of letting the operator find out.
-  const runningElsewhere = source.sync?.status === 'running';
-  const busy = syncing || runningElsewhere;
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-start gap-3">
-        <span className="inline-flex size-9 flex-shrink-0 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-          <Globe className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/dashboard/connectors/${source.slug}`} className="truncate font-display hover:underline">{source.slug}</Link>
-            <Badge variant="outline" className="font-mono text-[10px]">{source.kind}</Badge>
-            {source.objectType
-              ? <Badge variant="outline" className="font-mono text-[10px]">{source.objectType}</Badge>
-              : null}
-          </div>
-          <p className="mt-1 text-xs font-medium text-foreground/70">
-            {source.documentCount > 0
-              ? `${source.documentCount.toLocaleString()} document${source.documentCount === 1 ? '' : 's'} ingested`
-              : 'No documents yet'}
-          </p>
-          <SyncRunLine sync={source.sync} />
-          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            {describeSourceConfig(source.config)}
-          </p>
-        </div>
-        {source.authKind !== 'none'
-          ? <CredentialBadge source={source} />
-          : null}
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <Badge variant="outline" className="font-mono text-[10px]">
-          Last sync ·
-          {' '}
-          {lastLabel}
-        </Badge>
-        <div className="flex items-center gap-2">
-          {/* Connect is only for a source with nothing stored yet — that is a
-              call to action. Once a credential exists, Edit changes it along
-              with everything else, so a separate "Update key" was one more
-              button doing a job the edit form already does. */}
-          {needsCreds
-            ? (
-                <button
-                  type="button"
-                  onClick={onConnect}
-                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
-                >
-                  <KeyRound className="size-3" />
-                  Connect
-                </button>
-              )
-            : null}
-          <button
-            type="button"
-            onClick={onEdit}
-            title="Edit this connector's settings"
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50"
-          >
-            <Pencil className="size-3" />
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            title="Delete this connector and everything ingested from it"
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/5"
-          >
-            <Trash2 className="size-3" />
-            Delete
-          </button>
-          {/* A sync-less source has no run to start, and a Sync button that
-              does nothing reads as a broken source. Testing the credential is
-              the useful thing to offer in its place. */}
-          {source.syncless
-            ? (
-                <button
-                  type="button"
-                  onClick={onTest}
-                  disabled={needsCreds || !source.inspectable}
-                  title={needsCreds ? 'Connect credentials first' : undefined}
-                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
-                >
-                  <Plug className="size-3" />
-                  Test connection
-                </button>
-              )
-            : (
-                <button
-                  type="button"
-                  onClick={onSync}
-                  disabled={busy || needsCreds}
-                  title={needsCreds
-                    ? 'Connect credentials first'
-                    : (runningElsewhere ? 'This connector is already syncing. Wait for it to finish, then try again.' : undefined)}
-                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50"
-                >
-                  {busy
-                    ? (
-                        <>
-                          <Loader2 className="size-3 animate-spin" />
-                          Syncing…
-                        </>
-                      )
-                    : (
-                        <>
-                          <RefreshCw className="size-3" />
-                          Sync now
-                        </>
-                      )}
-                </button>
-              )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /**
  * Re-test a source that is already connected, on the credential in the vault.
  *
@@ -1097,88 +831,6 @@ function TestSourceDialog({ source, onClose }: { source: Source; onClose: () => 
       </div>
     </div>
   );
-}
-
-/**
- * One line about this source's latest sync run — busy, failed, or finished with
- * documents it could not save.
- *
- * This is the only place a run started somewhere else shows up, and the only
- * place a failure survives a page reload: the panel's own banner is gone as
- * soon as the operator navigates away.
- * @param root0 - Props.
- * @param root0.sync - The latest run for this source, or null if it never ran.
- */
-function SyncRunLine({ sync }: { sync: Source['sync'] }) {
-  if (!sync) {
-    return null;
-  }
-  if (sync.status === 'running') {
-    return (
-      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 className="size-3 animate-spin" />
-        Syncing now — started
-        {' '}
-        {formatRelative(new Date(sync.startedAt))}
-      </p>
-    );
-  }
-  if (sync.status === 'abandoned') {
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
-        A sync started
-        {' '}
-        {formatRelative(new Date(sync.startedAt))}
-        {' '}
-        never finished — its process stopped. Sync now will take over.
-      </p>
-    );
-  }
-  if (sync.status === 'superseded') {
-    return (
-      <p className="mt-1 text-xs text-muted-foreground">
-        A sync stopped when the settings changed; a fresh one runs with the new settings.
-      </p>
-    );
-  }
-  if (sync.status === 'failed') {
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
-        Last sync failed:
-        {' '}
-        {sync.error ?? 'no reason was recorded'}
-      </p>
-    );
-  }
-  const errorCount = sync.counts.errors ?? 0;
-  if (errorCount > 0) {
-    return (
-      <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
-        Last sync could not save
-        {' '}
-        {errorCount}
-        {' '}
-        document
-        {errorCount === 1 ? '' : 's'}
-        .
-      </p>
-    );
-  }
-  return null;
-}
-
-/**
- * Which connector a configured source belongs to.
- *
- * Sources are all stored with kind `plugin`; the connector is in the config as
- * `_connector`, falling back to the slug for rows written before that key.
- * @param source - The configured source row.
- */
-function connectorSlugFor(source: Source): string {
-  return (source.config?._connector as string | undefined) ?? source.kind ?? source.slug;
 }
 
 /**
@@ -1285,64 +937,6 @@ function DeleteSourceDialog({ source, onClose, onDeleted }: {
   );
 }
 
-function describeSourceConfig(config: Record<string, unknown>): string {
-  const c = config as { urls?: string[]; crawl?: { startUrl?: string; maxPages?: number } };
-  if (c.crawl?.startUrl) {
-    return `Crawl ${c.crawl.startUrl} · up to ${c.crawl.maxPages ?? 50} pages`;
-  }
-  if (c.urls?.length) {
-    return c.urls.length === 1 ? c.urls[0]! : `${c.urls.length} URLs`;
-  }
-  return 'Configured connector';
-}
-
-/**
- * How many connector cards render before the picker asks for a click to show
- * more. The registry is small today but grows with every connector shipped, and
- * a modal that paints a hundred cards on open is the cost nobody notices until
- * it is slow. Rendering a page at a time keeps the open instant without pulling
- * in a virtual-list dependency; the search box is what makes a long list usable.
- */
-const CONNECTOR_PAGE_SIZE = 25;
-
-/**
- * The Lucide icons connectors name in their `icon` field (`libs/sources/*.ts`).
- * Listed explicitly rather than looked up off the whole Lucide namespace, which
- * would pull every icon in the library into the client bundle. A connector whose
- * icon is missing here gets the generic plug rather than nothing.
- */
-const CONNECTOR_ICONS: Record<string, LucideIcon> = {
-  BarChart3,
-  Calendar,
-  Contact,
-  Database,
-  FileJson,
-  FileText,
-  FolderOpen,
-  Globe,
-  Mail,
-  Megaphone,
-  MessageSquare,
-  NotebookPen,
-  NotebookText,
-  Pencil,
-  SquareKanban,
-  Video,
-};
-
-/**
- * A connector's icon. The `icon` field carries a Lucide icon NAME, so rendering
- * it as text used to print its first letter — "D" on the Strapi tile, from
- * `Database`, which reads like a shortcut key and means nothing.
- * @param props.name - The Lucide icon name from the connector's tile data.
- * @param root0
- * @param root0.name
- */
-function ConnectorIcon({ name }: { name: string }) {
-  const Icon = CONNECTOR_ICONS[name] ?? Plug;
-  return <Icon className="size-4" aria-hidden="true" />;
-}
-
 /**
  * Connectors whose name, slug or description contains every word in the query,
  * sorted A–Z by name. Word-at-a-time (rather than one substring match) so
@@ -1364,126 +958,6 @@ export function filterConnectors(connectors: ConnectorTile[], query: string): Co
         return words.every(word => haystack.includes(word));
       });
   return matches.sort((left, right) => left.name.localeCompare(right.name));
-}
-
-function ConnectorPicker({
-  connectors,
-  onClose,
-  onPick,
-}: {
-  connectors: ConnectorTile[];
-  onClose: () => void;
-  onPick: (slug: string) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [visibleCount, setVisibleCount] = useState(CONNECTOR_PAGE_SIZE);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // The picker opens for this input — typing straight away is the point. Done
-  // with a ref rather than `autoFocus`, which the a11y lint rules bar.
-  useEffect(() => {
-    searchInputRef.current?.focus();
-  }, []);
-
-  const matches = useMemo(() => filterConnectors(connectors, query), [connectors, query]);
-  const visible = matches.slice(0, visibleCount);
-  const hiddenCount = matches.length - visible.length;
-
-  // A new query starts a fresh page — otherwise a search run after "Show more"
-  // would keep the taller list height for a two-result match.
-  const changeQuery = (next: string) => {
-    setQuery(next);
-    setVisibleCount(CONNECTOR_PAGE_SIZE);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border bg-background shadow-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h3 className="font-display text-lg">Pick a connector</h3>
-          <button type="button" onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground">
-            Cancel
-          </button>
-        </div>
-        <div className="border-b px-4 py-3">
-          <label className="relative block">
-            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              ref={searchInputRef}
-              type="search"
-              value={query}
-              onChange={e => changeQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  onClose();
-                }
-              }}
-              placeholder="Search connectors — name or what it ingests"
-              aria-label="Search connectors"
-              className="w-full rounded-md border border-input bg-background py-2 pr-3 pl-9 text-sm"
-            />
-          </label>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {matches.length === connectors.length
-              ? `${connectors.length} connectors`
-              : `${matches.length} of ${connectors.length} connectors`}
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 overflow-y-auto p-4">
-          {visible.map(c => (
-            <button
-              type="button"
-              key={c.slug}
-              onClick={() => onPick(c.slug)}
-              className="rounded-lg border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="inline-flex size-7 items-center justify-center rounded-md bg-amber-100/60 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-                  <ConnectorIcon name={c.icon} />
-                </span>
-                <span className="font-medium">{c.name}</span>
-                {c.authKind !== 'none'
-                  ? (
-                      <Badge variant="outline" className="ml-auto text-[10px]">
-                        {c.authKind === 'oauth' ? 'OAuth' : 'API key'}
-                      </Badge>
-                    )
-                  : null}
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">{c.description}</p>
-            </button>
-          ))}
-          {matches.length === 0
-            ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  No connector matches “
-                  {query}
-                  ”.
-                </p>
-              )
-            : null}
-          {hiddenCount > 0
-            ? (
-                <button
-                  type="button"
-                  onClick={() => setVisibleCount(count => count + CONNECTOR_PAGE_SIZE)}
-                  className="rounded-lg border border-dashed py-2 text-sm text-muted-foreground hover:text-foreground"
-                >
-                  Show
-                  {' '}
-                  {Math.min(hiddenCount, CONNECTOR_PAGE_SIZE)}
-                  {' '}
-                  more (
-                  {hiddenCount}
-                  {' '}
-                  hidden)
-                </button>
-              )
-            : null}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -2817,21 +2291,4 @@ function AddSourceDialog({
   // Every other connector describes its own fields, so one form renders them all.
   const fields = configFieldsFor(kind);
   return <AddConfigurableSourceDialog kind={kind} title={title} fields={fields} existing={source} onClose={onClose} onAdded={onAdded} />;
-}
-
-function formatRelative(date: Date): string {
-  const diff = Date.now() - date.getTime();
-  const min = Math.floor(diff / 60_000);
-  if (min < 1) {
-    return 'just now';
-  }
-  if (min < 60) {
-    return `${min}m ago`;
-  }
-  const hr = Math.floor(min / 60);
-  if (hr < 24) {
-    return `${hr}h ago`;
-  }
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
 }

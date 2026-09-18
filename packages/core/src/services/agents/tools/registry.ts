@@ -66,6 +66,7 @@ import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
+import { whereToTool } from './whereTo';
 import { zoomTools } from './zoomTranscript';
 
 /**
@@ -122,6 +123,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // The workspace's own brand guide (brand.yaml) — palette, logos, voice —
     // the shape a client-facing document needs. Read-only; on for every agent.
     getBrandTool(ctx),
+    // Where in Vocion a person does something, as a link — so an answer never
+    // describes a screen it could have linked to. Read-only; on for every agent.
+    whereToTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     runCodeTool(ctx),

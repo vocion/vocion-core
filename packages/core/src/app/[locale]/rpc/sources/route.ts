@@ -14,7 +14,7 @@ import { clerkAuth as auth } from '@/libs/Auth';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listConnectors } from '@/libs/sources/registry';
 import { credentialStatusForOrg } from '@/services/SourceCredentialService';
-import { addSource, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
+import { addSource, chunkCountsForOrg, documentCountsForOrg, latestSyncStateForOrg, listSources } from '@/services/SourceSyncService';
 
 export async function GET() {
   const { orgId } = await auth();
@@ -24,6 +24,7 @@ export async function GET() {
   const sources = await listSources(orgId);
   const credStatus = await credentialStatusForOrg(orgId);
   const docCounts = await documentCountsForOrg(orgId);
+  const chunkCounts = await chunkCountsForOrg(orgId);
   const syncState = await latestSyncStateForOrg(orgId);
   const connectorBySlug = new Map(listConnectors().map(c => [c.slug, c]));
   // Decorate each source with its connector's auth requirement, whether a live
@@ -42,6 +43,9 @@ export async function GET() {
       authKind,
       objectType: (s.config?.objectType as string | undefined) ?? null,
       documentCount: docCounts[s.id] ?? 0,
+      // Size in retrieval terms: a document count says little when one PDF is
+      // 400 chunks. Shown in the connected row's detail.
+      chunkCount: chunkCounts[s.id] ?? 0,
       credentialConnected: authKind === 'none' ? true : (st?.connected ?? false),
       credentialUpdatedAt: st?.updatedAt ?? null,
       // Why a credential cannot be used, when there is one that cannot. The
@@ -72,6 +76,9 @@ export async function GET() {
     credentialPlatform: platformForConnectorSlug(c.slug)?.id ?? null,
     syncless: c.syncless === true,
     inspectable: typeof c.inspect === 'function',
+    // The scopes the third party must grant, when the connector knows them —
+    // the page marks the ones a failed run named as missing.
+    requiredScopes: c.requiredScopes ? [...c.requiredScopes] : null,
   }));
   return Response.json({ sources: withStatus, connectors });
 }
