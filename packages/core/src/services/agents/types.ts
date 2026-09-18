@@ -110,6 +110,9 @@ export type ArtifactPayload = {
   version: number;
   authorKind: 'agent' | 'human' | 'system';
   authorId: string | null;
+  /** Who a share opens for (`libs/share/audience.ts`). Absent on payloads built before sharing existed. */
+  shareAudience?: 'me' | 'workspace' | 'anyone';
+  shareOwnerId?: string | null;
   createdAt: string;
   updatedAt: string;
 };

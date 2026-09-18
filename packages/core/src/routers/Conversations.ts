@@ -1,6 +1,7 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { listAttachmentsByMessage } from '@/services/ArtifactService';
+import { listArtifactsByIdsForChips, listAttachmentsByMessage } from '@/services/ArtifactService';
+import { artifactChipsByMessage } from '@/services/chat/artifactChips';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import {
   appendMessage,
@@ -38,15 +39,24 @@ export const get = os
     if (!conv) {
       throw ApiError.notFound({ id: input.id });
     }
-    const [messages, uploads] = await Promise.all([
+    const [messages, uploads, produced] = await Promise.all([
       listMessages({ orgId, conversationId: input.id }),
       listAttachmentsByMessage({ orgId, conversationId: input.id }),
+      listArtifactsByIdsForChips({ orgId, conversationId: input.id }),
     ]);
     // The files a person attached ride on their message, so a reloaded
-    // transcript shows the chips they saw when they sent it.
+    // transcript shows the chips they saw when they sent it — and so do the
+    // artifacts the agent produced, under the turn that made them
+    // (`artifactChipsByMessage`): the chip is a persisted fact, not a
+    // memory of the live stream.
+    const chips = artifactChipsByMessage(messages, produced);
     return {
       ...conv,
-      messages: messages.map(m => ({ ...m, attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact) })),
+      messages: messages.map(m => ({
+        ...m,
+        attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact),
+        artifacts: chips.get(m.id) ?? [],
+      })),
     };
   });
 

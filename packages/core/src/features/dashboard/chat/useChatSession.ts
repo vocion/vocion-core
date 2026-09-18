@@ -123,6 +123,8 @@ type PersistedMessageRow = {
   feedbackNote?: string | null;
   /** Files attached to a user turn, as the conversations router resolves them. */
   attachments?: ChatAttachment[];
+  /** Artifacts the turn produced, as the conversations router resolves them — the chips. */
+  artifacts?: ChatMessageArtifact[];
 };
 
 /**
@@ -156,6 +158,7 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
+      ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
     };
   });
   return { messages, documents };

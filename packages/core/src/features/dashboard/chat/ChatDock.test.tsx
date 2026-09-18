@@ -278,7 +278,7 @@ describe('ChatDock', () => {
     await userEvent.click(page.getByRole('button', { name: 'Open the conversation (⌘J)' }));
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
-    await expect.element(page.getByText('Everything')).toBeVisible();
+    await expect.element(page.getByText('Chat', { exact: true })).toBeVisible();
   });
 
   it('a stored choice wins over the page default, in both directions', async () => {
@@ -475,15 +475,15 @@ describe('ChatDock', () => {
 });
 
 describe('ChatDock speaks as the workspace (§9.10)', () => {
-  it('unscoped: the header is the workspace name and initial, never the lead agent, and the composer stays neutral', async () => {
+  it('unscoped: the header says Chat — never the workspace name, never the lead agent — and the composer stays neutral', async () => {
     localStorage.setItem(COLLAPSE_KEY, '0');
     const agents = [{ ...AGENTS[0]!, workspaceName: 'Revenue' }];
     await render(wrap(<ChatDock agents={agents} scopeLabel="Everything" />));
 
     await expect.element(page.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything…');
 
-    // The workspace is the title (and its initial the mark); the lead agent's name is nowhere.
-    await vi.waitFor(() => expect(page.getByText('Revenue', { exact: true }).elements().length).toBeGreaterThan(0));
+    // "Chat" is the title; the sidebar already names the workspace, and the lead agent's name is nowhere.
+    await expect.element(page.getByText('Chat', { exact: true })).toBeVisible();
 
     expect(page.getByText('RevOps Lead').query()).toBeNull();
     expect(page.getByText(/^Direct ·/).query()).toBeNull();

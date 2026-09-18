@@ -166,6 +166,7 @@
   },
   "Chat": {
     "rail_label": "Conversation",
+    "rail_title": "Discussion",
     "rail_label_about": "Conversation à propos de {scope}",
     "open_rail": "Ouvrir la conversation (⌘J)",
     "collapse_rail": "Réduire la conversation (⌘J)",

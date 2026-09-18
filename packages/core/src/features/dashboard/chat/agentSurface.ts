@@ -18,12 +18,47 @@
  */
 
 import type { ContextRef } from './types';
-import type { PageContext } from '@/services/chat/pageContext';
+import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 
 export const AGENT_SURFACE_EVENT = 'vocion:open-agent-surface';
 
 /** sessionStorage key the chat page reads on mount to start a handoff chat. */
 export const CHAT_HANDOFF_KEY = 'vocion_chat_handoff';
+
+/**
+ * sessionStorage key for a record carried into a FRESH chat without a
+ * question — the preview pane's "Chat about this" from a page with no rail.
+ * Unlike a handoff, nothing is sent: the record becomes the "About:" chip
+ * and the person writes the first line.
+ */
+export const CHAT_ABOUT_KEY = 'vocion_chat_about';
+
+/**
+ * Remember the record the next fresh chat is about.
+ * @param record
+ */
+export function stashChatAbout(record: RecordRef): void {
+  try {
+    sessionStorage.setItem(CHAT_ABOUT_KEY, JSON.stringify(record));
+  } catch {
+    /* storage unavailable — the chat opens without the chip */
+  }
+}
+
+/** Take (and clear) the record a fresh chat is about, if one was stashed. */
+export function takeChatAbout(): RecordRef | null {
+  try {
+    const raw = sessionStorage.getItem(CHAT_ABOUT_KEY);
+    if (!raw) {
+      return null;
+    }
+    sessionStorage.removeItem(CHAT_ABOUT_KEY);
+    const parsed = JSON.parse(raw) as Partial<RecordRef>;
+    return typeof parsed.type === 'string' && typeof parsed.id === 'string' ? (parsed as RecordRef) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The handoff the full-page chat consumes when no surface was mounted to claim a request. */
 export type ChatHandoff = {

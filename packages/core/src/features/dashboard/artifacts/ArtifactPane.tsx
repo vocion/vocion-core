@@ -28,7 +28,7 @@
 import type { ArtifactConflict, ArtifactEntry } from './artifactReducer';
 import type { DataTableSpec, MarkdownSpec } from '@/libs/cards/specs';
 import type { ArtifactVersionPayload } from '@/services/ArtifactService';
-import { Check, Copy, Download, FolderClosed, Link2, Pencil, Save, X } from 'lucide-react';
+import { Check, Copy, Download, FolderClosed, Pencil, Save, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -39,6 +39,7 @@ import { cn } from '@/utils/Helpers';
 import { ArtifactCard } from './ArtifactCard';
 import { ARTIFACT_KIND_ICON, ARTIFACT_KIND_LABEL, authorLabel, relativeTime } from './kinds';
 import { MarkdownArtifactEditor } from './MarkdownArtifactEditor';
+import { SharePicker } from './SharePicker';
 import { TableArtifactEditor } from './TableArtifactEditor';
 import { VersionMenu } from './VersionMenu';
 
@@ -73,7 +74,6 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   const [editingFolder, setEditingFolder] = useState(false);
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [versions, setVersions] = useState<ArtifactVersionPayload[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [viewing, setViewing] = useState<ArtifactVersionPayload | null>(null);
@@ -186,14 +186,11 @@ export function ArtifactPane(props: ArtifactPaneProps) {
     }
   }, [artifact.id, artifact.version]);
 
-  const copyLink = useCallback(() => {
+  // The signed-in link the share picker copies for `me` and `workspace`; the
+  // public one comes from the server when the audience is `anyone`.
+  const shareHref = useMemo(() => {
     const path = `/dashboard/artifacts/${artifact.id}`;
-    const rel = props.workspaceSlug ? `/w/${encodeURIComponent(props.workspaceSlug.toLowerCase())}${path}` : path;
-    const href = typeof window === 'undefined' ? rel : `${window.location.origin}${rel}`;
-    void navigator.clipboard?.writeText(href).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    return props.workspaceSlug ? `/w/${encodeURIComponent(props.workspaceSlug.toLowerCase())}${path}` : path;
   }, [artifact.id, props.workspaceSlug]);
 
   const saveFolder = useCallback(async () => {
@@ -286,9 +283,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
           <button type="button" onClick={() => void client.artifacts.exportPage({ id: artifact.id }).then(setExported).catch(e => toast.error('Could not export this artifact', { description: (e as { message?: string }).message }))} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Export as a workspace page">
             <Download className="size-3.5" />
           </button>
-          <button type="button" onClick={copyLink} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Copy link to this artifact">
-            {copied ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
-          </button>
+          <SharePicker artifactId={artifact.id} title={shown.title} dashboardHref={shareHref} className="size-7" />
           {props.onClose && (
             <button type="button" onClick={props.onClose} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close the artifact">
               <X className="size-3.5" />

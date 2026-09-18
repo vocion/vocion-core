@@ -1,14 +1,18 @@
 'use client';
 
 import type { PreviewDoc } from '@/libs/preview/types';
-import type { RecordRef } from '@/services/chat/pageContext';
-import { ArrowLeft, ExternalLink, MessageSquareText, X } from 'lucide-react';
+import type { RecordRef, RecordType } from '@/services/chat/pageContext';
+import { ArrowLeft, Bot, ExternalLink, FileText, Inbox, MessageSquareText, Newspaper, Play, Rocket, SquareArrowOutUpRight, Target, User, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
+import { PanelCloseButton } from '@/components/ui/panel-close-button';
+import { ARTIFACT_KIND_ICON } from '@/features/dashboard/artifacts/kinds';
+import { SharePicker } from '@/features/dashboard/artifacts/SharePicker';
+import { requestAgentSurface, stashChatAbout } from '@/features/dashboard/chat/agentSurface';
 import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { PREVIEW_PARAM, previewKey } from '@/libs/preview/types';
 import { closePreview } from './previewState';
 
 /**
@@ -37,11 +41,39 @@ import { closePreview } from './previewState';
  * shortcuts keep working while it is open.
  */
 
-function Chip(props: { children: string }) {
+const RECORD_ICON: Partial<Record<RecordType, typeof FileText>> = {
+  briefing: Newspaper,
+  ask: Inbox,
+  agent: Bot,
+  team: Users,
+  mission: Target,
+  mission_run: Rocket,
+  worker_run: Play,
+  lead: User,
+  conversation: MessageSquareText,
+};
+
+/**
+ * The kind's icon for an artifact, the record type's otherwise — inline before the title, in place of a chip.
+ * @param ref
+ * @param doc
+ */
+/**
+ * The kind's icon for an artifact, the record type's otherwise — inline before
+ * the title, in place of a chip. The source's name stays for a screen reader.
+ * @param props
+ * @param props.type - The record type.
+ * @param props.doc - The resolved preview.
+ */
+function PreviewIcon({ type, doc }: { type: RecordType; doc: PreviewDoc }) {
+  const Icon = type === 'artifact' && doc.kind && doc.kind in ARTIFACT_KIND_ICON
+    ? ARTIFACT_KIND_ICON[doc.kind as keyof typeof ARTIFACT_KIND_ICON]
+    : (RECORD_ICON[type] ?? FileText);
   return (
-    <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-surface-soft px-1.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-      {props.children}
-    </span>
+    <>
+      <Icon className="mr-1 size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="sr-only">{doc.sourceLabel}</span>
+    </>
   );
 }
 
@@ -60,14 +92,19 @@ function Body(props: { doc: PreviewDoc }) {
     <div className="px-4 py-3">
       {doc.subtitle && <p className="mb-3 text-sm leading-relaxed text-foreground">{doc.subtitle}</p>}
       {doc.facts && doc.facts.length > 0 && (
-        <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12px]">
-          {doc.facts.map(f => (
-            <div key={f.label} className="contents">
-              <dt className="text-muted-foreground">{f.label}</dt>
-              <dd className="min-w-0 break-words text-foreground">{f.value}</dd>
-            </div>
-          ))}
-        </dl>
+        // One muted line by default; the kind, version and dates are a
+        // glance away, not a block above the words.
+        <details className="mb-3 text-[12px]">
+          <summary className="cursor-pointer list-none text-muted-foreground hover:text-foreground">{doc.facts.map(f => f.value).slice(0, 3).join(' · ')}</summary>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            {doc.facts.map(f => (
+              <div key={f.label} className="contents">
+                <dt className="text-muted-foreground">{f.label}</dt>
+                <dd className="min-w-0 break-words text-foreground">{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
       )}
       {doc.body
         ? (
@@ -120,23 +157,24 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
     ...(failed ? { unresolved: { reason: 'The preview did not load. The reference is below.', reference: recordRef.id } } : {}),
   };
 
-  const CloseIcon = props.back ? ArrowLeft : X;
   const router = useRouter();
-  // "Chat about this" — the ONE entry function (§6): a rail on this page
-  // opens about the record; a page with no surface goes to the chat page
-  // with the record as the handoff. The peek closes either way: the
-  // conversation is the place to keep looking at it.
+  const record: RecordRef = { type: recordRef.type, id: recordRef.id, label: shown.title, ...(shown.href ? { href: shown.href } : {}) };
+  // "Chat about this" opens a FRESH thread carrying this record as its
+  // "About:" chip, and keeps the preview open beside it. A mounted rail
+  // claims the request and starts over in place; with no rail, the chat
+  // page opens fresh with this preview beside it (`?new=1&preview=…`) and
+  // the record stashed for its chip. Nothing is sent: the person writes
+  // the first line.
   const discuss = () => {
-    const record: RecordRef = { type: recordRef.type, id: recordRef.id, label: shown.title, ...(shown.href ? { href: shown.href } : {}) };
-    closePreview();
-    openAgentSurface(
-      {
-        context: { path: window.location.pathname, title: document.title, record, openedFrom: true },
-        fallbackContext: shown.title,
-      },
-      href => router.push(href),
-    );
+    const context = { path: window.location.pathname, title: document.title, record, openedFrom: true as const };
+    if (requestAgentSurface({ newChat: true, context })) {
+      return;
+    }
+    stashChatAbout(record);
+    const params = new URLSearchParams({ new: '1', [PREVIEW_PARAM]: previewKey(recordRef) });
+    router.push(`/dashboard/chat?${params.toString()}`);
   };
+  const iconButton = 'flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground';
 
   return (
     <section
@@ -145,49 +183,32 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
       aria-label={`Preview: ${shown.title}`}
       className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-background"
     >
-      <header className="sticky top-0 flex items-start gap-2 border-b border-border bg-background px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Chip>{shown.sourceLabel}</Chip>
-            {shown.href
-              ? (
-                  <Link href={shown.href} onClick={closePreview} data-testid="preview-detail-link" className="truncate text-[12px] underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">
-                    Open full page
-                  </Link>
-                )
-              : shown.externalHref
-                ? (
-                    <a href={shown.externalHref} target="_blank" rel="noopener noreferrer" data-testid="preview-external-link" className="inline-flex items-center gap-1 truncate text-[12px] underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">
-                      Open in
-                      {' '}
-                      {shown.sourceLabel}
-                      <ExternalLink className="size-3" aria-hidden />
-                      <span className="sr-only">(leaves Vocion)</span>
-                    </a>
-                  )
-                : null}
-          </div>
-          <h2 className="mt-1 text-sm font-semibold break-words text-foreground">{shown.title}</h2>
-        </div>
-        <button
-          type="button"
-          onClick={discuss}
-          data-testid="preview-discuss"
-          aria-label={`Chat about ${shown.title}`}
-          title="Chat about this"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-surface-soft hover:text-foreground"
-        >
+      {/* One line: the kind's icon, the title, then the controls — open the
+          full page, share, chat, close — as 32px round ghosts like every other
+          panel header. No chip, no underlined link. */}
+      <header className="sticky top-0 flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background pr-1.5 pl-3">
+        <PreviewIcon type={recordRef.type} doc={shown} />
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={shown.title}>{shown.title}</h2>
+        {shown.href
+          ? (
+              <Link href={shown.href} onClick={closePreview} data-testid="preview-detail-link" aria-label="Open full page" title="Open full page" className={iconButton}>
+                <SquareArrowOutUpRight className="size-4" aria-hidden />
+              </Link>
+            )
+          : shown.externalHref
+            ? (
+                <a href={shown.externalHref} target="_blank" rel="noopener noreferrer" data-testid="preview-external-link" aria-label={`Open in ${shown.sourceLabel} (leaves Vocion)`} title={`Open in ${shown.sourceLabel}`} className={iconButton}>
+                  <ExternalLink className="size-4" aria-hidden />
+                </a>
+              )
+            : null}
+        {recordRef.type === 'artifact' && /^\d+$/.test(recordRef.id) && (
+          <SharePicker artifactId={Number(recordRef.id)} title={shown.title} dashboardHref={shown.href ?? `/dashboard/artifacts/${recordRef.id}`} />
+        )}
+        <button type="button" onClick={discuss} data-testid="preview-discuss" aria-label={`Chat about ${shown.title}`} title="Chat about this" className={iconButton}>
           <MessageSquareText className="size-4" aria-hidden />
         </button>
-        <button
-          type="button"
-          onClick={closePreview}
-          data-testid="preview-close"
-          aria-label={props.back ? 'Back to chat' : 'Close preview'}
-          className="-mr-1 shrink-0 rounded p-1 text-muted-foreground hover:bg-surface-soft hover:text-foreground"
-        >
-          <CloseIcon className="size-4" aria-hidden />
-        </button>
+        <PanelCloseButton onClick={closePreview} label={props.back ? 'Back to chat' : 'Close preview'} icon={props.back ? <ArrowLeft className="size-4" aria-hidden /> : undefined} testId="preview-close" />
       </header>
       <Body doc={shown} />
     </section>

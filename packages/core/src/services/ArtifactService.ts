@@ -103,6 +103,8 @@ export function toPayload(row: ArtifactRow): ArtifactPayload {
     version: row.currentVersion,
     authorKind: row.lastAuthorKind,
     authorId: row.lastAuthorId ?? null,
+    shareAudience: row.shareAudience,
+    shareOwnerId: row.shareOwnerId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -373,6 +375,24 @@ export async function restoreArtifactVersion(opts: { orgId: string; id: number; 
  * @param opts.id
  * @param opts.folder
  */
+/**
+ * Who this artifact opens for (`libs/share/audience.ts`). `me` records the
+ * chooser as the owner; the other audiences clear it.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.id - Artifact id.
+ * @param opts.audience - me | workspace | anyone.
+ * @param opts.userId - The person choosing — the owner when the audience is `me`.
+ */
+export async function setArtifactShare(opts: { orgId: string; id: number; audience: 'me' | 'workspace' | 'anyone'; userId: string | null }): Promise<ArtifactRow | null> {
+  const [row] = await db
+    .update(artifactSchema)
+    .set({ shareAudience: opts.audience, shareOwnerId: opts.audience === 'me' ? opts.userId : null })
+    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
 export async function setArtifactFolder(opts: { orgId: string; id: number; folder: string | null }): Promise<ArtifactRow | null> {
   const [row] = await db
     .update(artifactSchema)
@@ -528,6 +548,18 @@ export async function listArtifactVersions(opts: { orgId: string; artifactId: nu
  * @param opts.orgId
  * @param opts.conversationId
  */
+/**
+ * The artifacts the AGENT produced in a conversation — what hangs as a chip
+ * under a turn. A person's own uploads are attachments, filed separately.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.conversationId - The thread.
+ */
+export async function listArtifactsByIdsForChips(opts: { orgId: string; conversationId: number }): Promise<ArtifactRow[]> {
+  const rows = await listArtifactsForConversation(opts);
+  return rows.filter(r => !(r.kind === 'file' && r.lastAuthorKind === 'human'));
+}
+
 export async function listArtifactsForConversation(opts: { orgId: string; conversationId: number }): Promise<ArtifactRow[]> {
   return db
     .select()
