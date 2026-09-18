@@ -14,6 +14,7 @@ agents/proposal-writer.yaml       the lead: writes and verifies documents
 skills/proposal-document/          the sheet framework, components, structure + language rules
 skills/data-rooms/                 filing, decision logs, status, open items
 objects/data_room/type.yaml        the room's shape and how material is matched to it
+brand.yaml + brand/                the seller's brand guide: palette tokens, logos, voice rules (read by get_brand)
 ```
 
 Apply it to a project:

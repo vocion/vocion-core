@@ -37,6 +37,7 @@ import { fileFeedbackTool } from './fileFeedback';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
+import { getBrandTool } from './getBrand';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
@@ -118,6 +119,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // every agent that writes TO a company, so it ships on by default and
     // reports plainly when no Firecrawl key is configured.
     brandLookupTool(ctx),
+    // The workspace's own brand guide (brand.yaml) — palette, logos, voice —
+    // the shape a client-facing document needs. Read-only; on for every agent.
+    getBrandTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     runCodeTool(ctx),

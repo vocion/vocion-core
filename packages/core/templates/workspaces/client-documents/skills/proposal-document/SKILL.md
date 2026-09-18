@@ -22,18 +22,21 @@ PDF the client reads. Not markdown. Not a slide deck. Sheets.
    write from. The client's own words — their project names, their stage
    names, their vocabulary — become the document's spine.
 2. **Draft the sheet list** before any HTML: one line per sheet, in order.
-3. **Build** with `render_document`. Inline `framework.css` into the
+3. **Read the brand** (`get_brand`): paste its `:root` tokens into the
+   `<style>` block ahead of `framework.css`, inline its logo data URIs in the
+   strip and the cover, and keep its voice rules beside the ones below.
+4. **Build** with `render_document`. Inline `framework.css` into the
    `<style>` block; use the components in `components.md`; logos as data URIs.
-4. **Read the receipt.** It names every sheet whose footer moved, every sheet
+5. **Read the receipt.** It names every sheet whose footer moved, every sheet
    that overflows and by how much, every element past the edge, the PDF page
    count and any asset that did not load.
-5. **Fix by sheet** with `edit_document` — `replace_sheet` with the trimmed
+6. **Fix by sheet** with `edit_document` — `replace_sheet` with the trimmed
    sheet, `remove_sheet`, `insert_sheet`, `replace_text` — and read the next
    receipt. Trim content on an overflowing sheet; never shrink the footer
    reserve. Usually two to four rounds.
-6. **Final pass**: `verify_document` with the look on. A document is done when
+7. **Final pass**: `verify_document` with the look on. A document is done when
    the receipt reads "no issues" and the PDF page count equals the sheet count.
-7. `export_document_pdf` when the person asks for the PDF, or when it is ready
+8. `export_document_pdf` when the person asks for the PDF, or when it is ready
    to send.
 
 Change the open document in place. "Cut page 9", "make it three agents",
