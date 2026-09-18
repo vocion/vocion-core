@@ -7,6 +7,7 @@ import { memo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { Link } from '@/libs/I18nNavigation';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
@@ -302,7 +303,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                       },
                     }}
                   >
-                    {citeLinkify(seg.text)}
+                    {citeLinkify(normalizeAnswerHtml(seg.text))}
                   </Markdown>
                 </div>
               )))}

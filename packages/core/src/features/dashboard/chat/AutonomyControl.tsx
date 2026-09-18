@@ -7,10 +7,15 @@ import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/utils/Helpers';
-import { autonomyLabel, autonomyOptions, isRaisedAutonomy } from './autonomyOptions';
+import { autonomyLabel, autonomyOptions, isRaisedAutonomy, isRestrictedAutonomy } from './autonomyOptions';
 
 /**
- * The conversation's autonomy rung, as one quiet header icon.
+ * The conversation's autonomy rung, as one quiet icon in the composer bar.
+ *
+ * Since 2026-09-18 it sits beside the model control in the input bar, not in
+ * the header (Chris: "trust/ask mode should probably be in the chat input
+ * bar"), and the default is the raised rung — done for you, with undo — so
+ * the accent now marks the thread a person has RESTRICTED to asking first.
  *
  * It was two segmented buttons inside the composer until 2026-09-15 (Chris:
  * "clean up this UI, buttons, hierarchy, sizing"). A rung is a setting for
@@ -39,6 +44,7 @@ export type AutonomyControlProps = {
 export function AutonomyControl({ value, onChange, copy, label }: AutonomyControlProps) {
   const [open, setOpen] = useState(false);
   const raised = isRaisedAutonomy(value);
+  const restricted = isRestrictedAutonomy(value);
   const Icon = raised ? Zap : ShieldCheck;
 
   return (
@@ -52,22 +58,22 @@ export function AutonomyControl({ value, onChange, copy, label }: AutonomyContro
               // A 32px square: the same hit target as the header's other
               // icon buttons, and no wider than one.
               'flex size-8 shrink-0 items-center justify-center rounded-full transition-colors',
-              'hover:bg-surface-hover data-[state=open]:bg-surface-hover',
-              raised ? 'text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground',
+              'hover:bg-surface-hover data-[state=open]:bg-surface-hover data-[state=open]:text-foreground',
+              restricted ? 'text-brand-amber-deep' : 'text-muted-foreground/70 hover:text-foreground',
             )}
           >
             <Icon className="size-4 shrink-0" aria-hidden />
           </PopoverPrimitive.Trigger>
         </TooltipTrigger>
-        <TooltipContent side="bottom" align="end" collisionPadding={8}>
+        <TooltipContent side="top" align="start" collisionPadding={8}>
           {autonomyLabel(value, copy)}
         </TooltipContent>
       </Tooltip>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
-          align="end"
-          side="bottom"
-          sideOffset={6}
+          align="start"
+          side="top"
+          sideOffset={8}
           // The rail hugs the viewport's right edge and the sheet its left,
           // so both ends need the collision margin Radix only applies when
           // it is told how much room to keep.

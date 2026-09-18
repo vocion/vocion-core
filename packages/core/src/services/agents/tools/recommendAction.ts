@@ -13,7 +13,7 @@ import type { RuntimeContext } from '../types';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { listActions } from '@/libs/actions/registry';
+import { getAction, listActions } from '@/libs/actions/registry';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 
 export function recommendActionTool(ctx: RuntimeContext) {
@@ -30,6 +30,21 @@ export function recommendActionTool(ctx: RuntimeContext) {
         suggested_decision: SuggestedDecision;
         suggested_decision_reason: string;
       };
+      // The card's Approve calls the action with this payload, so a payload the
+      // action rejects is a card that can only fail — on 2026-09-18 one reached
+      // production as "Couldn't prepare it: Internal server error". Validate
+      // here, where the model can still fix it, and say exactly what is wrong.
+      if (action_id) {
+        const action = getAction(action_id);
+        if (!action) {
+          return JSON.stringify({ ok: false, error: `No registered action "${action_id}". Registered: ${listActions().map(a => a.id).join(', ')}. Pick one of these, or recommend without an action id when the next step is a person's, not a system's.` });
+        }
+        const check = action.inputSchema.safeParse(action_input ?? {});
+        if (!check.success) {
+          const issues = check.error.issues.map(i => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ');
+          return JSON.stringify({ ok: false, error: `action_input for ${action_id} is invalid — ${issues}. Fill those fields from what you know, or recommend without an action id.` });
+        }
+      }
       ctx.emit({
         type: 'recommended_action',
         recommendation: {

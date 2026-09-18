@@ -210,24 +210,35 @@ export const proposeFromRecommendationRoute = os
     const { orgId, userId } = await guardAuth();
     const { proposeAction } = await import('@/services/ActionService');
     const agentId = input.agentSlug ? `agent:${input.agentSlug}` : 'agent:unknown';
-    const res = await proposeAction({
-      orgId,
-      actionId: input.actionId,
-      input: input.input,
-      principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
-      invokedBy: userId ?? agentId,
-      proposal: {
-        confidence: input.confidence,
-        rationale: input.rationale,
-        suggestedDecision: input.suggestedDecision,
-        suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
-        suggestedSnoozeUntil: input.suggestedSnoozeUntil,
-      },
-      // Explicit key wins; otherwise derive a stable one from the action + its
-      // primary target so the same owed action doesn't duplicate in the queue.
-      dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
-      expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : undefined,
-    });
+    let res: Awaited<ReturnType<typeof proposeAction>>;
+    try {
+      res = await proposeAction({
+        orgId,
+        actionId: input.actionId,
+        input: input.input,
+        principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
+        invokedBy: userId ?? agentId,
+        proposal: {
+          confidence: input.confidence,
+          rationale: input.rationale,
+          suggestedDecision: input.suggestedDecision,
+          suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
+          suggestedSnoozeUntil: input.suggestedSnoozeUntil,
+        },
+        // Explicit key wins; otherwise derive a stable one from the action + its
+        // primary target so the same owed action doesn't duplicate in the queue.
+        dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
+        expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : undefined,
+      });
+    } catch (err) {
+      // A payload the action refuses is the caller's problem to read, not a 500:
+      // the card shows this sentence under its buttons.
+      const code = (err as { code?: unknown }).code;
+      if (code === 'VALIDATION_FAILED' || code === 'UNKNOWN_ACTION') {
+        throw new ORPCError('BAD_REQUEST', { message: (err as Error).message });
+      }
+      throw err;
+    }
     return res;
   });
 
