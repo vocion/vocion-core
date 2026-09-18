@@ -1176,7 +1176,10 @@ export async function runSync(opts: {
     // clearly belongs to a room is filed with its score (undoable on the
     // room), a deal that reached Proposal stage gets its room. Same
     // never-fail-the-sync rule; `VOCION_DATA_ROOM_AUTOFILE=0` switches it off.
-    if (process.env.VOCION_DATA_ROOM_AUTOFILE !== '0') {
+    // …and only for a workspace that turned the data-rooms plugin on: with it
+    // off there is no room to grow and no page to show the filing.
+    const { pluginEnabled } = await import('@/services/PluginService');
+    if (process.env.VOCION_DATA_ROOM_AUTOFILE !== '0' && await pluginEnabled(opts.orgId, 'data-rooms').catch(() => false)) {
       try {
         const { collectAfterSync } = await import('@/services/dataRooms/collector');
         await collectAfterSync(opts.orgId, {

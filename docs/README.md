@@ -5,6 +5,7 @@
 - [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
+- [**Plugins — capability you turn on**](./plugins.md) — `plugins: [wiki, data-rooms, proposals]`: a directory of agents, skills, pages, missions, automations, teams and trust rules that composes under the workspace like the base pack; the Plugins page and the chat both switch one on; how the three shipped plugins are built and how to write one.
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.
 - [**Where an agent turn runs**](./agent-execution.md) — the loop, the model, and the AWS account, kept apart. Read it before touching `harness.runsOn`, `harness.modelProvider`, or anything named AgentCore. Includes what the `provider` → `runsOn` rename changes for an existing workspace (nothing, unless you want it to).
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
@@ -26,7 +27,7 @@ icons, admin gating; the ⌘K palette and the breadcrumb read the same list).
 | | Pinned · Pages · surfaces | This person's pins; the workspace's own pages (`/dashboard/p/<slug>`) and saved canvases; surfaces the workspace switched on |
 | **Manage** | Team | Teams & agents `/dashboard/teams` (tab: Agents `/dashboard/agents`) · Missions `/dashboard/missions` · Workflows `/dashboard/workflows` · Automations `/dashboard/automation` |
 | | Knowledge | Connectors `/dashboard/connectors` · Objects `/dashboard/objects` · Learnings `/dashboard/learnings` · Context `/dashboard/workspace` |
-| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` |
+| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` · Plugins `/dashboard/plugins` |
 | | Insights | Team report `/dashboard/team-report` · Activity `/dashboard/activity` · Observability `/dashboard/observability` · Autonomy `/dashboard/autonomy` · Adoption `/dashboard/adoption` (admins) |
 | | Organization | Members `/dashboard/members` · Developers `/dashboard/developers` (MCP + REST endpoints, API credentials, docs) · System `/dashboard/admin` |
 | **You** | avatar menu | Profile `/dashboard/profile` |
@@ -41,7 +42,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 
 | Entity | Authored at | What it is |
 |---|---|---|
-| [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | The workspace's identity, defaults, lead, surfaces, and base-pack pin |
+| [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | The workspace's identity, defaults, lead, surfaces, plugins, and base-pack pin |
 | [Base pack](./entities/base-pack.md) | `packages/core/templates/base/pack.yaml` | The reusable layer that loads underneath a workspace, and how activation and overrides work |
 | [Agent](./entities/agent.md) | `agents/<slug>.yaml` | An LLM orchestrator: prompt, hierarchy, what it may reach, harness settings |
 | [Team](./entities/team.md) | `teams/<slug>.yaml` | A group of agents under a lead, with an accountable human, a goal, and the KPIs it is graded on |

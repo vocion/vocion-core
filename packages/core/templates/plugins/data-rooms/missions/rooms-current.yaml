@@ -1,0 +1,21 @@
+slug: rooms-current
+name: Every active room is current
+description: >-
+  The standing responsibility of the Room keeper — not a one-off run.
+goal: >-
+  Every active data room reads true today: what landed is filed with a
+  weight, the status paragraph is dated and says what is next, the timeline
+  has the milestones that happened, and anything only a person can decide is
+  on the review queue with its evidence.
+agent: room-keeper
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - No transcript, thread or document about an active engagement sits unfiled for more than one working day
+  - Every active room's status paragraph is dated within the last seven days
+  - Every collector question (a plausible match) is confirmed or dismissed within one working day
+  - Every open item names its owner and the evidence behind it
+desiredArtifacts:
+  - A one-paragraph status per active room, dated
+  - Highlights filed on each room as they occur
+schedule: '0 14 * * 1-5'

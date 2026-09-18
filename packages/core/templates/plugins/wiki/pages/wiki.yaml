@@ -1,0 +1,21 @@
+# The Wiki page — every page of the workspace wiki, newest change first. Each
+# row opens the artifact (read, edit in place, history, share). Rendered by
+# the core `list` archetype over the artifact log; no new table, no new route.
+slug: wiki
+title: Wiki
+description: The workspace's long-term memory — voice, standing rules, who is who, decisions — written by the agents and read before they act.
+icon: book-open
+nav: {section: Workspace, order: 5}
+archetype: list
+source: {kind: artifacts, folder: wiki, artifactKind: markdown, limit: 200}
+sort: {field: meta.updatedAt, dir: desc}
+stats:
+  - {label: Pages, kind: count}
+  - {label: Written by agents, kind: countWhere, where: {field: meta.lastAuthorKind, op: eq, value: agent}}
+fields:
+  - {key: title, label: Page}
+  - {key: summary, label: Summary, from: meta.summary}
+  - {key: version, label: Version, from: meta.version, format: mono}
+  - {key: author, label: Last by, from: meta.lastAuthorKind, format: badge, tones: {agent: info, human: ok, system: muted}}
+  - {key: updated, label: Updated, from: meta.updatedAt, format: date}
+rowLink: /dashboard/artifacts/{id}

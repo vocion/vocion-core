@@ -1,0 +1,19 @@
+slug: proposals-current
+name: Every Proposal-stage room has a verified document
+description: >-
+  The standing responsibility of the Proposal Writer — not a one-off run.
+goal: >-
+  Every data room at Proposal stage carries a current document that
+  render-verified clean, or an open item that says exactly what is missing
+  before one can be written. Nothing reaches a client unverified.
+agent: proposal-writer
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every Proposal-stage room has a document whose latest verify receipt reads clean, or an open item naming the gap
+  - No document older than the room's newest starred source without a note saying why
+  - Every export is a PDF a person can open from the room
+desiredArtifacts:
+  - The proposal document per Proposal-stage room, verified
+  - One line per room in the check report — verified, issues, or missing
+schedule: '0 15 * * 1'

@@ -1,0 +1,11 @@
+# The bar for a wiki write. A page edit is cheap to undo (the previous version
+# is one click away) and expensive to ask about every time, so the wiki runs
+# on its own at 0.6 — lower than the platform's 0.8 default for a reversible
+# kind. A workspace that wants every edit reviewed sets `enabled: false` in its
+# own trust.yaml; a rule there for the same action replaces this one.
+rules:
+  - action: wiki.write_page
+    autoApproveAbove: 0.6
+    enabled: true
+    rung: execute-within-bounds
+    risk: low

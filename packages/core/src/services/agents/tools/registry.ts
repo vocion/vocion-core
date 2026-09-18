@@ -25,6 +25,7 @@ import { apolloPeopleTools } from './apolloPeople';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
+import { listCapabilitiesTool } from './capabilities';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -67,6 +68,7 @@ import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
+import { wikiTools } from './wiki';
 import { zoomTools } from './zoomTranscript';
 
 /**
@@ -126,6 +128,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Where in Vocion a person does something, as a link — so an answer never
     // describes a screen it could have linked to. Read-only; on for every agent.
     whereToTool(ctx),
+    // What the workspace could turn on — plugins and connectors, on or off —
+    // so a gap becomes a recommendation instead of a workaround. Read-only.
+    listCapabilitiesTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     runCodeTool(ctx),
@@ -159,7 +164,11 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...documentTools(ctx),
     // Data rooms: the source of record per engagement. Reads and filing are
     // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
-    ...dataRoomTools(ctx),
+    // Present while the `data-rooms` plugin is on (an older context with no
+    // plugin list keeps them, so nothing already running loses a tool).
+    ...(ctx.enabledPlugins === undefined || ctx.enabledPlugins.includes('data-rooms') ? dataRoomTools(ctx) : []),
+    // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
+    ...wikiTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

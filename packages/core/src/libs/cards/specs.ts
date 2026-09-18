@@ -35,6 +35,8 @@ export type DataTableSpec = z.infer<typeof dataTableSpecSchema>;
 export const markdownSpecSchema = z.object({
   title: z.string().optional(),
   md: z.string().min(1).max(60_000),
+  /** One line the log and an index show under the title — a wiki page's summary. */
+  summary: z.string().max(200).optional(),
 });
 export type MarkdownSpec = z.infer<typeof markdownSpecSchema>;
 

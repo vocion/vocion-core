@@ -10,7 +10,9 @@ import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { personalizationEnrollAction } from './personalization-enroll';
+import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
+import { wikiWritePageAction } from './wiki-write-page';
 
 const registry = new Map<string, Action>();
 
@@ -32,6 +34,10 @@ registerAction(hubspotUpdateAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);
+// Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
+registerAction(pluginEnableAction);
+// A wiki page write — reversible (restore the previous version), done-for-you above the wiki plugin's bar.
+registerAction(wikiWritePageAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);

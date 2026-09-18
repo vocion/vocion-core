@@ -1,3 +1,6 @@
+# Shipped by the `proposals` plugin. Shadows the base pack's proposal-writer
+# (the brief-only default) when the plugin is on; a workspace patches either
+# with `extends: core` in its own agents/proposal-writer.yaml.
 slug: proposal-writer
 name: Proposal Writer
 description: >-
@@ -11,6 +14,7 @@ agentType: mission
 role: lead
 temperature: '0.2'
 eyebrow: Client documents · Lead
+team: proposals
 skills:
   - proposal-document
   - data-rooms

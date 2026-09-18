@@ -26,9 +26,10 @@ import { client } from '@/libs/Orpc';
  * are fetched lazily the first time the palette opens.
  * @param props
  * @param props.isAdmin - Whether admin-only routes are offered.
+ * @param props.enabledPlugins
  * @param props.agents - The workspace's chat agents (slug, name, description).
  */
-export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boolean; agents?: PaletteEntity[] }) {
+export function CommandPalette({ isAdmin = false, enabledPlugins, agents = [] }: { isAdmin?: boolean; enabledPlugins?: readonly string[]; agents?: PaletteEntity[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [teams, setTeams] = useState<PaletteEntity[]>();
@@ -92,12 +93,13 @@ export function CommandPalette({ isAdmin = false, agents = [] }: { isAdmin?: boo
     query,
     routes: DASHBOARD_ROUTES,
     isAdmin,
+    enabledPlugins,
     agents,
     teams,
     missions,
     conversations,
     themeIsDark: resolvedTheme === 'dark',
-  }), [query, isAdmin, agents, teams, missions, conversations, resolvedTheme]);
+  }), [query, isAdmin, enabledPlugins, agents, teams, missions, conversations, resolvedTheme]);
 
   const close = () => {
     setOpen(false);

@@ -65,7 +65,7 @@ describe('dashboardNav registry', () => {
     expect(sections.map(s => s.routes.map(r => r.url))).toEqual([
       ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'],
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
-      ['/dashboard/skills', '/dashboard/evals'],
+      ['/dashboard/skills', '/dashboard/evals', '/dashboard/plugins'],
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],
       ['/dashboard/members', '/dashboard/developers', '/api-docs', '/dashboard/admin'],
     ]);

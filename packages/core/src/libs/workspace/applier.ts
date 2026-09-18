@@ -735,7 +735,10 @@ async function applyWorkspaceLeadConfig(
   // Ids are validated against the core registry at load, so anything reaching
   // here names a real route. Replaced wholesale: dropping a surface from the
   // YAML turns it off, same declarative rule as `lead:`.
-  const enabledSurfaces = loaded.manifest.surfaces;
+  const enabledSurfaces = loaded.effectiveSurfaces;
+  // Plugins the same way: the resolved, dependency-closed list lands wholesale;
+  // dropping one from `plugins:` turns it off everywhere that reads the column.
+  const enabledPlugins = loaded.enabledPlugins;
   const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
   // Declarative like the rest: authored entries land wholesale, an omitted
   // block clears the column (no fast path for any action type).
@@ -758,6 +761,7 @@ async function applyWorkspaceLeadConfig(
       leadAgentSlug: projectSchema.leadAgentSlug,
       accountableUserId: projectSchema.accountableUserId,
       enabledSurfaces: projectSchema.enabledSurfaces,
+      enabledPlugins: projectSchema.enabledPlugins,
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
       voiceRules: projectSchema.voiceRules,
@@ -792,7 +796,7 @@ async function applyWorkspaceLeadConfig(
   }
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -801,6 +805,9 @@ async function applyWorkspaceLeadConfig(
   const surfacesUnchanged
     = project.enabledSurfaces.length === enabledSurfaces.length
       && project.enabledSurfaces.every((s, i) => s === enabledSurfaces[i]);
+  const pluginsUnchanged
+    = (project.enabledPlugins ?? []).length === enabledPlugins.length
+      && (project.enabledPlugins ?? []).every((s, i) => s === enabledPlugins[i]);
   // Compared as JSON rather than field by field: the object has two optional
   // keys, so a shallow equality check would have to enumerate both and would
   // silently stop covering a third. Same reasoning for the skill mapping,
@@ -816,6 +823,7 @@ async function applyWorkspaceLeadConfig(
     (project.leadAgentSlug ?? null) === lead
     && (project.accountableUserId ?? null) === accountableUserId
     && surfacesUnchanged
+    && pluginsUnchanged
     && embeddingUnchanged
     && regenerateUnchanged
     && voiceUnchanged
@@ -829,7 +837,7 @@ async function applyWorkspaceLeadConfig(
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, voiceRules, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, voiceRules, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

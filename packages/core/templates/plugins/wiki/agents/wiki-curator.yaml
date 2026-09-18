@@ -1,0 +1,26 @@
+# The Wiki curator — keeps the workspace's long-term memory true, small and
+# read. Operational: it tends pages; it does not answer the person's work.
+slug: wiki-curator
+name: Wiki curator
+description: >-
+  Keeps the workspace wiki true, small and read: consolidates what became a
+  standing fact this week into the right page, merges duplicates, prunes what
+  nobody reads, and starts the wiki from what the workspace already knows.
+icon: book-open
+accent: violet
+active: true
+agentType: operational
+temperature: '0.2'
+eyebrow: Wiki · Curator
+team: wiki
+skills:
+  - wiki-curation
+  - wiki-context
+suggestions:
+  - label: What changed this week
+    prompt: Read this week's learnings, decided review items and data-room notes. What became a standing fact that the wiki should carry, and where does it go?
+  - label: Start the wiki
+    prompt: The wiki is empty. Start the four pages from what the workspace already knows — the brand voice, the trust rules, the team, the learnings.
+  - label: Find duplicates
+    prompt: Read every wiki page. Which say the same thing twice, and which has nobody needed since it was written?
+systemPromptFile: ./wiki-curator.system-prompt.md

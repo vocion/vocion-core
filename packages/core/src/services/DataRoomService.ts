@@ -43,6 +43,9 @@ import { addDocumentLink, createBusinessObject, createObjectType, getBusinessObj
 
 export const DATA_ROOM_TYPE = 'data_room';
 
+export const MATCH_HIGH = 0.75;
+export const MATCH_MEDIUM = 0.45;
+
 export type RoomPerson = { name: string; role?: string; email?: string; side?: 'client' | 'seller' | 'partner' };
 export type RoomDeliverable = { date?: string; title: string; artifactId?: number; status?: 'planned' | 'drafted' | 'sent' | 'signed' };
 export type RoomSource = {
@@ -294,7 +297,24 @@ export async function createDataRoom(orgId: string, userId: string, input: Creat
     highlights: [],
   };
   const row = await createBusinessObject({ typeSlug: DATA_ROOM_TYPE, title: input.title, status: 'active', metadata: meta }, orgId, userId);
+  void trackRoomEvent(orgId, userId, 'room.created', { by: userId === 'collector' ? 'collector' : userId.startsWith('agent:') ? 'agent' : 'human' });
   return toRoom(row!);
+}
+
+/**
+ * The adoption stream's record of a room event — the data-rooms plugin's
+ * measures read these. Fire-and-forget; never fails the write.
+ * @param orgId - The project.
+ * @param actor - Who did it (`collector`, `agent:<slug>`, a user id).
+ * @param type - The event.
+ * @param meta - Its metadata.
+ * @param meta.by
+ * @param meta.score
+ */
+function trackRoomEvent(orgId: string, actor: string, type: 'room.created' | 'room.source_filed', meta: { by: 'collector' | 'agent' | 'human'; score?: 'high' | 'medium' }): void {
+  void import('@/services/adoption/track')
+    .then(({ track }) => track({ orgId, userId: actor }, type, { agentSlug: actor.startsWith('agent:') ? actor.slice(6) : undefined, meta }))
+    .catch(() => {});
 }
 
 export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & {
@@ -517,6 +537,11 @@ export async function fileToDataRoom(orgId: string, id: number, input: FileInput
   // "take it out": the dismissal is lifted so the collector may keep it current.
   const unfiled = input.documentId && input.filedBy !== 'auto' ? (room.meta.unfiled ?? []).filter(d => d !== input.documentId) : room.meta.unfiled;
   const [updated] = await updateBusinessObject({ id, metadata: { ...room.meta, sources, ...(unfiled ? { unfiled } : {}) } as Record<string, unknown> }, orgId);
+  const actor = input.author.id ?? (input.filedBy === 'auto' ? 'collector' : input.author.kind);
+  void trackRoomEvent(orgId, actor, 'room.source_filed', {
+    by: input.filedBy === 'auto' ? 'collector' : input.author.kind === 'agent' ? 'agent' : 'human',
+    ...(input.score === undefined ? {} : { score: input.score >= MATCH_HIGH ? 'high' : 'medium' }),
+  });
   return { room: updated ? toRoom(updated) : room, source, decisionLog };
 }
 
@@ -661,9 +686,6 @@ export type MatchOutcome = {
   /** `high` files; `medium` proposes the filing; `none` proposes a new room. */
   confidence: 'high' | 'medium' | 'none';
 };
-
-export const MATCH_HIGH = 0.75;
-export const MATCH_MEDIUM = 0.45;
 
 const EMAIL = /[\w.%+-]+@([a-z0-9.-]+\.[a-z]{2,})/gi;
 

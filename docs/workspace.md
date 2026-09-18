@@ -37,7 +37,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 
 ```
 <workspace-dir>/
-├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin
+├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin, plugins
 ├── trust.yaml                    # which actions may auto-execute, above what confidence, at which rung / risk tier
 ├── voice.yaml                    # banned constructions in outbound copy — the gate, not a suggestion (docs/guides/voice-rules.md)
 ├── agents/
@@ -131,6 +131,22 @@ fewShotExamples:
 ### Edit an agent's system prompt
 
 Open `agents/<agent>.system-prompt.md` in the workspace, edit, save, re-apply. The agent uses the new prompt on the next request.
+
+## Plugins — capability you turn on (`plugins:`)
+
+A **plugin** is a bundle of agents, skills, object types, missions, automations,
+teams, pages and trust rules shipped inside vocion-core at
+`packages/core/templates/plugins/<slug>/`. A workspace turns one on with one line
+and overrides any of its files by slug, exactly as it does with the base pack:
+
+```yaml
+# workspace.yaml
+plugins: [wiki, data-rooms, proposals] # dependencies come along; OMIT → none
+```
+
+Three ship today — `wiki`, `data-rooms`, `proposals` — and the **Plugins** page
+(`/dashboard/plugins`) switches them on and off by editing this list and
+applying. Composition rules, anatomy and how to write one: [`docs/plugins.md`](./plugins.md).
 
 ## Base packs — activate + extend (`extends` / `use` / `disable`)
 

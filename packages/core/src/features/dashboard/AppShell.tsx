@@ -43,18 +43,22 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Surfaces the workspace switched on (workspace.yaml `surfaces:`), read from
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
+  // Plugins the workspace turned on (workspace.yaml `plugins:`), same row —
+  // plugin-owned nav rows (Data rooms) show only while their plugin is on.
+  let enabledPlugins: string[] = [];
   // The workspace the shell is showing — named in the top bar so "where am I"
   // is answered without opening the switcher (design principle 8).
   let workspace: { slug: string; name: string } | null = null;
   if (orgId) {
     const [project] = await db
-      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces })
+      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces, enabledPlugins: projectSchema.enabledPlugins })
       .from(projectSchema)
       .where(eq(projectSchema.id, orgId))
       .limit(1);
     // Drop ids this core no longer registers, so a stale workspace list can't
     // put a broken link in the sidebar.
     enabledSurfaces = (project?.enabledSurfaces ?? []).filter(isSurfaceId);
+    enabledPlugins = project?.enabledPlugins ?? [];
     workspace = project ? { slug: project.slug, name: project.name } : null;
     if (!project) {
       return (
@@ -108,6 +112,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       <AppSidebar
         collapsible="icon"
         isAdmin={isAdmin}
+        enabledPlugins={enabledPlugins}
         enabledSurfaces={enabledSurfaces}
         needsYouCount={waiting}
         workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
@@ -144,7 +149,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
-        <AgentSurfaceHotkey isAdmin={isAdmin} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
+        <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
       </SidebarInset>
     </SidebarProvider>
   );

@@ -33,6 +33,7 @@ import {
 } from '@/models/Schema';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { listPending } from '@/services/ReviewService';
+import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 
 /**
@@ -124,6 +125,32 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
           model: a.model,
         },
       }));
+  }
+
+  if (src.kind === 'artifacts') {
+    // What agents and people MADE — the artifact log, by folder and/or kind.
+    // A wiki page is a markdown artifact in the `wiki` folder; `meta` carries
+    // the columns a page's fields read (version, author kind, updated, playbook).
+    const { listArtifacts } = await import('@/services/ArtifactService');
+    const items = await listArtifacts({ orgId, folder: src.folder ?? null, kinds: src.artifactKind ? [src.artifactKind] : null, limit: src.limit, visibility: 'all' });
+    return items.map(a => ({
+      id: a.id,
+      title: a.title,
+      status: a.kind,
+      createdAt: new Date(a.createdAt),
+      meta: {
+        kind: a.kind,
+        folder: a.folder,
+        version: a.version,
+        lastAuthorKind: a.authorKind,
+        updatedAt: new Date(a.updatedAt),
+        summary: (a.spec as { summary?: string }).summary ?? firstParagraph(String((a.spec as { md?: string }).md ?? '')),
+        playbook: (a.spec as { playbook?: string }).playbook,
+        recordType: a.recordType,
+        recordId: a.recordId,
+        versions: a.versions,
+      },
+    }));
   }
 
   // documents

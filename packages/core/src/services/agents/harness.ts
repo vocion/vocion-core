@@ -39,9 +39,12 @@ import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { resolveTimeZone } from '@/libs/time/zone';
+import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { enabledPluginsForOrg } from '@/services/PluginService';
+import { mountWiki } from '@/services/wiki/WikiService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
@@ -204,6 +207,10 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   const noopEmit: RuntimeContext['emit'] = () => {};
   const harnessConfig = row.harnessConfig ?? {};
   const defaultTimeZone = await workspaceTimeZone(orgId);
+  // Plugins the workspace has on, once per graph: plugin-owned tool sets are
+  // present only with their plugin, and the prompt names what is off. An apply
+  // resets the graph cache, so a toggle reaches the next turn.
+  const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
   const ctx: RuntimeContext = {
     orgId,
     timeZone: defaultTimeZone,
@@ -211,6 +218,7 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
+    enabledPlugins,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig,
     emit: noopEmit,
@@ -293,6 +301,16 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
   systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
+
+  // CAPABILITIES (CORE, all agents). What the workspace could turn on and has
+  // not: the chat recommends a plugin when the conversation calls for it
+  // (Chris, 2026-09-18) instead of working around the gap. Data, not prose:
+  // the same catalogue the Plugins page lists. The graph cache resets on
+  // apply, so this line is as current as the toggle.
+  const capabilitiesNote = capabilitiesPromptNote(enabledPlugins);
+  if (capabilitiesNote) {
+    systemPrompt = `${systemPrompt}\n\n${capabilitiesNote}`;
+  }
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
@@ -470,6 +488,30 @@ function toFileData(content: string): MountedFileData {
   return { content, mimeType: 'text/markdown', created_at: now, modified_at: now };
 }
 
+/**
+ * The one-paragraph note the system prompt carries about plugins: the wiki's
+ * mount when it is on, and each plugin that is OFF with when it helps. Empty
+ * when nothing needs saying.
+ * @param enabledPlugins - The workspace's enabled plugin slugs.
+ */
+export function capabilitiesPromptNote(enabledPlugins: readonly string[]): string {
+  let catalogue: ReturnType<typeof listPlugins>;
+  try {
+    catalogue = listPlugins();
+  } catch {
+    return '';
+  }
+  const lines: string[] = [];
+  if (enabledPlugins.includes('wiki')) {
+    lines.push('WIKI: the workspace wiki — long-term context that changes slowly (voice, standing rules, who is who, decisions) — is mounted at /wiki/index.md with the pages that fit at /wiki/<slug>.md. Read the relevant page before acting on a standing fact and cite it; read_wiki_page fetches one that did not fit. When you learn a durable fact or a person corrects a standing one, write it with write_wiki_page (honest confidence; above the bar it is done for you, below it a person decides).');
+  }
+  const off = catalogue.filter(p => !enabledPlugins.includes(p.manifest.slug));
+  if (off.length > 0) {
+    lines.push(`PLUGINS OFF in this workspace — recommend turning one on (recommend_action with action plugin.enable and input {"slug": "<slug>"}) when the conversation calls for it; list_capabilities has the full read: ${off.map(p => `${p.manifest.name} (${p.manifest.slug}) — ${p.manifest.description}${p.manifest.recommend.when.length ? ` Helps when: ${p.manifest.recommend.when.join('; ')}.` : ''}`).join(' | ')}`);
+  }
+  return lines.join('\n');
+}
+
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
@@ -507,8 +549,18 @@ export async function buildInitialFiles(
     workspaceSteps: row.learningSteps ?? [],
     ...memoryCtx,
   });
+  // The wiki (plugin `wiki`): the index and the pages that fit, at /wiki/…,
+  // fresh every turn — slow-changing context beside the fast-changing rules.
+  let wiki: Record<string, string> = {};
+  try {
+    if ((await enabledPluginsForOrg(orgId)).includes('wiki')) {
+      wiki = await mountWiki(orgId);
+    }
+  } catch (error) {
+    logger.warn(`agent "${agentSlug}": the wiki did not mount this turn`, { error });
+  }
   return Object.fromEntries(
-    Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...memories, ...wiki }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

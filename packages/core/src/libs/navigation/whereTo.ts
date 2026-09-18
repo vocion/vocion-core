@@ -32,6 +32,7 @@ export type WhereToIntent
     | 'manage-agents'
     | 'manage-missions'
     | 'manage-automations'
+    | 'manage-plugins'
     | 'run-evals'
     | 'invite-member'
     | 'api-token'
@@ -78,6 +79,7 @@ export const WHERE_TO: readonly WhereTo[] = [
   T('manage-agents', 'See the team and its agents', '/dashboard/agents', 'Each agent\'s prompt, skills and tools; edits are made in the workspace repo, applied here.', ['agent', 'agents', 'team', 'prompt', 'skills']),
   T('manage-missions', 'Open the missions', '/dashboard/missions', 'A mission is a standing goal; open one for its runs, notes and what it last did.', ['mission', 'goal', 'runs']),
   T('manage-automations', 'Open the automations', '/dashboard/automation', 'Schedules and triggers, each with its next run; a paused one says so.', ['automation', 'schedule', 'cron', 'trigger', 'when']),
+  T('manage-plugins', 'Turn a plugin on or off', '/dashboard/plugins', 'Each plugin — wiki, data rooms, proposals — with what it adds; Turn on edits workspace.yaml and applies it.', ['plugin', 'plugins', 'module', 'app', 'enable', 'turn on', 'install', 'wiki', 'data rooms', 'proposals', 'capability']),
   T('run-evals', 'Run or read an eval', '/dashboard/evals', 'Datasets per agent with pass rates; Compare models runs the same set on two models.', ['eval', 'evaluation', 'dataset', 'pass rate', 'compare models']),
   T('invite-member', 'Invite a teammate', '/dashboard/members', 'Invite by email and pick a role; the invite lands in their inbox.', ['invite', 'member', 'teammate', 'user', 'role', 'admin']),
   T('api-token', 'Create an API token', '/dashboard/developers', 'Mint a token and copy it once; it authenticates outside callers to this workspace.', ['api', 'token', 'developer', 'bearer', 'integration']),
