@@ -262,6 +262,30 @@ describe('agent-tools bridge — calls', () => {
     }
   });
 
+  it('propose_action refuses a proposal that recommends nothing', async () => {
+    // Enforced by the schema rather than asked for in the description: a card
+    // with no recommendation cannot be compared against what the reviewer
+    // decided, and that comparison is the only read anyone has on whether the
+    // agent's criteria are working.
+    const { client, server } = await setupClientServer(configFor('lead-agent'));
+    try {
+      const result = (await client.callTool({
+        name: 'propose_action',
+        arguments: {
+          action_id: 'gmail.send',
+          action_input: { to: 'client@example.com', subject: 'Hi', body: 'Draft body' },
+          confidence: 0.9,
+          rationale: 'Test proposal.',
+        },
+      })) as ToolResult;
+
+      expect(result.isError).toBe(true);
+      expect(resultText(result)).toMatch(/suggested_decision/);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('propose_action lands PENDING in the review queue — never executes', async () => {
     const { client, server } = await setupClientServer(configFor('lead-agent'));
     try {
@@ -272,6 +296,8 @@ describe('agent-tools bridge — calls', () => {
           action_input: { to: 'client@example.com', subject: 'Hi', body: 'Draft body' },
           confidence: 0.9,
           rationale: 'Test proposal.',
+          suggested_decision: 'approve',
+          suggested_decision_reason: 'The client asked for this draft on the Sep 14 call.',
         },
       })) as ToolResult;
 

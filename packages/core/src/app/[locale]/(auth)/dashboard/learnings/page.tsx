@@ -1,13 +1,16 @@
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { ListRow, ListRows, Subline } from '@/components/patterns';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
-import { listCandidates } from '@/services/LearningCandidateService';
-import { listSteps } from '@/services/LearningsService';
+import { db } from '@/libs/DB';
+import { learningFeedbackOccurrenceSchema } from '@/models/Schema';
+import { listCandidates, listDecidedWithEvidence } from '@/services/LearningCandidateService';
+import { listNamespaces } from '@/services/MemoryService';
 import { PendingCandidates } from './PendingCandidates';
 
 /**
@@ -31,23 +34,37 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
   }
 
   const CANDIDATE_PAGE_SIZE = 20;
-  const [steps, pending] = await Promise.all([
-    listSteps(orgId),
+  const [steps, pending, decided] = await Promise.all([
+    listNamespaces(orgId),
     listCandidates(orgId, { status: 'pending', limit: CANDIDATE_PAGE_SIZE }),
+    listDecidedWithEvidence(orgId),
   ]);
+
+  // Scope options per candidate: the agent whose output drew the feedback and
+  // the person who gave it, read off the occurrence evidence. These are what
+  // the card's scope select can re-target to.
+  const candidateIds = pending.items.map(c => c.id);
+  const occurrenceRefs = candidateIds.length > 0
+    ? await db
+        .select({
+          candidateId: learningFeedbackOccurrenceSchema.candidateId,
+          agentSlug: sql<string | null>`max(${learningFeedbackOccurrenceSchema.agentSlug})`,
+          submittedBy: sql<string | null>`max(${learningFeedbackOccurrenceSchema.submittedBy})`,
+        })
+        .from(learningFeedbackOccurrenceSchema)
+        .where(and(
+          eq(learningFeedbackOccurrenceSchema.orgId, orgId),
+          inArray(learningFeedbackOccurrenceSchema.candidateId, candidateIds),
+        ))
+        .groupBy(learningFeedbackOccurrenceSchema.candidateId)
+    : [];
+  const refsByCandidate = new Map(occurrenceRefs.map(r => [r.candidateId, r]));
 
   return (
     <>
       <TitleBar
-        title={(
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Sparkles className="size-5" />
-            </div>
-            <span>Learnings</span>
-          </div>
-        )}
-        description="Whitelisted rule buckets the self-improver agent feeds, gated by human approval. Each step is mounted into the agent's virtual FS at /learnings/<step>.md."
+        title="Learnings"
+        description="Whitelisted memory namespaces the feedback loop feeds, gated by human approval. Each one mounts into the agent's virtual FS under /memories/<path>/."
       />
 
       <PendingCandidates
@@ -60,9 +77,15 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
           polarity: candidate.polarity,
           occurrenceCount: candidate.occurrenceCount,
           createdAt: candidate.createdAt.toISOString(),
+          memoryType: candidate.memoryType,
+          scopeKind: candidate.scopeKind,
+          scopeRef: candidate.scopeRef,
+          agentRef: refsByCandidate.get(candidate.id)?.agentSlug ?? null,
+          userRef: refsByCandidate.get(candidate.id)?.submittedBy ?? null,
         }))}
         total={pending.total}
         pageSize={CANDIDATE_PAGE_SIZE}
+        steps={steps.map(s => ({ name: s.name, title: s.title }))}
       />
 
       {steps.length === 0
@@ -74,52 +97,110 @@ export default async function LearningsPage(props: { params: Promise<{ locale: s
             />
           )
         : (
-            <ul className="grid gap-3 sm:grid-cols-2">
+            <ListRows className="border-y border-border/70">
               {steps.map(s => (
-                <li key={s.name}>
-                  <Link
-                    href={`/dashboard/learnings/${s.name}`}
-                    className="block rounded-xl border border-border bg-background p-5 transition hover:border-primary/30"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-base font-semibold">{s.title}</h3>
-                        <code className="font-mono text-xs text-muted-foreground">{s.name}</code>
-                      </div>
-                      <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{s.description}</p>
-                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-mono">
+                <ListRow
+                  key={s.name}
+                  href={`/dashboard/learnings/${s.name}`}
+                  icon={Sparkles}
+                  title={s.title}
+                  subline={(
+                    <Subline
+                      separator="·"
+                      segments={[
+                        <code key="path" className="font-mono">{s.path}</code>,
+                        s.scopeKind === 'workspace' ? null : `${s.scopeKind} scope`,
+                        s.description,
+                        <span key="used" title="When an agent last had this namespace mounted">
+                          {s.lastUsedAt ? `used ${s.lastUsedAt.toISOString().slice(0, 10)}` : 'never used'}
+                        </span>,
+                      ]}
+                    />
+                  )}
+                  chip={(
+                    <span className="flex items-center gap-2">
+                      {s.agentSlugs.slice(0, 2).map(slug => (
+                        <Badge key={slug} variant="outline">{slug}</Badge>
+                      ))}
+                      {s.agentSlugs.length > 2 && (
+                        <span>
+                          +
+                          {s.agentSlugs.length - 2}
+                        </span>
+                      )}
+                      <span className="tabular-nums">
                         {s.ruleCount}
                         {' '}
                         rule
                         {s.ruleCount === 1 ? '' : 's'}
                       </span>
-                      {s.agentSlugs.length > 0 && (
-                        <>
-                          <span aria-hidden>·</span>
-                          <div className="flex flex-wrap gap-1">
-                            {s.agentSlugs.slice(0, 3).map(slug => (
-                              <Badge key={slug} variant="outline" className="text-[10px]">
-                                {slug}
-                              </Badge>
-                            ))}
-                            {s.agentSlugs.length > 3 && (
-                              <span className="text-[10px]">
-                                +
-                                {s.agentSlugs.length - 3}
-                              </span>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </Link>
-                </li>
+                    </span>
+                  )}
+                />
               ))}
-            </ul>
+            </ListRows>
           )}
+
+      {decided.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-base font-semibold">Recent decisions</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            What reviewers decided, with the eval score movement where an adoption triggered the agent's dataset.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {decided.map(c => (
+              <li key={c.id} className="rounded-lg border border-border bg-background px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className={c.status === 'approved' ? 'font-medium text-emerald-700' : 'font-medium text-red-700'}>
+                    {c.status}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <code className="font-mono">{c.scopeKind && c.scopeKind !== 'workspace' ? `${c.scopeKind}:${c.scopeRef}` : c.stepName}</code>
+                  {c.memoryType && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{c.memoryType}</span>
+                    </>
+                  )}
+                  {c.decidedBy && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>
+                        by
+                        {' '}
+                        {c.decidedBy}
+                      </span>
+                    </>
+                  )}
+                  {c.evalAfterPct !== null && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span
+                        className="font-medium text-foreground"
+                        title="The agent's eval dataset pass rate before and after this adoption"
+                      >
+                        eval
+                        {' '}
+                        {c.evalBeforePct !== null ? `${c.evalBeforePct}% → ` : ''}
+                        {c.evalAfterPct}
+                        %
+                      </span>
+                    </>
+                  )}
+                </div>
+                <p className="mt-1 line-clamp-2">{c.ruleText}</p>
+                {c.rejectedReason && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Reason:
+                    {' '}
+                    {c.rejectedReason}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

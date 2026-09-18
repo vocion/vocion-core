@@ -54,7 +54,7 @@ function candidate(over: Record<string, unknown> = {}) {
     fields: {
       title: 'Open Mic Night',
       start: '2026-09-12T19:30',
-      venue: 'The Flynn',
+      venue: 'The Corvina',
       categories: ['Music'],
     },
     dedupOn: ['title', 'start', 'venue'],
@@ -141,7 +141,7 @@ describe('the input contract — domain-free', () => {
   });
 });
 
-describe('the dedupOn contract — VEERIO-257', () => {
+describe('the dedupOn contract — LARK-257', () => {
   it('rejects a missing dedupOn, naming the object type and the fix', () => {
     expect(() => objectProposeCandidateAction.inputSchema.parse({ objectType: TYPE_SLUG, title: 'Open Mic Night' }))
       .toThrow(new RegExp(`dedupOn must list at least one field for.*${TYPE_SLUG}.*top level of the input`));
@@ -156,10 +156,10 @@ describe('the dedupOn contract — VEERIO-257', () => {
       .toThrow(new RegExp(`dedupOn found inside fields for.*${TYPE_SLUG}.*top level of the input`));
   });
 
-  it('reproduces the VEERIO-257 shape: empty dedupOn at the top level, the real list nested in fields', () => {
+  it('reproduces the LARK-257 shape: empty dedupOn at the top level, the real list nested in fields', () => {
     expect(() => parse({
       dedupOn: [],
-      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'The Flynn', dedupOn: ['title', 'start', 'venue'] },
+      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'The Corvina', dedupOn: ['title', 'start', 'venue'] },
     })).toThrow(/dedupOn must list at least one field[\s\S]*dedupOn found inside fields/);
   });
 
@@ -193,7 +193,7 @@ describe('the dedupOn contract — VEERIO-257', () => {
   });
 
   it('re-proposing the same candidate refreshes the existing pending row instead of stacking a second one', async () => {
-    // Pre-existing dedup-collapse behaviour, not new with VEERIO-257 — this
+    // Pre-existing dedup-collapse behaviour, not new with LARK-257 — this
     // is here as a regression guard: it would pass just as well before that
     // fix, since the fix only changes what a proposal without an identity
     // does, not what happens when the identity matches.
@@ -245,12 +245,12 @@ describe('the dedupOn contract — VEERIO-257', () => {
 
 describe('the dedup key — per candidate, never per page', () => {
   it('is built from the named fields, in the order they are named', () => {
-    expect(dedupKey()).toBe('objects.propose_candidate:event-candidate|open-mic-night|2026-09-12t19-30|the-flynn');
+    expect(dedupKey()).toBe('objects.propose_candidate:event-candidate|open-mic-night|2026-09-12t19-30|the-corvina');
   });
 
   it('collapses casing, punctuation and accents so two extractions are one item', () => {
     const a = dedupKey();
-    const b = dedupKey({ fields: { title: '  OPEN mic  Night! ', start: '2026-09-12T19:30', venue: 'The Flynn.' } });
+    const b = dedupKey({ fields: { title: '  OPEN mic  Night! ', start: '2026-09-12T19:30', venue: 'The Corvina.' } });
 
     expect(b).toBe(a);
     expect(dedupKey({ fields: { title: 'Soirée', start: '2026-09-12T19:30', venue: 'Café' } }))
@@ -260,11 +260,11 @@ describe('the dedup key — per candidate, never per page', () => {
   it('changes when an identity field changes, and not when anything else does', () => {
     const a = dedupKey();
 
-    expect(dedupKey({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } })).not.toBe(a);
+    expect(dedupKey({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Corvina' } })).not.toBe(a);
     // A corrected blurb and new categories are the same candidate.
     expect(dedupKey({
       summary: 'Rewritten blurb.',
-      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'The Flynn', categories: ['Music', 'Free'] },
+      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'The Corvina', categories: ['Music', 'Free'] },
     })).toBe(a);
   });
 
@@ -276,7 +276,7 @@ describe('the dedup key — per candidate, never per page', () => {
   });
 
   it('never substitutes a constant dedup key when nothing identifies the candidate, which would merge unrelated candidates into one', () => {
-    // Pre-existing safety net in `dedupKeyFor`, not new with VEERIO-257 — the
+    // Pre-existing safety net in `dedupKeyFor`, not new with LARK-257 — the
     // input schema now refuses an empty `dedupOn` outright (see 'the
     // dedupOn contract' below), so on the `propose_candidate` path this can
     // no longer happen. This exercises the defensive branch directly, via a
@@ -296,7 +296,7 @@ describe('the dedup key — per candidate, never per page', () => {
     const first = dedupKey();
 
     expect(first).not.toContain('listings.example.org');
-    expect(dedupKey({ fields: { title: 'Poetry Slam', start: '2026-09-12T19:30', venue: 'The Flynn' } })).not.toBe(first);
+    expect(dedupKey({ fields: { title: 'Poetry Slam', start: '2026-09-12T19:30', venue: 'The Corvina' } })).not.toBe(first);
   });
 });
 
@@ -315,7 +315,7 @@ describe('the candidate row', () => {
     expect(object!.status).toBe('candidate');
     expect(object!.title).toBe('Open Mic Night');
     expect(object!.reviewActionRunId).toBe(proposed.runId);
-    expect(object!.metadata).toMatchObject({ start: '2026-09-12T19:30', venue: 'The Flynn' });
+    expect(object!.metadata).toMatchObject({ start: '2026-09-12T19:30', venue: 'The Corvina' });
     // Nothing has been published, so there is nothing to point at.
     expect(object!.externalSystem).toBeNull();
     expect(object!.externalId).toBeNull();
@@ -524,13 +524,13 @@ describe('the review card', () => {
         title: 'Open Mic Night',
         start: '2026-09-12T19:30',
         venue: null,
-        organiser: { name: 'Flynn Arts', phone: '802-555-0100' },
+        organiser: { name: 'Corvina Arts', phone: '802-555-0100' },
       },
     }));
 
     // A null field is absent, not a row reading "null".
     expect(fieldValue(card.fields, 'Venue')).toBeUndefined();
-    expect(fieldValue(card.fields, 'Organiser')?.value).toBe('{"name":"Flynn Arts","phone":"802-555-0100"}');
+    expect(fieldValue(card.fields, 'Organiser')?.value).toBe('{"name":"Corvina Arts","phone":"802-555-0100"}');
   });
 
   it('lists a described field that propertyOrder forgot, after the ones it named', async () => {
@@ -574,7 +574,7 @@ describe('the duplicate flag', () => {
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } }),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Corvina' } }),
     });
 
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
@@ -588,7 +588,7 @@ describe('the duplicate flag', () => {
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ fields: { title: 'Poetry Slam', start: '2026-09-12T19:30', venue: 'The Flynn' } }),
+      input: candidate({ fields: { title: 'Poetry Slam', start: '2026-09-12T19:30', venue: 'The Corvina' } }),
     });
 
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
@@ -617,7 +617,7 @@ describe('the duplicate flag', () => {
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } }),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Corvina' } }),
     });
     await rejectAction(sibling.runId, ORG, 'Not a real event');
 
@@ -644,12 +644,12 @@ describe('the duplicate flag', () => {
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } }),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Corvina' } }),
     });
 
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
 
-    expect(fieldValue(card.fields, 'Possible duplicate')?.value).toContain('the-flynn');
+    expect(fieldValue(card.fields, 'Possible duplicate')?.value).toContain('the-corvina');
   });
 
   it('never looks across orgs', async () => {
@@ -658,7 +658,7 @@ describe('the duplicate flag', () => {
       orgId: OTHER_ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(OTHER_ORG),
-      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Flynn' } }),
+      input: candidate({ fields: { title: 'Open Mic Night', start: '2026-09-19T19:30', venue: 'The Corvina' } }),
     });
 
     const card = await objectProposeCandidateAction.reviewCard!({ orgId: ORG }, parse());
@@ -673,7 +673,7 @@ describe('the queue behaviour', () => {
   });
 
   it('two candidates that differ only in their dedupOn field land as two separate queue items, never merged', async () => {
-    // Pre-existing dedup-key behaviour, not new with VEERIO-257 — before
+    // Pre-existing dedup-key behaviour, not new with LARK-257 — before
     // that fix a one-off candidate could also reach this by passing
     // `dedupOn: []`, which is refused now (see 'the dedupOn contract'
     // above). The rule this guards — two different identity values are two
@@ -682,13 +682,13 @@ describe('the queue behaviour', () => {
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ title: 'First find', fields: { title: 'First find', start: '2026-09-12T19:30', venue: 'The Flynn' } }),
+      input: candidate({ title: 'First find', fields: { title: 'First find', start: '2026-09-12T19:30', venue: 'The Corvina' } }),
     });
     const second = await proposeAction({
       orgId: ORG,
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
-      input: candidate({ title: 'Second find', fields: { title: 'Second find', start: '2026-09-12T19:30', venue: 'The Flynn' } }),
+      input: candidate({ title: 'Second find', fields: { title: 'Second find', start: '2026-09-12T19:30', venue: 'The Corvina' } }),
     });
 
     expect(second.runId).not.toBe(first.runId);
@@ -701,7 +701,7 @@ describe('the queue behaviour', () => {
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
       input: candidate(),
-      proposal: { confidence: 0.86, rationale: 'clean per-event page' },
+      proposal: { confidence: 0.86, rationale: 'clean per-event page', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded candidate proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
@@ -744,7 +744,7 @@ describe('the queue behaviour', () => {
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
       input: candidate(),
-      proposal: { confidence: 0.99 },
+      proposal: { confidence: 0.99, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded candidate proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
@@ -803,14 +803,14 @@ describe('deciding a candidate', () => {
 
     // Edit-then-approve: the moderator fixes the venue before approving.
     await updateActionInput(proposed.runId, ORG, candidate({
-      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'Flynn Center' },
+      fields: { title: 'Open Mic Night', start: '2026-09-12T19:30', venue: 'Corvina Center' },
     }));
     await executeAction(proposed.runId, ORG, { reviewedBy: 'user_moderator' });
 
     const [object] = await objectsFor();
 
     // The published record must be the corrected one, not the extraction.
-    expect(object!.metadata).toMatchObject({ venue: 'Flynn Center' });
+    expect(object!.metadata).toMatchObject({ venue: 'Corvina Center' });
     expect(object!.status).toBe('approved');
   });
 
@@ -822,7 +822,7 @@ describe('deciding a candidate', () => {
     const [object] = await objectsFor();
 
     expect(object!.status).toBe('rejected');
-    expect(object!.metadata).toMatchObject({ venue: 'The Flynn' });
+    expect(object!.metadata).toMatchObject({ venue: 'The Corvina' });
   });
 
   it('fails loudly when there is no stored row to approve', async () => {

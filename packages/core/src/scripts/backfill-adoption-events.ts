@@ -24,7 +24,7 @@ import { db } from '@/libs/DB';
 import {
   conversationMessageSchema,
   conversationSchema,
-  learningSchema,
+  memorySchema,
   missionRunSchema,
   userActivityEventSchema,
   workflowRunSchema,
@@ -134,18 +134,21 @@ async function main() {
     }
   }
 
-  // learning.added — agent-targeted learnings carry an 'agent:<slug>' source.
-  const learnings = await db.select().from(learningSchema).where(isNotNull(learningSchema.createdBy));
-  for (const l of learnings) {
-    if (isHumanActor(l.createdBy)) {
+  // learning.added — adopted rules live in the memory store now; provenance
+  // (createdBy, source) rides value.meta. Agent-targeted ones carry an
+  // 'agent:<slug>' source.
+  const rules = await db.select().from(memorySchema).where(isNotNull(sql`${memorySchema.value} #>> '{meta,createdBy}'`));
+  for (const l of rules) {
+    const meta = (l.value as { meta?: { createdBy?: string | null; source?: string | null } }).meta ?? {};
+    if (meta.createdBy && isHumanActor(meta.createdBy)) {
       out.push({
         orgId: l.orgId,
-        projectId: l.projectId,
-        userId: l.createdBy,
-        agentSlug: agentSlugFromPrincipal(l.source),
+        projectId: null,
+        userId: meta.createdBy,
+        agentSlug: agentSlugFromPrincipal(meta.source ?? null),
         eventType: 'learning.added',
-        resourceType: 'learning',
-        resourceId: String(l.id),
+        resourceType: 'memory',
+        resourceId: l.key,
         createdAt: l.createdAt,
       });
     }

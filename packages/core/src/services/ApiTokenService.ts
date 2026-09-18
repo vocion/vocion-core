@@ -243,7 +243,11 @@ export async function listTokens(
       eq(apiTokenSchema.orgId, orgId),
       options.includeRevoked ? undefined : isNull(apiTokenSchema.revokedAt),
     ))
-    .orderBy(desc(apiTokenSchema.createdAt));
+    // `id` breaks the tie: two keys stored inside the same millisecond share a
+    // `created_at`, and without a second sort key Postgres may return them in
+    // either order — so a rotated key could list above its replacement, and a
+    // test asserting that order fails at random.
+    .orderBy(desc(apiTokenSchema.createdAt), desc(apiTokenSchema.id));
 }
 
 /* ------------------------------------------------------------------ */
@@ -396,7 +400,11 @@ export async function listPlatformCredentials(
       eq(apiTokenSchema.platform, platform),
       isNull(apiTokenSchema.revokedAt),
     ))
-    .orderBy(desc(apiTokenSchema.createdAt));
+    // `id` breaks the tie: two keys stored inside the same millisecond share a
+    // `created_at`, and without a second sort key Postgres may return them in
+    // either order — so a rotated key could list above its replacement, and a
+    // test asserting that order fails at random.
+    .orderBy(desc(apiTokenSchema.createdAt), desc(apiTokenSchema.id));
 }
 
 /**
@@ -586,13 +594,55 @@ export async function resolvePlatformKey(
   orgId: string,
   platform: CredentialPlatformId,
 ): Promise<string | null> {
+  return (await spendablePlatformKey(orgId, platform))?.key ?? null;
+}
+
+/** A key the next call could actually spend, with the mask that stands for it. */
+export type SpendablePlatformKey = {
+  key: string;
+  /** Masked tail, safe for a settings surface to print. */
+  keyHint: string;
+};
+
+/**
+ * The org's key for `platform` when there is one a call could spend, or null.
+ *
+ * One definition of "spendable", because there are two questions about the
+ * same key and they used to be answered by different code: the call path asked
+ * "give me the key", a settings page asked "does a row exist", and the two
+ * could disagree. The row is only half the answer — the document behind it has
+ * to still carry a value under the field name the registry uses today, which a
+ * renamed field quietly ends. A page that decides readiness on its own would
+ * then show a green badge over a key that no call can use, and nothing would
+ * say so.
+ *
+ * So a caller that only needs to know *whether* asks this too, and throws the
+ * key away. That costs the decrypt a readiness check used to avoid, which is
+ * the price of the badge being true; the secret never leaves this function
+ * unless the caller takes it.
+ *
+ * Multi-field platforms are refused rather than answered with their first
+ * field, which on AWS is an access key id — an identifier that authenticates
+ * nothing. Those callers want the whole document, from
+ * {@link resolvePlatformCredential}.
+ * @param orgId - The org whose key to resolve.
+ * @param platform - Which platform's key is wanted.
+ */
+export async function spendablePlatformKey(
+  orgId: string,
+  platform: CredentialPlatformId,
+): Promise<SpendablePlatformKey | null> {
   const descriptor = getPlatform(platform);
   const soleField = descriptor.fields[0];
-  if (!soleField) {
+  if (!soleField || descriptor.fields.length > 1) {
     return null;
   }
   const values = await resolvePlatformCredential(orgId, platform);
-  return values?.[soleField.name] ?? null;
+  const key = values?.[soleField.name];
+  if (!key) {
+    return null;
+  }
+  return { key, keyHint: keyHint(key) };
 }
 
 /**

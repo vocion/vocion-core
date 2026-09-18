@@ -52,30 +52,38 @@ export default defineConfig<ChromaticConfig>({
 
   // Run your local dev server before starting the tests:
   // https://playwright.dev/docs/test-advanced#launching-a-development-web-server-during-the-tests
-  webServer: {
-    command: process.env.CI ? 'npx run-p db-server:memory start --race' : 'npx run-p db-server:memory dev:next --race',
-    url: baseURL,
-    timeout: 60 * 1000,
-    reuseExistingServer: !process.env.CI,
-    gracefulShutdown: { signal: 'SIGTERM', timeout: 2 * 1000 },
-    env: {
-      NEXT_PUBLIC_SENTRY_DISABLED: 'true',
-      NEXT_PUBLIC_APP_URL: baseURL,
-      // Auth.js only trusts the request host when AUTH_URL or AUTH_TRUST_HOST
-      // is set, or when NODE_ENV is not production (@auth/core lib/utils/env.js).
-      // `next dev` gets the last fallback; CI runs `next start`, so without this
-      // every /api/auth call answers UntrustedHost and the browser specs time out.
-      AUTH_URL: baseURL,
-      // The local credential vault refuses to mint an ephemeral key when
-      // NODE_ENV is production (libs/crypto/localVault.ts), and CI runs
-      // `next start`, so without a key every "Save key" in the credentials
-      // specs answers "could not store key". Fixed, throwaway, and public on
-      // purpose: it encrypts test fixtures in a database that lives for the
-      // length of one run. Never reuse it anywhere real.
-      VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
-      PORT,
-    },
-  },
+  //
+  // PLAYWRIGHT_SKIP_WEB_SERVER=1 leaves the app alone and tests whatever is
+  // already serving PLAYWRIGHT_BASE_URL. The case it exists for: a worktree
+  // running against a real Postgres, where the command below cannot be used —
+  // `db-server:memory` starts pglite on 5432, the port that Postgres already
+  // holds, and `--race` then takes the Next process down with it.
+  webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
+    ? undefined
+    : {
+        command: process.env.CI ? 'npx run-p db-server:memory start --race' : 'npx run-p db-server:memory dev:next --race',
+        url: baseURL,
+        timeout: 60 * 1000,
+        reuseExistingServer: !process.env.CI,
+        gracefulShutdown: { signal: 'SIGTERM', timeout: 2 * 1000 },
+        env: {
+          NEXT_PUBLIC_SENTRY_DISABLED: 'true',
+          NEXT_PUBLIC_APP_URL: baseURL,
+          // Auth.js only trusts the request host when AUTH_URL or AUTH_TRUST_HOST
+          // is set, or when NODE_ENV is not production (@auth/core lib/utils/env.js).
+          // `next dev` gets the last fallback; CI runs `next start`, so without this
+          // every /api/auth call answers UntrustedHost and the browser specs time out.
+          AUTH_URL: baseURL,
+          // The local credential vault refuses to mint an ephemeral key when
+          // NODE_ENV is production (libs/crypto/localVault.ts), and CI runs
+          // `next start`, so without a key every "Save key" in the credentials
+          // specs answers "could not store key". Fixed, throwaway, and public on
+          // purpose: it encrypts test fixtures in a database that lives for the
+          // length of one run. Never reuse it anywhere real.
+          VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
+          PORT,
+        },
+      },
 
   // Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions.
   use: {
@@ -165,6 +173,24 @@ export default defineConfig<ChromaticConfig>({
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no `setup` project dependency.
     // Run with: npx playwright test --project=credentials
+    // The document loop by chat — draft, edit by chat, highlight → change,
+    // export — replayed against the scripted model with a screenshot per
+    // step. The server must run with the scripted model and the sample
+    // workspace: `npm run e2e:documents` sets both.
+    // Defined only when the server is the scripted model
+    // (`VOCION_LLM_PROVIDER=scripted`), so a plain `npx playwright test` — locally
+    // or in CI — never drives the chat at a stub key.
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
+      ? [
+          {
+            name: 'documents',
+            testDir: './e2e/documents',
+            timeout: projectTimeout(240 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 1000 } },
+          },
+        ]
+      : []),
     {
       name: 'credentials',
       testDir: './e2e/credentials',
@@ -173,7 +199,7 @@ export default defineConfig<ChromaticConfig>({
       timeout: projectTimeout(120 * 1000, 60 * 1000),
       use: { ...devices['Desktop Chrome'] },
     },
-    // VEERIO-252 — mission-run report routes, real HTTP against a real
+    // LARK-252 — mission-run report routes, real HTTP against a real
     // running app. No browser: uses Playwright's `request` fixture only, so
     // it never depends on the `setup` (Clerk) project.
     // Run with: npx playwright test --project=mission-runs
@@ -182,7 +208,7 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/mission-runs',
       timeout: 60 * 1000,
     },
-    // VEERIO-262 — what a proposal did (created / refreshed / already_decided),
+    // LARK-262 — what a proposal did (created / refreshed / already_decided),
     // over real HTTP against a real running app. No browser: uses the
     // `request` fixture only, so it never depends on the `setup` project.
     // Run with: npx playwright test --project=reviews-propose
@@ -190,6 +216,49 @@ export default defineConfig<ChromaticConfig>({
       name: 'reviews-propose',
       testDir: './e2e/reviews-propose',
       timeout: 60 * 1000,
+    },
+    // #343 — the eval section with more than one grader: empty state, the
+    // provider filter, the version boundary on the trend chart, and the eval
+    // score on the adoption row. Self-seeding like `credentials`.
+    // Run with: npx playwright test --project=evals-providers
+    {
+      name: 'evals-providers',
+      testDir: './e2e/evals-providers',
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // #343 — the eval refresh route, real HTTP against a real running app.
+    // No browser: uses the `request` fixture only, so it never depends on the
+    // `setup` project.
+    // Run with: npx playwright test --project=eval-refresh
+    {
+      name: 'eval-refresh',
+      testDir: './e2e/eval-refresh',
+      timeout: 60 * 1000,
+    },
+    // #320 — querying the queue by what the agent recommended (approve /
+    // reject / snooze), over real HTTP against a real running app. No browser:
+    // uses the `request` fixture only, so it never depends on `setup`.
+    // Run with: npx playwright test --project=reviews-suggested-decision
+    {
+      name: 'reviews-suggested-decision',
+      testDir: './e2e/reviews-suggested-decision',
+      timeout: 60 * 1000,
+    },
+    // Run with: npx playwright test --project=reviews-approved-by-agent
+    {
+      name: 'reviews-approved-by-agent',
+      testDir: './e2e/reviews-approved-by-agent',
+      timeout: 60 * 1000,
+    },
+    // #396 — the generated OpenAPI document, and the reference page that
+    // renders it. Mostly the `request` fixture; one browser check that the
+    // page is behind the login.
+    // Run with: npx playwright test --project=api-docs
+    {
+      name: 'api-docs',
+      testDir: './e2e/api-docs',
+      timeout: projectTimeout(120 * 1000, 60 * 1000),
     },
     ...(process.env.CI
       ? [

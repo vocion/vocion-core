@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
 /**
- * VEERIO-257 — `objects.propose_candidate` must refuse a missing/empty
+ * LARK-257 — `objects.propose_candidate` must refuse a missing/empty
  * `dedupOn` and a `dedupOn` nested inside `fields`, and the caller must see a
  * plain-text sentence rather than a raw `ZodError` issues dump. Two identical
  * proposals with a valid `dedupOn` must still collapse into one pending row.
@@ -30,7 +30,7 @@ import { expect, test } from '@playwright/test';
  *   PLAYWRIGHT_BASE_URL=http://localhost:3010 npx playwright test --project=queue objects-propose-candidate-dedup-required
  */
 
-const RUN_TAG = `veerio257-${Date.now().toString(36)}`;
+const RUN_TAG = `lark257-${Date.now().toString(36)}`;
 // Object type slugs are lowercase snake_case; the run tag itself carries a
 // hyphen (fine everywhere else — titles, token names), so swap it here.
 const OBJECT_TYPE_SLUG = `dedup_probe_${RUN_TAG.replace(/-/g, '_')}`;
@@ -78,7 +78,7 @@ function countInDatabase(sql: string): number {
   return Number.parseInt(runSeedScript(['--count', sql]), 10);
 }
 
-test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () => {
+test.describe('objects.propose_candidate — dedupOn required (LARK-257)', () => {
   test.describe.configure({ mode: 'serial' });
 
   let token: string;
@@ -110,6 +110,8 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
       headers: { Authorization: `Bearer ${token}` },
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
         input: { objectType: OBJECT_TYPE_SLUG, title, fields: { title } },
       },
     });
@@ -140,6 +142,8 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
       headers: { Authorization: `Bearer ${token}` },
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
         input: { objectType: OBJECT_TYPE_SLUG, title, fields: { title, dedupOn: ['title'] } },
       },
     });
@@ -168,6 +172,8 @@ test.describe('objects.propose_candidate — dedupOn required (VEERIO-257)', () 
       headers: { Authorization: `Bearer ${token}` },
       data: {
         actionId: 'objects.propose_candidate',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
         input: { objectType: OBJECT_TYPE_SLUG, title, fields: { title }, dedupOn: ['title'] },
       },
     });

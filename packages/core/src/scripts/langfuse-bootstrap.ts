@@ -29,7 +29,7 @@ import type { PricingTier } from '../libs/pricing';
 import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import { resolveLangfuseConfig } from '../libs/Langfuse/config';
-import { knownModels } from '../libs/pricing';
+import { knownModels, modelMatchPattern, PRICING } from '../libs/pricing';
 
 // Configuration comes from `libs/Langfuse/config.ts` — the one place
 // that decides whether tracing is on and with what credentials.
@@ -46,18 +46,6 @@ const auth = Buffer.from(`${publicKey}:${secretKey}`).toString('base64');
 
 const log = (...args: unknown[]) => {
   console.log('[langfuse:bootstrap]', ...args);
-};
-
-// Re-import the actual PRICING table for read access via knownModels()
-// + tokenCostCents() — pricing.ts only exports the helpers, so we
-// duplicate the table here to avoid changing its exports. Single
-// source of truth stays libs/pricing.ts; this list mirrors it.
-const PRICING_MIRROR: Record<string, PricingTier> = {
-  'claude-opus-4-7': { inputCentsPerMillion: 1500, outputCentsPerMillion: 7500, cacheReadCentsPerMillion: 150 },
-  'claude-sonnet-4-6': { inputCentsPerMillion: 300, outputCentsPerMillion: 1500, cacheReadCentsPerMillion: 30 },
-  'claude-haiku-4-5-20251001': { inputCentsPerMillion: 100, outputCentsPerMillion: 500, cacheReadCentsPerMillion: 10 },
-  'gpt-4o': { inputCentsPerMillion: 250, outputCentsPerMillion: 1000 },
-  'gpt-4o-mini': { inputCentsPerMillion: 15, outputCentsPerMillion: 60 },
 };
 
 function expectedPrices(tier: PricingTier): { inputPrice: number; outputPrice: number } {
@@ -150,9 +138,10 @@ async function main() {
   log(`will register/verify ${wanted.length} models against ${allModels.length} existing rows`);
 
   for (const modelName of wanted) {
-    const tier = PRICING_MIRROR[modelName];
+    // Both sides of this loop read `PRICING`, so a tier is always
+    // there; the guard is what convinces the index-signature check.
+    const tier = PRICING[modelName];
     if (!tier) {
-      log(`  skip ${modelName} (no mirror tier — update PRICING_MIRROR)`);
       continue;
     }
     const { inputPrice, outputPrice } = expectedPrices(tier);
@@ -169,9 +158,9 @@ async function main() {
       await deleteModel(m.id);
     }
     // matchPattern: case-insensitive exact match on the generation's
-    // `model` field. This is what Langfuse recommends for explicit
-    // model entries.
-    const matchPattern = `(?i)^${modelName}$`;
+    // `model` field, regex-escaped. This is what Langfuse recommends
+    // for explicit model entries.
+    const matchPattern = modelMatchPattern(modelName);
     await createModel({ modelName, matchPattern, inputPrice, outputPrice });
     log(`  +     ${modelName} — registered (input=$${inputPrice}/tok, output=$${outputPrice}/tok)`);
   }

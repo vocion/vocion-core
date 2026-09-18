@@ -10,7 +10,10 @@
  * convention), computed with a lag() window over the event stream.
  */
 
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { sql } from 'drizzle-orm';
+import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
+import { decisionOutcome, parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 
 export const SESSION_GAP_MINUTES = 30;
@@ -117,6 +120,17 @@ export type AdoptionOverview = {
   /** Approvals + feedback + learnings. */
   accountabilityActions: number;
   interactions: number;
+  /**
+   * Decisions the trust ladder took without a person, over the same window.
+   *
+   * Read off `action_run.approved_by_agent`, not the activity stream, and that
+   * is deliberate: every other number here counts what a HUMAN did, and an
+   * agent writing itself onto the stream would count as an active user and as
+   * an interaction, inflating the figures this screen exists to report. Kept
+   * beside them so the two questions — how much reaches people, and how much
+   * never needed to — can be read together without being added together.
+   */
+  autoApprovals: number;
   /** Same metrics over the preceding window of equal length. */
   previous: {
     activeUsers: number;
@@ -124,6 +138,7 @@ export type AdoptionOverview = {
     chatMessages: number;
     accountabilityActions: number;
     interactions: number;
+    autoApprovals: number;
   };
 };
 
@@ -165,6 +180,7 @@ export async function getOverview(orgId: string, accountId: string | null, days:
       accountabilityActions: num(agg?.accountability),
       interactions: num(agg?.interactions),
       sessions: num(sess?.sessions),
+      autoApprovals: await countAutoApprovals(orgId, from, to),
     };
   };
 
@@ -181,6 +197,37 @@ export async function getOverview(orgId: string, accountId: string | null, days:
     adoptionRate: members > 0 ? current.activeUsers / members : 0,
     previous,
   };
+}
+
+/**
+ * How many proposals the trust ladder approved on its own in a window.
+ *
+ * Counted from `action_run` rather than the activity stream on purpose. The
+ * stream measures people — an agent actor on it would register as an active
+ * user and as an interaction — so the decision rows are the honest source, and
+ * they are also the authoritative one: `approved_by_agent` is what the ladder
+ * writes when it releases work.
+ *
+ * `decided_at` is the clock, not `created_at`: a proposal made last week and
+ * released today belongs to today's window, because the question is when the
+ * agent decided, not when the work appeared.
+ *
+ * Served by `action_run_approved_by_agent_idx` (org_id, decided_at) partial on
+ * the true rows, so the count stays cheap as the table grows.
+ * @param orgId
+ * @param from - Start of the window, inclusive.
+ * @param to - End of the window, exclusive. Null means "up to now".
+ */
+export async function countAutoApprovals(orgId: string, from: Date, to: Date | null): Promise<number> {
+  const upper = to ? sql` AND decided_at < ${to}` : sql``;
+  const [row] = await rows(sql`
+    SELECT count(*) AS n
+    FROM action_run
+    WHERE org_id = ${orgId}
+      AND approved_by_agent
+      AND decided_at >= ${from}${upper}
+  `);
+  return num(row?.n);
 }
 
 async function countMembers(accountId: string | null): Promise<number> {
@@ -368,6 +415,56 @@ export type AdoptionAgentRow = {
   feedbackUp: number;
   feedbackDown: number;
   learnings: number;
+  /**
+   * Whether the reviewer reached the same decision this agent recommended.
+   *
+   * Deliberately alongside `approvalRate` rather than replacing it: that one
+   * answers "did the person take the output as-is", this one answers "did the
+   * person agree with the judgement". An agent whose drafts always get
+   * reworded but whose calls are always right scores low on the first and high
+   * on the second, and both facts are worth knowing.
+   *
+   * Empty for agents that have never recommended anything decided in the
+   * window — which is every agent until recommendations have been flowing for
+   * a while.
+   */
+  agreement: AdoptionAgentAgreement;
+  /**
+   * Whether the labels this agent wrote onto its own proposals survived
+   * review, per labelled field.
+   *
+   * A third question again: `approvalRate` asks whether the output survived,
+   * `agreement` whether the call was right, and this one whether a particular
+   * judgement inside the payload was right. An extractor that picks the right
+   * cards and puts half of them in the wrong series scores well on both of the
+   * others and badly here, which is the whole reason it exists.
+   *
+   * Empty for every agent that declares no labels, which is all of them until
+   * a pipeline starts declaring some.
+   */
+  labelAgreement: AdoptionAgentLabelAgreement;
+  /**
+   * How this agent last scored on its own eval datasets, one entry per grader.
+   *
+   * The fourth question on this row, and the only one no person answered: the
+   * others are all "did the reviewer agree", and a team that never rejects
+   * anything scores perfectly on every one of them. A failing eval next to a
+   * 100% agreement rate is the pair worth seeing together.
+   *
+   * Not windowed. An eval run is a deliberate act, not traffic, and the last
+   * one is the last one however long ago it was — which is why each entry
+   * carries its own date, so an old score reads as old.
+   */
+  evalScores: AdoptionAgentEvalScore[];
+};
+
+/** The latest eval pass rate for one agent from one grader. */
+export type AdoptionAgentEvalScore = {
+  provider: string;
+  datasetSlug: string;
+  runId: number;
+  passRate: number;
+  ranAt: string;
 };
 
 /**
@@ -378,23 +475,34 @@ export type AdoptionAgentRow = {
  */
 export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise<AdoptionAgentRow[]> {
   const since = windowStart(days);
-  const result = await rows(sql`
-    SELECT agent_slug,
-      count(DISTINCT user_id)                                            AS reach,
-      count(*) FILTER (WHERE event_type = 'chat.conversation_created')   AS conversations,
-      count(*) FILTER (WHERE event_type = 'chat.message_sent')           AS messages,
-      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
-      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'rejected') AS rejections,
-      count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('edited', 'rewritten')) AS revisions,
-      count(*) FILTER (WHERE event_type = 'review.snoozed')              AS snoozes,
-      count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'up')   AS feedback_up,
-      count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'down') AS feedback_down,
-      count(*) FILTER (WHERE event_type = 'learning.added')              AS learnings
-    FROM user_activity_event
-    WHERE org_id = ${orgId} AND created_at >= ${since} AND agent_slug IS NOT NULL
-    GROUP BY agent_slug
-    ORDER BY reach DESC, messages DESC
-  `);
+  // Two queries rather than one, and run together rather than in turn.
+  // Separate because agreement groups at a finer grain than this one, and
+  // `reach` counts distinct users — which cannot be summed back up from that
+  // finer grain, so merging would keep a second query anyway while retyping
+  // `decisionOutcome` into SQL. Concurrent because they read the same table
+  // over the same window, so the wait is one round trip, not two.
+  const [agreementByAgent, labelAgreementByAgent, evalScoresByAgent, result] = await Promise.all([
+    getAgentAgreement(orgId, days),
+    getAgentLabelAgreement(orgId, days),
+    getAgentEvalScores(orgId),
+    rows(sql`
+      SELECT agent_slug,
+        count(DISTINCT user_id)                                            AS reach,
+        count(*) FILTER (WHERE event_type = 'chat.conversation_created')   AS conversations,
+        count(*) FILTER (WHERE event_type = 'chat.message_sent')           AS messages,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'rejected') AS rejections,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('edited', 'rewritten')) AS revisions,
+        count(*) FILTER (WHERE event_type = 'review.snoozed')              AS snoozes,
+        count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'up')   AS feedback_up,
+        count(*) FILTER (WHERE event_type = 'review.feedback' AND metadata ->> 'rating' = 'down') AS feedback_down,
+        count(*) FILTER (WHERE event_type = 'learning.added')              AS learnings
+      FROM user_activity_event
+      WHERE org_id = ${orgId} AND created_at >= ${since} AND agent_slug IS NOT NULL
+      GROUP BY agent_slug
+      ORDER BY reach DESC, messages DESC
+    `),
+  ]);
   return result.map((r) => {
     const approvals = num(r.approvals);
     const rejections = num(r.rejections);
@@ -413,8 +521,295 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
       feedbackUp: num(r.feedback_up),
       feedbackDown: num(r.feedback_down),
       learnings: num(r.learnings),
+      agreement: agreementByAgent.get(String(r.agent_slug)) ?? noAgreementYet(),
+      labelAgreement: labelAgreementByAgent.get(String(r.agent_slug)) ?? noLabelAgreementYet(),
+      evalScores: evalScoresByAgent.get(String(r.agent_slug)) ?? [],
     };
   });
+}
+
+/**
+ * The most recent finished eval run per agent, per grader.
+ *
+ * `DISTINCT ON` rather than a subquery per agent: one pass over the runs an
+ * org has, which is the right shape whether it has three datasets or thirty.
+ * Failed and running runs are excluded — a run that did not finish has no pass
+ * rate, and showing it as zero would read as a total regression.
+ * @param orgId - Whose runs.
+ */
+async function getAgentEvalScores(orgId: string): Promise<Map<string, AdoptionAgentEvalScore[]>> {
+  const result = await rows(sql`
+    SELECT DISTINCT ON (d.agent_slug, r.provider)
+      d.agent_slug,
+      d.slug        AS dataset_slug,
+      r.provider,
+      r.id          AS run_id,
+      r.started_at,
+      r.metrics ->> 'passRate' AS pass_rate
+    FROM eval_run r
+    JOIN eval_dataset d ON d.id = r.dataset_id
+    WHERE r.org_id = ${orgId}
+      AND r.status = 'succeeded'
+      AND r.metrics ->> 'passRate' IS NOT NULL
+    ORDER BY d.agent_slug, r.provider, r.started_at DESC
+  `);
+
+  const byAgent = new Map<string, AdoptionAgentEvalScore[]>();
+  for (const row of result) {
+    const agentSlug = String(row.agent_slug);
+    const score: AdoptionAgentEvalScore = {
+      provider: String(row.provider),
+      datasetSlug: String(row.dataset_slug),
+      runId: num(row.run_id),
+      passRate: Number(row.pass_rate),
+      ranAt: new Date(row.started_at as string).toISOString(),
+    };
+    const existing = byAgent.get(agentSlug);
+    if (existing) {
+      existing.push(score);
+    } else {
+      byAgent.set(agentSlug, [score]);
+    }
+  }
+  return byAgent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agreement — what the agent advised vs what the person did           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One cell of an agent's agreement matrix: it recommended `suggested`, the
+ * reviewer decided `actual`, and that happened `count` times.
+ */
+export type AgreementCell = {
+  suggested: SuggestedDecision;
+  actual: SuggestedDecision;
+  count: number;
+};
+
+export type AdoptionAgentAgreement = {
+  /** Every recommended/actual pairing that occurred, most frequent first. */
+  matrix: AgreementCell[];
+  /** Decisions on items where the agent gave a recommendation. */
+  decided: number;
+  /** Of those, how many the reviewer decided the same way the agent advised. */
+  agreed: number;
+  /**
+   * agreed ÷ decided, or null when the agent recommended nothing that anyone
+   * has since decided. Null, never zero: an agent nobody has judged has no
+   * agreement score, and showing 0% would read as "always wrong".
+   */
+  agreementRate: number | null;
+};
+
+/**
+ * A fresh empty agreement for an agent with nothing to compare yet. A function
+ * rather than a shared constant so no caller can mutate the blank one everyone
+ * else is handed.
+ */
+function noAgreementYet(): AdoptionAgentAgreement {
+  return { matrix: [], decided: 0, agreed: 0, agreementRate: null };
+}
+
+/**
+ * How often each agent's recommendation matched the decision a person took.
+ *
+ * This is the question `approvalRate` cannot answer. That ratio measures
+ * whether a reviewer took the agent's output as-is, against a recommendation
+ * that was always implicitly "approve" — so a reviewer rejecting something the
+ * agent also wanted rejected counted against it. Here the two sides are read
+ * separately and compared.
+ *
+ * Only events carrying a `suggestedDecision` are counted. Everything proposed
+ * before the recommendation existed, and everything an agent had no view on,
+ * stays out rather than being credited with recommending whatever happened.
+ *
+ * A matrix rather than a single rate, because the shape of the mistakes is the
+ * point: an agent that is right about what to approve and wrong about what to
+ * turn down is the exact failure a scalar hides.
+ * @param orgId
+ * @param days
+ */
+export async function getAgentAgreement(orgId: string, days: AdoptionWindow): Promise<Map<string, AdoptionAgentAgreement>> {
+  const since = windowStart(days);
+  // Grouped in SQL, paired in TypeScript: `decisionOutcome` is the one place
+  // that says which triage signals amount to an approval, and a CASE here
+  // would be a second copy of it free to drift.
+  const result = await rows(sql`
+    SELECT agent_slug,
+      event_type,
+      metadata ->> 'suggestedDecision' AS suggested,
+      metadata ->> 'decision'          AS decision,
+      count(*)                         AS occurrences
+    FROM user_activity_event
+    WHERE org_id = ${orgId}
+      AND created_at >= ${since}
+      AND agent_slug IS NOT NULL
+      AND event_type IN ('review.decided', 'review.snoozed')
+      AND metadata ->> 'suggestedDecision' IS NOT NULL
+    GROUP BY agent_slug, event_type, suggested, decision
+  `);
+
+  const byAgent = new Map<string, AdoptionAgentAgreement>();
+  for (const row of result) {
+    const suggested = parseSuggestedDecision(row.suggested);
+    const actual = actualOutcome(String(row.event_type), row.decision);
+    if (!suggested || !actual) {
+      continue;
+    }
+    const agentSlug = String(row.agent_slug);
+    const agreement = byAgent.get(agentSlug) ?? noAgreementYet();
+    const count = num(row.occurrences);
+    const existing = agreement.matrix.find(cell => cell.suggested === suggested && cell.actual === actual);
+    if (existing) {
+      // Two rows can land in one cell: an `approved` and an `edited` decision
+      // are different signals that amount to the same outcome.
+      existing.count += count;
+    } else {
+      agreement.matrix.push({ suggested, actual, count });
+    }
+    agreement.decided += count;
+    if (suggested === actual) {
+      agreement.agreed += count;
+    }
+    byAgent.set(agentSlug, agreement);
+  }
+
+  for (const agreement of byAgent.values()) {
+    agreement.matrix.sort((a, b) => b.count - a.count);
+    agreement.agreementRate = agreement.decided > 0 ? agreement.agreed / agreement.decided : null;
+  }
+  return byAgent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Label agreement: what the reviewer did to the labels it wrote      */
+/* ------------------------------------------------------------------ */
+
+/** One labelled field's tally for an agent, over the window. */
+export type LabelFieldAgreement = {
+  /** The payload field the proposer declared, e.g. `seriesMatch`. */
+  field: string;
+  kept: number;
+  changed: number;
+  cleared: number;
+  /** The reviewer filled in a label the proposer left empty. */
+  added: number;
+  /**
+   * kept + changed + cleared: decisions on a label the agent actually wrote.
+   * `added` is outside it because there was no judgement of the agent's to
+   * agree or disagree with. Whether that is the right denominator is Drew's
+   * call (open as of 2026-09-15), and it is why both numbers are on the row
+   * rather than one rate.
+   */
+  judged: number;
+};
+
+export type AdoptionAgentLabelAgreement = {
+  /** Per-field tallies, most-judged field first. */
+  fields: LabelFieldAgreement[];
+  /** `judged`, summed over every field. */
+  judged: number;
+  /** Of those, how many the reviewer left exactly as the agent wrote them. */
+  kept: number;
+  /**
+   * kept ÷ judged, or null when this agent has never had a label judged.
+   * Null, never zero, for the same reason `agreementRate` is: an agent nobody
+   * has corrected has no score, and 0% would read as "always wrong".
+   */
+  keptRate: number | null;
+};
+
+/**
+ * A fresh empty tally, a function rather than a shared constant so no caller
+ * can mutate the blank one everyone else is handed.
+ */
+function noLabelAgreementYet(): AdoptionAgentLabelAgreement {
+  return { fields: [], judged: 0, kept: 0, keptRate: null };
+}
+
+/**
+ * How often each agent's own labels survived review, per labelled field.
+ *
+ * Distinct from `getAgentAgreement`: that one compares a recommendation
+ * against a decision, this one compares a value the agent wrote into the
+ * payload against what the reviewer left behind. An agent can be right about
+ * every call and wrong about every grouping, and only this reads that.
+ *
+ * Grouped in SQL over `metadata -> 'labels'`, which `ReviewService.decide`
+ * writes only when the proposal declared labels, so an agent that declares
+ * none is absent rather than scored.
+ * @param orgId - Org whose decisions are read.
+ * @param days - Window, in days.
+ */
+export async function getAgentLabelAgreement(orgId: string, days: AdoptionWindow): Promise<Map<string, AdoptionAgentLabelAgreement>> {
+  const since = windowStart(days);
+  // `jsonb_each_text` is strict, so a row with no `labels` key expands to no
+  // rows and drops out of the implicit lateral join. The CASE is what makes
+  // that true for a row whose `labels` is not an object at all: jsonb accepts
+  // anything, the function raises on a scalar, and one bad row must not cost
+  // the whole panel its numbers.
+  const result = await rows(sql`
+    SELECT agent_slug,
+      k.key                            AS field,
+      k.value                          AS verdict,
+      count(*)                         AS occurrences
+    FROM user_activity_event,
+      jsonb_each_text(CASE WHEN jsonb_typeof(metadata -> 'labels') = 'object' THEN metadata -> 'labels' END) k
+    WHERE org_id = ${orgId}
+      AND created_at >= ${since}
+      AND agent_slug IS NOT NULL
+      AND event_type = 'review.decided'
+    GROUP BY agent_slug, field, verdict
+  `);
+
+  const byAgent = new Map<string, AdoptionAgentLabelAgreement>();
+  for (const row of result) {
+    const verdict = LABEL_VERDICTS.find(known => known === row.verdict);
+    const field = String(row.field ?? '');
+    if (!verdict || field === '') {
+      // A verdict nobody defined is not a verdict. Same rule as
+      // `parseSuggestedDecision`: jsonb will hold anything a writer put there.
+      continue;
+    }
+    const agentSlug = String(row.agent_slug);
+    const agreement = byAgent.get(agentSlug) ?? noLabelAgreementYet();
+    const count = num(row.occurrences);
+    const existing = agreement.fields.find(cell => cell.field === field);
+    const cell = existing ?? { field, kept: 0, changed: 0, cleared: 0, added: 0, judged: 0 };
+    cell[verdict] += count;
+    if (verdict !== 'added') {
+      cell.judged += count;
+      agreement.judged += count;
+    }
+    if (verdict === 'kept') {
+      agreement.kept += count;
+    }
+    if (!existing) {
+      agreement.fields.push(cell);
+    }
+    byAgent.set(agentSlug, agreement);
+  }
+
+  for (const agreement of byAgent.values()) {
+    agreement.fields.sort((a, b) => b.judged - a.judged || a.field.localeCompare(b.field));
+    agreement.keptRate = agreement.judged > 0 ? agreement.kept / agreement.judged : null;
+  }
+  return byAgent;
+}
+
+/**
+ * What a recorded event amounts to as a decision, or null when it decided
+ * nothing and belongs outside the comparison.
+ * @param eventType - `review.decided` or `review.snoozed`.
+ * @param decision - The `review.decided` decision value; absent on a snooze.
+ */
+function actualOutcome(eventType: string, decision: unknown): SuggestedDecision | null {
+  if (eventType === 'review.snoozed') {
+    return 'snooze';
+  }
+  return typeof decision === 'string' ? decisionOutcome(decision) : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -557,6 +952,26 @@ export type AdoptionAgentDetail = {
   agent: AdoptionAgentRow | null;
   /** Daily distinct users reaching this agent. */
   reachTrend: Array<{ day: string; reach: number; messages: number }>;
+  /**
+   * The approval-rate trend: daily judged decisions plus the cumulative
+   * approval rate over the window (same definition as `approvalRate` on the
+   * row — approved-as-is ÷ judged; edits count against). Cumulative rather
+   * than per-day because a day with two decisions makes a per-day rate
+   * whipsaw between 0 and 100. `adoptions` counts rules adopted that day
+   * (`learning.added`), so cause can sit next to effect on the chart.
+   */
+  approvalTrend: Array<{ day: string; decisions: number; ratePct: number; adoptions: number }>;
+  /**
+   * Does the agent know what it doesn't know? Its stated proposal confidence
+   * (action_run.proposal.confidence, the grounding-quality score every
+   * proposal already carries) joined with what reviewers actually decided.
+   * The misalignment row — confident yet rejected, last 7 days — is where the
+   * next learning candidate is hiding.
+   */
+  confidenceAlignment: {
+    buckets: Array<{ label: string; proposals: number; approvedPct: number | null }>;
+    confidentRejectedLast7: number;
+  };
   topUsers: Array<{ userId: string; name: string | null; email: string | null; messages: number; decisions: number }>;
 };
 
@@ -572,7 +987,7 @@ export type AdoptionAgentDetail = {
  */
 export async function getAgentDetail(orgId: string, accountId: string | null, slug: string, days: AdoptionWindow): Promise<AdoptionAgentDetail> {
   const since = windowStart(days);
-  const [agents, daily, topUsers] = await Promise.all([
+  const [agents, daily, decisionsDaily, confidenceRows, topUsers] = await Promise.all([
     getAgentRows(orgId, days),
     rows(sql`
       SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
@@ -581,6 +996,27 @@ export async function getAgentDetail(orgId: string, accountId: string | null, sl
       FROM user_activity_event
       WHERE org_id = ${orgId} AND agent_slug = ${slug} AND created_at >= ${since}
       GROUP BY 1 ORDER BY 1
+    `),
+    rows(sql`
+      SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' = 'approved') AS approvals,
+        count(*) FILTER (WHERE event_type = 'review.decided' AND metadata ->> 'decision' IN ('rejected', 'edited', 'rewritten')) AS against,
+        count(*) FILTER (WHERE event_type = 'learning.added') AS adoptions
+      FROM user_activity_event
+      WHERE org_id = ${orgId} AND agent_slug = ${slug} AND created_at >= ${since}
+        AND event_type IN ('review.decided', 'learning.added')
+      GROUP BY 1 ORDER BY 1
+    `),
+    rows(sql`
+      SELECT (proposal ->> 'confidence')::float AS confidence,
+        status,
+        decided_at
+      FROM action_run
+      WHERE org_id = ${orgId}
+        AND invoked_by = ${`agent:${slug}`}
+        AND proposal ->> 'confidence' IS NOT NULL
+        AND (decided_at IS NOT NULL OR status IN ('done', 'rejected'))
+        AND created_at >= ${since}
     `),
     rows(sql`
       SELECT e.user_id, u.name, u.email,
@@ -597,16 +1033,57 @@ export async function getAgentDetail(orgId: string, accountId: string | null, sl
   ]);
 
   const byDay = new Map(daily.map(r => [String(r.day), r]));
+  const decisionsByDay = new Map(decisionsDaily.map(r => [String(r.day), r]));
   const reachTrend: AdoptionAgentDetail['reachTrend'] = [];
+  const approvalTrend: AdoptionAgentDetail['approvalTrend'] = [];
+  let cumApprovals = 0;
+  let cumDecisions = 0;
   for (let i = days - 1; i >= 0; i--) {
     const key = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
     const row = byDay.get(key);
     reachTrend.push({ day: key, reach: num(row?.reach), messages: num(row?.messages) });
+    const d = decisionsByDay.get(key);
+    const approvals = num(d?.approvals);
+    const against = num(d?.against);
+    cumApprovals += approvals;
+    cumDecisions += approvals + against;
+    approvalTrend.push({
+      day: key,
+      decisions: approvals + against,
+      ratePct: cumDecisions > 0 ? Math.round((cumApprovals / cumDecisions) * 100) : 0,
+      adoptions: num(d?.adoptions),
+    });
   }
+
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+  const bucketDefs = [
+    { label: 'Agent confident (≥ 0.9)', min: 0.9, max: Infinity },
+    { label: 'Agent unsure (0.6 – 0.9)', min: 0.6, max: 0.9 },
+    { label: 'Agent hesitant (< 0.6)', min: -Infinity, max: 0.6 },
+  ];
+  const buckets = bucketDefs.map(({ label, min, max }) => {
+    const mine = confidenceRows.filter((r) => {
+      const c = Number(r.confidence);
+      return c >= min && c < max;
+    });
+    const approved = mine.filter(r => String(r.status) !== 'rejected').length;
+    return {
+      label,
+      proposals: mine.length,
+      approvedPct: mine.length > 0 ? Math.round((approved / mine.length) * 100) : null,
+    };
+  });
+  const confidentRejectedLast7 = confidenceRows.filter(r =>
+    Number(r.confidence) >= 0.9
+    && String(r.status) === 'rejected'
+    && r.decided_at != null
+    && date(r.decided_at)!.getTime() >= weekAgo.getTime()).length;
 
   return {
     agent: agents.find(a => a.agentSlug === slug) ?? null,
     reachTrend,
+    approvalTrend,
+    confidenceAlignment: { buckets, confidentRejectedLast7 },
     topUsers: topUsers.map(r => ({
       userId: String(r.user_id),
       name: (r.name as string | null) ?? null,

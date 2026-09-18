@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useVisionModel } from '@/features/dashboard/VisionEngineControl';
+import { Link } from '@/libs/I18nNavigation';
 
 /**
  * The photo-backed object view, side by side: the picture (pinned) on the
@@ -530,7 +531,7 @@ export function InspectionPhoto(props: Props) {
           </p>
           {refs.length > 0 && (
             <div className="mt-3">
-              <div className="mb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Compared against · verified good</div>
+              <div className="mb-1 text-[12px] font-medium text-muted-foreground">Compared against · verified good</div>
               <div className="flex gap-2">
                 {refs.map(u => (
                   <a key={u} href={u} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-border">
@@ -635,14 +636,14 @@ export function InspectionPhoto(props: Props) {
                     <div className="mt-1 grid gap-x-6 gap-y-0.5 text-[13px] text-muted-foreground">
                       {f.expected && (
                         <div>
-                          <span className="text-[10px] tracking-wide uppercase">expected</span>
+                          <span className="text-[12px]">expected</span>
                           {' '}
                           {f.expected}
                         </div>
                       )}
                       {f.observed && (
                         <div>
-                          <span className="text-[10px] tracking-wide uppercase">saw</span>
+                          <span className="text-[12px]">saw</span>
                           {' '}
                           {f.observed}
                         </div>
@@ -664,7 +665,7 @@ export function InspectionPhoto(props: Props) {
                               {fb.signal === 'agree' ? <ThumbsUp className="size-3" aria-hidden /> : <ThumbsDown className="size-3" aria-hidden />}
                               {fb.signal === 'agree' ? 'Agreed' : 'Disagreed'}
                               {fb.note ? ` — “${fb.note}”` : ''}
-                              {fb.signal === 'disagree' && <a href="/dashboard/learnings" className="ml-1 underline">proposed as a learning</a>}
+                              {fb.signal === 'disagree' && <Link href="/dashboard/learnings" className="ml-1 underline">proposed as a learning</Link>}
                             </span>
                           )
                         : (
@@ -783,7 +784,7 @@ export function InspectionPhoto(props: Props) {
           </SheetHeader>
           <div className="mt-4 space-y-5 px-4 pb-6 text-sm">
             <section>
-              <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Last check</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">Last check</h3>
               <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
                 <dt className="text-muted-foreground">Model</dt>
                 <dd className="font-mono">{props.checks?.reference?.model ?? '—'}</dd>
@@ -797,7 +798,7 @@ export function InspectionPhoto(props: Props) {
             </section>
             {refs.length > 0 && (
               <section>
-                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Images sent</h3>
+                <h3 className="text-xs font-medium text-muted-foreground">Images sent</h3>
                 <div className="mt-1 flex flex-wrap gap-2">
                   <a href={props.imageUrl} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border-2 border-amber-500"><img src={props.imageUrl} alt="candidate" className="h-20 w-32 object-cover" /></a>
                   {refs.map(u => <a key={u} href={u} target="_blank" rel="noreferrer" className="block overflow-hidden rounded border border-border"><img src={u} alt="reference" className="h-20 w-32 object-cover" /></a>)}
@@ -806,14 +807,14 @@ export function InspectionPhoto(props: Props) {
               </section>
             )}
             <section>
-              <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">System prompt</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">System prompt</h3>
               <pre className="mt-1 max-h-96 overflow-auto rounded-md border border-border bg-muted/30 p-3 text-[11.5px] leading-relaxed break-words whitespace-pre-wrap">{props.checks?.reference?.prompt?.system ?? history?.prompt?.system ?? 'Not recorded for this check — re-analyze to capture the prompt.'}</pre>
               {(props.checks?.reference?.prompt?.user ?? history?.prompt?.user) && (
                 <p className="mt-1 font-mono text-[11px] text-muted-foreground">{`User turn: ${props.checks?.reference?.prompt?.user ?? history?.prompt?.user}`}</p>
               )}
             </section>
             <section>
-              <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Learnings applied on this check</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">Learnings applied on this check</h3>
               {(props.checks?.reference?.learnings_applied ?? history?.applied ?? []).length === 0
                 ? <p className="mt-1 text-[13px] text-muted-foreground">None were in the prompt for this check.</p>
                 : (
@@ -828,7 +829,7 @@ export function InspectionPhoto(props: Props) {
                   )}
             </section>
             <section>
-              <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Learning history for this kit</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">Learning history for this kit</h3>
               {historyError && <p className="mt-1 text-xs text-red-600">{historyError}</p>}
               {!history && !historyError && <p className="mt-1 text-[13px] text-muted-foreground">Loading…</p>}
               {history && (
@@ -852,7 +853,7 @@ export function InspectionPhoto(props: Props) {
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     Adopted rules are injected into the system prompt on every check. Pending candidates are decided at
                     {' '}
-                    <a href="/dashboard/learnings" className="underline">Learnings</a>
+                    <Link href="/dashboard/learnings" className="underline">Learnings</Link>
                     .
                   </p>
                 </>

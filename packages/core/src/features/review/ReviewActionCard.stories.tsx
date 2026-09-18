@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
+import { NextIntlClientProvider } from 'next-intl';
+import messages from '@/locales/en.json';
 import { ReviewActionCard } from './ReviewActionCard';
 
 /**
@@ -12,6 +14,9 @@ const meta: Meta<typeof ReviewActionCard> = {
   title: 'Review/ReviewActionCard',
   component: ReviewActionCard,
   parameters: { layout: 'padded' },
+  // The page presentation's sticky bar reads the Review messages; the card
+  // presentation needs no provider but tolerates one.
+  decorators: [Story => <NextIntlClientProvider locale="en" messages={messages}><Story /></NextIntlClientProvider>],
 };
 
 export default meta;
@@ -59,6 +64,51 @@ export const MqlEnrollment: Story = {
   },
 };
 
+/**
+ * A card the agent wants turned down — the badge plus the sentence behind it.
+ *
+ * Worth a story of its own because it is the shape where the two pieces of
+ * writing on a card say different things: `rationale` argues the extraction is
+ * right, and the recommendation's reason argues the record should still not be
+ * in the queue.
+ */
+export const RecommendedRejection: Story = {
+  args: {
+    run: {
+      id: 8,
+      actionId: 'objects.propose_candidate',
+      status: 'pending',
+      invokedBy: 'agent:listing-scout',
+      proposal: {
+        confidence: 0.93,
+        rationale: 'Listed on the venue\'s own events page with a date, a time and a price.',
+        suggestedDecision: 'reject',
+        suggestedDecisionReason: 'Third listing of this same show this week — already in the queue as #412.',
+      },
+      input: {},
+      card: {
+        title: 'Open Mic Night · The Corvina',
+        system: 'Events',
+        subject: { name: 'The Corvina', role: 'Venue' },
+        provenance: [
+          { label: 'Source', value: 'bellwaterhall.example/events' },
+          { label: 'Starts', value: 'Sep 19, 2026 · 7:30pm' },
+        ],
+        recommendation: { headline: 'Turn down: duplicate listing', detail: 'The same show was read off the venue\'s featured block earlier this week.' },
+        contentHeading: { label: 'Candidate' },
+        content: [],
+        fields: [
+          { label: 'Title', value: 'Open Mic Night' },
+          { label: 'Venue', value: 'The Corvina' },
+          { label: 'Price', value: 'Free' },
+        ],
+        links: [],
+        verbs: { approve: 'Publish', reject: 'Turn down' },
+      },
+    },
+  },
+};
+
 /** Proposal review — document × 1, PDF preview + side-by-side. Verb: Send. No shell changes. */
 export const ProposalReview: Story = {
   args: {
@@ -99,16 +149,16 @@ export const FollowUpEmail: Story = {
       status: 'pending',
       invokedBy: 'agent:revenue-lead',
       proposal: { confidence: 0.78 },
-      input: { to: 'dana@northbeamhealth.com', subject: 'Yesterday\'s call', body: 'Dana, the build-vs-buy question was the heart of yesterday\'s call.' },
+      input: { to: 'dana@northbeam.example', subject: 'Yesterday\'s call', body: 'Dana, the build-vs-buy question was the heart of yesterday\'s call.' },
       card: {
-        title: 'SEND email → dana@northbeamhealth.com',
+        title: 'SEND email → dana@northbeam.example',
         system: 'Gmail',
-        subject: { name: 'dana@northbeamhealth.com' },
+        subject: { name: 'dana@northbeam.example' },
         contentHeading: { label: 'Email · 1 send' },
         content: [
           { kind: 'email', id: 'message', label: 'Send 1', subject: 'Yesterday\'s call', body: 'Dana, the build-vs-buy question was the heart of yesterday\'s call.\n\nHere\'s the summary we promised, and a yes/no question: does Thursday work for the working session?' },
         ],
-        fields: [{ label: 'To', value: 'dana@northbeamhealth.com' }],
+        fields: [{ label: 'To', value: 'dana@northbeam.example' }],
         verbs: { approve: 'Approve & send', reject: 'Reject' },
       },
     },
@@ -138,4 +188,46 @@ export const DiscoveryProposal: Story = {
       },
     },
   },
+};
+
+/**
+ * Mid-regeneration — server truth (`regeneratingSince` fresh). The card stays
+ * mounted, every control disabled, the reviewer's instruction visible in the
+ * banner. The poll re-enables the same card in place when the stamp clears.
+ */
+export const Regenerating: Story = {
+  args: {
+    run: {
+      ...MqlEnrollment.args!.run!,
+      id: 5,
+      regeneratingSince: new Date().toISOString(),
+      regenerateNote: 'Send 2 is too pushy — soften the ask and mention the AI-readiness guide instead.',
+    },
+  },
+};
+
+/**
+ * A stale stamp (past the 15-minute window): the hold expires on its own, the
+ * banner flips to a caution, and the card is decidable again — a wedged pass
+ * never locks the card for good.
+ */
+export const RegenerationStale: Story = {
+  args: {
+    run: {
+      ...MqlEnrollment.args!.run!,
+      id: 6,
+      regeneratingSince: new Date(Date.now() - 20 * 60_000).toISOString(),
+      regenerateNote: 'Send 2 is too pushy — soften the ask.',
+    },
+  },
+};
+
+/**
+ * The Review page presentation of the same MQL card: no outer box, hairline
+ * sections, the header owned by the page, and the decision in a sticky bar.
+ */
+export const PagePresentation: Story = {
+  args: { ...MqlEnrollment.args, presentation: 'page' },
+  parameters: { layout: 'fullscreen' },
+  decorators: [Story => <div className="mx-auto max-w-5xl px-6 py-4"><Story /></div>],
 };

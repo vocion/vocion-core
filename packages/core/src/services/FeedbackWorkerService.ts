@@ -21,7 +21,7 @@
 import type { Classification } from './feedback/classifier';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { feedbackJobSchema } from '@/models/Schema';
+import { feedbackJobSchema, memoryNamespaceSchema } from '@/models/Schema';
 import { classifyComment } from './feedback/classifier';
 
 export type FeedbackPayload = {
@@ -58,7 +58,7 @@ export type FeedbackPayload = {
  * Where a piece of feedback came from. `api` is an external client posting to
  * `/api/v1/feedback` — an admin panel outside Vocion, typically.
  */
-export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api' | 'review';
+export type FeedbackSource = 'drive' | 'slack' | 'manual' | 'api' | 'review' | 'ask' | 'chat';
 
 export async function enqueue(opts: {
   orgId: string;
@@ -164,11 +164,23 @@ export async function runOnce(): Promise<boolean> {
       return true;
     }
 
+    // The org's step whitelist rides into the classifier so it picks the
+    // bucket, instead of every unattributed rule landing in the org's first
+    // step (which is how email-drafting rules ended up filed under CRM
+    // judgment). A caller that already knows the step (payload.targetSlug)
+    // still wins below.
+    const steps = await db
+      .select({ name: memoryNamespaceSchema.name, description: memoryNamespaceSchema.description })
+      .from(memoryNamespaceSchema)
+      .where(eq(memoryNamespaceSchema.orgId, row.org_id))
+      .orderBy(memoryNamespaceSchema.id);
+
     const classification = await classifyComment({
       text: payload.text ?? '',
       quotedText: payload.quotedText,
       artifactTitle: payload.artifactTitle,
       orgId: row.org_id,
+      steps,
     });
 
     await db.execute(sql`
@@ -179,7 +191,7 @@ export async function runOnce(): Promise<boolean> {
             editSummary: classification.edit_summary,
             ruleText: classification.rule_text,
             polarity: classification.polarity ?? payload.polarityHint,
-            targetSlug: payload.targetSlug,
+            targetSlug: payload.targetSlug ?? classification.target_step,
           })}::jsonb
       WHERE id = ${row.id}
     `);
@@ -228,11 +240,22 @@ async function recordLearningCandidate(
   }
   try {
     const { recordProposedRule } = await import('@/services/feedback/ruleRecorder');
+    // The classifier picks the scope KIND; the ref comes from the feedback's
+    // own context. A kind with no ref to attach to falls back to workspace
+    // scope rather than minting a candidate that can never land anywhere.
+    const scope
+      = classification.scope === 'agent' && payload.agentSlug
+        ? { scopeKind: 'agent' as const, scopeRef: payload.agentSlug }
+        : classification.scope === 'user' && payload.submittedBy
+          ? { scopeKind: 'user' as const, scopeRef: payload.submittedBy }
+          : {};
     await recordProposedRule({
       orgId,
       ruleText: classification.rule_text,
       polarity: classification.polarity ?? payload.polarityHint ?? 'correct',
-      stepName: payload.targetSlug,
+      stepName: payload.targetSlug ?? classification.target_step,
+      memoryType: classification.memory_type,
+      ...scope,
       note: payload.text,
       agentSlug: payload.agentSlug,
       sourceFeedbackJobId: feedbackJobId,
@@ -262,9 +285,17 @@ export function runLoop(): WorkerStopHandle {
   (async () => {
     // eslint-disable-next-line no-console
     console.log('[feedback-worker] started');
+    // Consolidation rides this loop (an hourly check; the per-org interval
+    // lives in ConsolidationService). Opt-in like the worker itself.
+    let lastConsolidationCheck = 0;
     // eslint-disable-next-line no-unmodified-loop-condition -- `stopped` flips via the closure from stop() below
     while (!stopped) {
       try {
+        if ((process.env.ENABLE_CONSOLIDATION ?? '0') === '1' && Date.now() - lastConsolidationCheck > 3_600_000) {
+          lastConsolidationCheck = Date.now();
+          const { consolidationTick } = await import('@/services/ConsolidationService');
+          await consolidationTick();
+        }
         const processed = await runOnce();
         if (!processed) {
           await sleep(POLL_INTERVAL_MS, () => stopped);

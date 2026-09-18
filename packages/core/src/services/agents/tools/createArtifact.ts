@@ -1,7 +1,12 @@
 /**
- * create_artifact — produce a downloadable file (CSV, SVG chart, or
+ * create_artifact — produce a downloadable FILE (CSV, SVG chart, or
  * markdown/HTML doc) from structured input and return its served URL.
  * Builtin, no external provider.
+ *
+ * Not to be confused with the live-artifact family: `render_table` and
+ * friends create something the person edits beside the conversation, and
+ * `update_artifact` changes it. This one produces a file to download, and
+ * records it as a `file` artifact so it shows up in the log.
  */
 
 import type { RuntimeContext } from '../types';
@@ -9,6 +14,8 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { toChartSvg, toCsv } from '@/libs/tools/artifacts/build';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
+import { createArtifact as recordArtifact, toPayload } from '@/services/ArtifactService';
+import { authorOf } from './renderArtifacts';
 
 /**
  * Models often stringify nested tool args — parse JSON strings back to objects.
@@ -61,6 +68,29 @@ export function createArtifactTool(ctx: RuntimeContext) {
         }
 
         const artifact = await saveArtifact({ orgId: ctx.orgId, data, ext, contentType });
+        // 0095: the file is also a row, so the artifacts log and the mission
+        // page can list it instead of regex-harvesting the URL from prose.
+        try {
+          const { artifact: row } = await recordArtifact({
+            orgId: ctx.orgId,
+            conversationId: ctx.conversationId ?? null,
+            kind: 'file',
+            title: args.title ?? artifact.filename,
+            spec: { filename: artifact.filename, contentType: artifact.contentType, bytes: artifact.bytes, url: artifact.url },
+            url: artifact.url,
+            author: authorOf(ctx),
+            // Provenance decides, not the title: an artifact produced inside
+            // an unattended mission run is work output, and belongs in the
+            // audit trail rather than in the list a person browses. Asking the
+            // model to classify its own output would be the weakest lever
+            // available (CLAUDE.md, structural over prompting).
+            visibility: ctx.missionRunId ? 'system' : 'user',
+            changeSummary: 'Created',
+          });
+          ctx.emit({ type: 'artifact', artifact: toPayload(row) });
+        } catch (err) {
+          console.warn('[create_artifact] file saved but artifact row not recorded', (err as Error).message);
+        }
         return `Artifact created: ${artifact.filename}\nURL: ${artifact.url} (${Math.round(artifact.bytes / 1024) || 1} KB)`;
       } catch (err) {
         return `Could not create artifact: ${(err as Error).message ?? 'unknown error'}`;
@@ -72,6 +102,7 @@ export function createArtifactTool(ctx: RuntimeContext) {
         'Create a downloadable file and return its URL. kind="csv" (from `rows`), kind="chart" (bar/line from `chart.points`), or kind="doc" (markdown/HTML from `doc.content`). Use for deliverables like reports, exports, and simple charts.',
       schema: z.object({
         kind: z.enum(['csv', 'chart', 'doc']),
+        title: z.string().optional().describe('Display title for the file card (defaults to the filename)'),
         rows: z.array(z.record(z.string(), z.union([z.string(), z.number()]))).optional().describe('CSV rows (array of flat objects)'),
         // Models routinely pass nested objects as a JSON STRING ("{\"format\":…}").
         // A strict object schema rejects that and the tool invoke throws, killing

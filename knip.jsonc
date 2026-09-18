@@ -28,7 +28,16 @@
         "!src/**/*.test.{ts,tsx}"
       ],
       "ignore": [
+        // The banned-names list is consumed only by its own guard test, and
+        // tests are excluded from `project` above. It is not dead code — it is
+        // the reason the guard can fail. See realDataGuard.ts.
+        "src/libs/fixtures/**",
         "src/components/ui/**",
+        // Model upgrade test: built, not finished, and not rendered on the
+        // dataset page — both models run inside one request, so it times out
+        // past a handful of cases. Kept with its route and compare view until
+        // the run moves onto the refresh workflow.
+        "src/app/[locale]/(auth)/dashboard/evals/[slug]/CompareModelsForm.tsx",
         "src/features/dashboard/chat/**",
         "src/features/auth/ProtectFallback.tsx",
         "src/features/dashboard/ContextMenu.tsx",
@@ -49,15 +58,13 @@
         "src/routers/**"
       ],
       "ignoreDependencies": [
+
         "@radix-ui/react-accordion",
-        "@radix-ui/react-popover",
-        "@tanstack/react-table",
         "react-hook-form",
         "@swc/helpers",
         "@tailwindcss/typography",
         "tailwindcss",
         "tw-animate-css",
-        "@clerk/nextjs",
         "vite",
         "@wsx/registry"
       ],
@@ -82,8 +89,7 @@
     "tofu",
     "production",
     "checkly",
-    "stripe",
-    "vitest"
+    "stripe"
   ],
   "rules": {
     "exports": "off",

@@ -9,7 +9,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { getImageProvider } from '@/libs/tools/image/registry';
-import { ProviderNotConfiguredError } from '@/libs/tools/types';
+import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 
 export function generateImageTool(ctx: RuntimeContext) {
   return tool(
@@ -26,6 +26,13 @@ export function generateImageTool(ctx: RuntimeContext) {
         });
         return `Image generated and saved.\nURL: ${artifact.url}\n(${Math.round(artifact.bytes / 1024)} KB, ${provider.name})\n\nReference it in your reply as ![generated image](${artifact.url}).`;
       } catch (err) {
+        if (err instanceof ToolProviderKeyUnavailableError) {
+          // Same reasoning as web_search and fetch_url: this workspace may hold
+          // a working key we could not open, so falling through to the
+          // deployment's would bill the wrong party, and the vault's own words
+          // do not belong in a tool result.
+          return `${err.message}. A workspace admin can re-enter it under API credentials.`;
+        }
         if (err instanceof ProviderNotConfiguredError) {
           return `Image generation is not configured (${err.message}).`;
         }

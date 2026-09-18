@@ -1,9 +1,10 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
+import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { withManifestDir } from '@/libs/sources/manifestDir';
-import { getConnector } from '@/libs/sources/registry';
-import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, knowledgeSourceSchema, learningSchema, learningStepSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
+import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
+import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
+import { agentSchema, automationSchema, businessObjectTypeSchema, evalDatasetSchema, evalEvaluatorSchema, memoryNamespaceSchema, missionSchema, playbookSchema, projectSchema, teamSchema, trustRuleSchema, userSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 import { deriveRole } from './hierarchy';
 import { effectiveTeamSlug } from './teams';
 
@@ -193,9 +194,15 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // created sources are excluded: their credentials arrive via the Sources UI
   // after apply, so an immediate sync could only fail.
   const configChangedSourceSlugs = new Set<string>();
+  // Only paid for when a source declares a processor: two reads, so that a
+  // typo'd learning step or agent fails one source's apply rather than
+  // degrading every run afterwards.
+  const processorNames = loaded.sources.some(src => src.processor)
+    ? await knownProcessorNames(orgId, loaded)
+    : { learningSteps: new Set<string>(), agentSlugs: new Set<string>() };
   for (const src of loaded.sources) {
     try {
-      const outcome = await upsertSource(orgId, src, dryRun);
+      const outcome = await upsertSource(orgId, src, dryRun, processorNames);
       bump(counts.sources, outcome);
       if (outcome === 'updated' && src.enabled) {
         configChangedSourceSlugs.add(src.slug);
@@ -218,6 +225,13 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
           threshold: r.autoApproveAbove,
           enabled: String(r.enabled),
         })));
+      }
+      // The autonomy ladder behind those rules: rung + risk per authored
+      // action (`rung:` / `risk:` on a rule, or the top-level `risk:` map).
+      // In-app promotions of kinds the file does not name are left alone.
+      const { syncPoliciesFromManifest } = await import('@/services/autonomy/AutonomyService');
+      for (const problem of await syncPoliciesFromManifest(orgId, loaded.trust)) {
+        errors.push({ resource: 'trustRule', slug: problem.action, message: problem.message });
       }
     } catch (err) {
       errors.push({ resource: 'trustRule', slug: 'trust.yaml', message: (err as Error).message });
@@ -310,7 +324,7 @@ async function reconcileSchedules(
   const { ensureAutomationSchedule, removeAutomationSchedule } = await import('@/services/AutomationService');
   const { ensureWorkflowSchedule, removeWorkflowSchedule } = await import('@/services/WorkflowScheduleService');
   const { ensureMissionSchedule, removeMissionSchedule } = await import('@/services/MissionScheduleService');
-  const { ensureSourceSchedule, removeSourceSchedule, ensureSourceReconcileSchedule, removeSourceReconcileSchedule, startSourceFullSync } = await import('@/services/SourceScheduleService');
+  const { startSourceFullSync } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
   // Automations are the first-class WHEN. Schedule-whens get a Temporal
@@ -361,23 +375,9 @@ async function reconcileSchedules(
         .from(srcSchema)
         .where(and(eq(srcSchema.orgId, orgId), eq(srcSchema.slug, src.slug)));
 
-      if (src.enabled && src.schedule && row) {
-        await ensureSourceSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: src.schedule });
-      } else {
-        await removeSourceSchedule(orgId, src.slug);
-      }
-
-      // Second cadence: the full-sync reconcile that prunes upstream deletions.
-      // Manifest `reconcileSchedule` wins; the connector's default applies when
-      // omitted; an explicit `false` disables the pass.
-      const reconcileCron = src.reconcileSchedule === false
-        ? undefined
-        : (src.reconcileSchedule ?? getConnector(src.kind)?.defaultReconcileCron);
-      if (src.enabled && reconcileCron && row) {
-        await ensureSourceReconcileSchedule({ orgId, sourceId: row.id, sourceSlug: src.slug, cron: reconcileCron });
-      } else {
-        await removeSourceReconcileSchedule(orgId, src.slug);
-      }
+      // Both cadences (incremental + reconcile), shared with the sources API so
+      // a source written either way ends up on the same schedules.
+      await reconcileSourceSchedules(orgId, specForSource(src), row?.id ?? null);
 
       // This apply changed the source's stored row — start a one-off full sync
       // so scope changes take effect now rather than at the next reconcile.
@@ -461,6 +461,7 @@ async function upsertAgent(
     playbookSlugs: agent.playbooks,
     learningSteps: agent.learningSteps,
     suggestions: agent.suggestions,
+    persona: agent.persona ?? null,
     accent: agent.accent ?? null,
     eyebrow: agent.eyebrow ?? null,
     langfuseProjectId: agent.langfuseProjectId ?? null,
@@ -657,6 +658,11 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     // Explicit owner only — an omitted accountableUser stays NULL so the
     // workspace default is inherited at read time, never baked in here.
     accountableUserId: await resolveAccountableUser(team.accountableUser, 'team', team.slug, errors),
+    goal: team.goal ?? null,
+    // Declarative like the rest: authored measures land wholesale (a legacy
+    // `kpis:` block is already folded in by the schema), an omitted block
+    // clears the column. The deprecated `kpis` column is no longer written.
+    measures: team.measures,
   };
 
   if (!existing) {
@@ -671,6 +677,8 @@ async function upsertTeam(orgId: string, team: LoadedTeam, dryRun: boolean, erro
     && (existing.description ?? null) === payload.description
     && (existing.leadAgentSlug ?? null) === payload.leadAgentSlug
     && (existing.accountableUserId ?? null) === payload.accountableUserId
+    && (existing.goal ?? null) === payload.goal
+    && JSON.stringify(existing.measures ?? []) === JSON.stringify(payload.measures)
   ) {
     return 'unchanged';
   }
@@ -729,21 +737,58 @@ async function applyWorkspaceLeadConfig(
   // YAML turns it off, same declarative rule as `lead:`.
   const enabledSurfaces = loaded.manifest.surfaces;
   const embeddingConfig = embeddingConfigFrom(loaded.manifest.defaults ?? {});
+  // Declarative like the rest: authored entries land wholesale, an omitted
+  // block clears the column (no fast path for any action type).
+  const regenerateSkills = loaded.manifest.defaults?.regenerateSkills && Object.keys(loaded.manifest.defaults.regenerateSkills).length > 0
+    ? loaded.manifest.defaults.regenerateSkills
+    : null;
+  const goal = loaded.manifest.goal ?? null;
+  // voice.yaml, declarative like the rest: the whole file lands on the column
+  // and deleting the file clears it, dropping the workspace back to core's
+  // platform floor.
+  const voiceRules = loaded.voice ?? null;
 
   const [project] = await db
     .select({
       id: projectSchema.id,
+      slug: projectSchema.slug,
       leadAgentSlug: projectSchema.leadAgentSlug,
       accountableUserId: projectSchema.accountableUserId,
       enabledSurfaces: projectSchema.enabledSurfaces,
       embeddingConfig: projectSchema.embeddingConfig,
+      regenerateSkills: projectSchema.regenerateSkills,
+      voiceRules: projectSchema.voiceRules,
+      goal: projectSchema.goal,
+      mailboxAddress: projectSchema.mailboxAddress,
+      mailboxEnabled: projectSchema.mailboxEnabled,
     })
     .from(projectSchema)
     .where(eq(projectSchema.id, orgId))
     .limit(1);
 
+  // Mailbox: `mailbox.enabled` claims `<slug>@<VOCION_MAIL_DOMAIN>` (or the
+  // named address, which must be on that domain). No domain configured, or an
+  // address off it, is an error — a workspace must not pose as another host.
+  const mailboxManifest = loaded.manifest.mailbox;
+  let mailboxEnabled = false;
+  let mailboxAddress: string | null = null;
+  if (mailboxManifest?.enabled) {
+    const domain = mailDomain();
+    if (!domain) {
+      errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: 'mailbox.enabled is set but VOCION_MAIL_DOMAIN is not configured on this deployment' });
+    } else {
+      const candidate = (mailboxManifest.address ?? defaultMailboxAddress(project?.slug ?? loaded.manifest.name, domain)).toLowerCase();
+      if (!addressOnDomain(candidate, domain)) {
+        errors.push({ resource: 'workspace', slug: 'workspace.yaml', message: `mailbox.address "${candidate}" is not on ${domain}; a workspace may only claim addresses on the deployment's mail domain` });
+      } else {
+        mailboxEnabled = true;
+        mailboxAddress = candidate;
+      }
+    }
+  }
+
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || embeddingConfig !== null || regenerateSkills !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -754,22 +799,32 @@ async function applyWorkspaceLeadConfig(
       && project.enabledSurfaces.every((s, i) => s === enabledSurfaces[i]);
   // Compared as JSON rather than field by field: the object has two optional
   // keys, so a shallow equality check would have to enumerate both and would
-  // silently stop covering a third.
+  // silently stop covering a third. Same reasoning for the skill mapping,
+  // whose keys are open-ended action ids.
   const embeddingUnchanged
     = JSON.stringify(project.embeddingConfig ?? null) === JSON.stringify(embeddingConfig);
+  const regenerateUnchanged
+    = JSON.stringify(project.regenerateSkills ?? null) === JSON.stringify(regenerateSkills);
+  const voiceUnchanged
+    = JSON.stringify(project.voiceRules ?? null) === JSON.stringify(voiceRules);
 
   if (
     (project.leadAgentSlug ?? null) === lead
     && (project.accountableUserId ?? null) === accountableUserId
     && surfacesUnchanged
     && embeddingUnchanged
+    && regenerateUnchanged
+    && voiceUnchanged
+    && (project.goal ?? null) === goal
+    && project.mailboxEnabled === mailboxEnabled
+    && (project.mailboxAddress ?? null) === mailboxAddress
   ) {
     return;
   }
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, embeddingConfig, regenerateSkills, voiceRules, goal, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }
@@ -952,6 +1007,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     name: ds.name,
     description: ds.description ?? null,
     agentSlug: ds.agentSlug,
+    provider: ds.provider,
     items: ds.items,
     version: ds.version,
   };
@@ -959,6 +1015,7 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
   if (!existing) {
     if (!dryRun) {
       await db.insert(evalDatasetSchema).values(payload);
+      await upsertEvalEvaluators(orgId, ds);
     }
     return 'created';
   }
@@ -967,87 +1024,179 @@ async function upsertEvalDataset(orgId: string, ds: LoadedEvalDataset, dryRun: b
     existing.name === payload.name
     && (existing.description ?? null) === payload.description
     && existing.agentSlug === payload.agentSlug
+    && existing.provider === payload.provider
     && existing.version === payload.version
     && canonical(existing.items) === canonical(payload.items)
   ) {
+    if (!dryRun) {
+      await upsertEvalEvaluators(orgId, ds);
+    }
     return 'unchanged';
   }
   if (!dryRun) {
     await db.update(evalDatasetSchema).set(payload).where(eq(evalDatasetSchema.id, existing.id));
-  }
-  return 'updated';
-}
-
-async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean): Promise<UpsertOutcome> {
-  const connector = getConnector(src.kind);
-  if (!connector) {
-    throw new Error(`source "${src.slug}" references unknown connector kind: "${src.kind}". Registered: ${Array.from(new Set(['web', 'local-files'])).join(', ')}`);
-  }
-  // Validate the per-connector config blob. Throws ZodError on bad input.
-  connector.configSchema.parse(src.config);
-
-  const [existing] = await db
-    .select()
-    .from(knowledgeSourceSchema)
-    .where(and(eq(knowledgeSourceSchema.orgId, orgId), eq(knowledgeSourceSchema.slug, src.slug)));
-
-  // Store the connector slug in config_json under `_connector` so
-  // SourceSyncService.runSync can route to the right connector. This
-  // matches the convention used by the addSource() picker path.
-  //
-  // `_manifestDir` records the directory of the workspace manifest that
-  // declared this source, so a connector resolves relative path options
-  // against the manifest rather than against WORKSPACE_PATH. For a
-  // manifest at the workspace root the two are the same path, which is
-  // why this is backwards compatible.
-  const payload = {
-    orgId,
-    slug: src.slug,
-    kind: 'plugin' as const,
-    configJson: withManifestDir({ ...src.config, _connector: src.kind }, src.manifestDir) as Record<string, unknown>,
-    accessPolicy: src.access ?? null,
-    enabled: String(src.enabled),
-  };
-
-  if (!existing) {
-    if (!dryRun) {
-      await db.insert(knowledgeSourceSchema).values(payload);
-    }
-    return 'created';
-  }
-
-  if (
-    existing.slug === payload.slug
-    && existing.kind === payload.kind
-    && existing.enabled === payload.enabled
-    && canonical(existing.configJson) === canonical(payload.configJson)
-    && canonical(existing.accessPolicy ?? null) === canonical(payload.accessPolicy)
-  ) {
-    return 'unchanged';
-  }
-
-  if (!dryRun) {
-    await db.update(knowledgeSourceSchema).set(payload).where(eq(knowledgeSourceSchema.id, existing.id));
+    await upsertEvalEvaluators(orgId, ds);
   }
   return 'updated';
 }
 
 /**
- * Workspace-shipped seed rules → `learning` rows, keyed on source
- * `workspace:<id>` so re-applying is idempotent and text edits update in place.
+ * Record which evaluators this dataset wants, and nothing more.
+ *
+ * Apply writes desired state and stops. Creating a custom evaluator in the
+ * customer's AWS account is a network call, and apply makes none today — one
+ * unreachable AWS endpoint must not stop a workspace file landing its agents,
+ * its playbooks and everything else in the same pass. The remote create
+ * happens later in a Temporal activity, the same split `libs/sources/upsert.ts`
+ * and `SourceSyncService` already use.
+ *
+ * Rows keep any `remoteId` they already have, so re-applying an unchanged file
+ * never makes the next sync create a second evaluator in AWS.
+ * @param orgId - Whose workspace.
+ * @param ds - The dataset as authored, including any `evaluators` block.
+ */
+async function upsertEvalEvaluators(orgId: string, ds: LoadedEvalDataset): Promise<void> {
+  const authored = ds.evaluators ?? [];
+  const authoredSlugs: string[] = [];
+  for (const evaluator of authored) {
+    // A built-in is named, not defined: there is nothing to create remotely,
+    // so each id becomes its own row and carries no config to sync.
+    const slugs = evaluator.builtin?.length
+      ? evaluator.builtin
+      : [evaluator.slug].filter((slug): slug is string => Boolean(slug));
+    for (const slug of slugs) {
+      authoredSlugs.push(slug);
+      const config = evaluator.builtin?.length
+        ? {}
+        : {
+            instructions: evaluator.instructions,
+            ratingScale: evaluator.ratingScale,
+            model: evaluator.model,
+            lambdaArn: evaluator.lambdaArn,
+          };
+      await db
+        .insert(evalEvaluatorSchema)
+        .values({
+          orgId,
+          datasetSlug: ds.slug,
+          provider: evaluator.provider,
+          slug,
+          level: evaluator.level ?? null,
+          config,
+        })
+        .onConflictDoUpdate({
+          target: [
+            evalEvaluatorSchema.orgId,
+            evalEvaluatorSchema.datasetSlug,
+            evalEvaluatorSchema.provider,
+            evalEvaluatorSchema.slug,
+          ],
+          // `retiredAt: null` revives an evaluator someone took out and put
+          // back: the row keeps its remote id, so the sync updates the
+          // evaluator already in AWS instead of failing on its name.
+          set: { level: evaluator.level ?? null, config, retiredAt: null, updatedAt: new Date() },
+        });
+    }
+  }
+
+  // An evaluator taken out of the file stops grading. Left active, it would
+  // keep being sent to AWS on every run, so the scores would quietly disagree
+  // with what the workspace says it measures.
+  //
+  // Retired, not deleted — the same sweep the workflows above do, and for the
+  // same reason. We never call AWS `DeleteEvaluator`, so deleting the row
+  // would strand the evaluator in the customer's account with nothing pointing
+  // at it, and putting the evaluator back in the file later would try to
+  // create a second one under a name AWS already has.
+  const { isNull, notInArray } = await import('drizzle-orm');
+  await db
+    .update(evalEvaluatorSchema)
+    .set({ retiredAt: new Date() })
+    .where(and(
+      eq(evalEvaluatorSchema.orgId, orgId),
+      eq(evalEvaluatorSchema.datasetSlug, ds.slug),
+      isNull(evalEvaluatorSchema.retiredAt),
+      authoredSlugs.length > 0 ? notInArray(evalEvaluatorSchema.slug, authoredSlugs) : undefined,
+    ));
+}
+
+/**
+ * The learning steps and agents a processor config is allowed to name.
+ *
+ * Both the stored rows and the ones this apply is about to write: steps are
+ * applied before sources, but a DRY run writes nothing, so reading the tables
+ * alone would fail the first apply of a workspace that declares both. An API
+ * caller gets the stored half only, it has no pass in which to create them.
+ * @param orgId - Org being applied to.
+ * @param loaded - The workspace being applied.
+ */
+async function knownProcessorNames(orgId: string, loaded: LoadedWorkspace): Promise<KnownProcessorNames> {
+  const stored = await storedProcessorNames(orgId);
+  return {
+    learningSteps: new Set([...stored.learningSteps, ...loaded.learningSteps.map(s => s.name)]),
+    agentSlugs: new Set([...stored.agentSlugs, ...loaded.agents.map(a => a.slug)]),
+  };
+}
+
+/**
+ * Write one manifest-declared source row.
+ *
+ * The write itself is `upsertSourceRow`, shared with `POST /api/v1/sources` so
+ * the two writers cannot drift; this wrapper only turns a `LoadedSource` into
+ * the spec that function takes.
+ * @param orgId - Org being applied to.
+ * @param src - The source manifest.
+ * @param dryRun - Report the outcome without writing.
+ * @param known - What a processor config may name.
+ */
+async function upsertSource(orgId: string, src: LoadedSource, dryRun: boolean, known: KnownProcessorNames): Promise<UpsertOutcome> {
+  const { outcome } = await upsertSourceRow(orgId, specForSource(src), { known, dryRun });
+  return outcome;
+}
+
+/**
+ * A manifest source as the shared writer takes it.
+ * @param src - The loaded source manifest.
+ */
+function specForSource(src: LoadedSource): SourceUpsertSpec {
+  return {
+    slug: src.slug,
+    kind: src.kind,
+    config: src.config,
+    enabled: src.enabled,
+    schedule: src.schedule,
+    reconcileSchedule: src.reconcileSchedule,
+    processor: src.processor,
+    access: src.access,
+    manifestDir: src.manifestDir,
+  };
+}
+
+/**
+ * Workspace-shipped seed rules → memory-store entries, keyed
+ * `ws-<rule id>.md` under the namespace's directory so re-applying is
+ * idempotent and text edits update in place (`addRule` upserts on the fixed
+ * key; the store carries `source: workspace:<id>` for provenance).
  * @param orgId
- * @param stepId
+ * @param namespaceName
+ * @param namespacePath
  * @param rules
  */
-async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ id: string; text: string }>): Promise<void> {
+async function seedLearningRules(orgId: string, namespaceName: string, namespacePath: string, rules: Array<{ id: string; text: string }>): Promise<void> {
+  const { addRule, namespaceFilePrefix } = await import('@/services/MemoryService');
   for (const r of rules) {
-    const source = `workspace:${r.id}`;
-    const text = r.text.trim();
-    const [existing] = await db.select().from(learningSchema).where(and(eq(learningSchema.orgId, orgId), eq(learningSchema.stepId, stepId), eq(learningSchema.source, source)));
-    if (!existing) {
-      await db.insert(learningSchema).values({ orgId, stepId, ruleText: text, source, createdBy: 'workspace:apply' });
-    } else if (existing.ruleText !== text) {
-      await db.update(learningSchema).set({ ruleText: text, updatedAt: new Date() }).where(eq(learningSchema.id, existing.id));
+    const result = await addRule({
+      orgId,
+      stepName: namespaceName,
+      ruleText: r.text.trim(),
+      source: `workspace:${r.id}`,
+      createdBy: 'workspace:apply',
+      key: `${namespaceFilePrefix(namespacePath)}ws-${r.id}.md`,
+    });
+    if (!result.ok) {
+      // A seed rule that near-duplicates an adopted rule is an authoring
+      // conflict a person should resolve; skipping keeps the apply usable.
+      console.warn(`[applier] seed rule "${r.id}" in ${namespaceName} skipped: ${result.detail}`);
     }
   }
 }
@@ -1055,12 +1204,18 @@ async function seedLearningRules(orgId: string, stepId: number, rules: Array<{ i
 async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRun: boolean): Promise<UpsertOutcome> {
   const [existing] = await db
     .select()
-    .from(learningStepSchema)
-    .where(and(eq(learningStepSchema.orgId, orgId), eq(learningStepSchema.name, step.name)));
+    .from(memoryNamespaceSchema)
+    .where(and(eq(memoryNamespaceSchema.orgId, orgId), eq(memoryNamespaceSchema.name, step.name)));
 
+  const { namespacePath } = await import('@/services/MemoryService');
+  const scopeKind = step.scope?.kind ?? 'workspace';
+  const scopeRef = step.scope?.ref ?? null;
   const payload = {
     orgId,
     name: step.name,
+    scopeKind,
+    scopeRef,
+    path: namespacePath({ scopeKind, scopeRef, name: step.name }),
     title: step.title,
     description: step.description,
     preamble: step.preamble ?? null,
@@ -1069,15 +1224,15 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
 
   if (!existing) {
     if (!dryRun) {
-      const [row] = await db.insert(learningStepSchema).values(payload).returning();
+      const [row] = await db.insert(memoryNamespaceSchema).values(payload).returning();
       if (row) {
-        await seedLearningRules(orgId, row.id, step.rules ?? []);
+        await seedLearningRules(orgId, row.name, row.path, step.rules ?? []);
       }
     }
     return 'created';
   }
   if (!dryRun) {
-    await seedLearningRules(orgId, existing.id, step.rules ?? []);
+    await seedLearningRules(orgId, existing.name, existing.path, step.rules ?? []);
   }
 
   if (
@@ -1085,11 +1240,14 @@ async function upsertLearningStep(orgId: string, step: LoadedLearningStep, dryRu
     && existing.description === payload.description
     && (existing.preamble ?? null) === payload.preamble
     && canonical(existing.agentSlugs) === canonical(payload.agentSlugs)
+    && existing.scopeKind === payload.scopeKind
+    && (existing.scopeRef ?? null) === payload.scopeRef
+    && existing.path === payload.path
   ) {
     return 'unchanged';
   }
   if (!dryRun) {
-    await db.update(learningStepSchema).set(payload).where(eq(learningStepSchema.id, existing.id));
+    await db.update(memoryNamespaceSchema).set(payload).where(eq(memoryNamespaceSchema.id, existing.id));
   }
   return 'updated';
 }
@@ -1164,6 +1322,7 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'playbookSlugs',
     'learningSteps',
     'suggestions',
+    'persona',
     'accent',
     'eyebrow',
     'langfuseProjectId',
@@ -1183,17 +1342,4 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     return out;
   };
   return canonical(pick(a as unknown as Record<string, unknown>)) === canonical(pick(b));
-}
-
-function canonical(v: unknown): string {
-  return JSON.stringify(v, (_key, value) => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const sorted: Record<string, unknown> = {};
-      for (const k of Object.keys(value as object).sort()) {
-        sorted[k] = (value as Record<string, unknown>)[k];
-      }
-      return sorted;
-    }
-    return value;
-  });
 }

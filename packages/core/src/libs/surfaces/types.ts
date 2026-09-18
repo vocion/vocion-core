@@ -27,6 +27,21 @@ export type ChatInbound = {
   isDirect: boolean;
 };
 
+/**
+ * The bot itself was added to a channel — the discovery signal. Carries no
+ * text and no human sender: nobody spoke, the app was invited. The handler
+ * answers it with one introduction so a fresh channel is never met with
+ * silence.
+ */
+export type ChatJoin = {
+  surface: string;
+  /** The platform's workspace/tenant id (Slack `team_id`), when it has one. */
+  teamId: string | null;
+  channelId: string;
+  /** The bot's own platform user id — why this event is ours to answer. */
+  botUserId: string;
+};
+
 export type ChatVerification
   = | { ok: true }
     | { ok: false; reason: 'missing_secret' | 'missing_headers' | 'stale' | 'bad_signature' };
@@ -34,7 +49,36 @@ export type ChatVerification
 export type ChatParse
   = | { kind: 'challenge'; challenge: string }
     | { kind: 'message'; inbound: ChatInbound }
+    | { kind: 'joined'; join: ChatJoin }
     | { kind: 'ignore'; reason: string };
+
+/** An image a message carries: something a reader can open, and what it shows. */
+export type ChatImage = {
+  /** Absolute https URL, or a relative in-app path for an image behind our auth. */
+  url: string;
+  /** What the image shows — the alt text, and the line written above it. */
+  caption: string;
+};
+
+/**
+ * A message to post. A bare string is still accepted everywhere a message is
+ * taken; the object form is how images travel.
+ */
+export type ChatMessage = {
+  text: string;
+  images?: ChatImage[];
+};
+
+/** Where a posted message ended up — the handle the outbound record is keyed by. */
+export type ChatPostRef = {
+  channelId: string;
+  /** The platform's id for the message just posted (Slack `ts`). */
+  ts: string;
+  /** The thread it landed in, when it landed in one. */
+  threadRef?: string;
+  /** How the images were carried, so a caller can say so honestly. */
+  media?: 'none' | 'uploaded' | 'blocks' | 'unreachable';
+};
 
 /**
  * Where a reply goes, and the face it wears. The persona fields are optional
@@ -43,7 +87,12 @@ export type ChatParse
  */
 export type ChatReplyTarget = {
   channelId: string;
-  threadRef: string;
+  /**
+   * Thread to reply in. Absent for a message that starts no thread — the
+   * channel-join introduction is the only one today — and the adapter then
+   * omits the platform's thread key rather than sending it empty.
+   */
+  threadRef?: string;
   /** Persona name to post under, e.g. `Sterling Banks`. */
   displayName?: string;
   /** Public https URL of the persona avatar. */
@@ -56,6 +105,11 @@ export type ChatSurfaceAdapter = {
   verify: (rawBody: string, headers: Headers) => ChatVerification;
   /** Turn a parsed JSON payload into a challenge, a message, or a reason to ignore it. */
   parse: (payload: unknown) => ChatParse;
-  /** Post a plain-text reply into the thread, as the target's persona if it has one. */
-  reply: (target: ChatReplyTarget, text: string) => Promise<void>;
+  /**
+   * Post a reply into the thread, as the target's persona if it has one.
+   * Takes a bare string or a message carrying images; returns where it landed
+   * so the caller can record what we said (`slack_post`), or null when the
+   * platform did not say.
+   */
+  reply: (target: ChatReplyTarget, message: string | ChatMessage) => Promise<ChatPostRef | null>;
 };

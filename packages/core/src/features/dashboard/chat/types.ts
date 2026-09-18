@@ -74,6 +74,15 @@ export type TraceNode = {
   result?: string;
   confidence?: number;
   citations?: TraceCitation[];
+  /**
+   * Where this step sits in the answer: how many text runs of the reply had
+   * started when the step began. `0` is "before the first words"; `n` is
+   * "after the n-th passage". The transcript renders each group of steps at
+   * that point, between the passages, in the order things actually happened
+   * (`interleave.ts`) instead of hoisting every tool call to the top. Absent
+   * on turns persisted before this existed, which render hoisted as before.
+   */
+  anchor?: number;
 };
 
 /** A2UI: a one-tap recommended action rendered as a card in the answer. */
@@ -84,13 +93,86 @@ export type RecommendedAction = {
   rationale?: string;
   confidence?: number;
   agentSlug?: string;
+  /** Set when the server already filed it into the review queue (act-within-bounds). */
+  runId?: number;
+  /** The agent's own recommendation for the queue card, and why. Both or neither. */
+  suggestedDecision?: 'approve' | 'reject' | 'snooze';
+  suggestedDecisionReason?: string;
+};
+
+/** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
+export type ConversationAutonomy = 'ask' | 'act-within-bounds';
+
+/**
+ * A record the person pointed the conversation at — an `@` tag in the
+ * composer, or the page they are on (R4's page-context model reads the same
+ * shape). `type` is the dashboard entity family; `id` its slug or numeric id.
+ */
+export type ContextRef = {
+  /**
+   * `deliverable` and `intent` are the odd ones out, deliberately: every
+   * other value names a RECORD the turn is about. `deliverable` (`@artifact`)
+   * names what the turn OWES; `intent` (`@change`) names what the turn must
+   * DO — route the ask through the sequence-draft rewrite rather than answer
+   * it. Both ride the same mention mechanism, because arming one is the same
+   * gesture as tagging a team, and both are stripped out of `context_refs`
+   * before the wire — see `libs/chat/deliverable.ts` and
+   * `features/dashboard/chat/composerTags.ts`.
+   */
+  type: 'agent' | 'team' | 'mission' | 'ask' | 'object' | 'briefing' | 'deal' | 'page' | 'deliverable' | 'intent';
+  id: string;
+  label: string;
+  /** For a team: the agent slug a `@team` tag routes the turn to (its lead). */
+  routeTo?: string;
+};
+
+/**
+ * An artifact this turn created or changed — rendered as a chip under the
+ * message so the transcript still says where a thing came from once the pane
+ * has moved on to the next one.
+ */
+export type ChatMessageArtifact = {
+  id: number;
+  title: string;
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
+  version: number;
+};
+
+/**
+ * A file a person put into the turn — an image, a PDF, a text file. It is an
+ * ARTIFACT (kind `file`, uploaded by a human) so it has a row, a version, an
+ * authenticated URL and a place in the artifacts list; the chip in the
+ * composer and under the message is a view of that row, not a second store.
+ */
+export type ChatAttachment = {
+  /** The artifact row id. */
+  id: number;
+  /** The file's own name, as the person had it. */
+  title: string;
+  contentType: string;
+  bytes: number;
+  /** Authenticated, same-origin — `/api/artifacts/<id>`. */
+  url: string;
+  /** How the model receives it: an image block, or its text inlined under the message. */
+  kind: 'image' | 'document';
 };
 
 export type ChatMessage = {
+  /** Persisted row id, once known — the feedback control writes against it. */
+  id?: number;
   role: 'user' | 'assistant';
   content: string;
+  /** The person's thumb on this turn (assistant rows only), as stored. */
+  feedback?: { rating: 'up' | 'down' | null; note: string | null };
+  /** When a turn was routed to a specialist (`@agent`), who answered — rendered as the speaker (§9). */
+  agentSlug?: string;
+  agentName?: string;
   /** A2UI recommended-action cards emitted during this turn (clickable). */
   recommendations?: RecommendedAction[];
+  /** Artifacts this turn created or changed (0101) — chips under the message. */
+  artifacts?: ChatMessageArtifact[];
+  /** Files the person attached to this (user) message — chips above its text. */
+  attachments?: ChatAttachment[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];
@@ -131,6 +213,8 @@ export type AgentOption = {
   role?: 'lead' | 'specialist';
   /** Slug of the primary this agent reports to. Undefined = a primary/coordinator. */
   parentSlug?: string;
+  /** The workspace this agent belongs to — the ONE name the chat surface speaks as (§9.10). */
+  workspaceName?: string;
 };
 
 /** HITL gate event payload — emitted by request_human_review tool. */

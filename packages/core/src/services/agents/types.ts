@@ -6,6 +6,8 @@
  * lock-step. New runtime, same events.
  */
 
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
+
 /* ------------------------------------------------------------------ */
 /* Event shape — what the SSE adapter emits over the wire             */
 /* ------------------------------------------------------------------ */
@@ -49,7 +51,7 @@ export type RecommendedActionPayload = {
   actionId: string;
   /** Pre-filled payload for that action (draft to/subject/body, CRM props, …). */
   input: Record<string, unknown>;
-  /** Short button label, e.g. "Draft the note to Carlo Marcelino". */
+  /** Short button label, e.g. "Draft the note to Nadia Brandt". */
   label: string;
   /** One-line why. */
   rationale?: string;
@@ -57,6 +59,59 @@ export type RecommendedActionPayload = {
   confidence?: number;
   /** Recommending agent — reconstructs the propose principal on click. */
   agentSlug?: string;
+  /**
+   * Set when the server already filed this recommendation into the review
+   * queue (conversation autonomy `act-within-bounds`): the card shows the
+   * run's status instead of a "Prepare" button. Additive; absent on tap-mode.
+   */
+  runId?: number;
+  /**
+   * What the agent thinks a reviewer should do with this once it is filed,
+   * and one short sentence for why — the agent's own answer, asked for by
+   * `recommend_action`. They travel together: filing this card sends them as
+   * the proposal's recommendation.
+   *
+   * Optional on the type because an event can arrive without them (an older
+   * client, a model that skipped the field). The card then files with no
+   * recommendation rather than one core invented for it.
+   */
+  suggestedDecision?: SuggestedDecision;
+  suggestedDecisionReason?: string;
+};
+
+/**
+ * One live artifact — a table, a markdown note, a chart, a record card, a
+ * link, a file — persisted as an `artifact` row (0095) with a version
+ * history (0101), and emitted so the pane beside the conversation opens on
+ * it and the message gets a chip. `spec` is the card payload without its
+ * `__card` slug; the client resolves it through `libs/cards` with
+ * `cardPayloadFor(kind, spec)`.
+ */
+export type ArtifactPayload = {
+  id: number;
+  conversationId: number | null;
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
+  title: string;
+  spec: Record<string, unknown>;
+  url?: string | null;
+  /**
+   * The RECORD this artifact belongs to (0112), when it belongs to one rather
+   * than only to a conversation — `{ type, id }` of a `RecordRef`, plus what
+   * the artifact IS to that record (`brief` | `recommendation` | `sequence`).
+   */
+  recordType?: string | null;
+  recordId?: string | null;
+  recordRole?: string | null;
+  /** The assistant turn that produced this version — where the chip hangs in the transcript. */
+  messageId: number | null;
+  /** Path-like grouping in the artifacts log, e.g. `revenue/weekly`. */
+  folder: string | null;
+  /** Head version number. */
+  version: number;
+  authorKind: 'agent' | 'human' | 'system';
+  authorId: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -155,6 +210,18 @@ export type AgentEvent
     | { type: 'retrieval_progress'; stage: 'started' | 'candidates' | 'fused' | 'reranking' | 'complete'; meta?: Record<string, number | string> }
     | { type: 'skill_result'; skillResult: SkillResultEventPayload }
     | { type: 'recommended_action'; recommendation: RecommendedActionPayload }
+    /**
+     * An artifact was created or changed (0095/0101). The pane beside the
+     * conversation opens or switches to it and the message gets a chip.
+     *
+     * `pending` marks a placeholder emitted BEFORE the content is written —
+     * the title is known, the body is not — so a long markdown write shows a
+     * shell filling in rather than nothing. `delta` appends to the pending
+     * body. Both are folded by `mergeArtifactEvent` in
+     * `features/dashboard/chat/traceReducer.ts`; the settled event that
+     * follows carries the real row.
+     */
+    | { type: 'artifact'; artifact: ArtifactPayload; pending?: boolean; delta?: string }
     | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**
@@ -170,6 +237,13 @@ export type AgentEvent
      * diagnosable without depending on the model's cooperation.
      */
     | { type: 'tool_error'; tool: string; message: string; status?: number }
+    /**
+     * Approved learnings were mounted for this turn. Silent by design: the
+     * chat transcript ignores it; the adoption surfaces (Phase 2 growing-
+     * memory panel) are its consumers. `paths` lists the mounted memory
+     * files (`/learnings/…`, later `/memories/…`).
+     */
+    | { type: 'memories_mounted'; paths: string[] }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
@@ -210,6 +284,12 @@ export type RuntimeContext = {
   missionRunId?: number;
   /** Persisted conversation this turn belongs to — stamped on tool_call rows. */
   conversationId?: number;
+  /**
+   * Where the person is in the app for THIS turn (page, record, selection,
+   * @-mentions) — read by the `page_context` tool. Set per request in
+   * `bindRequestEmit`; undefined for schedules, MCP and API callers.
+   */
+  pageContext?: import('@/services/chat/pageContext').PageContext;
   /** Which harness runs the loop — stamped on tool_call rows. */
   provider?: 'local' | 'agentcore' | 'runtime';
   /** Langfuse trace id of the current turn — links tool_call rows to cost/latency. */

@@ -8,7 +8,7 @@
  * provider-neutral message arrays. This file lives alongside it for
  * LangChain-specific surfaces.
  *
- * Defaults match rev-ai (`/var/www/metacto/spinutech/kickoff-demo/server/llm.py`).
+ * Defaults match rev-ai (`server/llm.py`).
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -21,19 +21,71 @@ import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { resolveOrgProviderKey } from './orgKey';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
+import { buildScriptedChatModel } from './scripted';
 
 /**
  * Model roles. Add a new role here (not a new env var) when you need
  * a model for a new purpose; lets us swap a role's underlying model
  * without grep-replacing IDs across services.
  */
-export type ModelRole = 'main' | 'classifier' | 'embedder';
+export type ModelRole = 'main' | 'classifier' | 'embedder' | 'skillTurn' | 'extractor';
 
 /** Provider tag — narrow alphabet so the env validation is straightforward. */
-export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock';
+/**
+ * Whether this Anthropic model REFUSES sampling parameters.
+ *
+ * Claude 4.7, 4.8 and the whole 5 family answer `temperature` / `top_p` /
+ * `top_k` with a 400 ("`temperature` is deprecated for this model"). The 4.6
+ * generation only deprecated them and still honours what it is sent, which
+ * matters because `claude-sonnet-4-6` is the default main model: dropping the
+ * parameter there would silently move every default call off `temperature: 0`
+ * and make deterministic work non-deterministic. So the line is drawn at 4.7,
+ * not at "4.6 and newer" — an earlier version of this function included 4.6
+ * and would have done exactly that.
+ *
+ * Bedrock ids decorate the model name (`us.anthropic.claude-sonnet-5-v1:0`),
+ * so the match is deliberately a substring rather than an exact id.
+ * @param model
+ */
+export function anthropicOmitsSampling(model: string): boolean {
+  return /claude-(?:opus-4-[78]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
+}
+
+/**
+ * Whether this Anthropic model takes ADAPTIVE thinking rather than a token
+ * budget.
+ *
+ * From 4.6 the API's thinking control is `{ type: 'adaptive' }`: the model
+ * decides how much to think per request. `budget_tokens` is deprecated on
+ * 4.6 and answered with a 400 from 4.7 up, and so is the `temperature: 1`
+ * the budgeted form used to require. Older models still need the budgeted
+ * form. The 4.6 line here is deliberately one generation earlier than
+ * `anthropicOmitsSampling`'s 4.7: adaptive is *supported* on 4.6, so there
+ * is no reason to keep sending it a deprecated shape.
+ * @param model
+ */
+export function anthropicAdaptiveThinking(model: string): boolean {
+  return /claude-(?:sonnet-4-6|opus-4-[678]|sonnet-5|opus-5|fable-5|mythos-5)/.test(model);
+}
+
+/**
+ * The output cap when a caller sets none. LangChain's own table stops at the
+ * 4.x family — `claude-sonnet-5` falls to its 4096 fallback, shared with
+ * adaptive thinking — and production showed what that buys (2026-09-18): a
+ * `render_document` call whose HTML ran past the cap arrived as truncated JSON
+ * with no `html`, twice, while a 6 KB markdown squeaked through. The 5 family
+ * answers up to 64k; 32k leaves room for a long tool argument and the
+ * thinking that precedes it. Older models keep LangChain's 16384.
+ * @param model - The bare Anthropic model id.
+ */
+export function defaultAnthropicMaxTokens(model: string): number {
+  return /claude-(?:sonnet-5|opus-5|fable-5|mythos-5)/.test(model) ? 32_000 : 16_384;
+}
+
+export type LangChainProvider = 'anthropic' | 'openai' | 'bedrock' | 'scripted';
 
 /** Every value `VOCION_LLM_PROVIDER` may be set to, for validation + error text. */
-const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock'];
+const PROVIDERS: readonly LangChainProvider[] = ['anthropic', 'openai', 'bedrock', 'scripted'];
 
 /** Defaults if the per-role / per-provider env vars are not set. */
 const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
@@ -44,11 +96,23 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // calls should resolve to a different provider via env override
     // until we add a dedicated registry path.
     embedder: 'claude-haiku-4-5-20251001',
+    // The scoped skill-turn executor (one skill, read-only tools, structured
+    // output). Its own role so the latency/quality tradeoff is measured via
+    // VOCION_LLM_MODEL_SKILLTURN, not hardcoded; a bigger model buys
+    // first-time-right redrafts, not speed.
+    skillTurn: 'claude-sonnet-4-6',
+    // Per-document candidate extraction from an ingested page: JSON only,
+    // no tools, one bounded call. Its own role so the cost/quality trade is
+    // measured through VOCION_LLM_MODEL_EXTRACTOR rather than riding on
+    // whatever `main` happens to be.
+    extractor: 'claude-sonnet-4-6',
   },
   openai: {
     main: 'gpt-4o',
     classifier: 'gpt-4o-mini',
     embedder: 'text-embedding-3-small',
+    skillTurn: 'gpt-4o',
+    extractor: 'gpt-4o',
   },
   // Bedrock model ids, unlike the other two providers', are not the plain model
   // names. These are the US cross-region inference profiles (the `us.` prefix),
@@ -67,6 +131,15 @@ const DEFAULTS: Record<LangChainProvider, Record<ModelRole, string>> = {
     // embedding path and reads its own env var, because Titan speaks
     // `InvokeModel` rather than Converse.
     embedder: 'amazon.titan-embed-text-v1',
+    skillTurn: 'us.anthropic.claude-sonnet-4-6',
+    extractor: 'us.anthropic.claude-sonnet-4-6',
+  },
+  scripted: {
+    main: 'scripted',
+    classifier: 'scripted',
+    embedder: 'scripted',
+    skillTurn: 'scripted',
+    extractor: 'scripted',
   },
 };
 
@@ -98,6 +171,38 @@ function resolveProvider(role: ModelRole): LangChainProvider {
     );
   }
   return raw;
+}
+
+/**
+ * The provider a bare model id belongs to, read off the id's shape — or null
+ * when the shape says nothing.
+ *
+ * Exists for the one call site that names a model without naming a vendor:
+ * the model-upgrade test (`services/evals/modelUpgradeTest.ts`), where a person
+ * types `gpt-6-astra` and expects it to run on OpenAI without also having to
+ * say so. Every other path still passes the provider explicitly — see
+ * `chatModelOptionsFor` in `services/agents/harness.ts` for why a bare
+ * `model:` in workspace YAML is NOT resolved this way (those ids were authored
+ * for a different harness, and guessing would send a Bedrock id to Anthropic).
+ *
+ * The rules are the vendors' own naming: OpenAI ids start with `gpt-`, `o<n>`
+ * or `text-`; Anthropic's start with `claude-`; a Bedrock id carries a vendor
+ * segment (`anthropic.`, `amazon.`, `meta.`) or a cross-region prefix. Nothing
+ * else is guessed — an unknown shape returns null and the caller decides.
+ * @param modelId - A bare model id as a provider would report it.
+ */
+export function inferProviderForModel(modelId: string): LangChainProvider | null {
+  const id = modelId.trim().toLowerCase();
+  if (/^(?:us|eu|apac|global)\./.test(id) || /^(?:anthropic|amazon|meta|mistral|cohere)\./.test(id)) {
+    return 'bedrock';
+  }
+  if (id.startsWith('claude-')) {
+    return 'anthropic';
+  }
+  if (id.startsWith('gpt-') || id.startsWith('text-') || /^o\d/.test(id) || id.startsWith('chat-')) {
+    return 'openai';
+  }
+  return null;
 }
 
 function resolveModel(role: ModelRole, provider: LangChainProvider): string {
@@ -202,6 +307,11 @@ export function buildChatModel(
   opts: BuildChatModelOptions = {},
 ): BaseChatModel {
   const provider = opts.provider ?? resolveProvider(role);
+  if (provider === 'scripted') {
+    // A written part, for reproducible chat use cases (`./scripted.ts`).
+    // No key, no network, no replay cache: the script IS the recording.
+    return buildScriptedChatModel();
+  }
   const model = opts.model ?? resolveModel(role, provider);
   const temperature = opts.temperature ?? 0;
   // Record/replay (demo sandbox): the LangChain cache only intercepts
@@ -218,10 +328,25 @@ export function buildChatModel(
         throw new Error(`ANTHROPIC_API_KEY is not set; cannot construct chat model for role ${role}`);
       }
       const thinkingBudget = resolveThinkingBudget(role);
+      if (thinkingBudget !== null && anthropicAdaptiveThinking(model)) {
+        // 4.6+: the switch is still VOCION_THINKING_BUDGET (set = on), but the
+        // number is not sent — the model sizes its own thinking. No
+        // `temperature` either: 4.7+ reject it, and thinking never took a
+        // value other than the default anyway. This branch was `enabled` +
+        // `budget_tokens` + `temperature: 1` until 2026-09-15, all three of
+        // which 4.7+ answer with a 400.
+        return withReplay(new ChatAnthropic({
+          model,
+          streaming,
+          apiKey,
+          thinking: { type: 'adaptive' },
+          maxTokens: opts.maxTokens ?? defaultAnthropicMaxTokens(model),
+        }));
+      }
       if (thinkingBudget !== null) {
         return withReplay(new ChatAnthropic({
           model,
-          // Extended thinking requires temperature 1 — override the
+          // Pre-4.6: budgeted thinking requires temperature 1 — override the
           // deterministic default 0 ONLY on this opt-in path.
           temperature: 1,
           streaming,
@@ -240,7 +365,8 @@ export function buildChatModel(
       }
       return withReplay(new ChatAnthropic({
         model,
-        temperature,
+        // 4.6+/5-family models 400 on any sampling parameter — omit it.
+        ...(anthropicOmitsSampling(model) ? {} : { temperature }),
         streaming,
         apiKey,
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
@@ -271,7 +397,11 @@ export function buildChatModel(
       return withReplay(new ChatBedrockConverse({
         model,
         region: opts.region ?? bedrockRegion(),
-        temperature,
+        // Bedrock is a different transport to the same models, so it refuses
+        // the same parameters. This branch sent `temperature` unconditionally
+        // until 2026-09-15, which meant a 5-family model reached through
+        // Bedrock still 400'd after the Anthropic branch was fixed.
+        ...(anthropicOmitsSampling(model) ? {} : { temperature }),
         streaming,
         ...(opts.awsCredentials ? { credentials: opts.awsCredentials } : {}),
         ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
@@ -304,6 +434,9 @@ export async function buildChatModelForOrg(
     return buildChatModel(role, opts);
   }
   const provider = opts.provider ?? resolveProvider(role);
+  if (provider === 'scripted') {
+    return buildChatModel(role, { ...opts, provider });
+  }
   if (provider === 'bedrock') {
     // Bedrock resolves a pair, not a key, so it cannot go through
     // `resolveOrgProviderKey` — that helper returns a single string and for the

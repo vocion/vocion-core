@@ -2,15 +2,18 @@
 
 import type { LucideIcon } from 'lucide-react';
 import type { AgentRun, IndexedDocument, TraceNode } from './types';
+import type { FailureReport } from '@/libs/chat/redact';
 import {
   Brain,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ClipboardCopy,
   ExternalLink,
+
   GitBranch,
   Loader2,
-
   PencilLine,
   Rows3,
   Search,
@@ -20,15 +23,20 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { failureReport, redactInternalIds } from '@/libs/chat/redact';
 import { sourceLabels } from './helpers';
+import { useElapsed } from './useElapsed';
 
 /**
- * WorkTimeline — the agent Activity trace (redesign).
+ * WorkTimeline — the agent Activity trace.
  *
- * Minimal by default: one collapsed line ("Worked it out · 5 steps · 1
- * specialist · 3 sources"). Tap to explore a curated, typed trace — reasoning,
- * meaningful tool steps (plumbing hidden), delegation to named specialists,
- * and first-class citations. Bottom drawer on mobile, inline panel on desktop.
+ * LIVE (agent-chat-surface.md §9): the rows appear as the agent works — a
+ * tool row the moment its start event arrives, flipping to done/error when it
+ * lands; delegates indent their specialist's rows; reasoning folds to one
+ * line ("Thinking…" → "Thought for 6s") with its first sentence showing.
+ * AFTER the turn: one collapsed line ("Worked it out · 5 steps · 3 sources")
+ * that opens into the curated, typed trace — reasoning, meaningful tool
+ * steps (plumbing hidden), delegation to named specialists, citations.
  */
 
 export type WorkTimelineProps = {
@@ -44,6 +52,21 @@ export type WorkTimelineProps = {
    * of the flat `runs`/`thinkingText` fallback.
    */
   trace?: TraceNode[];
+  /**
+   * A counter the "Tool error" badge bumps. Each bump opens the trace and
+   * expands the failed step(s) — the badge is the way IN to the failure, not
+   * a decoration over it (CEO, 2026-09-16: *"how do I get details on this
+   * tool error, to share with you?"*).
+   */
+  inspect?: number;
+  /** Who this turn was, so a failed step can be copied as a report. */
+  failureContext?: FailureReport;
+  /**
+   * Whether a streaming group shows its own "Working…" bar above the rows.
+   * The transcript turns this off: the live indicator at the bottom of the
+   * turn already names the activity, and the group's job is its rows.
+   */
+  liveHeadline?: boolean;
 };
 
 // Plumbing the operator shouldn't have to see — hidden from the curated trace.
@@ -145,7 +168,7 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   const input = run.input ?? {};
   const state = run.state ?? 'done';
   if (run.name === 'error') {
-    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: String(run.output ?? '').slice(0, 160), state: 'error' };
+    return { icon: CircleAlert, kind: 'generic', label: 'Error', detail: redactInternalIds(String(run.output ?? '')).slice(0, 160), state: 'error' };
   }
   const { icon, kind } = kindFor(run.name);
   const { label, detail } = describeToolCall(run.name, input);
@@ -157,19 +180,6 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   }
   const out = state === 'done' ? outputSnippet(run.output) : undefined;
   return { icon, kind, label, detail, drill: out, state };
-}
-
-function useElapsed(active: boolean): number {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [active]);
-  return Math.floor((now - start) / 1000);
 }
 
 function Marker({ node }: { node: Node }) {
@@ -184,7 +194,9 @@ function Marker({ node }: { node: Node }) {
 function Citation({ doc }: { doc: IndexedDocument }) {
   const label = sourceLabels[doc.source_type] ?? doc.source_type;
   return (
-    <a href={doc.link} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 rounded-xl border border-border px-3 py-2 transition hover:border-brand-amber/40">
+    // A hairline row inside the trace's own surface, not a card in a card
+    // (docs/design/patterns.md → Never).
+    <a href={doc.link} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 border-t border-rule px-3 py-2 transition first:border-t-0 hover:bg-muted/40">
       <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wide text-muted-foreground uppercase">{label}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{doc.semantic_identifier}</span>
@@ -245,6 +257,64 @@ function TraceCitations({ node }: { node: TraceNode }) {
 }
 
 /**
+ * What a failed step says, and how to hand it to someone else.
+ *
+ * On screen the message is REDACTED (`libs/chat/redact.ts`): a tenant id or a
+ * `__sentinel__` slug in a sentence a person reads is a leak dressed as an
+ * explanation. *Copy details* puts the raw block on the clipboard — turn,
+ * conversation, when, tool, delegate, error — which is the whole reason the
+ * redaction is safe to do.
+ * @param root0 - Component props.
+ * @param root0.node - The failed trace node.
+ * @param root0.context - Who this turn was.
+ */
+function FailureDetail({ node, context }: { node: TraceNode; context?: FailureReport }) {
+  const [copied, setCopied] = useState(false);
+  const raw = node.resultDetail ?? node.result ?? node.detail ?? node.label;
+  const shown = redactInternalIds(raw ?? '');
+  const block = failureReport({
+    ...context,
+    tool: node.tool ?? node.label,
+    message: raw ?? null,
+    delegate: node.actor.kind === 'specialist' ? node.actor.name : (context?.delegate ?? null),
+  });
+  return (
+    <div data-testid="failed-step" className="mt-1.5">
+      <p className="rounded-lg bg-[var(--brand-fail-bg)]/50 p-2.5 text-[12px] leading-relaxed break-words text-[var(--brand-fail)]">{shown}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        {node.tool && (
+          <span>
+            tool ·
+            {' '}
+            <span className="font-mono">{node.tool}</span>
+          </span>
+        )}
+        {node.actor.kind === 'specialist' && (
+          <span>
+            in ·
+            {' '}
+            {node.actor.name}
+          </span>
+        )}
+        <button
+          type="button"
+          data-testid="copy-failure"
+          onClick={() => {
+            void navigator.clipboard?.writeText(block).catch(() => {});
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+          }}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-brand-amber-deep transition hover:bg-muted"
+        >
+          {copied ? <Check className="size-3" aria-hidden /> : <ClipboardCopy className="size-3" aria-hidden />}
+          {copied ? 'Copied' : 'Copy details'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The tool/input/result call detail for a tool·search·skill node's drill.
  * @param root0
  * @param root0.node
@@ -283,8 +353,9 @@ function CallDetail({ node }: { node: TraceNode }) {
  * @param root0.nested
  * @param root0.open
  * @param root0.onToggle
+ * @param root0.failureContext
  */
-function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void }) {
+function TraceRow({ node, nested, open, onToggle, failureContext }: { node: TraceNode; nested?: boolean; open: boolean; onToggle: () => void; failureContext?: FailureReport }) {
   const isReason = node.kind === 'reason';
   const drillText = isReason ? node.text?.trim() : undefined;
   // A tool·search·skill node drills into its call detail (tool / input / result).
@@ -298,7 +369,7 @@ function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: 
     <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
       <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
-        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.label}</span>
+        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${node.label}` : node.label}</span>
         {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
         {node.result && (
           <span className="text-muted-foreground/80">
@@ -330,25 +401,35 @@ function TraceRow({ node, nested, open, onToggle }: { node: TraceNode; nested?: 
         <span className="mt-1 block max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{drillText}</span>
       )}
       {open && hasCallDetail && <CallDetail node={node} />}
+      {/* A failure is never folded away: the message (redacted) and the way
+          to hand it to someone else sit right on the step. */}
+      {node.status === 'error' && <FailureDetail node={node} context={failureContext} />}
       {/* Citations always visible under a search node (the sources it surfaced). */}
       {hasCitations && <TraceCitations node={node} />}
     </li>
   );
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace }: WorkTimelineProps) {
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext, liveHeadline = true }: WorkTimelineProps) {
   if (trace && trace.length > 0) {
-    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} />;
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} liveHeadline={liveHeadline} />;
   }
-  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} />;
+  return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} inspect={inspect} />;
 }
 
-function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[] }) {
+function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext, liveHeadline = true }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport; liveHeadline?: boolean }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const [openDrill, setOpenDrill] = useState<string | null>(null);
+  // After the turn the whole trace folds to one line — "Worked it out · N
+  // steps" — and opens on tap (§2). Live, it is always open.
+  const [expanded, setExpanded] = useState(false);
+  const [reasonOpen, setReasonOpen] = useState(false);
   const elapsed = useElapsed(streaming);
+  // How long the agent thought before its first action — frozen the moment
+  // an action starts, so the label reads "Thought for 6s" afterwards.
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
 
   const roots = trace.filter(n => !n.parentId);
   const actions = roots.filter(n => n.kind !== 'reason');
@@ -357,30 +438,39 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
   const steps = trace.filter(n => n.kind !== 'reason').length;
   const sources = documents.length;
   const anyOpen = openIds.size > 0;
+  const stillThinking = streaming && reasons.length > 0 && actions.length === 0;
+  useEffect(() => {
+    if (stillThinking) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setThinkingSeconds(elapsed);
+    }
+  }, [stillThinking, elapsed]);
+  // The badge asked to see the failure: open the trace and every failed step,
+  // including a failure that happened inside a delegate.
+  const failedIds = trace.filter(n => n.status === 'error').map(n => n.id);
+  const failedKey = failedIds.join('|');
+  useEffect(() => {
+    if (inspect <= 0) {
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+    setExpanded(true);
+    const ids = failedKey ? failedKey.split('|') : [];
+    const withParents = ids.flatMap(id => [id, trace.find(n => n.id === id)?.parentId ?? id]);
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setOpenIds(new Set(withParents));
+    // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+    setOpenDrill(ids[0] ?? null);
+  }, [inspect, failedKey]);
+
+  const thoughtLabel = thinkingSeconds >= 2 ? `Thought for ${thinkingSeconds}s` : 'Thought it through';
+  const reasonText = reasons.map(r => r.text?.trim() || '').filter(Boolean).join('\n\n');
+  const reasonPreview = reasonText.split('\n').find(l => l.trim().length > 0)?.trim() ?? '';
 
   // A completed turn with no real actions and no sources has nothing worth
   // surfacing; keep the line while streaming (live status).
   if (!streaming && steps === 0 && sources === 0) {
     return null;
-  }
-
-  // While the agent runs: one line stating what it is doing NOW, as a verb,
-  // never a progress bar (§2.1 rule 4). Completed claims accumulate below it
-  // once the turn lands.
-  if (streaming) {
-    return (
-      <div className="my-2">
-        <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-          <span className="min-w-0 flex-1 truncate font-medium">{activity ?? 'Working…'}</span>
-          {elapsed >= 3 && (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-              {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-            </span>
-          )}
-        </div>
-      </div>
-    );
   }
 
   const toggle = (id: string) => setOpenIds((prev) => {
@@ -397,76 +487,172 @@ function TraceTimeline({ trace, streaming, activity, documents = [] }: { trace: 
     setOpenDrill(null);
   };
 
+  // LIVE: the rows appear as the agent works — a tool row the moment its
+  // start event arrives, flipping to done/error when it lands; delegates
+  // indent their specialist's rows beneath them; reasoning folds to one
+  // line with its first sentence showing (agent-chat-surface.md §9).
+  if (streaming) {
+    const live = [...trace].reverse().find(n => n.kind !== 'reason' && (n.status === 'start' || n.status === 'progress'));
+    const headline = activity ?? live?.label ?? 'Working…';
+    return (
+      <div className="my-2" data-testid="work-timeline-live">
+        {liveHeadline && (
+          <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+            <span className="min-w-0 flex-1 truncate font-medium">{headline}</span>
+            {elapsed >= 3 && (
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
+              </span>
+            )}
+          </div>
+        )}
+        {(reasons.length > 0 || actions.length > 0) && (
+          <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+            {reasons.length > 0 && (
+              <li className="border-b border-border/40 py-1.5 last:border-b-0">
+                <button type="button" onClick={() => setReasonOpen(v => !v)} aria-expanded={reasonOpen} className="flex w-full items-center gap-2 text-left text-xs">
+                  <span className="grid size-4 shrink-0 place-items-center"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    <span className="font-medium text-foreground/85">{actions.length === 0 ? 'Thinking…' : thoughtLabel}</span>
+                    {!reasonOpen && reasonPreview && (
+                      <span className="text-muted-foreground">
+                        {' · '}
+                        {reasonPreview}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${reasonOpen ? 'rotate-180' : ''}`} aria-hidden />
+                </button>
+                {reasonOpen && reasonText && (
+                  <div className="mt-1 ml-6 max-h-60 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">{reasonText}</div>
+                )}
+              </li>
+            )}
+            {actions.map((n) => {
+              const kids = childrenOf(n.id);
+              return (
+                <li key={n.id} className="border-b border-border/40 last:border-b-0">
+                  <ol>
+                    <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
+                    {kids.map(k => (
+                      <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
+                    ))}
+                  </ol>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
+    );
+  }
+
+  const summary = [
+    `${steps} step${steps === 1 ? '' : 's'}`,
+    sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+  // A group of one step folds to THAT step — "Searched HubSpot · 12 records"
+  // says more than "Worked it out · 1 step", and once the steps sit between
+  // the passages most groups are one or two calls, not a whole turn's worth.
+  const solo = actions.length === 1 && reasons.length === 0 && sources === 0 ? actions[0]! : null;
+  const soloRadius = solo ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
+
   return (
     <div className="my-2">
-      {anyOpen && (
-        <div className="mb-1 flex justify-end">
-          <button type="button" onClick={collapseAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
-            Collapse all
-          </button>
-        </div>
-      )}
-      <ol className="flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
-        {reasons.length > 0 && (
-          <ClaimLine
-            id="__reasoning__"
-            icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
-            label="Thought it through"
-            open={openIds.has('__reasoning__')}
-            onToggle={() => toggle('__reasoning__')}
-          >
-            {reasons.map(r => (
-              <div key={r.id} className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
-                {r.text?.trim() || r.label}
-              </div>
-            ))}
-          </ClaimLine>
-        )}
-        {actions.map((n) => {
-          const kids = childrenOf(n.id);
-          return (
-            <ClaimLine
-              key={n.id}
-              id={n.id}
-              icon={<TraceMarker node={n} />}
-              label={n.label}
-              detail={n.detail}
-              radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
-              error={n.status === 'error'}
-              open={openIds.has(n.id)}
-              onToggle={() => toggle(n.id)}
-            >
-              {kids.length > 0
-                ? (
-                    <ol className="relative">
-                      {kids.map(k => (
-                        <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} />
-                      ))}
-                    </ol>
-                  )
-                : (
-                    <div>
-                      <CallDetail node={n} />
-                      {(n.citations?.length ?? 0) > 0 && <TraceCitations node={n} />}
-                    </div>
-                  )}
-            </ClaimLine>
-          );
-        })}
-        {sources > 0 && (
-          <ClaimLine
-            id="__sources__"
-            icon={<Search className="size-3.5 text-muted-foreground/70" aria-hidden />}
-            label={`Grounded in ${sources} source${sources === 1 ? '' : 's'}`}
-            open={openIds.has('__sources__')}
-            onToggle={() => toggle('__sources__')}
-          >
-            <div className="grid gap-1.5">
-              {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition hover:text-foreground"
+      >
+        {solo ? <TraceMarker node={solo} /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {solo
+            ? (
+                <>
+                  <span className={solo.status === 'error' ? 'text-[var(--brand-fail)]' : undefined}>{solo.kind === 'delegate' ? `→ ${solo.label}` : solo.label}</span>
+                  {solo.detail && <span className="font-normal">{` · ${solo.detail}`}</span>}
+                </>
+              )
+            : `Worked it out · ${summary}`}
+        </span>
+        {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{soloRadius}</span>}
+        <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${expanded ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {expanded && (
+        <>
+          {anyOpen && (
+            <div className="mt-1 mb-1 flex justify-end">
+              <button type="button" onClick={collapseAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
+                Collapse all
+              </button>
             </div>
-          </ClaimLine>
-        )}
-      </ol>
+          )}
+          <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+            {reasons.length > 0 && (
+              <ClaimLine
+                id="__reasoning__"
+                icon={<Brain className="size-3.5 text-brand-amber-deep" aria-hidden />}
+                label={thoughtLabel}
+                open={openIds.has('__reasoning__')}
+                onToggle={() => toggle('__reasoning__')}
+              >
+                {reasons.map(r => (
+                  <div key={r.id} className="max-h-72 overflow-y-auto rounded-lg bg-muted/50 p-2.5 font-mono text-[10px] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+                    {r.text?.trim() || r.label}
+                  </div>
+                ))}
+              </ClaimLine>
+            )}
+            {actions.map((n) => {
+              const kids = childrenOf(n.id);
+              return (
+                <ClaimLine
+                  key={n.id}
+                  id={n.id}
+                  icon={<TraceMarker node={n} />}
+                  label={n.kind === 'delegate' ? `→ ${n.label}` : n.label}
+                  detail={n.detail}
+                  radius={n.result ?? (n.resultDetail && n.resultDetail.length <= 60 ? n.resultDetail : undefined)}
+                  error={n.status === 'error'}
+                  open={openIds.has(n.id)}
+                  onToggle={() => toggle(n.id)}
+                >
+                  {kids.length > 0
+                    ? (
+                        <ol className="relative">
+                          {kids.map(k => (
+                            <TraceRow key={k.id} node={k} nested open={openDrill === k.id} onToggle={() => setOpenDrill(o => (o === k.id ? null : k.id))} failureContext={failureContext} />
+                          ))}
+                        </ol>
+                      )
+                    : (
+                        <div>
+                          <CallDetail node={n} />
+                          {n.status === 'error' && <FailureDetail node={n} context={failureContext} />}
+                          {(n.citations?.length ?? 0) > 0 && <TraceCitations node={n} />}
+                        </div>
+                      )}
+                </ClaimLine>
+              );
+            })}
+            {sources > 0 && (
+              <ClaimLine
+                id="__sources__"
+                icon={<Search className="size-3.5 text-muted-foreground/70" aria-hidden />}
+                label={`Grounded in ${sources} source${sources === 1 ? '' : 's'}`}
+                open={openIds.has('__sources__')}
+                onToggle={() => toggle('__sources__')}
+              >
+                <div className="grid gap-1.5">
+                  {documents.map((d, i) => <Citation key={`${d.document_id}-${i}`} doc={d} />)}
+                </div>
+              </ClaimLine>
+            )}
+          </ol>
+        </>
+      )}
     </div>
   );
 }
@@ -519,11 +705,17 @@ function ClaimLine({ id, icon, label, detail, radius, error, open, onToggle, chi
   );
 }
 
-function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [] }: Omit<WorkTimelineProps, 'trace'>) {
+function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents = [], inspect = 0 }: Omit<WorkTimelineProps, 'trace'>) {
   const [open, setOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
   const [drillOpen, setDrillOpen] = useState<number | null>(null);
   const elapsed = useElapsed(streaming);
+  useEffect(() => {
+    if (inspect > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
+      setOpen(true);
+    }
+  }, [inspect]);
 
   // Curate: hide plumbing from the trace and the counts.
   const visible = runs.filter(r => !PLUMBING.has(r.name));

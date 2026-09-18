@@ -34,6 +34,25 @@ const PLAYBOOK_BODY = '# House style\n\nWrite plainly.\n';
 mkdirSync(join(WORKSPACE, 'skills', 'write-lead-brief'), { recursive: true });
 writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'SKILL.md'), SKILL_BODY);
 writeFileSync(join(WORKSPACE, 'skills', 'write-lead-brief', 'examples.md'), 'an example');
+// A skill authored the way every Vocion workspace (and this repo's own base
+// pack) authors one: `slug` is the identity, `name` is a human label. The
+// Agent Skills spec deepagents enforces expects `name` to BE the identity, so
+// the mount rewrites it — see libs/skills/name.ts.
+const NAMED_SKILL_BODY = [
+  '---',
+  'slug: queue-health',
+  'name: Queue Health',
+  'description: >-',
+  '  Report on the review queue as a process.',
+  'version: 1',
+  '---',
+  '',
+  '# Queue health',
+  '',
+  'Read the queue.',
+].join('\n');
+mkdirSync(join(WORKSPACE, 'skills', 'queue-health'), { recursive: true });
+writeFileSync(join(WORKSPACE, 'skills', 'queue-health', 'SKILL.md'), NAMED_SKILL_BODY);
 mkdirSync(join(WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
 writeFileSync(join(WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'), PLAYBOOK_BODY);
 // Two awkward but perfectly legal filenames living inside the playbook
@@ -67,17 +86,17 @@ const TEMPLATED_WORKSPACE = join(ROOT, 'workspace', 'templated');
 mkdirSync(join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style'), { recursive: true });
 writeFileSync(
   join(TEMPLATED_WORKSPACE, 'playbooks', 'house-style', 'SKILL.md'),
-  '# House style\n\nFetch {{env.VEERIO_API_URL}}/api/sources.\n',
+  '# House style\n\nFetch {{env.LARKFIELD_API_URL}}/api/sources.\n',
 );
 mkdirSync(join(TEMPLATED_WORKSPACE, 'skills', 'pipeline-health'), { recursive: true });
 writeFileSync(
   join(TEMPLATED_WORKSPACE, 'skills', 'pipeline-health', 'SKILL.md'),
-  '# Pipeline health\n\nCall {{env.VEERIO_API_URL}}/api/pipeline.\n',
+  '# Pipeline health\n\nCall {{env.LARKFIELD_API_URL}}/api/pipeline.\n',
 );
 
 const ORIGINAL_PATH = process.env.WORKSPACE_PATH;
 const ORIGINAL_ALLOWLIST = process.env.WORKSPACE_TEMPLATE_VARS;
-const ORIGINAL_API_URL = process.env.VEERIO_API_URL;
+const ORIGINAL_API_URL = process.env.LARKFIELD_API_URL;
 
 beforeEach(async () => {
   await db.delete(playbookSchema);
@@ -92,6 +111,16 @@ beforeEach(async () => {
       attachedPlaybooks: ['house-style'],
       contentSha: 'sha-write-lead-brief',
       sourceFiles: ['examples.md'],
+    },
+    {
+      orgId: ORG,
+      slug: 'queue-health',
+      name: 'Queue Health',
+      description: 'Report on the review queue as a process.',
+      kind: 'skill',
+      origin: 'workspace',
+      contentSha: 'sha-queue-health',
+      sourceFiles: [],
     },
     {
       orgId: ORG,
@@ -132,14 +161,14 @@ function restoreEnvVar(name: string, original: string | undefined): void {
 afterEach(() => {
   restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
   restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
-  restoreEnvVar('VEERIO_API_URL', ORIGINAL_API_URL);
+  restoreEnvVar('LARKFIELD_API_URL', ORIGINAL_API_URL);
 });
 
 afterAll(async () => {
   await db.delete(playbookSchema);
   restoreEnvVar('WORKSPACE_PATH', ORIGINAL_PATH);
   restoreEnvVar('WORKSPACE_TEMPLATE_VARS', ORIGINAL_ALLOWLIST);
-  restoreEnvVar('VEERIO_API_URL', ORIGINAL_API_URL);
+  restoreEnvVar('LARKFIELD_API_URL', ORIGINAL_API_URL);
   rmSync(ROOT, { recursive: true, force: true });
 });
 
@@ -151,6 +180,22 @@ describe('mountSkills', () => {
 
     expect(files['/skills/write-lead-brief/SKILL.md']).toBe(SKILL_BODY);
     expect(files['/skills/write-lead-brief/examples.md']).toBe('an example');
+  });
+
+  it('hands deepagents a spec-compliant `name` without touching the body', async () => {
+    process.env.WORKSPACE_PATH = WORKSPACE;
+
+    const files = await mountSkills({ orgId: ORG, skillSlugs: ['queue-health'], playbookSlugs: [] });
+    const mounted = files['/skills/queue-health/SKILL.md']!;
+
+    // `name` is the slug, which is what the Agent Skills validator reads and
+    // what stopped it warning on every turn.
+    expect(mounted).toContain('name: queue-health');
+    // The human label survives, so nothing that reads the catalog loses it.
+    expect(mounted).toContain('title: Queue Health');
+    // Everything else, including the markdown, is byte-for-byte as authored.
+    expect(mounted).toContain('description: >-');
+    expect(mounted).toContain('# Queue health\n\nRead the queue.');
   });
 
   it('a mounted skill pulls its attached playbooks along', async () => {
@@ -187,35 +232,35 @@ describe('mountSkills', () => {
 
   it('resolves an {{env.NAME}} token before the agent ever sees the body', async () => {
     process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    process.env.VEERIO_API_URL = 'https://api-dev.veerio.app';
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    process.env.LARKFIELD_API_URL = 'https://api-dev.larkfield.example';
 
     const files = await mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] });
 
-    expect(files['/playbooks/house-style/SKILL.md']).toContain('https://api-dev.veerio.app/api/sources');
+    expect(files['/playbooks/house-style/SKILL.md']).toContain('https://api-dev.larkfield.example/api/sources');
     expect(files['/playbooks/house-style/SKILL.md']).not.toContain('{{');
   });
 
   it('refuses to mount rather than serve a raw token when the variable is missing', async () => {
     process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    delete process.env.VEERIO_API_URL;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    delete process.env.LARKFIELD_API_URL;
 
     await expect(
       mountSkills({ orgId: ORG, skillSlugs: [], playbookSlugs: ['house-style'] }),
-    ).rejects.toThrow(/VEERIO_API_URL/);
+    ).rejects.toThrow(/LARKFIELD_API_URL/);
   });
 
   it('an override row whose workspace copy has an unresolvable token fails instead of quietly serving the base copy', async () => {
     // The base pack has a pipeline-health skill, so a silent fallback
     // here would hand the agent the WRONG body and look like success.
     process.env.WORKSPACE_PATH = TEMPLATED_WORKSPACE;
-    process.env.WORKSPACE_TEMPLATE_VARS = 'VEERIO_API_URL';
-    delete process.env.VEERIO_API_URL;
+    process.env.WORKSPACE_TEMPLATE_VARS = 'LARKFIELD_API_URL';
+    delete process.env.LARKFIELD_API_URL;
 
     await expect(
       mountSkills({ orgId: ORG, skillSlugs: ['pipeline-health'], playbookSlugs: [] }),
-    ).rejects.toThrow(/VEERIO_API_URL/);
+    ).rejects.toThrow(/LARKFIELD_API_URL/);
   });
 
   it('falls back to the base copy when the workspace file is simply absent', async () => {

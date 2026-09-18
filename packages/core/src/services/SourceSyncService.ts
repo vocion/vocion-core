@@ -30,12 +30,19 @@
  * (`services/temporal/activities/sourceSync.ts`) rather than the RPC route.
  */
 
-import type { IngestDoc } from './IngestionService';
+import type { IngestDoc, IngestResult } from './IngestionService';
+import type { SyncBudget, SyncBudgetLimits } from '@/libs/processors/budget';
+import type { RegisteredProcessor } from '@/libs/processors/registry';
+import type { ProcessorRunsOn, ProcessorSyncContext } from '@/libs/processors/types';
 import type { SourceSyncCompletedPayload } from '@/services/EventService';
 import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { createSyncBudget } from '@/libs/processors/budget';
+import { getProcessor, listProcessorSlugs } from '@/libs/processors/registry';
+import { DEFAULT_RUNS_ON } from '@/libs/processors/types';
+import { processorRefOf } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
-import { knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
+import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
 import {
   deleteDocumentsGoneFromSource,
   ensureSource,
@@ -125,6 +132,28 @@ export async function supersedeRunningSync(
 }
 
 /**
+ * What a config replacement keeps from the stored row.
+ *
+ * The dashboard form rebuilds the whole blob from the fields it knows, and
+ * a key it leaves out is dropped on purpose (see the crud tests: a stale
+ * `populate` must not merge forward). The one exception is the reserved
+ * `_`-prefixed keys, which no form ever shows: `_connector`, `_manifestDir`,
+ * `_processor`, `_name`. Written by a manifest apply or the sources API,
+ * they describe what the row IS rather than how it is configured, so a Save
+ * that dropped them would make the next run sync a different source than the
+ * operator has ever configured.
+ *
+ * Declared keys the caller leaves out are still dropped, so a source whose
+ * config was written by the sources API (urlsFrom, feedUrl) and then saved
+ * from the dashboard form loses them until the next API upsert; the API
+ * writer is authoritative and re-asserts the blob.
+ * @param existing - The stored config blob.
+ */
+function preservedConfigKeys(existing: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(existing).filter(([key]) => key.startsWith('_')));
+}
+
+/**
  * Replace one source's configuration.
  *
  * The connector is NOT changeable: a source's documents were ingested by one
@@ -167,7 +196,7 @@ export async function updateSourceConfig(input: {
   connector.configSchema.parse(input.configJson);
   await db
     .update(knowledgeSourceSchema)
-    .set({ configJson: { ...input.configJson, _connector: connectorSlug } })
+    .set({ configJson: { ...preservedConfigKeys(existing), ...input.configJson, _connector: connectorSlug } })
     .where(and(
       eq(knowledgeSourceSchema.id, input.sourceId),
       eq(knowledgeSourceSchema.orgId, input.orgId),
@@ -235,7 +264,7 @@ export const MAX_CONCURRENT_INGESTS = 8;
  * thousand document failures are one story told a thousand times; a single
  * connector failure is the one nobody can reconstruct afterwards.
  */
-export type FailureScope = 'connector' | 'document';
+export type FailureScope = 'connector' | 'document' | 'processor';
 
 /**
  * One thing that went wrong during a sync without ending it. Stored on the
@@ -259,6 +288,12 @@ export type RecordedFailure = {
  */
 const RECORDED_CONNECTOR_FAILURE_LIMIT = 25;
 const RECORDED_DOCUMENT_FAILURE_LIMIT = 25;
+/**
+ * Its own bucket for the same reason the other two are separate: a processor
+ * that fails on every document must not push out the record of the collection
+ * that never loaded, and must not be pushed out by it either.
+ */
+const RECORDED_PROCESSOR_FAILURE_LIMIT = 25;
 
 export type SyncResult = {
   sourceId: number;
@@ -275,6 +310,13 @@ export type SyncResult = {
    * reason is otherwise only in the server log.
    */
   firstError: string | null;
+  /**
+   * The first processor failure, verbatim. Kept off `counts`, which is typed
+   * `Record<string, number>`, and off `errors`, which decides whether this run
+   * may delete documents, a processor that could not read a page says nothing
+   * about whether the source still holds it.
+   */
+  firstProcessorError: string | null;
 };
 
 /**
@@ -533,6 +575,83 @@ async function announceSyncCompleted(orgId: string, payload: SourceSyncCompleted
   }
 }
 
+/**
+ * How long one document's processor may run when it declares no budget of its
+ * own, before the sync stops waiting.
+ *
+ * A processor talks to things the sync does not control, a model endpoint, a
+ * ticket page, so "it will come back eventually" is not something the run can
+ * assume. This number is the floor for a processor that never said what its
+ * document costs; one that knows says so, in `documentTimeoutMs`. It used to
+ * be the only number there was, at 25s, which was BELOW the cost of a single
+ * healthy model call and therefore abandoned every real extraction mid-flight.
+ * The abandoned work is signalled to stop and its document is counted as a
+ * processor failure; the sync carries on.
+ *
+ * The per-SYNC wall clock (`SYNC_BUDGET_DEFAULTS.maxWallClockMs`, 600s) is
+ * unchanged and still bounds the whole processor side of a run.
+ */
+const PROCESSOR_TIMEOUT_MS = 25_000;
+
+/**
+ * The timeout in force for one document.
+ *
+ * The env override wins over everything, including a processor's own
+ * declaration, so a test need not wait out a two-and-a-half-minute budget.
+ * @param declared - The processor's own `documentTimeoutMs`, when it has one.
+ */
+function processorTimeoutMs(declared?: number): number {
+  const override = Number(process.env.VOCION_PROCESSOR_TIMEOUT_MS);
+  if (Number.isFinite(override) && override > 0) {
+    return override;
+  }
+  return declared ?? PROCESSOR_TIMEOUT_MS;
+}
+
+/** This source's processor, resolved once at the start of a run. */
+type ResolvedProcessor = {
+  slug: string;
+  /** Ingest outcomes it asked to run for. */
+  runsOn: Set<ProcessorRunsOn>;
+  /** The parsed config, defaults applied. */
+  config: unknown;
+  /** The manifest's cap lowering, if it declared any. */
+  limits: SyncBudgetLimits | undefined;
+  /** How long one document of it may take, when it declares a budget of its own. */
+  documentTimeoutMs: number | undefined;
+  load: RegisteredProcessor['load'];
+};
+
+/**
+ * Resolve the processor a source declares, or undefined when it declares none.
+ *
+ * Called before the checkpoint is claimed, so an unknown slug or a config that
+ * does not parse fails the same way an unknown connector does: loudly, before
+ * a run exists to be half-finished. A source whose whole point is what happens
+ * after ingestion is not better off ingesting quietly with that half missing.
+ * @param sourceId - Source being resolved, for the error message.
+ * @param config - The stored config blob, which may carry `_processor`.
+ */
+function resolveProcessor(sourceId: number, config: Record<string, unknown>): ResolvedProcessor | undefined {
+  const ref = processorRefOf(config);
+  if (!ref) {
+    return undefined;
+  }
+  const registered = getProcessor(ref.slug);
+  if (!registered) {
+    throw new Error(`source ${sourceId} references unknown processor: ${ref.slug}. Registered: ${listProcessorSlugs().join(', ')}`);
+  }
+  const parsed = registered.configSchema.parse(ref.config) as { limits?: SyncBudgetLimits };
+  return {
+    slug: ref.slug,
+    runsOn: new Set(registered.runsOn ?? DEFAULT_RUNS_ON),
+    config: parsed,
+    limits: parsed.limits,
+    documentTimeoutMs: registered.documentTimeoutMs,
+    load: registered.load,
+  };
+}
+
 export async function runSync(opts: {
   orgId: string;
   sourceId: number;
@@ -561,6 +680,9 @@ export async function runSync(opts: {
   if (!connector) {
     throw new Error(`source ${opts.sourceId} references unknown connector: ${connectorSlug}`);
   }
+  // Resolved here, beside the connector and before anything is claimed: see
+  // `resolveProcessor`. A source that declares none pays for one lookup.
+  const processor = resolveProcessor(opts.sourceId, config);
 
   // Resolve decrypted credentials from the vault so token/OAuth connectors can
   // authenticate. Two shapes of answer, and this row says which:
@@ -598,6 +720,26 @@ export async function runSync(opts: {
     tombstoned: 0,
     errors: 0,
     firstError: null,
+    firstProcessorError: null,
+  };
+  /**
+   * What the processor side of this run did, as stored on the checkpoint row.
+   *
+   * Numbers and flat keys only: `source_sync_checkpoint.counts` is typed
+   * `Record<string, number>` and `finishSync` does not compile against anything
+   * else. A processor's own counters are prefixed `extract.` so they can never
+   * collide with the six the sync itself reports, and the object stays empty
+   * for a source that declares no processor, whose checkpoint then reads
+   * exactly as it did before any of this existed.
+   */
+  const processorCounts: Record<string, number> = processor ? { processorErrors: 0, capHits: 0 } : {};
+  /**
+   * Add to one of those counters, creating it at zero.
+   * @param key - Counter name, already namespaced by the caller.
+   * @param by - How much to add.
+   */
+  const bumpProcessorCount = (key: string, by = 1): void => {
+    processorCounts[key] = (processorCounts[key] ?? 0) + by;
   };
   /** What this run managed to do, as stored on the checkpoint row. */
   const countsForCheckpoint = () => ({
@@ -607,6 +749,7 @@ export async function runSync(opts: {
     metadataRefreshed: result.metadataRefreshed,
     tombstoned: result.tombstoned,
     errors: result.errors,
+    ...processorCounts,
   });
 
   /**
@@ -627,9 +770,32 @@ export async function runSync(opts: {
   // caps apply per scope — see FailureScope.
   const connectorFailures: RecordedFailure[] = [];
   const documentFailures: RecordedFailure[] = [];
+  const processorFailures: RecordedFailure[] = [];
+  const failureBuckets: Record<FailureScope, { entries: RecordedFailure[]; limit: number }> = {
+    connector: { entries: connectorFailures, limit: RECORDED_CONNECTOR_FAILURE_LIMIT },
+    document: { entries: documentFailures, limit: RECORDED_DOCUMENT_FAILURE_LIMIT },
+    processor: { entries: processorFailures, limit: RECORDED_PROCESSOR_FAILURE_LIMIT },
+  };
+
+  /**
+   * Keep one failure the run survived, up to its scope's cap.
+   * @param scope - Which layer reported it.
+   * @param message - What went wrong, in the reporter's own words.
+   * @param uri - What it was working on, when the reporter knew.
+   */
+  const recordFailure = (scope: FailureScope, message: string, uri?: string): void => {
+    const bucket = failureBuckets[scope];
+    if (bucket.entries.length < bucket.limit) {
+      bucket.entries.push({ scope, uri, message, at: new Date().toISOString() });
+    }
+  };
 
   /** Connector failures first: they are the ones a reader cannot reconstruct. */
-  const failuresForCheckpoint = (): RecordedFailure[] => [...connectorFailures, ...documentFailures];
+  const failuresForCheckpoint = (): RecordedFailure[] => [
+    ...connectorFailures,
+    ...documentFailures,
+    ...processorFailures,
+  ];
 
   const reportProgress = (event: {
     kind: 'fetched' | 'skipped' | 'error';
@@ -641,18 +807,7 @@ export async function runSync(opts: {
     // not save). Recording in this one place keeps the checkpoint's failure
     // list in step with `counts.errors` no matter which side reported it.
     if (event.kind === 'error') {
-      const bucket = scope === 'connector' ? connectorFailures : documentFailures;
-      const limit = scope === 'connector'
-        ? RECORDED_CONNECTOR_FAILURE_LIMIT
-        : RECORDED_DOCUMENT_FAILURE_LIMIT;
-      if (bucket.length < limit) {
-        bucket.push({
-          scope,
-          uri: event.uri,
-          message: event.message ?? 'no message reported',
-          at: new Date().toISOString(),
-        });
-      }
+      recordFailure(scope, event.message ?? 'no message reported', event.uri);
     }
     try {
       opts.onProgress?.(event);
@@ -664,6 +819,112 @@ export async function runSync(opts: {
         orgId: opts.orgId,
         eventKind: event.kind,
         error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  /**
+   * One budget for the whole run, shared by every processor invocation in it.
+   *
+   * Per sync, not per document, because up to `MAX_CONCURRENT_INGESTS`
+   * documents are in flight at once: a per-document allowance would be eight
+   * times what it reads. A spent cap is never an error, the run carries on
+   * having done less.
+   */
+  const capsRecorded = new Set<string>();
+  const processorBudget: SyncBudget | undefined = processor
+    ? createSyncBudget({
+        limits: processor.limits,
+        onCapHit: (cap) => {
+          bumpProcessorCount('capHits');
+          reportProgress({ kind: 'skipped', message: `the sync's ${cap} budget is spent, so the processor did less` });
+          // The count says how often, one failure says which: the same
+          // sentence forty times would crowd out everything else on the row.
+          if (!capsRecorded.has(cap)) {
+            capsRecorded.add(cap);
+            recordFailure('processor', `the sync's ${cap} budget is spent, so work was skipped`);
+          }
+        },
+      })
+    : undefined;
+  /** Shared across every processor invocation in this run, see ProcessorSyncContext. */
+  const processorSyncContext: ProcessorSyncContext = { cache: new Map() };
+
+  /**
+   * Run this source's processor over one document that was just ingested.
+   *
+   * Never rejects, whatever the processor does. The whole body is one
+   * try/catch because this is chained onto the ingest promise: a rejection
+   * here would be counted as an ingest failure, which decides whether the
+   * document survives tombstoning and whether the watermark moves. A
+   * processor is downstream of all of that and must not be able to reach it.
+   * @param outcome - What ingesting the document did.
+   * @param doc - The document, as the connector yielded it.
+   */
+  const runProcessorForDocument = async (outcome: IngestResult, doc: IngestDoc): Promise<void> => {
+    if (!processor || !processorBudget) {
+      return;
+    }
+    try {
+      if (!processor.runsOn.has(outcome.status)) {
+        return;
+      }
+      if (!outcome.documentId) {
+        // Nothing to hang the work off. A real ingest always returns an id;
+        // a stubbed one in a test harness may not, and that is a skip rather
+        // than something to crash over.
+        return;
+      }
+      if (processorBudget.outOfTime()) {
+        return;
+      }
+      const { run } = await processor.load();
+      const budgetMs = processorTimeoutMs(processor.documentTimeoutMs);
+      const timeout = AbortSignal.timeout(budgetMs);
+      const abandoned = new Promise<never>((_resolve, reject) => {
+        timeout.addEventListener(
+          'abort',
+          () => reject(new Error(`the processor did not finish within ${budgetMs}ms`)),
+          { once: true },
+        );
+      });
+      const running = run({
+        orgId: opts.orgId,
+        sourceId: opts.sourceId,
+        sourceSlug: row.slug,
+        document: doc,
+        outcome,
+        config: processor.config,
+        budget: processorBudget,
+        syncContext: processorSyncContext,
+        signal: timeout,
+        onProgress: event => reportProgress(event),
+      });
+      // Whichever side loses the race still settles later. Without this, an
+      // abandoned processor's rejection would be unhandled, which takes the
+      // whole process down rather than one document.
+      running.catch(() => {});
+      const processed = await Promise.race([running, abandoned]);
+      bumpProcessorCount('extract.documents');
+      bumpProcessorCount('extract.produced', processed.produced);
+      bumpProcessorCount('extract.skipped', processed.skipped);
+      for (const [key, value] of Object.entries(processed.counts ?? {})) {
+        // Numbers only, the column cannot hold anything else.
+        if (Number.isFinite(value)) {
+          bumpProcessorCount(`extract.${key}`, value);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      bumpProcessorCount('processorErrors');
+      result.firstProcessorError ??= message;
+      recordFailure('processor', message, doc.externalId);
+      log('warn', 'document processor failed', {
+        sourceId: opts.sourceId,
+        orgId: opts.orgId,
+        processor: processor.slug,
+        externalId: doc.externalId,
+        error: message,
       });
     }
   };
@@ -743,6 +1004,12 @@ export async function runSync(opts: {
             result.metadataRefreshed += 1;
           }
         }
+        // Downstream of a saved document, and only for the outcomes the
+        // processor asked for. Chained rather than awaited separately so the
+        // document is not considered finished until its processor is: the
+        // drain before tombstoning, and the one in the failure path, then
+        // cover processor work too.
+        return runProcessorForDocument(outcome, doc);
       })
       .catch((error) => {
         result.errors += 1;
@@ -1038,6 +1305,73 @@ export async function listRecentDocuments(
   }));
 }
 
+export type KnowledgeDocumentDetail = {
+  id: number;
+  title: string | null;
+  uri: string | null;
+  externalId: string;
+  sourceSlug: string;
+  sourceKind: string | null;
+  metadata: Record<string, unknown>;
+  lastModifiedAt: Date | null;
+  ingestedAt: Date;
+  /** The document's chunks in order, joined — the full ingested text. */
+  content: string;
+  chunkCount: number;
+};
+
+/**
+ * One ingested document with its full text, for the Search detail page.
+ * Content lives on chunks, so the text is the chunks in order; that IS what
+ * retrieval reads, which is the honest thing to show (manifesto #12).
+ * Returns null when the document is not this org's, or when the person's
+ * connection ACL does not reach its source.
+ * @param orgId
+ * @param id - `knowledge_document.id`.
+ * @param opts
+ * @param opts.allowedSourceSlugs - Per-user connection ACL; omit for no restriction.
+ */
+export async function getDocument(
+  orgId: string,
+  id: number,
+  opts: { allowedSourceSlugs?: string[] } = {},
+): Promise<KnowledgeDocumentDetail | null> {
+  const rows = await db
+    .select({
+      id: knowledgeDocumentSchema.id,
+      title: knowledgeDocumentSchema.title,
+      uri: knowledgeDocumentSchema.uri,
+      externalId: knowledgeDocumentSchema.externalId,
+      metadata: knowledgeDocumentSchema.metadata,
+      lastModifiedAt: knowledgeDocumentSchema.lastModifiedAt,
+      ingestedAt: knowledgeDocumentSchema.ingestedAt,
+      sourceSlug: knowledgeSourceSchema.slug,
+      sourceKind: knowledgeSourceSchema.kind,
+    })
+    .from(knowledgeDocumentSchema)
+    .innerJoin(knowledgeSourceSchema, eq(knowledgeDocumentSchema.sourceId, knowledgeSourceSchema.id))
+    .where(and(
+      eq(knowledgeDocumentSchema.id, id),
+      eq(knowledgeDocumentSchema.orgId, orgId),
+      opts.allowedSourceSlugs ? inArray(knowledgeSourceSchema.slug, opts.allowedSourceSlugs) : undefined,
+    ))
+    .limit(1);
+  const doc = rows[0];
+  if (!doc) {
+    return null;
+  }
+  const chunks = await db
+    .select({ content: knowledgeChunkSchema.content })
+    .from(knowledgeChunkSchema)
+    .where(and(eq(knowledgeChunkSchema.documentId, id), eq(knowledgeChunkSchema.orgId, orgId)))
+    .orderBy(knowledgeChunkSchema.chunkIdx);
+  return {
+    ...doc,
+    content: chunks.map(c => c.content).join('\n\n'),
+    chunkCount: chunks.length,
+  };
+}
+
 /**
  * Ingested-document count per source for an org — powers the Sources UI's
  * "N documents" so you can see what each connector actually pulled.
@@ -1071,6 +1405,21 @@ export type SourceSyncState = {
   error: string | null;
   /** What the run managed to do: created / updated / unchanged / tombstoned / errors. */
   counts: Record<string, number>;
+  /**
+   * The stored incremental watermark: the cutoff the next incremental run will
+   * fetch from, advanced by the last run that completed. Null for a source that
+   * has never stored one. Reported so a caller reading this over the API can
+   * tell "nothing changed upstream since this point" apart from "the run looked
+   * at nothing", which the counts alone cannot say.
+   */
+  since: Date | null;
+  /**
+   * The non-fatal failures the run carried on past, capped per scope when
+   * written. `errors` in `counts` is the true total; this is the readable
+   * record of what was skipped and why, including `processor`-scope failures
+   * that never touched the ingest counters.
+   */
+  failures: RecordedFailure[];
 };
 
 /**
@@ -1093,6 +1442,8 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
       completedAt: sourceSyncCheckpointSchema.completedAt,
       error: sourceSyncCheckpointSchema.error,
       counts: sourceSyncCheckpointSchema.counts,
+      since: sourceSyncCheckpointSchema.since,
+      failures: sourceSyncCheckpointSchema.failures,
     })
     .from(sourceSyncCheckpointSchema)
     .where(eq(sourceSyncCheckpointSchema.orgId, orgId));
@@ -1112,6 +1463,8 @@ export async function latestSyncStateForOrg(orgId: string): Promise<Record<numbe
       completedAt: row.completedAt,
       error: row.error,
       counts: row.counts,
+      since: row.since,
+      failures: row.failures ?? [],
     };
   }
   return latestPerSource;

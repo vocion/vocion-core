@@ -10,6 +10,11 @@
  * rate's cache-hit discount. Anthropic ships a 10x discount on cache
  * reads for prompt-cache-enabled prompts (see `withPromptCache` in
  * libs/llm/langchain.ts).
+ *
+ * Table keys are plain model names. Bedrock reports the same model
+ * cards under decorated ids (`us.anthropic.claude-sonnet-4-6`), so
+ * lookups fall back to `canonicalModelId()`; see it for why the
+ * decoration carries no price of its own.
  */
 
 export type PricingTier = {
@@ -21,15 +26,47 @@ export type PricingTier = {
   cacheReadCentsPerMillion?: number;
 };
 
-const PRICING: Record<string, PricingTier> = {
+/**
+ * The price list. Exported read-only so callers that need the whole
+ * table (`scripts/langfuse-bootstrap.ts` registers every tier with
+ * Langfuse) read it here instead of keeping a copy that silently
+ * drifts; read-only because this module stays the single source of
+ * truth for what a model costs.
+ */
+export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   // Anthropic
   'claude-opus-4-7': { inputCentsPerMillion: 1500, outputCentsPerMillion: 7500, cacheReadCentsPerMillion: 150 },
   'claude-sonnet-4-6': { inputCentsPerMillion: 300, outputCentsPerMillion: 1500, cacheReadCentsPerMillion: 30 },
   'claude-haiku-4-5-20251001': { inputCentsPerMillion: 100, outputCentsPerMillion: 500, cacheReadCentsPerMillion: 10 },
+  // Anthropic, Claude 5 generation — first-party list prices as of 2026-06-24.
+  // These are the models the Vocion workforce actually runs on
+  // (`claude-fable-5-1` board, `claude-opus-5` / `claude-sonnet-5` CEO and
+  // workers); until they were listed, every one of those turns priced at 0
+  // and budgets never moved. Cache read is 10% of input, except Fable, whose
+  // cached-input rate is published separately at $0.25/MTok.
+  'claude-fable-5-1': { inputCentsPerMillion: 1000, outputCentsPerMillion: 5000, cacheReadCentsPerMillion: 25 },
+  'claude-fable-5': { inputCentsPerMillion: 1000, outputCentsPerMillion: 5000, cacheReadCentsPerMillion: 25 },
+  'claude-opus-5': { inputCentsPerMillion: 500, outputCentsPerMillion: 2500, cacheReadCentsPerMillion: 50 },
+  'claude-opus-4-8': { inputCentsPerMillion: 500, outputCentsPerMillion: 2500, cacheReadCentsPerMillion: 50 },
+  'claude-sonnet-5': { inputCentsPerMillion: 200, outputCentsPerMillion: 1000, cacheReadCentsPerMillion: 20 },
+  // Undated alias of the dated Haiku row above — providers report both.
+  'claude-haiku-4-5': { inputCentsPerMillion: 100, outputCentsPerMillion: 500, cacheReadCentsPerMillion: 10 },
 
   // OpenAI
   'gpt-4o': { inputCentsPerMillion: 250, outputCentsPerMillion: 1000 },
   'gpt-4o-mini': { inputCentsPerMillion: 15, outputCentsPerMillion: 60 },
+  // OpenAI, GPT-6 / GPT-5.6 generation — list prices from the OpenAI pricing
+  // page (standard tier, short context) as of 2026-09-15. OpenAI's "cached
+  // input" rate rides in `cacheReadCentsPerMillion`: the field is named for
+  // Anthropic's discount, but it is the same slot — a prompt-cache hit billed
+  // below the full input rate — and `tokenCostCents` treats it identically.
+  // `gpt-5.4-mini` (the workspace-scaffold default) is deliberately NOT here:
+  // its price was not on the page we priced from, and an unpriced model costs
+  // 0 rather than being guessed.
+  'gpt-6-astra': { inputCentsPerMillion: 1000, outputCentsPerMillion: 5000, cacheReadCentsPerMillion: 100 },
+  'gpt-5.6-sol': { inputCentsPerMillion: 400, outputCentsPerMillion: 2000, cacheReadCentsPerMillion: 40 },
+  'gpt-5.6-terra': { inputCentsPerMillion: 200, outputCentsPerMillion: 1200, cacheReadCentsPerMillion: 20 },
+  'gpt-5.6-luna': { inputCentsPerMillion: 20, outputCentsPerMillion: 120, cacheReadCentsPerMillion: 2 },
 };
 
 export type TokenUsage = {
@@ -39,12 +76,48 @@ export type TokenUsage = {
 };
 
 /**
+ * Strip the routing decoration a provider puts around a model id, so a
+ * decorated id prices off the plain model card it points at.
+ *
+ * Bedrock ids are an inference-profile prefix (`us.`, `eu.`, `apac.`,
+ * `global.`), a vendor prefix (`anthropic.`) and a version suffix
+ * (`-v1:0`) around the model name: `us.anthropic.claude-haiku-4-5-
+ * 20251001-v1:0` is the same model card, at the same list price, as
+ * `claude-haiku-4-5-20251001`. Ids with none of that decoration come
+ * back unchanged (`gpt-4o`, `amazon.titan-embed-text-v1`), so a model
+ * that is not in the table stays unpriced rather than being mapped
+ * onto someone else's price by accident.
+ * @param id - Model id as the provider reports it.
+ */
+export function canonicalModelId(id: string): string {
+  return id
+    .replace(/^(?:us|eu|apac|global)\./, '')
+    .replace(/^anthropic\./, '')
+    .replace(/-v\d+:\d+$/, '');
+}
+
+/**
+ * Langfuse `matchPattern` for one model id: a case-insensitive exact
+ * match. Lives with the table it quotes; `scripts/langfuse-bootstrap.ts`
+ * is the caller. The id is regex-escaped because model ids contain `.`
+ * (`us.anthropic.claude-sonnet-4-6`) and an unescaped `.` would match
+ * any character, so one row could price a neighbouring model too.
+ * `(?i)` is Langfuse's own flag syntax, not JavaScript's.
+ * @param modelName - A key of `PRICING`.
+ */
+export function modelMatchPattern(modelName: string): string {
+  return `(?i)^${modelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+}
+
+/**
  * Cost (in USD cents) for one model turn. Returns 0 if pricing is unknown.
  * @param model
  * @param usage
  */
 export function tokenCostCents(model: string, usage: TokenUsage): number {
-  const tier = PRICING[model];
+  // Exact id first, so a table entry for a full provider id always wins
+  // over the alias it would canonicalise to.
+  const tier = PRICING[model] ?? PRICING[canonicalModelId(model)];
   if (!tier) {
     return 0;
   }

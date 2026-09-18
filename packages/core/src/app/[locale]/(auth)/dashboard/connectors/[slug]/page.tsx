@@ -57,7 +57,8 @@ function redactConfig(value: unknown): unknown {
  * errors stores a sample — a reader who sees "12" with no context would badly
  * misjudge how much of the source is missing.
  * @param recordedCount - How many failures the checkpoint actually stored.
- * @param totalErrors - The run's true error count, from `counts.errors`.
+ * @param totalErrors - The run's true failure count: ingest errors and
+ * processor errors together, since both are stored in the same capped list.
  */
 function describeSkipped(recordedCount: number, totalErrors: number | undefined): string {
   if (typeof totalErrors === 'number' && totalErrors > recordedCount) {
@@ -224,7 +225,10 @@ export default async function SourceDetailPage(props: {
                     {(checkpoint.failures?.length ?? 0) > 0 && (
                       <div>
                         <dt className="text-muted-foreground">
-                          {describeSkipped(checkpoint.failures.length, checkpoint.counts?.errors)}
+                          {describeSkipped(
+                            checkpoint.failures.length,
+                            (checkpoint.counts?.errors ?? 0) + (checkpoint.counts?.processorErrors ?? 0),
+                          )}
                         </dt>
                         <dd className="mt-1">
                           {/* What the run carried on past, rather than what ended it — a

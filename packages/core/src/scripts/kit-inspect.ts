@@ -4,9 +4,9 @@
  * demo, for evals, and for measuring the reference comparison against the
  * labelled sample pack.
  *
- *   npm run kit:inspect -- --project <id|slug> --prefix templates/C-PM-134-PC/bad/
- *   npm run kit:inspect -- --project havis --key templates/X/good/file.jpg [--key …]
- *   npm run kit:inspect -- --project havis --prefix templates/ --limit 12 --classifier
+ *   npm run kit:inspect -- --project <id|slug> --prefix templates/RM-204-A/bad/
+ *   npm run kit:inspect -- --project radley --key templates/X/good/file.jpg [--key …]
+ *   npm run kit:inspect -- --project radley --prefix templates/ --limit 12 --classifier
  *
  * Every call writes a tool_call row (via the registry wrapper) and upserts the
  * inspection object exactly as a chat run would. Requires ANTHROPIC_API_KEY
@@ -100,7 +100,7 @@ async function main() {
       console.log(`    classifier: ${c.status} ${c.top_label ? `${c.top_label.name} ${c.top_label.confidence}` : c.message ?? ''}`);
     }
   }
-  console.log(`\nagreement with Havis labels: ${agree}/${total}`);
+  console.log(`\nagreement with Radley labels: ${agree}/${total}`);
   process.exit(0);
 }
 

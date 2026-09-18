@@ -124,7 +124,7 @@ async function seed(db: ReturnType<typeof drizzle<typeof schema>>, orgId: string
   }
 
   // 3. Create a sample Discovery Call instance linked to a real Zoom document
-  const sampleTitle = 'Kevin / Kristen: MetaCTO Discovery Call';
+  const sampleTitle = 'Devon / Priya: MetaCTO Discovery Call';
   const existingObj = await db.query.businessObjectSchema.findFirst({
     where: eq(schema.businessObjectSchema.title, sampleTitle),
   });
@@ -140,8 +140,8 @@ async function seed(db: ReturnType<typeof drizzle<typeof schema>>, orgId: string
         title: sampleTitle,
         status: 'completed',
         metadata: {
-          prospect_name: 'Kevin',
-          prospect_company: 'Kristen\'s org',
+          prospect_name: 'Devon',
+          prospect_company: 'Priya\'s org',
           scheduled_at: '2026-01-13T18:30:00Z',
           key_topics: ['project scope', 'timeline', 'budget', 'goals'],
           next_steps: ['Send capabilities deck', 'Schedule follow-up'],
@@ -156,10 +156,10 @@ async function seed(db: ReturnType<typeof drizzle<typeof schema>>, orgId: string
     // 4. Link the real Zoom document
     await db.insert(schema.objectDocumentLinkSchema).values({
       objectId: obj!.id,
-      onyxDocumentId: 'zoom_meeting_84569984849',
+      onyxDocumentId: 'zoom_meeting_84500000001',
       sourceType: 'zoom',
-      semanticIdentifier: 'Kevin / Kristen: MetaCTO Discovery Call',
-      link: 'https://us06web.zoom.us/rec/play/v-S_sMbtURMz9QP86zhAt_bMbSfxMS3G93vOxQYOjZ61naCBHKo6_9c4ESgD_TzlANo0FAId67HSVJTj.aySc67w4AWbjC855',
+      semanticIdentifier: 'Devon / Priya: MetaCTO Discovery Call',
+      link: 'https://zoom.example/rec/play/EXAMPLE-RECORDING-TOKEN',
       role: 'transcript',
     });
 
@@ -168,13 +168,13 @@ async function seed(db: ReturnType<typeof drizzle<typeof schema>>, orgId: string
     // Link additional discovery-related Zoom documents
     const additionalDocs = [
       {
-        onyxDocumentId: 'zoom_meeting_84711140132',
-        semanticIdentifier: 'Claude Usage Discovery [Garrett]',
+        onyxDocumentId: 'zoom_meeting_84500000002',
+        semanticIdentifier: 'Claude Usage Discovery [Owen]',
         link: '',
         role: 'related_call',
       },
       {
-        onyxDocumentId: 'zoom_meeting_84413381027',
+        onyxDocumentId: 'zoom_meeting_84500000003',
         semanticIdentifier: 'Claude Usage Discovery [Chris]',
         link: '',
         role: 'related_call',

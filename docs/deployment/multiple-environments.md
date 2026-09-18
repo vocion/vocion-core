@@ -12,13 +12,14 @@ Companion to [the parent-project pattern](./parent-project-pattern.md).
 
 Same Terraform. Same scripts. Same `workspace/` YAML. One variables file each.
 
-A real example — `Veerio-Life/veerio-vocion` runs two environments, and this
-table is the *entire* difference between them:
+A real example (the client parent project, anonymised here as
+`Larkfield-Systems/larkfield-vocion` — see `docs/deployment/parent-project-pattern.md`)
+runs two environments, and this table is the *entire* difference between them:
 
 | Variable | production | dev |
 |---|---|---|
 | `environment` | `production` | `dev` |
-| `apex_domain` | `agents.veerio.app` | `dev.agents.veerio.app` |
+| `apex_domain` | `agents.larkfield.example` | `dev.agents.larkfield.example` |
 | `hosted_zone_id` | `""` (creates a zone) | the production zone's id |
 | `instance_type` | `r6i.xlarge` | `r6i.large` |
 | `data_volume_gb` | `150` | `100` |
@@ -55,7 +56,7 @@ per AWS account. Hardcoded names work perfectly once, then collide the moment a
 second workspace exists.
 
 **Why retrofitting hurts:** renaming makes Terraform *replace* the IAM role,
-instance profile and security group — on a box already serving traffic. Veerio
+instance profile and security group — on a box already serving traffic. Larkfield
 hit this and now carries a conditional forever:
 
 ```hcl

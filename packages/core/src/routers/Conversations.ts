@@ -1,7 +1,10 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
+import { listAttachmentsByMessage } from '@/services/ArtifactService';
+import { attachmentFromArtifact } from '@/services/chat/attachments';
 import {
   appendMessage,
+  CONVERSATION_AUTONOMY,
   createConversation,
   deleteConversation,
   getConversation,
@@ -9,6 +12,10 @@ import {
   listConversations,
   listMessages,
   renameConversation,
+  searchConversations,
+  setConversationAutonomy,
+  setMessageFeedback,
+  tailMessages,
 } from '@/services/ConversationService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
@@ -31,8 +38,16 @@ export const get = os
     if (!conv) {
       throw ApiError.notFound({ id: input.id });
     }
-    const messages = await listMessages({ orgId, conversationId: input.id });
-    return { ...conv, messages };
+    const [messages, uploads] = await Promise.all([
+      listMessages({ orgId, conversationId: input.id }),
+      listAttachmentsByMessage({ orgId, conversationId: input.id }),
+    ]);
+    // The files a person attached ride on their message, so a reloaded
+    // transcript shows the chips they saw when they sent it.
+    return {
+      ...conv,
+      messages: messages.map(m => ({ ...m, attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact) })),
+    };
   });
 
 export const create = os
@@ -101,4 +116,56 @@ export const append = os
       content: input.content,
       userId,
     });
+  });
+
+/**
+ * Threads matching a query, by title or message content (0094) — the rail's
+ * history search and the command palette's conversation rows. Blank query =
+ * the most recent threads.
+ */
+export const search = os
+  .input(z.object({
+    q: z.string().max(200).default(''),
+    limit: z.number().int().positive().max(100).default(20),
+    agentSlug: z.string().optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    return searchConversations({ orgId, q: input.q, limit: input.limit, agentSlug: input.agentSlug });
+  });
+
+/** The last N message rows (id + role) of a thread, oldest first. */
+export const tail = os
+  .input(z.object({ id: z.number().int().positive(), limit: z.number().int().positive().max(20).default(2) }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    return tailMessages({ orgId, conversationId: input.id, limit: input.limit });
+  });
+
+/** A thumb (and optional note) on one assistant turn (0094). Null rating clears it. */
+export const feedback = os
+  .input(z.object({
+    messageId: z.number().int().positive(),
+    rating: z.enum(['up', 'down']).nullable(),
+    note: z.string().max(4000).nullable().optional(),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const row = await setMessageFeedback({ orgId, messageId: input.messageId, rating: input.rating, note: input.note ?? null, userId });
+    if (!row) {
+      throw ApiError.notFound({ messageId: input.messageId });
+    }
+    return { id: row.id, feedbackRating: row.feedbackRating, feedbackNote: row.feedbackNote, feedbackAt: row.feedbackAt };
+  });
+
+/** How recommended actions behave in one thread (0094). */
+export const setAutonomy = os
+  .input(z.object({ id: z.number().int().positive(), autonomy: z.enum(CONVERSATION_AUTONOMY) }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const row = await setConversationAutonomy({ orgId, id: input.id, autonomy: input.autonomy });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return { id: row.id, autonomy: row.autonomy };
   });

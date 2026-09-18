@@ -1,6 +1,7 @@
 import type { WorkflowRunSummary } from '@/services/WorkflowService';
 import { ORPCError, os } from '@orpc/server';
 import { z } from 'zod';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { logger } from '@/libs/Logger';
 import { trackReviewDecision } from '@/services/adoption/attribution';
 import {
@@ -68,7 +69,12 @@ export const listPendingActionsRoute = os
     const actionIds = input?.actionIds;
     const where = and(
       eq(actionRunSchema.orgId, orgId),
-      eq(actionRunSchema.status, 'pending'),
+      // Failed runs stay in the queue: the approval stood, the execution
+      // threw, and a card that silently vanishes on failure hides exactly the
+      // work that needs a human (retry is just approve again — executeAction
+      // accepts a failed run). A failed enrollment sat invisible for three
+      // days before this.
+      inArray(actionRunSchema.status, ['pending', 'failed']),
       // Drop stale suggestions — expired items fall out of the queue.
       or(isNull(actionRunSchema.expiresAt), gt(actionRunSchema.expiresAt, now)),
       // Snoozed items are hidden until their date, then resurface — the same
@@ -100,11 +106,21 @@ export const listPendingActionsRoute = os
         .leftJoin(reviewAssignmentSchema, assignment)
         .where(where),
     ]);
+    // The alignment score beside the confidence meter: how often this agent's
+    // recommendations of this kind matched what the person did (30d). One
+    // scan for the whole page; a run with no agent reads the kind's score.
+    const { agentKeyOf, scoresByAgentAndKey } = await import('@/services/alignment/AlignmentService');
+    const alignment = await scoresByAgentAndKey(orgId, '30d', now, 'action').catch(() => new Map());
+    const alignmentFor = (row: { actionId: string; invokedBy: string | null; proposal: { agentSlug?: string } | null }) => {
+      const agentSlug = row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null;
+      return alignment.get(agentKeyOf(agentSlug, row.actionId)) ?? alignment.get(agentKeyOf(null, row.actionId)) ?? null;
+    };
     // Structured cards: an action that defines one presents itself consistently
     // everywhere the queue renders. Best-effort — a presenter error falls back
     // to the generic card, never blocks the queue. `canRegenerate` is stamped
     // here from the action's declared capability, never by the presenter.
-    const items = await Promise.all(rows.map(async ({ run: row }) => {
+    const items = await Promise.all(rows.map(async ({ run: raw }) => {
+      const row = { ...raw, alignment: alignmentFor(raw) };
       const action = getAction(row.actionId);
       const presenter = action?.reviewCard;
       if (!presenter) {
@@ -132,18 +148,14 @@ export const listPendingActionTypesRoute = os.handler(async () => {
 /** Recently auto-executed proposals (trust-ladder audit surface). */
 export const listAutoExecutedRoute = os.handler(async () => {
   const { orgId } = await guardAuth();
-  const { db } = await import('@/libs/DB');
-  const { actionRunSchema } = await import('@/models/Schema');
-  const { and, desc, eq, sql } = await import('drizzle-orm');
-  return db
-    .select()
-    .from(actionRunSchema)
-    .where(and(
-      eq(actionRunSchema.orgId, orgId),
-      sql`${actionRunSchema.proposal} ->> 'autoApproved' = 'true'`,
-    ))
-    .orderBy(desc(actionRunSchema.createdAt))
-    .limit(20);
+  // Delegates rather than repeating the query. This used to filter on
+  // `proposal ->> 'autoApproved'` itself, which stopped being the whole answer
+  // once `approved_by_agent` became the system of record: two copies of the
+  // rule meant this dashboard feed would quietly empty out the day the jsonb
+  // key stopped being written, while the REST endpoint kept working.
+  const { listAutoExecuted } = await import('@/services/ReviewService');
+  const { items } = await listAutoExecuted(orgId, { limit: 20 });
+  return items;
 });
 
 /**
@@ -160,11 +172,40 @@ export const proposeFromRecommendationRoute = os
     agentSlug: z.string().optional(),
     rationale: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
+    /**
+     * What the agent thinks the reviewer should do. The question must be
+     * answered, like everywhere else a proposal is made, and `null` answers
+     * it: nothing judged this card. A caller that recommends nothing must say
+     * so rather than omit the key, because a card carrying a recommendation
+     * and a card carrying none are measured differently and the difference
+     * should be deliberate. Advisory in the other direction — it never
+     * releases the action.
+     */
+    suggestedDecision: z.enum(SUGGESTED_DECISIONS).nullable(),
+    /**
+     * One short sentence for why that recommendation, required alongside it
+     * and null when there is none. Not `rationale` above: that argues the
+     * payload is right, this argues what should happen to the card, which is
+     * the whole content of a `reject`.
+     */
+    suggestedDecisionReason: z.string().trim().min(1).nullable(),
+    /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
+    suggestedSnoozeUntil: z.string().optional(),
     /** Upsert key (object type + id + action) — re-surfacing updates in place. */
     dedupKey: z.string().optional(),
     /** Days until this suggestion goes stale (drops from the queue). */
     expiresInDays: z.number().positive().max(90).optional(),
-  }))
+  }).refine(
+    value => (value.suggestedDecision === null) === (value.suggestedDecisionReason === null),
+    {
+      // Half a recommendation is worse than none: a verdict with no sentence
+      // is scored against the reviewer's decision with nothing they could
+      // check, and a sentence with no verdict argues for an outcome the card
+      // never names. The two travel together or neither does.
+      error: 'suggestedDecision and suggestedDecisionReason must both be given or both be null',
+      path: ['suggestedDecisionReason'],
+    },
+  ))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const { proposeAction } = await import('@/services/ActionService');
@@ -175,7 +216,13 @@ export const proposeFromRecommendationRoute = os
       input: input.input,
       principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
       invokedBy: userId ?? agentId,
-      proposal: { confidence: input.confidence, rationale: input.rationale },
+      proposal: {
+        confidence: input.confidence,
+        rationale: input.rationale,
+        suggestedDecision: input.suggestedDecision,
+        suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
+        suggestedSnoozeUntil: input.suggestedSnoozeUntil,
+      },
       // Explicit key wins; otherwise derive a stable one from the action + its
       // primary target so the same owed action doesn't duplicate in the queue.
       dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
@@ -216,6 +263,8 @@ export const actionStatusRoute = os
         status: actionRunSchema.status,
         decidedBy: actionRunSchema.decidedBy,
         decidedAt: actionRunSchema.decidedAt,
+        regeneratingSince: actionRunSchema.regeneratingSince,
+        regenerateNote: actionRunSchema.regenerateNote,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -230,6 +279,10 @@ export const actionStatusRoute = os
       status: row.status,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
+      // The in-flight regeneration stamp, so the card can hold itself
+      // disabled on server truth rather than on the click that started it.
+      regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
+      regenerateNote: row.regenerateNote,
     };
   });
 
@@ -251,8 +304,8 @@ export const rewriteDraftRoute = os
  * Stable upsert key from an action + its input, so re-proposing the same owed
  * action updates the pending item instead of stacking a duplicate. Keyed on
  * the action's primary target (recipient for a send, object id for a CRM write).
- * @param actionId
- * @param input
+ * @param actionId - The action being proposed.
+ * @param input - That action's input payload.
  */
 function deriveDedupKey(actionId: string, input: Record<string, unknown>): string | undefined {
   const s = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : undefined);
@@ -285,6 +338,25 @@ export const decideActionRoute = os
     const { orgId, userId } = await guardAuth();
     const { decide } = await import('@/services/ReviewService');
 
+    // A run mid-regeneration cannot be decided: an approve would execute the
+    // stale copy, and the re-propose landing moments later would duplicate
+    // the card. The guard expires with the stamp's staleness window, so a
+    // wedged regeneration never locks the run for good.
+    {
+      const { db } = await import('@/libs/DB');
+      const { actionRunSchema } = await import('@/models/Schema');
+      const { and, eq } = await import('drizzle-orm');
+      const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
+      const [run] = await db
+        .select({ regeneratingSince: actionRunSchema.regeneratingSince })
+        .from(actionRunSchema)
+        .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
+        .limit(1);
+      if (run && isRegeneratingFresh(run.regeneratingSince)) {
+        throw ApiError.badRequest('This card is being regenerated — it re-enables when the new version lands.');
+      }
+    }
+
     // Typed-content edit-then-approve: the ACTION owns the mapping from card
     // content back to its input, so the client never reverse-engineers input
     // shapes. The mapped input is re-validated in ActionService like any edit.
@@ -305,13 +377,15 @@ export const decideActionRoute = os
       }
     }
 
-    await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
+    const outcome = await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
       reason: input.reason,
       note: input.note,
       reviewedBy: userId,
       editedInput: input.decision === 'approve' ? editedInput : undefined,
     });
-    return { ok: true };
+    // The execution outcome rides back so the card can SAY a failed execution
+    // failed — approve used to return bare `ok` and a HubSpot 400 was silent.
+    return { ok: true, execution: outcome?.execution ?? null };
   });
 
 /**
@@ -336,24 +410,61 @@ export const regenerateActionRoute = os
     const { actionRunSchema } = await import('@/models/Schema');
     const { and, eq } = await import('drizzle-orm');
     const { getAction } = await import('@/libs/actions/registry');
+    const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
     const [run] = await db
-      .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, status: actionRunSchema.status })
+      .select({
+        actionId: actionRunSchema.actionId,
+        input: actionRunSchema.input,
+        status: actionRunSchema.status,
+        regeneratingSince: actionRunSchema.regeneratingSince,
+      })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
       .limit(1);
-    if (!run || run.status !== 'pending') {
-      throw ApiError.notFound(`no pending action ${input.id}`);
+    // Failed runs regenerate too — the redraft's dedup refresh reclaims them to pending.
+    if (!run || (run.status !== 'pending' && run.status !== 'failed')) {
+      throw ApiError.notFound(`no regenerable action ${input.id}`);
     }
     const action = getAction(run.actionId);
     if (!action?.regenerate) {
       throw ApiError.badRequest(`${run.actionId} does not support regeneration`);
     }
-    await action.regenerate(
+    // One regeneration at a time: a second click while the stamp is fresh is
+    // a double-fire, refused. The stamp expiring on its own means a wedged
+    // run costs one staleness window, never the card.
+    if (isRegeneratingFresh(run.regeneratingSince)) {
+      throw ApiError.badRequest('This card is already regenerating — it re-enables when the new version lands.');
+    }
+
+    // Server truth first: every surface reads the stamp, so the card is
+    // disabled everywhere before any work runs.
+    await db
+      .update(actionRunSchema)
+      .set({ regeneratingSince: new Date(), regenerateNote: input.feedback })
+      .where(eq(actionRunSchema.id, input.id));
+
+    // The work dispatches in the background — the fast path is a model turn
+    // and the fallback a whole agent pass; the reviewer's click must not hold
+    // the request open for either. A dispatch failure unstamps, so the card
+    // re-enables instead of waiting out the staleness window.
+    const dispatch = action.regenerate(
       { orgId, reviewedBy: userId ?? undefined },
       run.input as never,
       input.id,
       input.feedback,
-    );
+    ).catch(async (err) => {
+      logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) });
+      await db
+        .update(actionRunSchema)
+        .set({ regeneratingSince: null })
+        .where(eq(actionRunSchema.id, input.id))
+        .catch(() => {});
+    });
+    // Next's request context must survive the work: `after` keeps the promise
+    // alive past the response without holding the response for it.
+    const { after } = await import('next/server');
+    after(dispatch);
+
     // The feedback is a learning signal with the full existing pipeline behind
     // it: feedback job, classifier, duplicate detection, learning candidate.
     const { recordActionSignal } = await import('@/services/ReviewService');

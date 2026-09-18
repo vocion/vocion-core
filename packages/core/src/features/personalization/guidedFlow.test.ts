@@ -4,6 +4,7 @@ import {
   applyRevision,
   canDecide,
   contentEditsFor,
+  contentIdForAsk,
   currentBody,
   hydrateGuidedState,
   initialGuidedState,
@@ -121,5 +122,25 @@ describe('the guided flow', () => {
 
   it('a decided lead offers no further decision', () => {
     expect(canDecide({ ...walked, decided: true }, SENDS)).toBe(false);
+  });
+});
+
+describe('contentIdForAsk — which send a tagged change addresses', () => {
+  const state = { ...initialGuidedState, step: 1 };
+
+  it('takes the anchor when the selection was inside a send', () => {
+    expect(contentIdForAsk('send-1', 'shorter please', SENDS, state)).toBe('send-1');
+  });
+
+  it('falls back to the send the text names when the anchor points at the brief', () => {
+    expect(contentIdForAsk('Recommended angle', 'make send 1 shorter', SENDS, state)).toBe('send-1');
+  });
+
+  it('otherwise addresses the send under review', () => {
+    expect(contentIdForAsk(null, 'this opener is too long', SENDS, state)).toBe(SENDS[1]!.id);
+  });
+
+  it('returns null when there is nothing to address', () => {
+    expect(contentIdForAsk('anything', 'shorter', [], initialGuidedState)).toBeNull();
   });
 });

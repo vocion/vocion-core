@@ -4,6 +4,48 @@
 
 Vocion is a multi-tenant SaaS application built on Next.js 16. It provides contextual intelligence tools for teams to organize, connect, and act on business context.
 
+## Design principles — read before any product decision
+
+`docs/DESIGN-PRINCIPLES.md` is the bar for every feature, page, default, entity field and agent
+behaviour in this repo. Four values and twelve principles. A PR description for user-facing work
+should say which of them it serves.
+
+**The four values**, which settle arguments:
+
+1. **Outcomes people own** over work the system performed.
+2. **One obvious path** over every possible option.
+3. **Evidence you can reach** over answers you must trust.
+4. **Autonomy that was earned** over automation that was configured.
+
+**The test**, before shipping anything: is this an outcome or an activity, and who owns it? Is this
+one obvious path, or another option? Can a person check it, in one move from where the claim is
+read? Did real work demand this, and can the change name the thing it unblocked?
+
+Four principles bind day-to-day engineering here, so they are worth restating:
+
+- **Principle 6 — one shape, used everywhere.** Extend an existing component or interaction
+  pattern rather than building a second one beside it, *especially* when the gap is real: a real
+  gap closed generically improves the whole platform, while the same gap closed locally improves
+  one screen and degrades the rest. Two surfaces doing the same job is a defect.
+- **Principle 7 — map onto the nouns we have.** The vocabulary is small — record, artifact, ask,
+  conversation, run, measure — and a new feature maps onto one rather than adding another. Anything
+  that needs to be referenced, edited, versioned, previewed or cited is an **artifact**;
+  implementing versioning or a history list a second time is the tell that you are duplicating a
+  noun instead of extending one. Worked examples and the reduction pass (*less evidence should
+  produce a smaller output, not a longer explanation of why evidence is missing*) are in
+  `docs/design/reduction.md`.
+- **Principle 10 — show your work.** Every claim is traceable to what produced it, in one move from
+  where it is read. Anything dated is shown with its date. "I could not establish this" beats a
+  confident guess.
+- **Principle 12 — build what use demanded.** Build what real work demanded, not what was imagined;
+  if a change cannot name the thing it unblocked, it is not ready to build. And anything true only
+  of one industry, customer or vertical workflow is a **concretion** — it belongs in a template,
+  workspace or the marketplace, never in the core.
+
+Lead every surface with the outcome (the Outcome Contract: purpose, owner, KPI, baseline, target,
+permissions, quality threshold, escalation, current performance, autonomy level), with activity
+metrics as the evidence layer underneath.
+
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript (strict)
@@ -135,7 +177,7 @@ The same deepagents loop also ships as a standalone artifact — **`packages/age
 | Subagents / playbooks / HITL gates | yes | yes | none |
 | Default for | everything not on Bedrock | Bedrock agents | nothing — opt in |
 
-Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Veerio-Life/veerio-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
+Neither AgentCore path is a model gateway: inference is a direct Bedrock Converse call on all three. AgentCore is hosting plus Memory. **No client is on `aws-managed-harness` today.** `Larkfield-Systems/larkfield-vocion` was the one — `event-ingestion-lead` moved to `agentcore-container` on 2026-09-08, its harness was deleted, and the parent stopped creating `VocionAgentCoreHarnessRole` on every deploy. Removing the path is now a product decision rather than a mistake, so decide it deliberately; until then it stays supported, and `applier.ts` deprovisions a harness when an agent leaves it (see `managed-harness-reconcile.test.ts`) so choosing the container never leaves AWS's harness running.
 
 - The artifact is **generic**: agent definitions travel in the invocation payload (compiled from the agent row per request), so `workspace:apply` stays a DB sync and agent edits never redeploy anything.
 - **Tools execute in core**, not the artifact: catalog entries POST back to `/api/internal/agent-tools` with a signed `TenantClaim` (`services/agents/claims.ts`) — orgId/user ACLs come only from the verified claim (`services/agents/toolEndpoint.ts`; cross-tenant test suite in `toolEndpoint.test.ts`). Single tool registry: `services/agents/tools/registry.ts`.
@@ -202,7 +244,7 @@ Testing the loop: `npx playwright test --project=learning` covers ingestion (whi
 
 ```bash
 # 1. the worker, pointed at the same database the app uses
-AWS_PROFILE=veerio AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
+AWS_PROFILE=larkfield AWS_REGION=us-west-2 VOCION_LLM_PROVIDER_CLASSIFIER=bedrock \
   ENABLE_FEEDBACK_WORKER=1 npm run worker:serve
 # 2. the spec
 LIVE_MODEL_E2E=1 DATABASE_URL=... npx playwright test --project=learning-live
@@ -213,6 +255,7 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
 ## Evals + budgets
 
 - `npm run eval:run -- --dataset <slug>` — run a context-authored dataset through the agent and score each case via an LLM judge. CI exits non-zero if pass-rate < 0.8.
+- `npm run eval:upgrade -- --dataset <slug> --baseline <model> --candidate <model>` — the model-upgrade test: the same dataset on two models, same judge, compared on **cost per passed case** (`services/evals/modelUpgradeTest.ts`, `POST /api/v1/evals/:slug/model-upgrade-test`, "Compare models" on `/dashboard/evals/<slug>`). Every eval case stores its token usage and cost (`eval_case_result.usage`); a run that named a model stamps it on `eval_run.model`. See `docs/guides/model-upgrade-test.md`. Cost reads 0 for a model missing from `libs/pricing.ts` — price it first.
 - `agent_budget` table caps per-period token + dollar spend per agent. Pre-flight refusal in `runAgentDeep` when over the hard cap. Opt-in: no row → no enforcement.
 
 ## Observability
@@ -255,6 +298,18 @@ first, the server's env var second.** Reach for the helper, never
 - `resolveOrgProviderKey(provider, orgId)` (`libs/llm/orgKey.ts`) — the raw key,
   for a call site that constructs its own SDK client. Returns null when the org
   supplied none; fall back to the env var then, do not fail.
+- `resolveToolProviderKey(provider, orgId)` (`libs/tools/orgKey.ts`) — the same
+  answer for a built-in tool provider (`tavily`, `brave`, `firecrawl`, and
+  `openai` for image generation). `storedToolProviderCredential(provider, orgId)` answers
+  the readiness question the Tools catalog asks, and answers it by resolving
+  the key and dropping it rather than by counting rows — a live row whose
+  document no longer carries the registry's field name decrypts fine and
+  spends nothing, so counting rows put a green badge over keys no call could
+  use. Both go through `spendablePlatformKey`, which is the single definition
+  of a key a call can spend; a readiness check therefore pays for a decrypt.
+  A tool provider reads the org off `opts.orgId`, so every tool that calls one
+  has to hand its org down — `webSearch`, `fetchUrl`, `crawlSite` and their MCP
+  twins in `interfaces/mcp/tools/capability-tools.ts` all do.
 
 **Amazon Bedrock is the exception to "the key is one string."** Its credential
 is an AWS access key pair, stored under the `aws` platform, so
@@ -284,10 +339,11 @@ on a different provider from the one that ingested the documents would degrade
 search with no error anywhere.
 
 Already wired: the five chat-model call sites, `libs/retrieval/embedder.ts`,
-`libs/retrieval/reranker.ts`, `services/agents/tools/kitVision.ts`, and
-`libs/tools/image/openai.ts`. Deliberately still on the server's key, because no
-org is in scope where they run: `DiscoveryDetectionService` and
-`services/feedback/classifier.ts`.
+`libs/retrieval/reranker.ts`, `services/agents/tools/kitVision.ts`,
+`libs/tools/image/openai.ts`, and the paid tool providers
+`libs/tools/websearch/{tavily,brave}.ts` + `libs/tools/browse/firecrawl.ts`.
+Deliberately still on the server's key, because no org is in scope where they
+run: `DiscoveryDetectionService` and `services/feedback/classifier.ts`.
 
 **Never cache a client keyed on anything less than the exact key in use.** A
 per-provider singleton hands the first org's key to every org after it. Build
@@ -317,7 +373,11 @@ credential stored under the previous one.
   `tenant_account` owns one or more `project` rows (`src/models/Schema.ts`)
 - Every Auth.js session carries `{ user: { id, accountId, projectId, role } }`
   (`src/libs/Auth.ts`); the active project is held in a `vocion_active_project`
-  cookie that the JWT callback honors on the next issue
+  cookie that the JWT callback honors on the next issue. The cookie is written
+  by the `/w/[workspace]` entry route (`app/[locale]/(auth)/w/…/route.ts`),
+  which the sidebar switcher navigates through; build every outbound link with
+  `workspaceUrl()` in `src/libs/links.ts` so it names the workspace
+  (`docs/routing.md`)
 - Data is scoped by project (via `auth()` → `projectId`). `guardAuth` in
   `src/routers/AuthGuards.ts` still returns `orgId` as an alias of `projectId`
   because the business-content tables keep their `org_id` column for now
@@ -408,9 +468,35 @@ requirements/                       # Product specs and case studies
   inside tool outputs (weakest). Prove behavior with a harness/E2E run —
   "the prompt says so" is not evidence. (Proven: 3 prompt iterations failed
   to restore action cards; the backstop guaranteed them. Same story for the
-  `<scratch>` strip and the typed trace.)
+  `<scratch>` strip and the typed trace.) **Worked example, all four levers in
+  one change:** "this turn produces an artifact" — a typed `deliverable` field
+  on the turn request, armed by an explicit `@artifact` tag the person types,
+  with deterministic wrapping of a long-form answer, a gated backstop pass only
+  for the short-answer case, and a prompt line carried into the out-of-process
+  loop as the weakest lever. See `docs/agent-chat-surface.md` → *Deliverables*.
+- **Principles first.** Product decisions are judged against `docs/DESIGN-PRINCIPLES.md` (see the section
+  near the top). If a change cannot pass its test, it is not finished.
 - Conventional Commits (enforced by commitlint + lefthook)
 - ESLint with Antfu config
 - Strict TypeScript
 - T3 Env for validated environment variables
 - All translations in `src/locales/` - developers maintain `en.json`
+- **New dashboard pages use `components/patterns`** (List / Detail / Ledger — see
+  `docs/design/patterns.md`); don't hand-roll list/detail/ledger layouts. Hairlines not
+  boxes, one primary action per screen, numbers right-aligned in a `Column`.
+- **Fixtures are fictional, and a test enforces it.** This repo is public. No
+  real customer, prospect, contact, venue, email domain or live CRM/Zoom/Clerk
+  id goes into a test, story, seed script, doc or screenshot — including in a
+  filename. Reuse the fixture cast in
+  `packages/core/src/libs/fixtures/realDataGuard.ts` (Northwind, Kestrel Capital,
+  Larkfield Systems, Contoso Supply, Bellwater Hall, Acme …), keep each name's role
+  the same everywhere, put email addresses at `.example`, and keep an id's
+  shape but not its value. `realDataGuard.test.ts` scans every tracked file's
+  contents and path on each unit run and fails with the file and line. It
+  enforces two lists: `BANNED_NAMES` (specific identities, stored hashed, so
+  adding one does not re-commit it) and `REAL_DATA_SHAPES` (patterns for things
+  that are not names — a meeting-recording URL, a provider org id, a dialable
+  phone number, a street address — so a *different* real value pasted next week
+  is caught too). That file explains how to add to either. `Metacto` is
+  deliberately not on the list — it owns the product — but it is the seller in a
+  fixture, never the customer.

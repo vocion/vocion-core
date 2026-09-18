@@ -8,13 +8,13 @@ const { saveHandoffBrief } = await import('@/services/PersonalizationQueueServic
 
 const ORG = 'org_handoff_test';
 const REF = 'contacts:9412';
-const REVIEW_SECTIONS = [{ heading: 'Prospect', body: 'Pete Laverick, CEO.' }];
+const REVIEW_SECTIONS = [{ heading: 'Prospect', body: 'Rowan Pike, CEO.' }];
 
 async function seedLead() {
   const [row] = await db.insert(leadBriefSchema).values({
     orgId: ORG,
     contactRef: REF,
-    contactName: 'Pete Laverick',
+    contactName: 'Rowan Pike',
     triggerType: 'new',
     status: 'ready_for_review',
     sections: REVIEW_SECTIONS,

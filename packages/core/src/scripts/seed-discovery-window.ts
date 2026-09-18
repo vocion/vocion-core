@@ -127,7 +127,7 @@ async function main() {
       objectType: 'contacts',
       hubspotId: '9001',
       lifecycleStage: 'marketingqualifiedlead',
-      primaryEmail: 'jordan@acme-retail.com',
+      primaryEmail: 'jordan@acme-retail.example',
       name: 'Jordan Vega',
     },
     contentHash: 'seed-contact-9001',
@@ -144,14 +144,14 @@ async function main() {
       host: 'chris@metacto.com',
       start: new Date().toISOString(),
       hasTranscript: true,
-      attendees: ['chris@metacto.com', 'jordan@acme-retail.com'],
-      shareUrl: 'https://zoom.us/rec/share/seed-discovery-1',
+      attendees: ['chris@metacto.com', 'jordan@acme-retail.example'],
+      shareUrl: 'https://zoom.example/rec/share/seed-discovery-1',
     },
     contentHash: INJECTION ? 'seed-transcript-hostile-v1' : 'seed-transcript-v1',
   });
   await setTranscript(prospectDoc, transcript);
 
-  // The Brayden case: a Zoom recording with NO attendee metadata (no calendar
+  // The Riley case: a Zoom recording with NO attendee metadata (no calendar
   // event shares its meeting id) whose title names a CRM contact. Matches via
   // name-in-title; without that lane it is unmatchable.
   await upsertDoc({
@@ -176,7 +176,7 @@ async function main() {
       host: 'chris@metacto.com',
       start: new Date().toISOString(),
       hasTranscript: true,
-      shareUrl: 'https://zoom.us/rec/share/seed-title-only-1',
+      shareUrl: 'https://zoom.example/rec/share/seed-title-only-1',
     },
     contentHash: 'seed-title-only-v1',
   });
@@ -204,7 +204,7 @@ Riley: Sounds good, send it over.`);
   console.log('\nSeeded. Now either:');
   console.log('  - chat with the RevOps Lead: "Run a discovery detection pass" (seller domain metacto.com), or');
   console.log('  - fire the automation: curl -X POST localhost:3000/api/v1/automations/discovery-sweep/run (with auth)');
-  console.log('Then check /dashboard/review for the queue item and /gtm/discovery for the ledger row.');
+  console.log('Then check /dashboard/inbox?kind=proposal for the queue item and /gtm/discovery for the ledger row.');
 
   await pool.end();
 }

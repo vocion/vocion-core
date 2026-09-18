@@ -3,7 +3,7 @@ import { enqueue, listJobs } from '@/services/FeedbackWorkerService';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination } from '../_shared';
 
 /** Sources the endpoint accepts. Anything else is a client mistake, not a new source. */
-const ACCEPTED_SOURCES = ['api', 'manual', 'slack', 'drive'] as const;
+const ACCEPTED_SOURCES = ['api', 'manual', 'slack', 'drive', 'chat'] as const;
 
 type AcceptedSource = typeof ACCEPTED_SOURCES[number];
 
@@ -14,6 +14,11 @@ type AcceptedSource = typeof ACCEPTED_SOURCES[number];
  * (`queued` | `processing` | `classified` | `applied` | `failed` | `ignored`)
  * and `source`; page with `limit` and `offset`.
  * Auth: tenant API token or dashboard session.
+ *
+ * Query parameters:
+ * - `status` — `queued`, `processing`, `classified`, `applied`, `failed` or
+ *   `ignored`.
+ * - `source` — only the jobs that arrived from one source.
  * @param req
  */
 export async function GET(req: Request) {

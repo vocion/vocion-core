@@ -27,11 +27,11 @@ describe('extractChunk', () => {
 
 describe('parseCitations', () => {
   it('pulls title + sourceType + snippet from a search_knowledge result', () => {
-    const content = '[1] **Gauge <> metacto — 2026-05-29** [granola] discussed referral pipeline\n[2] **Intro note** [gmail] follow-up owed';
+    const content = '[1] **Kestrel <> metacto — 2026-05-29** [granola] discussed referral pipeline\n[2] **Intro note** [gmail] follow-up owed';
     const cites = parseCitations(content, 'lead');
 
     expect(cites).toHaveLength(2);
-    expect(cites[0]).toMatchObject({ title: 'Gauge <> metacto — 2026-05-29', sourceType: 'granola', actorId: 'lead' });
+    expect(cites[0]).toMatchObject({ title: 'Kestrel <> metacto — 2026-05-29', sourceType: 'granola', actorId: 'lead' });
     expect(cites[1]).toMatchObject({ sourceType: 'gmail' });
   });
 });
@@ -57,24 +57,24 @@ describe('traceEmitter — lead work', () => {
 
   it('emits a search node with citations on tool end, attributed to the lead', () => {
     const em = new TraceEmitter({ leadName: 'Lead' });
-    const start = em.handle({ event: 'on_tool_start', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { input: { input: '{"query":"Gauge follow-up"}' } } });
+    const start = em.handle({ event: 'on_tool_start', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { input: { input: '{"query":"Kestrel follow-up"}' } } });
 
-    expect(start[0]).toMatchObject({ kind: 'search', status: 'start', detail: '"Gauge follow-up"', tool: 'search_knowledge', args: '{"query":"Gauge follow-up"}' });
-    expect(start[0]?.label).toBe('Searching "Gauge follow-up"');
+    expect(start[0]).toMatchObject({ kind: 'search', status: 'start', detail: '"Kestrel follow-up"', tool: 'search_knowledge', args: '{"query":"Kestrel follow-up"}' });
+    expect(start[0]?.label).toBe('Searching "Kestrel follow-up"');
 
-    const end = em.handle({ event: 'on_tool_end', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { output: { content: '[1] **Gauge <> metacto** [granola] pipeline talk' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'search_knowledge', metadata: { checkpoint_ns: 'tools:s1' }, data: { output: { content: '[1] **Kestrel <> metacto** [granola] pipeline talk' } } });
 
     expect(end[0]).toMatchObject({ kind: 'search', status: 'done', result: '1 source' });
-    expect(end[0]?.citations?.[0]).toMatchObject({ title: 'Gauge <> metacto', sourceType: 'granola', actorId: 'lead' });
+    expect(end[0]?.citations?.[0]).toMatchObject({ title: 'Kestrel <> metacto', sourceType: 'granola', actorId: 'lead' });
     expect(em.citations()).toHaveLength(1);
   });
 
   it('carries a record-name preview on lookup_objects for the call drill', () => {
     const em = new TraceEmitter({ leadName: 'Lead' });
     em.handle({ event: 'on_tool_start', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { input: { input: '{"type_slug":"follow-up"}' } } });
-    const end = em.handle({ event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { output: { content: '[{"contact":"Sam Smith"},{"contact":"Jim Lott"}]' } } });
+    const end = em.handle({ event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:l1' }, data: { output: { content: '[{"contact":"Sam Smith"},{"contact":"Dana Reyes"}]' } } });
 
-    expect(end[0]).toMatchObject({ kind: 'tool', result: '2 records', resultDetail: 'Sam Smith, Jim Lott' });
+    expect(end[0]).toMatchObject({ kind: 'tool', result: '2 records', resultDetail: 'Sam Smith, Dana Reyes' });
   });
 
   it('drops plumbing tools (write_todos, ls, …)', () => {
@@ -129,7 +129,7 @@ describe('traceEmitter — delegation + nested specialist work', () => {
       event: 'on_tool_start',
       name: 'task',
       metadata: { checkpoint_ns: `tools:${TASK_ID}` },
-      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Rank the Gauge follow-ups by ROI and return the top 3.' }) } },
+      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Rank the Kestrel follow-ups by ROI and return the top 3.' }) } },
     });
 
     expect(del[0]).toMatchObject({ id: TASK_ID, kind: 'delegate', status: 'start', actor: { kind: 'lead' } });
@@ -149,7 +149,7 @@ describe('traceEmitter — delegation + nested specialist work', () => {
       event: 'on_tool_end',
       name: 'search_knowledge',
       metadata: { checkpoint_ns: `tools:${TASK_ID}|tools:subsearch` },
-      data: { output: { content: '[1] **Gauge deal — $120k ARR** [hubspot] stage: proposal' } },
+      data: { output: { content: '[1] **Kestrel deal — $120k ARR** [hubspot] stage: proposal' } },
     });
 
     expect(subSearchEnd[0]).toMatchObject({ kind: 'search', parentId: TASK_ID, actor: { name: 'Pipeline Analyst' } });
@@ -175,5 +175,93 @@ describe('traceEmitter — delegation + nested specialist work', () => {
     });
 
     expect(del[0]?.label).toBe('Delegating to GTM ROI Analyst');
+  });
+});
+
+/**
+ * A delegation that FAILS. Until 2026-09-16 the emitter had no case for either
+ * shape a failure arrives in, so a turn whose hand-off blew up persisted a
+ * trace with exactly one node — `{ kind: 'delegate', status: 'start' }` — and
+ * no terminal node of any kind. From the transcript, a specialist that died
+ * was indistinguishable from one still working.
+ */
+describe('traceEmitter — a delegation that fails', () => {
+  function delegate(em: TraceEmitter) {
+    return em.handle({
+      event: 'on_tool_start',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { input: { input: JSON.stringify({ subagent_type: 'pipeline-analyst', description: 'Full pipeline health report for today' }) } },
+    });
+  }
+
+  it('closes the node as an error when nothing caught the failure (on_tool_error)', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+
+    const failed = em.handle({
+      event: 'on_tool_error',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { error: new Error('the specialist could not be reached') },
+    });
+
+    expect(failed[0]).toMatchObject({ id: TASK_ID, kind: 'delegate', status: 'error' });
+    expect(failed[0]?.label).toBe('Pipeline Analyst could not finish');
+    expect(failed[0]?.result).toContain('could not be reached');
+    // Nothing is left hanging.
+    expect(em.openDelegationNames()).toEqual([]);
+  });
+
+  it('closes the node as an error when the graph caught it and returned an error ToolMessage', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+
+    const failed = em.handle({
+      event: 'on_tool_end',
+      name: 'task',
+      metadata: { checkpoint_ns: `tools:${TASK_ID}` },
+      data: { output: { status: 'error', content: 'Error: subagent "pipeline-analyst" not found\n Please fix your mistakes.' } },
+    });
+
+    expect(failed[0]).toMatchObject({ kind: 'delegate', status: 'error' });
+    // The boilerplate the tool node wraps around a thrown error is stripped.
+    expect(failed[0]?.result).toBe('subagent "pipeline-analyst" not found');
+  });
+
+  it('marks an ordinary tool that failed as failed, not as used', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    em.handle({ event: 'on_tool_start', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:t9' }, data: { input: { input: '{"type_slug":"deal"}' } } });
+    const failed = em.handle({
+      event: 'on_tool_end',
+      name: 'lookup_objects',
+      metadata: { checkpoint_ns: 'tools:t9' },
+      data: { output: { status: 'error', content: 'Error: object type not found' } },
+    });
+
+    expect(failed[0]).toMatchObject({ kind: 'tool', status: 'error' });
+    expect(failed[0]?.label).toContain('failed');
+  });
+
+  it('closes still-open delegations when the run itself dies', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+
+    expect(em.openDelegationNames()).toEqual(['Pipeline Analyst']);
+
+    const closed = em.closeDelegations('agent run failed');
+
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({ id: TASK_ID, kind: 'delegate', status: 'error', result: 'agent run failed' });
+    expect(em.openDelegationNames()).toEqual([]);
+  });
+
+  it('leaves a delegation that succeeded alone', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    delegate(em);
+    const done = em.handle({ event: 'on_tool_end', name: 'task', metadata: { checkpoint_ns: `tools:${TASK_ID}` }, data: { output: { status: 'success', content: 'here is the summary' } } });
+
+    expect(done[0]).toMatchObject({ status: 'done' });
+    expect(em.closeDelegations('never mind')).toHaveLength(0);
   });
 });

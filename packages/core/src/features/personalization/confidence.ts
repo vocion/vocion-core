@@ -1,20 +1,8 @@
-import type { ConfidenceLevel } from '@/types/Status';
-
 /**
- * The one place the confidence ladder lives. `lead_brief.confidence` stores
- * the raw 0..1 score and nothing else, so moving these cut points re-labels
- * the whole queue without a backfill.
- * @param score - raw agent confidence, 0..1, or null when unscored
+ * The confidence ladder moved into the component that draws it
+ * (`components/ui/confidence-indicator.tsx`) when the ledger, the inbox and the
+ * review detail all started needing the same cut points — design principle 6, the
+ * ladder is not a personalization concern. Re-exported here so the queue and
+ * the lead page keep their local import.
  */
-export function confidenceLevel(score: number | null): ConfidenceLevel | null {
-  if (score === null) {
-    return null;
-  }
-  if (score >= 0.8) {
-    return 'confident';
-  }
-  if (score >= 0.55) {
-    return 'uncertain';
-  }
-  return 'speculative';
-}
+export { confidenceLevel } from '@/components/ui/confidence-indicator';

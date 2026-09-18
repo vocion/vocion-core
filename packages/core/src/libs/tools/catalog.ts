@@ -106,14 +106,65 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
   },
 ];
 
-/** Provider/key readiness for every capability. Never throws. */
-export function capabilityStatuses(): CapabilityStatus[] {
-  return [
-    webSearchStatus(),
-    browseStatus(),
-    imageStatus(),
-    codeStatus(),
-    // create_artifact is builtin and always available.
-    { capability: 'create_artifact', provider: 'builtin', ready: true, missingEnv: [] },
-  ];
+/** create_artifact is builtin: no provider to pick, no key to spend. */
+const ARTIFACT_STATUS: CapabilityStatus = {
+  capability: 'create_artifact',
+  provider: 'builtin',
+  ready: true,
+  missingEnv: [],
+  keySource: 'none',
+};
+
+/**
+ * Provider/key readiness for every capability. Never throws.
+ *
+ * Pass the org whose page this is and each capability also reports whether the
+ * workspace's own key or the server's is about to be spent. With no org — a
+ * deployment-level view, or a caller with no session — the credential store is
+ * not consulted at all.
+ * @param orgId - The org to report for, or undefined for the server's view.
+ */
+export async function capabilityStatuses(orgId?: string): Promise<CapabilityStatus[]> {
+  const [webSearch, browse, image, code] = await Promise.all([
+    webSearchStatus(orgId),
+    browseStatus(orgId),
+    imageStatus(orgId),
+    codeStatus(orgId),
+  ]);
+  return [webSearch, browse, image, code, ARTIFACT_STATUS];
+}
+
+/**
+ * Provider/key readiness for one capability. Never throws.
+ *
+ * The same answer {@link capabilityStatuses} would give for this capability,
+ * without resolving the other four. That matters because resolving a
+ * capability's status decrypts the org's stored key for it: asking about all
+ * five to render one tool's page made every visit to the Tavily page pay for a
+ * Firecrawl and an OpenAI decrypt nobody was going to read.
+ *
+ * An unrecognised capability gets null rather than a throw, in keeping with
+ * the rest of this module — the caller is a page that has already decided the
+ * tool exists.
+ * @param capability - The capability key, e.g. `web_search`.
+ * @param orgId - The org to report for, or undefined for the server's view.
+ */
+export async function capabilityStatus(
+  capability: string,
+  orgId?: string,
+): Promise<CapabilityStatus | null> {
+  switch (capability) {
+    case 'web_search':
+      return webSearchStatus(orgId);
+    case 'browse':
+      return browseStatus(orgId);
+    case 'generate_image':
+      return imageStatus(orgId);
+    case 'run_code':
+      return codeStatus(orgId);
+    case 'create_artifact':
+      return ARTIFACT_STATUS;
+    default:
+      return null;
+  }
 }

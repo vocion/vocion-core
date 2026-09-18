@@ -1,5 +1,5 @@
 /**
- * fetch_url suite (VEERIO-258) — the tool returns a page's full extracted
+ * fetch_url suite (LARK-258) — the tool returns a page's full extracted
  * text on every call, with no character cap and no truncation. Covers: a
  * short page returned whole, a long page (well over the old 12,000-char
  * cap) returned whole with nothing truncated, a page with no readable
@@ -23,7 +23,7 @@ vi.mock('@/libs/tools/browse/registry', () => ({
 
 const { fetchUrlTool } = await import('./fetchUrl');
 
-const CTX = {} as RuntimeContext;
+const CTX = { orgId: 'org_fetch_url_test' } as RuntimeContext;
 const URL = 'https://example.com/listing';
 const TITLE = 'Listing Page';
 
@@ -62,7 +62,7 @@ describe('fetch_url', () => {
 
     expect(result).toContain(content);
     expect(result).toContain('Total length: 500 characters.');
-    expect(fetchPage).toHaveBeenCalledWith(URL);
+    expect(fetchPage).toHaveBeenCalledWith(URL, { orgId: 'org_fetch_url_test' });
   });
 
   it('returns a 56,662-character page whole in one call, with nothing truncated and no paging wording left anywhere', async () => {

@@ -8,11 +8,11 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { bfsCrawl } from '@/libs/tools/browse/crawl';
 import { getBrowseProvider } from '@/libs/tools/browse/registry';
-import { ProviderNotConfiguredError } from '@/libs/tools/types';
+import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
 
 const PER_PAGE_CHARS = 1_200;
 
-export function crawlSiteTool(_ctx: RuntimeContext) {
+export function crawlSiteTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
       const { start_url, max_depth, max_pages } = args;
@@ -21,6 +21,7 @@ export function crawlSiteTool(_ctx: RuntimeContext) {
         const pages = await bfsCrawl(provider, start_url, {
           maxDepth: max_depth ?? 1,
           maxPages: max_pages ?? 20,
+          orgId: ctx.orgId,
         });
         if (pages.length === 0) {
           return `Crawl of ${start_url} returned no readable pages.`;
@@ -30,6 +31,12 @@ export function crawlSiteTool(_ctx: RuntimeContext) {
           .join('\n\n');
         return `Crawled ${pages.length} page(s) from ${start_url}:\n\n${digest}`;
       } catch (err) {
+        if (err instanceof ToolProviderKeyUnavailableError) {
+          // Deliberately not falling through to the server's key: this org may
+          // hold one we simply could not read, and spending the deployment's
+          // account instead would bill the wrong party silently.
+          return `${err.message}. A workspace admin can re-enter it under API credentials.`;
+        }
         if (err instanceof ProviderNotConfiguredError) {
           return `Browse is not configured (${err.message}).`;
         }

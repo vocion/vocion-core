@@ -1,0 +1,6 @@
+name: Legal & People
+description: >-
+  Compares things against the written standard — contracts, risk and
+  policy — and runs the employee lifecycle on the same rubrics.
+lead: compliance-lead
+# No accountableUser: inherits the workspace default when one is set.

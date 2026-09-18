@@ -1,20 +1,36 @@
 'use client';
 
-import { Check, Clock, Loader2, RefreshCw } from 'lucide-react';
+import type { BriefingV2 } from '@/services/briefings/document';
+import type { InboxItem } from '@/services/InboxService';
+import { Check, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ListRow, ListRows } from '@/components/patterns';
 import { Button } from '@/components/ui/button';
-import { useRouter } from '@/libs/I18nNavigation';
+import { Surface } from '@/components/ui/surface';
+import { CommentLayerProvider } from '@/features/comments/CommentLayer';
+import { BriefingView } from '@/features/dashboard/briefings/BriefingView';
+import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { MAX_HISTORY_ENTRIES } from '@/services/briefings/budget';
+import { BRIEFING_ARCHIVE_HREF, briefingHref } from '@/services/briefings/links';
+import { recordRef } from '@/services/chat/recordContext';
 import { BriefingChatStarter } from './BriefingChatStarter';
+import { BriefingSections } from './BriefingSections';
 
 /**
  * Briefings — BY TEAM. Tabs: the workspace ROLLUP first, then one per team.
- * Each tab shows the latest brief (rendered), a history explorer of previous
- * briefs, and Regenerate (background run of the owning lead). The floating
- * chat pill is scoped to the ACTIVE tab's brief + lead — submitting moves to
- * /chat with the brief as visible context.
+ * Each tab shows the latest brief (rendered), the previous ones underneath
+ * it — ONCE, read live, inside the brief's own section 9 — and *Refresh
+ * briefing* (a background run of the owning lead).
+ *
+ * "Refresh", not "Regenerate": the brief is a standing document that is
+ * brought up to date, and the person pressing the button wants today's read,
+ * not a do-over of the machine's work. The RPC keeps its name.
+ *
+ * Asking about the brief is the SELECTION path and nothing else: the brief
+ * sits in a `CommentLayerProvider`, so highlighting a passage raises the
+ * platform's one selection control (`docs/design/patterns.md` § Select →
+ * talk). There is no pill, no prefilled prompt and no second composer.
  */
 
 export type BriefRow = {
@@ -23,6 +39,10 @@ export type BriefRow = {
   content: string;
   createdAt: string;
   teamSlug: string | null;
+  /** Who published it — the agent's display name when the page resolved one, else its slug. */
+  publisher: string | null;
+  /** The typed document, when this brief carries one (docs/specs/briefing-v2.md). */
+  document: BriefingV2 | null;
 };
 
 export type BriefGroup = {
@@ -38,7 +58,7 @@ function fmt(d: string): string {
   return new Date(d).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
+export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: { groups: BriefGroup[]; liveDecisions?: InboxItem[]; archiveTotal?: number }) {
   const router = useRouter();
   const [active, setActive] = useState(0);
   // Regeneration lifecycle: idle → assembling (polling briefings.latest until
@@ -46,12 +66,19 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
   const [regen, setRegen] = useState<'idle' | 'assembling' | 'landed' | 'failed'>('idle');
   const [elapsed, setElapsed] = useState(0);
   const baselineRef = useRef<number | null>(null);
-  const [openHistory, setOpenHistory] = useState<number | null>(null);
 
   const g = groups[active];
   const latest = g?.briefs[0];
-  const history = g?.briefs.slice(1) ?? [];
-  const viewing = openHistory != null ? g?.briefs.find(b => b.id === openHistory) ?? latest : latest;
+  const history = (g?.briefs.slice(1) ?? []).slice(0, MAX_HISTORY_ENTRIES);
+  // Previous briefs are links now, not a second viewer on this page: one
+  // brief lives at one URL (docs/specs/briefing-v2.md §10). A typed brief
+  // draws them itself, in its section 9, from this live list — never from
+  // the snapshot stored in its document, and never twice.
+  const liveHistory = {
+    entries: history.map(b => ({ id: b.id, title: b.title, at: new Date(b.createdAt), href: briefingHref(b.id), teamSlug: b.teamSlug, publisher: b.publisher })),
+    total: Math.max(0, (g?.briefs.length ?? 0) - 1),
+  };
+  const viewing = latest;
 
   const regenerate = async () => {
     // Only reachable from the rendered group, but `g` is optional now that the
@@ -87,7 +114,6 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
         .then((row) => {
           if (row && row.id !== baselineRef.current) {
             setRegen('landed');
-            setOpenHistory(null);
             router.refresh();
           } else if (Date.now() - startedAt > 5 * 60_000) {
             setRegen('failed');
@@ -117,44 +143,38 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
             type="button"
             onClick={() => {
               setActive(i);
-              setOpenHistory(null);
               setRegen('idle');
             }}
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {grp.teamName}
-            {grp.briefs.length > 0 && <span className="ml-1 text-[10px] opacity-60">{grp.briefs.length}</span>}
           </button>
         ))}
       </div>
 
       <div className="flex items-center justify-between gap-2">
+        {/* A typed brief carries its own title and date line; only a pre-v2
+            markdown brief needs one here. */}
         <div className="min-w-0">
-          {viewing
-            ? (
-                <>
-                  <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
-                  <div className="text-xs text-muted-foreground">
-                    {fmt(viewing.createdAt)}
-                    {openHistory != null && ' · historical — '}
-                    {openHistory != null && (
-                      <button type="button" className="text-brand-amber-deep hover:opacity-80" onClick={() => setOpenHistory(null)}>back to latest</button>
-                    )}
-                  </div>
-                </>
-              )
-            : (
-                <h2 className="text-base font-semibold text-muted-foreground">
-                  No
-                  {g.teamName}
-                  {' '}
-                  brief yet
-                </h2>
-              )}
+          {viewing && !viewing.document && (
+            <>
+              <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
+              <div className="text-xs text-muted-foreground">{[fmt(viewing.createdAt), viewing.publisher ? `by ${viewing.publisher}` : null].filter(Boolean).join(' · ')}</div>
+            </>
+          )}
+          {!viewing && (
+            <h2 className="text-base font-semibold text-muted-foreground">
+              No
+              {' '}
+              {g.teamName}
+              {' '}
+              brief yet
+            </h2>
+          )}
         </div>
         <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
           {regen === 'assembling' ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          {regen === 'assembling' ? `Assembling… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Regenerate'}
+          {regen === 'assembling' ? `Refreshing… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Refresh briefing'}
         </Button>
       </div>
       {regen === 'assembling' && (
@@ -165,7 +185,7 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
           </span>
           {g.teamName}
           {' '}
-          lead is assembling the brief — it will appear here automatically (usually 1–2 min).
+          lead is bringing the brief up to date — it will appear here automatically (usually 1–2 min).
         </p>
       )}
       {regen === 'landed' && (
@@ -174,44 +194,61 @@ export function BriefingsView({ groups }: { groups: BriefGroup[] }) {
           Fresh brief loaded.
         </p>
       )}
-      {regen === 'failed' && <p className="mt-1 text-xs text-destructive">Regeneration didn't land — check the lead agent's activity or try again.</p>}
+      {regen === 'failed' && <p className="mt-1 text-xs text-destructive">The refresh didn't land — check the lead agent's activity or try again.</p>}
 
+      {/* The brief is a commentable document: highlight any passage and the
+          platform's one selection control offers *Ask about this*
+          (docs/design/patterns.md § Select → talk). The regions are the
+          Detail archetype's own `Section`s — the typed document's rendered
+          sections — so nothing here traverses headings and nothing here
+          invents a control. No `changeIntent`: a briefing has no draft to
+          rewrite, so *Add change* is not offered. */}
       {viewing && (
-        <div data-briefing-root className="prose prose-sm mt-4 max-w-none rounded-2xl border border-border bg-card p-5 dark:prose-invert">
-          <Markdown remarkPlugins={[remarkGfm]}>{viewing.content}</Markdown>
-        </div>
+        <CommentLayerProvider
+          key={viewing.id}
+          targetRef={`briefing:${viewing.id}`}
+          record={recordRef('briefing', viewing.id, viewing.title)}
+        >
+          {viewing.document
+            ? (
+                <div className="mt-2 min-w-0 flex-1" data-briefing-root>
+                  <BriefingView doc={viewing.document} liveDecisions={liveDecisions} history={liveHistory} publisher={viewing.publisher} />
+                </div>
+              )
+            : (
+                <Surface name="brief" as="article" data-briefing-root className="prose prose-sm mt-4 max-w-none p-5 dark:prose-invert">
+                  <BriefingSections briefingId={viewing.id} briefingTitle={viewing.title} content={viewing.content} agentSlug={g.leadSlug ?? undefined} />
+                </Surface>
+              )}
+        </CommentLayerProvider>
       )}
 
-      {history.length > 0 && (
-        <div className="mt-5">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
-            <Clock className="size-3.5" aria-hidden />
-            Previous briefs
-          </div>
-          <ul className="space-y-1">
+      {/* Section 9 for a PRE-v2 brief only — a typed brief draws its own from
+          `liveHistory` above, and drawing it here as well is how the same
+          rows came to appear twice. The last few, then the archive — never
+          the archive itself (docs/specs/briefing-v2.md §10). */}
+      {viewing && !viewing.document && history.length > 0 && (
+        <div className="mt-6">
+          <h2 className="mb-2 text-base font-semibold tracking-tight">Previous briefings</h2>
+          <ListRows>
             {history.map(b => (
-              <li key={b.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpenHistory(b.id)}
-                  className={`flex w-full items-baseline gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:border-brand-amber/40 ${openHistory === b.id ? 'border-brand-amber' : 'border-border/60'}`}
-                >
-                  <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
-                  <span className="shrink-0 text-muted-foreground">{fmt(b.createdAt)}</span>
-                </button>
-              </li>
+              <ListRow key={b.id} href={briefingHref(b.id)} title={b.title} subline={[fmt(b.createdAt), b.publisher].filter(Boolean).join(' · ')} />
             ))}
-          </ul>
+          </ListRows>
+          <p className="mt-2 text-[13px]">
+            <Link href={BRIEFING_ARCHIVE_HREF} className="text-brand-amber-deep hover:opacity-80">View all briefings</Link>
+            {archiveTotal > history.length && <span className="text-muted-foreground">{` — ${archiveTotal} in all`}</span>}
+          </p>
         </div>
       )}
 
-      {/* Floating "chat with this brief" pill — scoped to the active tab. */}
+      {/* No UI: it declares the brief as the page's record so the rail files
+          the turn against it. */}
       {viewing && (
         <BriefingChatStarter
           key={`${g.teamSlug ?? 'rollup'}-${viewing.id}`}
+          briefingId={viewing.id}
           briefingTitle={viewing.title}
-          briefingContent={viewing.content}
-          agentSlug={g.leadSlug ?? undefined}
         />
       )}
     </div>

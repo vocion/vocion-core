@@ -12,9 +12,12 @@ import type { SubAgent } from 'deepagents';
 import type { AgentEvent, InvocationRequest } from './contract.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import { createDeepAgent, StateBackend } from 'deepagents';
+import { CompositeBackend, createDeepAgent, StateBackend } from 'deepagents';
 import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory.js';
+import { createMemoryDigestMiddleware } from './memoryDigest.js';
 import { buildChatModel } from './model.js';
+import { readOnlyBackend } from './readOnlyBackend.js';
+import { sessionIdFor, withSession } from './telemetry.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
 
@@ -165,7 +168,18 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     tools: kept,
     subagents,
     systemPrompt: req.agent.systemPrompt || undefined,
-    backend: new StateBackend(),
+    // The artifact has no database, so approved memories ride the payload as
+    // /memories/ files (assembled core-side from the store) into graph state.
+    // Writes there are refused for gate parity with core's loop (the human
+    // approval gate is the only write path into durable memory) — via
+    // readOnlyBackend, not deepagents `permissions`, because permission rules
+    // throw and a thrown tool error aborts the whole turn.
+    backend: new CompositeBackend(new StateBackend(), {
+      '/memories/': readOnlyBackend(new StateBackend()),
+    }),
+    // The digest middleware injects those files into every model call's
+    // system message (parity with core's loop).
+    middleware: [createMemoryDigestMiddleware()],
     ...(hasPlaybooks ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
@@ -209,7 +223,7 @@ export async function runInvocation(
     toolEndpoint: req.tools.endpoint,
     toolClaim: req.tools.claim,
   };
-  return invocationContext.run(context, () => runTurn(req, emit));
+  return invocationContext.run(context, () => withSession(sessionIdFor(req), () => runTurn(req, emit)));
 }
 
 async function runTurn(
@@ -262,8 +276,20 @@ async function runTurn(
     }
   }
 
+  // The turn's deliverable contract, restated where the model reads it. Core
+  // guarantees the artifact whatever happens here (it wraps or stubs the
+  // answer when none was rendered), so this is the weak lever on purpose: it
+  // buys a real rendered artifact on the turns it works, and costs nothing on
+  // the turns it does not.
+  if (req.deliverable === 'artifact') {
+    modelMessage = `[This turn must END WITH AN ARTIFACT: call render_markdown (or render_table / render_chart / render_record) with the finished document before you reply. The reply itself is a short pointer to it, not the document. If you cannot produce the document, render one that states plainly what failed and what is needed.]\n\n${modelMessage}`;
+  }
+
+  // Attachments: each document's text under the message, each image as an
+  // inline block. Without any, the input is the string it always was.
+  const userContent = composeAttachedContent(modelMessage, req.attachments ?? []);
   const input = {
-    messages: [...history, { role: 'user', content: modelMessage }],
+    messages: [...history, { role: 'user', content: userContent }],
     files: req.files ?? {},
   };
 
@@ -351,4 +377,42 @@ async function runTurn(
   }
   await trace.end({ response: finalText.slice(0, 500), toolCalls: toolCallCount.n });
   emit({ type: 'done', response: finalText, traceId: trace.traceId });
+}
+
+/**
+ * The user turn with its attachments, as the chat model takes it. Mirrors
+ * `composeUserContent` in core (`services/chat/attachments.ts`) — the caps
+ * were applied there, at upload, so this only lays the parts out.
+ * @param message - The person's message.
+ * @param attachments - What core read for us.
+ */
+export function composeAttachedContent(
+  message: string,
+  attachments: NonNullable<InvocationRequest['attachments']>,
+): string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
+  if (attachments.length === 0) {
+    return message;
+  }
+  const parts: string[] = [message];
+  const images: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
+  const unreadable: string[] = [];
+  for (const a of attachments) {
+    if (a.dataUrl) {
+      images.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    } else if (typeof a.text === 'string') {
+      parts.push(a.text.trim()
+        ? `--- attached: ${a.title} (${a.contentType}) ---\n${a.text}`
+        : `--- attached: ${a.title} (${a.contentType}) ---\n(no text could be extracted from this file — a scanned PDF, or an empty file)`);
+    } else {
+      unreadable.push(a.title);
+    }
+  }
+  if (images.length > 0) {
+    parts.push(`(${images.length === 1 ? 'One image is' : `${images.length} images are`} attached below.)`);
+  }
+  if (unreadable.length > 0) {
+    parts.push(`(Attached but unreadable here: ${unreadable.join(', ')}.)`);
+  }
+  const text = parts.join('\n\n');
+  return images.length === 0 ? text : [{ type: 'text', text }, ...images];
 }

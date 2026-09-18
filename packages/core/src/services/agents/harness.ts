@@ -27,16 +27,21 @@
 
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
+import type { LangChainProvider } from '@/libs/llm';
 import { tool as makeTool } from '@langchain/core/tools';
-import { createDeepAgent, StateBackend } from 'deepagents';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { buildChatModelForOrg } from '@/libs/llm';
+import { buildChatModelForOrg, inferProviderForModel } from '@/libs/llm';
 import { logger } from '@/libs/Logger';
-import { agentSchema, playbookSchema, projectSchema, teamSchema } from '@/models/Schema';
-import { bundleStepMarkdown } from '@/services/LearningsService';
+import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
+import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
+import { agentSchema, playbookSchema } from '@/models/Schema';
+import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { deriveDelegationRoster } from './delegationRoster';
+import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
@@ -96,7 +101,7 @@ export type HarnessModelConfig = {
  * load-bearing rather than tidiness. The local loop used to ignore `model`
  * entirely, so every `model:` already written in workspace YAML was authored
  * for the agentcore or runtime harness and holds a Bedrock id
- * (`global.anthropic.claude-sonnet-4-6` in Veerio's own agent). Reading it
+ * (`global.anthropic.claude-sonnet-4-6` in Larkfield's own agent). Reading it
  * unconditionally would hand that id to ChatAnthropic the moment an agentcore
  * agent fell back to the local loop — which `VOCION_DISABLE_AGENTCORE=1` does
  * routinely in dev — and every turn would fail on an unknown model. Naming the
@@ -104,7 +109,7 @@ export type HarnessModelConfig = {
  * @param harnessConfig - The agent's harness block, or an empty object.
  */
 export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
-  provider?: 'anthropic' | 'openai' | 'bedrock';
+  provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
 } {
@@ -114,6 +119,47 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
     ...(provider && harnessConfig.model ? { model: harnessConfig.model } : {}),
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
   };
+}
+
+/**
+ * A model named by the caller for ONE compiled graph, over whatever the agent's
+ * harness block says. The model-upgrade test is the caller: it runs the same
+ * agent on a baseline and a candidate model and compares the two.
+ *
+ * `provider` is optional; when absent it is read off the id's shape by
+ * `inferProviderForModel`, and an id whose shape says nothing is refused —
+ * handing an unknown id to the env-default vendor would fail on the first
+ * turn with a less useful error than this one.
+ */
+export type ModelOverride = {
+  model: string;
+  provider?: LangChainProvider;
+};
+
+/**
+ * The `buildChatModelForOrg` options for an agent, with an override applied.
+ *
+ * The override's `model` and `provider` win over the harness block; the
+ * harness block's `maxTokens` still applies, because a cap is about the
+ * agent's job, not about which model does it.
+ * @param harnessConfig - The agent's harness block, or an empty object.
+ * @param override - The caller's model, or undefined for the agent's own.
+ */
+export function chatModelOptionsWithOverride(
+  harnessConfig: HarnessModelConfig,
+  override: ModelOverride | undefined,
+): ReturnType<typeof chatModelOptionsFor> {
+  const base = chatModelOptionsFor(harnessConfig);
+  if (!override) {
+    return base;
+  }
+  const provider = override.provider ?? inferProviderForModel(override.model);
+  if (!provider) {
+    throw new Error(
+      `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
+    );
+  }
+  return { ...base, provider, model: override.model };
 }
 
 /* ------------------------------------------------------------------ */
@@ -127,7 +173,7 @@ export type CompiledAgentGraph = {
   agentRow: typeof agentSchema.$inferSelect;
 };
 
-async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+async function buildGraph(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<CompiledAgentGraph> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -175,72 +221,68 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
-  // registered agents that name this agent as their parent (parentAgentSlug)
-  // — same rows the Agents page/org chart shows, so delegation and the
-  // registry can't drift. The inline `subagents` JSONB is DEPRECATED: kept
+  // the registry (agent-chat-surface.md §9 — routing is delegation): agents
+  // that name this agent as their parent, plus — for the workspace lead —
+  // every team's lead AND members, and — for a team lead — its own team's
+  // members. Same rows the Agents page/org chart shows, so delegation and the
+  // registry can't drift, and a workspace author never enumerates
+  // `subagents` by hand. The inline `subagents` JSONB is DEPRECATED: kept
   // only as a fallback for names not registered (legacy brief-runner etc.).
-  const children = await db
-    .select()
-    .from(agentSchema)
-    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, row.slug)));
+  // See services/agents/delegationRoster.ts for the ordering rules.
+  const roster = await deriveDelegationRoster(orgId, row);
   // Specialists get the SAME domain tool surface as the lead. Explicit
   // because deepagents defaults a custom subagent's tools to [] (only its
   // auto-injected general-purpose inherits) — which silently left every
   // registered specialist with filesystem tools only.
   const subagentTools = tools as SubAgent['tools'];
-  const subagents: SubAgent[] = children.map(c => ({
-    name: c.slug,
-    description: c.description ?? c.name,
-    systemPrompt: c.systemPrompt ?? '',
+  // Authored config first, and it WINS a name collision with the derived
+  // roster: an author who wrote a `subagents` entry for a slug tuned its
+  // description/prompt on purpose; the registry row is the fallback, not the
+  // override. The team-table entry for that slug is skipped.
+  const authored = row.subagents ?? [];
+  const authoredNames = new Set(authored.map(s => s.name));
+  const subagents: SubAgent[] = authored.map(s => ({
+    name: s.name,
+    description: s.description,
+    systemPrompt: s.systemPrompt,
     tools: subagentTools,
   }));
-  const registered = new Set(subagents.map(s => s.name));
-  for (const s of row.subagents ?? []) {
-    if (!registered.has(s.name)) {
-      subagents.push({ name: s.name, description: s.description, systemPrompt: s.systemPrompt, tools: subagentTools });
+  for (const d of roster.delegates) {
+    if (!authoredNames.has(d.slug)) {
+      subagents.push({ name: d.slug, description: d.description, systemPrompt: d.systemPrompt, tools: subagentTools });
     }
   }
 
-  // F1 "consult the leads", chat path: when THIS agent is the workspace
-  // lead (project.lead_agent_slug), the team leads from the `team` table
-  // merge into its dispatchable subagents — "how's the quarter?" in chat
-  // then consults every team, with the team named in each subagent's
-  // description for per-team provenance (acceptance #4). JSONB-authored
-  // subagents win name collisions. Lead-less teams are named in the
-  // system prompt so the answer degrades per team ("no lead yet") rather
-  // than silently omitting one (acceptance #5).
+  // Lead-less teams are named in the workspace lead's system prompt so the
+  // answer degrades per team ("no lead yet") rather than silently omitting
+  // one (F1 acceptance #5).
   let systemPrompt = row.systemPrompt ?? undefined;
-  const [project] = await db
-    .select({ leadAgentSlug: projectSchema.leadAgentSlug })
-    .from(projectSchema)
-    .where(eq(projectSchema.id, orgId))
-    .limit(1);
-  if (project?.leadAgentSlug === row.slug) {
-    const teams = await db.select().from(teamSchema).where(eq(teamSchema.orgId, orgId));
-    const leadSlugs = teams.map(t => t.leadAgentSlug).filter((s): s is string => s !== null && s !== row.slug);
-    const leadRows = leadSlugs.length > 0
-      ? await db.select().from(agentSchema).where(and(eq(agentSchema.orgId, orgId), inArray(agentSchema.slug, leadSlugs)))
-      : [];
-    const taken = new Set(subagents.map(s => s.name));
-    for (const team of teams) {
-      const lead = leadRows.find(a => a.slug === team.leadAgentSlug);
-      if (!lead || taken.has(lead.slug)) {
-        continue;
-      }
-      taken.add(lead.slug);
-      subagents.push({
-        name: lead.slug,
-        description: `${lead.name} — lead of the ${team.name} team. Consult for: ${team.description ?? lead.description ?? `the ${team.name} team's status and work`}.`,
-        systemPrompt: lead.systemPrompt ?? `You are ${lead.name}, lead of the ${team.name} team.`,
-        tools: subagentTools,
-      });
-    }
-    const leadless = teams.filter(t => t.leadAgentSlug === null).map(t => t.name);
-    if (leadless.length > 0) {
-      const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
-      systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
-    }
+  if (roster.leadlessTeams.length > 0) {
+    const leadless = roster.leadlessTeams;
+    const note = `Teams with no lead yet — you cannot consult them; say so plainly per team (e.g. "${leadless[0]} has no lead yet"), never silently omit them: ${leadless.join(', ')}.`;
+    systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
   }
+
+  // THE CLOCK (CORE, all agents).
+  //
+  // The agent did not know what day it was. Nowhere in the prompt, for any
+  // agent, was there a date — and it shows: `crm.ts` works around it per tool
+  // ("so you never have to know today's date"), briefing titles are authored
+  // by the model and one of them copied the example date out of its own schema
+  // description, and on 2026-09-17 the lead read a stale briefing's critical
+  // path and served it as "right now", naming a call that was not on the
+  // calendar. Chris: *"WTF. do you know what day it is?"* It did not.
+  //
+  // A model with no clock cannot tell a stale document from a current one, and
+  // will always resolve that ambiguity in favour of answering. So: state the
+  // time, and say plainly that a dated document older than today is history.
+  const nowIso = new Date().toISOString();
+  const CLOCK = [
+    `NOW: ${nowIso} (UTC). Today is ${new Date().toUTCString().slice(0, 16)}.`,
+    'Times you state must say their zone. Never say "today", "this morning" or "right now" about anything you read in a document without first checking that document\'s own date against NOW — a briefing, report or transcript dated before today is HISTORY, and presenting its schedule as the current day is the worst error you can make on this surface.',
+    'If a document you are quoting is not dated, say that you cannot tell when it is from rather than assuming it is current.',
+  ].join(' ');
+  systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
@@ -251,10 +293,10 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   const OUTPUT_DISCIPLINE = [
     'OUTPUT FORMAT (strict):',
     'You may lay out raw data to reason over — record JSON, and ESPECIALLY search results and email contents (From/Subject/body, message lists) — but ONLY inside a single <scratch>…</scratch> block at the very START of your reply.',
-    'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — ericb@exactcustomer.com"), never the search results you read to find it.',
+    'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — erinb@northwind.example"), never the search results you read to find it.',
     'If you have no raw data to lay out, skip the scratch block and just answer.',
     'VOICE (chat replies): write like a sharp human chief of staff texting a busy founder — not a chatbot. In a conversational reply, hard bans: NO decorative or "stoplight" emoji (🔴🟡🟢✅) as bullets or status markers; NO templated scaffolding ("Here are your top three moves right now:", "I hope this helps", "Let me know if…"); NO filler closers ("Want me to draft all three now for your review?"). Keep a short ranked list tight (a bold lead-in + one line each), no per-item ##/### headers or --- rules. Lead with the move, be specific, cut hedging. EXCEPTION — a PUBLISHED, scannable document (a daily briefing via publish_briefing, or an explicitly long report): there, clear section structure and priority markers ARE appropriate (that\'s a document meant to be scanned, not a chat message). The ban is on chatbot slop in conversation, not on structure in documents.',
-    'CITATIONS: search_knowledge results are numbered like "[3] **title** [source]". When a sentence in your answer states a fact you got from a specific search result, cite it inline with that bracketed number immediately after the claim, e.g. "He owns healthcare-IT at Gauge [3]." Use the exact numbers from the results (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Only facts grounded in search results get a marker — not every sentence.',
+    'CITATIONS: tool output that carries a bracketed number — search_knowledge hits rendered as "[3] **title** [source]", and a briefing returned as "[4] Latest … briefing" — is a citable source. When a sentence states a fact you took from one, cite it inline with that number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers you were given (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Not every sentence needs a marker — your own synthesis, judgement and sequencing do not. But ANY concrete claim about the reader\'s world does: a meeting and its time, a dollar amount, a deal stage, a date, a person\'s name, how long something has been waiting. Those are the claims a reader needs to check, and an uncited one is indistinguishable from an invented one.',
   ].join(' ');
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
 
@@ -274,7 +316,7 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     });
   }
 
-  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsFor(harnessConfig));
+  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(harnessConfig, modelOverride));
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and
@@ -301,7 +343,21 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
     systemPrompt,
-    backend: new StateBackend(),
+    // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
+    // Store over Postgres, so an agent's file reads there see the org's full
+    // approved memory across threads. Writes under /memories/ are refused —
+    // the human approval gate is the only write path into durable memory
+    // (a poisoned "learning" is a persistent prompt injection; see the
+    // PolinRider incident). Refused via readOnlyBackend, NOT deepagents
+    // `permissions`: permission rules throw and a thrown tool error aborts
+    // the whole turn, verified live.
+    backend: new CompositeBackend(new StateBackend(), {
+      '/memories/': readOnlyBackend(new StoreBackend({ store: new DrizzleMemoryStore(orgId), namespace: MEMORY_STORE_NAMESPACE })),
+    }),
+    // Approved learnings are injected into every model call's system message
+    // (structural, not discoverable — see memoryDigest.ts). Safe to mount
+    // unconditionally: it declares no required state fields.
+    middleware: [createMemoryDigestMiddleware()],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
     ...(hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
@@ -310,7 +366,18 @@ async function buildGraph(orgId: string, agentSlug: string): Promise<CompiledAge
   return Object.assign({ graph, agentRow: row }, { __ctx: ctx }) as CompiledAgentGraph;
 }
 
-export async function getCompiledAgent(orgId: string, agentSlug: string): Promise<CompiledAgentGraph> {
+export async function getCompiledAgent(
+  orgId: string,
+  agentSlug: string,
+  opts: { modelOverride?: ModelOverride } = {},
+): Promise<CompiledAgentGraph> {
+  if (opts.modelOverride) {
+    // An overridden graph is built fresh and never cached: the cache is keyed
+    // on the agent, and a cached graph holding the candidate model would answer
+    // the next ordinary chat turn on it. Building per call is the price of
+    // keeping the agent's own model the only one the cache ever holds.
+    return buildGraph(orgId, agentSlug, opts.modelOverride);
+  }
   const key = cacheKey(orgId, agentSlug);
   const cached = graphCache.get(key);
   if (cached) {
@@ -345,9 +412,11 @@ export function bindRequestEmit(
   missionSlug?: string,
   missionRunId?: number,
   conversationId?: number,
+  pageContext?: RuntimeContext['pageContext'],
 ): void {
   const internal = compiled as unknown as { __ctx: RuntimeContext };
   internal.__ctx.emit = emit;
+  internal.__ctx.pageContext = pageContext;
   internal.__ctx.userId = userId;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
@@ -390,6 +459,7 @@ function toFileData(content: string): MountedFileData {
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
+  memoryCtx: { userId?: string; missionSlug?: string; workflowSlug?: string } = {},
 ): Promise<Record<string, MountedFileData>> {
   const [row] = await db
     .select()
@@ -412,9 +482,19 @@ export async function buildInitialFiles(
     logger.error(`agent "${agentSlug}" cannot start: mounting its workspace files failed`, { error });
     throw error;
   }
-  const learnings = await bundleStepMarkdown(orgId, row.learningSteps ?? []);
+  // Pre-rendered store content, one file per rule under /memories/…: the
+  // digest middleware reads these out of graph state, and the same paths are
+  // readable through the StoreBackend route. Rendering happened at write
+  // time; this is one indexed select per mounted namespace. The layer stack
+  // (workspace → agent → workflow → mission → user) resolves from who this
+  // turn is for.
+  const memories = await assembleAgentMemory(orgId, {
+    agentSlug,
+    workspaceSteps: row.learningSteps ?? [],
+    ...memoryCtx,
+  });
   return Object.fromEntries(
-    Object.entries({ ...mounted, ...learnings }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

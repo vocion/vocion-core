@@ -2,8 +2,15 @@
 
 How to stand up Vocion for one client, and which repo owns what.
 
-Two deployments exist already: `Meta-CTO/metacto-vocion-agents` and
-`Veerio-Life/veerio-vocion`. Read this before building a third.
+Two deployments exist already: `Meta-CTO/metacto-vocion-agents` and a client
+parent project. Read this before building a third.
+
+> The client parent project is **anonymised throughout this page** as
+> `Larkfield-Systems/larkfield-vocion`, on the fictional
+> `larkfield.example` domain. Everything described about it is real and was
+> measured against the live repo; only the name is a fixture. See
+> `packages/core/src/libs/fixtures/realDataGuard.ts` for why this repo does not
+> name clients.
 
 ---
 
@@ -109,7 +116,7 @@ ENV=production AWS_PROFILE=<profile> REGION=<region> \
 Copying them lets a parent project drift from the version it pins. Calling them
 makes that impossible.
 
-`Veerio-Life/veerio-vocion` wires this into `scripts/deploy.sh`:
+`Larkfield-Systems/larkfield-vocion` wires this into `scripts/deploy.sh`:
 
 ```bash
 ./scripts/deploy.sh apply       # phase 1
@@ -139,7 +146,7 @@ table blocks every write to it until the build finishes. A non-recursive glob
 skips that directory in silence: the numbered migration lands, the index build
 does not, and the deploy reports success.
 
-That is not hypothetical. `Veerio-Life/veerio-vocion` applies migrations from
+That is not hypothetical. `Larkfield-Systems/larkfield-vocion` applies migrations from
 its own `apply-workspace.sh` with exactly such a glob, so core's applier has
 never run there — confirmed against both of its environments, whose migration
 history lives in a `schema_migration` table core knows nothing about.
@@ -205,7 +212,7 @@ boundary: terminate TLS properly and don't put it behind a wildcard that also
 serves something else.
 
 Model spend follows the org's stored AWS key. Core mints a short-lived STS
-session from the key the client saved at `/dashboard/api-tokens` and sends it
+session from the key the client saved at `/dashboard/developers` and sends it
 in the invocation, so Bedrock is billed to their account. If they have stored
 no key, the runtime signs with its own execution role and the bill is ours —
 which is the right fallback for a trial and the wrong one for a paying client,
@@ -216,7 +223,7 @@ so check it during handover rather than assuming.
 The parent project, never core. Core holds no AWS account and no credentials,
 so it cannot deploy a runtime anywhere. The scripts under `infra/agentcore/`
 are the shared implementation; the parent project calls them with its own
-profile and environment. Veerio's wrapper is
+profile and environment. Larkfield's wrapper is
 `./scripts/deploy.sh agentcore <env>`.
 
 Core used to carry a workflow that deployed a runtime into MetaCTO's own
@@ -234,8 +241,8 @@ manual and deliberately human: it creates federated trust between GitHub and
 an AWS account.
 
 ```bash
-TRUSTED_REPO=Veerio-Life/veerio-vocion \
-AWS_PROFILE=veerio REGION=us-west-2 \
+TRUSTED_REPO=Larkfield-Systems/larkfield-vocion \
+AWS_PROFILE=larkfield REGION=us-west-2 \
   bash vocion-core/infra/agentcore/provision-ci-role.sh
 ```
 
@@ -314,6 +321,37 @@ because the harness owns a runtime underneath it and deleting the harness
 deletes that runtime too. Without the second, an agent moving off
 `aws-managed-harness` fails to tear its harness down and the whole
 `workspace:apply` exits non-zero.
+
+---
+
+## Branding the deployment
+
+Out of the box the app wears the Vocion identity from vocion.ai: the gradient
+"governed path" V mark (`packages/core/public/brand/vocion-primary-mark.svg`)
+beside the wordmark "Vocion" in the sidebar and on sign-in, and the same mark
+as the favicon and Apple touch icon (`app/icon.tsx`, `app/apple-icon.tsx`).
+Two more files ship alongside it: `vocion-mono-mark.svg` (ink, for monochrome
+contexts, light surfaces only) and `vocion-logo-lockup.svg` (mark + VOCION
+wordmark + descriptor; ink text, so light surfaces only).
+
+A client deployment overrides any of it at image build time — `NEXT_PUBLIC_*`
+is inlined by Next, so these are `--build-arg`s to `packages/core/Dockerfile`,
+not runtime env. Whatever you pass wins over the defaults; leave one unset and
+the Vocion default fills in.
+
+| Build-arg | What it does |
+| --- | --- |
+| `NEXT_PUBLIC_BRAND_NAME` | Wordmark text (default `Vocion`). Title case — all-caps is styling, not the value. |
+| `NEXT_PUBLIC_BRAND_TAGLINE` | Subhead under the wordmark, e.g. `agents by Vocion`. |
+| `NEXT_PUBLIC_BRAND_MARK` | Glyph image — a path under `public/` or a `data:` URI. Replaces the Vocion mark. |
+| `NEXT_PUBLIC_BRAND_LOCKUP` | Mark + wordmark as one image; replaces both glyph and text. |
+| `NEXT_PUBLIC_BRAND_LOCKUP_DARK` | Dark-mode lockup variant (only used with `BRAND_LOCKUP`). |
+| `NEXT_PUBLIC_BRAND_ATTRIBUTION` | Sidebar footer line (default `Vocion · Apache 2.0`). |
+
+Keep client artwork in the client repo and inline it as a base64 `data:` URI
+(`infra/aws/bootstrap.sh` in the Metacto project does this) — OSS `vocion-core`
+carries only Vocion's own art. The favicon and touch icon are not part of the
+override slot today; they always render the Vocion mark.
 
 ---
 
@@ -427,7 +465,7 @@ naming any of those index builds that is missing or `INVALID`:
 live in the framework repo — which is exactly why every parent project copies
 it.
 
-Measured at `v2.21.0` against the Veerio copy: `main.tf` is **295 lines, 92
+Measured at `v2.21.0` against the Larkfield copy: `main.tf` is **295 lines, 92
 differing, and 29 of those differences are just resource names and tags.**
 
 The fix, when someone has room:

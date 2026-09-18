@@ -1,9 +1,26 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
+import { agentSkillsNameError } from '@/libs/skills/name';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
-const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
+export const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
   message: 'slug must be lowercase, start with a letter, and contain only letters, numbers, dashes, or underscores',
+});
+
+/**
+ * A slug for a SKILL.md folder — stricter than {@link SlugSchema} because the
+ * folder is mounted as an Agent Skill and that specification validates the
+ * name: lowercase letters, digits and SINGLE hyphens only, never leading or
+ * trailing, at most 64 characters. See `libs/skills/name.ts`.
+ */
+export const AgentSkillSlugSchema = SlugSchema.superRefine((slug, ctx) => {
+  const problem = agentSkillsNameError(slug);
+  if (problem) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `skill folder slugs must follow the Agent Skills specification — ${problem}. Rename the folder and every reference to it.`,
+    });
+  }
 });
 
 const FewShotExampleSchema = z.object({
@@ -45,6 +62,22 @@ export const WorkspaceManifestSchema = z.object({
    * without their own `accountableUser` inherit this at read time.
    */
   accountableUser: z.string().email().optional(),
+  /**
+   * The workspace's top-line goal — one sentence. The team report reads
+   * every team's spend share and KPI progress against it. Applied to
+   * `project.goal`. Omit for none.
+   */
+  goal: z.string().min(1).optional(),
+  /**
+   * The workspace's mailbox (email as a chat surface). `enabled: true` gives
+   * the workspace `<slug>@<VOCION_MAIL_DOMAIN>` unless `address` names one on
+   * that domain; mail to it is answered by the workspace lead and threads
+   * into a conversation. Applied to `project.mailboxAddress/mailboxEnabled`.
+   */
+  mailbox: z.object({
+    enabled: z.boolean().default(true),
+    address: z.string().email().optional(),
+  }).optional(),
   defaults: z.object({
     model: z.string().optional(),
     temperature: z.string().optional(),
@@ -65,6 +98,13 @@ export const WorkspaceManifestSchema = z.object({
      */
     embeddingProvider: z.enum(['openai', 'bedrock']).optional(),
     embeddingModel: z.string().optional(),
+    /**
+     * Which workspace skill regenerates each review-item type's card, keyed
+     * by action id (`personalization.enroll: regenerate-sequence-copy`).
+     * Read by core's scoped skill-turn executor; an action type with no
+     * entry keeps its full-pass regenerate only.
+     */
+    regenerateSkills: z.record(z.string(), SlugSchema).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -84,7 +124,7 @@ export const WorkspaceManifestSchema = z.object({
   extends: z.string().optional().describe('base pack pin, e.g. "core@1.4.0"; omit for no base layer'),
   /**
    * Activation allowlist for the pinned pack. `use: all` activates every
-   * default; an {agents,operations} selector activates only what it names
+   * default; an {agents,skills} selector activates only what it names
    * (agents pull their skills transitively). Omitted while `extends` is
    * set = activate nothing (`use: none`).
    */
@@ -103,9 +143,250 @@ export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
  * disagree with its own path. Teams are flat by construction: there is
  * no parent field here and no parent column in the `team` table.
  */
-export const TeamManifestSchema = z.object({
+/**
+ * One team KPI. `source` is `counts.<key>`: the sum of that key in
+ * `worker_run.counts` across the team's agents, over `window` (default
+ * all time). Progress is computed at read time — nothing is stored.
+ */
+export const TeamKpiSchema = z.object({
+  key: SlugSchema.describe('stable id, e.g. prs_merged'),
+  label: z.string().min(1).describe('what a person reads, e.g. "Merged PRs"'),
+  target: z.number().positive().describe('the number that counts as done'),
+  baseline: z.number().min(0).optional().describe('where the reading stood when the contract was set; progress is measured from here'),
+  unit: z.string().optional().describe('suffix shown after the reading, e.g. "PRs"'),
+  source: z.string().regex(/^counts\.[\w-]+$/, 'source must be counts.<key>').describe('which worker_run.counts key is summed'),
+  window: z.enum(['24h', '7d', 'all']).default('all'),
+}).refine(k => k.baseline === undefined || k.baseline < k.target, 'baseline must be below target');
+/** @deprecated `kpis:` is an alias for one release — author `measures:` (see `TeamMeasureSchema`). */
+export type TeamKpiManifest = z.infer<typeof TeamKpiSchema>;
+
+/* ------------------------------------------------------------------ */
+/* Measures — the outcome/measurement model (docs/specs/team-report-v2) */
+/* ------------------------------------------------------------------ */
+
+/** The four things a workforce is judged on. Autonomy is layered over these, never one of them. */
+export const MEASURE_DIMENSIONS = ['outcome', 'quality', 'velocity', 'economics'] as const;
+export type MeasureDimension = typeof MEASURE_DIMENSIONS[number];
+
+/** How far back a reading reaches. A measure reads its own window regardless of the page's. */
+export const MEASURE_WINDOWS = ['24h', '7d', '30d', 'quarter'] as const;
+export type MeasureWindow = typeof MEASURE_WINDOWS[number];
+
+/**
+ * Where a reading comes from, strongest first. The chip on the report names
+ * it; `agent-reported` is visibly the weakest because the worker that did
+ * the work is the one saying how much of it there was.
+ */
+export const PROVENANCE_KINDS = ['verified', 'observed', 'human-confirmed', 'agent-reported'] as const;
+export type ProvenanceKind = typeof PROVENANCE_KINDS[number];
+
+const ActionIdList = z.array(z.string().min(1)).min(1).describe('registered action ids, e.g. gmail.send');
+const CountsKey = z.string().regex(/^[\w-]+$/, 'counts key must be a plain key, e.g. pitches').describe('a worker_run.counts key');
+
+/**
+ * The connectors a `verified` measure may read through. Closed on purpose: an
+ * unknown connector has to be a validation error, because the alternative is
+ * a measure that parses, reads nothing and shows a zero nobody asked a system
+ * of record for.
+ */
+export const VERIFIED_CONNECTORS = ['hubspot', 'web-analytics'] as const;
+export type VerifiedConnector = typeof VERIFIED_CONNECTORS[number];
+
+/**
+ * `verified` through HubSpot — read from the synced mirror
+ * (`CrmRecordsService`), so the reading carries the mirror's own freshness.
+ * `filter` keys mirror `CrmFilter`; `aggregate` is `count` or `sum(amount)`.
+ */
+export const HubspotVerifiedSourceSchema = z.object({
+  kind: z.literal('verified'),
+  connector: z.literal('hubspot'),
+  query: z.object({
+    object: z.enum(['deals', 'contacts', 'companies']),
+    filter: z.object({
+      dealStages: z.array(z.string().min(1)).optional(),
+      pipelines: z.array(z.string().min(1)).optional(),
+      dealStatus: z.enum(['open', 'closed']).optional(),
+      lifecycleStages: z.array(z.string().min(1)).optional(),
+      industries: z.array(z.string().min(1)).optional(),
+      ownerIds: z.array(z.string().min(1)).optional(),
+    }).default({}),
+    aggregate: z.string().regex(/^(count|sum\(amount\))$/, 'aggregate must be count or sum(amount)').default('count'),
+  }),
+});
+
+/** What a web-analytics measure can count. */
+export const WEB_ANALYTICS_METRICS = ['sessions', 'users', 'conversions', 'signups'] as const;
+export type WebAnalyticsMetric = typeof WEB_ANALYTICS_METRICS[number];
+
+/**
+ * `verified` through web analytics — a report the analytics provider runs
+ * over the measure's own window. Today the provider is GA4, read through the
+ * Analytics Data API (`properties/<id>:runReport`) with a service account the
+ * workspace supplies; the property id is workspace configuration and is
+ * deliberately NOT part of the measure, so a team file names what it measures
+ * and never an account id.
+ *
+ * Deliberately narrow. The filter keys are the three predicates GA4 can apply
+ * to a session or an event server-side — where the visit landed, which channel
+ * brought it, which event fired. There is no pages-per-session predicate
+ * because the Data API has no session-level engagement filter; asking for one
+ * would mean either silently filtering the wrong thing or filtering nothing,
+ * and a `verified` reading that quietly measures something else is worse than
+ * one that was never authored.
+ */
+export const WebAnalyticsVerifiedSourceSchema = z.object({
+  kind: z.literal('verified'),
+  connector: z.literal('web-analytics'),
+  query: z.object({
+    metric: z.enum(WEB_ANALYTICS_METRICS),
+    filter: z.object({
+      /** Sessions whose landing page starts here, e.g. `/docs`. */
+      pathPrefix: z.string().min(1).startsWith('/', 'pathPrefix must start with /').optional(),
+      /** A GA4 default channel group, e.g. `Organic Search`. Matched exactly. */
+      channel: z.string().min(1).optional(),
+      /** A GA4 event name. Required by the `signups` metric, which is a count of one named event. */
+      event: z.string().regex(/^[a-z_]\w*$/i, 'event must be a GA4 event name, e.g. sign_up').optional(),
+    }).default({}),
+  }),
+}).refine(
+  s => s.query.metric !== 'signups' || s.query.filter.event !== undefined,
+  'a signups measure must name the GA4 event that records a signup, e.g. filter.event: sign_up',
+);
+
+/**
+ * `verified` — a query against a system of record through a connector,
+ * discriminated on which connector. Adding one means adding a member here; an
+ * unknown connector is "No matching discriminator" at parse time rather than a
+ * source that reads nothing and shows a zero.
+ */
+export const VerifiedMeasureSourceSchema = z.discriminatedUnion('connector', [
+  HubspotVerifiedSourceSchema,
+  WebAnalyticsVerifiedSourceSchema,
+]);
+
+/**
+ * Rows Vocion keeps that an `observed` measure may count, beyond the actions
+ * and runs it already counts. Closed, and each one names a table rather than a
+ * concept, because the honesty of `observed` rests on there being a row.
+ *
+ * `workspace-members` — `account_membership` rows created in the window for
+ * the account that owns this workspace: the people who joined. A scorecard
+ * calls this "signups"; the row kind does not, because what Vocion can prove
+ * is that an account gained a member, and the measure's own `label` is where
+ * the workspace's word for that belongs.
+ */
+export const OBSERVED_ROW_KINDS = ['workspace-members'] as const;
+export type ObservedRowKind = typeof OBSERVED_ROW_KINDS[number];
+
+/**
+ * `observed` — Vocion saw it happen in our own tables: `action_run` rows that
+ * reached `done` for the named action ids, `worker_run`s that completed
+ * carrying the named `counts` key, or `rows` of one of the kinds Vocion keeps
+ * itself. Exactly one of the three must be set.
+ */
+export const ObservedMeasureSourceSchema = z.object({
+  kind: z.literal('observed'),
+  actions: ActionIdList.optional(),
+  counts: CountsKey.optional(),
+  rows: z.enum(OBSERVED_ROW_KINDS).optional(),
+}).refine(
+  s => [s.actions, s.counts, s.rows].filter(v => v !== undefined).length === 1,
+  'observed source names exactly one of actions, a counts key or rows',
+);
+
+/**
+ * `human-confirmed` — a person approved it: `action_run` decisions of
+ * approve / edit for the named action ids, or asks of the named kinds decided
+ * with anything but a reject. One of the two must be set.
+ */
+export const HumanConfirmedMeasureSourceSchema = z.object({
+  kind: z.literal('human-confirmed'),
+  actions: ActionIdList.optional(),
+  askKinds: z.array(z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate'])).min(1).optional(),
+}).refine(s => Boolean(s.actions) || Boolean(s.askKinds), 'human-confirmed source names actions or askKinds');
+
+/** `agent-reported` — the sum of a `worker_run.counts` key. The worker grades itself; the chip says so. */
+export const AgentReportedMeasureSourceSchema = z.object({
+  kind: z.literal('agent-reported'),
+  counts: CountsKey,
+});
+
+/**
+ * Nested discriminated unions: `kind` picks the provenance arm, and inside
+ * `verified`, `connector` picks the system of record. Both levels stay closed
+ * — an unknown `kind` or an unknown `connector` is a parse failure, never a
+ * source that silently reads nothing.
+ */
+export const MeasureSourceSchema = z.discriminatedUnion('kind', [
+  VerifiedMeasureSourceSchema,
+  ObservedMeasureSourceSchema,
+  HumanConfirmedMeasureSourceSchema,
+  AgentReportedMeasureSourceSchema,
+]);
+export type MeasureSource = z.infer<typeof MeasureSourceSchema>;
+
+/**
+ * One measure a team is graded on. Vocion DERIVES attainment, trend, cost per
+ * outcome and the rest from readings of these; nothing derived is authored.
+ */
+export const TeamMeasureSchema = z.object({
+  key: SlugSchema.describe('stable id, e.g. qualified_referrals'),
+  label: z.string().min(1).describe('what a person reads, e.g. "Qualified referrals"'),
+  dimension: z.enum(MEASURE_DIMENSIONS).default('outcome'),
+  target: z.number().positive().describe('the reading that counts as on target, in the window'),
+  baseline: z.number().min(0).optional().describe('where the reading stood when the contract was set'),
+  unit: z.string().optional().describe('suffix after the reading, e.g. "referrals", "%", "min"'),
+  window: z.enum(MEASURE_WINDOWS).default('7d'),
+  /** `higher` — more is better (a count). `lower` — less is better (a turnaround time, a cost). */
+  direction: z.enum(['higher', 'lower']).default('higher'),
+  source: MeasureSourceSchema,
+  /**
+   * Opt this measure into the workspace goal-progress figure. Heterogeneous
+   * units are never summed; only measures that declare a weight are combined,
+   * and only as weight × attainment (spec §3).
+   */
+  contributesTo: z.literal('workspace-goal').optional(),
+  weight: z.number().positive().optional().describe('the measure\'s share of the workspace goal, with contributesTo'),
+})
+  .refine(m => m.baseline === undefined || (m.direction === 'higher' ? m.baseline < m.target : m.baseline > m.target), 'baseline must be on the far side of target from the direction of improvement')
+  .refine(m => m.contributesTo === undefined || m.weight !== undefined, 'a measure that contributesTo the workspace goal needs a weight');
+export type TeamMeasureManifest = z.infer<typeof TeamMeasureSchema>;
+/** The authored shape of one measure, before defaults apply. */
+export type TeamMeasureInput = z.input<typeof TeamMeasureSchema>;
+
+/**
+ * A legacy `kpis:` entry as a measure. A KPI could only ever read what the
+ * worker said, so it maps to `agent-reported`; its `all` window has no
+ * equivalent (a measure is always judged in a window) and becomes `quarter`,
+ * the longest one.
+ * @param kpi - A parsed legacy KPI.
+ */
+export function kpiToMeasure(kpi: TeamKpiManifest): TeamMeasureManifest {
+  return {
+    key: kpi.key,
+    label: kpi.label,
+    dimension: 'outcome',
+    target: kpi.target,
+    ...(kpi.baseline === undefined ? {} : { baseline: kpi.baseline }),
+    ...(kpi.unit === undefined ? {} : { unit: kpi.unit }),
+    window: kpi.window === 'all' ? 'quarter' : kpi.window,
+    direction: 'higher',
+    source: { kind: 'agent-reported', counts: kpi.source.replace(/^counts\./, '') },
+  };
+}
+
+const TeamManifestBaseSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
+  /** The team's mission — one sentence, shown under its name on the team report. (`goal:` in the file.) */
+  goal: z.string().min(1).optional(),
+  /** The measures the team is graded on. Keys unique per team. */
+  measures: z.array(TeamMeasureSchema).default([]),
+  /**
+   * @deprecated Alias for one release: each entry is read as an
+   * `agent-reported` measure and folded into `measures` on parse.
+   */
+  kpis: z.array(TeamKpiSchema).default([]),
   /**
    * Slug of the agent leading this team. Optional — a team may exist
    * before its lead is chosen (rendered "no lead yet") — but when set
@@ -120,7 +401,13 @@ export const TeamManifestSchema = z.object({
    */
   accountableUser: z.string().email().optional(),
 });
+
+export const TeamManifestSchema = TeamManifestBaseSchema
+  .transform(({ kpis, ...team }) => ({ ...team, measures: [...team.measures, ...kpis.map(kpiToMeasure)] }))
+  .refine(t => new Set(t.measures.map(m => m.key)).size === t.measures.length, 'measure keys must be unique within a team');
 export type TeamManifest = z.infer<typeof TeamManifestSchema>;
+/** The authored shape — what a teams/<slug>.yaml file may contain before defaults apply. */
+export type TeamManifestInput = z.input<typeof TeamManifestBaseSchema>;
 
 /**
  * `pack.yaml` — the identity of a base pack shipped inside vocion-core at
@@ -194,6 +481,23 @@ export const AgentManifestSchema = z.object({
   systemPromptFile: z.string().optional().describe('path to markdown system prompt, relative to agent file'),
   systemPrompt: z.string().optional().describe('inline system prompt — prefer systemPromptFile for long prompts'),
   skills: z.array(z.string()).default([]).describe('skill slugs this agent can invoke'),
+  /**
+   * What this agent reaches for, named by connector CATEGORY and never by
+   * vendor — `crm`, not `salesforce`. Same-category connectors are peers,
+   * so an agent can never quietly prefer one vendor's ledger over another's,
+   * and the catalog can say "needs a ledger" without naming a product.
+   *
+   * `degradesTo` is what it does with none of them connected. Every agent
+   * has an answer; a missing connector picks a tier, it does not fail. There
+   * is deliberately no permission field here — whether an agent may write is
+   * a property of the installation, not of the definition, and an agent's
+   * write ceiling is the union of its skills' own write paths.
+   */
+  requires: z.object({
+    connectors: z.array(SlugSchema).default([]),
+    optional: z.array(SlugSchema).default([]),
+    degradesTo: z.enum(['files', 'none']).default('files'),
+  }).default({ connectors: [], optional: [], degradesTo: 'files' }),
   connectorSources: z.array(z.string()).default([]).describe('source slugs (matching knowledge_source.slug) this agent can search'),
   objectTypes: z.array(z.string()).default([]).describe('business object type slugs'),
   documentSetIds: z.array(z.number()).default([]),
@@ -236,6 +540,17 @@ export const AgentManifestSchema = z.object({
     label: z.string(),
     prompt: z.string(),
   })).default([]),
+  /**
+   * The face this agent wears when it answers on a chat surface — the name
+   * and avatar a Slack reply is posted under. A channel binding's own
+   * persona still wins; this is the agent everywhere else. Presentation
+   * only: it changes no identity and no authorisation, and must never imply
+   * a human. `iconUrl` must be a public https URL — Slack fetches it itself.
+   */
+  persona: z.object({
+    displayName: z.string().min(1).optional(),
+    iconUrl: z.string().url().optional(),
+  }).optional(),
   /** CSS color name for the agent's chat header / sidebar. */
   accent: z.string().optional(),
   /** Short tagline shown above the chat title. */
@@ -245,7 +560,7 @@ export const AgentManifestSchema = z.object({
    * harness. `provider` selects where the agent loop executes:
    * `local` (in-process deepagents loop, the default), `agentcore`
    * (the AWS AgentCore managed harness — provisioned by
-   * workspace:apply, invoked via InvokeHarness; operations execute
+   * workspace:apply, invoked via InvokeHarness; skills execute
    * client-side in vocion-core as inline functions), or `runtime`
    * (the BYOA artifact — packages/agent-runtime: our deepagents loop
    * hosted out-of-process, localhost in dev / AgentCore Runtime when
@@ -440,9 +755,80 @@ export const TrustManifestSchema = z.object({
     action: z.string().describe('registered action id, e.g. hubspot.update'),
     autoApproveAbove: z.number().min(0).max(1),
     enabled: z.boolean().default(false),
+    /**
+     * Where this action kind stands on the autonomy ladder. Optional and
+     * additive: omitted, an enabled rule reads as `execute-within-bounds` and
+     * a disabled one as `execute-with-approval`. Authoring a rung ABOVE
+     * `execute-with-approval` on a disabled rule is refused at apply — the
+     * rung and the rule would disagree about what runs.
+     */
+    rung: z.enum(['observe', 'recommend', 'assist', 'execute-with-approval', 'execute-within-bounds', 'autonomous']).optional(),
+    /** Risk tier override for this action; sets how much evidence the next rung takes. */
+    risk: z.enum(['low', 'medium', 'high']).optional(),
   })).default([]),
+  /**
+   * Risk tier overrides for action kinds that have no rule yet — a workspace
+   * that considers `hubspot.update` high-risk says so here, and the ladder
+   * asks for high-tier evidence before it will ever promote it.
+   */
+  risk: z.record(z.string(), z.enum(['low', 'medium', 'high'])).optional(),
 });
 export type TrustManifest = z.infer<typeof TrustManifestSchema>;
+
+/**
+ * Voice rules — workspace/<org>/voice.yaml.
+ *
+ * The workspace's own banned constructions, versioned in the same repo as the
+ * playbooks that describe the voice. Core ships a conservative platform floor
+ * (`libs/writing/voiceRules.ts`); this file is where the sharp edges live,
+ * because what counts as a tell is a property of the person signing the note,
+ * not of the platform.
+ *
+ * Applied onto `project.voice_rules` and enforced by `lintCopy` at every seam
+ * that produces outbound copy — so a banned phrase is a validation failure,
+ * not a hope.
+ */
+export const VoiceManifestSchema = z.object({
+  /** Constructions that must never appear in outbound copy. */
+  never: z.array(z.object({
+    /** The literal phrase, or a regex source when `match: regex`. */
+    pattern: z.string().min(1),
+    /** How `pattern` is read. Phrases are case-insensitive and word-boundary aware. */
+    match: z.enum(['phrase', 'regex']).default('phrase'),
+    /** Why. Handed to the model on the corrective retry and shown to reviewers. */
+    reason: z.string().min(1),
+    /** Optional stable handle, for referring to this rule in review. */
+    id: SlugSchema.optional(),
+  })).default([]),
+  /** Softer steers. Reported, never blocking. */
+  prefer: z.array(z.object({
+    pattern: z.string().min(1),
+    match: z.enum(['phrase', 'regex']).default('phrase'),
+    /** What to write instead. */
+    use: z.string().min(1),
+    reason: z.string().optional(),
+  })).default([]),
+  /** Platform-default rule ids this workspace deliberately permits. */
+  allow: z.array(z.string().min(1)).default([]),
+  maxWordsPerSend: z.number().int().positive().optional(),
+  maxAsksPerSend: z.number().int().min(0).optional(),
+  noExclamation: z.boolean().optional(),
+  noEmoji: z.boolean().optional(),
+  noEmDash: z.boolean().optional(),
+  /**
+   * The playbook slug that describes this voice in prose. Composed into the
+   * rewrite prompt so a reviewer's "Add change" gets the workspace's voice
+   * instead of a generic house style. Core never hardcodes a slug.
+   */
+  playbook: SlugSchema.optional(),
+  /**
+   * The learnings step that reviewer edit-diffs land in as proposed rules.
+   * Unset means edit-diffs are not mined — a voice rule must never be filed
+   * into an unrelated step, so this is opt-in and named.
+   */
+  learningStep: SlugSchema.optional(),
+});
+export type VoiceManifest = z.infer<typeof VoiceManifestSchema>;
 
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
@@ -575,20 +961,149 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  * Eval dataset authoring schema (v0.2). Each
  * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
+/**
+ * One deterministic check we run ourselves.
+ *
+ * A closed list, deliberately. Arbitrary code in a manifest would need a
+ * sandbox and a timeout and would be a way out of the app; this covers what
+ * people mean by "check it actually did the thing", and the escape hatch for
+ * anything beyond it is an AgentCore `codeBased` evaluator — a Lambda the
+ * customer owns and deploys.
+ */
+const EvalCheckSchema = z.union([
+  z.object({ toolCalled: z.string() }),
+  z.object({ toolNotCalled: z.string() }),
+  z.object({ outputMatches: z.string().describe('regular expression the answer must match') }),
+  z.object({ outputContains: z.string() }),
+  z.object({ outputNotContains: z.string() }),
+  z.object({ latencyUnderMs: z.number().int().positive() }),
+  z.object({ turnsUnder: z.number().int().positive() }),
+]);
+
+/** A rating scale for a custom judge. Mirrors AgentCore's `RatingScale` union. */
+const RatingScaleSchema = z.union([
+  z.object({
+    categorical: z.array(z.object({
+      label: z.string(),
+      value: z.number(),
+      description: z.string().optional(),
+    })).min(1),
+  }),
+  z.object({
+    numerical: z.array(z.object({
+      value: z.number(),
+      description: z.string().optional(),
+    })).min(1),
+  }),
+]);
+
+/**
+ * Who grades this dataset, and with what.
+ *
+ * Three shapes, because the providers genuinely differ:
+ *
+ * - `provider: vocion` — our own judge and the `checks` on each case. Nothing
+ *   else to configure.
+ * - `provider: agentcore` with `builtin` — AWS's own evaluators, named by id.
+ *   `TrajectoryInOrderMatch` and friends cost no tokens; the rest are judges
+ *   and do.
+ * - `provider: agentcore` with `instructions` — a custom judge we create in
+ *   the customer's AWS account, so AgentCore stays the single place those run.
+ *
+ * `lambdaArn` is accepted and stored but nothing in this repo deploys it: a
+ * `codeBased` evaluator is a Lambda the customer builds themselves, and we
+ * only reference it. See `docs/guides/agentcore-evals.md`.
+ */
+const EvalEvaluatorManifestSchema = z.object({
+  provider: z.string().describe('vocion | agentcore'),
+  slug: SlugSchema.optional().describe('name for a custom evaluator; omit for built-ins'),
+  builtin: z.array(z.string()).optional().describe('AWS evaluator ids, e.g. Builtin.ToolSelectionAccuracy'),
+  level: z.enum(['TOOL_CALL', 'TRACE', 'SESSION']).optional(),
+  instructions: z.string().optional().describe('grading prompt for a custom judge'),
+  ratingScale: RatingScaleSchema.optional(),
+  model: z.string().optional().describe('which model judges; the provider default when omitted'),
+  lambdaArn: z.string().optional().describe('an existing Lambda the customer deployed; referenced, never created'),
+});
+
 export const EvalDatasetManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string(),
   description: z.string().optional(),
   agentSlug: z.string().describe('which agent slug this dataset evaluates'),
   version: z.number().int().positive().default(1),
+  /**
+   * Which grader scores this dataset — one, not several.
+   *
+   * `vocion` is our own judge and the default, so every dataset authored
+   * before this field existed keeps behaving the same way. `agentcore` sends
+   * the transcript to AWS. To compare the two, copy the dataset and point the
+   * copy at the other grader: then the comparison is something someone set up
+   * on purpose, with its own history, rather than two disagreeing numbers on
+   * one page.
+   */
+  provider: z.enum(['vocion', 'agentcore']).default('vocion'),
+  /**
+   * The evaluators this dataset's grader should use. Each one names its own
+   * provider, which must be the dataset's — a dataset scored by Vocion cannot
+   * carry an AgentCore evaluator, because nothing would ever run it.
+   */
+  evaluators: z.array(EvalEvaluatorManifestSchema).optional(),
   items: z.array(z.object({
-    input: z.string().describe('the user message to send to the agent'),
+    // A case with nothing to say has nothing to measure: the agent is never
+    // called, and a grader that keeps its own copy of the dataset refuses the
+    // whole file. Refusing it here names the file and the case instead.
+    input: z.string().trim().min(1, 'an eval case needs an input to send the agent').describe('the user message to send to the agent'),
     expectedOutput: z.string().optional().describe('substantive-equivalence guidance, not literal match'),
     rubric: z.string().optional().describe('per-case rubric the judge uses'),
     tags: z.array(z.string()).optional(),
+    /**
+     * The tools this case should call, in order. Ground truth for AgentCore's
+     * trajectory evaluators, which are the only scoring it does without a
+     * model call.
+     */
+    expectedTrajectory: z.array(z.string()).optional(),
+    /**
+     * Facts the answer must state. Read by a judge model, not string-matched —
+     * these make the judge's task well defined, they do not replace it. For a
+     * real string comparison use `checks`.
+     */
+    assertions: z.array(z.string()).optional(),
+    /** Deterministic checks run in this process. No model, no AWS account. */
+    checks: z.array(EvalCheckSchema).optional(),
   })).min(1),
+}).superRefine((dataset, ctx) => {
+  // An evaluator whose provider is not the dataset's would never run: nothing
+  // asks that grader for a score. Better to refuse the file than to apply it
+  // and leave someone waiting for a number that cannot arrive.
+  for (const evaluator of dataset.evaluators ?? []) {
+    if (evaluator.provider !== dataset.provider) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['evaluators'],
+        message: `evaluator "${evaluator.slug ?? evaluator.builtin?.join(', ') ?? 'unnamed'}" is for ${evaluator.provider}, but this dataset is graded by ${dataset.provider}`,
+      });
+    }
+  }
+
+  // `checks` run inside our own judge and nowhere else, so on a dataset graded
+  // by anyone else they are written, applied, and then silently never run —
+  // and the case still reports a pass rate, which reads as if they had. Refuse
+  // the file instead. A dataset that needs deterministic checks belongs to
+  // Vocion; inside AgentCore the equivalent is a `codeBased` evaluator.
+  if (dataset.provider !== 'vocion') {
+    dataset.items.forEach((item, index) => {
+      if (item.checks?.length) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['items', index, 'checks'],
+          message: `case ${index + 1} has checks, which only run under the vocion grader — this dataset is graded by ${dataset.provider}`,
+        });
+      }
+    });
+  }
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
+export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;
 
 export const LearningStepManifestSchema = z.object({
   name: SlugSchema,
@@ -600,17 +1115,36 @@ export const LearningStepManifestSchema = z.object({
   agents: z.array(z.string()).default([]),
   /**
    * SEED rules shipped with the workspace. Applied once each (keyed on
-   * `workspace:<id>` in `learning.source`); later edits to a seeded rule's
-   * text are applied as updates. Rules people add at runtime live only in
-   * the DB and are never touched by apply.
+   * `workspace:<id>` in the store entry's meta.source); later edits to a
+   * seeded rule's text are applied as updates. Rules people add at runtime
+   * live only in the DB and are never touched by apply.
    */
   rules: z.array(z.object({ id: SlugSchema, text: z.string().min(1) })).default([]),
+  /**
+   * Scope this namespace narrower than the workspace: `kind: agent` +
+   * `ref: revenue-lead` makes it that agent's own bucket
+   * (agents/revenue-lead/<name>), mounted for that agent alone. Omitted =
+   * workspace scope, mounted by the agents that name this step.
+   */
+  scope: z.object({
+    kind: z.enum(['agent', 'user', 'object', 'workflow', 'mission']),
+    ref: z.string().min(1),
+  }).optional(),
 });
 export type LearningStepManifest = z.infer<typeof LearningStepManifestSchema>;
 
 export const PlaybookManifestSchema = z.object({
-  slug: SlugSchema,
-  name: z.string().describe('Human-readable name for catalog UI.'),
+  /**
+   * The folder slug, and — because deepagents mounts this folder as an Agent
+   * Skill — the name that specification validates. Stricter than `SlugSchema`
+   * on purpose: underscores, doubled hyphens and trailing hyphens are legal
+   * Vocion slugs and illegal skill names, and a workspace that ships one makes
+   * the runtime log a spec warning on every single turn. Failing here, once,
+   * at `workspace:check`, is the whole point (CLAUDE.md — fail loudly at apply
+   * time rather than warn at runtime).
+   */
+  slug: AgentSkillSlugSchema,
+  name: z.string().describe('Human-readable name for catalog UI. Mounted as `title`; the mounted `name` is the slug, per the Agent Skills spec — see libs/skills/name.ts.'),
   description: z.string().describe('One-line summary the agent reads to decide when to activate this skill or playbook.'),
   /**
    * Playbook slugs this skill attaches (skill folders only). A playbook
@@ -673,6 +1207,21 @@ export const SourceManifestSchema = z.object({
     visibility: z.enum(['org', 'restricted']).default('org'),
     users: z.array(z.string().email()).default([]),
   }).optional(),
+  /**
+   * A document processor to run over every document this source ingests, and
+   * the settings it runs with. The slug names an entry in
+   * `libs/processors/registry`; the config is validated against that
+   * processor's own schema when the workspace is applied, so a bad setting
+   * fails this source's apply instead of every document of every run.
+   *
+   * `.strict()` so a mistyped key here is reported rather than dropped: the
+   * enclosing object silently strips what it does not know, which for a rule
+   * the operator believes is in force is the worst way to be wrong.
+   */
+  processor: z.object({
+    slug: z.string().min(1).describe('Processor slug. Maps to a registered DocumentProcessor.'),
+    config: z.record(z.string(), z.unknown()).default({}),
+  }).strict().optional(),
   enabled: z.boolean().default(true),
 });
 export type SourceManifest = z.infer<typeof SourceManifestSchema>;

@@ -114,6 +114,20 @@ export type LeadHandoffTriggerPayload = {
  */
 export const PERSONALIZATION_BRIEF_REGENERATE_REQUESTED = 'personalization.brief_regenerate_requested';
 
+/**
+ * A reviewer pressed Regenerate on ONE of a lead's three artifacts — the
+ * research brief, the outreach recommendation, or the draft sequence
+ * (`docs/specs/personalization-v2.md`). The brief's own event above is kept
+ * because a workspace automation already subscribes to it and a brief
+ * regeneration still resets the whole chain; this one carries `target` so an
+ * automation can run only the stage that was asked for.
+ *
+ * Payload: `leadId`, `target` (`brief` | `recommendation` | `sequence`),
+ * `contactRef`, `contactName`, `note` (the instruction, which also becomes the
+ * new artifact version's change summary).
+ */
+export const PERSONALIZATION_ARTIFACT_REGENERATE_REQUESTED = 'personalization.artifact_regenerate_requested';
+
 export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;

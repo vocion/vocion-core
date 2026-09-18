@@ -61,6 +61,21 @@ describe('parseSlackPayload', () => {
     expect(parseSlackPayload({ type: 'event_callback', event: { type: 'reaction_added', user: 'U1', channel: 'C1', ts: '8' } }).kind).toBe('ignore');
     expect(parseSlackPayload({ type: 'event_callback', event: { type: 'app_mention', user: 'U1', channel: 'C1', ts: '9', text: '<@UBOT>' } }).kind).toBe('ignore');
   });
+
+  it('parses the bot being added to a channel as a join, and ignores anyone else joining', () => {
+    const join = { type: 'event_callback', team_id: 'T1', authorizations: [{ user_id: 'UBOT', is_bot: true }], event: { type: 'member_joined_channel', user: 'UBOT', channel: 'C9', channel_type: 'C', inviter: 'U1', event_ts: '10.1' } };
+    const parsed = parseSlackPayload(join);
+
+    expect(parsed).toEqual({ kind: 'joined', join: { surface: 'slack', teamId: 'T1', channelId: 'C9', botUserId: 'UBOT' } });
+
+    // A human joining the same channel is not our event.
+    expect(parseSlackPayload({ ...join, event: { ...join.event, user: 'U1' } }).kind).toBe('ignore');
+    // No authorizations block: the configured bot user id decides.
+    expect(parseSlackPayload({ ...join, authorizations: undefined }, 'UBOT').kind).toBe('joined');
+    expect(parseSlackPayload({ ...join, authorizations: undefined }, 'UOTHER').kind).toBe('ignore');
+    // Nothing says which id is ours, so nothing is claimed.
+    expect(parseSlackPayload({ ...join, authorizations: undefined }).kind).toBe('ignore');
+  });
 });
 
 describe('postSlackReply', () => {
@@ -103,6 +118,10 @@ describe('postSlackReply', () => {
 
     // No `username`/`icon_url` keys at all — an empty username posts blank in Slack.
     expect(body).toEqual({ channel: 'C1', thread_ts: '100.1', text: 'hello' });
+  });
+
+  it('posts to the channel with no thread_ts when the target has no thread', async () => {
+    expect(await post({ channelId: 'C1' })).toEqual({ channel: 'C1', text: 'hello' });
   });
 
   it('carries whichever half of the persona is set', async () => {

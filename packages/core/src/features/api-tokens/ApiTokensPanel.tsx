@@ -810,7 +810,7 @@ export function ApiTokensPanel() {
                   id="token-name"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="Veerio admin panel"
+                  placeholder="Larkfield admin panel"
                   maxLength={80}
                   required
                 />

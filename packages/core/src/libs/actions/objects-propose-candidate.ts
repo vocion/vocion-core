@@ -32,7 +32,7 @@
  * be legal (empty meant "every proposal is its own item") until a formatting
  * slip by a model — `dedupOn: []` at the top level with the real identity
  * list nested inside `fields` — passed validation, stored `dedup_key` NULL,
- * and permanently duplicated pending rows in a live run (VEERIO-257). A
+ * and permanently duplicated pending rows in a live run (LARK-257). A
  * genuinely one-off candidate now needs a real identity value of its own
  * (a source id, a timestamp) rather than an empty list.
  */
@@ -106,12 +106,73 @@ const candidateInput = candidateInputShape.superRefine((value, ctx) => {
 export type CandidateInput = z.infer<typeof candidateInputShape>;
 
 /**
+ * The two labels a later stage may write into a record to say it already knows
+ * what another queued card is to this one. Parsed back out here so the
+ * "Possible duplicate" row can skip a run the card itself already names.
+ *
+ * Matched by shape rather than by field name on purpose: the field carrying
+ * the label is named by the tenant's own config (`seriesLabel.flagField`), and
+ * this file never learns a tenant's field names. Any string value on the
+ * record may carry one.
+ *
+ * Exported so the one writer of those labels
+ * (`libs/processors/candidateExtractor/labels.ts`) can strip the phrase out of
+ * model-written text before it lands on a card. A second copy of this pattern
+ * over there would be free to drift, and the drift would be silent: text that
+ * still matches here suppresses a duplicate row nobody asked to hide.
+ */
+export const LABELLED_RUN_ID = /\b(?:part of series|possible duplicate of)\s+#?(\d+)\b/gi;
+
+/**
+ * Run ids the payload itself names as an identified series anchor or duplicate.
+ * @param fields - The record's extracted payload.
+ */
+export function labelledRunIds(fields: Record<string, unknown>): number[] {
+  const ids = new Set<number>();
+  for (const value of Object.values(fields)) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    for (const match of value.matchAll(LABELLED_RUN_ID)) {
+      const id = Number.parseInt(match[1] as string, 10);
+      if (Number.isFinite(id)) {
+        ids.add(id);
+      }
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * The identity values inside a stored dedup key, or null when the key is not
+ * one of this action's.
+ *
+ * The key's alphabet is `[a-z0-9-]` after `normaliseForKey`, so `|` can only
+ * ever be a separator, splitting it is safe, and segment 0 is
+ * `<action>:<type>` rather than an identity value.
+ * @param dedupKey - A stored `action_run.dedup_key`.
+ */
+export function candidateKeySegments(dedupKey: string | null | undefined): { objectType: string; values: string[] } | null {
+  if (!dedupKey || !dedupKey.startsWith(`${CANDIDATE_ACTION_ID}:`)) {
+    return null;
+  }
+  const parts = dedupKey.split('|');
+  const head = (parts[0] as string).slice(CANDIDATE_ACTION_ID.length + 1);
+  return { objectType: head, values: parts.slice(1) };
+}
+
+/**
  * Collapse a value to the part that identifies it: lowercase, accents
  * stripped, punctuation dropped, spaces to hyphens. Two extractions that
  * disagree only on casing or a dash are one candidate.
+ *
+ * Exported because anything comparing a STORED dedup key against a value it
+ * holds in memory, the extractor's known-cards block, its sibling rule, has
+ * to reproduce this exactly, 80-char slice included. A second implementation
+ * would drift the day one of them gained a rule.
  * @param value - Any field value; non-strings are stringified first.
  */
-function normaliseForKey(value: unknown): string {
+export function normaliseForKey(value: unknown): string {
   const asText = value === null || value === undefined ? '' : String(value);
   const withoutAccents = asText.normalize('NFD').replace(/\p{Diacritic}/gu, '');
   const slug = withoutAccents
@@ -132,6 +193,26 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
 }
 
 /**
+ * The key one candidate would be stored under, or undefined when it names no
+ * identity at all.
+ *
+ * Exported for the extractor's DRY RUN, which is the first rollout step and
+ * whose log line is the only thing a shadow comparison has to diff: to be
+ * worth reading it has to print the key the live run would write, byte for
+ * byte. Recomputing it there would be a second implementation that drifts the
+ * day either one gains a rule, which is the same argument `normaliseForKey`
+ * is exported under.
+ * @param input - Anything carrying the three values a key is built from.
+ */
+export function candidateDedupKey(input: Pick<CandidateInput, 'objectType' | 'fields' | 'dedupOn'>): string | undefined {
+  const values = identityValues(input);
+  if (values.length === 0) {
+    return undefined;
+  }
+  return dedupKeyFrom(input.objectType, values);
+}
+
+/**
  * The identity values for a candidate, in the order `dedupOn` names them.
  * A named field that the extractor did not fill still takes a slot, so a
  * missing venue cannot silently merge two different candidates.
@@ -142,7 +223,7 @@ function dedupKeyFrom(objectType: string, values: string[]): string {
  * test, for instance).
  * @param input - The parsed action input.
  */
-function identityValues(input: CandidateInput): string[] {
+function identityValues(input: Pick<CandidateInput, 'fields' | 'dedupOn'>): string[] {
   const values: string[] = [];
   for (const fieldName of input.dedupOn ?? []) {
     values.push(normaliseForKey(input.fields[fieldName]));
@@ -494,20 +575,71 @@ async function decideCandidateObject(
   return updated?.id ?? null;
 }
 
+/** One candidate that shares this one's identity prefix. */
+export type SimilarCandidate = {
+  /** The `action_run` id, so a caller can name it in a label. */
+  id: number;
+  dedupKey: string | null;
+  /** The stored proposal, for reading a field the key does not carry. */
+  input: Record<string, unknown>;
+  status: string;
+};
+
+/** Similar candidates the review card shows, when the caller names no other cap. */
+const SIMILAR_CANDIDATE_LIMIT = 10;
+
+/**
+ * The `business_object` row a proposal created, by the run it is queued as.
+ *
+ * `upsertCandidateObject` returns void, so a caller that has just proposed
+ * something and wants to hang a document link off the candidate has no id to
+ * work with. The lookup rides the unique index on
+ * `(org_id, review_action_run_id)`, so it is one row by definition.
+ * @param orgId - Org that owns the candidate.
+ * @param runId - The `action_run` the candidate is queued as.
+ */
+export async function candidateObjectIdForRun(orgId: string, runId: number): Promise<number | null> {
+  const { and, eq } = await import('drizzle-orm');
+  const { db } = await import('@/libs/DB');
+  const { businessObjectSchema } = await import('@/models/Schema');
+
+  const [row] = await db
+    .select({ id: businessObjectSchema.id })
+    .from(businessObjectSchema)
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectSchema.reviewActionRunId, runId),
+    ))
+    .limit(1);
+  return row?.id ?? null;
+}
+
 /**
  * Other candidates of the same type sharing this one's identity prefix but
  * not its full key — the "you have already seen something very like this"
  * flag that exact dedup cannot catch. Scoped to the org.
+ *
+ * Exported because the extractor's sibling rule wants the same query with a
+ * bigger cap: a weekly series inside a 60-day horizon is more rows than a
+ * review card ever shows, and re-implementing the prefix would put the key's
+ * shape in two places.
  * @param orgId - The org whose queue is being rendered.
  * @param input - The parsed action input.
+ * @param opts - How this caller differs from the review card.
+ * @param opts.limit - Rows to fetch. Defaults to what a card can show.
+ * @param opts.excludeRunIds - Runs the caller has already accounted for.
  */
-async function findSimilarCandidates(orgId: string, input: CandidateInput): Promise<string[]> {
+export async function findSimilarCandidates(
+  orgId: string,
+  input: CandidateInput,
+  opts: { limit?: number; excludeRunIds?: number[] } = {},
+): Promise<SimilarCandidate[]> {
   const values = identityValues(input);
   if (values.length < 2) {
     // With one identity field there is no "same but for one value" to find.
     return [];
   }
-  const { and, eq, inArray, like, ne } = await import('drizzle-orm');
+  const { and, eq, inArray, like, ne, notInArray } = await import('drizzle-orm');
   const { db } = await import('@/libs/DB');
   const { actionRunSchema } = await import('@/models/Schema');
 
@@ -519,24 +651,40 @@ async function findSimilarCandidates(orgId: string, input: CandidateInput): Prom
   // ten already-fetched rows would report "nothing similar" whenever the ten
   // newest happened to be rejected, which is exactly when a reviewer most
   // wants to know the same thing has come round before.
+  //
+  // `failed` joins the two: a failed run keeps its card in the queue for
+  // retry, so it is every bit as much "already there" as a pending one.
+  const excluded = opts.excludeRunIds ?? [];
   const rows = await db
-    .select({ dedupKey: actionRunSchema.dedupKey })
+    .select({
+      id: actionRunSchema.id,
+      dedupKey: actionRunSchema.dedupKey,
+      input: actionRunSchema.input,
+      status: actionRunSchema.status,
+    })
     .from(actionRunSchema)
     .where(and(
       eq(actionRunSchema.orgId, orgId),
       eq(actionRunSchema.actionId, CANDIDATE_ACTION_ID),
       like(actionRunSchema.dedupKey, prefix),
       ne(actionRunSchema.dedupKey, dedupKeyFrom(input.objectType, values)),
-      inArray(actionRunSchema.status, ['pending', 'done']),
+      inArray(actionRunSchema.status, ['pending', 'failed', 'done']),
+      ...(excluded.length > 0 ? [notInArray(actionRunSchema.id, excluded)] : []),
     ))
-    .limit(10);
+    .limit(opts.limit ?? SIMILAR_CANDIDATE_LIMIT);
 
-  const seen: string[] = [];
-  for (const row of rows) {
-    const others = (row.dedupKey ?? '').split('|').slice(2).join(' · ');
-    seen.push(others || 'an earlier proposal');
-  }
-  return seen;
+  return rows;
+}
+
+/**
+ * How a similar candidate reads on a card: the identity values that are not
+ * the shared first one.
+ * @param row - A row from {@link findSimilarCandidates}.
+ */
+function describeSimilar(row: SimilarCandidate): string {
+  const segments = candidateKeySegments(row.dedupKey);
+  const others = (segments?.values ?? []).slice(1).join(' \u00B7 ');
+  return others || 'an earlier proposal';
 }
 
 export const objectProposeCandidateAction: Action<typeof candidateInput> = {
@@ -559,11 +707,7 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
   // applies: no identity, no key, and never a constant in its place, which
   // would collapse every candidate of a type into one queue item.
   dedupKeyFor(input) {
-    const values = identityValues(input);
-    if (values.length === 0) {
-      return undefined;
-    }
-    return dedupKeyFrom(input.objectType, values);
+    return candidateDedupKey(input);
   },
 
   // A candidate is one record a person judges once, and the same listing page
@@ -655,9 +799,15 @@ export const objectProposeCandidateAction: Action<typeof candidateInput> = {
 
     // This one is a database round trip, which can genuinely fail. A broken
     // duplicate check must not cost the reviewer the whole card.
+    //
+    // A card that already says "part of series #41" has had that relationship
+    // identified; presenting #41 again as a possible duplicate would tell the
+    // reviewer the opposite of what the label says. The ids come off the
+    // payload itself, so no configuration reaches this file.
     let similar: string[] = [];
     try {
-      similar = await findSimilarCandidates(ctx.orgId, input);
+      const rows = await findSimilarCandidates(ctx.orgId, input, { excludeRunIds: labelledRunIds(input.fields) });
+      similar = rows.map(describeSimilar);
     } catch (error) {
       console.error('[objects.propose_candidate] similar-candidate lookup failed', error);
     }

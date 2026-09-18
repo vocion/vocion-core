@@ -14,8 +14,15 @@ import { createHubspotClient, tokenFromCredentials } from '@/libs/hubspot/client
 
 const hubspotUpdateInput = z.object({
   objectType: z.enum(['contacts', 'deals', 'companies']),
-  /** HubSpot record id. */
-  objectId: z.string().min(1),
+  /**
+   * HubSpot record id — the NUMBER HubSpot assigned, never a name or a slug.
+   * An approved update to a deal named by its slug ("northwind-operational-ai")
+   * reached HubSpot and came back 404 (2026-09-17): the agent had passed the
+   * deal's name as its id, and nothing between the proposal and the API said
+   * no. The mirror ref a lookup returns is `deals:<id>`; the number after the
+   * colon is what goes here.
+   */
+  objectId: z.string().regex(/^\d+$/, 'objectId must be the numeric HubSpot record id (the number after the colon in a mirror ref like deals:4812), not a name or slug'),
   /** Properties to set, e.g. `{ dealstage: 'presentationscheduled', hs_next_step: '…' }`. */
   properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
   baseUrl: z.string().url().default('https://api.hubapi.com'),
@@ -33,7 +40,7 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
   // surface. Editing stays on the shell's property editor (input.properties).
   async reviewCard(_ctx, input) {
     return {
-      title: `Update HubSpot ${input.objectType.replace(/s$/, '')} record`,
+      title: `Update HubSpot ${input.objectType === 'companies' ? 'company' : input.objectType.replace(/s$/, '')} record`,
       system: 'HubSpot CRM',
       fields: [
         { label: 'Record', value: `${input.objectType}:${input.objectId}` },

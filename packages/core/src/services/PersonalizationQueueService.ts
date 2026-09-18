@@ -6,25 +6,31 @@
  *
  * Two structural guarantees, both here rather than in a prompt:
  *
- *   - **Nothing is invented.** `queueLeads` takes CRM mirror refs, re-reads
- *     those records itself through `queryCrmRecords`, and writes only what the
- *     mirror carries. The caller cannot hand it a name, a company, or an
- *     entrance path, so a phase-1 row can never contain research that was
- *     never done. `claims`, `missing` and `draftSequence` stay at their empty
- *     defaults and `confidence` stays null until the research slice ships.
+ *   - **Nothing is invented.** `queueLeads` takes CRM refs and re-reads those
+ *     records itself — live from HubSpot first, from the mirror when live is
+ *     unavailable — and writes only what the CRM carries. The caller cannot
+ *     hand it a name, a company, or an entrance path, so a phase-1 row can
+ *     never contain research that was never done. `claims`, `missing` and
+ *     `draftSequence` stay at their empty defaults and `confidence` stays
+ *     null until the research slice ships.
  *   - **A re-fire is a no-op.** There is no de-duplication logic; the insert
  *     runs ON CONFLICT DO NOTHING against `lead_brief_org_contact_idx`, so the
  *     unique index is the guarantee. DO NOTHING rather than DO UPDATE on
  *     purpose: a later re-fire must not wipe a researched brief back to empty.
  *
- * The CRM read is the same one `hubspot_count_contacts` uses, so arrivals here
- * and counts there can never disagree.
+ * Intake reads LIVE, deliberately. The mirror froze for four days on prod
+ * (2026-09-14: the contacts watermark filtered on a property contacts do not
+ * carry) and every new MQL was invisible while the pass reported "mirror
+ * fresh". Live-first means a broken sync degrades to the mirror's older
+ * answer, loudly (`identitySource`/`sourcesRead` say which was read), instead
+ * of silently hiding arrivals.
  */
 
 import type { CrmRecord } from '@/services/CrmRecordsService';
 import { and, asc, count, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { leadBriefSchema } from '@/models/Schema';
+import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { queryCrmRecords } from '@/services/CrmRecordsService';
 
 /**
@@ -95,14 +101,16 @@ export type QueueLeadsResult = {
   requested: number;
   queued: number;
   alreadyQueued: number;
-  /** Refs with no record in the CRM mirror — nothing was written for these. */
+  /** Refs the CRM read did not return — nothing was written for these. */
   notInMirror: string[];
   /** Total rows on the queue after this call, across every lane. */
   queueTotal: number;
-  /** Last sync of the mirror the identities were read from. */
+  /** When the identities were read: the live call's moment, or the mirror's last sync. */
   asOf: string | null;
-  /** Set when that mirror has fallen behind its own schedule, so a thin batch is explained. */
+  /** Set when identities came from a mirror that has fallen behind its own schedule. */
   mirrorStaleness: string | null;
+  /** Where the identities were read from — live HubSpot, or the mirror when live was unavailable. */
+  identitySource: 'hubspot-live' | 'mirror-fallback';
   leads: QueuedLead[];
 };
 
@@ -232,7 +240,25 @@ function toRow(rec: CrmRecord, opts: { orgId: string; triggerType: string; brief
 }
 
 /**
- * Read the named contacts from the CRM mirror and put each on the queue.
+ * Live HubSpot client for the intake, gated the same way the mirror read is:
+ * an agent whose grants exclude the hubspot sources must not read the CRM
+ * live either. Null means "use the mirror" — no credentials, no grant, or the
+ * live call failed.
+ * @param orgId
+ * @param allowedSourceSlugs
+ */
+async function liveIntakeClient(orgId: string, allowedSourceSlugs?: string[]) {
+  if (allowedSourceSlugs && !allowedSourceSlugs.some(s => s.startsWith('hubspot'))) {
+    return null;
+  }
+  const { hubspotClientForOrg } = await import('@/services/agents/tools/hubspotDirect');
+  const resolved = await hubspotClientForOrg(orgId).catch(() => null);
+  return resolved?.ok ? resolved.client : null;
+}
+
+/**
+ * Read the named contacts (live from HubSpot, mirror fallback) and put each
+ * on the queue.
  * @param orgId
  * @param opts
  */
@@ -240,18 +266,33 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
   const refs = [...new Set(opts.contactRefs)];
   const briefedAt = opts.now ?? new Date();
 
-  const found: CrmRecord[] = [];
+  let found: CrmRecord[] = [];
   let asOf: Date | null = null;
   let staleness: string | null = null;
-  for (let offset = 0; offset < refs.length; offset += PAGE) {
-    const page = await queryCrmRecords(orgId, 'contacts', {
-      refs: refs.slice(offset, offset + PAGE),
-      limit: PAGE,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-    });
-    found.push(...page.records);
-    asOf = page.asOf;
-    staleness = page.freshness.reason;
+  let identitySource: QueueLeadsResult['identitySource'] = 'mirror-fallback';
+
+  const client = await liveIntakeClient(orgId, opts.allowedSourceSlugs);
+  if (client) {
+    const { readContactsLive } = await import('@/libs/hubspot/contactsLive');
+    const ids = refs.map(r => r.split(':')[1]).filter((id): id is string => !!id);
+    const live = await readContactsLive(client, ids).catch(() => null);
+    if (live && live.ok) {
+      found = live.data as unknown as CrmRecord[];
+      asOf = briefedAt;
+      identitySource = 'hubspot-live';
+    }
+  }
+  if (identitySource === 'mirror-fallback') {
+    for (let offset = 0; offset < refs.length; offset += PAGE) {
+      const page = await queryCrmRecords(orgId, 'contacts', {
+        refs: refs.slice(offset, offset + PAGE),
+        limit: PAGE,
+        allowedSourceSlugs: opts.allowedSourceSlugs,
+      });
+      found.push(...page.records);
+      asOf = page.asOf;
+      staleness = page.freshness.reason;
+    }
   }
   const foundRefs = new Set(found.map(r => r.ref));
 
@@ -291,6 +332,7 @@ export async function queueLeads(orgId: string, opts: QueueLeadsOptions): Promis
     queueTotal: total?.n ?? 0,
     asOf: asOf ? asOf.toISOString() : null,
     mirrorStaleness: staleness,
+    identitySource,
     leads: [...insertedRefs].map((ref) => {
       const rec = byRef.get(ref)!;
       return {
@@ -385,46 +427,78 @@ export async function reconcileMqlWindow(
     allowedSourceSlugs?: string[];
   },
 ): Promise<MqlReconciliation> {
-  const arrivals: CrmRecord[] = [];
+  let arrivals: CrmRecord[] = [];
   let truncated = false;
   let asOf: Date | null = null;
   let sources: string[] = [];
   let since: string | null = null;
   let staleness: string | null = null;
+  let liveRead = false;
 
   // An unbounded window would reconcile the whole CRM against a queue that
   // only ever covers recent arrivals, reporting years of old leads as gaps.
   // An explicit createdAfter is honored; otherwise the window is trailing.
   const sinceDays = opts.sinceDays ?? (opts.createdAfter ? undefined : DEFAULT_SINCE_DAYS);
 
-  for (let offset = 0; offset < MAX_ARRIVALS; offset += PAGE) {
-    const page = await queryCrmRecords(orgId, 'contacts', {
-      lifecycleStages: opts.lifecycleStages,
-      createdWithinDays: sinceDays,
-      createdAfter: opts.createdAfter,
-      createdBefore: opts.createdBefore,
-      limit: PAGE,
-      offset,
-      allowedSourceSlugs: opts.allowedSourceSlugs,
-    });
-
-    // A stage the mirror does not hold would silently reconcile to zero gaps,
-    // which reads as full coverage. Refuse instead.
-    const unknown = page.unknownFilterValues.lifecycleStage;
-    if (unknown) {
-      throw new UnknownStageError(unknown.requested, unknown.notFound, page.facets.lifecycleStage ?? {});
+  // Live first. A live answer with arrivals stands on its own; a live answer
+  // of ZERO falls through to the mirror, which validates the stage strings —
+  // a mistyped stage must refuse loudly, never reconcile to "full coverage".
+  const client = await liveIntakeClient(orgId, opts.allowedSourceSlugs);
+  if (client) {
+    const now = Date.now();
+    const createdAfterMs = opts.createdAfter
+      ? Date.parse(opts.createdAfter)
+      : now - (sinceDays ?? DEFAULT_SINCE_DAYS) * 86_400_000;
+    const createdBeforeMs = opts.createdBefore ? Date.parse(opts.createdBefore) : undefined;
+    if (Number.isFinite(createdAfterMs)) {
+      const { searchContactArrivalsLive } = await import('@/libs/hubspot/contactsLive');
+      const live = await searchContactArrivalsLive(client, {
+        lifecycleStages: opts.lifecycleStages,
+        createdAfterMs,
+        createdBeforeMs: Number.isFinite(createdBeforeMs as number) ? createdBeforeMs : undefined,
+        max: MAX_ARRIVALS,
+      }).catch(() => null);
+      if (live && live.ok && live.data.records.length > 0) {
+        arrivals = live.data.records as unknown as CrmRecord[];
+        truncated = live.data.truncated;
+        asOf = new Date();
+        sources = ['hubspot-live'];
+        since = new Date(createdAfterMs).toISOString();
+        liveRead = true;
+      }
     }
+  }
 
-    asOf = page.asOf;
-    sources = page.sources;
-    since = page.createdAfter;
-    staleness = page.freshness.reason;
-    arrivals.push(...page.records);
-    if (!page.hasMore) {
-      break;
-    }
-    if (offset + PAGE >= MAX_ARRIVALS) {
-      truncated = true;
+  if (!liveRead) {
+    for (let offset = 0; offset < MAX_ARRIVALS; offset += PAGE) {
+      const page = await queryCrmRecords(orgId, 'contacts', {
+        lifecycleStages: opts.lifecycleStages,
+        createdWithinDays: sinceDays,
+        createdAfter: opts.createdAfter,
+        createdBefore: opts.createdBefore,
+        limit: PAGE,
+        offset,
+        allowedSourceSlugs: opts.allowedSourceSlugs,
+      });
+
+      // A stage the mirror does not hold would silently reconcile to zero gaps,
+      // which reads as full coverage. Refuse instead.
+      const unknown = page.unknownFilterValues.lifecycleStage;
+      if (unknown) {
+        throw new UnknownStageError(unknown.requested, unknown.notFound, page.facets.lifecycleStage ?? {});
+      }
+
+      asOf = page.asOf;
+      sources = page.sources;
+      since = page.createdAfter;
+      staleness = page.freshness.reason;
+      arrivals.push(...page.records);
+      if (!page.hasMore) {
+        break;
+      }
+      if (offset + PAGE >= MAX_ARRIVALS) {
+        truncated = true;
+      }
     }
   }
 
@@ -459,7 +533,7 @@ export async function reconcileMqlWindow(
     asOf: asOf ? asOf.toISOString() : null,
     sourcesRead: sources,
     mirrorStaleness: staleness,
-    note: 'Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. The mirror does not carry a stage-entry date.',
+    note: `Arrivals are contacts CREATED in this window that are at the named stage now, which is not the same as contacts that ENTERED that stage in the window. ${liveRead ? 'Read LIVE from HubSpot.' : 'Read from the CRM mirror (live HubSpot was unavailable).'}`,
   };
 }
 
@@ -779,6 +853,30 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
   const { getCurrentWorkspaceSha } = await import('@/libs/workspace');
   const workspaceSha = await getCurrentWorkspaceSha(orgId).catch(() => null);
 
+  // Confidence, per dimension (0112). Computed from the evidence rather than
+  // asked of the model: "identity known, company context insufficient,
+  // engagement unavailable" is arithmetic, and one collapsed number was
+  // hiding all three answers behind the worst of them.
+  const { computeConfidenceDimensions } = await import('@/services/personalization/confidence');
+  const [before] = await db
+    .select({
+      contactName: leadBriefSchema.contactName,
+      contactTitle: leadBriefSchema.contactTitle,
+      companyName: leadBriefSchema.companyName,
+      entranceSource: leadBriefSchema.entranceSource,
+      utmCampaign: leadBriefSchema.utmCampaign,
+      mqlAt: leadBriefSchema.mqlAt,
+      arrivedAt: leadBriefSchema.arrivedAt,
+      engagementSent: leadBriefSchema.engagementSent,
+      engagementOpened: leadBriefSchema.engagementOpened,
+    })
+    .from(leadBriefSchema)
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.contactRef, opts.contactRef)))
+    .limit(1);
+  const dimensions = before
+    ? computeConfidenceDimensions({ ...before, claims: opts.claims, missing: opts.missing })
+    : null;
+
   const [row] = await db
     .update(leadBriefSchema)
     .set({
@@ -786,6 +884,7 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
       claims: opts.claims,
       missing: opts.missing,
       confidence: opts.confidence,
+      ...(dimensions ? { confidenceDimensions: dimensions } : {}),
       status: REVIEW_STATUS,
       briefedAt,
       briefVersion: opts.briefVersion,
@@ -818,6 +917,7 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
       eq(leadBriefSchema.contactRef, opts.contactRef),
     ))
     .returning({
+      id: leadBriefSchema.id,
       status: leadBriefSchema.status,
       confidence: leadBriefSchema.confidence,
       briefVersion: leadBriefSchema.briefVersion,
@@ -833,6 +933,19 @@ export async function saveLeadBrief(orgId: string, opts: SaveLeadBriefOptions): 
   if (!row) {
     return { saved: false, reason: 'not_on_queue', contactRef: opts.contactRef };
   }
+
+  // The brief and the recommendation become artifact versions here — this is
+  // the write, so this is where a version genuinely belongs. The instruction
+  // that asked for the rewrite, if there was one, is the change summary.
+  await (await import('@/services/personalization/artifacts')).ensureLeadArtifacts(
+    orgId,
+    row.id,
+    {
+      author: { kind: 'agent', id: opts.briefedBy?.agentSlug ? `agent:${opts.briefedBy.agentSlug}` : null },
+      changeSummary: 'Research pass',
+    },
+    ['brief', 'recommendation'],
+  ).catch(() => []);
 
   return {
     saved: true,
@@ -937,13 +1050,14 @@ export async function regenerateBrief(
       skippedReason: null,
       // Drafts hang off the brief, so a rewrite clears them too. A pending
       // enroll item is not cancelled here: the next drafting pass updates it
-      // in place through the dedup key and re-links it.
+      // in place through the dedup key. `reviewActionRunId` is KEPT — the
+      // run is mid-regeneration, not gone, and nulling it made the lead page
+      // lose its card for the whole pass.
       draftSequence: [],
       recommendedSequence: null,
       draftAttempts: 0,
       lastDraftAttemptAt: null,
       draftError: null,
-      reviewActionRunId: null,
       regenerateNote: opts.note,
       // Back to the stamp that means "no research pass behind this row".
       briefVersion: QUEUE_BRIEF_VERSION,
@@ -958,6 +1072,75 @@ export async function regenerateBrief(
     return { regenerated: false, reason: 'not_found', id: opts.id };
   }
   return { regenerated: true, id: opts.id, contactRef: row.contactRef, contactName: row.contactName };
+}
+
+/** Which of the lead's three artifacts a Regenerate was pressed on. */
+export type RegenerateTarget = 'brief' | 'recommendation' | 'sequence';
+
+export type RegenerateArtifactResult = RegenerateResult & { target?: RegenerateTarget };
+
+/**
+ * Send ONE of the lead's three artifacts back to be written again.
+ *
+ * The three targets are not three pipelines — they are three depths of the one
+ * pipeline the sweep already runs, and each resets exactly the stage it owns:
+ *
+ * | Target | Resets | Why that depth |
+ * |---|---|---|
+ * | `brief` | research + everything downstream | the recommendation and the sends are arguments FROM the brief; a new brief invalidates both |
+ * | `recommendation` | the sequence choice and the sends | the recommendation IS the sequence choice plus its reasoning |
+ * | `sequence` | the sends only | the chosen sequence stands; the copy is what is being rewritten |
+ *
+ * The instruction is stored on the row for the next pass to read AND becomes
+ * the change summary of the artifact version the pass writes, which is what
+ * makes the history legible: "v3 — regenerated: the angle leans on an industry
+ * pattern rather than anything about this company".
+ *
+ * Nothing is overwritten in place: the current artifact versions stay exactly
+ * as they are until a pass writes new ones, so a decision taken before the
+ * regeneration lands still pins what it approved.
+ * @param orgId - The project id.
+ * @param opts - The lead, the target and the reviewer's instruction.
+ * @param opts.id - `lead_brief.id`.
+ * @param opts.target - Which artifact.
+ * @param opts.note - The instruction; required for `brief`.
+ */
+export async function regenerateLeadArtifact(
+  orgId: string,
+  opts: { id: number; target: RegenerateTarget; note?: string },
+): Promise<RegenerateArtifactResult> {
+  if (opts.target === 'brief') {
+    // A brief rewrite already resets the whole chain, note required.
+    const res = await regenerateBrief(orgId, { id: opts.id, note: opts.note ?? '' });
+    return { ...res, target: 'brief' };
+  }
+
+  const reset = opts.target === 'recommendation'
+    ? { recommendedSequence: null, draftSequence: [] }
+    : { draftSequence: [] };
+
+  const [row] = await db
+    .update(leadBriefSchema)
+    .set({
+      ...reset,
+      draftAttempts: 0,
+      lastDraftAttemptAt: null,
+      draftError: null,
+      // The lead stays in Review: the brief is still good, so there is still
+      // something to read while the sends are rewritten. Only a brief rewrite
+      // takes the lead off the review screen.
+      ...(opts.note ? { regenerateNote: opts.note } : {}),
+    })
+    .where(and(eq(leadBriefSchema.orgId, orgId), eq(leadBriefSchema.id, opts.id)))
+    .returning({
+      contactRef: leadBriefSchema.contactRef,
+      contactName: leadBriefSchema.contactName,
+    });
+
+  if (!row) {
+    return { regenerated: false, reason: 'not_found', id: opts.id, target: opts.target };
+  }
+  return { regenerated: true, id: opts.id, contactRef: row.contactRef, contactName: row.contactName, target: opts.target };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1010,8 +1193,11 @@ function draftEligible(orgId: string, floor: Date, contactRef?: string) {
     ...(contactRef ? [eq(leadBriefSchema.contactRef, contactRef)] : []),
     // A failed brief never gets drafts: drafting requires written sections.
     sql`jsonb_array_length(${leadBriefSchema.sections}) > 0`,
+    // Empty drafts are the "not yet surfaced" test. A lead with a pending
+    // card has its sends saved, so this alone excludes it; a regenerating
+    // lead KEEPS its `reviewActionRunId` with the drafts wiped, and must
+    // still be claimable — the redraft updates that same run in place.
     sql`jsonb_array_length(${leadBriefSchema.draftSequence}) = 0`,
-    isNull(leadBriefSchema.reviewActionRunId),
     lt(leadBriefSchema.draftAttempts, MAX_DRAFT_ATTEMPTS),
     or(isNull(leadBriefSchema.lastDraftAttemptAt), lt(leadBriefSchema.lastDraftAttemptAt, floor)),
   );
@@ -1119,6 +1305,13 @@ export type SaveDraftSequenceOptions = {
   sends: DraftSend[];
   /** The EXISTING sequence the agent recommends — from the sequence library read. */
   recommendedSequence: { id: string; name: string; reason?: string };
+  /**
+   * What the drafting agent thinks a reviewer should do with the card this
+   * call files, and why, in its own words. Absent only from a caller that
+   * never asked the model — the card then carries no recommendation rather
+   * than one written here on the agent's behalf.
+   */
+  advice?: { suggestedDecision?: 'approve' | 'reject' | 'snooze'; suggestedDecisionReason?: string };
   senderEmail: string;
   /** HubSpot user id from the library read — scopes verification and the later enrollment. */
   hubspotUserId?: string;
@@ -1250,8 +1443,22 @@ export async function saveDraftSequence(orgId: string, opts: SaveDraftSequenceOp
     proposal: {
       confidence: row.confidence ?? undefined,
       rationale: opts.recommendedSequence.reason,
+      // The drafting agent's own verdict on this lead, asked for by
+      // `save_draft_sequence`. Absent means the card carries no
+      // recommendation — never one written here on the agent's behalf, which
+      // the agreement rate would score as though the agent had made it.
+      ...recommendedActionAdvice(opts.advice ?? {}),
     },
   });
+
+  // The recommendation and the draft sequence become artifact versions here —
+  // the sequence choice IS the recommendation, so both move together (0112).
+  await (await import('@/services/personalization/artifacts')).ensureLeadArtifacts(
+    orgId,
+    row.id,
+    { author: { kind: 'agent', id: invokedBy }, changeSummary: 'Drafting pass' },
+    ['recommendation', 'sequence'],
+  ).catch(() => []);
 
   return {
     saved: true,

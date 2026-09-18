@@ -4,8 +4,9 @@ import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody } from '
 import { obj, str, workerRunErrorResponse } from '../../_lib';
 
 /**
- * POST /api/v1/worker-runs/:id/complete  { workerId, result?, counts? }
+ * POST /api/v1/worker-runs/:id/complete  { workerId, result?, counts?, summary? }
  * Terminal. A run that had been asked to stop is recorded as `cancelled`.
+ * `summary` is the worker's own one-paragraph account, shown on the team report.
  * @param req - Request.
  * @param context - Route params.
  * @param context.params
@@ -29,7 +30,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   try {
     assertExternalWorkersEnabled();
-    const run = await completeWorkerRun({ orgId: caller.orgId, id, workerId, result: obj(body, 'result'), counts: obj(body, 'counts') as Record<string, number> | undefined });
+    const run = await completeWorkerRun({ orgId: caller.orgId, id, workerId, result: obj(body, 'result'), counts: obj(body, 'counts') as Record<string, number> | undefined, summary: str(body, 'summary') });
     return NextResponse.json({ run });
   } catch (error) {
     return workerRunErrorResponse(error);

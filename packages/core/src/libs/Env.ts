@@ -29,8 +29,11 @@ export const Env = createEnv({
     LANGFUSE_PUBLIC_KEY: z.string().optional(),
     LANGFUSE_SECRET_KEY: z.string().optional(),
     /**
-     * Anthropic extended-thinking budget (tokens, e.g. 2048) for the
-     * `main` model role. Unset = thinking disabled (default behavior).
+     * Anthropic extended thinking for the `main` model role. Unset =
+     * thinking disabled (default behavior). On Claude 4.6 and newer the
+     * value is only the ON switch — the request goes out as adaptive
+     * thinking and the model sizes its own budget. On older Claude it is
+     * the token budget (e.g. 2048).
      * See `libs/llm/langchain.ts` — enabling this forces temperature 1
      * on the main model per the Anthropic API constraint.
      */
@@ -41,6 +44,24 @@ export const Env = createEnv({
      * so taking the escape hatch away is a config change, not a deploy.
      */
     VOCION_ALLOW_QUEUE_RESET: z.string().optional(),
+    /**
+     * Outbound email (`libs/mail`). Ships dark: nothing is sent unless
+     * VOCION_MAIL_ENABLED is exactly '1'. The transport is Resend; the
+     * sender must be on a domain verified in Resend. Read through
+     * `mailEnabled()` / `mailConfig()`, not directly.
+     */
+    VOCION_MAIL_ENABLED: z.string().optional(),
+    RESEND_API_KEY: z.string().optional(),
+    VOCION_MAIL_FROM: z.string().optional(),
+    /**
+     * Email as a chat surface (`libs/surfaces/email.ts`). Ships dark:
+     * `VOCION_EMAIL_SURFACE=1` turns the Resend inbound webhook on;
+     * `VOCION_MAIL_DOMAIN` is the domain workspaces may claim addresses on;
+     * `RESEND_WEBHOOK_SECRET` signs the webhook (Svix, `whsec_…`).
+     */
+    VOCION_EMAIL_SURFACE: z.string().optional(),
+    VOCION_MAIL_DOMAIN: z.string().optional(),
+    RESEND_WEBHOOK_SECRET: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -76,6 +97,12 @@ export const Env = createEnv({
     LANGFUSE_SECRET_KEY: process.env.LANGFUSE_SECRET_KEY,
     VOCION_THINKING_BUDGET: process.env.VOCION_THINKING_BUDGET,
     VOCION_ALLOW_QUEUE_RESET: process.env.VOCION_ALLOW_QUEUE_RESET,
+    VOCION_MAIL_ENABLED: process.env.VOCION_MAIL_ENABLED,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    VOCION_MAIL_FROM: process.env.VOCION_MAIL_FROM,
+    VOCION_EMAIL_SURFACE: process.env.VOCION_EMAIL_SURFACE,
+    VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
+    RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,

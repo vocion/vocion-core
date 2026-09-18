@@ -56,7 +56,7 @@ function proposalFor(over: Record<string, unknown> = {}) {
       fields: {
         title: 'Open Mic Night',
         start: '2026-09-19T19:30',
-        venue: 'The Flynn',
+        venue: 'The Corvina',
         price: 'Free',
         ...over,
       },
@@ -67,6 +67,8 @@ function proposalFor(over: Record<string, unknown> = {}) {
     },
     confidence: 0.9,
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
+    suggested_decision: 'approve' as const,
+    suggested_decision_reason: 'Matches the listing criteria and nothing like it is already in the queue.',
   };
 }
 
@@ -161,7 +163,7 @@ describe('the agent proposing a candidate', () => {
     await tool.invoke(proposalFor());
     const [object] = await candidateObjects();
 
-    expect(object?.metadata).toMatchObject({ title: 'Open Mic Night', venue: 'The Flynn', price: 'Free' });
+    expect(object?.metadata).toMatchObject({ title: 'Open Mic Night', venue: 'The Corvina', price: 'Free' });
     // Bookkeeping lives apart from the record, so a schema-driven UI can
     // render metadata without filtering our own keys back out of it.
     expect(object?.metadata).not.toHaveProperty('sourceUrl');
@@ -273,7 +275,7 @@ describe('the agent proposing a candidate', () => {
   });
 
   it('refuses a proposal with no dedupOn, and says so plainly — not a raw validation dump', async () => {
-    // VEERIO-257 regression: `inputSchema.parse` throwing a ZodError used to
+    // LARK-257 regression: `inputSchema.parse` throwing a ZodError used to
     // reach the model as `Proposal failed: [{"code":"custom",...}]` — the
     // hand-authored message buried in JSON. It must read like the precheck
     // refusal above: a plain sentence naming the fix.
@@ -293,7 +295,7 @@ describe('the agent proposing a candidate', () => {
   it('refuses a dedupOn nested inside fields, and says so plainly — not a raw validation dump', async () => {
     const tool = proposeActionTool(runtimeContext());
     // `proposalFor`'s override spreads into `fields`, so this is exactly the
-    // VEERIO-257 shape that reached production: the real identity list
+    // LARK-257 shape that reached production: the real identity list
     // nested under `fields.dedupOn`, top-level `dedupOn` left as the
     // playbook's example.
     const proposal = proposalFor({ dedupOn: ['title'] });

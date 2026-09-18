@@ -30,8 +30,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
 /**
  * PATCH /api/v1/learning-candidates/:id
  *
- * Reword a pending candidate, or point it at a different learning step. Body:
- * `{ editedRuleText?, stepName? }`.
+ * Reword a pending candidate, point it at a different learning step, change
+ * its memory type, or re-scope it. Body: `{ editedRuleText?, stepName?,
+ * memoryType?, scopeKind?, scopeRef? }` (scopeKind: null clears back to
+ * workspace scope).
  *
  * The original `ruleText` is never overwritten, so what the classifier actually
  * proposed stays on the record. A candidate that has already been decided
@@ -60,6 +62,10 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
     id,
     editedRuleText: typeof body.editedRuleText === 'string' ? body.editedRuleText : undefined,
     stepName: typeof body.stepName === 'string' ? body.stepName : undefined,
+    memoryType: typeof body.memoryType === 'string' ? body.memoryType : undefined,
+    // null clears a scope back to workspace; absent leaves it alone.
+    scopeKind: typeof body.scopeKind === 'string' || body.scopeKind === null ? body.scopeKind as string | null : undefined,
+    scopeRef: typeof body.scopeRef === 'string' || body.scopeRef === null ? body.scopeRef as string | null : undefined,
   });
 
   if (result.ok) {

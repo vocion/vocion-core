@@ -5,6 +5,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { actionRunSchema, agentSchema, toolCallSchema } from '@/models/Schema';
+import { inboxHref } from '@/services/inbox/inboxRef';
 
 /**
  * Agent activity + review for one business object — the provenance panel on
@@ -14,7 +15,7 @@ import { actionRunSchema, agentSchema, toolCallSchema } from '@/models/Schema';
  * action on a record (route it, follow up on it) is an `action_run`
  * referencing the object, so "review the applicant" and "review the action"
  * are the same row, the same status transition, the same audit trail as
- * `/dashboard/review`. What agents already did to the record is the
+ * `/dashboard/inbox?kind=proposal` (Review queue). What agents already did to the record is the
  * `tool_call` log, filtered to this object. No new tables, no new queue.
  *
  * Linkage convention: a row references an object via `input.objectRef`
@@ -97,9 +98,9 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
         Agent activity
       </div>
       <p className="mb-4 text-xs text-muted-foreground">
-        Every agent action on this record, with its reasoning — pending items are the same review queue as
+        Every agent action on this record, with its reasoning — pending items are the same proposals as on
         {' '}
-        <Link href="/dashboard/review" className="underline">Review</Link>
+        <Link href="/dashboard/inbox?kind=proposal" className="underline">Review queue</Link>
         .
       </p>
 
@@ -125,7 +126,7 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
                       % confident
                     </span>
                   )}
-                  <Link href="/dashboard/review" className="ml-auto text-xs underline">Decide in Review</Link>
+                  <Link href={inboxHref('proposal', a.id)} className="ml-auto text-xs underline">Decide</Link>
                 </div>
                 {a.proposal?.rationale && <p className="mt-1.5 text-sm text-muted-foreground">{a.proposal.rationale}</p>}
               </div>

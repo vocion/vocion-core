@@ -43,7 +43,8 @@ function log(
 type Task = NonNullable<typeof missionRunSchema.$inferSelect['plan']>['tasks'][number];
 type Artifact = NonNullable<typeof missionRunSchema.$inferSelect['artifacts']>[number];
 
-const ARTIFACT_URL_RE = /\/artifacts\/[\w.-]+/;
+// Matches the authenticated route (`/api/artifacts/<id>/<file>`) and the pre-0095 static path.
+const ARTIFACT_URL_RE = /\/(?:api\/)?artifacts\/[\w.-]+(?:\/[\w.-]+)?/;
 
 function depsSatisfied(task: Task, tasks: Task[]): boolean {
   if (!task.dependsOn?.length) {

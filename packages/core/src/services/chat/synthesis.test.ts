@@ -52,11 +52,11 @@ const followUp = (contact: string, opts: { due?: string; priority?: string; stat
 describe('buildTrackerDigest (pure)', () => {
   it('counts per type, flags overdue open rows, and computes days past due', () => {
     const digest = buildTrackerDigest([
-      followUp('Carlo Marcelino', { due: '2026-07-19', priority: 'high' }),
+      followUp('Nadia Brandt', { due: '2026-07-19', priority: 'high' }),
       followUp('Matthew Polstein', { due: '2026-07-19' }),
       followUp('Done Person', { due: '2026-07-01', status: 'done' }),
       followUp('Future Person', { due: '2026-07-25' }),
-      { typeSlug: 'event', title: 'Gauge AI Tech Summit 2026', status: 'active', metadata: { date: '2026-07-16' } },
+      { typeSlug: 'event', title: 'Kestrel AI Tech Summit 2026', status: 'active', metadata: { date: '2026-07-16' } },
     ], NOW);
 
     expect(digest.total).toBe(5);
@@ -65,12 +65,12 @@ describe('buildTrackerDigest (pure)', () => {
 
     expect(fu.count).toBe(4);
     expect(fu.openCount).toBe(3); // "done" row is closed
-    expect(fu.overdueCount).toBe(2); // Carlo + Matthew; future row is not overdue
+    expect(fu.overdueCount).toBe(2); // Nadia + Matthew; future row is not overdue
 
-    const carlo = digest.topUrgent.find(r => r.name === 'Carlo Marcelino')!;
+    const nadia = digest.topUrgent.find(r => r.name === 'Nadia Brandt')!;
 
-    expect(carlo.due).toBe('2026-07-19');
-    expect(carlo.overdueDays).toBe(1);
+    expect(nadia.due).toBe('2026-07-19');
+    expect(nadia.overdueDays).toBe(1);
   });
 
   it('ranks high-priority rows first, then most-overdue, and caps at the top N', () => {
@@ -129,7 +129,7 @@ describe('prompt-injection hygiene — tracker text is data, not instructions', 
       agentName: 'Founder GTM Lead',
       missions: [{ name: 'Referral Warming', goal: 'Steady warm touches produce introductions.', successCriteria: ['Intros are logged'], schedule: '0 14 * * 2' }],
       skills: [{ name: 'Draft Warm Touch', description: 'Draft one warm touch.' }],
-      digest: buildTrackerDigest([followUp('Jim Lott', { due: '2026-07-19', priority: 'high' })], NOW),
+      digest: buildTrackerDigest([followUp('Dana Reyes', { due: '2026-07-19', priority: 'high' })], NOW),
       recentSourceActivity: [{ sourceSlug: 'gmail', docsLast7Days: 12 }],
       today: '2026-07-20',
     });
@@ -137,7 +137,7 @@ describe('prompt-injection hygiene — tracker text is data, not instructions', 
     expect(user).toContain('Referral Warming');
     expect(user).toContain('Steady warm touches produce introductions.');
     expect(user).toContain('Draft Warm Touch');
-    expect(user).toContain('Jim Lott');
+    expect(user).toContain('Dana Reyes');
 
     // Grounding priority: missions/tracker are PRIORITY, sources SUPPLEMENT.
     expect(user).toContain('PRIORITY — TRACKER STATE');
@@ -213,16 +213,16 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
       {
         orgId: ORG,
         typeId: type!.id,
-        title: 'Follow up with Carlo Marcelino (Sago)',
+        title: 'Follow up with Nadia Brandt (Rookwood Research)',
         status: 'open',
-        metadata: { contact: 'Carlo Marcelino', company: 'Sago', due_date: '2026-07-19', priority: 'high' },
+        metadata: { contact: 'Nadia Brandt', company: 'Rookwood Research', due_date: '2026-07-19', priority: 'high' },
       },
       {
         orgId: ORG,
         typeId: type!.id,
-        title: 'Follow up with Jim Lott (Gauge Capital)',
+        title: 'Follow up with Dana Reyes (Kestrel Capital)',
         status: 'open',
-        metadata: { contact: 'Jim Lott', company: 'Gauge Capital', due_date: '2026-07-19', priority: 'high' },
+        metadata: { contact: 'Dana Reyes', company: 'Kestrel Capital', due_date: '2026-07-19', priority: 'high' },
       },
     ]);
   });
@@ -244,7 +244,7 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
   it('returns the two constant-label anchors, then model extras sorted by rank', async () => {
     invokeMock.mockResolvedValue(llmResult([
       { label: 'Second thing', prompt: 'Do the second thing', rank: 2 },
-      { label: 'Draft the Carlo Marcelino note', prompt: 'Draft the overdue Carlo Marcelino note', rank: 1 },
+      { label: 'Draft the Nadia Brandt note', prompt: 'Draft the overdue Nadia Brandt note', rank: 1 },
     ]));
 
     const chips = await synthesizeAgentChips(ORG, 'founder-gtm-lead');
@@ -252,7 +252,7 @@ describe('synthesizeAgentChips (PGlite + mocked model)', () => {
     expect(chips.map(c => c.label)).toEqual([
       NEXT_ACTIONS_LABEL,
       CAPABILITIES_LABEL,
-      'Draft the Carlo Marcelino note',
+      'Draft the Nadia Brandt note',
       'Second thing',
     ]);
     expect(chips[0]!.prompt).toBe(NEXT_ACTIONS_PROMPT); // fixed generic anchor, not model-generated

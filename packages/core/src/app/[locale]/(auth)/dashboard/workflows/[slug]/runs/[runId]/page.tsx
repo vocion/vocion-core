@@ -181,7 +181,7 @@ export default async function WorkflowRunDetailPage(props: Props) {
                         <p className="text-sm text-muted-foreground italic">
                           {status === 'pending' && 'Not yet started.'}
                           {status === 'running' && 'Running…'}
-                          {status === 'awaiting_approval' && 'Paused for human approval. Review the previous step\'s draft, then approve or reject in /dashboard/review.'}
+                          {status === 'awaiting_approval' && 'Paused for human approval. Review the previous step\'s draft, then approve or reject on the review queue (/dashboard/inbox?kind=run).'}
                           {status === 'completed' && '(no output)'}
                         </p>
                       )}

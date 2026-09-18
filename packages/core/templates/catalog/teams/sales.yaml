@@ -1,0 +1,6 @@
+name: Sales
+description: >-
+  Owns relationships across time and works whatever arrives in the
+  queue before it goes cold.
+lead: account-manager
+# No accountableUser: inherits the workspace default when one is set.

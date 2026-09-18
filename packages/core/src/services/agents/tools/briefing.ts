@@ -6,7 +6,7 @@
  * - publish_briefing: stamps the caller's agent + team.
  * - get_briefing: the caller's TEAM brief by default (arg `team` to read
  *   another team's, `rollup` for the workspace rollup) + freshness signal.
- * - refresh_briefing: regenerates the caller's team brief IN THE BACKGROUND by
+ * - refresh_briefing: refreshes the caller's team brief IN THE BACKGROUND by
  *   running the team's lead agent with a publish instruction (generic — works
  *   for every team, no per-team mission required). Rollup refresh runs the
  *   workspace lead over the latest team briefs. Never blocks the turn.
@@ -18,6 +18,12 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { agentSchema, briefingSchema, teamSchema } from '@/models/Schema';
+import { PublishBriefingInputSchema } from '@/services/briefings/agentInput';
+import { renderedSections } from '@/services/briefings/document';
+import { TEAM_BRIEF_INSTRUCTION, WORKSPACE_BRIEF_INSTRUCTION } from '@/services/briefings/instructions';
+import { publishBriefingDocument } from '@/services/briefings/store';
+import { BriefingContractError } from '@/services/briefings/validate';
+import { isFromToday, renderBriefingForAgent } from './briefingCitation';
 
 async function callerTeam(ctx: RuntimeContext): Promise<{ teamSlug: string | null; leadSlug: string | null }> {
   if (!ctx.agentSlug) {
@@ -50,37 +56,49 @@ async function latestBriefing(orgId: string, teamSlug: string | null) {
   return row ?? null;
 }
 
-function isFromToday(d: Date): boolean {
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-}
-
 export function publishBriefingTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
-      const { title, content, rollup } = args as { title: string; content: string; rollup?: boolean };
+      // The publisher dates the briefing (`publishBriefingDocument`); the
+      // model only names it, and whatever date it wrote is stripped there.
+      const input = PublishBriefingInputSchema.parse(args);
       const { teamSlug } = await callerTeam(ctx);
-      const [row] = await db
-        .insert(briefingSchema)
-        .values({
-          orgId: ctx.orgId,
-          title: title.slice(0, 200),
-          content,
-          publishedBy: ctx.agentSlug ? `agent:${ctx.agentSlug}` : (ctx.userId ?? null),
+      const scope = input.rollup ? null : teamSlug;
+      try {
+        const { id, doc, dropped, replaced } = await publishBriefingDocument(ctx.orgId, input, {
+          teamSlug: scope,
           agentSlug: ctx.agentSlug ?? null,
-          teamSlug: rollup ? null : teamSlug,
-        })
-        .returning({ id: briefingSchema.id });
-      return `Briefing #${row!.id} published${rollup ? ' (workspace rollup)' : teamSlug ? ` for team ${teamSlug}` : ''} — live under Workspace → Briefings.`;
+          userId: ctx.userId ?? null,
+        });
+        const sections = renderedSections(doc).join(', ');
+        const notes = dropped.length > 0 ? `\nThe contract trimmed some of it: ${dropped.map(d => d.message).join('; ')}.` : '';
+        // A republish minutes after the first replaced it — say so, so the
+        // agent does not report two briefings when there is one.
+        const verb = replaced ? 'updated (it replaced the version you published a moment ago)' : 'published';
+        return `Briefing #${id} ${verb}${scope === null ? ' (workspace)' : ` for team ${scope}`} — /dashboard/briefings/${id}.\nSections rendered: ${sections}.${notes}`;
+      } catch (err) {
+        if (err instanceof BriefingContractError) {
+          return `NOT published — the briefing contract refused it:\n${err.issues.map(i => `- ${i.section}: ${i.message}`).join('\n')}\nFix those and call publish_briefing again.`;
+        }
+        throw err;
+      }
     },
     {
       name: 'publish_briefing',
-      description: 'Publish a briefing (markdown) to the Briefings page, scoped to YOUR team automatically. Set rollup:true only when publishing the cross-team workspace rollup (workspace lead). The FULL briefing goes in content.',
-      schema: z.object({
-        title: z.string().min(1).describe('e.g. "Founder GTM Brief — Thu, Jul 23"'),
-        content: z.string().min(1).describe('The complete briefing, markdown.'),
-        rollup: z.boolean().optional().describe('true = the workspace-wide rollup brief (workspace lead only).'),
-      }),
+      description: [
+        'Publish the briefing to the Briefings page, scoped to YOUR team automatically (rollup:true for the cross-team workspace brief).',
+        'You supply observations and judgement ONLY. The product decides the rest and will overrule you:',
+        'section presence and order, which metrics survive, every delta (computed against the previous brief by key),',
+        'the on-track verdict (never green without a verified or observed measure with a target),',
+        'and the critical path, where every item must carry BOTH the date it falls on and the evidence it rests on;',
+        'anything not dated today, or citing nothing, is dropped. A time of day is not a date, so never copy an item forward',
+        'from a previous briefing, and never put a meeting on the clock unless you can name the calendar event it comes from,',
+        'which decisions are shown and how many (at most 3 unless you mark a genuine incident), and the history.',
+        'Do not write a section that says nothing happened — omit it and it will not render.',
+        'Never put agent names, job names, tool names, run ids, token counts, connector field names or table names in any narrative field:',
+        'they belong in agentActivity, and the publisher will pull them out and footnote them if you do.',
+      ].join(' '),
+      schema: PublishBriefingInputSchema,
     },
   );
 }
@@ -110,9 +128,7 @@ export function getBriefingTool(ctx: RuntimeContext) {
       if (!brief) {
         return `No ${label} briefing published yet. Call refresh_briefing to generate one.`;
       }
-      const when = brief.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      const status = isFromToday(brief.createdAt) ? `current (published today, ${when})` : `STALE — last published ${when}, not today; consider refresh_briefing`;
-      return `Latest ${label} briefing — "${brief.title}" — ${status}\n\n${brief.content}\n\n---\nREMINDER (harness): the brief above is CONTEXT, not your answer. If you surface actionable/owed touches to the user, your workspace rules still apply — emit the required recommend_action card for EACH touch you name BEFORE writing your answer; never substitute a "want me to draft it?" question for a card.`;
+      return renderBriefingForAgent(ctx, brief, label);
     },
     {
       name: 'get_briefing',
@@ -135,13 +151,11 @@ export function refreshBriefingTool(ctx: RuntimeContext) {
       if (!runner) {
         return 'No team lead resolved for this agent — cannot regenerate.';
       }
-      const instruction = teamSlug
-        ? `Assemble and publish your team's daily brief NOW. Ground it in the tracker, your missions, and fresh sources (freshen gmail first if relevant). Structure it as a scannable document (sections, priority-ranked actions). Publish via publish_briefing when done — do not ask for permission.`
-        : `Assemble and publish the WORKSPACE ROLLUP brief NOW: read each team's latest brief (get_briefing with team:"<slug>"), synthesize the cross-team picture (top priorities, risks, asks), and publish via publish_briefing with rollup:true. Do not ask for permission.`;
+      const instruction = teamSlug ? TEAM_BRIEF_INSTRUCTION : WORKSPACE_BRIEF_INSTRUCTION;
       const { runAgentDeep } = await import('@/services/AgentService');
       void runAgentDeep({ orgId: ctx.orgId, agentSlug: runner, message: instruction, userId: ctx.userId ?? 'refresh-briefing' })
         .catch((err: unknown) => console.error(`refresh_briefing run failed: ${String(err)}`));
-      return `Regenerating the ${teamSlug ?? 'rollup'} briefing in the background (${runner} is assembling it) — it'll appear under Briefings in a minute or two. Tell the user it's regenerating; don't wait on it.`;
+      return `Refreshing the ${teamSlug ?? 'rollup'} briefing in the background (${runner} is assembling it) — it'll appear under Briefings in a minute or two. Tell the user it's refreshing; don't wait on it.`;
     },
     {
       name: 'refresh_briefing',

@@ -27,6 +27,9 @@ vi.mock('@/services/agents/tools/registry', () => ({ buildDomainTools: vi.fn(() 
 vi.mock('deepagents', () => ({
   createDeepAgent: vi.fn((opts: unknown) => ({ compiled: true, opts })),
   StateBackend: class {},
+  StoreBackend: class {},
+  CompositeBackend: class {},
+  filesValue: {},
 }));
 
 const { createDeepAgent } = await import('deepagents');

@@ -1,8 +1,12 @@
-import { Check, TriangleAlert, Wrench } from 'lucide-react';
+import type { Metadata } from 'next';
+import { Wrench } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
+import { combinedPageTitle } from '@/features/navigation/combinedPages';
+import { ReadinessBadge } from '@/features/tools/ReadinessBadge';
 import { Link } from '@/libs/I18nNavigation';
 import { BUILTIN_TOOLS, capabilityStatuses } from '@/libs/tools/catalog';
+import { requireOrganization } from '@/utils/Auth';
 
 const CATEGORY_LABELS: Record<string, string> = {
   research: 'Research the web',
@@ -10,13 +14,29 @@ const CATEGORY_LABELS: Record<string, string> = {
   compute: 'Compute',
 };
 
+/**
+ * Whose key each capability spends, in the words a workspace admin would use.
+ * `none` covers both "needs no key" and "nobody has one", which the readiness
+ * badge on the same card tells apart, so it says nothing rather than guessing.
+ */
+const KEY_SOURCE_LABELS: Record<string, string> = {
+  workspace: 'On this workspace\'s key',
+  server: 'On the Vocion server key',
+  unknown: 'Could not check this workspace\'s key',
+  none: '',
+};
+
+/** The Tools tab of "Skills & tools" — see `skills/page.tsx`. */
+export const metadata: Metadata = { title: combinedPageTitle('/dashboard/tools') };
+
 export default async function ToolsPage(props: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
 
-  const statuses = capabilityStatuses();
+  const { orgId } = await requireOrganization();
+  const statuses = await capabilityStatuses(orgId);
   const statusByCapability = new Map(statuses.map(s => [s.capability, s]));
   const ready = statuses.filter(s => s.ready).length;
 
@@ -24,9 +44,9 @@ export default async function ToolsPage(props: {
 
   return (
     <>
-      <TitleBar
-        title="Tools"
-        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Providers are pluggable via env."
+      <CombinedPageHeader
+        active="/dashboard/tools"
+        description="Built-in capabilities every agent can use out of the box — live web search, browsing, image generation, calculation, and artifacts. Paid providers run on this workspace's own key when it has stored one, and on the Vocion server key otherwise."
       />
 
       <div className="mb-6 grid grid-cols-3 gap-3">
@@ -43,13 +63,14 @@ export default async function ToolsPage(props: {
           }
           return (
             <section key={cat}>
-              <h2 className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <h2 className="mb-3 text-xs font-medium text-muted-foreground">
                 {CATEGORY_LABELS[cat]}
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {tools.map((tool) => {
                   const status = statusByCapability.get(tool.capability);
                   const isReady = status?.ready ?? true;
+                  const keySourceLabel = KEY_SOURCE_LABELS[status?.keySource ?? 'none'];
                   return (
                     <Link
                       key={tool.name}
@@ -60,22 +81,22 @@ export default async function ToolsPage(props: {
                         <Wrench className="size-4 text-primary" />
                         <span className="text-sm font-medium">{tool.title}</span>
                         <span className="ml-auto">
-                          {isReady
-                            ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                                  <Check className="size-3" />
-                                  Ready
-                                </span>
-                              )
-                            : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                                  <TriangleAlert className="size-3" />
-                                  Needs key
-                                </span>
-                              )}
+                          <ReadinessBadge
+                            ready={isReady}
+                            keyStateUnknown={status?.keySource === 'unknown'}
+                          />
                         </span>
                       </div>
-                      <div className="mb-2 font-mono text-[11px] text-muted-foreground">{tool.name}</div>
+                      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="font-mono">{tool.name}</span>
+                        {keySourceLabel !== '' && (
+                          <span>
+                            ·
+                            {' '}
+                            {keySourceLabel}
+                          </span>
+                        )}
+                      </div>
                       <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{tool.description}</p>
                       <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
                         <span>

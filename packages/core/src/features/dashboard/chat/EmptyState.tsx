@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
+import { NO_AGENTS_HREF } from '@/libs/chat/redact';
+import { Link } from '@/libs/I18nNavigation';
 
 /**
  * Empty state — "insert quarter, shoot aliens".
@@ -13,13 +15,19 @@ import { useState } from 'react';
  * no product copy, no instructional labels — the composer below is the whole
  * invitation. Chips fire `onPick(prompt)` which the parent shell auto-sends.
  *
- * Layout: one left-aligned content column (mobile-first, 390px). Chips are a
- * wrapping row cloud hugging the column's left edge under the greeting — not
- * a centered pyramid. The cloud reserves two pill rows of height so chips
- * fading in (or the loading shimmer swapping out) never shift the composer.
+ * Layout (2026-09-15): one left-aligned column pinned to the BOTTOM of the
+ * pane, ~28px above the composer. It floated dead-centre in a tall rail
+ * before, which put the invitation as far from the box you type in as the
+ * geometry allowed. The headline is one size down and one colour — the
+ * two-tone "Ask <Workspace>" split the eye between an instruction and a name.
  *
- * Chips stay quiet: the top few ranked suggestions show; the rest expand in
- * place via a muted trailing "More" text-button at the end of the row.
+ * Chips stay quiet and all one height: the top two ranked suggestions show,
+ * the rest expand in place behind a ghost "More" at the end of the row. The
+ * cloud reserves two pill rows so chips fading in (or the loading shimmer
+ * swapping out) never shift the composer.
+ *
+ * On a short pane (a phone in landscape, a split rail) the headline steps
+ * aside and the chips ARE the empty state — they are the actionable half.
  */
 
 export type EmptyStateSuggestion = {
@@ -47,44 +55,57 @@ export type EmptyStateProps = {
  */
 const VISIBLE_CHIPS = 2;
 
+/** The cap once "More" is tapped — still two wrapped rows at rail widths. */
+const EXPANDED_CHIPS = 5;
+
 /**
- * Small quiet pill, ≥44px touch height (min-h-11) with tight visual padding.
- * Staggered 150ms fade-in — subtle, no layout shift (the cloud reserves its
- * height).
+ * Small quiet pill — one height (40px) for every chip, "More" included, so
+ * the cloud reads as one row of equals rather than a ragged mix. Staggered
+ * 150ms fade-in; no layout shift, because the cloud reserves its height.
  */
-const chipClass = 'min-h-11 max-w-full truncate rounded-full border border-border/70 bg-background px-3.5 py-1.5 text-sm text-muted-foreground transition hover:border-brand-amber hover:bg-brand-amber-tint hover:text-brand-amber-deep animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:bg-background disabled:hover:text-muted-foreground';
+const chipClass = 'flex h-10 max-w-full shrink-0 items-center truncate rounded-full border border-border/70 bg-background px-3.5 text-[13px] text-muted-foreground transition-colors hover:border-brand-amber/60 hover:bg-brand-amber-tint hover:text-brand-amber-deep animate-in fade-in fill-mode-both duration-150 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border/70 disabled:hover:bg-background disabled:hover:text-muted-foreground';
 
 export function EmptyState({ greeting, suggestions = [], suggestionsLoading = false, onPick, titleSlot, disabled = false }: EmptyStateProps) {
   const [expanded, setExpanded] = useState(false);
   const workspace = greeting?.workspace ?? 'your workspace';
 
-  const visible = expanded ? suggestions : suggestions.slice(0, VISIBLE_CHIPS);
+  // Two rows of chips is the cap: the cloud is a nudge, not a menu. Expanded
+  // shows the rest up to `EXPANDED_CHIPS`, which still wraps inside two rows
+  // at the widths the rail actually opens at.
+  const visible = expanded ? suggestions.slice(0, EXPANDED_CHIPS) : suggestions.slice(0, VISIBLE_CHIPS);
   const hiddenCount = suggestions.length - VISIBLE_CHIPS;
 
   return (
-    <div className="flex flex-1 flex-col justify-center px-4 sm:px-6">
+    // Bottom-aligned: the invitation sits just above the box it invites you
+    // to type in, not in the middle of whatever height the rail happens to be.
+    <div className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto px-4 pb-7 sm:px-6">
       <div className="mx-auto w-full max-w-md">
-        {greeting?.eyebrow && (
-          <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {greeting.eyebrow}
-          </p>
-        )}
+        {/* Short pane: the chips are the empty state. */}
+        <div className="[@media(max-height:560px)]:hidden">
+          {greeting?.eyebrow && (
+            <p className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              {greeting.eyebrow}
+            </p>
+          )}
 
-        <h2 className="font-display text-2xl font-light tracking-tight sm:text-3xl">
-          Ask
-          {' '}
-          {titleSlot ?? <span className="text-brand-amber-deep">{workspace}</span>}
-        </h2>
+          <h2 className="font-display text-xl font-light tracking-tight text-foreground sm:text-2xl">
+            Ask
+            {' '}
+            {titleSlot ?? workspace}
+          </h2>
+        </div>
 
-        {/* Chip cloud — left-aligned wrapping row. min-h reserves two pill
-            rows (2 × 44px + gap) so the shimmer → chips swap is shift-free. */}
+        {/* Chip cloud — left-aligned wrapping row, one pill row reserved.
+            The block is bottom-anchored now, so a shimmer → chips swap moves
+            the headline, never the composer; reserving two rows only added a
+            dead band between the chips and the box. */}
         {(suggestionsLoading || suggestions.length > 0) && (
-          <div className="mt-6 flex min-h-24 w-full flex-wrap content-start items-start gap-2">
+          <div className="mt-4 flex min-h-10 w-full flex-wrap content-start items-start gap-2">
             {suggestionsLoading
               ? (
                   <>
-                    <div className="h-11 w-44 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
-                    <div className="h-11 w-32 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
+                    <div className="h-10 w-44 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
+                    <div className="h-10 w-32 max-w-full animate-pulse rounded-full bg-muted/70" aria-hidden="true" />
                   </>
                 )
               : (
@@ -106,7 +127,7 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
                         type="button"
                         onClick={() => setExpanded(e => !e)}
                         aria-label={expanded ? 'Show fewer suggestions' : `Show ${hiddenCount} more suggestions`}
-                        className="flex min-h-11 items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground/70 transition hover:text-foreground"
+                        className="flex h-10 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground"
                       >
                         {expanded ? 'Less' : 'More'}
                         {expanded
@@ -119,6 +140,29 @@ export function EmptyState({ greeting, suggestions = [], suggestionsLoading = fa
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * What the conversation says in a workspace that has no agents yet.
+ *
+ * Said BEFORE a turn runs, not after one fails: the person who opens a chat
+ * on a fresh database has a next step, and it is not "type something and find
+ * out". The composer stays live beside it — somebody may still want to ask
+ * what to do, and `useChatSession` answers that question with this same
+ * sentence rather than with the server's not-found error.
+ */
+export function NoAgentsState() {
+  return (
+    <div data-testid="no-agents-state" className="flex min-h-0 flex-1 flex-col justify-end px-4 pb-7 sm:px-6">
+      <p className="max-w-md text-[15px] leading-relaxed text-foreground/80">
+        This workspace has no agents yet.
+        {' '}
+        <Link href={NO_AGENTS_HREF} className="font-medium text-brand-amber-deep underline underline-offset-2">
+          Apply a workspace or add one under Manage → Teams &amp; agents.
+        </Link>
+      </p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
-import { ExternalLink, Search as SearchIcon } from 'lucide-react';
+import type { SearchResult, SourceChipData } from '@/features/search/SearchResults';
 import { setRequestLocale } from 'next-intl/server';
-import { Badge } from '@/components/ui/badge';
-import { TitleBar } from '@/features/dashboard/TitleBar';
+import { ListPage } from '@/components/patterns';
+import { SearchResults } from '@/features/search/SearchResults';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { searchLegacyShape } from '@/libs/retrieval/legacyDocument';
 import { documentCountsForOrg, listRecentDocuments, listSources } from '@/services/SourceSyncService';
@@ -13,34 +13,52 @@ type SearchDoc = {
   link?: string;
   blurb?: string;
   score?: number;
-  boost?: number;
   updated_at?: string;
 };
 
+/**
+ * Search — the List archetype against hybrid retrieval. This file reads; the
+ * list itself is `features/search/SearchResults`, and a result opens on
+ * `/dashboard/search/[documentId]`.
+ * @param props
+ * @param props.params
+ * @param props.searchParams
+ */
 export default async function SearchPage(props: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ q?: string; source?: string }>;
+  searchParams: Promise<{ q?: string; source?: string; n?: string }>;
 }) {
   const { locale } = await props.params;
-  const { q, source } = await props.searchParams;
+  const { q, source, n } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId, userId } = await auth();
 
   const query = (q ?? '').trim();
   const sourceFilter = (source ?? '').trim() || undefined;
 
+  // Paging lives in the URL, because search here is already a server
+  // round-trip and the toolbar already navigates. A longer result set then
+  // survives a reload, a back button and a shared link — none of which client
+  // state would have given us.
+  const PAGE = 25;
+  const MAX = 200;
+  const requested = Number.parseInt(n ?? '', 10);
+  const pageSize = Math.min(Number.isFinite(requested) && requested > 0 ? requested : PAGE, MAX);
+  // Ask for one more than we render: if it comes back, there is another page,
+  // and we never have to count the whole corpus to find that out.
+  const probe = Math.min(pageSize + 1, MAX + 1);
+
   // Filter chips: every source that actually has documents, with counts.
-  let chips: Array<{ slug: string; count: number }> = [];
+  let sources: SourceChipData[] = [];
   if (orgId) {
-    const [sources, counts] = await Promise.all([listSources(orgId), documentCountsForOrg(orgId)]);
-    chips = sources
+    const [rows, counts] = await Promise.all([listSources(orgId), documentCountsForOrg(orgId)]);
+    sources = rows
       .map(s => ({ slug: s.slug, count: counts[s.id] ?? 0 }))
       .filter(s => s.count > 0)
       .sort((a, b) => b.count - a.count);
   }
-  const totalDocs = chips.reduce((n, c) => n + c.count, 0);
 
-  let results: SearchDoc[] = [];
+  let results: SearchResult[] = [];
   let error: string | null = null;
 
   const { allowedSourceSlugsForUser } = await import('@/services/SourceAccessService');
@@ -52,152 +70,66 @@ export default async function SearchPage(props: {
         query,
         search_filters: sourceFilter ? { source_type: [sourceFilter] } : undefined,
         allowedSourceSlugs,
+        limit: probe,
       });
-      results = (data?.top_documents ?? data?.results ?? []) as SearchDoc[];
+      const docs = (data?.top_documents ?? data?.results ?? []) as SearchDoc[];
+      results = docs.map((d, i) => ({
+        id: d.document_id ?? String(i),
+        title: d.semantic_identifier || d.document_id || 'Untitled',
+        sourceSlug: d.source_type ?? null,
+        link: d.link ?? null,
+        blurb: d.blurb ?? null,
+        score: typeof d.score === 'number' ? d.score : null,
+        updatedAt: d.updated_at ?? null,
+        // Only a numeric `knowledge_document.id` has a page to open.
+        openable: /^\d+$/.test(d.document_id ?? ''),
+      }));
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
   } else if (orgId) {
     // Default result set: the most recent documents across the corpus —
-    // browse before you search, filterable by source.
-    const recent = await listRecentDocuments(orgId, { sourceSlug: sourceFilter, limit: 25, allowedSourceSlugs });
+    // browse before you search, filterable by connector.
+    const recent = await listRecentDocuments(orgId, { sourceSlug: sourceFilter, limit: probe, allowedSourceSlugs });
     results = recent.map(r => ({
-      document_id: String(r.id),
-      semantic_identifier: r.title ?? `document ${r.id}`,
-      source_type: r.sourceSlug,
-      link: r.uri ?? undefined,
-      blurb: r.blurb ?? undefined,
-      updated_at: r.updatedAt ? r.updatedAt.toISOString() : undefined,
+      id: String(r.id),
+      title: r.title ?? `document ${r.id}`,
+      sourceSlug: r.sourceSlug,
+      link: r.uri ?? null,
+      blurb: r.blurb ?? null,
+      score: null,
+      updatedAt: r.updatedAt ? r.updatedAt.toISOString() : null,
+      openable: true,
     }));
   }
 
-  const filterHref = (slug?: string) => {
-    const params = new URLSearchParams();
-    if (query) {
-      params.set('q', query);
-    }
-    if (slug) {
-      params.set('source', slug);
-    }
-    const s = params.toString();
-    return `/dashboard/search${s ? `?${s}` : ''}`;
-  };
+  const hasMore = results.length > pageSize;
+  if (hasMore) {
+    results = results.slice(0, pageSize);
+  }
+  const moreParams = new URLSearchParams();
+  if (query) {
+    moreParams.set('q', query);
+  }
+  if (sourceFilter) {
+    moreParams.set('source', sourceFilter);
+  }
+  moreParams.set('n', String(Math.min(pageSize + PAGE, MAX)));
 
   return (
-    <>
-      <TitleBar
-        title="Search"
-        description="Hybrid retrieval across every connected connector. pgvector + Postgres FTS with reciprocal rank fusion — same pipeline your Agents use."
+    <ListPage
+      title="Search"
+      description="Hybrid retrieval across every connected connector — pgvector and Postgres full-text with reciprocal rank fusion, the same pipeline your agents use."
+    >
+      <SearchResults
+        query={query}
+        source={sourceFilter ?? null}
+        sources={sources}
+        results={results}
+        error={error}
+        hasMore={hasMore}
+        moreHref={`/dashboard/search?${moreParams.toString()}`}
       />
-
-      <form method="get" className="mb-3">
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 focus-within:border-primary/50">
-          <SearchIcon className="size-4 text-muted-foreground" />
-          <input
-            type="search"
-            name="q"
-            defaultValue={query}
-            placeholder="Search transcripts, docs, CRM records…"
-            className="flex-1 bg-transparent text-sm outline-none"
-          />
-          {sourceFilter && <input type="hidden" name="source" value={sourceFilter} />}
-          <button
-            type="submit"
-            className="rounded bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Search
-          </button>
-        </div>
-      </form>
-
-      {chips.length > 0 && (
-        <div className="mb-6 flex flex-wrap items-center gap-1.5">
-          <a
-            href={filterHref(undefined)}
-            className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${!sourceFilter ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}
-          >
-            {`All · ${totalDocs.toLocaleString()}`}
-          </a>
-          {chips.map(c => (
-            <a
-              key={c.slug}
-              href={filterHref(c.slug)}
-              className={`rounded-full border px-2.5 py-1 font-mono text-xs transition ${sourceFilter === c.slug ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'}`}
-            >
-              {`${c.slug} · ${c.count.toLocaleString()}`}
-            </a>
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-          Search failed:
-          {' '}
-          <span className="font-mono text-xs">{error}</span>
-        </div>
-      )}
-
-      {query && !error && results.length === 0 && (
-        <div className="rounded-md border border-border p-8 text-center text-sm text-muted-foreground">
-          {`No results for "${query}"${sourceFilter ? ` in ${sourceFilter}` : ''}.`}
-        </div>
-      )}
-
-      {!query && !error && results.length === 0 && (
-        <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          No documents ingested yet — connect a source on the Sources page and sync it, then browse or search here.
-        </div>
-      )}
-
-      {results.length > 0 && (
-        <div className="space-y-3">
-          <div className="text-xs text-muted-foreground">
-            {query
-              ? `${results.length} results · ranked by hybrid score`
-              : `Most recent ${results.length} documents${sourceFilter ? ` · ${sourceFilter}` : ' · all connectors'}`}
-          </div>
-          {results.map((doc, i) => {
-            const title = doc.semantic_identifier || doc.document_id || 'Untitled';
-            const score = typeof doc.score === 'number' ? doc.score : null;
-            return (
-              <div key={`${doc.document_id ?? i}`} className="rounded-lg border border-border bg-background p-4">
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      {doc.link
-                        ? (
-                            <a href={doc.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-foreground hover:underline">
-                              {title}
-                              <ExternalLink className="size-3 text-muted-foreground" />
-                            </a>
-                          )
-                        : (
-                            <span className="text-sm font-medium">{title}</span>
-                          )}
-                    </div>
-                    {doc.source_type && (
-                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <Badge variant="outline" className="font-mono text-[10px]">{doc.source_type}</Badge>
-                        {doc.updated_at && <span>{new Date(doc.updated_at).toLocaleDateString()}</span>}
-                      </div>
-                    )}
-                  </div>
-                  {score !== null && (
-                    <div className="text-right">
-                      <div className="font-mono text-sm tabular-nums">{score.toFixed(3)}</div>
-                      <div className="text-[10px] text-muted-foreground">score</div>
-                    </div>
-                  )}
-                </div>
-                {doc.blurb && (
-                  <p className="text-xs leading-relaxed text-muted-foreground">{doc.blurb}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </>
+    </ListPage>
   );
 }

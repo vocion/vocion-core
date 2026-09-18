@@ -1,20 +1,19 @@
 'use client';
 
-import { ArrowDown, ArrowUp } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { Input } from '@/components/ui/input';
+import { useMemo } from 'react';
+import { Column, ListEmpty, ListRow, ListRows, ListToolbar, Subline, useListUrlState } from '@/components/patterns';
+import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
-import { Link } from '@/libs/I18nNavigation';
-import { cn } from '@/utils/Helpers';
 import { confidenceLevel } from './confidence';
-import { entranceLabel, LANE_PILL, shortDate } from './LeadContext';
+import { entranceLabel, LANE_PILL, shortDate } from './leadFormat';
 
 /**
- * The personalization queue — a pure list. One lead per row, four lanes
- * across the top; a row is a link to the lead's own page
- * (`/gtm/lead/{hubspot_id}`), where the brief, the evidence and the decision
- * live. Nothing expands here and nothing decides here: the queue's one job is
- * finding the right lead.
+ * The personalization queue — a pure list, and the reference implementation
+ * of the List archetype (`components/patterns`, `docs/design/patterns.md`).
+ * One lead per row, four lanes across the top; a row is a link to the lead's
+ * own page (`/gtm/lead/{hubspot_id}`), where the brief, the evidence and the
+ * decision live. Nothing expands here and nothing decides here: the queue's
+ * one job is finding the right lead. Lane, search and sort live in the URL.
  *
  * Nothing reaches this screen without a brief. A lead the sweep has picked up
  * but not yet researched, and a lead part-way through its retries, are both
@@ -52,64 +51,67 @@ const LANES = [
   { key: 'handed_off', label: 'Hand off' },
   { key: 'held', label: 'Held' },
   { key: 'sent', label: 'Sent' },
+  { key: 'all', label: 'All' },
 ] as const;
-
-/** The page opens where the work is. */
-const DEFAULT_LANE: string = 'ready_for_review';
-
-type SortKey = 'arrived' | 'confidence' | 'name';
 
 /**
  * Arrival order is the default and the first option. Confidence sorts a row
  * with no score (a lead that ran out of tries) to the bottom rather than
  * dropping it, because that row is the one most worth reading.
  */
-const SORTS: { key: SortKey; label: string }[] = [
+const SORTS = [
   { key: 'arrived', label: 'Arrived' },
   { key: 'confidence', label: 'Confidence' },
   { key: 'name', label: 'Name' },
-];
+] as const;
+
+/** The page opens where the work is; the clean URL means this state. */
+const LIST = {
+  defaults: { tab: 'ready_for_review', q: '', sort: 'arrived', dir: 'desc' as const, chips: [] },
+  tabs: LANES.map(l => l.key),
+  sorts: SORTS.map(s => s.key),
+};
 
 const BriefListRow = ({ row }: { row: BriefRow }) => {
   const level = confidenceLevel(row.confidence);
   const pill = LANE_PILL[row.status] ?? { status: 'pending' as const, label: row.status };
   const hubspotId = row.contactRef.split(':')[1];
 
-  // The one-line "why this lead": who they are, when and how they arrived,
-  // how warm. Anything the CRM does not carry is left out rather than shown
-  // as a blank or a zero pretending to be a reading.
-  const meta = [
-    row.contactTitle,
-    row.companyName,
-    // The true stage-entry date wins; the create date is labeled as arrival,
-    // never as when they became an MQL.
-    row.mqlAt ? `MQL ${shortDate(row.mqlAt)}` : row.arrivedAt ? `arrived ${shortDate(row.arrivedAt)}` : null,
-    row.entranceSource ? entranceLabel(row.entranceSource) : null,
-    // "via", not "utm=": what the CRM carries is the source detail (the ad
-    // network, the keyword), which is only sometimes a campaign tag.
-    row.utmCampaign ? `via ${row.utmCampaign}` : null,
-    row.engagementSent > 0 ? `${row.engagementSent} sent` : null,
-    row.engagementOpened > 0 ? `${row.engagementOpened} opened` : null,
-  ].filter(Boolean).join(' · ');
-
   return (
-    <Link
+    <ListRow
       href={`/gtm/lead/${hubspotId}`}
-      className="flex items-center gap-3 border-b border-border py-3 transition hover:bg-muted/40"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold">{row.contactName}</div>
-        <div className="truncate text-[13px] text-muted-foreground">{meta}</div>
-      </div>
-      {level && (
-        <span className="hidden text-[13px] text-muted-foreground sm:inline">
-          {level}
-          {' '}
-          {row.confidence?.toFixed(2)}
-        </span>
+      title={row.contactName}
+      chevron={false}
+      // The one-line "why this lead": who they are, when and how they
+      // arrived, how warm. Anything the CRM does not carry is left out rather
+      // than shown as a blank or a zero pretending to be a reading.
+      subline={(
+        <Subline
+          separator="·"
+          segments={[
+            row.contactTitle,
+            row.companyName,
+            // The true stage-entry date wins; the create date is labeled as
+            // arrival, never as when they became an MQL.
+            row.mqlAt ? `MQL ${shortDate(row.mqlAt)}` : row.arrivedAt ? `arrived ${shortDate(row.arrivedAt)}` : null,
+            row.entranceSource ? entranceLabel(row.entranceSource) : null,
+            // "via", not "utm=": what the CRM carries is the source detail
+            // (the ad network, the keyword), only sometimes a campaign tag.
+            row.utmCampaign ? `via ${row.utmCampaign}` : null,
+            row.engagementSent > 0 ? `${row.engagementSent} sent` : null,
+            row.engagementOpened > 0 ? `${row.engagementOpened} opened` : null,
+          ]}
+        />
       )}
-      <StatusPill status={pill.status} label={pill.label} size="sm" />
-    </Link>
+      columns={level && (
+        <Column kind="score">
+          {/* One confidence renderer everywhere (design principle 6): the same bars
+              the ledger, the inbox and the review detail draw. */}
+          <ConfidenceBars value={row.confidence} subject="Brief" />
+        </Column>
+      )}
+      chip={<StatusPill status={pill.status} label={pill.label} size="sm" />}
+    />
   );
 };
 
@@ -121,10 +123,8 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
     () => props.briefs.filter(b => b.status !== 'queued'),
     [props.briefs],
   );
-  const [lane, setLane] = useState<string>(DEFAULT_LANE);
-  const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<SortKey>('arrived');
-  const [descending, setDescending] = useState(true);
+  const [list, setList] = useListUrlState(LIST);
+  const { tab: lane, q: query, sort, dir } = list;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: briefs.length };
@@ -142,7 +142,7 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
         || b.contactName.toLowerCase().includes(q)
         || (b.companyName ?? '').toLowerCase().includes(q));
 
-    const direction = descending ? -1 : 1;
+    const direction = dir === 'desc' ? -1 : 1;
     return [...filtered].sort((a, b) => {
       if (sort === 'name') {
         return a.contactName.localeCompare(b.contactName) * -direction;
@@ -159,65 +159,29 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
       }
       return ((a.confidence ?? 0) - (b.confidence ?? 0)) * direction;
     });
-  }, [briefs, lane, query, sort, descending]);
+  }, [briefs, lane, query, sort, dir]);
 
   return (
-    <div className="flex flex-col">
-      {/* Lanes + find/sort share a row so the queue starts at the fold. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-0">
-        <div className="flex items-end gap-5">
-          {[...LANES, { key: 'all', label: 'All' } as const].map(l => (
-            <button
-              key={l.key}
-              type="button"
-              onClick={() => setLane(l.key)}
-              className={cn(
-                'flex items-center gap-1.5 border-b-2 pb-2 text-sm transition',
-                lane === l.key
-                  ? 'border-[var(--brand-borderline)] font-semibold text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {l.label}
-              <span className="text-xs text-muted-foreground/70">{counts[l.key] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2 pb-2">
-          <Input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Find a lead or company"
-            className="h-8 w-56 text-sm"
-          />
-          <label htmlFor="brief-sort" className="text-xs text-muted-foreground">Sort</label>
-          <select
-            id="brief-sort"
-            value={sort}
-            onChange={e => setSort(e.target.value as SortKey)}
-            className="h-8 rounded-md border border-border bg-background px-2 text-sm"
-          >
-            {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-          <button
-            type="button"
-            onClick={() => setDescending(d => !d)}
-            aria-label={descending ? 'Sort ascending' : 'Sort descending'}
-            className="flex size-8 items-center justify-center rounded-md border border-border transition hover:bg-muted"
-          >
-            {descending ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
-          </button>
-        </div>
-      </div>
+    <div className="flex flex-col" data-testid="personalization-queue">
+      <ListToolbar
+        tabs={{
+          label: 'Lanes',
+          items: LANES.map(l => ({ key: l.key, label: l.label, count: counts[l.key] ?? 0 })),
+          value: lane,
+          onChange: tab => setList({ tab }),
+        }}
+        search={{ value: query, onChange: q => setList({ q }), placeholder: 'Find a lead or company' }}
+        sort={{ value: sort, onChange: s => setList({ sort: s }), options: SORTS }}
+        direction={{ value: dir, onChange: d => setList({ dir: d }) }}
+      />
 
       {rows.length === 0
-        ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              {query ? 'No lead matches that search.' : 'Nothing in this lane.'}
-            </p>
-          )
-        : rows.map(row => <BriefListRow key={row.id} row={row} />)}
+        ? <ListEmpty variant="inline" title={query ? 'No lead matches that search.' : 'Nothing in this lane.'} />
+        : (
+            <ListRows className="mt-1">
+              {rows.map(row => <BriefListRow key={row.id} row={row} />)}
+            </ListRows>
+          )}
     </div>
   );
 };

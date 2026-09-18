@@ -46,8 +46,8 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
 
 const ADMIN = {
   name: 'Mo Delgado',
-  account: 'Veerio Events',
-  email: 'mo@veerio.example',
+  account: 'Larkfield Events',
+  email: 'mo@larkfield.example',
   password: 'events-queue-1',
 };
 
@@ -174,12 +174,14 @@ test('a snooze taken from the review card shows up as a snooze on the adoption s
   const proposed = await api.post('/api/v1/reviews/propose', {
     data: {
       actionId: 'objects.propose_candidate',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Public listing with a date and a venue, so it belongs in the queue.',
       input: {
         objectType: 'event_candidate',
         title: ITEM_TITLE,
-        fields: { title: ITEM_TITLE, start: '2026-11-04T18:00', venue: 'The Flynn' },
+        fields: { title: ITEM_TITLE, start: '2026-11-04T18:00', venue: 'The Corvina' },
         dedupOn: ['title', 'start', 'venue'],
-        sourceUrl: `https://listings.example.org/burlington/events/${RUN_TAG}`,
+        sourceUrl: `https://listings.example.org/riverton/events/${RUN_TAG}`,
         summary: 'Worth a look, but not today.',
       },
       agentSlug: AGENT_SLUG,
@@ -195,7 +197,7 @@ test('a snooze taken from the review card shows up as a snooze on the adoption s
   expect(status).toBe('pending');
 
   // ── Snooze it from the card, the way a reviewer does ─────────────────────
-  await page.goto(`${baseURL}/dashboard/review`);
+  await page.goto(`${baseURL}/dashboard/inbox/proposal-${runId}`);
   const focus = page.getByTestId('review-focus');
 
   await expect(focus.getByText(ITEM_TITLE).first()).toBeVisible();

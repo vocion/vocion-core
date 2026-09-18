@@ -31,15 +31,21 @@ function ChipSurface() {
   );
 }
 
-function Harness() {
+function Harness({ changeIntent = true }: { changeIntent?: boolean } = {}) {
   return (
-    <CommentLayerProvider targetRef="lead_brief:1">
+    <CommentLayerProvider targetRef="lead_brief:1" changeIntent={changeIntent} record={{ type: 'object', id: 'contacts:1', label: 'A lead' }}>
       <div>
         <div data-comment-field={FIELD}>{BODY}</div>
       </div>
       <ChipSurface />
     </CommentLayerProvider>
   );
+}
+
+/** Pick *Add change* on the control, which is where the note box opens. */
+async function beginChange() {
+  const btn = [...document.querySelectorAll('[data-comment-popover] button')].find(b => b.textContent?.includes('Add change')) as HTMLElement;
+  btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 }
 
 /**
@@ -83,7 +89,10 @@ describe('the comment layer', () => {
 
     await selectText('two');
 
-    await expect.element(page.getByRole('dialog', { name: 'Comment on the selection' })).toBeInTheDocument();
+    await expect.element(page.getByRole('dialog', { name: 'What to do with the selection' })).toBeInTheDocument();
+    // Ask about this is the default everywhere; the intent action only shows
+    // where the page declares one.
+    await expect.element(page.getByRole('button', { name: 'Ask about this' })).toBeVisible();
   });
 
   it('the selection stays native while the note is written, so copying still works', async () => {
@@ -101,9 +110,9 @@ describe('the comment layer', () => {
 
     expect(document.querySelector('mark[data-anchor-pending]')).toBeNull();
 
-    // Focusing the note is where commenting begins — and where the browser
-    // drops its own selection, so the layer takes over the highlighting.
-    (document.querySelector('[data-comment-popover] textarea') as HTMLTextAreaElement).focus();
+    // Choosing *Add change* is where commenting begins — and where the
+    // browser drops its own selection, so the layer takes over highlighting.
+    await beginChange();
 
     await vi.waitFor(() => expect(document.querySelector('mark[data-anchor-pending]')).not.toBeNull());
 
@@ -113,7 +122,7 @@ describe('the comment layer', () => {
   it('cancelling drops the provisional highlight, leaving the text as it was', async () => {
     await render(<Harness />);
     await selectText('two sourced facts');
-    (document.querySelector('[data-comment-popover] textarea') as HTMLTextAreaElement).focus();
+    await beginChange();
     await vi.waitFor(() => expect(document.querySelector('mark[data-anchor-pending]')).not.toBeNull());
 
     await userEvent.click(page.getByRole('button', { name: 'Cancel' }));
@@ -126,6 +135,7 @@ describe('the comment layer', () => {
   it('Add change stores the note with a content anchor', async () => {
     await render(<Harness />);
     await selectText('two sourced facts');
+    await beginChange();
 
     await userEvent.fill(page.getByRole('textbox'), 'name the two facts');
     await userEvent.click(page.getByRole('button', { name: 'Add change' }));
@@ -188,5 +198,62 @@ describe('the comment layer', () => {
 
     await expect.element(page.getByText(/The text this pointed at has changed/)).toBeInTheDocument();
     expect(document.querySelector('mark[data-anchor-id="1"]')).toBeNull();
+  });
+});
+
+describe('select \u2192 talk is the standard (2026-09-16)', () => {
+  it('Ask about this puts the passage in the composer as page context, and nothing else', async () => {
+    const seen: Array<{ context?: { selection?: { text: string }; record?: { id: string } }; tags?: unknown[] }> = [];
+    const onRequest = (e: Event) => {
+      e.preventDefault();
+      seen.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('vocion:open-agent-surface', onRequest);
+    try {
+      await render(<Harness />);
+      await selectText('two sourced facts');
+
+      await userEvent.click(page.getByRole('button', { name: 'Ask about this' }));
+
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+
+      expect(seen[0]!.context?.selection?.text).toBe('two sourced facts');
+      expect(seen[0]!.context?.record?.id).toBe('contacts:1');
+      // No tag: asking about a passage has no special semantics anywhere.
+      expect(seen[0]!.tags).toBeUndefined();
+      expect(client.anchoredComments.create).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('vocion:open-agent-surface', onRequest);
+    }
+  });
+
+  it('Add change arms the `@change` tag beside the passage — the tag is what makes it act', async () => {
+    const seen: Array<{ tags?: Array<{ type: string; id: string }> }> = [];
+    const onRequest = (e: Event) => {
+      e.preventDefault();
+      seen.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('vocion:open-agent-surface', onRequest);
+    try {
+      await render(<Harness />);
+      await selectText('two sourced facts');
+      await beginChange();
+      await userEvent.fill(page.getByRole('textbox'), 'name the two facts');
+      await userEvent.click(page.getByRole('button', { name: 'Add change' }));
+
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+
+      expect(seen[0]!.tags).toEqual([{ type: 'intent', id: 'change', label: 'Change the draft' }]);
+    } finally {
+      window.removeEventListener('vocion:open-agent-surface', onRequest);
+    }
+  });
+
+  it('a page with no draft to rewrite offers only Ask about this', async () => {
+    await render(<Harness changeIntent={false} />);
+    await selectText('two sourced facts');
+
+    await expect.element(page.getByRole('button', { name: 'Ask about this' })).toBeVisible();
+    expect(page.getByRole('button', { name: 'Add change' }).elements()).toHaveLength(0);
   });
 });

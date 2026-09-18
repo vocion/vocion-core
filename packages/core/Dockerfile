@@ -53,12 +53,15 @@ ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuYWNjb3VudHMuZGV2JA
 ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
 ARG NEXT_PUBLIC_LANGFUSE_BASE_URL=http://localhost:3200
 ARG NEXT_PUBLIC_LANGFUSE_PROJECT_ID=demo
-# White-label brand slot (sidebar + marketing). Defaults to Vocion; a deployment
-# overrides via --build-arg. NEXT_PUBLIC_* is inlined at build time, so these
-# must be ARG+ENV here (not runtime env).
-#   BRAND_NAME    — wordmark text (e.g. "metacto")
-#   BRAND_TAGLINE — subhead under the wordmark (e.g. "agents by Vocion")
-#   BRAND_MARK    — glyph image src / data: URI (deployment supplies its own art)
+# White-label brand slot (sidebar + sign-in). Defaults to the Vocion identity
+# from vocion.ai (public/brand/vocion-primary-mark.svg + wordmark "Vocion");
+# a deployment overrides via --build-arg. NEXT_PUBLIC_* is inlined at build
+# time, so these must be ARG+ENV here (not runtime env).
+#   BRAND_NAME        — wordmark text (e.g. "Metacto")
+#   BRAND_TAGLINE     — subhead under the wordmark (e.g. "agents by Vocion")
+#   BRAND_MARK        — glyph image src / data: URI; empty = Vocion primary mark
+#   BRAND_LOCKUP[_DARK] — mark+wordmark as one image (light / dark variants)
+#   BRAND_ATTRIBUTION — sidebar footer line
 ARG NEXT_PUBLIC_BRAND_NAME=Vocion
 ENV NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}
 ARG NEXT_PUBLIC_BRAND_TAGLINE=
@@ -91,6 +94,21 @@ WORKDIR /app/packages/core
 # here instead of left to be inferred. Kept at 6 GiB so it stays safe on the
 # smaller instance size, with Postgres, Temporal and Langfuse resident on the
 # same box while the image builds.
+# The build says what it is (#417): `public/version.txt` + the account-menu
+# stamp. `npm run build` runs this, but the image calls `next build` directly,
+# so the step is explicit here — the first deploy of #417 shipped an image with
+# no version.txt at all (2026-09-17). The context has no .git (.dockerignore),
+# so the parent's bootstrap hands in the core commit it is building.
+ARG VOCION_DEPLOY_PIN=
+ARG VOCION_BUILD_SHA=
+ARG VOCION_BUILD_SUBJECT=
+ARG VOCION_BUILD_REF=
+ARG VOCION_AGENT_RUNTIME_IMAGE=
+RUN VOCION_DEPLOY_PIN="${VOCION_DEPLOY_PIN}" VOCION_BUILD_SHA="${VOCION_BUILD_SHA}" \
+    VOCION_BUILD_SUBJECT="${VOCION_BUILD_SUBJECT}" VOCION_BUILD_REF="${VOCION_BUILD_REF}" \
+    VOCION_AGENT_RUNTIME_IMAGE="${VOCION_AGENT_RUNTIME_IMAGE}" \
+    node scripts/write-version.mjs
+
 RUN NODE_OPTIONS=--max-old-space-size=6144 \
     SKIP_ENV_VALIDATION=1 \
     NEXT_PUBLIC_SENTRY_DISABLED=1 \
@@ -119,8 +137,16 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Run as non-root.
-RUN addgroup --system --gid 1001 nodejs \
+# Chromium for the document engine (`libs/documents/render.ts`): documents are
+# rendered, measured and printed in a real browser. Alpine's own Chromium,
+# not Playwright's download (glibc); the engine finds it through
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. Fonts so text has a face to fall back
+# to when a document's web fonts do not load.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-dejavu ttf-liberation font-noto-emoji \
+  && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Copy the standalone server + the static + public + context tree.
 # The standalone output already includes the trimmed node_modules.

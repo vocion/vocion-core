@@ -1,14 +1,14 @@
 /**
- * A reviewer's approve/reject on an agent-proposed action → a learning rule
- * (VEERIO-252 item 2). Three bugs fixed here, against PGlite:
+ * A reviewer's approve/reject on an agent-proposed action QUEUES the
+ * reviewer's own words for the learning classifier, and writes no rule.
  *
- * - The rule always went to the literal `crm-updates` step, even for an
- *   agent that declares its own `learningSteps` — and the failure when that
- *   step didn't exist was swallowed by an empty `.catch(() => {})`.
- * - The candidate's field names were read from `input.properties`, which
- *   `objects-propose-candidate.ts` never writes (it writes `input.fields`),
- *   so every rule read "updating [n/a]".
- * - The operator's reject reason was truncated to 120 characters.
+ * Every decision used to write a `learning` row of composed text ("do not
+ * propose this class again without stronger evidence") into the step the
+ * proposing agent reads back on every run, so a busy step filled up with
+ * machine commentary on individual runs phrased as standing policy. These
+ * tests pin the replacement down in both directions: what queues, with which
+ * polarity and against which step, and what must never queue, a bare click,
+ * an opted-out automated caller, or an action no agent proposed.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -20,10 +20,9 @@ vi.mock('@/services/WorkflowService', () => ({ cancelWorkflow: vi.fn(), resumeWo
 vi.mock('@/services/adoption/track', () => ({ track: vi.fn() }));
 
 const { db } = await import('@/libs/DB');
-const { actionRunSchema, agentSchema, learningSchema, learningStepSchema } = await import('@/models/Schema');
+const { actionRunSchema, agentSchema, feedbackJobSchema, memoryNamespaceSchema, memorySchema } = await import('@/models/Schema');
 const { registerAction } = await import('@/libs/actions/registry');
 const { decide } = await import('@/services/ReviewService');
-const { and, eq } = await import('drizzle-orm');
 
 registerAction({
   id: 'test.decision-learning-write',
@@ -36,157 +35,191 @@ registerAction({
 });
 
 const ORG = 'org_decision_learning';
+const AGENT = 'event-ingestion-lead';
+/** The agent's OWN step, not the org's first one, which is what it must not use. */
+const STEP = 'event-ingestion-updates';
+const REVIEWER = 'user_reviewer';
 
-async function makeAgent(slug: string, learningSteps: string[]): Promise<void> {
+/**
+ * The proposing agent plus the step it declares, and a decoy step created
+ * first so "the org's first learning step by id" is the wrong answer.
+ */
+async function seedAgent(): Promise<void> {
+  for (const name of ['crm-updates', STEP]) {
+    await db.insert(memoryNamespaceSchema).values({ orgId: ORG, name, path: `workspace/${name}`, title: name, description: name, agentSlugs: [] });
+  }
   await db.insert(agentSchema).values({
     orgId: ORG,
-    slug,
-    name: slug,
+    slug: AGENT,
+    name: AGENT,
     systemPrompt: 'Be helpful.',
-    learningSteps,
+    learningSteps: [STEP],
   });
 }
 
-async function makeLearningStep(name: string): Promise<void> {
-  await db.insert(learningStepSchema).values({
-    orgId: ORG,
-    name,
-    title: name,
-    description: name,
-    agentSlugs: [],
-  });
-}
-
-async function pendingAction(opts: { agentSlug: string; objectType?: string; fields?: Record<string, unknown>; confidence?: number; rationale?: string }): Promise<number> {
+/**
+ * A pending action awaiting review.
+ * @param invokedBy - `agent:<slug>` for a proposal, a user id for a human's own action.
+ */
+async function pendingAction(invokedBy = `agent:${AGENT}`): Promise<number> {
   const [row] = await db
     .insert(actionRunSchema)
     .values({
       orgId: ORG,
       actionId: 'test.decision-learning-write',
-      input: { objectType: opts.objectType ?? 'contact', fields: opts.fields ?? { name: 'Ada', email: 'ada@example.com' } },
+      input: { objectType: 'event-candidate', fields: { title: 'Midd Summer Market' } },
       status: 'pending',
-      invokedBy: `agent:${opts.agentSlug}`,
-      proposal: { confidence: opts.confidence, rationale: opts.rationale },
+      invokedBy,
     })
     .returning({ id: actionRunSchema.id });
   return row!.id;
 }
 
-async function rulesFor(stepName: string): Promise<Array<{ ruleText: string; source: string | null }>> {
-  const [step] = await db.select().from(learningStepSchema).where(and(eq(learningStepSchema.orgId, ORG), eq(learningStepSchema.name, stepName)));
-  if (!step) {
-    return [];
-  }
-  return db.select({ ruleText: learningSchema.ruleText, source: learningSchema.source }).from(learningSchema).where(eq(learningSchema.stepId, step.id));
+async function queuedJobs(): Promise<Array<typeof feedbackJobSchema.$inferSelect>> {
+  return db.select().from(feedbackJobSchema);
+}
+
+async function clear(): Promise<void> {
+  await db.delete(feedbackJobSchema);
+  await db.delete(memorySchema);
+  await db.delete(memoryNamespaceSchema);
+  await db.delete(actionRunSchema);
+  await db.delete(agentSchema);
 }
 
 beforeEach(async () => {
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
-  await db.delete(actionRunSchema);
-  await db.delete(agentSchema);
+  await clear();
+  await seedAgent();
 });
 
-afterAll(async () => {
-  await db.delete(learningSchema);
-  await db.delete(learningStepSchema);
-  await db.delete(actionRunSchema);
-  await db.delete(agentSchema);
-});
+afterAll(clear);
 
 describe('recordActionDecisionLearning (via ReviewService.decide)', () => {
-  it('files the rule under the proposing agent\'s own learning step, not the literal "crm-updates"', async () => {
-    await makeAgent('event-ingestion-lead', ['event-ingestion-updates']);
-    await makeLearningStep('event-ingestion-updates');
-    const runId = await pendingAction({ agentSlug: 'event-ingestion-lead' });
+  it('queues an approval reason as reinforcement, against the proposing agent\'s own step', async () => {
+    const runId = await pendingAction();
 
-    await decide({ kind: 'action', id: runId }, 'approve', ORG);
-
-    const rules = await rulesFor('event-ingestion-updates');
-
-    expect(rules).toHaveLength(1);
-    expect(rules[0]!.source).toBe(`action_run:${runId}`);
-    expect(await rulesFor('crm-updates')).toHaveLength(0);
-  });
-
-  it('falls back to "crm-updates" and warns when the agent declares no learningSteps', async () => {
-    await makeAgent('no-steps-agent', []);
-    await makeLearningStep('crm-updates');
-    const runId = await pendingAction({ agentSlug: 'no-steps-agent' });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await decide({ kind: 'action', id: runId }, 'approve', ORG);
-
-    expect(await rulesFor('crm-updates')).toHaveLength(1);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no learningSteps'));
-
-    warnSpy.mockRestore();
-  });
-
-  it('reads candidate field names from input.fields, not input.properties', async () => {
-    await makeAgent('event-ingestion-lead', ['event-ingestion-updates']);
-    await makeLearningStep('event-ingestion-updates');
-    const runId = await pendingAction({
-      agentSlug: 'event-ingestion-lead',
-      objectType: 'lead',
-      fields: { company: 'Acme', title: 'CTO' },
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reason: 'the venue and the start time both matched the listing',
+      reviewedBy: REVIEWER,
     });
 
-    await decide({ kind: 'action', id: runId }, 'approve', ORG);
+    const jobs = await queuedJobs();
 
-    const [rule] = await rulesFor('event-ingestion-updates');
-
-    // jsonb does not preserve key insertion order, so match on membership
-    // rather than a fixed "company, title" ordering.
-    expect(rule!.ruleText).toMatch(/updating \[(company, title|title, company)\]/);
-    expect(rule!.ruleText).not.toContain('[n/a]');
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      source: 'review',
+      externalId: `action_run:${runId}:approve`,
+      status: 'queued',
+    });
+    expect(jobs[0]?.payload).toMatchObject({
+      text: 'the venue and the start time both matched the listing',
+      targetSlug: STEP,
+      agentSlug: AGENT,
+      sourceRunId: runId,
+      submittedBy: REVIEWER,
+      polarityHint: 'reinforce',
+    });
   });
 
-  it('keeps the operator\'s reject reason whole rather than truncating at 120 characters', async () => {
-    await makeAgent('event-ingestion-lead', ['event-ingestion-updates']);
-    await makeLearningStep('event-ingestion-updates');
-    const runId = await pendingAction({ agentSlug: 'event-ingestion-lead' });
-    const longReason = 'x'.repeat(200);
+  it('queues a rejection reason as a correction', async () => {
+    const runId = await pendingAction();
 
-    await decide({ kind: 'action', id: runId }, 'reject', ORG, { reason: longReason });
+    await decide({ kind: 'action', id: runId }, 'reject', ORG, {
+      reason: 'this is the weekly series, not a new event',
+      reviewedBy: REVIEWER,
+    });
 
-    const [rule] = await rulesFor('event-ingestion-updates');
+    const jobs = await queuedJobs();
 
-    expect(rule!.ruleText).toContain(`Operator reason: ${longReason}.`);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ externalId: `action_run:${runId}:reject` });
+    expect(jobs[0]?.payload).toMatchObject({
+      text: 'this is the weekly series, not a new event',
+      targetSlug: STEP,
+      polarityHint: 'correct',
+    });
   });
 
-  it('logs a warning instead of swallowing when the resolved step still does not exist', async () => {
-    // No learning_step row seeded at all for this agent's declared step —
-    // addLearning throws "unknown learning step", and the fix is that the
-    // decide() call site logs it instead of the old empty `.catch(() => {})`.
-    await makeAgent('orphan-agent', ['ghost-step']);
-    const runId = await pendingAction({ agentSlug: 'orphan-agent' });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('queues nothing for a decision the reviewer gave no words to', async () => {
+    const bare = await pendingAction();
+    const blank = await pendingAction();
 
-    await decide({ kind: 'action', id: runId }, 'approve', ORG);
+    await decide({ kind: 'action', id: bare }, 'approve', ORG, { reviewedBy: REVIEWER });
+    await decide({ kind: 'action', id: blank }, 'reject', ORG, { reason: '   ', reviewedBy: REVIEWER });
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining(`could not record decision-learning rule for action run ${runId}`),
-      expect.anything(),
-    );
-
-    warnSpy.mockRestore();
+    expect(await queuedJobs()).toHaveLength(0);
   });
 
-  it('does nothing for an action a human proposed directly', async () => {
-    const [row] = await db
-      .insert(actionRunSchema)
-      .values({
-        orgId: ORG,
-        actionId: 'test.decision-learning-write',
-        input: { objectType: 'contact', fields: { name: 'Ada' } },
-        status: 'pending',
-        invokedBy: 'user_someone',
-      })
-      .returning({ id: actionRunSchema.id });
+  it('queues nothing when the caller opted out, however good the reason', async () => {
+    const runId = await pendingAction();
 
-    await decide({ kind: 'action', id: row!.id }, 'approve', ORG);
+    // What a past-event sweep does: one canned reason across hundreds of rows,
+    // which is a machine's judgement and must not become a learning candidate.
+    await decide({ kind: 'action', id: runId }, 'reject', ORG, {
+      reason: 'event date has passed',
+      reviewedBy: 'cron:reject-past',
+      learn: false,
+    });
 
-    expect(await db.select().from(learningSchema)).toHaveLength(0);
+    expect(await queuedJobs()).toHaveLength(0);
+  });
+
+  it('queues nothing when the caller opted out and sent a note, not a reason', async () => {
+    const runId = await pendingAction();
+
+    // The note takes the OTHER queueing path (the triage signal), so an
+    // opt-out that only covered the decision path would leak here.
+    await decide({ kind: 'action', id: runId }, 'reject', ORG, {
+      note: 'past event, closed in bulk',
+      reviewedBy: 'cron:reject-past',
+      learn: false,
+    });
+
+    expect(await queuedJobs()).toHaveLength(0);
+  });
+
+  it('never writes a learning rule, whichever way the decision went', async () => {
+    const approved = await pendingAction();
+    const rejected = await pendingAction();
+
+    await decide({ kind: 'action', id: approved }, 'approve', ORG, { reason: 'right call', reviewedBy: REVIEWER });
+    await decide({ kind: 'action', id: rejected }, 'reject', ORG, { reason: 'wrong call', reviewedBy: REVIEWER });
+
+    // Both decisions were live, they queued, and neither reached the rules
+    // the agent reads back on its next run. (Each decision DOES leave a
+    // TTL'd episode under /runs/ — raw consolidation material, never
+    // mounted as instructions — so only rule keys are asserted empty.)
+    expect(await queuedJobs()).toHaveLength(2);
+
+    const rows = await db.select().from(memorySchema);
+
+    expect(rows.filter(r => !r.key.startsWith('/runs/'))).toHaveLength(0);
+    expect(rows.every(r => r.expiresAt !== null)).toBe(true);
+  });
+
+  it('queues nothing for an action a human proposed directly', async () => {
+    const runId = await pendingAction('user_someone');
+
+    await decide({ kind: 'action', id: runId }, 'approve', ORG, {
+      reason: 'published it myself',
+      reviewedBy: REVIEWER,
+    });
+
+    expect(await queuedJobs()).toHaveLength(0);
+  });
+
+  it('a blank reason falls through to the note and still targets the agent step', async () => {
+    const runId = await pendingAction();
+
+    await decide({ kind: 'action', id: runId }, 'reject', ORG, {
+      reason: '   ',
+      note: 'the price was the door fee, not the ticket',
+      reviewedBy: REVIEWER,
+    });
+
+    const jobs = await queuedJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toMatchObject({ text: 'the price was the door fee, not the ticket', targetSlug: STEP, polarityHint: 'correct' });
   });
 });

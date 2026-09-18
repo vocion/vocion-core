@@ -80,7 +80,7 @@ const ACME = {
   city: 'Denver',
   state: 'CO',
   country: 'United States',
-  short_description: 'Rock-picking robots.',
+  short_description: 'Commercial construction.',
 };
 
 beforeEach(async () => {

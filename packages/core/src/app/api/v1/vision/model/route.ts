@@ -45,6 +45,15 @@ async function describe() {
   };
 }
 
+/**
+ * GET /api/v1/vision/model
+ *
+ * Whether the workspace's trained classifier is running, with the version's
+ * status, F1 score, inference units and creation time. `configured: false`
+ * means no model is set for this deployment; a call to AWS that fails comes
+ * back as 502.
+ * @param req - Request.
+ */
 export async function GET(req: Request) {
   const caller = await authApi(req);
   if (isErrorResponse(caller)) {
@@ -57,6 +66,16 @@ export async function GET(req: Request) {
   }
 }
 
+/**
+ * POST /api/v1/vision/model  { action }
+ *
+ * Start or stop the classifier endpoint — `action` is `start` or `stop`.
+ * Starting from a status that cannot start is a 409; starting one already
+ * running, or stopping one already stopped, is a 200 carrying a `note` rather
+ * than an error, so a retry is safe. The endpoint bills per hour while it
+ * runs, which is why this is a button and not always-on.
+ * @param req - Request.
+ */
 export async function POST(req: Request) {
   const caller = await authApi(req);
   if (isErrorResponse(caller)) {

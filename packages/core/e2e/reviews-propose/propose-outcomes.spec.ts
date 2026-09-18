@@ -4,7 +4,7 @@ import process from 'node:process';
 import { expect, test } from '@playwright/test';
 
 /**
- * VEERIO-262 — what a proposal actually did, end to end.
+ * LARK-262 — what a proposal actually did, end to end.
  *
  * Drives `POST /api/v1/reviews/propose` and `POST /api/v1/reviews/decide`
  * with real HTTP requests against a real running app: no mocked database, no
@@ -84,7 +84,7 @@ function eventProposal(over: Record<string, unknown> = {}) {
   const fields = {
     title: 'Open Mic Night',
     start: '2026-09-19T19:30',
-    venue: 'The Flynn',
+    venue: 'The Corvina',
     price: 'Free',
     ...over,
   };
@@ -93,6 +93,8 @@ function eventProposal(over: Record<string, unknown> = {}) {
     agentSlug: 'listing-scout',
     confidence: 0.9,
     rationale: 'Listed on the venue\'s own events page with a date and a time.',
+    suggestedDecision: 'approve',
+    suggestedDecisionReason: 'Public listing on the venue\'s own page, and nothing like it is queued.',
     input: {
       objectType: 'event_candidate',
       title: fields.title,

@@ -3,7 +3,9 @@
 import type { GuidedSend, GuidedState } from './guidedFlow';
 import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
 import { useCallback, useEffect, useState } from 'react';
+import { SurfaceSection } from '@/components/ui/surface';
 import { client } from '@/libs/Orpc';
+import { publishDraftRevision } from './draftRevision';
 import {
   applyRevision,
   canDecide,
@@ -35,6 +37,18 @@ const readSaved = (runId: number, sends: GuidedSend[]): GuidedState | null => {
 };
 
 /**
+ * The revisions the guided review has saved for this run, as content edits —
+ * so a decision taken on the page (the sticky bar) carries a rewrite asked
+ * for in the conversation. Empty when nothing was revised or nothing saved.
+ * @param run - The pending run.
+ */
+export function savedGuidedEdits(run: ReviewCardRun): Array<{ id: string; body: string }> {
+  const sends = sendsFromCard(run.card);
+  const saved = readSaved(run.id, sends);
+  return saved ? contentEditsFor(saved, sends) : [];
+}
+
+/**
  * Guided review: the decision walked one send at a time, in the conversation
  * beside the lead.
  *
@@ -52,7 +66,7 @@ const readSaved = (runId: number, sends: GuidedSend[]): GuidedState | null => {
  */
 export type AskResult
   = | { kind: 'question' }
-    | { kind: 'revised'; send: GuidedSend }
+    | { kind: 'revised'; send: GuidedSend; body: string }
     | { kind: 'unchanged'; send: GuidedSend }
     | { kind: 'failed'; send: GuidedSend };
 
@@ -137,14 +151,25 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
    * An ask from the composer. A revision is applied to its send and that send
    * is re-presented; a question is left for the agent to answer and changes
    * nothing.
+   *
+   * Two ways in, one path out (2026-09-16). `intent` is set when the person
+   * armed `@change` — the selection control's *Add change* puts the tag in
+   * the composer — and it names the send the anchor pointed at. An ask with
+   * the tag is ALWAYS a revision: the person said so, and a wording heuristic
+   * has no business overruling them. Without the tag the heuristic still
+   * decides, so what reviewers already type keeps working.
    * @param text - What the reviewer typed.
+   * @param intent - Set by `@change`; `contentId` is the send the anchor named.
+   * @param intent.contentId - The send to rewrite, or null when none resolved.
    * @returns What became of the ask.
    */
-  const askAbout = useCallback(async (text: string): Promise<AskResult> => {
-    if (!isRevisionAsk(text) || state.decided) {
+  const askAbout = useCallback(async (text: string, intent?: { contentId: string | null }): Promise<AskResult> => {
+    if (state.decided || (!intent && !isRevisionAsk(text))) {
       return { kind: 'question' };
     }
-    const target = targetOf(text, sends, state);
+    const target = intent
+      ? (sends.find(s => s.id === intent.contentId) ?? targetOf(text, sends, state))
+      : targetOf(text, sends, state);
     if (!target) {
       return { kind: 'question' };
     }
@@ -163,7 +188,14 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
       const prior = currentBody(target, state);
       const discarded = versionOf(target, state) > 1 ? prior : undefined;
       setState(s => applyRevision(s, sends, target.id, res.body, text, prior, discarded));
-      return { kind: 'revised', send: target };
+      // The page beside the rail owns the record, sends included, so the new
+      // copy goes THERE rather than being re-rendered here to prove it landed
+      // (docs/design/patterns.md, "The rail is the conversation, never a
+      // second copy of the page"). Nothing listening — the full-page chat —
+      // simply does not hear it; the saved state still carries the revision
+      // into the decision either way.
+      publishDraftRevision({ runId: run.id, contentId: target.id, body: res.body });
+      return { kind: 'revised', send: target, body: res.body };
     } catch (error) {
       // The ask still reaches the agent as a message, so nothing is lost;
       // what must not happen is the copy claiming to have changed.
@@ -250,26 +282,34 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
 }
 
 /**
- * A card in the flow, in the transcript's own quiet language.
- * @param root0
- * @param root0.eyebrow
- * @param root0.title
- * @param root0.children
- * @param root0.actions
+ * A BLOCK in the flow — not a card.
+ *
+ * It used to be `rounded-xl border border-border bg-background p-3 shadow-sm`,
+ * rendered inside the rail's own bordered surface: a box in a box, five deep
+ * down a transcript. Chris, 2026-09-16: *"why cards in cards, that should be a
+ * NEVER ALLOW."* He is right, and the rule is now the platform's
+ * (`components/ui/surface.tsx`, `docs/design/patterns.md`): a bordered surface
+ * never contains another bordered surface. Same content, same actions,
+ * separated by a hairline in the `--rule` token with an eyebrow label
+ * (design principles 4 and 8).
+ * @param root0 - Block props.
+ * @param root0.eyebrow - The small uppercase label naming the block.
+ * @param root0.title - The block's headline.
+ * @param root0.children - The block's content.
+ * @param root0.actions - The block's buttons.
+ * @param root0.first - True for the first block in the run, which takes no hairline.
  */
-export function GuidedCard({ eyebrow, title, children, actions }: {
+export function GuidedCard({ eyebrow, title, children, actions, first }: {
   eyebrow: string;
   title?: string;
   children?: React.ReactNode;
   actions?: React.ReactNode;
+  first?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-background p-3 text-[13px] shadow-sm">
-      <div className="text-[10px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">{eyebrow}</div>
-      {title && <div className="mt-0.5 text-[13.5px] font-bold">{title}</div>}
+    <SurfaceSection eyebrow={eyebrow} title={title} actions={actions} first={first} className="text-[13px]">
       {children}
-      {actions && <div className="mt-2.5 flex flex-wrap gap-2">{actions}</div>}
-    </div>
+    </SurfaceSection>
   );
 }
 

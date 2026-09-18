@@ -7,9 +7,8 @@ import Credentials from 'next-auth/providers/credentials';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { accountMembershipSchema, authAccountSchema, projectSchema, sessionSchema, userSchema, verificationTokenSchema } from '@/models/Schema';
+import { ACTIVE_PROJECT_COOKIE } from './activeProject';
 import { db } from './DB';
-
-const ACTIVE_PROJECT_COOKIE = 'vocion_active_project';
 
 /**
  * auth.js (next-auth v5) configuration. This is the default auth backend
@@ -20,7 +19,8 @@ const ACTIVE_PROJECT_COOKIE = 'vocion_active_project';
  * project for that user. For self-hosted "team mode" (1 tenant_account)
  * we pick the user's first project on sign-in. Switching projects flips
  * a `vocion_active_project` cookie that the JWT callback honors on next
- * issue.
+ * issue. The cookie is written by the `/w/[workspace]` entry route (and the
+ * sidebar switcher, which navigates through it) — see `libs/activeProject.ts`.
  */
 
 const credentialsSchema = z.object({

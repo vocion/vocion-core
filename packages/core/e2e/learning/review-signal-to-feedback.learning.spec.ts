@@ -31,8 +31,8 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
 
 const ADMIN = {
   name: 'Ines Okafor',
-  account: 'Veerio Learning',
-  email: 'ines@veerio.example',
+  account: 'Larkfield Learning',
+  email: 'ines@larkfield.example',
   password: 'learning-loop-1',
 };
 
@@ -97,6 +97,8 @@ test('a reviewer\'s reason reaches the feedback queue, and a bare click does not
       agentSlug: 'sales-assistant',
       confidence: 0.71,
       rationale: 'Deal has been quiet for nine days.',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Nine days of silence on an open deal, and nothing else has been sent.',
     },
   });
 
@@ -164,6 +166,8 @@ test('a reviewer\'s reason reaches the feedback queue, and a bare click does not
       agentSlug: 'sales-assistant',
       confidence: 0.6,
       rationale: 'Second draft.',
+      suggestedDecision: 'approve',
+      suggestedDecisionReason: 'Same buyer, first note of the week.',
     },
   });
   const bareRunId = (await second.json()).runId as number;

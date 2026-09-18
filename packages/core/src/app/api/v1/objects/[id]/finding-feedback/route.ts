@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { db } from '@/libs/DB';
-import { businessObjectSchema, learningStepSchema } from '@/models/Schema';
+import { businessObjectSchema, memoryNamespaceSchema } from '@/models/Schema';
 import { updateBusinessObject } from '@/services/BusinessObjectService';
 import { createCandidate } from '@/services/LearningCandidateService';
 import { authApi, isErrorResponse, jsonError, readIdParam, readJsonBody } from '../../../_shared';
@@ -72,7 +72,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (signal === 'disagree') {
     // The first learning step in this org is the shared rule bucket; fall
     // back to a generic name so the candidate still lands in the queue.
-    const step = await db.query.learningStepSchema.findFirst({ where: eq(learningStepSchema.orgId, caller.orgId) });
+    const step = await db.query.memoryNamespaceSchema.findFirst({ where: eq(memoryNamespaceSchema.orgId, caller.orgId) });
     const kit = typeof meta.template_id === 'string' ? meta.template_id : 'this kit';
     const ruleText = target === 'region'
       ? [

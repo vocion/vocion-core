@@ -25,6 +25,25 @@ const ClassificationZ = z.object({
    * what the overwhelming majority of feedback is.
    */
   polarity: z.enum(['correct', 'reinforce']).optional(),
+  /**
+   * Which learning step (bucket) the rule belongs to, chosen from the
+   * whitelist the caller passed in `steps`. Absent when the caller passed no
+   * steps or the model named one that is not on the list — the caller then
+   * falls back exactly as before this field existed (the org's first step).
+   */
+  target_step: z.string().optional(),
+  /**
+   * What KIND of memory the rule is. Preferences are one person's taste,
+   * knowledge is a fact about the business, procedures are how the agent
+   * should work. Episodes never come through feedback classification.
+   */
+  memory_type: z.enum(['preference', 'knowledge', 'procedure']).optional(),
+  /**
+   * The broadest scope where the rule is consistently true, and no broader.
+   * The classifier only picks the KIND — the worker resolves the ref from the
+   * feedback's own context (the agent reacted to, the person who wrote it).
+   */
+  scope: z.enum(['workspace', 'agent', 'user']).optional(),
 });
 
 export type Classification = z.infer<typeof ClassificationZ>;
@@ -45,10 +64,25 @@ For every rule you propose, set polarity:
 
 When the comment quotes specific target text, lean toward edit/both. When it uses general language ("always", "prefer", "never", "going forward", "keep"), lean toward rule.
 
-Return STRICT JSON:
-{"bucket": "edit|rule|both|ignore", "edit_summary": "...", "rule_text": "...", "polarity": "correct|reinforce"}
+For every rule you propose, also set:
+  - memory_type: "preference" (one person's taste — tone, length, format they personally want), "knowledge" (a fact about the business, a client, or a system), or "procedure" (how the work should be done, for everyone).
+  - scope: the BROADEST scope where the rule is consistently true, and no broader. "workspace" — true for every agent and every person (most rules). "agent" — about how ONE agent behaves, wrong to apply to others. "user" — one person's personal preference that teammates may not share.
 
-edit_summary, rule_text and polarity are optional — include only when the bucket calls for them. Write rule_text as a standalone instruction that makes sense without the original comment.`;
+Return STRICT JSON:
+{"bucket": "edit|rule|both|ignore", "edit_summary": "...", "rule_text": "...", "polarity": "correct|reinforce", "target_step": "...", "memory_type": "preference|knowledge|procedure", "scope": "workspace|agent|user"}
+
+edit_summary, rule_text, polarity, target_step, memory_type and scope are optional — include only when the bucket calls for them. Write rule_text as a standalone instruction that makes sense without the original comment.`;
+
+/**
+ * The step-choice suffix, appended only when the caller supplied a whitelist.
+ * Kept out of the base prompt so callers with no steps get the exact prompt
+ * that shipped before this field existed.
+ * @param steps - The org's learning steps (name + what belongs in it).
+ */
+function stepChoiceSection(steps: Array<{ name: string; description: string }>): string {
+  const list = steps.map(s => `  - ${s.name}: ${s.description}`).join('\n');
+  return `\n\nWhen you propose a rule, also pick target_step — the ONE bucket below whose description best matches what the rule is about. Use the bucket's exact name. If none fits, omit target_step.\n\nBuckets:\n${list}`;
+}
 
 export async function classifyComment(opts: {
   text: string;
@@ -56,8 +90,15 @@ export async function classifyComment(opts: {
   artifactTitle?: string;
   /** Org for trace tagging. Caller plumbs from the feedback job row. */
   orgId?: string;
+  /**
+   * The org's learning-step whitelist. When present, the classifier also
+   * picks `target_step` from it; a pick that is not on the list is dropped
+   * here so callers can trust the field.
+   */
+  steps?: Array<{ name: string; description: string }>;
 }): Promise<Classification> {
   const model = buildChatModel('classifier', { temperature: 0 });
+  const system = opts.steps && opts.steps.length > 0 ? SYSTEM + stepChoiceSection(opts.steps) : SYSTEM;
   const user = [
     `Artifact: ${opts.artifactTitle ?? '(unknown)'}`,
     opts.quotedText ? `Quoted target: """${opts.quotedText.slice(0, 500)}"""` : '',
@@ -78,7 +119,7 @@ export async function classifyComment(opts: {
   });
 
   const res = await model.invoke([
-    new SystemMessage(SYSTEM),
+    new SystemMessage(system),
     new HumanMessage(user),
   ]);
   const raw = typeof res.content === 'string'
@@ -114,6 +155,12 @@ export async function classifyComment(opts: {
     trace.update({ output: { bucket: 'ignore', reason: 'schema-fail' } });
     return { bucket: 'ignore' };
   }
-  trace.update({ output: validated.data });
-  return validated.data;
+  const out = { ...validated.data };
+  // A pick must come off the caller's whitelist — a hallucinated bucket name
+  // would otherwise create candidates no step will ever mount.
+  if (out.target_step && !(opts.steps ?? []).some(s => s.name === out.target_step)) {
+    delete out.target_step;
+  }
+  trace.update({ output: out });
+  return out;
 }

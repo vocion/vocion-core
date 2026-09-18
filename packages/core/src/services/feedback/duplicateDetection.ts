@@ -32,12 +32,15 @@ import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel } from '@/libs/llm';
-import { similarity } from '@/services/LearningsService';
+import { similarity } from '@/services/MemoryService';
 
-/** A rule that already exists — either still pending, or already adopted. */
+/**
+ * A rule that already exists — either still pending (a candidate row, integer
+ * id) or already adopted (a store entry, string key).
+ */
 export type ExistingRule = {
   kind: 'candidate' | 'learning';
-  id: number;
+  id: number | string;
   ruleText: string;
 };
 

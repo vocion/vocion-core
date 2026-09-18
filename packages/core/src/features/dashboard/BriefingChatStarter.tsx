@@ -1,175 +1,30 @@
 'use client';
 
-import { ArrowUp, Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useRouter } from '@/libs/I18nNavigation';
+import { useRecordContext } from '@/features/dashboard/context/useRecordContext';
+import { recordRef } from '@/services/chat/recordContext';
 
-/** sessionStorage key ChatShell reads on mount to start a handoff chat. */
-export const CHAT_HANDOFF_KEY = 'vocion_chat_handoff';
-
-export type ChatHandoff = {
-  question: string;
-  contextTitle: string;
-  context: string;
-  /** Optional highlighted excerpt the question is specifically about. */
-  excerpt?: string;
-  /** Agent to answer — the brief's team lead (rollup → workspace lead). */
-  agentSlug?: string;
-};
+// Re-exported so existing importers keep working; the chat page reads the same key.
+export { CHAT_HANDOFF_KEY, type ChatHandoff } from '@/features/dashboard/chat/agentSurface';
 
 /**
- * Floating composer at the bottom of the Briefings page. Typing here moves
- * the conversation to /chat: the briefing rides along as context, a new
- * chat opens against the team lead, and the question is answered there.
+ * The briefing's hook into the ONE conversation surface (058 §6, R4).
  *
- * Highlighting text inside [data-briefing-root] pops an "Ask Vocion"
- * tooltip — clicking it pins the selection to the pill as a quoted
- * excerpt, so the question targets that passage specifically.
+ * This used to be a floating composer pill at the bottom of the page, then a
+ * bespoke "Ask Vocion" selection pill of its own. Both are gone. What remains
+ * is the record declaration: the page says it is about this briefing, so the
+ * rail shows an "About: <title>" chip and files the turn against it.
+ *
+ * Selecting text is now the PLATFORM's pattern, not this page's: the brief
+ * sits inside a `CommentLayerProvider`, and the Detail archetype's own
+ * `Section` carries `data-comment-field`, so a highlight anywhere in the
+ * rendered document raises the standard control — *Ask about this*
+ * (`docs/design/patterns.md` § Select → talk). One selection control in the
+ * app, not one per page.
  * @param props
- * @param props.briefingTitle
- * @param props.briefingContent
- * @param props.agentSlug
+ * @param props.briefingId - The brief being viewed.
+ * @param props.briefingTitle - Its title, for the record label and the chip.
  */
-export const BriefingChatStarter = (props: { briefingTitle: string; briefingContent: string; agentSlug?: string }) => {
-  const router = useRouter();
-  const [value, setValue] = useState('');
-  const [quote, setQuote] = useState<string | null>(null);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  // Portal target only exists client-side; render nothing during SSR.
-  // (useSyncExternalStore-style mount detection keeps the linter happy —
-  // no setState-in-effect.)
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  // Selection watcher — show the tooltip when a selection lands inside the
-  // briefing content ([data-briefing-root]).
-  useEffect(() => {
-    const onMouseUp = () => {
-      // Let the browser finalize the selection first.
-      requestAnimationFrame(() => {
-        const sel = window.getSelection();
-        const text = sel?.toString().trim() ?? '';
-        if (!sel || sel.isCollapsed || text.length < 4) {
-          setTooltip(null);
-          return;
-        }
-        const anchor = sel.anchorNode instanceof Element ? sel.anchorNode : sel.anchorNode?.parentElement;
-        if (!anchor?.closest('[data-briefing-root]')) {
-          setTooltip(null);
-          return;
-        }
-        const rect = sel.getRangeAt(0).getBoundingClientRect();
-        setTooltip({ x: rect.left + rect.width / 2, y: rect.top, text });
-      });
-    };
-    document.addEventListener('mouseup', onMouseUp);
-    return () => document.removeEventListener('mouseup', onMouseUp);
-  }, []);
-
-  const pinQuote = useCallback(() => {
-    if (tooltip) {
-      setQuote(tooltip.text);
-      setTooltip(null);
-      window.getSelection()?.removeAllRanges();
-      inputRef.current?.focus();
-    }
-  }, [tooltip]);
-
-  const start = () => {
-    const question = value.trim();
-    if (!question) {
-      return;
-    }
-    const handoff: ChatHandoff = {
-      question,
-      contextTitle: props.briefingTitle,
-      context: props.briefingContent,
-      excerpt: quote ?? undefined,
-      agentSlug: props.agentSlug,
-    };
-    sessionStorage.setItem(CHAT_HANDOFF_KEY, JSON.stringify(handoff));
-    router.push('/dashboard/chat');
-  };
-
-  if (!mounted) {
-    return null;
-  }
-
-  // Portal to <body>: the dashboard layout wraps pages in a `@container`
-  // div, and CSS container-type implies layout containment — which turns
-  // `position: fixed` into container-relative positioning. Escaping to
-  // the body keeps the pill pinned to the real viewport.
-  return createPortal(
-    <>
-      {tooltip && (
-        <div
-          className="fixed z-50 -translate-x-1/2 -translate-y-full"
-          style={{ left: tooltip.x, top: tooltip.y - 8 }}
-        >
-          <button
-            type="button"
-            // mousedown, not click — click would collapse the selection first.
-            onMouseDown={(e) => {
-              e.preventDefault();
-              pinQuote();
-            }}
-            className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg transition hover:bg-muted"
-          >
-            <Sparkles className="size-3.5 text-primary" />
-            Ask Vocion
-          </button>
-        </div>
-      )}
-
-      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-6">
-        <div className="pointer-events-auto w-full max-w-2xl">
-          {quote && (
-            <div className="mx-4 mb-1 flex items-start gap-2 rounded-t-xl border border-b-0 border-border bg-muted/60 px-4 py-2 backdrop-blur">
-              <span className="line-clamp-2 min-w-0 flex-1 text-xs text-muted-foreground italic">
-                “
-                {quote}
-                ”
-              </span>
-              <button type="button" onClick={() => setQuote(null)} aria-label="Remove quote" className="shrink-0 text-muted-foreground hover:text-foreground">
-                <X className="size-3.5" />
-              </button>
-            </div>
-          )}
-          {/* Same composer language as /chat (rounded-2xl card, amber focus
-              ring, round amber ArrowUp) so starting a chat here FEELS like
-              already being in the chat. */}
-          <div className="flex items-end gap-2 rounded-2xl border border-border bg-background px-4 py-3 shadow-lg transition focus-within:border-brand-amber focus-within:shadow-[0_8px_28px_rgba(241,135,0,0.10)] focus-within:ring-4 focus-within:ring-brand-amber-tint">
-            <input
-              ref={inputRef}
-              value={value}
-              onChange={e => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  start();
-                }
-              }}
-              placeholder={quote ? 'Ask about the highlighted passage…' : 'Ask about this brief — continues in chat with the team lead…'}
-              className="min-w-0 flex-1 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
-            />
-            <button
-              type="button"
-              onClick={start}
-              disabled={!value.trim()}
-              aria-label="Start chat"
-              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50 disabled:shadow-none disabled:hover:translate-y-0 sm:size-9"
-            >
-              <ArrowUp className="size-5 sm:size-[18px]" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </>,
-    document.body,
-  );
+export const BriefingChatStarter = (props: { briefingId: number; briefingTitle: string }) => {
+  useRecordContext(recordRef('briefing', props.briefingId, props.briefingTitle));
+  return null;
 };

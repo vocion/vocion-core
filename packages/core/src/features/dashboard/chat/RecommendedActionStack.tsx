@@ -3,7 +3,9 @@
 import type { RecommendedAction } from './types';
 import { ArrowRight, Bookmark, Check, Layers, Loader2, SkipForward } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { recommendedActionAdvice } from '@/services/chat/recommendedActionAdvice';
 import { RecommendedActionCard } from './RecommendedActionCard';
 
 /**
@@ -17,23 +19,39 @@ import { RecommendedActionCard } from './RecommendedActionCard';
 
 type Outcome = 'saved' | 'skipped' | 'acted';
 
-export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) {
+export function RecommendedActionStack({ recs, autoPropose = false }: { recs: RecommendedAction[]; autoPropose?: boolean }) {
   const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [bulkDone, setBulkDone] = useState(false);
 
-  if (recs.length <= 1) {
+  if (recs.length <= 1 || autoPropose) {
+    // At `act-within-bounds` every recommendation proposes itself, so the
+    // one-at-a-time triage has nothing to triage — show the cards as a list.
+    return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} autoPropose={autoPropose} />)}</>;
+  }
+  // Everything the server already filed (act-within-bounds) is a card with a
+  // live status, not a stepper item — show those first, step through the rest.
+  const filed = recs.filter(r => r.runId !== undefined);
+  const open = recs.filter(r => r.runId === undefined);
+  if (open.length <= 1 && filed.length > 0) {
     return <>{recs.map((rec, i) => <RecommendedActionCard key={i} rec={rec} />)}</>;
   }
 
   const propose = async (rec: RecommendedAction): Promise<void> => {
+    // Same refusal as the card's: a recommendation with no action id cannot
+    // produce a valid proposal, and "Queue all" must not turn one bad payload
+    // into a burst of 400s.
+    if (!rec.actionId) {
+      throw new Error('This recommendation named no action, so there is nothing to prepare.');
+    }
     await client.review.propose({
       actionId: rec.actionId,
       input: rec.input,
       agentSlug: rec.agentSlug,
       rationale: rec.rationale,
       confidence: rec.confidence,
+      ...recommendedActionAdvice(rec),
     });
   };
 
@@ -83,10 +101,10 @@ export function RecommendedActionStack({ recs }: { recs: RecommendedAction[] }) 
           {outcomes.filter(o => o === 'skipped').length > 0 && ` · ${outcomes.filter(o => o === 'skipped').length} skipped`}
         </span>
         {saved > 0 && (
-          <a href="/dashboard/review" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
+          <Link href="/dashboard/inbox?kind=proposal" className="inline-flex items-center gap-1 font-medium text-brand-amber-deep hover:opacity-90">
             Review queue
             <ArrowRight className="size-3.5" aria-hidden />
-          </a>
+          </Link>
         )}
       </div>
     );

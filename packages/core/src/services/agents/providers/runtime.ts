@@ -40,8 +40,10 @@ import { db } from '@/libs/DB';
 import { mintBedrockSessionForRuntime } from '@/libs/llm/bedrockCredentials';
 import { agentSchema } from '@/models/Schema';
 import { chargeUsage } from '@/services/BudgetService';
+import { conversationSessionId } from '@/services/evals/sessionIds';
 import { signClaim } from '../claims';
 import { buildInitialFiles } from '../harness';
+import { memoryMountPaths } from '../memoryDigest';
 import { buildToolCatalog } from '../tools/registry';
 
 const RUNTIME_URL = (): string => process.env.VOCION_AGENT_RUNTIME_URL ?? 'http://localhost:8080';
@@ -54,12 +56,32 @@ export type RuntimeRunOptions = {
   orgId: string;
   agentSlug: string;
   message: string;
+  /** Files attached to this turn — carried to the container as text and inline image data. */
+  attachments?: import('@/services/chat/attachments').LoadedAttachment[];
   userId?: string;
   allowedSourceSlugs?: string[];
   missionSlug?: string;
   /** Persisted conversation id — keys the AgentCore Memory session (Phase 5). */
   conversationId?: number;
+  /**
+   * What this turn's spans are grouped under, as `session.id`.
+   *
+   * AWS groups spans into a session by this id, and a session is the unit its
+   * evaluators score. Left unset it falls back to the conversation, and with
+   * no conversation either the runtime falls back to the agent slug — which
+   * collapses every turn from every user into one session, so anything that
+   * reads sessions sees one enormous run per agent. Callers that know what the
+   * turn belongs to should say so; the eval runner does.
+   */
+  sessionId?: string;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /**
+   * What the turn owes (`libs/chat/deliverable.ts`). Carried into the payload
+   * so the out-of-process loop knows too — the core-side backstop still
+   * guarantees the artifact, but a loop that knows an artifact was asked for
+   * can render one itself, which is always better than being wrapped.
+   */
+  deliverable?: 'artifact' | 'answer';
   onEvent?: (event: AgentEvent) => void;
 };
 
@@ -103,8 +125,15 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     conversationId: opts.conversationId,
   });
 
-  const files = await buildInitialFiles(opts.orgId, opts.agentSlug);
+  const files = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
   const hc = row.harnessConfig ?? {};
+
+  // Silent signal for the adoption surfaces (same as the in-process loop):
+  // the chat consumer has no case for it, so the transcript is untouched.
+  const memoryPaths = memoryMountPaths(files);
+  if (memoryPaths.length > 0) {
+    emit({ type: 'memories_mounted', paths: memoryPaths });
+  }
 
   // Resolved for every run, not only for `modelProvider: bedrock` agents:
   // which vendor the artifact actually calls depends on ITS environment
@@ -132,12 +161,21 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   // than migrating it forward under a guessed org.
   const memorySession = process.env.VOCION_AGENTCORE_MEMORY_ID && opts.conversationId
     ? {
-        sessionId: `vocion-conv-${opts.conversationId}-${opts.orgId}`.replace(/[^\w-]/g, '-').slice(0, 100),
+        sessionId: conversationSessionId(opts.conversationId, opts.orgId),
         actorId: `${opts.orgId}-${opts.userId ?? 'system'}`.replace(/[^\w-]/g, '-').slice(0, 100),
       }
     : undefined;
   const omitHistory = memorySession && process.env.VOCION_MEMORY_AUTHORITATIVE === '1';
 
+  // Same id the memory session uses for the same conversation, so a trace and
+  // the memory that turn wrote can be found from one another.
+  const sessionId = opts.sessionId
+    ?? (opts.conversationId ? conversationSessionId(opts.conversationId, opts.orgId) : undefined);
+
+  // The container has no database and no artifacts volume: a document travels
+  // as its text, an image as a data URL, both read here.
+  const { attachmentsForWire } = await import('@/services/chat/attachments');
+  const attachments = await attachmentsForWire(opts.attachments ?? []);
   const payload = {
     version: 1 as const,
     agent: {
@@ -155,11 +193,14 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       excludeTools: hc.excludeTools,
     },
     message: opts.message,
+    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
     conversationHistory: omitHistory ? undefined : opts.conversationHistory,
     files,
     tools: { endpoint: TOOL_ENDPOINT(), catalog, claim },
     ...(awsSession ? { aws: awsSession } : {}),
     trace: { orgId: opts.orgId, userId: opts.userId ?? 'system' },
+    ...(sessionId ? { sessionId } : {}),
     memory: memorySession,
   };
 

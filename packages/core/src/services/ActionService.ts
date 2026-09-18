@@ -14,13 +14,16 @@
  * one-directional.
  */
 
+import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
+import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
+import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
 
@@ -38,6 +41,8 @@ export type ActionRunResult = {
   runId: number;
   status: 'pending' | 'done' | 'failed' | 'rejected';
   result?: Record<string, unknown> | null;
+  /** What went wrong, set only when `status` is `failed`. */
+  error?: string;
 };
 
 /**
@@ -63,6 +68,44 @@ const DAY_IN_MS = 86_400_000;
 
 /** What blocks a fresh card by default, for an action that opted in at all. */
 const DECIDED_STATUSES_THAT_BLOCK = ['done', 'rejected'] as const;
+
+/**
+ * The envelope as the column holds it: a recommendation is either there with
+ * its reason, or the keys are absent. The null a caller passes to say "nothing
+ * judged this" never reaches storage.
+ */
+type StoredProposal<T> = Omit<T, 'suggestedDecision' | 'suggestedDecisionReason'> & {
+  suggestedDecision?: SuggestedDecision;
+  suggestedDecisionReason?: string;
+};
+
+/**
+ * The proposal envelope as it should be stored.
+ *
+ * A reason belongs to a recommendation. An envelope carrying
+ * `suggestedDecisionReason` with no `suggestedDecision` would put a sentence
+ * arguing for an outcome on a card that recommends none, and every reader —
+ * the review card, the agreement metric, a person scrolling the ledger months
+ * later — would have to guess which outcome it argued for. Dropping it is the
+ * honest answer: nothing is inferred from it, and nothing is stored that
+ * cannot be read.
+ * @param proposal - The envelope a caller passed, or undefined.
+ */
+function proposalForStorage<T extends { suggestedDecision?: SuggestedDecision | null; suggestedDecisionReason?: string | null }>(
+  proposal: T | undefined,
+): StoredProposal<T> | null {
+  if (!proposal) {
+    return null;
+  }
+  if (proposal.suggestedDecision) {
+    return proposal as StoredProposal<T>;
+  }
+  // No recommendation: the reason goes with it, and the null itself is not
+  // worth storing — a missing key and a stored null read the same everywhere,
+  // and the missing key is what every row written before this looked like.
+  const { suggestedDecision: _noDecision, suggestedDecisionReason: _dropped, ...rest } = proposal;
+  return rest as StoredProposal<T>;
+}
 
 /**
  * The run of this dedup key a person already decided, when the action says a
@@ -135,6 +178,10 @@ async function findDecidedRunForKey(
  * @param input.proposal.rationale
  * @param input.proposal.evidence
  * @param input.proposal.agentSlug
+ * @param input.proposal.suggestedDecision
+ * @param input.proposal.suggestedDecisionReason - One short sentence for why that recommendation.
+ * @param input.proposal.suggestedSnoozeUntil
+ * @param input.proposal.labels - Payload field names the proposer wrote as a judgement of its own.
  * @param input.dedupKey
  * @param input.expiresAt
  */
@@ -144,8 +191,35 @@ export async function proposeAction(input: {
   input: Record<string, unknown>;
   principal: Principal;
   invokedBy?: string;
-  /** Agent-proposal envelope — confidence (0–1), rationale, evidence uris. */
-  proposal?: { confidence?: number; rationale?: string; evidence?: string[]; agentSlug?: string };
+  /**
+   * Agent-proposal envelope — confidence (0–1), rationale, evidence uris, and
+   * the advisory `suggestedDecision` saying what the agent thinks the reviewer
+   * should do with this, with one short sentence for why. The recommendation
+   * can only ever keep the proposal in the queue (see the guard below); it is
+   * never read as a reason to let one run without a person.
+   *
+   * Anything that sends an envelope must answer the question, and `null` is a
+   * real answer: nothing judged this card. Both fields are required so that a
+   * producer cannot forget the question, and both may be null so that a
+   * producer with no model in the loop is not pushed into inventing a verdict
+   * — a fabricated `approve` scores in the agreement rate as though a model
+   * had made it, which flatters the agent for a sentence core wrote. A null
+   * pair stores neither field and sits outside that rate.
+   *
+   * `labels` names the payload fields the proposer wrote as a JUDGEMENT rather
+   * than read off its source, so the decision can record what the reviewer did
+   * with each of them. Names only, never values.
+   */
+  proposal?: {
+    confidence?: number;
+    rationale?: string;
+    evidence?: string[];
+    agentSlug?: string;
+    suggestedDecision: SuggestedDecision | null;
+    suggestedDecisionReason: string | null;
+    suggestedSnoozeUntil?: string;
+    labels?: string[];
+  };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).
    * If a PENDING action_run already exists for (orgId, dedupKey), it is
@@ -211,9 +285,11 @@ export async function proposeAction(input: {
     throw new ActionError('VALIDATION_FAILED', refusal);
   }
 
-  // Upsert-by-key: a re-surfaced owed action updates its existing PENDING row
+  // Upsert-by-key: a re-surfaced owed action updates its existing OPEN row
   // rather than stacking duplicates in the queue. A still-open card always
-  // wins — it is the one a moderator can still act on.
+  // wins — it is the one a moderator can still act on. `failed` counts as
+  // open now that failed cards stay in the queue for retry: a fresh proposal
+  // supersedes the failed attempt and the card goes back to reviewable.
   //
   // Scoped to this action as well as the key. A caller may pass any
   // `dedupKey` over the API, so two actions can share one; matching on the
@@ -227,16 +303,34 @@ export async function proposeAction(input: {
         eq(actionRunSchema.orgId, input.orgId),
         eq(actionRunSchema.actionId, action.id),
         eq(actionRunSchema.dedupKey, dedupKey),
-        eq(actionRunSchema.status, 'pending'),
+        inArray(actionRunSchema.status, ['pending', 'failed']),
       ))
       .limit(1);
     if (existing) {
       await db
         .update(actionRunSchema)
         .set({
+          status: 'pending',
+          error: null,
           input: parsed as Record<string, unknown>,
-          proposal: input.proposal ?? null,
+          proposal: proposalForStorage(input.proposal),
           expiresAt: input.expiresAt ?? null,
+          // The refresh is the completion edge of a regeneration: the new
+          // payload landing on the same pending run clears the in-flight
+          // stamp, whichever path (scoped turn or full agent pass) produced
+          // it, and the card re-enables in place.
+          regeneratingSince: null,
+          regenerateNote: null,
+          // A refreshed card is open work again, so it carries no decision.
+          // A run the ladder approved whose execution failed can be
+          // re-proposed on the same dedup key and comes back to `pending`
+          // here; leaving the old stamp on it would show a reviewer a pending
+          // card that claims an agent already approved it, and would put an
+          // undecided run into the auto-approved audit list and the
+          // auto-approval count.
+          approvedByAgent: null,
+          decidedBy: null,
+          decidedAt: null,
         })
         .where(eq(actionRunSchema.id, existing.id));
       // Keep the action's own domain row in step with the refreshed payload.
@@ -281,7 +375,7 @@ export async function proposeAction(input: {
       status: gated ? 'pending' : 'approved',
       invokedBy: input.invokedBy ?? input.principal.id,
       sourceSlug: action.sourceSlug ?? null,
-      proposal: input.proposal ?? null,
+      proposal: proposalForStorage(input.proposal),
       dedupKey: dedupKey ?? null,
       expiresAt: input.expiresAt ?? null,
     })
@@ -316,7 +410,18 @@ export async function proposeAction(input: {
     // Deliberately not configurable; revisit only once UC5 trust reporting
     // exists and a human opts in explicitly. Fails safe — it can only keep the
     // item in the review queue, never release it.
-    if (action.id === 'gmail.send' || action.grant === 'send_email' || action.id === 'discovery.review_proposal' || action.id === 'personalization.enroll' || action.id === 'objects.propose_candidate') {
+    // The list itself lives in `libs/actions/neverAuto.ts` so the autonomy
+    // ladder reads the same one and never offers a promotion this gate refuses.
+    if (isNeverAuto(action)) {
+      return { runId: run!.id, status: 'pending', outcome: 'created' };
+    }
+    // An agent that recommended anything other than approval does not get to
+    // have the trust ladder run its work anyway. Confidence and recommendation
+    // answer different questions — an agent can be highly confident that the
+    // right call is to turn this down — and a rule keyed on confidence alone
+    // would read that as "very sure, go ahead". Fails safe: it can only keep
+    // the item in the queue for a person, never release it.
+    if (input.proposal?.suggestedDecision === 'reject' || input.proposal?.suggestedDecision === 'snooze') {
       return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
     // Trust ladder: an ENABLED rule whose threshold this proposal's
@@ -325,16 +430,41 @@ export async function proposeAction(input: {
     const { trustDecision } = await import('@/services/TrustService');
     const trust = await trustDecision(input.orgId, action.id, input.proposal?.confidence);
     if (trust.auto) {
+      // Who to credit with the decision. An in-process agent turn stamps
+      // `agent:<slug>` on the proposing principal; a proposal made over the API
+      // stamps its caller there and names the agent in the envelope instead, so
+      // both have to be read. Neither knowing it means the trust ladder itself
+      // is the decider — the honest answer, rather than crediting an agent we
+      // cannot name.
+      const decidingAgent = agentSlugFromPrincipal(input.invokedBy ?? input.principal.id)
+        ?? input.proposal?.agentSlug;
       await db
         .update(actionRunSchema)
         .set({
           proposal: {
-            ...(input.proposal ?? {}),
+            ...(proposalForStorage(input.proposal) ?? {}),
             autoApproved: true,
             autoApprovedThreshold: trust.threshold,
           } as never,
+          // `approvedByAgent` is the system of record for who decided; the
+          // envelope key above predates it and is kept so runs written before
+          // the column landed still read as auto-approved.
+          //
+          // Stamping the decision fields here is what makes "did a decision
+          // happen" one question instead of two: before this, an auto-approved
+          // run left `decidedBy` and `decidedAt` empty and was indistinguishable
+          // from one nobody had touched.
+          approvedByAgent: true,
+          decidedBy: decidingAgent ? `agent:${decidingAgent}` : 'trust-ladder',
+          decidedAt: new Date(),
         })
         .where(eq(actionRunSchema.id, run!.id));
+      // Deliberately NOT written to the adoption stream. Adoption measures what
+      // people do, and an agent actor on a `review.%` event would count itself
+      // as an active user and as an interaction, inflating the very numbers the
+      // screen exists to report. The count comes off this column instead
+      // (`AdoptionService.countAutoApprovals`), which is the system of record
+      // for the decision and is indexed for exactly that question.
       return { ...await executeAction(run!.id, input.orgId), outcome: 'created' };
     }
     return { runId: run!.id, status: 'pending', outcome: 'created' };
@@ -370,12 +500,11 @@ export async function executeAction(
   if (!action) {
     throw new ActionError('UNKNOWN_ACTION', `No registered action: ${run.actionId}`);
   }
-  // Only a run still awaiting its outcome may execute. `pending` is the review
-  // queue's approve, `approved` is a run the gate let straight through. A run
-  // that is done, failed or rejected has an outcome already, and re-running it
-  // would undo a decision — for an action that keeps a domain record, that
-  // means flipping a rejected record to approved.
-  if (run.status !== 'pending' && run.status !== 'approved') {
+  // `pending` is the review queue's approve, `approved` is a run the gate let
+  // straight through, and `failed` is a standing approval whose execution
+  // threw — retrying it honors the decision rather than overriding one. Only
+  // `done` and `rejected` have real outcomes that a re-run would undo.
+  if (run.status !== 'pending' && run.status !== 'approved' && run.status !== 'failed') {
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — already decided, cannot execute`);
   }
 
@@ -385,7 +514,24 @@ export async function executeAction(
       status: 'executing',
       // Stamped at the decision, not at completion: even a failed execution
       // was still approved by this person at this moment.
-      ...(opts?.reviewedBy ? { decidedBy: opts.reviewedBy, decidedAt: new Date() } : {}),
+      ...(opts?.reviewedBy
+        ? {
+            decidedBy: opts.reviewedBy,
+            decidedAt: new Date(),
+            // The LAST decider owns the row, so a person executing this makes
+            // it a human decision outright — no coalesce.
+            //
+            // The only run this can overwrite is one an agent approved whose
+            // execution then threw and which sits in the queue as `failed`: a
+            // `done` or `rejected` run is never re-decided, because the dedup
+            // refresh matches only open rows and a later proposal opens a new
+            // run instead. So what this reclassifies is precisely the case
+            // where the agent did NOT take the work off anyone's plate — it
+            // broke and a person finished it — and counting that as an
+            // auto-approval overstates what the ladder actually did.
+            approvedByAgent: false,
+          }
+        : {}),
     })
     .where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
@@ -401,7 +547,7 @@ export async function executeAction(
     }, run.input);
     await db
       .update(actionRunSchema)
-      .set({ status: 'done', result, executedAt: new Date() })
+      .set({ status: 'done', result, error: null, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
     return { runId, status: 'done', result };
   } catch (err) {
@@ -410,7 +556,9 @@ export async function executeAction(
       .update(actionRunSchema)
       .set({ status: 'failed', error: message, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
-    return { runId, status: 'failed', result: null };
+    // The error rides the return so the surface that clicked Approve can SAY
+    // the execution failed — a silent failed row cost three days once.
+    return { runId, status: 'failed', result: null, error: message };
   }
 }
 
@@ -464,7 +612,20 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
 export async function rejectAction(runId: number, orgId: string, reason?: string, opts?: { reviewedBy?: string }): Promise<void> {
   const [run] = await db
     .update(actionRunSchema)
-    .set({ status: 'rejected', error: reason ?? null, executedAt: new Date(), decidedBy: opts?.reviewedBy ?? null, decidedAt: new Date() })
+    .set({
+      status: 'rejected',
+      error: reason ?? null,
+      executedAt: new Date(),
+      decidedBy: opts?.reviewedBy ?? null,
+      decidedAt: new Date(),
+      // A rejection is a decision, and it is never an agent's — the trust
+      // ladder can only release work, never turn it down. The last decider
+      // owns the row, so rejecting a run an agent approved makes it a human
+      // decision: the agent's call did not stand, and a column that still read
+      // `true` would count a rejected proposal towards what the ladder got
+      // through on its own.
+      approvedByAgent: false,
+    })
     .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
     .returning({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy });
   if (!run) {

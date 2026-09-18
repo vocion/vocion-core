@@ -1,31 +1,51 @@
+'use client';
+
 import type { LucideIcon } from 'lucide-react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
+import { usePathname } from 'next/navigation';
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useSidebar } from '@/components/ui/useSidebar';
+import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
 import { Link } from '@/libs/I18nNavigation';
 
+const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
+
+export type SidebarNavItem = {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  disabled?: boolean;
+  /** A live count (e.g. "Review queue"). Omitted or 0 renders nothing. */
+  badge?: number;
+};
+
+/**
+ * A flat sidebar group. Airy pass (B-034b §3): rows are h-9, 13px, icons
+ * stroke 1.5; the active item is a quiet grey pill (tokens), and every row
+ * carries a tooltip so the collapsed icon rail stays legible.
+ * @param props
+ * @param props.label
+ * @param props.items
+ */
 export const AppSidebarNav = (props: {
   label?: string;
-  items: {
-    title: string;
-    url: string;
-    icon: LucideIcon;
-    disabled?: boolean;
-  }[];
+  items: SidebarNavItem[];
 } & ComponentPropsWithoutRef<typeof SidebarGroup>) => {
+  const { label, items, ...rest } = props;
   const { toggleSidebar, isMobile } = useSidebar();
+  const pathname = usePathname();
 
   return (
-    <SidebarGroup {...props}>
+    <SidebarGroup {...rest}>
       <SidebarGroupContent>
-        {props.label && (<SidebarGroupLabel>{props.label}</SidebarGroupLabel>)}
+        {label && (<SidebarGroupLabel>{label}</SidebarGroupLabel>)}
         <SidebarMenu>
-          {props.items.map(item => (
+          {items.map(item => (
             <SidebarMenuItem key={item.title}>
               {item.disabled
                 ? (
-                    <SidebarMenuButton disabled className="pointer-events-none opacity-40">
+                    <SidebarMenuButton disabled className="pointer-events-none opacity-40" tooltip={item.title}>
                       <item.icon />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
@@ -33,6 +53,8 @@ export const AppSidebarNav = (props: {
                 : (
                     <SidebarMenuButton
                       asChild
+                      tooltip={item.title}
+                      isActive={isNavItemActive(pathname, item.url)}
                       onClick={() => {
                         if (isMobile) {
                           toggleSidebar();
@@ -56,6 +78,13 @@ export const AppSidebarNav = (props: {
                           )}
                     </SidebarMenuButton>
                   )}
+              {item.badge
+                ? (
+                    <SidebarMenuBadge className="rounded-full bg-brand-amber/12 px-1.5 text-[11px] font-medium text-brand-amber-deep">
+                      {formatBadge(item.badge)}
+                    </SidebarMenuBadge>
+                  )
+                : null}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

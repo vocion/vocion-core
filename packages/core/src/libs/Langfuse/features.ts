@@ -34,6 +34,10 @@ export const FEATURES = {
   RETRIEVAL_INGEST: 'retrieval.ingest',
   /** Optional rerank pass over top-K hybrid candidates. */
   RETRIEVAL_RERANK: 'retrieval.rerank',
+  /** Scoped skill-turn executor — one skill, read-only tools, structured output. */
+  SKILL_TURN: 'skill.turn',
+  /** Per-document candidate extraction inside a source sync's processor stage. */
+  PROCESSOR_EXTRACT: 'processor.extract',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

@@ -11,3 +11,12 @@ src/wsx-ext
 demo/seed-db/
 test-results/
 playwright-report/
+# tool-generated files (create_artifact, generate_image); served only via /api/artifacts
+.artifacts/
+
+# Build stamp. `public/version.txt` is regenerated on every build and never
+# committed. `src/generated/version.json` IS committed, as a `dev` placeholder:
+# the account menu is a client component, so it needs an import that always
+# resolves. The build overwrites it, so a working copy can show as dirty after
+# a local build — that is the cost of the import working everywhere.
+/public/version.txt

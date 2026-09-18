@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { checkDedup } from '@/services/LearningsService';
+import { checkDedup } from '@/services/MemoryService';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../../../_shared';
 
 /**
@@ -7,7 +7,7 @@ import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../../../_
  *
  * Would adding this rule be refused as a near-duplicate? Body: `{ ruleText }`.
  *
- * Returns `{ ok: true }` when the text is new, or `{ ok: false, existingId,
+ * Returns `{ ok: true }` when the text is new, or `{ ok: false, existingKey,
  * existingRule, similarity }` when it restates a rule already in the step. This
  * is a read — it writes nothing — so a client can warn while someone is still
  * typing instead of failing the save.
@@ -35,7 +35,7 @@ export async function POST(req: Request, context: { params: Promise<{ step: stri
     return NextResponse.json(await checkDedup(caller.orgId, step, body.ruleText));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.startsWith('unknown learning step')) {
+    if (message.startsWith('unknown memory namespace')) {
       return jsonError('NOT_FOUND', message, 404);
     }
     // Anything else is a genuine fault: log it and let it surface as a 500

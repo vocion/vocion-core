@@ -34,6 +34,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { resolvedModelId } from '@/libs/llm';
 import {
   claimBriefToDraft,
@@ -88,7 +89,7 @@ export function queueLeadTool(ctx: RuntimeContext) {
     },
     {
       name: 'queue_lead',
-      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM mirror refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement from the mirror itself, so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction. `asOf` is the last sync of the mirror the identities came from; when `mirrorStaleness` is set, quote it, because a thin batch over a mirror that stopped syncing is not a quiet week.',
+      description: 'Put leads on the personalization queue (the /gtm/personalization page) — ONE call for the whole batch, passing every ref at once. Takes CRM refs (the `ref` field from hubspot_count_contacts, e.g. "contacts:9412") and reads name, title, company, entrance source and email engagement itself — LIVE from HubSpot, falling back to the CRM mirror when live is unavailable (`identitySource` says which) — so you never supply them and nothing can be invented. Phase 1 records NO research: claims, missing and the draft sequence stay empty and confidence stays null. Returns the counts first — requested, queued (rows actually written), alreadyQueued (already on the queue, which is what a re-fire looks like), notInMirror (refs with no CRM record), and queueTotal. Report `queued` and `alreadyQueued`, not the number of refs you sent. Running this twice on the same leads is a no-op by construction. `asOf` is when the identities were read; when `mirrorStaleness` is set, quote it, because a thin batch over a mirror that stopped syncing is not a quiet week.',
       schema: z.object({
         contact_refs: z.array(z.string().min(1)).min(1).max(500).describe('CRM mirror refs from hubspot_count_contacts (`ref`), e.g. ["contacts:9412","contacts:9413"]. Send them all in one call.'),
         trigger_type: z.enum(['new', 'stale']).default('new').describe('Why the sweep picked the lead up. Phase 1 queues fresh arrivals, so "new".'),
@@ -145,7 +146,7 @@ export function reconcileMqlWindowTool(ctx: RuntimeContext) {
     },
     {
       name: 'reconcile_mql_window',
-      description: `Coverage check: recompute the window's arrivals from the CRM mirror (no writes) and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. \`asOf\` is the mirror's last sync and \`mirrorStaleness\` is set when it has fallen behind its own schedule; quote it, because zero gaps against a frozen mirror is not full coverage. ${WINDOW_CAVEAT}`,
+      description: `Coverage check: recompute the window's arrivals (no writes) — LIVE from HubSpot, falling back to the CRM mirror when live is unavailable (\`sourcesRead\`/the note say which) — and diff them against the personalization queue. Returns arrivals, queued, and every unqueued lead BY NAME with why. Run this at the end of a queueing pass and report the gap count; if it is non-zero, queue what you missed and re-run. \`asOf\` is when arrivals were read and \`mirrorStaleness\` is set when a mirror fallback has fallen behind its own schedule; quote it, because zero gaps against a frozen mirror is not full coverage. ${WINDOW_CAVEAT}`,
       schema: z.object({
         lifecycle_stages: z.array(z.string().min(1)).min(1).describe('Exact lifecycle stage strings, read from `facets.lifecycleStage` on a hubspot_count_contacts call — e.g. ["marketingqualifiedlead"]. Never pass a friendly label like "MQL"; it will be refused.'),
         since_days: z.number().positive().max(365).optional().describe('Trailing window in days, resolved on the SERVER clock (default 7). Use this rather than created_after; it does not require you to know today\'s date. Pass the SAME value the queueing pass used.'),
@@ -330,6 +331,10 @@ export function saveDraftSequenceTool(ctx: RuntimeContext) {
         contactRef: args.contact_ref,
         sends: args.sends,
         recommendedSequence: args.recommended_sequence,
+        advice: {
+          suggestedDecision: args.suggested_decision,
+          suggestedDecisionReason: args.suggested_decision_reason,
+        },
         senderEmail: args.sender_email,
         hubspotUserId: args.hubspot_user_id,
         briefedBy: {
@@ -358,6 +363,13 @@ export function saveDraftSequenceTool(ctx: RuntimeContext) {
           name: z.string().min(1).describe('The sequence name, as returned.'),
           reason: z.string().optional().describe('One or two sentences: why THIS sequence for THIS lead. Renders on the review card.'),
         }).describe('The existing HubSpot sequence the lead should be enrolled into.'),
+        // Asked of the model rather than assumed here. This call files a
+        // review card, every card carries a recommendation, and the only
+        // honest source for one is whatever judged the work — core writing
+        // "approve" on every lead scored in the agreement rate as the agent's
+        // own view of leads it never rated.
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('What a reviewer should do with this lead: "approve" to release the drafts, "snooze" when it should wait for something you name, "reject" when you drafted it but do not think it should go out.'),
+        suggested_decision_reason: z.string().min(1).describe('ONE short sentence for why that recommendation — "the brief is thin but the timing is right", "wrong persona for this sequence, worth a person\'s read". Not the same as the sequence reason above: that argues the sequence fits, this argues what should happen to the card.'),
         sender_email: z.string().min(1).describe('The sender the enrollment will run as — the `userEmail` you passed to hubspot_list_sequences.'),
         hubspot_user_id: z.string().optional().describe('The `userId` from the hubspot_list_sequences response. Pass it through; it scopes verification and the enrollment.'),
       }),

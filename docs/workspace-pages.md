@@ -24,7 +24,7 @@ Every page derives from a core page shape rather than inventing one:
 | archetype | derived from | data |
 |---|---|---|
 | `list` | the objects/type list page | `objects` \| `skillRuns` \| `documents` |
-| `queue` | the review page (read-only; decisions stay in `/dashboard/review`) | `skillRuns` |
+| `queue` | the proposal list (read-only; decisions stay on Needs you, `/dashboard/inbox`) | `skillRuns` |
 | `markdown` | the docs page | a sibling `.md` file |
 
 A `list`/`queue` page composes: a stats row (`stats:`), grouping
@@ -76,7 +76,17 @@ after editing a workspace registry.
 
 ## Reference implementation
 
-The Down to Earth demo (`vocion-demos/demos/down-to-earth/workspace/…/pages/`)
-ships four pages: a stat-tiled command center with a custom score-distribution
-widget, a grouped store-manager inbox, a read-only screening-activity queue,
-and a markdown agent registry.
+The hiring-screen demo — a retail chain screening seasonal applicants — is the
+worked example, and it lives in the demos repo under
+`demos/<demo>/workspace/…/pages/`. It ships one page per archetype, which is
+the fastest way to see how far a workspace can go without touching core:
+
+| page | archetype | what it shows |
+|---|---|---|
+| Command center | `list` | a stats row over `objects`, plus a **custom widget** from `components/registry.tsx` that draws the applicant score distribution — the one thing the core list page cannot express |
+| Store-manager inbox | `list` | the same objects **grouped** by store, so a regional manager sees their own queue without a per-tenant route |
+| Screening activity | `queue` | `skillRuns` read-only; decisions still happen on Needs you (`/dashboard/inbox`), so the page never grows a second decision surface |
+| Agent registry | `markdown` | a sibling `.md` file, versioned with the workspace |
+
+Read them in that order. The first two prove the data path, the third proves
+the read-only rule, the fourth proves a page can be nothing but prose.

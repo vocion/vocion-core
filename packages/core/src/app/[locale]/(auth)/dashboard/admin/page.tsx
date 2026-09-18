@@ -11,7 +11,7 @@ export default async function AdminPage(props: {
   return (
     <>
       <TitleBar
-        title="System Status"
+        title="System"
         description="Infrastructure health, service heartbeats, and platform links"
       />
       <SystemStatus />

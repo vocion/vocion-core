@@ -7,7 +7,7 @@
  * manual DB path until this CLI. The plaintext token is printed exactly once
  * — only its SHA-256 hash is stored.
  *
- *   npm run tokens:issue  -- --org <id-or-slug> --name "operational-ai-hub chris"
+ *   npm run tokens:issue  -- --org <id-or-slug> --name "revenue-ops-hub chris"
  *   npm run tokens:list   -- --org <id-or-slug>
  *   npm run tokens:revoke -- --org <id-or-slug> --id <tokenId>
  *

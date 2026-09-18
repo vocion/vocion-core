@@ -610,6 +610,237 @@
       "when": 1787547800000,
       "tag": "0086_regenerate_note_history",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1787547900000,
+      "tag": "0087_action_run_regenerating",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1787548000000,
+      "tag": "0088_project_regenerate_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1787548100000,
+      "tag": "0089_action_run_suggested_decision",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1787548200000,
+      "tag": "0090_agent_persona",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1787548300000,
+      "tag": "0091_ask",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1787548400000,
+      "tag": "0092_worker_run_kind_team_kpis",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1787548500000,
+      "tag": "0093_eval_run_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1787548600000,
+      "tag": "0094_conversation_feedback_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1787548700000,
+      "tag": "0095_artifact",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1787548800000,
+      "tag": "0096_conversation_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1787548900000,
+      "tag": "0097_workspace_mailbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1787552600000,
+      "tag": "0098_user_nav_pref",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1787549100000,
+      "tag": "0099_decision_alignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1787560000000,
+      "tag": "0100_team_measures",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1787640000000,
+      "tag": "0101_artifact_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1787727000000,
+      "tag": "0102_slack_post_feedback_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1787727100000,
+      "tag": "0103_memory_store",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1787727200000,
+      "tag": "0104_memory_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1787727300000,
+      "tag": "0105_candidate_type_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1787727400000,
+      "tag": "0106_candidate_eval_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1787727500000,
+      "tag": "0107_candidate_replaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1787727600000,
+      "tag": "0108_action_run_approved_by_agent",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1787727601000,
+      "tag": "0109_project_voice_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1787727701000,
+      "tag": "0110_briefing_document",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1787727801000,
+      "tag": "0111_discovery_confidence_semantics",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1787727802000,
+      "tag": "0112_personalization_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1787727901000,
+      "tag": "0113_eval_score_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1787727902000,
+      "tag": "0114_eval_dataset_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1787727903000,
+      "tag": "0115_eval_dataset_remote",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1787727904000,
+      "tag": "0116_eval_publish_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1787727905000,
+      "tag": "0117_eval_batch_job",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1787727906000,
+      "tag": "0118_eval_online_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1787727906001,
+      "tag": "0119_artifact_visibility",
+      "breakpoints": true
     }
   ]
 }

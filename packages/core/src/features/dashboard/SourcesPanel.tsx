@@ -22,6 +22,7 @@ import {
   Megaphone,
   MessageSquare,
   NotebookPen,
+  NotebookText,
   Pencil,
   Plug,
   Plus,
@@ -1323,6 +1324,7 @@ const CONNECTOR_ICONS: Record<string, LucideIcon> = {
   Megaphone,
   MessageSquare,
   NotebookPen,
+  NotebookText,
   Pencil,
   SquareKanban,
   Video,
@@ -2750,7 +2752,7 @@ function AddStrapiSourceDialog({ kind, title, existing, onClose, onAdded }: {
           {' '}
           <span className="font-mono">*</span>
           {' '}
-          to pull one level of links, so a synced event reads “at The Fillmore” instead of “venue 42”. Name specific
+          to pull one level of links, so a synced event reads “at The Marlow” instead of “venue 42”. Name specific
           links instead (
           <span className="font-mono">venue,category</span>
           ) to keep the documents smaller, or clear it to store ids only.

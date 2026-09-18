@@ -196,6 +196,27 @@ export function targetOf(text: string, sends: GuidedSend[], state: GuidedState):
   return sends[index] ?? null;
 }
 
+/**
+ * Which send an ASK ARMED WITH `@change` addresses.
+ *
+ * The anchor wins when the person selected inside a send's own region (the
+ * field a comment was taken on IS a content id there); otherwise the text's
+ * own "send 2", otherwise the send under review. The anchor is checked first
+ * because a passage the person highlighted is a stronger statement of "this
+ * one" than any word in the sentence they typed about it.
+ * @param field - The `data-comment-field` the selection was anchored in, or null.
+ * @param text - What the reviewer typed.
+ * @param sends - The sends being walked.
+ * @param state - Current state.
+ * @returns The content id to rewrite, or null when there is nothing to address.
+ */
+export function contentIdForAsk(field: string | null, text: string, sends: GuidedSend[], state: GuidedState): string | null {
+  if (field && sends.some(s => s.id === field)) {
+    return field;
+  }
+  return targetOf(text, sends, state)?.id ?? null;
+}
+
 /** Words that read as an instruction to change the copy rather than a question. */
 const CHANGE_RE = /\b(?:make|shorten|shorter|longer|change|rewrite|reword|replace|add|remove|drop|swap|soften|firmer|tighten|cut|tone|punchier|warmer|colder|fix)\b/i;
 

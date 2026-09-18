@@ -137,7 +137,7 @@ flowchart TD
     A --> P["Proposes an action<br/>(anything leaving the building)"]
     W --> P
     P --> Q{"Trust rule<br/>allows it?"}
-    Q -- "no" --> V["/dashboard/review<br/>human decides"]
+    Q -- "no" --> V["Needs you (/dashboard/inbox)<br/>human decides"]
     Q -- "yes, above threshold" --> X["Executes, audited"]
     V -- "approved" --> X
 ```
@@ -149,7 +149,7 @@ Where the output lands:
 | A person chatting | The chat itself, and `/dashboard/activity` for the tool calls behind it |
 | A mission check | `/dashboard/missions/runs` — one row per check, with the brief it produced |
 | A workflow run | `/dashboard/workflows/<slug>/runs` |
-| Anything that proposed an action | `/dashboard/review`, or its auto-executed list when a trust rule let it through |
+| Anything that proposed an action | [Needs you](./guides/needs-you.md) as a **proposal** (`/dashboard/inbox?kind=proposal`), or `GET /api/v1/reviews/auto-executed` when a trust rule let it through |
 
 Two mechanics worth knowing before you start, because they explain why there is
 no code to write:
@@ -504,7 +504,7 @@ description: HubSpot deals for the revenue org.
 kind: hubspot
 config:
   objectType: deals # one object type per source
-  portalId: '48210773' # enables record deep links on review cards
+  portalId: '12345678' # enables record deep links on review cards
 schedule: '*/30 * * * *' # incremental sync every 30 minutes
 reconcileSchedule: '0 4 * * 0' # weekly full pass to catch upstream deletions
 enabled: true
@@ -752,7 +752,7 @@ Start this one by hand with `POST /api/v1/workflows/discovery-followup` (the
 body becomes the run's `input`, so `{{input.transcript}}` is how the `ask` step
 skips its pause), or from `/dashboard/workflows`. Runs and their pauses show up
 under `/dashboard/workflows/<slug>/runs`; anything waiting on a person appears
-in `/dashboard/review`.
+on Needs you (`/dashboard/inbox`).
 
 Note there is no "call a skill" step. Skills are read by the agent on its own
 judgement, not sequenced by the runtime — the deliberate split between missions
@@ -765,7 +765,7 @@ Reference: [workflow](./entities/workflow.md).
 ## Step 12 — trust rules
 
 By default, anything touching the outside world is proposed and a human
-approves it in `/dashboard/review`. When a particular action has earned it, one
+approves it on Needs you (`/dashboard/inbox?kind=proposal`). When a particular action has earned it, one
 file lets it through:
 
 ```yaml
@@ -995,7 +995,7 @@ Terms this repo uses that are not obvious from the outside.
 | **harness** | The machinery that actually runs an agent turn. `harness.runsOn` on an agent picks which machinery does it: `in-process` (our harness, this app's process, no AgentCore), `agentcore-container` (our harness, in our container on AWS AgentCore Runtime), `aws-managed-harness` (AWS's harness instead of ours — one tool, no subagents or playbooks). Leave it out and it is chosen for you: a Bedrock agent gets `agentcore-container`, everything else `in-process`. Formerly `harness.provider` with values `local`/`runtime`/`agentcore`, both still accepted. Full explanation in [where an agent turn runs](./agent-execution.md). |
 | **deepagents** | The agent-loop library underneath (see ADR 0001). Its skills middleware is what lazy-loads a `SKILL.md` when the model decides to read it — which is why skills are files, not registered tools. |
 | **subagent / the `task` tool** | Helpers defined inline on an agent (`subagents:`). The parent hands work to one by calling its `task` tool. Not the same as a specialist, which is a full agent with its own file. |
-| **`propose_action`** | The built-in tool an agent uses to say "this should happen" for anything with an outside effect. It creates a pending row for `/dashboard/review` instead of doing the thing. |
+| **`propose_action`** | The built-in tool an agent uses to say "this should happen" for anything with an outside effect. It creates a pending proposal on Needs you (`/dashboard/inbox`) instead of doing the thing. |
 | **`recommend_action`** | The tool that renders an action card in the chat UI. Cosmetic sibling of `propose_action` — it suggests, it does not queue. |
 | **confidence** | A 0–1 number the proposing agent attaches to a proposal. [Trust rules](./entities/trust.md) compare it against `autoApproveAbove`. It is the agent's own estimate, not a calibrated model score — which is why thresholds should be high. |
 | **charter check** | One run of a mission on its cadence: re-read the goal, look at the current state, do only what is needed now, report. Set by `schedule` on the mission, or by an automation's `checkMission`. |

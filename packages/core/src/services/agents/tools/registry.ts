@@ -22,14 +22,22 @@ import { apolloCompanyTools } from './apolloCompanies';
 import { apolloInScope } from './apolloDirect';
 import { apolloListTools } from './apolloLists';
 import { apolloPeopleTools } from './apolloPeople';
+import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
+import { calendarTools } from './calendarEvents';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
+import { dataRoomTools } from './dataRooms';
 import { discoveryTools } from './discovery';
+import { documentTools } from './documents';
+import { editArtifactTools } from './editArtifacts';
 import { fetchUrlTool } from './fetchUrl';
+import { fileFeedbackTool } from './fileFeedback';
+import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
 import { generateImageTool } from './generateImage';
+import { getBrandTool } from './getBrand';
 import { gmailTools } from './gmailThread';
 import { requestHumanReviewTool } from './hitl';
 import { hubspotCatalogTools } from './hubspotCatalog';
@@ -43,14 +51,17 @@ import {
   checkLearningDedupTool,
   getLearningsTool,
   listLearningStepsTool,
+  rememberPreferenceTool,
   removeLearningTool,
   updateLearningTool,
 } from './learnings';
 import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
+import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
+import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
@@ -103,7 +114,16 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     webSearchTool(ctx),
     fetchUrlTool(ctx),
     crawlSiteTool(ctx),
+    // A company's own site, read rather than recalled. Source-gated like the
+    // other paid providers would be, except that brand lookup is useful to
+    // every agent that writes TO a company, so it ships on by default and
+    // reports plainly when no Firecrawl key is configured.
+    brandLookupTool(ctx),
+    // The workspace's own brand guide (brand.yaml) — palette, logos, voice —
+    // the shape a client-facing document needs. Read-only; on for every agent.
+    getBrandTool(ctx),
     generateImageTool(ctx),
+    findScreenshotsTool(ctx),
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
@@ -113,11 +133,29 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     addLearningTool(ctx),
     updateLearningTool(ctx),
     removeLearningTool(ctx),
+    rememberPreferenceTool(ctx),
     listRecentRunsTool(ctx),
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
     proposeActionTool(ctx),
     recommendActionTool(ctx),
+    pageContextTool(ctx),
+    // Every interaction should teach the system something (design principle 11):
+    // feedback said anywhere becomes a proposed rule and a recommendation.
+    fileFeedbackTool(ctx),
+    // Artifacts (0095/0101): render_* creates one, read_artifact/update_artifact
+    // change the one already open. No side effect outside the conversation, so
+    // on for every agent.
+    ...renderArtifactTools(ctx),
+    ...editArtifactTools(ctx),
+    // Documents: paginated, print-ready HTML with the render-verify loop built
+    // in (render_document / read_document / edit_document / verify_document /
+    // export_document_pdf). Same rule as render_*: no side effect outside the
+    // conversation, so on for every agent.
+    ...documentTools(ctx),
+    // Data rooms: the source of record per engagement. Reads and filing are
+    // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
+    ...dataRoomTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),
@@ -131,6 +169,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Source-gated read-through caches (zoom / gmail sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),
+    ...calendarTools(ctx),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),
