@@ -1,13 +1,15 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
+import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
 import { isIntentTag } from './composerTags';
@@ -347,6 +349,10 @@ export function useChatSession({
   // How recommended actions behave in this thread (0094). Starts from the
   // person's last choice; a resumed thread brings its own.
   const [autonomy, setAutonomyState] = useState<ConversationAutonomy>('ask');
+  // How strong a model, how much it thinks — per thread, like autonomy.
+  const [modelPrefs, setModelPrefsState] = useState<ModelPrefs>(DEFAULT_MODEL_PREFS);
+  const modelPrefsRef = useRef(modelPrefs);
+  modelPrefsRef.current = modelPrefs;
   // Records the person pointed this turn at with `@` — sent as `context_refs`
   // beside the message and cleared after the send.
   const [contextRefs, setContextRefs] = useState<ContextRef[]>([]);
@@ -494,6 +500,12 @@ export function useChatSession({
       return;
     }
     switch (evt.type) {
+      case 'run_meta': {
+        // Which model answers this turn — the footer's fact, never a guess.
+        const meta = evt as unknown as TurnModel & { type: 'run_meta' };
+        appendToLatestAgent(m => ({ ...m, model: { model: meta.model, provider: meta.provider, strength: meta.strength ?? 'balanced', thinking: meta.thinking ?? 'off' } }));
+        return;
+      }
       case 'thinking':
         setPhase('thinking');
         setActivity('Thinking…');
@@ -1007,6 +1019,7 @@ export function useChatSession({
           setConversationId(storedId);
           writeSessionConversation(slug, storedId);
           setAutonomyState(readAutonomy(conv));
+          setModelPrefsState(readModelPrefs(conv));
           setMessages(hydrated);
           if (restoredDocs.length > 0) {
             setAllDocuments(restoredDocs);
@@ -1159,6 +1172,9 @@ export function useChatSession({
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
+          // How strong a model, how much it thinks (`libs/llm/modelPrefs.ts`).
+          model_strength: modelPrefsRef.current.strength,
+          thinking_effort: modelPrefsRef.current.effort,
           conversation_history: messages
             .slice(-6)
             .filter(m => m.content.trim().length > 0)
@@ -1480,6 +1496,7 @@ export function useChatSession({
       }
       setActiveConversation(slug, id);
       setAutonomyState(readAutonomy(conv));
+      setModelPrefsState(readModelPrefs(conv));
       setMessages(hydrated);
       setAllDocuments(restoredDocs);
       setPendingHitl(null);
@@ -1509,6 +1526,17 @@ export function useChatSession({
     if (id !== null) {
       client.conversations.setAutonomy({ id, autonomy: next }).catch((error) => {
         console.warn('useChatSession: could not persist the autonomy setting', error);
+      });
+    }
+  }, []);
+
+  /** Change how strong a model answers this thread and how much it thinks — persisted on the conversation when one exists. */
+  const setModelPrefs = useCallback((next: ModelPrefs) => {
+    setModelPrefsState(next);
+    const id = conversationIdRef.current;
+    if (id !== null) {
+      client.conversations.setModel({ id, strength: next.strength, effort: next.effort }).catch((error) => {
+        console.warn('useChatSession: could not persist the model setting', error);
       });
     }
   }, []);
@@ -1647,6 +1675,9 @@ export function useChatSession({
     /** How recommended actions behave in this thread (0094). */
     autonomy,
     setAutonomy,
+    /** How strong a model answers this thread and how much it thinks (`libs/llm/modelPrefs.ts`). */
+    modelPrefs,
+    setModelPrefs,
     /** Thumb + note on an assistant turn, by persisted message id. */
     handleFeedback,
     /** Records the next message is about (`@` tags). */

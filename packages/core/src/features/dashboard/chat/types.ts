@@ -105,6 +105,9 @@ export type RecommendedAction = {
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
 export type ConversationAutonomy = 'ask' | 'act-within-bounds';
 
+/** Which model answered a turn and how hard it thought — the turn's footer (`run_meta` event). */
+export type TurnModel = { model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' };
+
 /**
  * A record the person pointed the conversation at — an `@` tag in the
  * composer, or the page they are on (R4's page-context model reads the same
@@ -162,6 +165,8 @@ export type ChatAttachment = {
 export type ChatMessage = {
   /** Persisted row id, once known — the feedback control writes against it. */
   id?: number;
+  /** Which model answered this turn (assistant rows, live only — not persisted). */
+  model?: TurnModel;
   role: 'user' | 'assistant';
   content: string;
   /** The person's thumb on this turn (assistant rows only), as stored. */

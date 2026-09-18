@@ -29,6 +29,7 @@ import { EmptyState, NoAgentsState } from './EmptyState';
 import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { ModelControl } from './ModelControl';
 import { RailColumn } from './RailColumn';
 import {
   clampRailWidth,
@@ -790,6 +791,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onAttachFiles={files => void session.attachFiles(files)}
           onRemoveAttachment={session.removeAttachment}
           onCommand={onCommand}
+          controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
         />
       </div>
     </>

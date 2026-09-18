@@ -102,11 +102,18 @@ export async function POST(request: Request): Promise<Response> {
   // it per turn). `act-within-bounds` files recommendations into the review
   // queue as they are emitted — still pending, still a person's decision.
   let autonomy = readAutonomy(body.autonomy);
+  // How strong a model, how much it thinks — the thread's own setting wins
+  // over what the client sent, exactly as autonomy does.
+  const { readModelPrefs } = await import('@/libs/llm/modelPrefs');
+  let modelPrefs = readModelPrefs(body);
   if (typeof conversationIdRaw === 'number') {
     const existing = await getConversation({ orgId, id: conversationIdRaw });
     conversationId = existing ? existing.id : null;
     if (existing && 'autonomy' in existing) {
       autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
+    }
+    if (existing && ((existing as { modelStrength?: unknown }).modelStrength || (existing as { thinkingEffort?: unknown }).thinkingEffort)) {
+      modelPrefs = readModelPrefs(existing);
     }
     if (existing && pageContext && !existing.contextJson) {
       await setConversationContextIfEmpty({ orgId, id: existing.id, context: pageContext });
@@ -258,6 +265,7 @@ export async function POST(request: Request): Promise<Response> {
           timeZone,
           ...(deliverable ? { deliverable } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          modelPrefs,
           onEvent: sendEvent,
         });
       } catch (err) {

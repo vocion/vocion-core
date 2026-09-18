@@ -1352,6 +1352,10 @@ export const conversationSchema = pgTable(
      * enum, so a new rung is a code change.
      */
     autonomy: text('autonomy').default('ask').notNull(),
+    /** How strong a model answers this thread (`libs/llm/modelPrefs.ts`): fast | balanced | deep. Null = balanced, the agent's own. */
+    modelStrength: text('model_strength').$type<'fast' | 'balanced' | 'deep'>(),
+    /** How much it thinks: off | low | medium | high. Null = off. */
+    thinkingEffort: text('thinking_effort').$type<'off' | 'low' | 'medium' | 'high'>(),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
