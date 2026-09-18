@@ -21,6 +21,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { versionFromDescribe } from './versionFromDescribe.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const core = join(here, '..');
@@ -54,8 +55,13 @@ const branch = git('rev-parse --abbrev-ref HEAD');
 // parent deploy knows are handed in as build-args and win when git cannot say.
 const env = name => process.env[name]?.trim() || null;
 const commit = git('rev-parse HEAD') ?? env('VOCION_BUILD_SHA') ?? 'unknown';
+// The release is the nearest tag (semantic-release tags, it never commits a
+// version), so `package.json` is only the answer when no tag can be read.
+const release = versionFromDescribe(git('describe --tags --long') ?? env('VOCION_BUILD_DESCRIBE'), packageVersion());
 const info = {
-  version: packageVersion(),
+  version: release.version,
+  /** The release tag this build is, or is past (`v2.109.1`); null when unknown. */
+  releaseTag: release.tag,
   commit,
   shortCommit: git('rev-parse --short HEAD') ?? (commit === 'unknown' ? 'unknown' : commit.slice(0, 8)),
   subject: git('log -1 --pretty=%s') ?? env('VOCION_BUILD_SUBJECT') ?? 'unknown',
@@ -76,6 +82,7 @@ writeFileSync(join(core, 'src/generated/version.json'), `${JSON.stringify(info, 
 
 const lines = [
   `version      ${info.version}`,
+  `release      ${info.releaseTag ?? 'unknown'}`,
   `commit       ${info.commit}`,
   `subject      ${info.subject}`,
   `committed    ${info.committedAt}`,

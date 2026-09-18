@@ -15,7 +15,10 @@
 import raw from '@/generated/version.json';
 
 export type BuildInfo = {
+  /** The release: the nearest tag without its `v`, `+N` when N commits past it; the package version only when no tag was readable. */
   version: string;
+  /** The release tag itself (`v2.109.1`), when known. */
+  releaseTag?: string | null;
   commit: string;
   shortCommit: string;
   subject: string;
@@ -50,7 +53,7 @@ export function buildInfo(): BuildInfo {
 }
 
 /**
- * The one-line form for the account menu: `v0.1.0 · 56ad0e91`.
+ * The one-line form for the account menu: `v2.109.1 · 56ad0e91`.
  * @param info - A build stamp.
  */
 export function versionLabel(info: BuildInfo): string {
