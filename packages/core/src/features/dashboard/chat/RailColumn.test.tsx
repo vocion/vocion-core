@@ -28,6 +28,8 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 vi.mock('@/libs/I18nNavigation', () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
+  usePathname: () => '/dashboard',
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 

@@ -7,10 +7,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
+import { chatHotkeyLabel } from './chatHotkeys';
 
 /**
  * The one chat menu — the Claude-app "⋯ sheet" pattern.
@@ -49,12 +51,14 @@ export function ChatMenu({ onNewChat }: ChatMenuProps) {
         <DropdownMenuItem onClick={onNewChat}>
           <SquarePen className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
           {t('new_chat')}
+          <DropdownMenuShortcut>{chatHotkeyLabel('new-chat')}</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/dashboard/conversations">
             <MessagesSquare className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />
             {t('all_conversations')}
+            <DropdownMenuShortcut>{chatHotkeyLabel('all-conversations')}</DropdownMenuShortcut>
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>

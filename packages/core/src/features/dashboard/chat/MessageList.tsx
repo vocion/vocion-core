@@ -1,10 +1,13 @@
 'use client';
 
 import type { ChatMessage, ConversationAutonomy } from './types';
+import { Quote } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef } from 'react';
 import { AgentMessage } from './AgentMessage';
+import { SelectionToolbar } from './SelectionToolbar';
 import { UserMessage } from './UserMessage';
+import { useSelectionReply } from './useSelectionReply';
 
 /**
  * Message list (Phase C).
@@ -59,6 +62,8 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
   // Whether the view should follow the stream. A ref (not state): scroll
   // position changes must never themselves cause a re-render.
   const pinnedRef = useRef(true);
+  // Highlight a passage → "Reply" quotes it on the next turn (`useSelectionReply`).
+  const selection = useSelectionReply(containerRef);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -95,7 +100,16 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
   const lastIdx = messages.length - 1;
   const blocksAfter = (i: number) => blocks.filter(b => b.afterIndex === i || (i === lastIdx && b.afterIndex > lastIdx)).map(b => <div key={b.key}>{b.node}</div>);
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
+    <div ref={containerRef} onScroll={handleScroll} className="relative flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-4 pt-16 pb-6 sm:px-6">
+      {selection.hit && (
+        <SelectionToolbar
+          x={selection.hit.x}
+          y={selection.hit.y}
+          width={selection.hit.width}
+          actions={[{ label: 'Reply', icon: Quote, onClick: selection.reply }]}
+          testId="transcript"
+        />
+      )}
       {/*
         One column edge. This container, the agent's prose and the composer
         used to cap at three different widths (4xl / 2xl / 3xl), so a reply

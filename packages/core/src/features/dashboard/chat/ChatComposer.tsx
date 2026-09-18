@@ -1,12 +1,14 @@
 'use client';
 
 import type { QueuedMessage } from './queueReducer';
+import type { SlashCommand, SlashCommandAction } from './slashCommands';
 import type { ChatAttachment, ContextRef } from './types';
-import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, Loader2, Paperclip, PencilLine, Plus, Square, Target, Users, X } from 'lucide-react';
+import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, Loader2, Paperclip, PencilLine, Plus, Slash, Square, Target, Users, X } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useRef, useState } from 'react';
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
 import { insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
+import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashCommands';
 
 /**
  * Sticky-bottom composer — an input and ONE primary action.
@@ -79,6 +81,8 @@ export type ChatComposerProps = {
   tagSearch?: (q: string) => Promise<ContextRef[]>;
   /** A slash command is armed (`/search …`) — the parent names the mode; rendered as a pill above the box. */
   commandHint?: string;
+  /** Runs a slash command the surface owns (`/new`, `/history`); absent, a slash is text. */
+  onCommand?: (action: SlashCommandAction) => void;
   /** Messages typed during this turn, waiting for it to land. Oldest first. */
   queued?: QueuedMessage[];
   /** Enter while streaming — append to the queue rather than send. */
@@ -185,6 +189,10 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['@artifact', 'This turn ends in a document'],
   ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
+  ['/new · /history', 'Start over · every conversation'],
+  ['⌘ ⇧ O', 'New chat'],
+  ['⌘ ⇧ L', 'Go to chat'],
+  ['⌘ ⇧ H', 'All conversations'],
   ['⌘ J', 'Open or collapse the conversation'],
   ['?', 'These shortcuts'],
 ];
@@ -229,6 +237,7 @@ export function ChatComposer({
   onAddTag,
   tagSearch,
   commandHint,
+  onCommand,
   queued = [],
   onQueue,
   onDropQueued,
@@ -277,6 +286,23 @@ export function ChatComposer({
   const tagQuery = tagMatch ? tagMatch[1] ?? '' : null;
   const [tagHits, setTagHits] = useState<ContextRef[]>([]);
   const [tagCursor, setTagCursor] = useState(0);
+  // `/` alone at the start of the draft opens the command menu (`slashCommands.ts`).
+  const slashQ = onCommand ? slashQuery(value) : null;
+  const slashHits = slashQ !== null ? matchSlashCommands(slashQ) : [];
+  const [slashCursorRaw, setSlashCursor] = useState(0);
+  const slashCursor = Math.min(slashCursorRaw, Math.max(0, slashHits.length - 1));
+  const pickSlash = (cmd: SlashCommand) => {
+    if (cmd.takesArgument) {
+      // `/search` wants words after it: type the command, leave the caret after the space.
+      const next = `/${cmd.name} `;
+      pendingCaretRef.current = next.length;
+      onChange(next);
+      textareaRef.current?.focus();
+      return;
+    }
+    onChange('');
+    onCommand?.(cmd.action);
+  };
 
   // Auto-resize the textarea to fit content (24 → 220 px).
   useEffect(() => {
@@ -356,6 +382,23 @@ export function ChatComposer({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashQ !== null && slashHits.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashCursor((slashCursor + 1) % slashHits.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashCursor((slashCursor - 1 + slashHits.length) % slashHits.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        pickSlash(slashHits[slashCursor]!);
+        return;
+      }
+    }
     if (tagQuery !== null && tagHits.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -397,6 +440,13 @@ export function ChatComposer({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      // A command the surface owns never reaches the model.
+      const command = onCommand ? parseSlashCommand(value) : null;
+      if (command) {
+        onChange('');
+        onCommand!(command.action);
+        return;
+      }
       const trimmedValue = value.trim();
       const hasSomething = trimmedValue.length > 0 || Boolean(pastedText) || armed || attachments.length > 0;
       if (disabled || !hasSomething || uploading) {
@@ -444,6 +494,12 @@ export function ChatComposer({
     if (!sendEnabled) {
       return;
     }
+    const command = onCommand ? parseSlashCommand(value) : null;
+    if (command) {
+      onChange('');
+      onCommand!(command.action);
+      return;
+    }
     if (streaming && onQueue) {
       onQueue(value);
       return;
@@ -481,6 +537,29 @@ export function ChatComposer({
                 </li>
               );
             })}
+          </ul>
+        )}
+        {slashQ !== null && slashHits.length > 0 && (
+          <ul role="listbox" aria-label="Commands" data-testid="slash-menu" className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-full rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop)">
+            {slashHits.map((c, i) => (
+              <li key={c.name} role="option" aria-selected={i === slashCursor}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickSlash(c);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${i === slashCursor ? 'bg-muted' : 'hover:bg-muted/60'}`}
+                >
+                  <Slash className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{`/${c.name}`}</span>
+                    <span className="ml-2 text-muted-foreground">{c.hint}</span>
+                  </span>
+                  {c.shortcut && <span className="shrink-0 text-[11px] tracking-widest text-muted-foreground">{c.shortcut}</span>}
+                </button>
+              </li>
+            ))}
           </ul>
         )}
         {queued.length > 0 && (

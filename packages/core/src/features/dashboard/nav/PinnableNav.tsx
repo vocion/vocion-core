@@ -111,15 +111,17 @@ export function PinnableNav(props: {
                     </SidebarMenuBadge>
                   )
                 : null}
-              <SidebarMenuAction
-                showOnHover
-                title={pinTitle(item.url)}
-                aria-label={`${pinTitle(item.url)}: ${item.title}`}
-                onClick={() => props.onTogglePin(item.url)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                {pinIcon(item.url)}
-              </SidebarMenuAction>
+              {item.pinnable !== false && (
+                <SidebarMenuAction
+                  showOnHover
+                  title={pinTitle(item.url)}
+                  aria-label={`${pinTitle(item.url)}: ${item.title}`}
+                  onClick={() => props.onTogglePin(item.url)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {pinIcon(item.url)}
+                </SidebarMenuAction>
+              )}
               {/* Tabs of a combined page — only while you are on it. */}
               {item.tabs && item.tabs.length > 0 && [item, ...item.tabs].some(i => isNavItemActive(pathname, i.url)) && (
                 <SidebarMenuSub>

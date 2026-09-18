@@ -2,11 +2,12 @@
 
 import type { PreviewDoc } from '@/libs/preview/types';
 import type { RecordRef } from '@/services/chat/pageContext';
-import { ArrowLeft, ExternalLink, X } from 'lucide-react';
+import { ArrowLeft, ExternalLink, MessageSquareText, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Link } from '@/libs/I18nNavigation';
+import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
+import { Link, useRouter } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { closePreview } from './previewState';
 
@@ -120,6 +121,22 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
   };
 
   const CloseIcon = props.back ? ArrowLeft : X;
+  const router = useRouter();
+  // "Chat about this" — the ONE entry function (§6): a rail on this page
+  // opens about the record; a page with no surface goes to the chat page
+  // with the record as the handoff. The peek closes either way: the
+  // conversation is the place to keep looking at it.
+  const discuss = () => {
+    const record: RecordRef = { type: recordRef.type, id: recordRef.id, label: shown.title, ...(shown.href ? { href: shown.href } : {}) };
+    closePreview();
+    openAgentSurface(
+      {
+        context: { path: window.location.pathname, title: document.title, record, openedFrom: true },
+        fallbackContext: shown.title,
+      },
+      href => router.push(href),
+    );
+  };
 
   return (
     <section
@@ -134,7 +151,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
             <Chip>{shown.sourceLabel}</Chip>
             {shown.href
               ? (
-                  <Link href={shown.href} data-testid="preview-detail-link" className="truncate text-[12px] underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">
+                  <Link href={shown.href} onClick={closePreview} data-testid="preview-detail-link" className="truncate text-[12px] underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground">
                     Open full page
                   </Link>
                 )
@@ -152,6 +169,16 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
           </div>
           <h2 className="mt-1 text-sm font-semibold break-words text-foreground">{shown.title}</h2>
         </div>
+        <button
+          type="button"
+          onClick={discuss}
+          data-testid="preview-discuss"
+          aria-label={`Chat about ${shown.title}`}
+          title="Chat about this"
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-surface-soft hover:text-foreground"
+        >
+          <MessageSquareText className="size-4" aria-hidden />
+        </button>
         <button
           type="button"
           onClick={closePreview}

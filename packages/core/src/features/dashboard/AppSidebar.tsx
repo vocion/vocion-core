@@ -11,12 +11,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSidebar } from '@/components/ui/useSidebar';
 import { AppSidebarNav } from '@/features/dashboard/AppSidebarNav';
 import { InviteTeamCard } from '@/features/dashboard/InviteTeamCard';
-import { applyPins, withoutPins } from '@/features/dashboard/nav/navPins';
+import { applyPins, defaultPinDismissal, resolveWorkPins, withoutPins } from '@/features/dashboard/nav/navPins';
 import { PinnableNav } from '@/features/dashboard/nav/PinnableNav';
 import { useNavPrefs } from '@/features/dashboard/nav/useNavPrefs';
 import { WorkspaceSwitcherLive } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { OPEN_MANAGE_VIEW, readNavView, writeNavView } from '@/features/dashboard/useNavView';
-import { manageNavGroups, manageRoutes, tabsOf, workRoutes } from '@/features/navigation/dashboardNav';
+import { DEFAULT_WORK_PINS, manageNavGroups, manageRoutes, tabsOf, workCoreRoutes, workPinnableRoutes } from '@/features/navigation/dashboardNav';
 import { SurfaceNav } from '@/features/navigation/SurfaceNav';
 import { VOCION_PRIMARY_MARK } from '@/templates/VocionLogo';
 
@@ -115,12 +115,30 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
   const label = useCallback((r: Pick<DashboardRoute, 'i18nKey' | 'title'>) => (r.i18nKey ? t(r.i18nKey) : r.title), [t]);
 
   // ---- the three WORK groups ----
-  const workspaceItems = workRoutes().map(r => ({
+  // WORKSPACE: Chat and Review are the surface and always show; Briefings,
+  // Artifacts, Search and Data rooms show while pinned (Briefings starts
+  // pinned) and otherwise sit one row down under "More" (Chris, 2026-09-18).
+  const toWorkItem = useCallback((r: DashboardRoute): PinnableItem => ({
     title: label(r),
     url: r.url,
     icon: r.icon,
+    origin: 'work',
     badge: r.url === '/dashboard/inbox' ? needsYouCount : undefined,
-  }));
+    ...(r.pinnable ? {} : { pinnable: false as const }),
+  }), [label, needsYouCount]);
+  const workCore = useMemo(() => workCoreRoutes().map(toWorkItem), [toWorkItem]);
+  const workOptional = useMemo(() => workPinnableRoutes().map(toWorkItem), [toWorkItem]);
+  const workPins = resolveWorkPins({ pins: prefs.pins, dismissed: prefs.dismissed, defaults: DEFAULT_WORK_PINS });
+  const workspaceItems = [...workCore, ...applyPins(workOptional, workPins), ...withoutPins(workOptional, workPins)];
+  const workShown = workCore.length + applyPins(workOptional, workPins).length;
+  // Unpinning a default records the choice; everything else is a plain toggle.
+  const toggleWorkPin = (url: string) => {
+    if (DEFAULT_WORK_PINS.includes(url) && workPins.includes(url) && !prefs.pins.includes(url)) {
+      prefs.dismiss(defaultPinDismissal(url));
+      return;
+    }
+    prefs.togglePin(url);
+  };
 
   // Tenant pages only. Artifacts used to join this group as "saved canvases";
   // they are a WORK row of their own now (registry), with their own log.
@@ -183,7 +201,16 @@ export const AppSidebar = ({ isAdmin = false, enabledSurfaces = [], workspacePag
           ? (
               <>
                 {/* WORKSPACE — the permanent Vocion pages. */}
-                <AppSidebarNav label={t('main_section_label')} items={workspaceItems} />
+                <PinnableNav
+                  label={t('main_section_label')}
+                  items={workspaceItems}
+                  pins={workPins}
+                  onTogglePin={toggleWorkPin}
+                  max={workShown}
+                  moreLabel={t('more')}
+                  pinLabel={t('pin')}
+                  unpinLabel={t('unpin')}
+                />
 
                 {/* PINNED — this person's pins, in pin order, draggable. */}
                 {pinned.length > 0 && (

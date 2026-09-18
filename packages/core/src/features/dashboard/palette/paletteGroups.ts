@@ -1,4 +1,5 @@
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
+import { chatHotkeyLabel } from '@/features/dashboard/chat/chatHotkeys';
 import { DASHBOARD_GROUPS } from '@/features/navigation/dashboardNav';
 
 /**
@@ -19,7 +20,7 @@ export type PaletteRow = {
   /** Navigation target, when the row is a link. */
   url?: string;
   /** Named action, when the row runs something instead. */
-  action?: 'ask' | 'new-conversation' | 'open-rail' | 'toggle-sidebar' | 'toggle-theme' | 'docs' | 'sign-out';
+  action?: 'ask' | 'new-conversation' | 'all-conversations' | 'open-rail' | 'toggle-sidebar' | 'toggle-theme' | 'docs' | 'sign-out';
   shortcut?: string;
 };
 
@@ -61,6 +62,8 @@ export function buildPaletteGroups(input: {
         hint: r.tabOf ? input.routes.find(o => o.url === r.tabOf)?.title : undefined,
         kind: 'route',
         url: r.url,
+        // The chat page has a key of its own (`chatHotkeys.ts`).
+        ...(r.url === '/dashboard/chat' ? { shortcut: chatHotkeyLabel('go-to-chat') } : {}),
       }));
     if (rows.length > 0) {
       groups.push({ heading, rows });
@@ -97,7 +100,8 @@ export function buildPaletteGroups(input: {
     heading: 'Commands',
     rows: [
       ...(q ? [] : [{ value: 'ask vocion agent', label: 'Ask Vocion', kind: 'action', action: 'ask', shortcut: '⌘J' } satisfies PaletteRow]),
-      { value: 'new conversation chat', label: 'New conversation', kind: 'action', action: 'new-conversation' },
+      { value: 'new conversation chat clear', label: 'New chat', kind: 'action', action: 'new-conversation', shortcut: chatHotkeyLabel('new-chat') },
+      { value: 'all conversations history threads list chats', label: 'All conversations', kind: 'action', action: 'all-conversations', url: '/dashboard/conversations', shortcut: chatHotkeyLabel('all-conversations') },
       { value: 'open the rail conversation', label: 'Open the rail', kind: 'action', action: 'open-rail', shortcut: '⌘J' },
       { value: 'toggle sidebar', label: 'Toggle sidebar', kind: 'action', action: 'toggle-sidebar', shortcut: '⌘B' },
       { value: 'toggle theme dark light', label: input.themeIsDark ? 'Switch to light theme' : 'Switch to dark theme', kind: 'action', action: 'toggle-theme' },

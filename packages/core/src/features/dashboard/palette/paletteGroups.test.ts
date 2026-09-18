@@ -72,4 +72,13 @@ describe('buildPaletteGroups', () => {
     expect(dark.find(r => r.action === 'toggle-theme')?.label).toBe('Switch to light theme');
     expect(light.find(r => r.action === 'toggle-theme')?.label).toBe('Switch to dark theme');
   });
+
+  it('names the chat keys beside the verbs they share — new chat, all conversations, the chat page', () => {
+    const groups = buildPaletteGroups({ query: '', routes: DASHBOARD_ROUTES, isAdmin: false });
+    const commands = groups.at(-1)!.rows;
+
+    expect(commands.find(r => r.action === 'new-conversation')).toMatchObject({ label: 'New chat', shortcut: '⌘⇧O' });
+    expect(commands.find(r => r.action === 'all-conversations')).toMatchObject({ url: '/dashboard/conversations', shortcut: '⌘⇧H' });
+    expect(groups.find(g => g.heading === 'Workspace')?.rows.find(r => r.url === '/dashboard/chat')?.shortcut).toBe('⌘⇧L');
+  });
 });

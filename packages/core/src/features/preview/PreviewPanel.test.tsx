@@ -39,6 +39,9 @@ vi.mock('@/libs/Orpc', () => ({
 
 // next-intl's Link needs the routing provider; a plain anchor is enough here.
 vi.mock('@/libs/I18nNavigation', () => ({
+  // The surfaces read the router for `/history`, `?new=1` and the preview's chat CTA — a stub is enough here.
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => '/dashboard/chat',
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 
