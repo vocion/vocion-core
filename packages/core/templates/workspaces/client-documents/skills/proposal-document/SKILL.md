@@ -7,7 +7,7 @@ description: >-
   grounded in the client's data room. Read before the first sheet, and again
   before changing one: it carries the framework, the component vocabulary, the
   structure rules, the language rules and the verify loop.
-version: 1
+version: 2
 resources: [framework.css, components.md]
 ---
 
@@ -25,8 +25,15 @@ PDF the client reads. Not markdown. Not a slide deck. Sheets.
 3. **Read the brand** (`get_brand`): paste its `:root` tokens into the
    `<style>` block ahead of `framework.css`, inline its logo data URIs in the
    strip and the cover, and keep its voice rules beside the ones below.
-4. **Build** with `render_document`. Inline `framework.css` into the
-   `<style>` block; use the components in `components.md`; logos as data URIs.
+4. **Build sheet by sheet, never the whole document in one call.** A 12-sheet
+   proposal is 40 KB of HTML; one tool call that size runs into the model's
+   output cap and arrives truncated (production, 2026-09-18: `render_document`
+   called with no `html`). So: `render_document` with the head, the brand
+   tokens, `framework.css` and the COVER sheet only; then `edit_document` with
+   one `insert_sheet` per sheet, in order, reading each receipt. Every call
+   stays small, and every sheet gets its own verdict.
+   Inline `framework.css` into the `<style>` block; use the components in
+   `components.md`; logos as data URIs.
 5. **Read the receipt.** It names every sheet whose footer moved, every sheet
    that overflows and by how much, every element past the edge, the PDF page
    count and any asset that did not load.
