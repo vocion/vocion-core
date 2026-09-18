@@ -152,10 +152,13 @@ describe('candidate extractor validation', () => {
     expect(out.records[0]?.imageUrl).toBe('https://cdn.venue.test/poster.png');
   });
 
-  it('accepts a folded URL however the model rejoined it', () => {
+  it('accepts a folded URL however the model rejoined it, and stores the document\'s spelling', () => {
     // The connector declares the URL joined back up, but the model is shown the
     // document as written, folds and all. Comparing literally would drop
     // exactly the long URLs a fold exists for, so both sides lose whitespace.
+    // What is kept is the declared string, never the model's: the stored value
+    // becomes the href on a reviewer's card, and a newline in it is a dead
+    // link that passed the gate.
     const declared = 'https://venue.test/e/a-title-long-enough-that-the-feed-folded-it';
 
     for (const asModelReturnedIt of [
@@ -165,8 +168,33 @@ describe('candidate extractor validation', () => {
     ]) {
       const out = run([record({ sourceUrl: asModelReturnedIt })], configWith(), { publishedUrls: [declared] });
 
-      expect(out.records[0]?.sourceUrl).toBe(asModelReturnedIt);
+      expect(out.records[0]?.sourceUrl).toBe(declared);
     }
+  });
+
+  it('rewrites an image URL to the document\'s spelling too', () => {
+    const declared = 'https://cdn.venue.test/posters/a-very-long-poster-name-that-folded.png';
+
+    const out = run(
+      [record({ sourceUrl: declared, imageUrl: `https://cdn.venue.test/posters/a-very-long-poster\n -name-that-folded.png` })],
+      configWith(),
+      { publishedUrls: [declared] },
+    );
+
+    expect(out.records[0]?.imageUrl).toBe(declared);
+  });
+
+  it('stores a URL without whitespace even when the document published it with some', () => {
+    // RFC 3986 has no whitespace in a URL, so a space in a declared value is an
+    // artifact of how the feed wrote the line down. Storing the document's
+    // spelling verbatim would hand a reviewer an unclickable link, and letting
+    // the last of two declarations that match win would pick which one by
+    // accident of order.
+    const out = run([record({ sourceUrl: 'https://venue.test/e/a-show' })], configWith(), {
+      publishedUrls: ['https://venue.test/e/a-show', 'https://venue.test/e/a-sh ow'],
+    });
+
+    expect(out.records[0]?.sourceUrl).toBe('https://venue.test/e/a-show');
   });
 
   it('ignores a declared list that is not a list of strings', () => {
