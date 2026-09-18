@@ -11,7 +11,16 @@ render-verify receipt reads clean**.
   `render_document`, fixes what the receipt names sheet by sheet, verifies with
   the look, exports the PDF. Shadows the base pack's brief-only Proposal Writer.
 - The `proposal-document` skill: the framework CSS, the component vocabulary,
-  the structure rules, the language rules and the verify loop.
+  the twelve-sheet spine, when a sheet earns a visual, the structure and
+  language rules, the verify loop and the red-team rubric.
+- **Red team before send**: `red_team_document` reads the document as the
+  sceptical buyer — grounding, promised outcomes, placeholders, the client's
+  words, scope, commercial clarity, register — and returns numbered findings
+  by sheet with the fix. Blocks are not sent.
+- **It learns from every correction.** The writer declares the
+  `proposal-feedback` learning step: every review decision on a proposal and
+  every correction in chat files a candidate there, and adopted rules mount
+  before the next proposal. A red-team finding that recurs becomes a rule.
 - The **Proposals** app under GTM (`/gtm/proposals`): every room at Proposal
   stage, its latest document and verify state, open items, and Draft.
 - A weekly mission: every Proposal-stage room has a verified current document,

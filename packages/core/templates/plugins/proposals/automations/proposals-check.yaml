@@ -18,7 +18,9 @@ do:
     item "Draft the proposal" naming what the room already has and what is
     missing. If one exists, run verify_document when the receipt is not clean
     or the document predates the newest starred source; fix what the receipt
-    names sheet by sheet and re-verify. When you render or revise a document,
+    names sheet by sheet and re-verify; then red_team_document with the house
+    rubric and fix every block. A finding that appears on a second document
+    is a rule: add_learning into proposal-feedback. When you render or revise a document,
     pass room_id so it lands on the room.
     (2) Discovery calls a person confirmed (the discovery ledger, the last 30
     days) with no room at a proposal stage: add an open item on the matching

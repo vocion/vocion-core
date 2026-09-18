@@ -20,6 +20,10 @@ skills:
   - data-rooms
 objectTypes:
   - data_room
+# Every review decision on a proposal and every correction in chat trains this
+# step; adopted rules mount before the next proposal (the self-learning loop).
+learningSteps:
+  - proposal-feedback
 suggestions:
   - label: Draft the proposal
     prompt: Draft the proposal for this engagement from its data room.

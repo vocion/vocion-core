@@ -1,6 +1,7 @@
 /**
  * render_document / read_document / edit_document / verify_document /
- * export_document_pdf — the document engine as the agent uses it.
+ * red_team_document / export_document_pdf — the document engine as the agent
+ * uses it.
  *
  * A document is a `document` artifact: paginated, print-ready HTML that opens
  * beside the conversation like any other artifact, with the same versions and
@@ -26,8 +27,10 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
+import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
 import { createDocument, documentReceipt, exportDocumentPdf, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
+import { redTeamDocument, redTeamReceipt } from '@/services/documents/redTeam';
 import { openArtifactId } from './editArtifacts';
 import { authorOf } from './renderArtifacts';
 
@@ -274,6 +277,36 @@ export function verifyDocumentTool(ctx: RuntimeContext) {
   );
 }
 
+export function redTeamDocumentTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const found = await resolveDocument(ctx, args.id);
+      if ('error' in found) {
+        return found.error;
+      }
+      const artifact = await getArtifact({ orgId: ctx.orgId, id: found.id });
+      if (!artifact || artifact.kind !== 'document') {
+        return `No document #${found.id}.`;
+      }
+      const html = (artifact.spec as Partial<DocumentSpec>).html ?? '';
+      // The workspace's own banned constructions ride along, so the pass
+      // enforces the voice a person authored rather than a generic one.
+      const banned = (await voiceRulesFor(ctx.orgId).catch(() => null))?.never.map(r => (typeof r.pattern === 'string' ? r.pattern : r.pattern.source)) ?? [];
+      const outcome = await redTeamDocument(ctx.orgId, { html, rubric: args.rubric ?? null, context: args.context ?? null, bannedPhrases: banned });
+      return `Red-teamed "${artifact.title}" v${artifact.currentVersion}.\n\n${redTeamReceipt(outcome)}`;
+    },
+    {
+      name: 'red_team_document',
+      description: 'Read a document the way the sceptical buyer on the other side will — grounding, promised outcomes, honest placeholders, the client\'s own words, scope, commercial clarity, register — and get numbered findings by sheet, each with the rule it breaks and the fix. Run it after verify_document and before you call a proposal ready; fix the BLOCKs by sheet and run it again. Pass `rubric` with your skill\'s house rules and `context` with what the room actually knows, so "unsourced" is judged fairly. Omit `id` for the open document.',
+      schema: z.object({
+        id: z.number().int().positive().optional().describe('Artifact id. Omit for the one currently open beside the conversation.'),
+        rubric: z.string().max(6000).optional().describe('House rules to read against, appended to the generic buyer rubric — paste the red-team section of your skill.'),
+        context: z.string().max(8000).optional().describe('What the seller actually knows, in brief: the room\'s starred sources, the numbers the client gave, the decisions from the call. Figures outside this are unsourced.'),
+      }),
+    },
+  );
+}
+
 export function exportDocumentPdfTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -300,5 +333,5 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
 }
 
 export function documentTools(ctx: RuntimeContext) {
-  return [renderDocumentTool(ctx), readDocumentTool(ctx), editDocumentTool(ctx), verifyDocumentTool(ctx), exportDocumentPdfTool(ctx)];
+  return [renderDocumentTool(ctx), readDocumentTool(ctx), editDocumentTool(ctx), verifyDocumentTool(ctx), redTeamDocumentTool(ctx), exportDocumentPdfTool(ctx)];
 }

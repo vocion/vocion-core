@@ -7,8 +7,8 @@ description: >-
   grounded in the client's data room. Read before the first sheet, and again
   before changing one: it carries the framework, the component vocabulary, the
   structure rules, the language rules and the verify loop.
-version: 2
-resources: [framework.css, components.md]
+version: 3
+resources: [framework.css, components.md, spine.md, visuals.md, red-team.md]
 ---
 
 # Proposal document
@@ -16,16 +16,29 @@ resources: [framework.css, components.md]
 A client document is US-Letter **sheets**, self-contained HTML, printed to the
 PDF the client reads. Not markdown. Not a slide deck. Sheets.
 
+What good looks like is in `spine.md` (the twelve sheets and what each
+carries), `visuals.md` (when a sheet earns a visual and the vocabulary) and
+`red-team.md` (how the buyer will read it). Read all three before the first
+sheet of a new document.
+
 ## The loop
 
 1. **Read the data room** (`read_data_room`). The starred sources are what you
    write from. The client's own words — their project names, their stage
-   names, their vocabulary — become the document's spine.
-2. **Draft the sheet list** before any HTML: one line per sheet, in order.
-3. **Read the brand** (`get_brand`): paste its `:root` tokens into the
+   names, their vocabulary — become the document's spine. If the newest call
+   has no **decision log** (a numbered list of the decisions and corrections a
+   person actually said, in their words), write one and file it on the room
+   first; every sheet then traces to a line in it.
+2. **Read your learnings** (`/learnings/proposal-feedback.md` is mounted):
+   what people cut, rejected or corrected in earlier proposals. They win over
+   this skill where they disagree.
+3. **Draft the sheet list** before any HTML: one line per sheet, in order,
+   from `spine.md`. Pass `room_id` on `render_document` so the document lands
+   on the room and the Proposals board.
+4. **Read the brand** (`get_brand`): paste its `:root` tokens into the
    `<style>` block ahead of `framework.css`, inline its logo data URIs in the
    strip and the cover, and keep its voice rules beside the ones below.
-4. **Build sheet by sheet, never the whole document in one call.** A 12-sheet
+5. **Build sheet by sheet, never the whole document in one call.** A 12-sheet
    proposal is 40 KB of HTML; one tool call that size runs into the model's
    output cap and arrives truncated (production, 2026-09-18: `render_document`
    called with no `html`). So: `render_document` with the head, the brand
@@ -34,17 +47,22 @@ PDF the client reads. Not markdown. Not a slide deck. Sheets.
    stays small, and every sheet gets its own verdict.
    Inline `framework.css` into the `<style>` block; use the components in
    `components.md`; logos as data URIs.
-5. **Read the receipt.** It names every sheet whose footer moved, every sheet
+6. **Read the receipt.** It names every sheet whose footer moved, every sheet
    that overflows and by how much, every element past the edge, the PDF page
    count and any asset that did not load.
-6. **Fix by sheet** with `edit_document` — `replace_sheet` with the trimmed
+7. **Fix by sheet** with `edit_document` — `replace_sheet` with the trimmed
    sheet, `remove_sheet`, `insert_sheet`, `replace_text` — and read the next
    receipt. Trim content on an overflowing sheet; never shrink the footer
    reserve. Usually two to four rounds.
-7. **Final pass**: `verify_document` with the look on. A document is done when
-   the receipt reads "no issues" and the PDF page count equals the sheet count.
-8. `export_document_pdf` when the person asks for the PDF, or when it is ready
-   to send.
+8. **Verify**: `verify_document` with the look on. The receipt must read "no
+   issues" and the PDF page count must equal the sheet count.
+9. **Red team**: `red_team_document` with the rubric from `red-team.md` and
+   the room's starred facts as `context`. Fix every BLOCK by sheet and run it
+   again. A document is done when verify is clean and the red team has no
+   blocks; say what you left and why.
+10. `export_document_pdf` when the person asks for the PDF, or when it is ready
+   to send. The send email is a separate, light-themed artifact with no dollar
+   figure in it.
 
 Change the open document in place. "Cut page 9", "make it three agents",
 "price it per opening" are `edit_document` ops on named sheets. Never render a
@@ -108,6 +126,17 @@ second document to make a change.
 - Assume the yes. Cut any line that invites a no.
 - Kill the chatbot register: "before anything moves", "tell me plainly",
   "moving the needle", constructed contrast tails. Say the literal thing.
+
+## Learn from every correction — this is the loop that matters
+
+Feedback on a proposal generalises more often than most feedback. When a person
+cuts a line, rejects a shape, or corrects a claim in chat, ask: **would this
+apply to the next client's proposal?** If yes, it is a rule — `add_learning`
+into `proposal-feedback` with the person's words as the source, at 0.9 when
+they said it and 0.6 when you inferred it. A red-team finding that appears on a
+second document is a rule the same way. Review decisions on your proposals
+file there on their own; you file what you hear in conversation. The next
+proposal starts without the mistake.
 
 ## Grounding
 
