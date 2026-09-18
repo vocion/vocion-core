@@ -36,6 +36,7 @@ describe('firstParagraph', () => {
   it('skips headings and front-matter rules and flattens whitespace', () => {
     expect(firstParagraph('# Title\n\n---\n\nThe first\nreal line.\n\nMore.')).toBe('The first real line.');
     expect(firstParagraph('# Only a heading')).toBe('');
+    expect(firstParagraph('| a | b |\n|---|---|\n\n- a list\n\nProse at last.')).toBe('Prose at last.');
   });
 });
 

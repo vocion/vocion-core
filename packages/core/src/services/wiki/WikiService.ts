@@ -72,10 +72,11 @@ export function wikiHref(id: number): string {
  * @param md - The page body.
  */
 export function firstParagraph(md: string): string {
+  // Prose only: a heading, a rule, a table row, a list item or a quote is not a summary.
   const para = md
     .split(/\n\s*\n/)
     .map(p => p.trim())
-    .find(p => p && !p.startsWith('#') && !p.startsWith('---'));
+    .find(p => p && !/^(?:[#|>]|---|[-*+]\s|\d+\.\s)/.test(p));
   return (para ?? '').replace(/\s+/g, ' ').slice(0, 200);
 }
 
@@ -168,7 +169,8 @@ export async function writeWikiPage(orgId: string, input: WriteWikiPageInput): P
   if (input.append) {
     const date = (input.now ?? new Date()).toISOString().slice(0, 10);
     const section = `## ${input.append.heading.trim()} · ${date}\n\n${input.append.body.trim()}\n`;
-    md = existing?.md ? `${existing.md.trimEnd()}\n\n${section}` : `# ${input.title.trim()}\n\n${section}`;
+    // The title renders above the body, so a new page does not start with its own H1.
+    md = existing?.md ? `${existing.md.trimEnd()}\n\n${section}` : section;
   } else {
     md = (input.md ?? '').trim();
     if (!md) {

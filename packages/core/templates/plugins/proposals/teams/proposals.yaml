@@ -12,11 +12,11 @@ measures:
     target: 2
     unit: documents
     window: 30d
-    source: { kind: observed, rows: artifacts, where: { kind: document, playbook: proposal } }
+    source: {kind: observed, rows: artifacts, where: {kind: document, playbook: proposal}}
   - key: proposals_verified
     label: Proposals verified clean
     dimension: quality
     target: 2
     unit: documents
     window: 30d
-    source: { kind: observed, rows: artifacts, where: { kind: document, playbook: proposal, verified: true } }
+    source: {kind: observed, rows: artifacts, where: {kind: document, playbook: proposal, verified: true}}

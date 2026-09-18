@@ -39,9 +39,11 @@ week.
 
 - `slug` — reuse the existing one to revise; one of the five above unless a new
   page is right.
-- `md` — the **whole** page, when you are rewriting. Short. Headings for the
-  eye, one idea per paragraph, no raw tool output, every dated thing with its
-  date, every claim you took from a source with the source named in words.
+- `md` — the **whole** page, when you are rewriting. Short. Start with one
+  plain paragraph (it is the summary when none is given), then `##` headings for
+  the eye — no `#` title line, the page's title renders above the body. One
+  idea per paragraph, no raw tool output, every dated thing with its date,
+  every claim you took from a source with the source named in words.
 - `append` — a **dated section** on a running page (Decisions, Glossary):
   `heading` is the decision or the term, `body` is two or three sentences.
 - `summary` — the one line the index shows. Write it; the first paragraph is

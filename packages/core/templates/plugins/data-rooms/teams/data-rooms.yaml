@@ -12,11 +12,11 @@ measures:
     target: 2
     unit: rooms
     window: 30d
-    source: { kind: observed, rows: data-rooms }
+    source: {kind: observed, rows: data-rooms}
   - key: sources_filed
     label: Sources filed
     dimension: velocity
     target: 5
     unit: sources
     window: 7d
-    source: { kind: observed, rows: data-room-sources }
+    source: {kind: observed, rows: data-room-sources}

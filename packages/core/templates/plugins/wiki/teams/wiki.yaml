@@ -12,14 +12,14 @@ measures:
     target: 4
     unit: pages
     window: quarter
-    source: { kind: observed, rows: artifacts, where: { kind: markdown, folder: wiki } }
+    source: {kind: observed, rows: artifacts, where: {kind: markdown, folder: wiki}}
   - key: curator_writes
     label: Pages written by the curator
     dimension: velocity
     target: 2
     unit: writes
     window: 7d
-    source: { kind: observed, actions: [wiki.write_page] }
+    source: {kind: observed, actions: [wiki.write_page]}
   - key: writes_decided_by_person
     label: Wiki edits a person had to decide
     dimension: quality
@@ -27,4 +27,4 @@ measures:
     unit: decisions
     window: 30d
     direction: lower
-    source: { kind: human-confirmed, actions: [wiki.write_page] }
+    source: {kind: human-confirmed, actions: [wiki.write_page]}
