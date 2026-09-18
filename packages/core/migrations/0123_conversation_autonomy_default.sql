@@ -1,0 +1,11 @@
+-- 0123 — a new conversation is done-for-you by default.
+--
+-- The done-for-you policy (0122's neighbour, core #437) executes confident,
+-- reversible actions and shows them with Undo — but every thread still
+-- started at 'ask', and that setting vetoes the policy. On 2026-09-18 the
+-- first live run under the new policy queued a HubSpot update it should have
+-- made. Chris: "the default behavior should be DONE FOR YOU with visibility
+-- and ability to edit or undo if desired."
+--
+-- Only the DEFAULT changes: threads a person already set keep their value.
+ALTER TABLE "conversation" ALTER COLUMN "autonomy" SET DEFAULT 'act-within-bounds';

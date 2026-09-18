@@ -152,4 +152,24 @@ describe('proposeFromRecommendationRoute', () => {
 
     expect(checked.success).toBe(true);
   });
+
+  it('answers a payload the action refuses with the reason, as a 400 — never a 500', async () => {
+    vi.mocked(proposeAction).mockRejectedValueOnce(Object.assign(new Error('route: Invalid option: expected one of "generate"|"confirm"|"drop"'), { code: 'VALIDATION_FAILED' }));
+
+    await expect(call(proposeFromRecommendationRoute, {
+      actionId: 'discovery.review_proposal',
+      input: {},
+      suggestedDecision: null,
+      suggestedDecisionReason: null,
+    })).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('Invalid option') });
+
+    vi.mocked(proposeAction).mockRejectedValueOnce(new Error('the database is away'));
+
+    await expect(call(proposeFromRecommendationRoute, {
+      actionId: 'objects.propose_candidate',
+      input: { id: 1 },
+      suggestedDecision: null,
+      suggestedDecisionReason: null,
+    })).rejects.toThrow('the database is away');
+  });
 });

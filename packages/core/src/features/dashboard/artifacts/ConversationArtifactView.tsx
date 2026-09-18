@@ -25,10 +25,12 @@ import type { AgentOption, ChatMessageArtifact } from '@/features/dashboard/chat
 import type { ArtifactPayload } from '@/services/agents/types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { Minimize2, PanelRight } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
+import { AutonomyControl } from '@/features/dashboard/chat/AutonomyControl';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
 import { useComposerQueueProps } from '@/features/dashboard/chat/composerQueue';
 import { HitlGate } from '@/features/dashboard/chat/HitlGate';
@@ -132,6 +134,8 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
   // and the rail, so it takes the same queue props — a queue that worked on
   // two surfaces out of three would read as a bug.
   const queueProps = useComposerQueueProps(session);
+  const tc = useTranslations('Chat');
+  const autonomyCopy = { ask: tc('autonomy_ask'), act: tc('autonomy_act'), askHint: tc('autonomy_ask_hint'), actHint: tc('autonomy_act_hint') };
   // The open artifact is this surface's record, so `(+)` offers it alongside
   // `@artifact` and `@page` — and the `@` popover resolves the same list. All
   // three surfaces get the tags, because one that only worked on two of them
@@ -268,7 +272,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
             {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
             <ChatComposer
               onCommand={onCommand}
-              controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+              controls={(
+                <>
+                  <AutonomyControl value={session.autonomy} onChange={session.setAutonomy} copy={autonomyCopy} label={tc('autonomy')} />
+                  <ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />
+                </>
+              )}
               value={session.composerValue}
               onChange={session.setComposerValue}
               onSubmit={() => void session.sendMessage(session.composerValue)}

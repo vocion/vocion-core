@@ -5,6 +5,7 @@ import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
+import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -837,7 +838,7 @@ export async function runAgentDeep(opts: {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
   }
-  finalText = finalText.trim();
+  finalText = normalizeAnswerHtml(finalText).trim();
 
   // Card backstop (structural, workspace-opt-in): prompt compliance for
   // recommend_action proved unreliable — a long tool output (the daily brief)

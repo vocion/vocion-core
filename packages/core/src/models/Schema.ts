@@ -1351,7 +1351,8 @@ export const conversationSchema = pgTable(
      * queue and trust rules still gate every outward action. Text, not an
      * enum, so a new rung is a code change.
      */
-    autonomy: text('autonomy').default('ask').notNull(),
+    // Done for you by default since 2026-09-18 (migration 0123); a person can pull a thread back to 'ask'.
+    autonomy: text('autonomy').default('act-within-bounds').notNull(),
     /** How strong a model answers this thread (`libs/llm/modelPrefs.ts`): fast | balanced | deep. Null = balanced, the agent's own. */
     modelStrength: text('model_strength').$type<'fast' | 'balanced' | 'deep'>(),
     /** How much it thinks: off | low | medium | high. Null = off. */

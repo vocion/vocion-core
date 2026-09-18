@@ -23,20 +23,20 @@ const COPY = {
 };
 
 describe('autonomyOptions', () => {
-  it('offers both rungs, lowest first', () => {
-    expect(autonomyOptions(COPY).map(o => o.value)).toEqual(['ask', 'act-within-bounds']);
-    expect(AUTONOMY_MODES).toEqual(['ask', 'act-within-bounds']);
+  it('offers both rungs, the default first', () => {
+    expect(autonomyOptions(COPY).map(o => o.value)).toEqual(['act-within-bounds', 'ask']);
+    expect(AUTONOMY_MODES).toEqual(['act-within-bounds', 'ask']);
   });
 
   it('carries the one-line consequence with each option', () => {
-    const [ask, act] = autonomyOptions(COPY);
+    const [act, ask] = autonomyOptions(COPY);
 
     expect(ask).toMatchObject({ label: COPY.ask, hint: COPY.askHint });
     expect(act).toMatchObject({ label: COPY.act, hint: COPY.actHint });
   });
 
-  it('defaults to asking first', () => {
-    expect(DEFAULT_AUTONOMY).toBe('ask');
+  it('defaults to done-for-you — confident reversible actions run, with undo', () => {
+    expect(DEFAULT_AUTONOMY).toBe('act-within-bounds');
   });
 });
 

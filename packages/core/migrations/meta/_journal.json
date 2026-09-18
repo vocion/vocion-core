@@ -862,6 +862,13 @@
       "when": 1789748583066,
       "tag": "0122_conversation_model_prefs",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1789750459386,
+      "tag": "0123_conversation_autonomy_default",
+      "breakpoints": true
     }
   ]
 }

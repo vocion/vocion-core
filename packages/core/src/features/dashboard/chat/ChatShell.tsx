@@ -14,10 +14,9 @@ import { AboutRecordChip } from './AboutRecordChip';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
-import { ChatMenu } from './ChatMenu';
+import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { EmptyState, NoAgentsState } from './EmptyState';
-import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
@@ -254,26 +253,17 @@ function ChatShellInner({
       {/* The single small chat menu — portaled into the shell top bar beside
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
-        <div className="flex items-center gap-1">
-          {/* One identity (§9.10): the surface speaks as the workspace. */}
-          <span data-testid="speaker-chip" className="truncate text-sm font-medium text-foreground/80">{session.workspaceName}</span>
-          <HistoryPopover
-            recent={session.recentChats}
-            currentId={session.conversationId}
-            onPick={id => void session.handlePickConversation(id)}
-            onNewChat={startNewChat}
-            search={session.searchConversations}
-          />
-          {/* The conversation's rung rides with the conversation's identity on
-              every surface, not inside the composer (§9.7). */}
-          <AutonomyControl
-            value={session.autonomy}
-            onChange={session.setAutonomy}
-            copy={autonomyCopy}
-            label={t('autonomy')}
-          />
-          <ChatMenu onNewChat={startNewChat} />
-        </div>
+        {/* New chat + the conversations dropdown as icons; the ⋯ menu only on a
+            phone. No workspace name here — the sidebar says it (2026-09-18). */}
+        <ChatHeaderActions
+          onNewChat={startNewChat}
+          history={{
+            recent: session.recentChats,
+            currentId: session.conversationId,
+            onPick: id => void session.handlePickConversation(id),
+            search: session.searchConversations,
+          }}
+        />
       </ShellBarActionsPortal>
 
       <div className="flex flex-1 overflow-hidden">
@@ -337,7 +327,14 @@ function ChatShellInner({
                 )
               : undefined}
             onCommand={onCommand}
-            controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+            // The thread's settings, in the bar: its rung (done for you / ask
+            // first) and its model — one cluster, every surface (2026-09-18).
+            controls={(
+              <>
+                <AutonomyControl value={session.autonomy} onChange={session.setAutonomy} copy={autonomyCopy} label={t('autonomy')} />
+                <ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />
+              </>
+            )}
             value={session.composerValue}
             onChange={session.setComposerValue}
             onSubmit={() => void session.sendMessage(session.composerValue)}

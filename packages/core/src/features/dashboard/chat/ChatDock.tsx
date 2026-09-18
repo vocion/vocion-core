@@ -21,12 +21,11 @@ import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
 import { AutonomyControl } from './AutonomyControl';
 import { ChatComposer } from './ChatComposer';
-import { ChatMenu } from './ChatMenu';
+import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
 import { RAIL_SET_EVENT } from './dockState';
 import { EmptyState, NoAgentsState } from './EmptyState';
-import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
 import { ModelControl } from './ModelControl';
@@ -576,12 +575,11 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
 
   const body = (
     <>
-      {/* ONE hairline-separated row, 48px tall (2026-09-15): the workspace
-          mark + its name as the title, then four equal 32px ghost controls —
-          history, the autonomy rung, the ⋯ menu, collapse. The underlined
-          "All conversations" link that used to sit under the title read as an
-          error; it is a row in the ⋯ menu now, and the history icon carries
-          the job it was doing. */}
+      {/* ONE hairline-separated row, 48px tall: "Chat" with the bubble as the
+          title, then 32px ghost controls — New chat, the conversations
+          dropdown (All conversations is its last row), collapse; the ⋯ menu
+          only in the phone sheet. The autonomy rung moved into the input bar
+          beside the model control on 2026-09-18. */}
       {/* In the sheet the close control is absolutely positioned in this
           corner, so the row keeps clear of it rather than stacking under it. */}
       <div className={`flex h-12 shrink-0 items-center gap-1 border-b border-border pl-3 ${narrow ? 'pr-11' : 'pr-1.5'}`}>
@@ -605,25 +603,20 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             <span className="truncate text-xs text-muted-foreground">{session.workspaceName}</span>
           )}
         </div>
-        {!scopeRef && (
-          <HistoryPopover
-            recent={session.recentChats}
-            currentId={session.conversationId}
-            onPick={id => void session.handlePickConversation(id)}
-            onNewChat={session.handleNewChat}
-            search={session.searchConversations}
-          />
-        )}
-        {/* The conversation's rung — a setting, so it lives beside the
-            conversation's name and not inside the composer (§9.7). */}
-        <AutonomyControl
-          value={session.autonomy}
-          onChange={session.setAutonomy}
-          copy={autonomyCopy}
-          label={t('autonomy')}
+        {/* New chat + conversations as icons; the ⋯ menu in the phone sheet.
+            The rung moved into the input bar beside the model control. */}
+        <ChatHeaderActions
+          onNewChat={session.handleNewChat}
+          history={scopeRef
+            ? null
+            : {
+                recent: session.recentChats,
+                currentId: session.conversationId,
+                onPick: id => void session.handlePickConversation(id),
+                search: session.searchConversations,
+              }}
+          compact={narrow}
         />
-        {/* New chat + all conversations. There is no agent to pick (§9.10). */}
-        <ChatMenu onNewChat={session.handleNewChat} />
         {/* The sheet carries its own close control in this corner; a second
             one underneath it was two buttons in one 32px square. */}
         {!narrow && (
@@ -791,7 +784,12 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onAttachFiles={files => void session.attachFiles(files)}
           onRemoveAttachment={session.removeAttachment}
           onCommand={onCommand}
-          controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+          controls={(
+            <>
+              <AutonomyControl value={session.autonomy} onChange={session.setAutonomy} copy={autonomyCopy} label={t('autonomy')} />
+              <ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />
+            </>
+          )}
         />
       </div>
     </>
