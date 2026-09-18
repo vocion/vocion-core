@@ -4,6 +4,7 @@ import type { ContentEdit } from './contentKinds';
 import type { ReviewCardRun } from './ReviewActionCard';
 import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
+import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 
@@ -79,7 +80,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     let alive = true;
     const check = async () => {
       try {
-        const s = await client.review.actionStatus({ id: run.id });
+        const s = await (isPollableRunId(run.id) ? client.review.actionStatus({ id: run.id }) : Promise.reject(new Error('not a run')));
         if (!alive) {
           return;
         }

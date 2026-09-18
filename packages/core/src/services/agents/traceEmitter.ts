@@ -385,6 +385,9 @@ export type TraceEmitterOptions = {
  * or more `TraceNodeEvent`s to forward to the SSE client. Also exposes the
  * accumulated citations so the caller can emit a final message-level set.
  */
+/** The model is writing a tool call whose name is already known — the live line can say so. */
+export type ComposingEvent = { type: 'composing'; tool: string };
+
 export class TraceEmitter {
   private readonly leadName: string;
   /** taskId → specialist actor (recorded when the `task` tool starts). */
@@ -394,6 +397,10 @@ export class TraceEmitter {
   private readonly allCitations: TraceCitation[] = [];
   /** open reason nodes (id → actor/parent), so we emit `start` once then `progress`, and can close them when the answer begins. */
   private readonly openReason = new Map<string, { actor: TraceActor; parentId?: string }>();
+  /** Tool calls already announced as being written, per model turn (`composing`). */
+  private readonly composing = new Set<string>();
+  /** Events beside the trace — `composing` — for the caller to drain after each `handle`. */
+  private readonly sideEvents: ComposingEvent[] = [];
   /** node id → subject for the label (the query / skill name), so the `done` label matches `start`. */
   private readonly nodeSubjects = new Map<string, string>();
   /** node id → the pair a labeler supplied, so `done` uses the same words as `start`. */
@@ -474,6 +481,11 @@ export class TraceEmitter {
    * answer starts streaming, so reasoning stops spinning "Thinking" while the
    * model does its post-answer tail (tool calls, drafts).
    */
+  /** Events raised beside the trace by the last `handle` calls; emptied on read. */
+  takeSideEvents(): ComposingEvent[] {
+    return this.sideEvents.splice(0, this.sideEvents.length);
+  }
+
   closeReasoning(): TraceNodeEvent[] {
     const out: TraceNodeEvent[] = [];
     for (const [id, { actor, parentId }] of this.openReason) {
@@ -545,6 +557,15 @@ export class TraceEmitter {
     const ns = nsOf(ev);
     switch (ev.event) {
       case 'on_chat_model_stream': {
+        // A tool call streams in pieces and its name arrives first: say what
+        // is being written while the arguments (a whole HTML document, on
+        // 2026-09-18, for 40 seconds) are still coming — 'Working' says nothing.
+        const chunks = (ev.data?.chunk as { tool_call_chunks?: Array<{ name?: string | null }> } | undefined)?.tool_call_chunks ?? [];
+        const named = chunks.find(c => typeof c.name === 'string' && c.name.length > 0)?.name;
+        if (named && !PLUMBING_TOOLS.has(named) && !this.composing.has(`${ns}:${named}`)) {
+          this.composing.add(`${ns}:${named}`);
+          this.sideEvents.push({ type: 'composing', tool: named });
+        }
         const { thinking } = extractChunk(ev.data?.chunk);
         if (!thinking) {
           return [];

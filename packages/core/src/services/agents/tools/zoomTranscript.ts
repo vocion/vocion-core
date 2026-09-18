@@ -19,7 +19,8 @@ import { tool } from '@langchain/core/tools';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
-import { fetchZoomMeetingTranscript } from '@/libs/sources/zoom';
+import { fetchZoomMeetingTranscript, listZoomRecordings } from '@/libs/sources/zoom';
+import { dayKey, DEFAULT_TIME_ZONE, formatDateTime } from '@/libs/time/zone';
 import {
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
@@ -170,5 +171,58 @@ export function zoomTools(ctx: RuntimeContext) {
     },
   );
 
-  return [getZoomTranscript];
+  const findZoomRecordings = tool(
+    async (args) => {
+      const { day, days_around, topic, participant } = args as { day?: string; days_around?: number; topic?: string; participant?: string };
+      const sources = await sourcesForConnector(ctx.orgId, 'zoom');
+      if (sources.length === 0) {
+        return 'No zoom source is connected for this workspace.';
+      }
+      const credentialed = await firstCredentialed(ctx.orgId, sources);
+      if (!credentialed) {
+        return 'The Zoom source has no live credentials — say the recordings could not be listed.';
+      }
+      const tz = ctx.timeZone ?? DEFAULT_TIME_ZONE;
+      const centre = day ?? dayKey(new Date(), tz);
+      const span = Math.min(Math.max(days_around ?? 1, 0), 14);
+      const shift = (key: string, n: number) => {
+        const [y, m, d] = key.split('-').map(v => Number.parseInt(v, 10)) as [number, number, number];
+        return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+      };
+      const cfg = (credentialed.source as { config?: { apiBaseUrl?: string; authBaseUrl?: string; users?: string[] } }).config ?? {};
+      try {
+        const { hits, missingScopes } = await listZoomRecordings({ credentials: credentialed.credentials, from: shift(centre, -span), to: shift(centre, span), apiBaseUrl: cfg.apiBaseUrl, authBaseUrl: cfg.authBaseUrl, users: cfg.users });
+        if (missingScopes.length > 0) {
+          return `Zoom refused to list recordings: the connected app lacks the scopes ${missingScopes.join(', ')}. Say that plainly and link the person to the Zoom row on /dashboard/connectors to add the scopes and reconnect — do NOT conclude that no recording exists.`;
+        }
+        const needle = (topic ?? '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const who = (participant ?? '').toLowerCase();
+        const scored = hits.map((h) => {
+          const t = h.topic.toLowerCase();
+          const topicScore = needle.length === 0 ? 0 : needle.filter(w => t.includes(w)).length / needle.length;
+          const whoScore = who && h.hostEmail.toLowerCase().includes(who) ? 1 : 0;
+          return { h, score: topicScore + whoScore };
+        }).sort((a, b) => b.score - a.score);
+        if (scored.length === 0) {
+          return `No cloud recordings between ${shift(centre, -span)} and ${shift(centre, span)} for the connected Zoom users. That is the account's own answer for that window — widen days_around or check the date before saying a call was not recorded; a recording can also live on another user's account.`;
+        }
+        const lines = scored.slice(0, 12).map(({ h, score }) => `- ${formatDateTime(new Date(h.startTime), tz)} · "${h.topic}" · host ${h.hostEmail}${h.durationMinutes ? ` · ${h.durationMinutes} min` : ''} · ${h.hasTranscript ? 'transcript ready' : 'no transcript yet'} · uuid ${h.uuid}${score > 0 ? ` · match ${Math.round(score * 100)}%` : ''}`);
+        return `${scored.length} recording(s) between ${shift(centre, -span)} and ${shift(centre, span)} (${tz}):\n${lines.join('\n')}\n\nCall get_zoom_transcript with the uuid to read one.`;
+      } catch (err) {
+        return `Zoom listing failed: ${(err as Error).message}. Say the recordings could not be listed — do not conclude that none exists.`;
+      }
+    },
+    {
+      name: 'find_zoom_recordings',
+      description: 'List the Zoom cloud recordings around a day — by topic words and/or a participant/host email — and get each one\'s uuid for get_zoom_transcript. Use this BEFORE saying a call was not recorded: a title from the calendar or a Granola note rarely matches Zoom\'s topic exactly.',
+      schema: z.object({
+        day: z.string().optional().describe('The day the call happened, YYYY-MM-DD, in the person\'s zone. Omit for today.'),
+        days_around: z.number().int().optional().describe('Also look this many days either side (default 1, max 14).'),
+        topic: z.string().optional().describe('Words from the meeting title, e.g. "Sammy intro".'),
+        participant: z.string().optional().describe('A host or attendee email, or part of one.'),
+      }),
+    },
+  );
+
+  return [getZoomTranscript, findZoomRecordings];
 }

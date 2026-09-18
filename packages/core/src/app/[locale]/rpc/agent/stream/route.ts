@@ -180,6 +180,20 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
+  // A correction: last turn the agent said something could not be found, and
+  // this message hands it over. The agent is told to own it, and a learning
+  // candidate is drafted in the background (`correctionReflector.ts`).
+  let messageForModel = message;
+  {
+    const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
+    const lastAssistant = [...conversationHistory].reverse().find(t => t.role === 'assistant')?.content;
+    const correction = detectCorrection(lastAssistant, message);
+    if (correction) {
+      messageForModel = `${message}\n\n${correctionNote(correction)}`;
+      void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
+    }
+  }
+
   const collector = conversationId !== null ? new RunCollector() : null;
   const encoder = new TextEncoder();
 
@@ -257,7 +271,7 @@ export async function POST(request: Request): Promise<Response> {
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext, contextRefs, grounding.text),
+          message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,

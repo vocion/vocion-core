@@ -57,7 +57,7 @@ export const ZOOM_REQUIRED_SCOPES: readonly string[] = [
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-async function mintToken(authBaseUrl: string, credentials: Record<string, unknown> | undefined): Promise<string> {
+export async function mintToken(authBaseUrl: string, credentials: Record<string, unknown> | undefined): Promise<string> {
   const accountId = credentials?.accountId as string | undefined;
   const clientId = credentials?.clientId as string | undefined;
   const clientSecret = credentials?.clientSecret as string | undefined;
@@ -263,3 +263,95 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
     }
   },
 };
+
+export type ZoomRecordingHit = {
+  uuid: string;
+  topic: string;
+  startTime: string;
+  hostEmail: string;
+  durationMinutes: number | null;
+  hasTranscript: boolean;
+};
+
+/**
+ * The cloud recordings in a date window, across the account's users — the
+ * lookup `get_zoom_transcript` never had. On 2026-09-18 the agent, asked for a
+ * call by name, declared "no Zoom recording exists" because the only tool it
+ * had wanted a UUID; the person then pasted the recording link and it was
+ * there all along. A missing scope (Zoom error 4711) is reported as such, so
+ * the answer can point at the connector rather than at the calendar.
+ * @param opts
+ * @param opts.credentials - The Zoom source's stored credentials.
+ * @param opts.from - `YYYY-MM-DD`, inclusive.
+ * @param opts.to - `YYYY-MM-DD`, inclusive.
+ * @param opts.apiBaseUrl
+ * @param opts.authBaseUrl
+ * @param opts.users - Restrict to these host emails; empty = every user.
+ */
+export async function listZoomRecordings(opts: {
+  credentials: Record<string, unknown> | undefined;
+  from: string;
+  to: string;
+  apiBaseUrl?: string;
+  authBaseUrl?: string;
+  users?: string[];
+}): Promise<{ hits: ZoomRecordingHit[]; missingScopes: string[] }> {
+  const api = opts.apiBaseUrl ?? 'https://api.zoom.us/v2';
+  const token = await mintToken(opts.authBaseUrl ?? 'https://zoom.us', opts.credentials);
+  const headers = { authorization: `Bearer ${token}` };
+  const missing = (body: string): string[] => {
+    const m = /scopes:\[([^\]]+)\]/.exec(body);
+    return m ? m[1]!.split(',').map(x => x.trim()).filter(Boolean) : [];
+  };
+  const users: Array<{ id: string; email: string }> = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ status: 'active', page_size: '300' });
+    if (pageToken) {
+      params.set('next_page_token', pageToken);
+    }
+    const res = await fetch(`${api}/users?${params.toString()}`, { headers });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const scopes = missing(body);
+      if (scopes.length > 0) {
+        return { hits: [], missingScopes: scopes };
+      }
+      throw new Error(`Zoom user list failed: ${res.status} ${body}`);
+    }
+    const list = (await res.json()) as ZoomUserList;
+    for (const u of list.users ?? []) {
+      if (!opts.users || opts.users.length === 0 || opts.users.includes(u.email)) {
+        users.push({ id: u.id, email: u.email });
+      }
+    }
+    pageToken = list.next_page_token || undefined;
+  } while (pageToken);
+
+  const hits: ZoomRecordingHit[] = [];
+  for (const user of users) {
+    const params = new URLSearchParams({ from: opts.from, to: opts.to, page_size: '300' });
+    const res = await fetch(`${api}/users/${encodeURIComponent(user.id)}/recordings?${params.toString()}`, { headers });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      const scopes = missing(body);
+      if (scopes.length > 0) {
+        return { hits, missingScopes: scopes };
+      }
+      continue;
+    }
+    const list = (await res.json()) as ZoomRecordingList;
+    for (const mtg of list.meetings ?? []) {
+      hits.push({
+        uuid: mtg.uuid,
+        topic: mtg.topic ?? '(untitled)',
+        startTime: mtg.start_time ?? '',
+        hostEmail: user.email,
+        durationMinutes: typeof mtg.duration === 'number' ? mtg.duration : null,
+        hasTranscript: (mtg.recording_files ?? []).some(f => f.file_type === 'TRANSCRIPT'),
+      });
+    }
+  }
+  hits.sort((a, b) => a.startTime.localeCompare(b.startTime));
+  return { hits, missingScopes: [] };
+}
