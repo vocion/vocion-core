@@ -119,7 +119,9 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
     case 'propose_action': {
       const actionId = String(input.action_id ?? 'action');
       const conf = typeof input.confidence === 'number' ? ` · ${Math.round((input.confidence as number) * 100)}%` : '';
-      return { label: live ? `Proposing ${actionId}${conf}…` : `Proposed ${actionId}${conf}`, detail: live ? undefined : 'queued for your approval' };
+      // Whether it ran or waits is the run's to say (the card below carries
+      // its status); this line stops claiming it was queued.
+      return { label: live ? `Proposing ${actionId}${conf}…` : `Proposed ${actionId}${conf}` };
     }
     case 'create_artifact':
       return { label: live ? 'Creating artifact…' : 'Created artifact', detail: String(input.kind ?? '') || undefined };

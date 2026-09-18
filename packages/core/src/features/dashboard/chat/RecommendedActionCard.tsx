@@ -1,7 +1,7 @@
 'use client';
 
 import type { RecommendedAction } from './types';
-import { ArrowRight, Check, Clock3, Loader2, Mail, PencilLine, ShieldCheck, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, Clock3, Loader2, Mail, PencilLine, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
@@ -53,7 +53,7 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
   autoPropose?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(rec.runId !== undefined ? { status: 'proposed', runId: rec.runId } : { status: 'idle' });
-  const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
+  const [deciding, setDeciding] = useState<'approve' | 'reject' | 'undo' | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
   const live = useActionRunStatus(phase.runId);
   const autoFiredRef = useRef(rec.runId !== undefined);
@@ -127,6 +127,23 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
     setDecideError(null);
     try {
       await client.review.decideAction({ id: phase.runId, decision });
+    } catch (err) {
+      setDecideError((err as Error).message);
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  // Done for you → Undo, from the card that said it was done (principle 10:
+  // one move from where the claim is read).
+  const undo = async () => {
+    if (phase.runId === undefined) {
+      return;
+    }
+    setDeciding('undo');
+    setDecideError(null);
+    try {
+      await client.review.undoAction({ id: phase.runId });
     } catch (err) {
       setDecideError((err as Error).message);
     } finally {
@@ -223,16 +240,35 @@ export function RecommendedActionCard({ rec, canApprove = true, onProposed, auto
             {!terminal && status !== 'snoozed' && status !== 'pending' && <Loader2 className="size-3 animate-spin" aria-hidden />}
             {status === 'pending' && <Clock3 className="size-3" aria-hidden />}
             {terminal && status === 'done' && <Check className="size-3" aria-hidden />}
-            {terminal && status !== 'done' && <X className="size-3" aria-hidden />}
-            {desc.label}
+            {terminal && status === 'undone' && <RotateCcw className="size-3" aria-hidden />}
+            {terminal && status !== 'done' && status !== 'undone' && <X className="size-3" aria-hidden />}
+            {status === 'done' && live?.approvedByAgent ? 'Done for you' : desc.label}
           </span>
-          {live?.decidedBy && (
+          {live?.decidedBy && !(status === 'done' && live.approvedByAgent) && (
             <span className="text-muted-foreground">
-              {status === 'rejected' ? 'by' : 'approved by'}
+              {status === 'rejected' ? 'by' : status === 'undone' ? 'undone by' : 'approved by'}
               {' '}
               {live.decidedBy}
               {live.decidedAt ? ` · ${fmtTime(live.decidedAt)}` : ''}
             </span>
+          )}
+          {status === 'done' && live?.approvedByAgent && live.reason && (
+            <span className="text-muted-foreground" title={live.reason}>
+              ·
+              {live.reason}
+            </span>
+          )}
+          {status === 'done' && live?.undoable && (
+            <button
+              type="button"
+              onClick={() => void undo()}
+              disabled={deciding !== null}
+              data-testid="recommended-undo"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-60"
+            >
+              {deciding === 'undo' ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RotateCcw className="size-3" aria-hidden />}
+              Undo
+            </button>
           )}
           {rec.runId !== undefined && phase.runId === rec.runId && (
             <span className="text-muted-foreground/70">· filed by the agent within bounds</span>

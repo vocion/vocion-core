@@ -265,6 +265,9 @@ export const actionStatusRoute = os
         decidedAt: actionRunSchema.decidedAt,
         regeneratingSince: actionRunSchema.regeneratingSince,
         regenerateNote: actionRunSchema.regenerateNote,
+        approvedByAgent: actionRunSchema.approvedByAgent,
+        actionId: actionRunSchema.actionId,
+        proposal: actionRunSchema.proposal,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -275,10 +278,15 @@ export const actionStatusRoute = os
     if (!row) {
       throw ApiError.notFound(`no action ${input.id}`);
     }
+    const { getAction } = await import('@/libs/actions/registry');
     return {
       status: row.status,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
+      // Done for you: the ladder released it, and the kind can be put back.
+      approvedByAgent: row.approvedByAgent === true,
+      undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
+      reason: (row.proposal as { autoApprovedReason?: string } | null)?.autoApprovedReason ?? null,
       // The in-flight regeneration stamp, so the card can hold itself
       // disabled on server truth rather than on the click that started it.
       regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
@@ -335,6 +343,30 @@ function deriveDedupKey(actionId: string, input: Record<string, unknown>): strin
   const objId = s(input.objectId) ?? s(input.object_id) ?? s(input.recordId) ?? s(input.id);
   return objId ? `${actionId}:${objId}` : undefined;
 }
+
+/**
+ * Put a done run back — the other half of "done for you" (Chris, 2026-09-18).
+ * Only a kind that declares `undo` gets here; the button is drawn from the
+ * same fact (`actionStatus.undoable`), so the screen never offers what the
+ * service would refuse.
+ */
+export const undoActionRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { undoAction, ActionError } = await import('@/services/ActionService');
+    const { recordActionSignal } = await import('@/services/ReviewService');
+    try {
+      const res = await undoAction(input.id, orgId, { by: userId ?? 'unknown' });
+      await recordActionSignal({ orgId, runId: input.id, signal: 'reject', userId: userId ?? undefined, hint: 'undone' });
+      return { ok: true, status: res.status };
+    } catch (err) {
+      if (err instanceof ActionError) {
+        throw ApiError.badRequest(err.message);
+      }
+      throw err;
+    }
+  });
 
 /** Approve or reject a pending action proposal. */
 export const decideActionRoute = os

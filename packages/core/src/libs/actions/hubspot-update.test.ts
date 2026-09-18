@@ -23,7 +23,8 @@ describe('hubspotUpdateAction', () => {
     expect(out).toMatchObject({ objectType: 'deals', objectId: '4812' });
     expect(out.updated).toEqual(['dealstage', 'hs_next_step']);
 
-    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    // The read of the previous values comes first; the write is the second call.
+    const [url, init] = f.mock.calls[1] as unknown as [string, RequestInit];
 
     expect(url).toContain('/crm/v3/objects/deals/4812');
     expect(init.method).toBe('PATCH');
@@ -52,5 +53,52 @@ describe('the record id is HubSpot\'s number', () => {
 
     expect(res.success).toBe(false);
     expect(JSON.stringify(res.error?.issues)).toContain('numeric HubSpot record id');
+  });
+});
+
+describe('done for you — the update records what it replaced, and undo puts it back', () => {
+  it('reads the previous values before writing, and stores them on the result', async () => {
+    const f = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH'
+      ? res({ id: '4812', updatedAt: '2026-09-18T15:00:00Z' })
+      : res({ id: '4812', properties: { dealstage: 'appointmentscheduled', hs_next_step: null } })));
+    vi.stubGlobal('fetch', f);
+
+    const out = await hubspotUpdateAction.execute(
+      { orgId: 'o', credentials: { token: 't' } },
+      parse({ objectType: 'deals', objectId: '4812', properties: { dealstage: 'presentationscheduled', hs_next_step: 'send SOW' } }),
+    );
+
+    expect(out.previous).toEqual({ dealstage: 'appointmentscheduled', hs_next_step: null });
+    expect((f.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe('GET');
+    expect((f.mock.calls[1] as unknown as [string, RequestInit])[1].method).toBe('PATCH');
+  });
+
+  it('still writes when the read fails — the run then has nothing to restore, and says so', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH' ? res({ id: '4812' }) : res({}, false))));
+
+    const out = await hubspotUpdateAction.execute({ orgId: 'o', credentials: { token: 't' } }, parse({ objectType: 'deals', objectId: '4812', properties: { amount: 1000 } }));
+
+    expect(out.previous).toBeNull();
+    await expect(hubspotUpdateAction.undo!({ orgId: 'o', credentials: { token: 't' } }, parse({ objectType: 'deals', objectId: '4812', properties: { amount: 1000 } }), out))
+      .rejects
+      .toThrow(/nothing to restore/);
+  });
+
+  it('undo PATCHes the previous values back, clearing what was empty before', async () => {
+    const f = vi.fn(async () => res({ id: '4812', updatedAt: '2026-09-18T15:05:00Z' }));
+    vi.stubGlobal('fetch', f);
+
+    const out = await hubspotUpdateAction.undo!(
+      { orgId: 'o', credentials: { token: 't' } },
+      parse({ objectType: 'deals', objectId: '4812', properties: { dealstage: 'presentationscheduled', hs_next_step: 'send SOW' } }),
+      { previous: { dealstage: 'appointmentscheduled', hs_next_step: null } },
+    );
+
+    expect(out).toMatchObject({ restored: ['dealstage', 'hs_next_step'] });
+
+    const [, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(String(init.body))).toEqual({ properties: { dealstage: 'appointmentscheduled', hs_next_step: '' } });
   });
 });

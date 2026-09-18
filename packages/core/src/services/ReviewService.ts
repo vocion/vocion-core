@@ -902,7 +902,7 @@ export async function snooze(
  * and the surface that clicked Approve must say so rather than look done.
  */
 export type DecideResult = {
-  execution?: { status: 'pending' | 'done' | 'failed' | 'rejected'; error: string | null };
+  execution?: { status: 'pending' | 'done' | 'failed' | 'rejected' | 'undone'; error: string | null };
 };
 
 /**

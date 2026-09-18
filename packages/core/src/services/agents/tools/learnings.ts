@@ -4,9 +4,11 @@
  * The agent reads its mounted namespaces as files under `/memories/…`
  * (rendered into every model call by the digest middleware, and readable
  * via deepagents's built-in `read_file`). These tools cover the write path
- * (and dedup checks) — committing only after the user approves a candidate
- * proposed by the self-improver subagent. Direct file writes under
- * `/memories/` are denied in both loops; these tools ARE the gate-side API.
+ * (and dedup checks). A rule is committed when the agent is confident it is
+ * right — done for you (Chris, 2026-09-18) — and stays visible with one-click
+ * removal on /dashboard/learnings and `remove_learning`; the agent asks first
+ * only when unsure. Direct file writes under `/memories/` are denied in both
+ * loops; these tools ARE the gate-side API.
  */
 
 import type { RuntimeContext } from '../types';
@@ -76,25 +78,27 @@ export function checkLearningDedupTool(ctx: RuntimeContext) {
 export function addLearningTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
+      const provenance = [args.source, typeof args.confidence === 'number' ? `confidence:${args.confidence}` : null].filter(Boolean).join(' · ') || undefined;
       const r = await addRule({
         orgId: ctx.orgId,
         stepName: args.step,
         ruleText: args.rule,
-        source: args.source,
+        source: provenance,
         createdBy: ctx.userId,
       });
       if (!r.ok) {
         return JSON.stringify({ ok: false, error: r.error, detail: r.detail, existing: r.existing });
       }
-      return JSON.stringify({ ok: true, ruleKey: r.rule?.key });
+      return JSON.stringify({ ok: true, ruleKey: r.rule?.key, undo: `remove_learning with ruleKey, or /dashboard/learnings`, note: 'Committed — tell the person what you saved and where to remove it.' });
     },
     {
       name: 'add_learning',
-      description: 'Commit a new rule to a learning step. ONLY call this after the user has explicitly approved the candidate. Rejects near-duplicates of existing rules.',
+      description: 'Commit a rule to a learning step — done for you. Call it as soon as you are confident (0.8+) the rule is right and general: a correction the person made, a preference they stated, a check they asked for "next time". Tell them what you committed and that it can be removed in one click on /dashboard/learnings (or with remove_learning). Below that confidence, or when the rule would change what runs without a person, ask first. Rejects near-duplicates of existing rules.',
       schema: z.object({
         step: z.string(),
         rule: z.string(),
-        source: z.string().optional().describe('provenance, e.g. "feedback:42" or "self-improver:run_17"'),
+        source: z.string().optional().describe('provenance, e.g. "feedback:42", "chat:conversation 118" or "self-improver:run_17"'),
+        confidence: z.number().min(0).max(1).optional().describe('How sure you are the rule is right and general, 0–1. Recorded with the rule.'),
       }),
     },
   );

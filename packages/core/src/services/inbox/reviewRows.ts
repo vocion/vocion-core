@@ -1,5 +1,6 @@
 import type { ActionDescription } from './describeActionRun';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema } from '@/models/Schema';
 import { resolveRecordLabels } from '@/services/records/recordLabel';
@@ -29,6 +30,10 @@ export type ReviewRow = {
   /** When a person answered (decided tab). */
   decidedAt: Date | null;
   decidedBy: string | null;
+  /** The ladder released it without a person — "done for you". */
+  approvedByAgent?: boolean;
+  /** A done run of a kind that declares `undo`: one click puts it back. */
+  undoable?: boolean;
   snoozedUntil: Date | null;
   note: string | null;
   assignedTo: string | null;
@@ -37,7 +42,7 @@ export type ReviewRow = {
   described: ActionDescription;
 };
 
-const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved'];
+const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved', 'undone'];
 
 /**
  * Action-plane rows for one tab. `limit` bounds the decided tab, which is
@@ -81,6 +86,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       executedAt: actionRunSchema.executedAt,
       decidedAt: actionRunSchema.decidedAt,
       decidedBy: actionRunSchema.decidedBy,
+      approvedByAgent: actionRunSchema.approvedByAgent,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       assignedTo: reviewAssignmentSchema.assignedTo,
@@ -98,6 +104,8 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     createdAt: row.createdAt,
     decidedAt: row.decidedAt ?? row.executedAt ?? null,
     decidedBy: row.decidedBy ?? null,
+    approvedByAgent: row.approvedByAgent === true,
+    undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
     snoozedUntil: row.snoozedUntil ?? null,
     note: row.note ?? null,
     assignedTo: row.assignedTo ?? null,

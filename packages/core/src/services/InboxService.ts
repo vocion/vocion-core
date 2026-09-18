@@ -86,8 +86,10 @@ export type InboxItem = {
   confidence?: number | null;
   amount?: number | null;
   currency?: string | null;
-  /** Decided tab: what was chosen. */
+  /** Decided tab: what was chosen — `approved`, `rejected`, `undone`, or `done for you` when the ladder released it. */
   decision?: string | null;
+  /** Decided tab: a done run the row can put back in place. */
+  undoable?: boolean;
   decidedBy?: string | null;
   /** Decided tab: the note that travelled with the decision. */
   note?: string | null;
@@ -150,7 +152,7 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     amount: r.described.amount,
     currency: r.described.currency,
     ...(tab === 'decided'
-      ? { decision: r.status === 'rejected' ? 'rejected' : 'approved', decidedBy: r.decidedBy, note: r.note }
+      ? { decision: r.status === 'rejected' ? 'rejected' : r.status === 'undone' ? 'undone' : r.approvedByAgent ? 'done for you' : 'approved', decidedBy: r.decidedBy, note: r.note, undoable: r.undoable }
       : {}),
   };
 }

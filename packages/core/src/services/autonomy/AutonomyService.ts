@@ -379,6 +379,41 @@ export async function noteRejection(opts: { orgId: string; actionId: string; aut
 }
 
 /**
+ * A person undid a run the ladder released on its own — the strongest "no"
+ * the ladder can hear. A promoted kind demotes the way a rejected auto-run
+ * does; a kind running on the platform DEFAULT (reversible, low-risk, above
+ * the bar — `libs/actions/autoAccept.ts`) is written down at Execute with
+ * approval, flagged, so the default steps aside for it until a person
+ * promotes it again. Without this row the very next proposal would run again.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.actionId
+ * @param opts.confidence - The undone run's confidence, for the reason.
+ * @param opts.by - Who undid it.
+ */
+export async function holdAfterUndo(opts: { orgId: string; actionId: string; confidence: number | null; by: string }): Promise<{ held: boolean; demoted: boolean }> {
+  const effective = await effectivePolicy(opts.orgId, opts.actionId);
+  if (rungIndex(effective.rung) > rungIndex(DEFAULT_RUNG)) {
+    const { demoted } = await noteRejection({ orgId: opts.orgId, actionId: opts.actionId, autoExecuted: true, confidence: opts.confidence });
+    return { held: false, demoted };
+  }
+  const reason = `A person undid a ${opts.actionId} that ran on its own${opts.confidence !== null ? ` at ${Math.round(opts.confidence * 100)}% confidence` : ''}. Held at Execute with approval until someone promotes it.`;
+  await writeRung({
+    orgId: opts.orgId,
+    actionId: opts.actionId,
+    rung: DEFAULT_RUNG,
+    riskTier: effective.riskTier,
+    minConfidence: effective.minConfidence,
+    by: opts.by,
+    source: 'system',
+    evidence: { heldAfterUndo: true, reason, at: new Date().toISOString() },
+    flagged: true,
+    flagReason: reason,
+  });
+  return { held: true, demoted: false };
+}
+
+/**
  * Mirror `trust.yaml` into `autonomy_policy` on apply. The applier has already
  * replaced the org's `trust_rule` rows from the same file; this keeps the
  * policy rows for the kinds the file names in step (rung, risk, floor, source

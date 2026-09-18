@@ -19,6 +19,7 @@ import type { Action } from '@/libs/actions/types';
 import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
+import { decideExecution } from '@/libs/actions/autoAccept';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
@@ -39,7 +40,7 @@ export class ActionError extends Error {
 /** The state of a single action_run, as any caller sees it. */
 export type ActionRunResult = {
   runId: number;
-  status: 'pending' | 'done' | 'failed' | 'rejected';
+  status: 'pending' | 'done' | 'failed' | 'rejected' | 'undone';
   result?: Record<string, unknown> | null;
   /** What went wrong, set only when `status` is `failed`. */
   error?: string;
@@ -184,6 +185,7 @@ async function findDecidedRunForKey(
  * @param input.proposal.labels - Payload field names the proposer wrote as a judgement of its own.
  * @param input.dedupKey
  * @param input.expiresAt
+ * @param input.conversationAutonomy
  */
 export async function proposeAction(input: {
   orgId: string;
@@ -228,6 +230,12 @@ export async function proposeAction(input: {
   dedupKey?: string;
   /** When this suggestion goes stale (drops from the queue/brief). */
   expiresAt?: Date;
+  /**
+   * The rung of the conversation this came from, when it came from one. A
+   * thread a person set to "ask before acting" keeps its word: nothing from
+   * it runs on its own, whatever the kind's policy says.
+   */
+  conversationAutonomy?: 'ask' | 'act';
 }): Promise<ProposeResult> {
   const action = getAction(input.actionId);
   if (!action) {
@@ -424,17 +432,30 @@ export async function proposeAction(input: {
     if (input.proposal?.suggestedDecision === 'reject' || input.proposal?.suggestedDecision === 'snooze') {
       return { runId: run!.id, status: 'pending', outcome: 'created' };
     }
-    // Trust ladder: an ENABLED rule whose threshold this proposal's
-    // confidence clears executes it now — audited, never silent. The
-    // default (no rule) keeps every external action in the review queue.
-    const { trustDecision } = await import('@/services/TrustService');
-    const trust = await trustDecision(input.orgId, action.id, input.proposal?.confidence);
-    if (trust.auto) {
+    // Done for you, by default (`libs/actions/autoAccept.ts`): a reversible,
+    // low-risk kind runs on its own above its bar; an automating rung runs at
+    // its trust rule's floor; everything else — and anything a person has
+    // parked or held — waits for a person. The reason is written on the run.
+    const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
+    const policy = await effectivePolicy(input.orgId, action.id);
+    const verdict = decideExecution({
+      actionId: action.id,
+      confidence: input.proposal?.confidence,
+      reversible: action.undo !== undefined,
+      neverAuto: false,
+      suggestedDecision: input.proposal?.suggestedDecision ?? null,
+      rung: policy.rung,
+      riskTier: policy.riskTier,
+      minConfidence: policy.minConfidence,
+      explicit: policy.policy !== null || policy.trustRule !== null,
+      conversationAutonomy: input.conversationAutonomy,
+    });
+    if (verdict.mode === 'execute') {
       // Who to credit with the decision. An in-process agent turn stamps
       // `agent:<slug>` on the proposing principal; a proposal made over the API
       // stamps its caller there and names the agent in the envelope instead, so
-      // both have to be read. Neither knowing it means the trust ladder itself
-      // is the decider — the honest answer, rather than crediting an agent we
+      // both have to be read. Neither knowing it means the ladder itself is
+      // the decider — the honest answer, rather than crediting an agent we
       // cannot name.
       const decidingAgent = agentSlugFromPrincipal(input.invokedBy ?? input.principal.id)
         ?? input.proposal?.agentSlug;
@@ -444,7 +465,9 @@ export async function proposeAction(input: {
           proposal: {
             ...(proposalForStorage(input.proposal) ?? {}),
             autoApproved: true,
-            autoApprovedThreshold: trust.threshold,
+            autoApprovedThreshold: verdict.threshold ?? undefined,
+            autoApprovedReason: verdict.reason,
+            autoApprovedBy: verdict.source,
           } as never,
           // `approvedByAgent` is the system of record for who decided; the
           // envelope key above predates it and is kept so runs written before
@@ -640,4 +663,61 @@ export async function rejectAction(runId: number, orgId: string, reason?: string
   ).catch((err) => {
     console.error(`[ActionService] onRejected hook for "${run.actionId}" failed`, err);
   });
+}
+
+/**
+ * Put a DONE run back — the other half of "done for you". The action's own
+ * `undo` restores what `execute` recorded; the run becomes `undone` and the
+ * person who undid it owns the decision. An undo of a run the ladder released
+ * on its own is the strongest signal that the release was wrong, so the kind
+ * is held at approval (or demoted, if it had been promoted) —
+ * `AutonomyService.holdAfterUndo`.
+ * @param runId
+ * @param orgId
+ * @param opts
+ * @param opts.by - The person undoing it.
+ */
+export async function undoAction(runId: number, orgId: string, opts: { by: string }): Promise<ActionRunResult> {
+  const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
+  if (!run) {
+    throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
+  }
+  const action = getAction(run.actionId);
+  if (!action) {
+    throw new ActionError('UNKNOWN_ACTION', `No registered action: ${run.actionId}`);
+  }
+  if (!action.undo) {
+    throw new ActionError('NOT_REVERSIBLE', `${run.actionId} cannot be undone — it is why this kind always asks first.`);
+  }
+  if (run.status !== 'done') {
+    throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — only a done run can be undone`);
+  }
+  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
+  const wasAuto = run.approvedByAgent === true;
+  const confidence = typeof run.proposal?.confidence === 'number' ? run.proposal.confidence : null;
+  let undoResult: Record<string, unknown> | void;
+  try {
+    undoResult = await action.undo({ orgId, credentials, invokedBy: run.invokedBy ?? undefined, reviewedBy: opts.by, runId }, run.input, run.result ?? {});
+  } catch (err) {
+    throw new ActionError('UNDO_FAILED', err instanceof Error ? err.message : String(err));
+  }
+  await db
+    .update(actionRunSchema)
+    .set({
+      status: 'undone',
+      result: { ...(run.result ?? {}), undo: { at: new Date().toISOString(), by: opts.by, ...(undoResult ?? {}) } },
+      // The last decider owns the row: a person undid what an agent released,
+      // so this is no longer counted among what the ladder got through.
+      approvedByAgent: false,
+      decidedBy: opts.by,
+      decidedAt: new Date(),
+    })
+    .where(eq(actionRunSchema.id, runId));
+  if (wasAuto) {
+    const { holdAfterUndo } = await import('@/services/autonomy/AutonomyService');
+    await holdAfterUndo({ orgId, actionId: run.actionId, confidence, by: opts.by }).catch((err) => {
+      console.error(`[ActionService] holdAfterUndo after undo of "${run.actionId}" failed`, err);
+    });
+  }
+  return { runId, status: 'undone', result: run.result ?? null };
 }
