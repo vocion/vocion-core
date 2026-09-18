@@ -196,6 +196,12 @@ export async function syncLeadArtifacts(
       author: by.author,
       changeSummary: by.changeSummary ?? null,
       runId: by.runId ?? null,
+      // The recommendation is already rendered on the decision card it belongs
+      // to, so a second copy in the artifacts log is a duplicate of something
+      // the person has already read. It stays an artifact rather than being
+      // deleted because `action_run.pinned_artifacts` pins the exact versions
+      // a human approved — the audit answer must not move.
+      visibility: role === 'recommendation' ? 'system' : 'user',
     });
     out.push({
       role,
@@ -288,7 +294,7 @@ export type PinnedArtifact = { artifactId: number; role: string; version: number
  * regeneration writes a new `artifact_version` and the pin keeps pointing at
  * what was on screen. That is the difference between an audit that answers
  * "what did they approve" and one that answers "what does this look like now"
- * (MANIFESTO §3, §12).
+ * (design principles 1 and 9).
  * @param orgId - The project id.
  * @param runId - The `action_run` being decided.
  * @param artifacts - What the page was showing.

@@ -1,0 +1,13 @@
+version: 1
+# Placeholder — `workspace:apply --project <id|slug>` resolves this to the live project.
+orgId: proj_client_documents
+name: Metacto — Client documents
+description: >-
+  The client-engagement workflow as a workspace: one data room per engagement
+  (the source of record), and the branded, paginated documents written from it
+  — proposals, scope docs, partnership updates — each render-verified before it
+  is called done. Metacto is the seller; every client here is fictional.
+lead: proposal-writer
+goal: Every client document is grounded in its data room and render-verified before a person sees it.
+defaults:
+  temperature: '0.2'

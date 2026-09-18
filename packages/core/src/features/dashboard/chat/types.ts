@@ -74,6 +74,15 @@ export type TraceNode = {
   result?: string;
   confidence?: number;
   citations?: TraceCitation[];
+  /**
+   * Where this step sits in the answer: how many text runs of the reply had
+   * started when the step began. `0` is "before the first words"; `n` is
+   * "after the n-th passage". The transcript renders each group of steps at
+   * that point, between the passages, in the order things actually happened
+   * (`interleave.ts`) instead of hoisting every tool call to the top. Absent
+   * on turns persisted before this existed, which render hoisted as before.
+   */
+  anchor?: number;
 };
 
 /** A2UI: a one-tap recommended action rendered as a card in the answer. */
@@ -86,6 +95,9 @@ export type RecommendedAction = {
   agentSlug?: string;
   /** Set when the server already filed it into the review queue (act-within-bounds). */
   runId?: number;
+  /** The agent's own recommendation for the queue card, and why. Both or neither. */
+  suggestedDecision?: 'approve' | 'reject' | 'snooze';
+  suggestedDecisionReason?: string;
 };
 
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
@@ -122,8 +134,27 @@ export type ContextRef = {
 export type ChatMessageArtifact = {
   id: number;
   title: string;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
   version: number;
+};
+
+/**
+ * A file a person put into the turn — an image, a PDF, a text file. It is an
+ * ARTIFACT (kind `file`, uploaded by a human) so it has a row, a version, an
+ * authenticated URL and a place in the artifacts list; the chip in the
+ * composer and under the message is a view of that row, not a second store.
+ */
+export type ChatAttachment = {
+  /** The artifact row id. */
+  id: number;
+  /** The file's own name, as the person had it. */
+  title: string;
+  contentType: string;
+  bytes: number;
+  /** Authenticated, same-origin — `/api/artifacts/<id>`. */
+  url: string;
+  /** How the model receives it: an image block, or its text inlined under the message. */
+  kind: 'image' | 'document';
 };
 
 export type ChatMessage = {
@@ -140,6 +171,8 @@ export type ChatMessage = {
   recommendations?: RecommendedAction[];
   /** Artifacts this turn created or changed (0101) — chips under the message. */
   artifacts?: ChatMessageArtifact[];
+  /** Files the person attached to this (user) message — chips above its text. */
+  attachments?: ChatAttachment[];
   documents?: IndexedDocument[];
   citationCount?: number;
   thinkingSteps?: ThinkingStep[];

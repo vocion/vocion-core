@@ -25,6 +25,7 @@ import {
 import { useEffect, useState } from 'react';
 import { failureReport, redactInternalIds } from '@/libs/chat/redact';
 import { sourceLabels } from './helpers';
+import { useElapsed } from './useElapsed';
 
 /**
  * WorkTimeline — the agent Activity trace.
@@ -60,6 +61,12 @@ export type WorkTimelineProps = {
   inspect?: number;
   /** Who this turn was, so a failed step can be copied as a report. */
   failureContext?: FailureReport;
+  /**
+   * Whether a streaming group shows its own "Working…" bar above the rows.
+   * The transcript turns this off: the live indicator at the bottom of the
+   * turn already names the activity, and the group's job is its rows.
+   */
+  liveHeadline?: boolean;
 };
 
 // Plumbing the operator shouldn't have to see — hidden from the curated trace.
@@ -173,19 +180,6 @@ function toNode(run: Extract<AgentRun, { type: 'tool' }>): Node {
   }
   const out = state === 'done' ? outputSnippet(run.output) : undefined;
   return { icon, kind, label, detail, drill: out, state };
-}
-
-function useElapsed(active: boolean): number {
-  const [start] = useState(() => Date.now());
-  const [now, setNow] = useState(start);
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [active]);
-  return Math.floor((now - start) / 1000);
 }
 
 function Marker({ node }: { node: Node }) {
@@ -416,14 +410,14 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
   );
 }
 
-export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext }: WorkTimelineProps) {
+export function WorkTimeline({ runs, streaming, activity, thinkingText, documents = [], trace, inspect = 0, failureContext, liveHeadline = true }: WorkTimelineProps) {
   if (trace && trace.length > 0) {
-    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} />;
+    return <TraceTimeline trace={trace} streaming={streaming} activity={activity} documents={documents} inspect={inspect} failureContext={failureContext} liveHeadline={liveHeadline} />;
   }
   return <LegacyWorkTimeline runs={runs} streaming={streaming} activity={activity} thinkingText={thinkingText} documents={documents} inspect={inspect} />;
 }
 
-function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport }) {
+function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0, failureContext, liveHeadline = true }: { trace: TraceNode[]; streaming: boolean; activity?: string | null; documents?: IndexedDocument[]; inspect?: number; failureContext?: FailureReport; liveHeadline?: boolean }) {
   // Level-1 lines expand independently; one control recollapses everything
   // (agent-chat-surface.md §2.1 rule 1).
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
@@ -502,15 +496,17 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
     const headline = activity ?? live?.label ?? 'Working…';
     return (
       <div className="my-2" data-testid="work-timeline-live">
-        <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-          <span className="min-w-0 flex-1 truncate font-medium">{headline}</span>
-          {elapsed >= 3 && (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-              {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
-            </span>
-          )}
-        </div>
+        {liveHeadline && (
+          <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
+            <span className="min-w-0 flex-1 truncate font-medium">{headline}</span>
+            {elapsed >= 3 && (
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
+              </span>
+            )}
+          </div>
+        )}
         {(reasons.length > 0 || actions.length > 0) && (
           <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
             {reasons.length > 0 && (
@@ -556,6 +552,11 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
     `${steps} step${steps === 1 ? '' : 's'}`,
     sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
   ].filter(Boolean).join(' · ');
+  // A group of one step folds to THAT step — "Searched HubSpot · 12 records"
+  // says more than "Worked it out · 1 step", and once the steps sit between
+  // the passages most groups are one or two calls, not a whole turn's worth.
+  const solo = actions.length === 1 && reasons.length === 0 && sources === 0 ? actions[0]! : null;
+  const soloRadius = solo ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
 
   return (
     <div className="my-2">
@@ -565,12 +566,18 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
         aria-expanded={expanded}
         className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition hover:text-foreground"
       >
-        <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+        {solo ? <TraceMarker node={solo} /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
         <span className="min-w-0 flex-1 truncate font-medium">
-          Worked it out ·
-          {' '}
-          {summary}
+          {solo
+            ? (
+                <>
+                  <span className={solo.status === 'error' ? 'text-[var(--brand-fail)]' : undefined}>{solo.kind === 'delegate' ? `→ ${solo.label}` : solo.label}</span>
+                  {solo.detail && <span className="font-normal">{` · ${solo.detail}`}</span>}
+                </>
+              )
+            : `Worked it out · ${summary}`}
         </span>
+        {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{soloRadius}</span>}
         <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${expanded ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       {expanded && (

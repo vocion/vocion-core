@@ -1,0 +1,6 @@
+name: Revenue Operations
+description: >-
+  Triages what arrives, keeps the records true, moves deals forward,
+  and captures the paper behind them.
+lead: revenue-lead
+# No accountableUser: inherits the workspace default when one is set.

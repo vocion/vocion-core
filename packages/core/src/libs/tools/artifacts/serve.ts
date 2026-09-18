@@ -14,7 +14,7 @@
  * `Cache-Control: private`.
  */
 
-import type { Buffer } from 'node:buffer';
+import { Buffer } from 'node:buffer';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { artifactsDir } from './store';
@@ -59,6 +59,24 @@ export async function resolveArtifactFile(opts: {
     const row = await opts.lookupRow(Number(opts.id));
     if (!row || row.orgId !== opts.callerOrgId) {
       return { status: 404 };
+    }
+    if (row.kind === 'document' && opts.filename && /\.html?$/i.test(opts.filename) && typeof row.spec.html === 'string') {
+      // The document itself, for "Open" and for printing from the browser.
+      // Sandboxed by CSP: agent-authored HTML runs with an opaque origin, so a
+      // script in it can neither read the app's cookies nor its DOM.
+      const body = Buffer.from(row.spec.html, 'utf8');
+      return {
+        status: 200,
+        body,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Length': String(body.byteLength),
+          'Content-Security-Policy': 'sandbox allow-scripts allow-modals allow-popups; frame-ancestors \'self\'',
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'private, max-age=0, must-revalidate',
+          'Content-Disposition': `inline; filename="${row.title.replace(/[^\w .()-]+/g, ' ').trim().slice(0, 120) || 'document'}.html"`,
+        },
+      };
     }
     if (row.kind !== 'file') {
       return { status: 200, json: row.payload ?? { kind: row.kind, title: row.title, spec: row.spec } };

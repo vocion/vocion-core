@@ -1,7 +1,7 @@
 /**
  * An ask answered with a correction, queued for the feedback classifier.
  *
- * "Every interaction should make the system smarter" (docs/MANIFESTO.md): a
+ * "Every interaction should make the system smarter" (docs/DESIGN-PRINCIPLES.md): a
  * person who rejects an ask with a reason, or answers "other" in their own
  * words, has just told the team what to do differently. Left on the ask row
  * that text is read once; classified, it can become a rule the agent reads

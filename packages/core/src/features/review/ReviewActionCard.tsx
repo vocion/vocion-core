@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
+import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
@@ -48,7 +49,7 @@ export type ReviewCardRun = {
   status: string;
   input: Record<string, unknown>;
   invokedBy: string | null;
-  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: SuggestedDecision } | null;
+  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: SuggestedDecision; suggestedDecisionReason?: string } | null;
   card: ReviewCard;
   /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
   regeneratingSince?: Date | string | null;
@@ -115,6 +116,34 @@ export function ReviewActionCard(props: {
   const [editAll, setEditAll] = useState(false);
   const card = run.card;
   const [contentEdits, setContentEdits] = useState<Record<string, ContentEdit>>({});
+
+  /**
+   * A rewrite asked for in the conversation lands HERE, in the copy you are
+   * looking at.
+   *
+   * Chris, 2026-09-17: *"I also would have liked it to update the inline
+   * content i'm looking at… when updating live could I get a light color
+   * highlight on changed text that fades out?"* The rail is the conversation,
+   * never a second copy of the page (`patterns.md`), so the page has to be
+   * what changes — and a change you did not watch happen needs to say where
+   * it landed, or you have to diff it by eye.
+   *
+   * `justChanged` holds the send ids that moved in the last couple of seconds;
+   * the renderer tints them and the tint fades on its own.
+   */
+  const [justChanged, setJustChanged] = useState<Record<string, number>>({});
+  useDraftRevision(run.id, (contentId, body) => {
+    setContentEdits(prev => ({ ...prev, [contentId]: { ...prev[contentId], body } }));
+    setJustChanged(prev => ({ ...prev, [contentId]: Date.now() }));
+  });
+  useEffect(() => {
+    const ids = Object.keys(justChanged);
+    if (ids.length === 0) {
+      return;
+    }
+    const t = setTimeout(() => setJustChanged({}), 2400);
+    return () => clearTimeout(t);
+  }, [justChanged]);
   const [propertyEdits, setPropertyEdits] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -412,20 +441,27 @@ export function ReviewActionCard(props: {
             <div>
               {card.content.map((item, i) => {
                 const Renderer = contentKindRenderer(item.kind);
+                // `data-comment-field`: the send is a region the selection
+                // control can anchor to, so highlighting a sentence in it
+                // offers *Ask about this* / *Add change* like a passage in a
+                // brief does (docs/design/patterns.md § Select → talk). The
+                // page had no such regions, so a highlight raised nothing.
                 return (
-                  <Renderer
-                    key={item.id}
-                    item={item}
-                    position={i + 1}
-                    defaultExpanded={i === 0}
-                    expanded={editAll ? true : undefined}
-                    inline
-                    edit={contentEdits[item.id]}
-                    onEdit={item.kind === 'email'
-                      ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
-                      : undefined}
-                    disabled={held}
-                  />
+                  <div key={item.id} data-comment-field={`Send ${i + 1}`}>
+                    <Renderer
+                      item={item}
+                      position={i + 1}
+                      defaultExpanded={i === 0}
+                      expanded={editAll ? true : undefined}
+                      inline
+                      changed={Boolean(justChanged[item.id])}
+                      edit={contentEdits[item.id]}
+                      onEdit={item.kind === 'email'
+                        ? patch => setContentEdits(e => ({ ...e, [item.id]: { ...e[item.id], ...patch } }))
+                        : undefined}
+                      disabled={held}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -518,7 +554,9 @@ export function ReviewActionCard(props: {
             value: note,
             onChange: setNote,
             disabled: held,
-            action: card.canRegenerate && run.status !== 'failed'
+            // A failed card opens the field: regenerate-then-retry is its repair path.
+            defaultOpen: execError !== null && card.canRegenerate,
+            action: card.canRegenerate
               ? { label: regenerating ? 'Regenerating…' : 'Regenerate', onClick: () => void regenerateRun(), disabled: held || !note.trim(), busy: busy || regenerating, icon: RefreshCw }
               : undefined,
             hint: card.canRegenerate && !regenerating && !note.trim() ? 'Type feedback to regenerate' : undefined,
@@ -603,6 +641,21 @@ export function ReviewActionCard(props: {
               {suggestion && (
                 <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-medium ${suggestion.className}`}>
                   {suggestion.label}
+                </span>
+              )}
+              {/* Why it advised that, beside the advice itself. A badge alone
+                  asks a person to take the agent's word for it; the sentence
+                  is the part they can actually check against the card. Note
+                  this is NOT the rationale above — that argues the payload is
+                  right, this argues what should happen to it, and on a
+                  "turning down" the two say opposite-sounding things. */}
+              {suggestion && run.proposal?.suggestedDecisionReason && (
+                <span
+                  data-testid="suggested-decision-reason"
+                  title={run.proposal.suggestedDecisionReason}
+                  className="line-clamp-1 text-[12px] text-muted-foreground"
+                >
+                  {run.proposal.suggestedDecisionReason}
                 </span>
               )}
             </div>
@@ -797,7 +850,7 @@ export function ReviewActionCard(props: {
               disabled={held}
             />
           </label>
-          {card.canRegenerate && run.status !== 'failed' && (
+          {card.canRegenerate && (
             <div className="mt-2 flex items-center justify-end gap-2">
               {!regenerating && !note.trim() && <span className="text-[11px] text-muted-foreground">Type feedback to regenerate</span>}
               <Button size="sm" variant="outline" onClick={() => void regenerateRun()} disabled={held || !note.trim()}>

@@ -97,7 +97,15 @@ export function searchKnowledgeTool(ctx: RuntimeContext) {
         blurb: h.content,
         content: h.content,
         score: h.score,
-        metadata: { chunkIdx: h.chunkIdx, ...h.scores },
+        // The document's OWN date and metadata, not just this chunk's
+        // debugging numbers. Dropping them was one bug that read as four:
+        // undated hits (so the model could not tell a stale calendar event
+        // from today's), a recency decay that never applied, a `call_type`
+        // boost that never fired, and `metadata_filters` — a documented
+        // argument on this tool — that could never match, because the only
+        // keys present were `chunkIdx`, `vector` and `keyword`.
+        updated_at: h.updatedAt?.toISOString(),
+        metadata: { ...h.metadata, chunkIdx: h.chunkIdx, ...h.scores },
       }));
 
       // Client-side metadata filter (apply after retrieval — pgvector

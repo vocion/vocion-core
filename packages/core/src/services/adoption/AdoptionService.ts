@@ -443,6 +443,28 @@ export type AdoptionAgentRow = {
    * a pipeline starts declaring some.
    */
   labelAgreement: AdoptionAgentLabelAgreement;
+  /**
+   * How this agent last scored on its own eval datasets, one entry per grader.
+   *
+   * The fourth question on this row, and the only one no person answered: the
+   * others are all "did the reviewer agree", and a team that never rejects
+   * anything scores perfectly on every one of them. A failing eval next to a
+   * 100% agreement rate is the pair worth seeing together.
+   *
+   * Not windowed. An eval run is a deliberate act, not traffic, and the last
+   * one is the last one however long ago it was — which is why each entry
+   * carries its own date, so an old score reads as old.
+   */
+  evalScores: AdoptionAgentEvalScore[];
+};
+
+/** The latest eval pass rate for one agent from one grader. */
+export type AdoptionAgentEvalScore = {
+  provider: string;
+  datasetSlug: string;
+  runId: number;
+  passRate: number;
+  ranAt: string;
 };
 
 /**
@@ -459,9 +481,10 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
   // finer grain, so merging would keep a second query anyway while retyping
   // `decisionOutcome` into SQL. Concurrent because they read the same table
   // over the same window, so the wait is one round trip, not two.
-  const [agreementByAgent, labelAgreementByAgent, result] = await Promise.all([
+  const [agreementByAgent, labelAgreementByAgent, evalScoresByAgent, result] = await Promise.all([
     getAgentAgreement(orgId, days),
     getAgentLabelAgreement(orgId, days),
+    getAgentEvalScores(orgId),
     rows(sql`
       SELECT agent_slug,
         count(DISTINCT user_id)                                            AS reach,
@@ -500,8 +523,55 @@ export async function getAgentRows(orgId: string, days: AdoptionWindow): Promise
       learnings: num(r.learnings),
       agreement: agreementByAgent.get(String(r.agent_slug)) ?? noAgreementYet(),
       labelAgreement: labelAgreementByAgent.get(String(r.agent_slug)) ?? noLabelAgreementYet(),
+      evalScores: evalScoresByAgent.get(String(r.agent_slug)) ?? [],
     };
   });
+}
+
+/**
+ * The most recent finished eval run per agent, per grader.
+ *
+ * `DISTINCT ON` rather than a subquery per agent: one pass over the runs an
+ * org has, which is the right shape whether it has three datasets or thirty.
+ * Failed and running runs are excluded — a run that did not finish has no pass
+ * rate, and showing it as zero would read as a total regression.
+ * @param orgId - Whose runs.
+ */
+async function getAgentEvalScores(orgId: string): Promise<Map<string, AdoptionAgentEvalScore[]>> {
+  const result = await rows(sql`
+    SELECT DISTINCT ON (d.agent_slug, r.provider)
+      d.agent_slug,
+      d.slug        AS dataset_slug,
+      r.provider,
+      r.id          AS run_id,
+      r.started_at,
+      r.metrics ->> 'passRate' AS pass_rate
+    FROM eval_run r
+    JOIN eval_dataset d ON d.id = r.dataset_id
+    WHERE r.org_id = ${orgId}
+      AND r.status = 'succeeded'
+      AND r.metrics ->> 'passRate' IS NOT NULL
+    ORDER BY d.agent_slug, r.provider, r.started_at DESC
+  `);
+
+  const byAgent = new Map<string, AdoptionAgentEvalScore[]>();
+  for (const row of result) {
+    const agentSlug = String(row.agent_slug);
+    const score: AdoptionAgentEvalScore = {
+      provider: String(row.provider),
+      datasetSlug: String(row.dataset_slug),
+      runId: num(row.run_id),
+      passRate: Number(row.pass_rate),
+      ranAt: new Date(row.started_at as string).toISOString(),
+    };
+    const existing = byAgent.get(agentSlug);
+    if (existing) {
+      existing.push(score);
+    } else {
+      byAgent.set(agentSlug, [score]);
+    }
+  }
+  return byAgent;
 }
 
 /* ------------------------------------------------------------------ */

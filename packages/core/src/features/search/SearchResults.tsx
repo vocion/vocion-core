@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, ListToolbar, Subline } from '@/components/patterns';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePreviewList } from '@/features/preview/usePreviewList';
@@ -57,10 +57,14 @@ export function SearchResults(props: {
   sources: readonly SourceChipData[];
   results: readonly SearchResult[];
   error: string | null;
+  /** More results exist beyond the ones rendered. */
+  hasMore?: boolean;
+  /** The same URL with a larger page size — how "load more" navigates. */
+  moreHref?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { query, source, sources, results, error } = props;
+  const { query, source, sources, results, error, hasMore, moreHref } = props;
   const [q, setQ] = useState(query);
   // The prop is the truth: a back button or a chip click re-renders the server
   // page, and the box must follow rather than keep the last thing typed. React
@@ -178,7 +182,81 @@ export function SearchResults(props: {
                 ))}
               </ListRows>
             )}
+      {hasMore && moreHref && <LoadMore href={moreHref} />}
       <PreviewPanel />
     </>
+  );
+}
+
+/**
+ * "Load more", which also fires on scroll.
+ *
+ * Paging is a URL parameter rather than client state, because search here is
+ * already a server round-trip: the toolbar navigates, and so does this. That
+ * keeps one shape for the whole page (design principle 6) and means a longer
+ * result set survives a reload, a back button and a shared link.
+ *
+ * The button is real and focusable rather than a bare sentinel: infinite
+ * scroll alone strands anyone on a keyboard, and leaves nothing to press when
+ * the observer does not fire. The observer just presses it for you.
+ * @param props
+ * @param props.href - The same search, one page larger.
+ */
+function LoadMore({ href }: { href: string }) {
+  const router = useRouter();
+  const ref = useRef<HTMLButtonElement | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading((already) => {
+      if (already) {
+        return already;
+      }
+      router.push(href);
+      return true;
+    });
+  }, [href, router]);
+
+  // A new href means the next page arrived: re-arm. Adjusted during render
+  // rather than in an effect — the same pattern the search box above uses, and
+  // the disabled button never reaches the screen.
+  const [seenHref, setSeenHref] = useState(href);
+  if (seenHref !== href) {
+    setSeenHref(href);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some(e => e.isIntersecting)) {
+          load();
+        }
+      },
+      // Start fetching before the button is actually on screen, so the list
+      // extends while you are still reading rather than after you stop.
+      { rootMargin: '400px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [load]);
+
+  return (
+    <div className="mt-2 flex justify-center">
+      <button
+        ref={ref}
+        type="button"
+        onClick={load}
+        disabled={loading}
+        data-testid="search-load-more"
+        className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-60"
+      >
+        {loading ? 'Loading…' : 'Load more'}
+      </button>
+    </div>
   );
 }

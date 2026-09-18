@@ -112,7 +112,7 @@ describe('personalization.enroll proposal', () => {
       actionId: 'personalization.enroll',
       principal: agent(),
       input: enrollInput(),
-      proposal: { confidence: 0.84, rationale: 'existing nurture fits' },
+      proposal: { confidence: 0.84, rationale: 'existing nurture fits', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded enrolment proposal for this test.' },
     });
 
     expect(first.status).toBe('pending');
@@ -127,7 +127,7 @@ describe('personalization.enroll proposal', () => {
       actionId: 'personalization.enroll',
       principal: agent(),
       input: enrollInput({ sends: [{ step: 1, subject: 'Rewritten', body: 'New angle.' }] }),
-      proposal: { confidence: 0.9, rationale: 'rewritten' },
+      proposal: { confidence: 0.9, rationale: 'rewritten', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded enrolment proposal for this test.' },
     });
 
     expect(second.runId).toBe(first.runId);
@@ -152,7 +152,7 @@ describe('personalization.enroll proposal', () => {
       actionId: 'personalization.enroll',
       principal: agent(),
       input: enrollInput(),
-      proposal: { confidence: 0.99, rationale: 'very confident' },
+      proposal: { confidence: 0.99, rationale: 'very confident', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded enrolment proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
@@ -194,7 +194,7 @@ describe('Enroll (approve → execute)', () => {
       actionId: 'personalization.enroll',
       principal: agent(),
       input: enrollInput(),
-      proposal: { confidence: 0.84 },
+      proposal: { confidence: 0.84, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded enrolment proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
@@ -321,7 +321,7 @@ describe('Enroll into a Personalized Nurture rung', () => {
 
     const props = calls[patchIdx]!.body.properties as Record<string, string>;
 
-    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: 'Body 1', pn_email_4_subject: 'Subject 4', pn_email_4_body: 'Body 4' });
+    expect(props).toMatchObject({ pn_email_1_subject: 'Subject 1', pn_email_1_body: '<p>Body 1</p>', pn_email_4_subject: 'Subject 4', pn_email_4_body: '<p>Body 4</p>' });
     expect(props.pn_generated_at).toMatch(/^\d{13}$/);
   });
 

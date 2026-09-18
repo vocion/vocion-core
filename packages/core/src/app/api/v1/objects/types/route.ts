@@ -4,6 +4,14 @@ import { createObjectType, getObjectTypeBySlug, listObjectTypes } from '@/servic
 import { CreateObjectTypeValidation } from '@/validations/BusinessObjectValidation';
 import { authApi, isErrorResponse, jsonError, readJsonBody } from '../../_shared';
 
+/**
+ * GET /api/v1/objects/types
+ *
+ * The record shapes registered for this org — slug, label, description, icon
+ * and the per-source relevance map. These are what an agent may propose
+ * candidates against; POST to this same path registers a new one.
+ * @param req
+ */
 export async function GET(req: Request) {
   const auth = await authApi(req);
   if ('status' in auth) {

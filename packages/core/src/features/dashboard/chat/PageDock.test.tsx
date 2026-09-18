@@ -118,3 +118,11 @@ describe('PageDock', () => {
     expect(screen.container.innerHTML).toBe('');
   });
 });
+
+describe('a decision page mounts its own dock', () => {
+  it('the shell dock stands aside on a proposal page, which carries the run the rail rewrites against', () => {
+    expect(isOwnDockRoute('/dashboard/inbox/proposal-509')).toBe(true);
+    expect(isOwnDockRoute('/dashboard/inbox')).toBe(false);
+    expect(isOwnDockRoute('/dashboard/inbox/42')).toBe(false);
+  });
+});

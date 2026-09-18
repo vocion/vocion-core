@@ -7,6 +7,7 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { briefingSchema, teamSchema } from '@/models/Schema';
 import { briefingHref } from '@/services/briefings/links';
+import { agentNames } from '@/services/briefings/store';
 
 /**
  * The briefing archive — where search and filter live
@@ -42,7 +43,7 @@ export default async function BriefingArchivePage(props: {
   }
 
   const [rows, teams] = await Promise.all([
-    db.select({ id: briefingSchema.id, title: briefingSchema.title, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug })
+    db.select({ id: briefingSchema.id, title: briefingSchema.title, createdAt: briefingSchema.createdAt, teamSlug: briefingSchema.teamSlug, agentSlug: briefingSchema.agentSlug })
       .from(briefingSchema)
       .where(team ? and(eq(briefingSchema.orgId, orgId), eq(briefingSchema.teamSlug, team)) : eq(briefingSchema.orgId, orgId))
       .orderBy(desc(briefingSchema.createdAt))
@@ -53,6 +54,9 @@ export default async function BriefingArchivePage(props: {
   const needle = q.trim().toLowerCase();
   const shown = needle ? rows.filter(r => r.title.toLowerCase().includes(needle)) : rows;
   const nameOf = new Map(teams.map(t => [t.slug, t.name]));
+  // Who wrote each one, by name: two rows with one title are told apart by
+  // their publisher, and the slug is system vocabulary (spec §7).
+  const publishers = await agentNames(orgId, shown.map(r => r.agentSlug));
 
   return (
     <>
@@ -88,7 +92,11 @@ export default async function BriefingArchivePage(props: {
                   key={r.id}
                   href={briefingHref(r.id)}
                   title={r.title}
-                  subline={`${r.teamSlug ? nameOf.get(r.teamSlug) ?? r.teamSlug : 'Workspace'} · ${r.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`}
+                  subline={[
+                    r.teamSlug ? nameOf.get(r.teamSlug) ?? r.teamSlug : 'Workspace',
+                    r.createdAt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+                    r.agentSlug ? publishers.get(r.agentSlug) ?? r.agentSlug : null,
+                  ].filter(Boolean).join(' · ')}
                 />
               ))}
             </ListRows>

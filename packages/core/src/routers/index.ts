@@ -61,6 +61,11 @@ import {
   get as getEval,
   runs as listEvalRuns,
   list as listEvals,
+  onlineSetEnabled as onlineEvalSetEnabled,
+  onlineSetSampling as onlineEvalSetSampling,
+  onlineSetUp as onlineEvalSetUp,
+  onlineStatus as onlineEvalStatus,
+  onlineTearDown as onlineEvalTearDown,
   run as runEval,
 } from './Evals';
 import {
@@ -257,6 +262,15 @@ export const router = {
     run: runEval,
     runs: listEvalRuns,
     runDetail: evalRunDetail,
+    // Continuous scoring of live traffic. Each of these changes what the
+    // customer's AWS account is being charged — see services/evals/online.ts.
+    online: {
+      status: onlineEvalStatus,
+      setUp: onlineEvalSetUp,
+      setEnabled: onlineEvalSetEnabled,
+      setSampling: onlineEvalSetSampling,
+      tearDown: onlineEvalTearDown,
+    },
   },
   budgets: {
     get: getBudget,

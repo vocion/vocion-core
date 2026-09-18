@@ -34,6 +34,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { resolvedModelId } from '@/libs/llm';
 import {
   claimBriefToDraft,
@@ -330,6 +331,10 @@ export function saveDraftSequenceTool(ctx: RuntimeContext) {
         contactRef: args.contact_ref,
         sends: args.sends,
         recommendedSequence: args.recommended_sequence,
+        advice: {
+          suggestedDecision: args.suggested_decision,
+          suggestedDecisionReason: args.suggested_decision_reason,
+        },
         senderEmail: args.sender_email,
         hubspotUserId: args.hubspot_user_id,
         briefedBy: {
@@ -358,6 +363,13 @@ export function saveDraftSequenceTool(ctx: RuntimeContext) {
           name: z.string().min(1).describe('The sequence name, as returned.'),
           reason: z.string().optional().describe('One or two sentences: why THIS sequence for THIS lead. Renders on the review card.'),
         }).describe('The existing HubSpot sequence the lead should be enrolled into.'),
+        // Asked of the model rather than assumed here. This call files a
+        // review card, every card carries a recommendation, and the only
+        // honest source for one is whatever judged the work — core writing
+        // "approve" on every lead scored in the agreement rate as the agent's
+        // own view of leads it never rated.
+        suggested_decision: z.enum(SUGGESTED_DECISIONS).describe('What a reviewer should do with this lead: "approve" to release the drafts, "snooze" when it should wait for something you name, "reject" when you drafted it but do not think it should go out.'),
+        suggested_decision_reason: z.string().min(1).describe('ONE short sentence for why that recommendation — "the brief is thin but the timing is right", "wrong persona for this sequence, worth a person\'s read". Not the same as the sequence reason above: that argues the sequence fits, this argues what should happen to the card.'),
         sender_email: z.string().min(1).describe('The sender the enrollment will run as — the `userEmail` you passed to hubspot_list_sequences.'),
         hubspot_user_id: z.string().optional().describe('The `userId` from the hubspot_list_sequences response. Pass it through; it scopes verification and the enrollment.'),
       }),

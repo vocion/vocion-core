@@ -42,7 +42,7 @@ import { MarkdownArtifactEditor } from './MarkdownArtifactEditor';
 import { TableArtifactEditor } from './TableArtifactEditor';
 import { VersionMenu } from './VersionMenu';
 
-const EDITABLE: ReadonlySet<string> = new Set(['markdown', 'table']);
+const EDITABLE: ReadonlySet<string> = new Set(['markdown', 'table', 'document']);
 
 export type ArtifactPaneProps = {
   artifact: ArtifactEntry;
@@ -128,7 +128,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
         id: artifact.id,
         ...(title.trim() && title.trim() !== artifact.title ? { title: title.trim() } : {}),
         ...(draft ? { spec: draft } : {}),
-        changeSummary: draft ? 'Edited by hand' : 'Retitled',
+        changeSummary: draft ? (artifact.kind === 'document' ? 'Edited HTML by hand' : 'Edited by hand') : 'Retitled',
         ...(opts.force ? {} : { ifVersion: artifact.version }),
       });
       setDraft(null);
@@ -323,6 +323,12 @@ export function ArtifactPane(props: ArtifactPaneProps) {
             Edit
           </button>
         )}
+        {artifact.kind === 'document' && !historical && draft === null && (
+          <button type="button" onClick={beginEdit} className="ml-auto inline-flex items-center gap-1 hover:text-foreground" data-document-edit-html>
+            <Pencil className="size-3" />
+            HTML
+          </button>
+        )}
         {artifact.kind === 'table' && !historical && draft === null && (
           <button type="button" onClick={beginEdit} className="ml-auto inline-flex items-center gap-1 hover:text-foreground">
             <Pencil className="size-3" />
@@ -397,11 +403,11 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                   disabled={saving}
                 />
               )
-            : draft !== null && artifact.kind === 'table'
+            : draft !== null && artifact.kind === 'document'
               ? (
-                  <TableArtifactEditor
-                    draft={draft as unknown as DataTableSpec}
-                    onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                  <MarkdownArtifactEditor
+                    value={String((draft as { html?: string }).html ?? '')}
+                    onChange={html => setDraft({ ...draft, html })}
                     onSave={() => void save()}
                     onCancel={() => {
                       setDraft(null);
@@ -410,13 +416,26 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                     disabled={saving}
                   />
                 )
-              : <ArtifactCard artifact={shown} surface="artifact" />}
+              : draft !== null && artifact.kind === 'table'
+                ? (
+                    <TableArtifactEditor
+                      draft={draft as unknown as DataTableSpec}
+                      onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                      onSave={() => void save()}
+                      onCancel={() => {
+                        setDraft(null);
+                        props.onEndEdit?.();
+                      }}
+                      disabled={saving}
+                    />
+                  )
+                : <ArtifactCard artifact={shown} surface="artifact" />}
       </div>
 
       {/* Select-to-ask: highlighting inside the pane offers "Ask Vocion",
           which opens the agent surface with the passage quoted. It dispatches
           the existing openAgentSurface event — the composer is untouched. */}
-      {artifact.kind === 'markdown' && (
+      {artifact.kind !== 'document' && (
         <AskAboutThis
           variant="none"
           selectionRoot="[data-artifact-body]"

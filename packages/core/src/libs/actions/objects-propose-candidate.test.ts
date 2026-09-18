@@ -701,7 +701,7 @@ describe('the queue behaviour', () => {
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
       input: candidate(),
-      proposal: { confidence: 0.86, rationale: 'clean per-event page' },
+      proposal: { confidence: 0.86, rationale: 'clean per-event page', suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded candidate proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');
@@ -744,7 +744,7 @@ describe('the queue behaviour', () => {
       actionId: 'objects.propose_candidate',
       principal: ingestionAgent(),
       input: candidate(),
-      proposal: { confidence: 0.99 },
+      proposal: { confidence: 0.99, suggestedDecision: 'approve', suggestedDecisionReason: 'Seeded candidate proposal for this test.' },
     });
 
     expect(proposed.status).toBe('pending');

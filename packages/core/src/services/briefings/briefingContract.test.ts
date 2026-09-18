@@ -681,3 +681,133 @@ describe('the email renderer', () => {
     expect(bullets).toHaveLength(screen.decisions.length + screen.changes.length);
   });
 });
+
+describe('the critical path is a claim about today', () => {
+  // On 2026-09-17 a briefing served a call from the previous day as "10:30am
+  // CT today". A critical-path item carried a time of day and no date, so an
+  // item carried forward from the previous briefing was indistinguishable
+  // from one happening in an hour. The prompt already forbade it; the
+  // publisher now checks it.
+  const NOW_ = new Date('2026-09-17T16:00:00Z');
+  const today = '2026-09-17';
+  const cited = [{ kind: 'call', id: 'gcal:1', label: 'Bid outcome call — 2026-09-17T15:30:00Z' }];
+  const item = (over: Record<string, unknown>) => ({ at: '10:30', order: 630, label: 'Bid outcome call', evidence: cited, ...over });
+
+  it('keeps an item dated today', () => {
+    const { doc, dropped } = enforceBriefing(
+      { ...FIXTURE_BRIEFING, criticalPath: { items: [item({ date: today })] } },
+      {},
+      NOW_,
+    );
+
+    expect(doc.criticalPath?.items).toHaveLength(1);
+    expect(dropped.filter(d => d.section === 'criticalPath')).toHaveLength(0);
+  });
+
+  it('drops an item carried forward from yesterday, and says so', () => {
+    const { doc, dropped } = enforceBriefing(
+      { ...FIXTURE_BRIEFING, criticalPath: { items: [item({ date: '2026-09-16' })] } },
+      {},
+      NOW_,
+    );
+
+    expect(doc.criticalPath?.items ?? []).toHaveLength(0);
+    expect(dropped.find(d => d.rule === 'must-be-today')?.message).toContain('2026-09-16');
+  });
+
+  it('drops an undated item, because a time of day is not a date', () => {
+    const { doc, dropped } = enforceBriefing(
+      { ...FIXTURE_BRIEFING, criticalPath: { items: [item({})] } },
+      {},
+      NOW_,
+    );
+
+    expect(doc.criticalPath?.items ?? []).toHaveLength(0);
+    expect(dropped.find(d => d.rule === 'must-be-today')?.message).toContain('no date');
+  });
+
+  it('keeps today and drops the rest in one pass', () => {
+    const { doc } = enforceBriefing(
+      {
+        ...FIXTURE_BRIEFING,
+        criticalPath: {
+          items: [
+            item({ date: '2026-09-16', label: 'Yesterday' }),
+            item({ date: today, label: 'Today' }),
+            item({ label: 'Undated' }),
+            item({ date: '2026-09-18', label: 'Tomorrow' }),
+          ],
+        },
+      },
+      {},
+      NOW_,
+    );
+
+    expect((doc.criticalPath?.items ?? []).map(i => i.label)).toEqual(['Today']);
+  });
+});
+
+describe('a critical-path item names what it is', () => {
+  // The date check alone cannot close this, because the model supplies the
+  // date too: an item invented fresh and stamped with today passes it. That is
+  // exactly what kept happening — a call appearing on "today" that was not on
+  // the calendar at all. So the item has to point at the thing it claims to be.
+  const NOW_ = new Date('2026-09-17T16:00:00Z');
+  const today = '2026-09-17';
+
+  it('drops an item that cites nothing, even when it is dated today', () => {
+    const { doc, dropped } = enforceBriefing(
+      {
+        ...FIXTURE_BRIEFING,
+        criticalPath: { items: [{ at: '10:30', order: 630, label: 'Bid outcome call', date: today, evidence: [] }] },
+      },
+      {},
+      NOW_,
+    );
+
+    expect(doc.criticalPath?.items ?? []).toHaveLength(0);
+    expect(dropped.find(d => d.rule === 'must-cite-evidence')?.message).toContain('Bid outcome call');
+  });
+
+  it('keeps an item that names the calendar event it comes from', () => {
+    const { doc, dropped } = enforceBriefing(
+      {
+        ...FIXTURE_BRIEFING,
+        criticalPath: {
+          items: [{
+            at: '10:30',
+            order: 630,
+            label: 'Bid outcome call',
+            date: today,
+            evidence: [{ kind: 'call', id: 'gcal:abc', label: 'Bid outcome call — 2026-09-17T15:30:00Z', href: '/dashboard/search/91' }],
+          }],
+        },
+      },
+      {},
+      NOW_,
+    );
+
+    expect(doc.criticalPath?.items).toHaveLength(1);
+    expect(dropped.filter(d => d.section === 'criticalPath')).toHaveLength(0);
+  });
+
+  it('prefers a shorter clock to a confident one', () => {
+    // Less evidence produces a smaller output, never a longer explanation of
+    // why the evidence is missing.
+    const { doc } = enforceBriefing(
+      {
+        ...FIXTURE_BRIEFING,
+        criticalPath: {
+          items: [
+            { at: '10:30', order: 630, label: 'Unsourced call', date: today, evidence: [] },
+            { at: '13:00', order: 780, label: 'Real walkthrough', date: today, evidence: [{ kind: 'call', id: 'gcal:x', label: 'Walkthrough' }] },
+          ],
+        },
+      },
+      {},
+      NOW_,
+    );
+
+    expect((doc.criticalPath?.items ?? []).map(i => i.label)).toEqual(['Real walkthrough']);
+  });
+});

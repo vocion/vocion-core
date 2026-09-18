@@ -11,6 +11,7 @@ import {
   Database,
   FileCode2,
   FileStack,
+  FolderOpen,
   GitBranch,
   Inbox,
   LineChart,
@@ -122,6 +123,11 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Knowledge — what the agents know, and about what ───────────
   { url: '/dashboard/connectors', title: 'Connectors', group: 'Knowledge', icon: Plug, i18nKey: 'sources', keywords: ['sources', 'integrations'] },
   { url: '/dashboard/objects', title: 'Objects', group: 'Knowledge', icon: Database, i18nKey: 'objects' },
+  // One room per client engagement — the source of record the documents are
+  // written from: status, cast, sources by weight, open items as asks. Under
+  // Knowledge beside Objects (a room IS a record); the WORK view keeps its
+  // five doors, and the rooms are one ⌘K away.
+  { url: '/dashboard/rooms', title: 'Data rooms', group: 'Knowledge', icon: FolderOpen, keywords: ['data room', 'engagement', 'client', 'deal', 'proposal', 'transcripts', 'decision log'] },
   { url: '/dashboard/learnings', title: 'Learnings', group: 'Knowledge', icon: Sparkles, i18nKey: 'learnings', keywords: ['rules', 'feedback'] },
   { url: '/dashboard/workspace', title: 'Context', group: 'Knowledge', icon: FileCode2, i18nKey: 'context', keywords: ['workspace', 'yaml', 'workspace-as-code'] },
 
@@ -141,6 +147,10 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Organization — the account itself ──────────────────────────
   { url: '/dashboard/members', title: 'Members', group: 'Organization', icon: UserPlus, i18nKey: 'members', keywords: ['users', 'invite', 'settings'] },
   { url: '/dashboard/developers', title: 'Developers', group: 'Organization', icon: Code2, i18nKey: 'developers', keywords: ['api', 'tokens', 'credentials', 'keys', 'mcp', 'sdk', 'docs'] },
+  // The one row that leaves the dashboard shell: the reference is a full-page
+  // Swagger UI an integrator keeps open beside their editor, so it renders on
+  // its own route rather than inside the sidebar layout.
+  { url: '/api-docs', title: 'Swagger Docs', group: 'Organization', icon: BookOpen, keywords: ['api', 'openapi', 'swagger', 'reference', 'endpoints', 'docs'] },
   { url: '/dashboard/admin', title: 'System', group: 'Organization', icon: ShieldCheck, i18nKey: 'system', keywords: ['status', 'admin', 'settings', 'health'] },
 
   // ── YOU — personal, not the workspace's ─────────────────────────────────

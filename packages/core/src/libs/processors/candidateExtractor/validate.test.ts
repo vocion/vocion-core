@@ -34,6 +34,10 @@ function record(over: Record<string, unknown> = {}) {
       ...fields,
     },
     confidence: 0.9,
+    // Required of every extracted record now, so the builder states it and a
+    // test that cares overrides it.
+    suggestedDecision: 'approve' as const,
+    suggestedDecisionReason: 'Public listing with a date and a venue.',
     ...rest,
   };
 }

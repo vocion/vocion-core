@@ -138,6 +138,14 @@ export type InvocationRequest = {
    * Absent means `answer`. See vocion-core `libs/chat/deliverable.ts`.
    */
   deliverable?: 'artifact' | 'answer';
+  /**
+   * Files the person attached to this turn. Core has already read them: a
+   * document arrives as its extracted `text`, an image as a `dataUrl`. The
+   * loop puts the text under the message and the images beside it as image
+   * blocks — the same composition core's in-process loop makes
+   * (`services/chat/attachments.ts`).
+   */
+  attachments?: Array<{ title: string; contentType: string; text?: string; dataUrl?: string }>;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Playbooks + learnings, pre-rendered by core (deepagents FileData shape). */
   files?: Record<string, MountedFile>;

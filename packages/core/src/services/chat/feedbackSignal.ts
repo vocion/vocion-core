@@ -1,7 +1,7 @@
 /**
  * Is this message feedback about the product?
  *
- * "Every interaction should teach the system something" (docs/MANIFESTO.md §9,
+ * "Every interaction should teach the system something" (docs/DESIGN-PRINCIPLES.md §9,
  * Improvement must be visible*). A person who replies to an agent in Slack
  * with "you should have had the thread context here" has just written a
  * requirement. Left in the thread it is read once; recognised, it becomes a

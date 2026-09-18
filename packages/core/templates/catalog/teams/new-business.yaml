@@ -1,0 +1,6 @@
+name: New Business
+description: >-
+  Researches targets, runs the outreach, books the meetings, and
+  writes the proposal that closes them.
+lead: lead-researcher
+# No accountableUser: inherits the workspace default when one is set.

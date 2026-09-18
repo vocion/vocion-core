@@ -10,8 +10,9 @@
  *
  * Collects the trailing window (`services/reports/dailyTeamReport.ts`),
  * renders it (`renderDailyTeamReport`), stores the markdown as a workspace-
- * rollup `briefing` so it is readable in-app whether or not mail is on, then
- * mails it when `VOCION_MAIL_ENABLED=1`. Recipients: `input.to` (string or
+ * rollup `briefing` so it is readable in-app whether or not mail is on —
+ * unless it is carrying a team's own briefing, which is already on the page —
+ * then mails it when `VOCION_MAIL_ENABLED=1`. Recipients: `input.to` (string or
  * list), else the workspace's accountable human. No recipient and no mail
  * flag is fine — the briefing still lands.
  */
@@ -70,8 +71,12 @@ export async function runDailyTeamReportJob(orgId: string, rawInput: Record<stri
   const data = await collectDailyTeamReport(orgId, { since, until }, { briefing });
   const rendered = renderDailyTeamReport(data);
 
-  let briefingId: number | null = null;
-  if (input.publish !== false) {
+  // A carried team briefing already IS a row on the Briefings page; storing
+  // the mail's copy of it as a second, workspace-scoped row put the same
+  // "Revenue Briefing — Wed, Sep 16" in the rollup tab every morning beside
+  // the team's own. The mail still goes out in full; the page keeps one.
+  let briefingId: number | null = data.rollup?.full ? data.rollup.id : null;
+  if (input.publish !== false && !data.rollup?.full) {
     const [row] = await db
       .insert(briefingSchema)
       .values({

@@ -51,6 +51,14 @@ export function readRecommendedAction(raw: unknown): RecommendedActionCheck {
     : {};
   const confidence = typeof r.confidence === 'number' && Number.isFinite(r.confidence) ? r.confidence : undefined;
   const runId = typeof r.runId === 'number' && Number.isInteger(r.runId) ? r.runId : undefined;
+  // The agent's own recommendation for the card this becomes. Both or
+  // neither: a verdict with no sentence cannot be checked by the reviewer it
+  // is shown to, and a sentence with no verdict argues for an outcome the
+  // card never names. Dropping a half-filled pair leaves the card with no
+  // recommendation, which the queue reads as "nothing judged this".
+  const decision = text(r.suggestedDecision);
+  const reason = text(r.suggestedDecisionReason);
+  const advises = (decision === 'approve' || decision === 'reject' || decision === 'snooze') && reason !== '';
   return {
     ok: true,
     rec: {
@@ -61,6 +69,7 @@ export function readRecommendedAction(raw: unknown): RecommendedActionCheck {
       ...(confidence === undefined ? {} : { confidence }),
       ...(text(r.agentSlug) ? { agentSlug: text(r.agentSlug) } : {}),
       ...(runId === undefined ? {} : { runId }),
+      ...(advises ? { suggestedDecision: decision as 'approve' | 'reject' | 'snooze', suggestedDecisionReason: reason } : {}),
     },
   };
 }

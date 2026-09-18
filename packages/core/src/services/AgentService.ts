@@ -352,6 +352,13 @@ export async function runAgentDeep(opts: {
   missionRunId?: number;
   /** Persisted conversation id — keys the AgentCore Memory session on the runtime provider (Phase 5, opt-in). */
   conversationId?: number;
+  /**
+   * What this turn's OpenTelemetry spans are grouped under, when the turn runs
+   * out of process. A caller that knows what the turn belongs to — the eval
+   * runner knows the case — should name it, so the spans can be found and
+   * graded as that one thing. See `services/evals/sessionIds.ts`.
+   */
+  sessionId?: string;
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
@@ -367,6 +374,13 @@ export async function runAgentDeep(opts: {
    * CLAUDE.md's *Structural over prompting* bullet is about.
    */
   deliverable?: Deliverable;
+  /**
+   * Files the person attached to this turn (`services/chat/attachments.ts`).
+   * An image reaches the model as an image block; a document as its text
+   * under the message. Absent or empty means the input is the message string,
+   * exactly as before.
+   */
+  attachments?: import('./chat/attachments').LoadedAttachment[];
   onEvent?: (event: import('./agents/types').AgentEvent) => void;
   /**
    * Run this ONE turn on a named model instead of the agent's own. The
@@ -553,10 +567,14 @@ export async function runAgentDeep(opts: {
   // The agent's system prompt is supplied to the graph via createDeepAgent's
   // `systemPrompt` (see runtime.ts). It must NOT also appear here — deepagents
   // prepends its own system message, so a second one is rejected by the model.
+  // With attachments the user turn is content blocks — the message and each
+  // document's text, then the images; without, the plain string it always was.
+  const { composeUserContent } = await import('./chat/attachments');
+  const userContent = await composeUserContent(opts.message, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,
-      { role: 'user', content: opts.message },
+      { role: 'user', content: userContent },
     ],
     files: initialFiles,
   };
@@ -826,9 +844,17 @@ export async function runAgentDeep(opts: {
   });
 
   trace.update({ output: { response: finalText.slice(0, 500), tool_calls: toolCallLog.length } });
-  await flushTraces();
 
+  // The turn is over the moment the answer is: say so BEFORE telemetry.
+  //
+  // `done` used to wait behind `await flushTraces()`. On a box whose Langfuse
+  // host is unreachable the SDK retries for 30–40 seconds, and for all of that
+  // time the person watched "Working…" under an answer that had visibly
+  // finished (Chris, 2026-09-17: *"why does this show 'working' for so long
+  // ... then it stops after like 40 seconds"*). Tracing is a record of the
+  // work, not part of it; it never gets to hold the person's turn open.
   emit({ type: 'done', response: finalText, traceId: trace.id });
+  await flushTraces();
 
   recordTurn(opts, recordedEvents, {
     response: finalText,

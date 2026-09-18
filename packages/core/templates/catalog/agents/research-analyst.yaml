@@ -3,7 +3,7 @@ name: Research Analyst
 description: 'Answers what is true about a company, person, topic or market — with the sources attached.'
 icon: search
 accent: teal
-eyebrow: Knowledge
+team: marketing
 agentType: mission
 active: true
 

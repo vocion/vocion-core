@@ -33,6 +33,9 @@ import { authApi, isErrorResponse, readPagination, writeApiErrorResponse } from 
  *   item nobody has decided is exactly what a paused workflow is. Composes
  *   with `actionIds`, `suggestedDecision` and `assignedTo`. Any other value is
  *   a 400, never a silent whole-queue read.
+ * - `types` — `1` answers with the review types present and their counts,
+ *   instead of the queue itself, so a client can build its filter list from
+ *   what is actually waiting.
  * - `include` — `input`, `proposal` or both, comma-separated, to have those
  *   payloads inlined on each item rather than fetched one detail request at a
  *   time. A client that buckets the queue by something inside the payload —

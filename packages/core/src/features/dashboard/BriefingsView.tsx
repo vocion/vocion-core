@@ -19,8 +19,13 @@ import { BriefingSections } from './BriefingSections';
 
 /**
  * Briefings — BY TEAM. Tabs: the workspace ROLLUP first, then one per team.
- * Each tab shows the latest brief (rendered), links to the previous ones, and
- * Regenerate (background run of the owning lead).
+ * Each tab shows the latest brief (rendered), the previous ones underneath
+ * it — ONCE, read live, inside the brief's own section 9 — and *Refresh
+ * briefing* (a background run of the owning lead).
+ *
+ * "Refresh", not "Regenerate": the brief is a standing document that is
+ * brought up to date, and the person pressing the button wants today's read,
+ * not a do-over of the machine's work. The RPC keeps its name.
  *
  * Asking about the brief is the SELECTION path and nothing else: the brief
  * sits in a `CommentLayerProvider`, so highlighting a passage raises the
@@ -34,6 +39,8 @@ export type BriefRow = {
   content: string;
   createdAt: string;
   teamSlug: string | null;
+  /** Who published it — the agent's display name when the page resolved one, else its slug. */
+  publisher: string | null;
   /** The typed document, when this brief carries one (docs/specs/briefing-v2.md). */
   document: BriefingV2 | null;
 };
@@ -64,7 +71,13 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
   const latest = g?.briefs[0];
   const history = (g?.briefs.slice(1) ?? []).slice(0, MAX_HISTORY_ENTRIES);
   // Previous briefs are links now, not a second viewer on this page: one
-  // brief lives at one URL (docs/specs/briefing-v2.md §10).
+  // brief lives at one URL (docs/specs/briefing-v2.md §10). A typed brief
+  // draws them itself, in its section 9, from this live list — never from
+  // the snapshot stored in its document, and never twice.
+  const liveHistory = {
+    entries: history.map(b => ({ id: b.id, title: b.title, at: new Date(b.createdAt), href: briefingHref(b.id), teamSlug: b.teamSlug, publisher: b.publisher })),
+    total: Math.max(0, (g?.briefs.length ?? 0) - 1),
+  };
   const viewing = latest;
 
   const regenerate = async () => {
@@ -135,7 +148,6 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${i === active ? 'bg-brand-amber/15 text-brand-amber-deep' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {grp.teamName}
-            {grp.briefs.length > 0 && <span className="ml-1 text-[10px] opacity-60">{grp.briefs.length}</span>}
           </button>
         ))}
       </div>
@@ -147,7 +159,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
           {viewing && !viewing.document && (
             <>
               <h2 className="truncate text-base font-semibold">{viewing.title}</h2>
-              <div className="text-xs text-muted-foreground">{fmt(viewing.createdAt)}</div>
+              <div className="text-xs text-muted-foreground">{[fmt(viewing.createdAt), viewing.publisher ? `by ${viewing.publisher}` : null].filter(Boolean).join(' · ')}</div>
             </>
           )}
           {!viewing && (
@@ -162,7 +174,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
         </div>
         <Button size="sm" variant="outline" onClick={() => void regenerate()} disabled={regen === 'assembling'}>
           {regen === 'assembling' ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-          {regen === 'assembling' ? `Assembling… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Regenerate'}
+          {regen === 'assembling' ? `Refreshing… ${elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}` : 'Refresh briefing'}
         </Button>
       </div>
       {regen === 'assembling' && (
@@ -173,7 +185,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
           </span>
           {g.teamName}
           {' '}
-          lead is assembling the brief — it will appear here automatically (usually 1–2 min).
+          lead is bringing the brief up to date — it will appear here automatically (usually 1–2 min).
         </p>
       )}
       {regen === 'landed' && (
@@ -182,7 +194,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
           Fresh brief loaded.
         </p>
       )}
-      {regen === 'failed' && <p className="mt-1 text-xs text-destructive">Regeneration didn't land — check the lead agent's activity or try again.</p>}
+      {regen === 'failed' && <p className="mt-1 text-xs text-destructive">The refresh didn't land — check the lead agent's activity or try again.</p>}
 
       {/* The brief is a commentable document: highlight any passage and the
           platform's one selection control offers *Ask about this*
@@ -200,7 +212,7 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
           {viewing.document
             ? (
                 <div className="mt-2 min-w-0 flex-1" data-briefing-root>
-                  <BriefingView doc={viewing.document} liveDecisions={liveDecisions} />
+                  <BriefingView doc={viewing.document} liveDecisions={liveDecisions} history={liveHistory} publisher={viewing.publisher} />
                 </div>
               )
             : (
@@ -211,14 +223,16 @@ export function BriefingsView({ groups, liveDecisions = [], archiveTotal = 0 }: 
         </CommentLayerProvider>
       )}
 
-      {/* Section 9: the last few briefs, then the archive — never the archive
-          itself (docs/specs/briefing-v2.md §10). */}
-      {history.length > 0 && (
+      {/* Section 9 for a PRE-v2 brief only — a typed brief draws its own from
+          `liveHistory` above, and drawing it here as well is how the same
+          rows came to appear twice. The last few, then the archive — never
+          the archive itself (docs/specs/briefing-v2.md §10). */}
+      {viewing && !viewing.document && history.length > 0 && (
         <div className="mt-6">
           <h2 className="mb-2 text-base font-semibold tracking-tight">Previous briefings</h2>
           <ListRows>
             {history.map(b => (
-              <ListRow key={b.id} href={briefingHref(b.id)} title={b.title} subline={fmt(b.createdAt)} />
+              <ListRow key={b.id} href={briefingHref(b.id)} title={b.title} subline={[fmt(b.createdAt), b.publisher].filter(Boolean).join(' · ')} />
             ))}
           </ListRows>
           <p className="mt-2 text-[13px]">

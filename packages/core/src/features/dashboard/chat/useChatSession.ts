@@ -1,23 +1,15 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type {
-  AgentOption,
-  AgentRun,
-  ChatMessage,
-  ContextRef,
-  ConversationAutonomy,
-  HitlGatePayload,
-  IndexedDocument,
-  StreamingPhase,
-  TraceNode,
-} from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { client } from '@/libs/Orpc';
+import { uploadAttachments } from './attachmentUpload';
 import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
@@ -129,6 +121,8 @@ type PersistedMessageRow = {
   confidence: ChatMessage['confidence'];
   feedbackRating?: string | null;
   feedbackNote?: string | null;
+  /** Files attached to a user turn, as the conversations router resolves them. */
+  attachments?: ChatAttachment[];
 };
 
 /**
@@ -161,6 +155,7 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
+      ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
     };
   });
   return { messages, documents };
@@ -291,6 +286,12 @@ export function useChatSession({
   // Captured pasted material — a chip beside the composer, not a flood in it
   // (032 §2.1 rule 5). Travels with the next message, then clears.
   const [pastedText, setPastedText] = useState<string | null>(null);
+  // Files attached to the next message — already uploaded, already artifacts;
+  // these are the chips. `uploading` counts the batches still in flight so the
+  // composer can show it and hold Send until they land.
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [phase, setPhase] = useState<StreamingPhase>('idle');
   const [pendingHitl, setPendingHitl] = useState<HitlGatePayload | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -414,6 +415,14 @@ export function useChatSession({
   // reason tokens arrive as fast as response tokens, so they need batching too.
   const pendingTraceRef = useRef<Map<string, TraceNode>>(new Map());
   const traceDirtyRef = useRef(false);
+  // Where in the answer we are, for `TraceNode.anchor`: how many text runs
+  // have started this turn, and whether the newest run is one of them (so the
+  // next delta extends it rather than opening another). Mirrors the reducer's
+  // own extend-or-append rule without reading React state mid-event, and the
+  // same count the server's RunCollector stamps — so the live transcript and
+  // the reloaded one interleave the same way.
+  const textRunsRef = useRef(0);
+  const lastRunIsTextRef = useRef(false);
 
   const flushDeltas = useCallback(() => {
     if (flushFrameRef.current !== null) {
@@ -429,6 +438,10 @@ export function useChatSession({
     pendingResponseRef.current = '';
     pendingThinkingRef.current = '';
     traceDirtyRef.current = false;
+    if (responseText && !lastRunIsTextRef.current) {
+      textRunsRef.current += 1;
+      lastRunIsTextRef.current = true;
+    }
     const trace = traceDirty ? [...pendingTraceRef.current.values()] : null;
     appendToLatestAgent((m) => {
       let next = m;
@@ -487,6 +500,14 @@ export function useChatSession({
         // text), batched onto the animation frame like the other deltas.
         const node = evt as unknown as TraceNode & { delta?: string };
         const map = pendingTraceRef.current;
+        // A NEW step is anchored to its place in the answer. Flush first so a
+        // passage still in the buffer counts as started — it precedes the step.
+        if (!map.has(node.id)) {
+          if (pendingResponseRef.current) {
+            flushDeltas();
+          }
+          node.anchor = textRunsRef.current;
+        }
         map.set(node.id, mergeTraceNode(map.get(node.id), node));
         traceDirtyRef.current = true;
         setActivity(node.label);
@@ -526,6 +547,7 @@ export function useChatSession({
         // Pipeline Analyst…" instead of "Running task…".
         const live = describeToolCall(name, input, true);
         setActivity(live.detail ? `${live.label} ${live.detail}` : live.label);
+        lastRunIsTextRef.current = false;
         appendToLatestAgent(m => ({
           ...m,
           runs: [...(m.runs ?? []), { type: 'tool', name, input, state: 'pending' }],
@@ -601,6 +623,7 @@ export function useChatSession({
         const checked = readRecommendedAction(evt.recommendation);
         if (!checked.ok) {
           console.warn(`useChatSession: dropped an invalid recommended_action — ${checked.reason}`);
+          lastRunIsTextRef.current = false;
           appendToLatestAgent(m => ({
             ...m,
             runs: [...(m.runs ?? []), { type: 'tool', name: 'recommend_action', state: 'error', output: checked.reason }],
@@ -610,8 +633,59 @@ export function useChatSession({
         appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), checked.rec] }));
         return;
       }
+      case 'artifact': {
+        // The chip under the message saying what this turn produced.
+        //
+        // `ChatMessageArtifact`, `ArtifactChips` and the render in
+        // `AgentMessage` all existed; nothing ever set `message.artifacts`, on
+        // this path or the transcript's. So `render_chart` wrote a real
+        // artifact, the agent said "chart's up", and the transcript showed
+        // nothing — Chris, 2026-09-17: *"why didn't I get an artifact here?"*
+        //
+        // A pending shell carries no content yet and is skipped; the real event
+        // that follows replaces it. Keyed by id so a turn that updates the same
+        // artifact twice leaves one chip at the latest version, not two.
+        if (evt.pending) {
+          return;
+        }
+        // The reducer takes untyped events off the wire, so narrow here rather
+        // than trusting the shape.
+        const a = evt.artifact as { id?: unknown; title?: unknown; kind?: unknown; version?: unknown } | undefined;
+        if (!a || typeof a.id !== 'number' || typeof a.title !== 'string') {
+          return;
+        }
+        const chip: ChatMessageArtifact = {
+          id: a.id,
+          title: a.title,
+          kind: (a.kind ?? 'markdown') as ChatMessageArtifact['kind'],
+          version: typeof a.version === 'number' ? a.version : 1,
+        };
+        appendToLatestAgent(m => ({
+          ...m,
+          artifacts: [...(m.artifacts ?? []).filter(x => x.id !== chip.id), chip],
+        }));
+        // ...and open it beside the conversation, which is what the tool has
+        // been TELLING the user it did. `render_markdown` returns "now open
+        // beside the conversation at v1"; `openPreview` was only ever called
+        // from a chip click, so the artifact appeared as a chip the user then
+        // had to find and press. Chris, 2026-09-17: *"it didn't open the
+        // sidebar artifact (it should have)"* — he was comparing against the
+        // sentence the product had just shown him.
+        //
+        // The newest artifact of the turn wins, so a turn that renders three
+        // leaves the last one open rather than fighting over the panel.
+        openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        return;
+      }
+
       case 'done':
         flushDeltas();
+        // `done` IS the terminal event (#421): the answer is complete even
+        // though the socket stays open for the ~3s it takes the route to
+        // persist the row. Release the send guard here, not at socket close —
+        // otherwise a message typed in that window is dropped in silence
+        // while the button still reads "Send message".
+        streamingRef.current = false;
         // Backfill `content` from the streamed text runs. Streaming only
         // accumulates into `runs`; `conversation_history` reads `content`
         // (and drops empty entries), so without this the agent never sees
@@ -635,6 +709,7 @@ export function useChatSession({
         setPhase('idle');
         setActivity(null);
         const message = String(evt.message ?? 'error');
+        lastRunIsTextRef.current = false;
         appendToLatestAgent(m => ({
           ...m,
           runs: [...(m.runs ?? []), { type: 'tool', name: 'error', state: 'error', output: message }],
@@ -729,6 +804,8 @@ export function useChatSession({
   const resumeStream = useCallback(async (stash: StreamStash) => {
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
+    textRunsRef.current = 0;
+    lastRunIsTextRef.current = false;
     setMessages(prev => [...prev, { role: 'assistant', content: '', runs: [] }]);
     streamingRef.current = true;
     setPhase('thinking');
@@ -959,7 +1036,7 @@ export function useChatSession({
   const sendMessage = useCallback(async (raw: string) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
-    if ((!raw.trim() && !pastedText) || streamingRef.current) {
+    if ((!raw.trim() && !pastedText && attachments.length === 0) || streamingRef.current || uploading > 0) {
       return;
     }
     // `/search <query>` is the retrieval-only path (§9.10) — the virtual
@@ -984,19 +1061,27 @@ export function useChatSession({
     // Pasted material rides along under the instruction, clearly fenced, so
     // the instruction stays readable in the transcript and the agent still
     // receives the full text.
+    // A message that is only files still has to say something the server can
+    // store and the transcript can show.
+    const typed = command.text.trim() || (attachments.length > 0 ? `(Attached: ${attachments.map(a => a.title).join(', ')})` : command.text);
     const text = pastedText
-      ? `${command.text.trim()}\n\n--- pasted ---\n${pastedText}`.trim()
-      : command.text;
-    // Fresh turn — reset the per-turn trace accumulator.
+      ? `${typed}\n\n--- pasted ---\n${pastedText}`.trim()
+      : typed;
+    const sent = attachments;
+    // Fresh turn — reset the per-turn trace accumulator and the anchor clock.
     pendingTraceRef.current = new Map();
     traceDirtyRef.current = false;
+    textRunsRef.current = 0;
+    lastRunIsTextRef.current = false;
     setMessages(prev => [
       ...prev,
-      { role: 'user', content: text },
+      { role: 'user', content: text, ...(sent.length > 0 ? { attachments: sent } : {}) },
       { role: 'assistant', content: '', runs: [] },
     ]);
     setComposerValue('');
     setPastedText(null);
+    setAttachments([]);
+    setAttachError(null);
     setPhase('thinking');
 
     const refs = contextRefs;
@@ -1054,6 +1139,9 @@ export function useChatSession({
           ...(pageContextRef.current ? { page_context: pageContextRef.current } : {}),
           ...(scopeRef ? { scope_ref: scopeRef } : {}),
           ...(recordRefs.length > 0 ? { context_refs: recordRefs } : {}),
+          // The files, by artifact id — the server resolves them under this
+          // org and files them under the message it stores.
+          ...(sent.length > 0 ? { attachments: sent.map(a => a.id) } : {}),
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
@@ -1167,7 +1255,38 @@ export function useChatSession({
         abortRef.current = null;
       }
     }
-  }, [agent, agents, messages, pastedText, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
+  }, [agent, agents, messages, pastedText, attachments, uploading, contextRefs, autonomy, handleEvent, appendToLatestAgent, flushDeltas, setActiveConversation, stampLastAssistantId]);
+
+  /**
+   * Attach files to the next message: upload now, chip now. A refused file
+   * (wrong type, too big) becomes a sentence above the box; a transport
+   * failure too. Nothing here waits for the turn — the person keeps typing.
+   */
+  const attachFiles = useCallback(async (files: File[]) => {
+    const picked = files.filter(f => f.size > 0);
+    if (picked.length === 0) {
+      return;
+    }
+    setUploading(n => n + 1);
+    setAttachError(null);
+    try {
+      const { attachments: added, refused } = await uploadAttachments(picked, conversationIdRef.current);
+      if (added.length > 0) {
+        setAttachments(prev => [...prev, ...added.filter(a => !prev.some(p => p.id === a.id))]);
+      }
+      if (refused.length > 0) {
+        setAttachError(refused.join(' '));
+      }
+    } catch (err) {
+      setAttachError((err as Error).message || 'The upload failed.');
+    } finally {
+      setUploading(n => Math.max(0, n - 1));
+    }
+  }, []);
+
+  const removeAttachment = useCallback((id: number) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  }, []);
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
@@ -1457,6 +1576,15 @@ export function useChatSession({
     /** Captured pasted material for the composer chip; travels with the next send. */
     pastedText,
     setPastedText,
+    /** Files attached to the next message — uploaded, chips showing. */
+    attachments,
+    /** Upload batches in flight. */
+    uploading,
+    /** Why the last attach did not fully land, for the line above the box. */
+    attachError,
+    clearAttachError: () => setAttachError(null),
+    attachFiles,
+    removeAttachment,
     isStreaming,
     activity,
     pendingHitl,

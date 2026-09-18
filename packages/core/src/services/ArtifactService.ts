@@ -161,6 +161,16 @@ export type CreateArtifactInput = {
   record?: ArtifactRecordScope | null;
   author: Author;
   changeSummary?: string | null;
+  /**
+   * `user` (the default) is what a person opens. `system` is work output that
+   * belongs in the audit trail rather than the list — a mission check report,
+   * or a recommendation already rendered on its decision card.
+   *
+   * Decided by PROVENANCE at the call site, never by asking the model to
+   * classify its own output: an artifact produced inside an unattended mission
+   * run is system output whatever it is called.
+   */
+  visibility?: 'user' | 'system';
 };
 
 /**
@@ -198,6 +208,7 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
       recordId: input.record?.id ?? null,
       recordRole: input.record?.role ?? null,
       currentVersion: 1,
+      visibility: input.visibility ?? 'user',
       lastAuthorKind: input.author.kind,
       lastAuthorId: authorId(input.author),
       createdBy: authorId(input.author),
@@ -393,6 +404,64 @@ export async function stampArtifactsWithMessage(opts: { orgId: string; artifactI
     .where(and(eq(artifactSchema.orgId, opts.orgId), inArray(artifactSchema.id, opts.artifactIds)));
 }
 
+/**
+ * File the person's uploads under the turn that carried them: the user
+ * message they were attached to, and the conversation it belongs to (an
+ * upload happens before the first turn creates the thread, so the row may
+ * have neither yet). Only a human-authored `file` artifact in the caller's
+ * org is touched — an id that names anything else is ignored, not claimed.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.artifactIds - The upload rows the message named.
+ * @param opts.conversationId - The thread.
+ * @param opts.messageId - The user message row.
+ */
+export async function claimAttachments(opts: { orgId: string; artifactIds: number[]; conversationId: number; messageId: number }): Promise<void> {
+  if (opts.artifactIds.length === 0) {
+    return;
+  }
+  await db
+    .update(artifactSchema)
+    .set({ conversationId: opts.conversationId, messageId: opts.messageId })
+    .where(and(
+      eq(artifactSchema.orgId, opts.orgId),
+      inArray(artifactSchema.id, opts.artifactIds),
+      eq(artifactSchema.kind, 'file'),
+      eq(artifactSchema.lastAuthorKind, 'human'),
+    ));
+}
+
+/**
+ * The uploads attached to each message of a conversation — human-authored
+ * `file` artifacts, keyed by the message that carried them — so a reloaded
+ * transcript shows the chips the person saw when they sent it.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.conversationId - The thread.
+ */
+export async function listAttachmentsByMessage(opts: { orgId: string; conversationId: number }): Promise<Map<number, ArtifactRow[]>> {
+  const rows = await db
+    .select()
+    .from(artifactSchema)
+    .where(and(
+      eq(artifactSchema.orgId, opts.orgId),
+      eq(artifactSchema.conversationId, opts.conversationId),
+      eq(artifactSchema.kind, 'file'),
+      eq(artifactSchema.lastAuthorKind, 'human'),
+    ))
+    .orderBy(asc(artifactSchema.id));
+  const out = new Map<number, ArtifactRow[]>();
+  for (const row of rows) {
+    if (row.messageId === null) {
+      continue;
+    }
+    const list = out.get(row.messageId) ?? [];
+    list.push(row);
+    out.set(row.messageId, list);
+  }
+  return out;
+}
+
 export async function deleteArtifact(opts: { orgId: string; id: number }): Promise<void> {
   await db.delete(artifactSchema).where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)));
 }
@@ -400,6 +469,20 @@ export async function deleteArtifact(opts: { orgId: string; id: number }): Promi
 /* ------------------------------------------------------------------ */
 /* Read path                                                           */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Several artifacts by id, in the caller's org. Ids that are not the org's are
+ * simply absent from the result — the caller learns nothing about them.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.ids - Artifact ids.
+ */
+export async function listArtifactsByIds(opts: { orgId: string; ids: number[] }): Promise<ArtifactRow[]> {
+  if (opts.ids.length === 0) {
+    return [];
+  }
+  return db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, opts.orgId), inArray(artifactSchema.id, opts.ids))).orderBy(asc(artifactSchema.id));
+}
 
 export async function getArtifact(opts: { orgId: string; id: number }): Promise<ArtifactRow | null> {
   const [row] = await db.select().from(artifactSchema).where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)));
@@ -571,6 +654,15 @@ export type ArtifactListFilter = {
   kinds?: string[] | null;
   folder?: string | null;
   limit?: number;
+  /**
+   * Which artifacts to list. Defaults to `user` — the log is the things a
+   * person would go looking for. Pass `all` for an audit view.
+   *
+   * In production before this existed, 13 of 39 artifacts were mission check
+   * reports and 7 were outreach recommendations: more than half the list was
+   * something nobody would open on purpose.
+   */
+  visibility?: 'user' | 'all';
 };
 
 /**
@@ -580,6 +672,9 @@ export type ArtifactListFilter = {
  */
 export async function listArtifacts(filter: ArtifactListFilter): Promise<ArtifactListItem[]> {
   const where = [eq(artifactSchema.orgId, filter.orgId)];
+  if ((filter.visibility ?? 'user') === 'user') {
+    where.push(eq(artifactSchema.visibility, 'user'));
+  }
   const search = filter.search?.trim();
   if (search) {
     where.push(ilike(artifactSchema.title, `%${search}%`));

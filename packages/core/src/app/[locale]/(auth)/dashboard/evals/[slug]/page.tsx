@@ -1,20 +1,44 @@
+import type { DatasetSyncTone } from './datasetSync';
+import type { EvalDatasetItem } from '@/services/evals/types';
 import { ArrowLeft, ArrowRight, CheckCircle2, OctagonAlert, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { TitleBar } from '@/features/dashboard/TitleBar';
+import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
-import { getDataset, listRuns } from '@/services/EvalService';
-import { CompareModelsForm } from './CompareModelsForm';
+import { describeProviders } from '@/services/evals/providers/registry';
+import { describeDatasetSync } from '@/services/evals/publish';
+import { EVAL_RUNS_PAGE_SIZE, getDataset, listEvaluatorProblems, listEvaluatorTrend, listRuns, listRunsPage } from '@/services/EvalService';
+import { ProviderChip } from '../ProviderChip';
+import { summariseDatasetSync } from './datasetSync';
+import { EvalTrendChart } from './EvalTrendChart';
 import { RunDatasetButton } from './RunDatasetButton';
+
+/**
+ * How firmly each sync state is drawn.
+ *
+ * A failed copy is the only one worth colouring like a warning: behind is
+ * normal between an edit and the next run, and in step is the state nobody
+ * needs to notice.
+ */
+const SYNC_TONE_CLASSES: Record<DatasetSyncTone, string> = {
+  'local': 'border-border bg-muted/20 text-muted-foreground',
+  'pending': 'border-border bg-muted/20 text-muted-foreground',
+  'behind': 'border-border bg-muted/20 text-foreground',
+  'in-step': 'border-border bg-muted/20 text-muted-foreground',
+  'failed': 'border-amber-500/30 bg-amber-500/5 text-amber-800 dark:text-amber-200',
+};
 
 type Props = {
   params: Promise<{ locale: string; slug: string }>;
+  searchParams: Promise<{ page?: string }>;
 };
 
 export default async function EvalDatasetDetailPage(props: Props) {
   const { locale, slug } = await props.params;
+  const { page: pageParam } = await props.searchParams;
   setRequestLocale(locale);
   const { orgId } = await auth();
   if (!orgId) {
@@ -26,17 +50,68 @@ export default async function EvalDatasetDetailPage(props: Props) {
     notFound();
   }
 
-  const runs = (await listRuns(orgId, dataset.id)).filter(r => r.datasetId === dataset.id);
-  // Runs that named a model and finished, newest first — the pairs a person
-  // can compare without running anything. Adjacent pairs only; the page is
-  // an entry point, not a matrix.
-  const modelRuns = runs.filter(r => r.status === 'succeeded' && r.model);
-  const comparablePairs = modelRuns.slice(0, 3).flatMap((cand, i) => {
-    const base = modelRuns[i + 1];
-    return base && base.model !== cand.model ? [[base, cand] as const] : [];
-  });
-  const lastModel = modelRuns[0]?.model ?? null;
+  const [allRuns, providers, evaluatorProblems, syncState] = await Promise.all([
+    listRuns(orgId, dataset.id),
+    describeProviders(orgId),
+    listEvaluatorProblems(orgId, dataset.slug),
+    // The column's declared shape is looser than the one the eval code reads;
+    // `EvalService` narrows it the same way for the same reason.
+    describeDatasetSync(orgId, dataset.id, dataset.provider, (dataset.items ?? []) as EvalDatasetItem[], dataset.slug),
+  ]);
 
+  // One grader per dataset, named in the workspace file. Runs from before a
+  // dataset changed graders keep whatever scored them, which is why the run
+  // rows still carry a provider of their own.
+  const grader = providers.find(p => p.id === dataset.provider);
+  const graderLabel = grader?.label ?? dataset.provider;
+  const graderProblem = grader && !grader.available ? grader.reason : null;
+  const labelFor = (id: string) => providers.find(p => p.id === id)?.label ?? id;
+  const historicalProviders = [...new Set(allRuns.map(run => run.provider))].filter(id => id !== dataset.provider);
+
+  // Where the cases themselves live. A grader that holds its own copy of them
+  // can be holding older ones than the workspace file does, and a score means
+  // something different depending on which it graded.
+  const sync = summariseDatasetSync({
+    graderLabel,
+    keepsDataset: grader?.keepsDataset ?? false,
+    workspaceVersion: dataset.version,
+    state: syncState,
+  });
+
+  // The list is paged; the chart is not. They answer different questions — one
+  // is "what happened lately", the other is "which way is this going" — and a
+  // trend line that redrew itself as you paged would be lying about the shape.
+  const requestedPage = Number.parseInt(pageParam ?? '1', 10);
+  const { runs, page, hasMore } = await listRunsPage(orgId, dataset.id, {
+    page: Number.isNaN(requestedPage) ? 1 : requestedPage,
+  });
+  const chartRuns = allRuns;
+
+  // Only finished runs carry a pass rate; a running or failed one has nothing
+  // to plot and must not be drawn as a zero.
+  const runTrendPoints = chartRuns
+    .filter(run => run.status === 'succeeded' && typeof run.metrics?.passRate === 'number')
+    .map(run => ({
+      runId: run.id,
+      provider: run.provider,
+      startedAt: new Date(run.startedAt).toISOString(),
+      passRate: run.metrics!.passRate as number,
+      datasetVersion: run.datasetVersion ?? null,
+      evaluatorSlug: null,
+    }));
+
+  // One line per evaluator under each grader's own. The pass rate says whether
+  // the dataset is passing; these say which part of it moved, which is the
+  // question a flat pass rate hides.
+  const evaluatorTrendPoints = (await listEvaluatorTrend(orgId, dataset.id)).map(row => ({
+    runId: row.runId,
+    provider: row.provider,
+    startedAt: new Date(row.startedAt).toISOString(),
+    passRate: row.meanValue,
+    datasetVersion: row.datasetVersion ?? null,
+    evaluatorSlug: row.evaluatorSlug,
+  }));
+  const trendPoints = [...runTrendPoints, ...evaluatorTrendPoints];
   return (
     <>
       <div className="mb-4">
@@ -88,51 +163,107 @@ export default async function EvalDatasetDetailPage(props: Props) {
           {' '}
           <code className="font-mono">{dataset.agentSlug}</code>
           {' '}
-          agent. Each case is scored by an LLM judge.
+          agent. Scored by
+          {' '}
+          {graderLabel}
+          .
         </p>
       </div>
 
-      <div className="mb-8 flex flex-wrap items-start gap-3 rounded-lg border border-border bg-muted/10 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Model upgrade test</div>
-          <p className="text-xs text-muted-foreground">
-            Run every case on the model this role uses today and on a candidate release, judged the same way, and compare on cost per passed case — not price per token.
-            {comparablePairs.length > 0 && (
+      <section className={`mb-6 rounded-lg border px-4 py-3 text-xs ${SYNC_TONE_CLASSES[sync.tone]}`}>
+        <div className="font-semibold">{sync.headline}</div>
+        <p className="mt-1">{sync.detail}</p>
+        {sync.remoteId && (
+          <p className="mt-2 text-muted-foreground">
+            Dataset in
+            {' '}
+            {graderLabel}
+            :
+            {' '}
+            <code className="font-mono">{sync.remoteId}</code>
+            {sync.syncedAt && (
               <>
-                {' '}
-                Or compare two existing runs:
-                {' '}
-                {comparablePairs.map(([a, b], i) => (
-                  <span key={`${a.id}-${b.id}`}>
-                    {i > 0 ? ', ' : null}
-                    <Link href={`/dashboard/evals/${dataset.slug}/compare?baseline=${a.id}&candidate=${b.id}`} className="font-mono underline-offset-2 hover:underline">
-                      #
-                      {a.id}
-                      {' '}
-                      →
-                      {' '}
-                      #
-                      {b.id}
-                    </Link>
-                  </span>
-                ))}
+                {/* The same column records the last attempt whether it landed
+                    or not, so a failed copy must not read "last copied" under
+                    a headline saying the copy failed. */}
+                {sync.tone === 'failed' ? ' · last attempt ' : ' · last copied '}
+                {new Date(sync.syncedAt).toLocaleString()}
               </>
             )}
           </p>
+        )}
+      </section>
+
+      {evaluatorProblems.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+          <div className="mb-1 font-semibold">Some evaluators this dataset declares could not be set up</div>
+          <ul className="space-y-1">
+            {evaluatorProblems.map(problem => (
+              <li key={`${problem.provider}-${problem.slug}`}>
+                <code className="font-mono">{problem.slug}</code>
+                {' — '}
+                {problem.syncError}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2">Runs go ahead without them rather than failing, so scores here are missing those checks.</p>
         </div>
-        <CompareModelsForm slug={dataset.slug} defaultBaseline={lastModel ?? ''} />
-      </div>
+      )}
+
+      {graderProblem && (
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+          <strong className="font-semibold">{graderLabel}</strong>
+          {' '}
+          grades this dataset but cannot run right now:
+          {' '}
+          {graderProblem}
+          {' '}
+          Past scores are still shown; a new run will refuse to start until this is fixed, rather than
+          executing every case and failing at the end.
+        </div>
+      )}
+
+      {/*
+        The model upgrade test is not rendered.
+
+        The feature exists — `CompareModelsForm`, `/api/v1/evals/[slug]/model-upgrade-test`
+        and `services/evals/modelUpgradeTest.ts` are all still here, and the
+        compare view at `[slug]/compare` still reads two runs — but it runs both
+        models inside the one request, so anything past a handful of cases times
+        out before it answers. Nobody is using it, and a broken control on this
+        page costs more attention than it is worth. Put this block back when the
+        run moves onto the same Temporal workflow the refresh uses.
+      */}
+
+      {trendPoints.length > 1 && (
+        <section className="mb-8 rounded-xl border border-border bg-background p-4">
+          <h2 className="mb-1 font-display text-sm font-semibold">Pass rate over time</h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            A dashed line marks a version of the dataset ending — scores either side of it are measuring
+            different cases, so the step is the test changing, not the agent.
+          </p>
+          <EvalTrendChart
+            points={trendPoints}
+            providers={providers.map(p => ({ id: p.id, label: p.label }))}
+          />
+        </section>
+      )}
 
       <section className="mb-10">
-        <h2 className="mb-3 font-display text-sm font-semibold">Recent runs</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <h2 className="font-display text-sm font-semibold">Recent runs</h2>
+          {/* The dataset's grader, said once, with the explanation on hover. */}
+          <ProviderChip providerId={dataset.provider} />
+          {historicalProviders.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {`Older runs here were scored by ${historicalProviders.map(labelFor).join(' and ')}, before this dataset changed graders.`}
+            </span>
+          )}
+        </div>
         {runs.length === 0
           ? (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                No runs yet. Click
-                {' '}
-                <strong className="font-semibold text-foreground">Run dataset</strong>
-                {' '}
-                to start one.
+                No runs yet. Press Run evals now to start one.
               </div>
             )
           : (
@@ -145,30 +276,51 @@ export default async function EvalDatasetDetailPage(props: Props) {
                         href={`/dashboard/evals/${dataset.slug}/runs/${run.id}`}
                         className="flex items-center justify-between px-4 py-3 hover:bg-muted/40"
                       >
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-xs text-muted-foreground">
-                            #
-                            {run.id}
-                          </span>
-                          <RunStatusBadge status={run.status} />
-                          <span className="text-sm text-muted-foreground">
-                            {new Date(run.startedAt).toLocaleString()}
-                          </span>
-                          {typeof pass === 'number' && (
-                            <span className={pass >= 0.8 ? 'font-mono text-xs text-emerald-600 dark:text-emerald-400' : 'font-mono text-xs text-amber-600 dark:text-amber-400'}>
-                              {Math.round(pass * 100)}
-                              % pass
+                        {/*
+                          Labelled, like the cards on the list: a bare "#11 ·
+                          90% · a1b2c3d" asks the reader to work out which
+                          number is which, and the workspace SHA in particular
+                          looks like noise until it is named.
+                        */}
+                        <dl className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <RunFact label="Run">
+                            <span className="font-mono">
+                              #
+                              {run.id}
                             </span>
+                          </RunFact>
+                          <RunFact label="Status"><RunStatusBadge status={run.status} /></RunFact>
+                          {run.provider !== dataset.provider && (
+                            <RunFact label="Graded by">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px]"
+                                title={describeProvider(run.provider).explanation}
+                              >
+                                {labelFor(run.provider)}
+                              </Badge>
+                            </RunFact>
+                          )}
+                          <RunFact label="Started">{new Date(run.startedAt).toLocaleString()}</RunFact>
+                          {typeof pass === 'number' && (
+                            <RunFact label="Pass rate">
+                              <span className={pass >= 0.8 ? 'font-mono text-emerald-600 dark:text-emerald-400' : 'font-mono text-amber-600 dark:text-amber-400'}>
+                                {Math.round(pass * 100)}
+                                %
+                              </span>
+                            </RunFact>
                           )}
                           {run.model && (
-                            <Badge variant="outline" className="font-mono text-[10px]">{run.model}</Badge>
+                            <RunFact label="Model">
+                              <Badge variant="outline" className="font-mono text-[10px]">{run.model}</Badge>
+                            </RunFact>
                           )}
                           {run.workspaceSha && (
-                            <span className="font-mono text-xs text-muted-foreground">
-                              {run.workspaceSha.slice(0, 7)}
-                            </span>
+                            <RunFact label="Workspace">
+                              <span className="font-mono" title={run.workspaceSha}>{run.workspaceSha.slice(0, 7)}</span>
+                            </RunFact>
                           )}
-                        </div>
+                        </dl>
                         <ArrowRight className="size-4 text-muted-foreground" />
                       </Link>
                     </li>
@@ -176,6 +328,9 @@ export default async function EvalDatasetDetailPage(props: Props) {
                 })}
               </ul>
             )}
+        {(page > 1 || hasMore) && (
+          <RunsPager slug={dataset.slug} page={page} shown={runs.length} hasMore={hasMore} />
+        )}
       </section>
 
       <section>
@@ -242,4 +397,65 @@ function RunStatusBadge({ status }: { status: string }) {
   return (
     <Badge variant="secondary">{status}</Badge>
   );
+}
+
+/**
+ * One labelled thing on a run row.
+ * @param props - Props.
+ * @param props.label - What the value is.
+ * @param props.children - The value itself.
+ */
+function RunFact(props: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[10px] tracking-wide text-muted-foreground/70 uppercase">{props.label}</dt>
+      <dd className="mt-0.5 text-xs text-foreground">{props.children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Older and newer, for a run list that outgrew one page.
+ *
+ * Page number in the URL so a link to "the page where it regressed" still
+ * points at the same runs tomorrow.
+ * @param props - Props.
+ * @param props.slug - Which dataset.
+ * @param props.page - The page being shown, 1-based.
+ * @param props.shown - How many runs this page actually holds.
+ * @param props.hasMore - Whether there is an older page after this one.
+ */
+function RunsPager(props: { slug: string; page: number; shown: number; hasMore: boolean }) {
+  const first = (props.page - 1) * EVAL_RUNS_PAGE_SIZE + 1;
+  const linkClass = 'rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/60';
+  return (
+    <nav className="mt-3 flex items-center justify-between text-xs text-muted-foreground" aria-label="Run list pages">
+      {props.page > 1
+        ? (
+            <Link href={runsPageHref(props.slug, props.page - 1)} className={linkClass}>
+              Newer runs
+            </Link>
+          )
+        : <span />}
+      <span className="tabular-nums">
+        {`Runs ${first}–${first + props.shown - 1}`}
+      </span>
+      {props.hasMore
+        ? (
+            <Link href={runsPageHref(props.slug, props.page + 1)} className={linkClass}>
+              Older runs
+            </Link>
+          )
+        : <span />}
+    </nav>
+  );
+}
+
+/**
+ * A run-list URL that drops a page number of 1.
+ * @param slug - Which dataset.
+ * @param page - The page to link to.
+ */
+function runsPageHref(slug: string, page: number): string {
+  return page > 1 ? `/dashboard/evals/${slug}?page=${page}` : `/dashboard/evals/${slug}`;
 }

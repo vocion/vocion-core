@@ -15,7 +15,7 @@ const handleI18nRouting = createMiddleware(routing);
 // protected so an unsigned reader of a mailed link gets sign-in with a
 // `callbackUrl` that round-trips the `/w/…` URL, and lands in the right
 // workspace after signing in.
-const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
+const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', 'api-docs', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
 const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
 

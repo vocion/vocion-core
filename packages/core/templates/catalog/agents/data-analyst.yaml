@@ -3,7 +3,7 @@ name: Data Analyst
 description: Turns a number somebody asked for once into a number that arrives every week without being asked for again.
 icon: bar-chart
 accent: cyan
-eyebrow: Measurement
+team: finance
 agentType: operational
 active: true
 

@@ -52,7 +52,7 @@ become sections, tables become GFM tables). Charts, records, links and files
 are listed as not exported — there is no page archetype for them yet. Nothing
 is written to the workspace repo from the app; the person commits the files.
 That is the manifesto's loop: a view one person needed once becomes a page
-everyone has ([MANIFESTO.md](./MANIFESTO.md) §6–7).
+everyone has ([DESIGN-PRINCIPLES.md](./DESIGN-PRINCIPLES.md) §6–7).
 
 ## Serving files — never from `public/`
 

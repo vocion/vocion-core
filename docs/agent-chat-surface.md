@@ -7,7 +7,7 @@ Until 2026-09-15 these rules lived only as doc-comments in
 original spec, which was never committed); this file promotes them and adds
 the rail (§9). The section numbers below match the citations in the code.
 
-Read it beside the [Product Design Manifesto](./MANIFESTO.md): the surface
+Read it beside the [Product Design Manifesto](./DESIGN-PRINCIPLES.md): the surface
 exists so a person can act on what a page shows without leaving it (§11
 *make the important things obvious*), with the machinery — tool calls,
 reasoning, sources — one tap away but never in the way (§12 *hide complexity,
@@ -167,6 +167,19 @@ agent is doing, and able to be talked back to.
     record it is about; the composer placeholder never names an agent. The empty
     state says "Ask <Workspace>" with the workspace's chips — the lead's
     suggestions plus one per team lead, capped at four — never an agent name.
+
+## Interleaved work — the steps sit where they happened (2026-09-17)
+
+The transcript renders a turn in the order it happened: passages of prose
+with the work that fell between them drawn at that point, not hoisted into
+one block at the top. Each trace node carries `anchor` — how many text runs
+had started when the step began — stamped identically by the live reducer
+and by the server's `RunCollector`, so a reloaded turn interleaves exactly as
+the streamed one did (`features/dashboard/chat/interleave.ts`). A group the
+agent has written past folds to one line; a group of one step folds to that
+step. Only the trailing group is live, and it shows its rows without a
+"Working…" bar of its own — the indicator at the bottom of the turn (§2)
+names the activity once.
 
 ## §12 — The composer never locks (2026-09-15)
 
@@ -369,6 +382,37 @@ said so, and a wording heuristic has no business overruling them. Without the
 tag the heuristic still decides, so what reviewers already type keeps working.
 
 See [design/patterns.md](./design/patterns.md) → *Select → talk*.
+
+## Attachments — a file in the turn is an artifact (2026-09-17)
+
+A person can put an image, a PDF or a text file into a message: the paperclip
+beside the box, a drop onto it, or a pasted screenshot. Three ways in, one
+mechanism — `POST /api/chat/attachments` — and no new noun.
+
+- **The upload is an artifact.** Kind `file`, authored by the person,
+  `visibility: user`, saved through the same content-addressed store the
+  agent's `create_artifact` uses and served by the same authenticated route
+  (`/api/artifacts/<id>`). It has a row, a version and a place in the
+  artifacts list before the message is even sent. The chip in the composer
+  and the chip under the sent message are views of that row
+  (`services/chat/attachments.ts`, principle 7).
+- **What the model receives.** An image travels as an image block beside the
+  message. A PDF or text file travels as its TEXT, extracted once at upload
+  (`pdf-parse`) and stored on the row's spec, inlined under the message with
+  the filename on it and capped per file and per turn — a cut says where it
+  happened. Text rather than a vendor document block, because the
+  workspace's agents run on three vendors and text is the one shape all of
+  them read the same way. The same composition runs in-process
+  (`composeUserContent`), in the agent-runtime container (`attachments` on
+  the invocation payload) and, text-only, on the AWS-managed harness.
+- **The message stays the message.** The persisted user turn is the words
+  the person typed; the files are filed under it (`claimAttachments`) and
+  come back with it on reload. A later turn's history replay carries
+  `[Attached: report.pdf]` — the names, not the contents — so the agent asks
+  rather than guesses about a file it saw once.
+- **Refusals are sentences.** Wrong type or too big comes back as one line
+  above the box naming the file and the rule; the rest of the batch still
+  attaches.
 
 ## Failures reach the person (2026-09-16)
 

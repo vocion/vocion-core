@@ -109,7 +109,7 @@ export type HarnessModelConfig = {
  * @param harnessConfig - The agent's harness block, or an empty object.
  */
 export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
-  provider?: 'anthropic' | 'openai' | 'bedrock';
+  provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
 } {
@@ -263,6 +263,27 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     systemPrompt = [systemPrompt, note].filter(Boolean).join('\n\n');
   }
 
+  // THE CLOCK (CORE, all agents).
+  //
+  // The agent did not know what day it was. Nowhere in the prompt, for any
+  // agent, was there a date — and it shows: `crm.ts` works around it per tool
+  // ("so you never have to know today's date"), briefing titles are authored
+  // by the model and one of them copied the example date out of its own schema
+  // description, and on 2026-09-17 the lead read a stale briefing's critical
+  // path and served it as "right now", naming a call that was not on the
+  // calendar. Chris: *"WTF. do you know what day it is?"* It did not.
+  //
+  // A model with no clock cannot tell a stale document from a current one, and
+  // will always resolve that ambiguity in favour of answering. So: state the
+  // time, and say plainly that a dated document older than today is history.
+  const nowIso = new Date().toISOString();
+  const CLOCK = [
+    `NOW: ${nowIso} (UTC). Today is ${new Date().toUTCString().slice(0, 16)}.`,
+    'Times you state must say their zone. Never say "today", "this morning" or "right now" about anything you read in a document without first checking that document\'s own date against NOW — a briefing, report or transcript dated before today is HISTORY, and presenting its schedule as the current day is the worst error you can make on this surface.',
+    'If a document you are quoting is not dated, say that you cannot tell when it is from rather than assuming it is current.',
+  ].join(' ');
+  systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
+
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
   // paste" rules; fighting that with content-stripping is whack-a-mole (it
@@ -275,7 +296,7 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     'Everything AFTER </scratch> is the answer the user sees. It must be clean synthesis in plain language: NO raw records, JSON, field:value lists, search hits, email headers/bodies, ids, or /dashboard links. When asked to "find an email" or "go get" something, the answer is the EXTRACTED fact in words (e.g. "Eric — erinb@northwind.example"), never the search results you read to find it.',
     'If you have no raw data to lay out, skip the scratch block and just answer.',
     'VOICE (chat replies): write like a sharp human chief of staff texting a busy founder — not a chatbot. In a conversational reply, hard bans: NO decorative or "stoplight" emoji (🔴🟡🟢✅) as bullets or status markers; NO templated scaffolding ("Here are your top three moves right now:", "I hope this helps", "Let me know if…"); NO filler closers ("Want me to draft all three now for your review?"). Keep a short ranked list tight (a bold lead-in + one line each), no per-item ##/### headers or --- rules. Lead with the move, be specific, cut hedging. EXCEPTION — a PUBLISHED, scannable document (a daily briefing via publish_briefing, or an explicitly long report): there, clear section structure and priority markers ARE appropriate (that\'s a document meant to be scanned, not a chat message). The ban is on chatbot slop in conversation, not on structure in documents.',
-    'CITATIONS: search_knowledge results are numbered like "[3] **title** [source]". When a sentence in your answer states a fact you got from a specific search result, cite it inline with that bracketed number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers from the results (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Only facts grounded in search results get a marker — not every sentence.',
+    'CITATIONS: tool output that carries a bracketed number — search_knowledge hits rendered as "[3] **title** [source]", and a briefing returned as "[4] Latest … briefing" — is a citable source. When a sentence states a fact you took from one, cite it inline with that number immediately after the claim, e.g. "He owns healthcare-IT at Kestrel [3]." Use the exact numbers you were given (they are globally unique for this turn); cite more than one where relevant ("[2][5]"); never invent a number or cite a source you did not use. Not every sentence needs a marker — your own synthesis, judgement and sequencing do not. But ANY concrete claim about the reader\'s world does: a meeting and its time, a dollar amount, a deal stage, a date, a person\'s name, how long something has been waiting. Those are the claims a reader needs to check, and an uncited one is indistinguishable from an invented one.',
   ].join(' ');
   systemPrompt = [systemPrompt, OUTPUT_DISCIPLINE].filter(Boolean).join('\n\n');
 

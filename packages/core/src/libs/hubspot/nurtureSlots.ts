@@ -15,6 +15,7 @@
 
 import type { HubspotClient, HubspotResult } from './client';
 import { z } from 'zod';
+import { textToEmailHtml } from './emailHtml';
 
 export const nurtureSlotsSchema = z.object({
   /** A sequence whose name starts with this is a ladder rung and needs its slots filled. */
@@ -70,7 +71,8 @@ export function nurtureSlotProperties(
   sends.forEach((s, i) => {
     const n = String(i + 1);
     props[cfg.subjectProperty.replaceAll('{n}', n)] = s.subject;
-    props[cfg.bodyProperty.replaceAll('{n}', n)] = s.body;
+    // The template renders the body token as HTML, where a bare \n collapses.
+    props[cfg.bodyProperty.replaceAll('{n}', n)] = textToEmailHtml(s.body);
   });
   const midnightUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   props[cfg.generatedAtProperty] = String(midnightUtc);

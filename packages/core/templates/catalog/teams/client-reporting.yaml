@@ -1,0 +1,6 @@
+name: Reporting team
+description: >-
+  Pulls the numbers, checks them, and turns them into something a
+  client reads and acts on.
+lead: reporting-analyst
+# No accountableUser: inherits the workspace default when one is set.

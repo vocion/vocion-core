@@ -12,7 +12,10 @@ import { parseConversationParam } from './resumeRule';
  * and, on a lead, the pending decision). The shell's dock bails there so a
  * page never carries two conversation surfaces (agent-chat-surface.md §6).
  */
-export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//];
+// A decision page mounts its own dock too, for the same reason the lead page
+// does: the rail needs the pending RUN to rewrite against (`@change`), and
+// only the page has it. The shell's dock knows the route, not the run.
+export const OWN_DOCK_ROUTES: RegExp[] = [/\/gtm\/lead\//, /\/dashboard\/inbox\/proposal-\d+/];
 
 /**
  * Screens that mount no dock at all.
@@ -47,12 +50,24 @@ export const NO_DOCK_ROUTES: RegExp[] = [];
  * reads it for collapse state any more.
  */
 export const RECORD_ROUTES: RegExp[] = [
+  // A decision IS a record page — the one a person is looking at while they
+  // ask. These were missing, because the dock was suppressed here and nothing
+  // else read the list, so `page_context.record` arrived empty and the agent
+  // could only see the page title. Chris, 2026-09-17: the assistant said so
+  // itself, *"the page context only gives me the title, not the underlying
+  // record"*, and then could not act on the sends in front of it.
+  /\/dashboard\/inbox\/(?!g(?:\/|$))[^/]+$/,
+  /\/dashboard\/inbox\/g\/[^/]+$/,
+  /\/dashboard\/inbox\/r\/[^/]+$/,
   // A briefing is the record a person came to work from (R4): the rail opens
   // beside it, and the page's own composer is gone — one surface (058 §6).
   /\/dashboard\/briefings(?:\/[^/]+)?$/,
   /\/dashboard\/missions\/runs\/[^/]+$/,
   /\/dashboard\/missions\/(?!new$|runs(?:\/|$))[^/]+$/,
   /\/dashboard\/objects\/(?!type(?:\/|$))[^/]+$/,
+  // A data room is the record a person writes a document from; the rail opens
+  // beside it scoped to the room.
+  /\/dashboard\/rooms\/[^/]+$/,
   /\/dashboard\/agents\/[^/]+$/,
   /\/dashboard\/connectors\/[^/]+$/,
   /\/dashboard\/evals\/[^/]+\/runs\/[^/]+$/,

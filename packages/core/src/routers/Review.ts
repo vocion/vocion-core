@@ -172,15 +172,40 @@ export const proposeFromRecommendationRoute = os
     agentSlug: z.string().optional(),
     rationale: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
-    /** What the agent thinks the reviewer should do. Advisory — never releases the action. */
-    suggestedDecision: z.enum(SUGGESTED_DECISIONS).optional(),
+    /**
+     * What the agent thinks the reviewer should do. The question must be
+     * answered, like everywhere else a proposal is made, and `null` answers
+     * it: nothing judged this card. A caller that recommends nothing must say
+     * so rather than omit the key, because a card carrying a recommendation
+     * and a card carrying none are measured differently and the difference
+     * should be deliberate. Advisory in the other direction — it never
+     * releases the action.
+     */
+    suggestedDecision: z.enum(SUGGESTED_DECISIONS).nullable(),
+    /**
+     * One short sentence for why that recommendation, required alongside it
+     * and null when there is none. Not `rationale` above: that argues the
+     * payload is right, this argues what should happen to the card, which is
+     * the whole content of a `reject`.
+     */
+    suggestedDecisionReason: z.string().trim().min(1).nullable(),
     /** Only with `suggestedDecision: 'snooze'` — an ISO timestamp for the revisit. */
     suggestedSnoozeUntil: z.string().optional(),
     /** Upsert key (object type + id + action) — re-surfacing updates in place. */
     dedupKey: z.string().optional(),
     /** Days until this suggestion goes stale (drops from the queue). */
     expiresInDays: z.number().positive().max(90).optional(),
-  }))
+  }).refine(
+    value => (value.suggestedDecision === null) === (value.suggestedDecisionReason === null),
+    {
+      // Half a recommendation is worse than none: a verdict with no sentence
+      // is scored against the reviewer's decision with nothing they could
+      // check, and a sentence with no verdict argues for an outcome the card
+      // never names. The two travel together or neither does.
+      error: 'suggestedDecision and suggestedDecisionReason must both be given or both be null',
+      path: ['suggestedDecisionReason'],
+    },
+  ))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
     const { proposeAction } = await import('@/services/ActionService');
@@ -195,6 +220,7 @@ export const proposeFromRecommendationRoute = os
         confidence: input.confidence,
         rationale: input.rationale,
         suggestedDecision: input.suggestedDecision,
+        suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
         suggestedSnoozeUntil: input.suggestedSnoozeUntil,
       },
       // Explicit key wins; otherwise derive a stable one from the action + its
@@ -278,8 +304,8 @@ export const rewriteDraftRoute = os
  * Stable upsert key from an action + its input, so re-proposing the same owed
  * action updates the pending item instead of stacking a duplicate. Keyed on
  * the action's primary target (recipient for a send, object id for a CRM write).
- * @param actionId
- * @param input
+ * @param actionId - The action being proposed.
+ * @param input - That action's input payload.
  */
 function deriveDedupKey(actionId: string, input: Record<string, unknown>): string | undefined {
   const s = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : undefined);
@@ -395,8 +421,9 @@ export const regenerateActionRoute = os
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, input.id), eq(actionRunSchema.orgId, orgId)))
       .limit(1);
-    if (!run || run.status !== 'pending') {
-      throw ApiError.notFound(`no pending action ${input.id}`);
+    // Failed runs regenerate too — the redraft's dedup refresh reclaims them to pending.
+    if (!run || (run.status !== 'pending' && run.status !== 'failed')) {
+      throw ApiError.notFound(`no regenerable action ${input.id}`);
     }
     const action = getAction(run.actionId);
     if (!action?.regenerate) {

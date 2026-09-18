@@ -1,8 +1,10 @@
+import type { DocumentVerification } from '@/libs/cards/specs';
 import type { PreviewDoc, PreviewFact } from '@/libs/preview/types';
 import type { RecordRef } from '@/services/chat/pageContext';
 import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
+import { inspectDocument } from '@/libs/documents/sheets';
 import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
@@ -149,6 +151,52 @@ async function resolveCrmRecord(ref: RecordRef, ctx: { orgId: string; userId: st
 registerPreview('deal', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
 registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
 
+/**
+ * What to show in the panel for an artifact whose body is STRUCTURE rather
+ * than prose.
+ *
+ * A sequence and a table have no markdown, so the text lookup above finds
+ * nothing and the panel would report the artifact as empty — which is exactly
+ * the bug this file just fixed, one level down. Render the structure as text
+ * instead: it is a preview, and the full page still owns the real rendering.
+ * @param kind - The artifact kind.
+ * @param spec - Its spec.
+ */
+function specSummary(kind: string, spec: Record<string, unknown>): string | null {
+  if (kind === 'sequence' && Array.isArray(spec.sends)) {
+    const sends = spec.sends as Array<{ day?: number; step?: number; subject?: string; body?: string }>;
+    const head = typeof spec.sequenceName === 'string' ? `**${spec.sequenceName}**\n\n` : '';
+    return head + sends
+      .map((s) => {
+        const label = s.day !== undefined ? `Day ${s.day}` : `Send ${s.step ?? '?'}`;
+        return `### ${label} — ${s.subject ?? '(no subject)'}\n\n${s.body ?? ''}`;
+      })
+      .join('\n\n');
+  }
+  if (kind === 'document' && typeof spec.html === 'string') {
+    // The outline and the last verdict, with the first sheet as a picture.
+    // The frame itself lives on the full page; a preview says what it is.
+    const outline = inspectDocument(spec.html);
+    const v = spec.verification as DocumentVerification | undefined;
+    const first = v?.sheets.find(sh => sh.image);
+    return [
+      first?.image ? `![Sheet 1](${first.image})` : null,
+      `**${outline.sheetCount} ${outline.sheetCount === 1 ? 'sheet' : 'sheets'}**${v ? ` · ${v.ok ? 'render-verified, no issues' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`}${v.pdfPages !== null ? ` · PDF ${v.pdfPages} pages` : ''}` : ' · not verified'}`,
+      outline.sheets.map(sh => `${sh.n}. ${sh.label || '(no label)'}`).join('\n'),
+      v && v.issues.length > 0 ? v.issues.map(i => `- ${i}`).join('\n') : null,
+    ].filter(Boolean).join('\n\n');
+  }
+  if (kind === 'table' && Array.isArray(spec.columns)) {
+    const caption = typeof spec.caption === 'string' ? `**${spec.caption}**\n\n` : '';
+    const cols = (spec.columns as Array<{ label?: string } | string>)
+      .map(c => (typeof c === 'string' ? c : c.label ?? ''))
+      .filter(Boolean);
+    const rows = Array.isArray(spec.rows) ? spec.rows.length : 0;
+    return `${caption}${cols.join(' · ')}\n\n${rows} ${rows === 1 ? 'row' : 'rows'}`;
+  }
+  return null;
+}
+
 registerPreview('artifact', {
   sourceLabel: 'Artifact',
   href: ref => `/dashboard/artifacts/${ref.id}`,
@@ -166,7 +214,16 @@ registerPreview('artifact', {
       return null;
     }
     const spec = row.spec as Record<string, unknown>;
-    const text = typeof spec.markdown === 'string' ? spec.markdown : typeof spec.text === 'string' ? spec.text : null;
+    // `md` FIRST, because that is what every markdown artifact actually
+    // carries — `render_markdown` writes `{ title, md }` and so do the
+    // personalization brief and recommendation. This descriptor looked only
+    // for `markdown`/`text`, which no artifact has ever had, so the panel has
+    // shown "No text was synced for this reference" for every artifact since
+    // it was written. All 25 markdown artifacts in production use `md`.
+    // Chris, 2026-09-17: *"no preview or content on the Preview pane for this
+    // artifact."*
+    const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
+    const text = str(spec.md) ?? str(spec.markdown) ?? str(spec.text) ?? specSummary(row.kind, spec);
     return {
       ref,
       title: row.title,
