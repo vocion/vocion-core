@@ -137,8 +137,16 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Run as non-root.
-RUN addgroup --system --gid 1001 nodejs \
+# Chromium for the document engine (`libs/documents/render.ts`): documents are
+# rendered, measured and printed in a real browser. Alpine's own Chromium,
+# not Playwright's download (glibc); the engine finds it through
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. Fonts so text has a face to fall back
+# to when a document's web fonts do not load.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-dejavu ttf-liberation font-noto-emoji \
+  && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Copy the standalone server + the static + public + context tree.
 # The standalone output already includes the trimmed node_modules.

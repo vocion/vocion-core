@@ -67,9 +67,13 @@ let browserPromise: Promise<Browser> | null = null;
 /** One browser per process, launched on first use and reused. */
 async function browser(): Promise<Browser> {
   if (!browserPromise) {
+    const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
     browserPromise = chromium.launch({
       headless: true,
-      ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}),
+      ...(executablePath ? { executablePath } : {}),
+      // A system Chromium inside a container has no sandbox to use (no user
+      // namespaces); the document is our own HTML, network is allow-listed.
+      ...(executablePath ? { args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] } : {}),
     }).then((b) => {
       b.on('disconnected', () => {
         browserPromise = null;

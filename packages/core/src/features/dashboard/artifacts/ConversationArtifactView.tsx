@@ -269,7 +269,11 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
               value={session.composerValue}
               onChange={session.setComposerValue}
               onSubmit={() => void session.sendMessage(session.composerValue)}
-              disabled={!session.booted}
+              // Not until the session is on THIS conversation: the hook boots on
+              // the last-viewed pointer and switches a beat later, and a line
+              // sent in that beat would open a new thread beside the one on
+              // screen — then vanish from view when the switch landed.
+              disabled={!session.booted || session.conversationId !== props.conversationId}
               streaming={session.isStreaming}
               {...queueProps}
               {...tagProps}

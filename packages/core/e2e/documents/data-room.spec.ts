@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { expect, test } from '@playwright/test';
+import { ADMIN, seedDocumentsWorkspace } from './support/seed';
 
 /**
  * The data room, as a person runs it — opened by chat, a transcript filed
@@ -16,10 +17,6 @@ import { expect, test } from '@playwright/test';
  * is filed because its attendee domain and title match one room clearly.
  */
 
-const ADMIN = {
-  email: process.env.E2E_DOCUMENTS_EMAIL ?? 'documents@example.test',
-  password: process.env.E2E_DOCUMENTS_PASSWORD ?? 'documents-e2e-1',
-};
 const ROOT = path.resolve(__dirname, '..', '..');
 const SHOTS = path.join(ROOT, 'test-results', 'documents');
 
@@ -52,9 +49,10 @@ async function shot(page: Page, name: string) {
 }
 
 test.beforeAll(() => {
-  // Repeatable on a database that keeps state: the room this spec opens is
-  // removed first, or the filing step would (correctly) refuse to choose
-  // between two rooms by the same name.
+  // Same admin, workspace and fixtures as document-loop.spec — either spec may
+  // run first. Then the room this spec opens is removed, or the filing step
+  // would (correctly) refuse to choose between two rooms by the same name.
+  seedDocumentsWorkspace();
   execFileSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', 'e2e/documents/support/reset-rooms.ts'], { cwd: ROOT, stdio: ['ignore', 'inherit', 'inherit'], env: process.env });
 });
 
@@ -74,9 +72,8 @@ test.describe('the data room, by chat', () => {
     await say(page, 'File the third call transcript.', 'Filed the third call into');
     await shot(page, '11-room-by-chat');
 
-    // The rooms list, then the room.
-    await page.getByRole('link', { name: 'Data rooms' }).first().click();
-    await page.waitForURL(/\/dashboard\/rooms$/);
+    // The rooms list (under Knowledge in the sidebar; reached by URL here), then the room.
+    await page.goto('/dashboard/rooms');
     const row = page.getByRole('link', { name: /Northwind — Hiring agents/ }).first();
 
     await expect(row).toBeVisible();

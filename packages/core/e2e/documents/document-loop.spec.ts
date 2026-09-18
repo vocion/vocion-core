@@ -1,10 +1,8 @@
 import type { Page } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
 import { expect, test } from '@playwright/test';
-import { tolerateExistingUser } from '../../tests/TestUtils';
+import { ADMIN, seedDocumentsWorkspace } from './support/seed';
 
 /**
  * The document loop, as a person runs it — chat beside the document, edited
@@ -28,33 +26,12 @@ import { tolerateExistingUser } from '../../tests/TestUtils';
  * database whose user and workspace already exist (a local dev server).
  */
 
-const ADMIN = {
-  name: 'Pat Reyes',
-  account: 'Metacto',
-  email: process.env.E2E_DOCUMENTS_EMAIL ?? 'documents@example.test',
-  password: process.env.E2E_DOCUMENTS_PASSWORD ?? 'documents-e2e-1',
-};
-const PRESEEDED = Boolean(process.env.E2E_DOCUMENTS_EMAIL);
 const ROOT = path.resolve(__dirname, '..', '..');
 const SHOTS = path.join(ROOT, 'test-results', 'documents');
 
-function run(args: string[]): void {
-  execFileSync('npx', ['dotenv', '-c', '--', 'npx', 'tsx', ...args], { cwd: ROOT, stdio: ['ignore', 'inherit', 'pipe'], env: process.env });
-}
-
 test.beforeAll(() => {
   mkdirSync(SHOTS, { recursive: true });
-  run(['e2e/documents/support/write-fixtures.ts']);
-  if (PRESEEDED) {
-    return;
-  }
-  try {
-    run(['src/scripts/create-local-user.ts', '--email', ADMIN.email, '--name', ADMIN.name, '--account', ADMIN.account, '--password', ADMIN.password, '--role', 'admin']);
-  } catch (error) {
-    tolerateExistingUser(error, '[documents spec]');
-  }
-  // One project on a fresh database, so apply auto-targets it.
-  run(['src/scripts/apply-workspace.ts', path.join(ROOT, 'templates', 'workspaces', 'client-documents')]);
+  seedDocumentsWorkspace();
 });
 
 async function signIn(page: Page) {
@@ -223,7 +200,8 @@ test.describe('the document loop, by chat', () => {
  */
 async function latestDocument(page: Page): Promise<{ conversation: string; artifactId: string }> {
   await page.goto('/dashboard/artifacts');
-  const row = page.locator('a[href*="/dashboard/chat/"][href*="artifact="]').first();
+  // The newest DOCUMENT row — the log also lists the PDF files exported from it.
+  const row = page.locator('a[href*="/dashboard/chat/"][href*="artifact="]', { hasText: /Document · v\d/ }).first();
 
   await expect(row).toBeVisible({ timeout: 30_000 });
 
