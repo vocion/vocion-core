@@ -49,10 +49,26 @@ registerAction({
   external: true,
   execute: async () => ({ ok: true }),
 });
+// Internal (nothing leaves the workspace) and reversible — the wiki-page /
+// plugin-toggle shape. An agent proposing it is still judged by the ladder.
+registerAction({
+  id: 'test.internal-reversible',
+  name: 'Test internal reversible write',
+  description: 'test',
+  inputSchema: z.object({ value: z.string() }),
+  grant: 'test_write',
+  external: false,
+  execute: async (_ctx, input) => {
+    writes.push((input as { value: string }).value);
+    return { wrote: (input as { value: string }).value, previous: 'before' };
+  },
+  undo: async () => ({ ok: true }),
+});
 // The platform's view of these kinds — set here because the table is keyed
 // by id and test ids are not in it (an unknown external kind is high-risk).
 DEFAULT_RISK_TIER['test.reversible-write'] = 'low';
 DEFAULT_RISK_TIER['test.oneway-write'] = 'low';
+DEFAULT_RISK_TIER['test.internal-reversible'] = 'low';
 
 function agent(): Principal {
   return { kind: 'agent', id: 'agent:deal-desk', grants: ['test_write'], autonomy: 2, scope: { orgId: ORG } };
@@ -160,5 +176,18 @@ describe('undo', () => {
     const oneway = await propose('test.oneway-write', 0.5);
 
     await expect(undoAction(oneway.runId, ORG, { by: 'usr-chris' })).rejects.toMatchObject({ code: 'NOT_REVERSIBLE' });
+  });
+});
+
+describe('an internal kind proposed by an agent is still judged by the ladder', () => {
+  it('runs on its own above the bar and waits for a person under it — autonomy alone never releases it', async () => {
+    const above = await propose('test.internal-reversible', 0.9);
+    const under = await propose('test.internal-reversible', 0.45);
+
+    expect(above.status).toBe('done');
+    expect((await readRun(above.runId)).proposal?.autoApproved).toBe(true);
+    expect(under.status).toBe('pending');
+    expect((await readRun(under.runId)).proposal?.autoApproved).toBeUndefined();
+    expect(writes).toHaveLength(1);
   });
 });

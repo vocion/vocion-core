@@ -373,7 +373,17 @@ export async function proposeAction(input: {
     }
   }
 
-  const gated = decision.gate === 'approve';
+  // An AGENT'S proposal that CARRIES A CONFIDENCE is judged by the ladder
+  // below — the done-for-you decision (confidence against the kind's bar) is
+  // what lets it run at once, never the caller's autonomy alone. Until the
+  // first internal kinds (`wiki.write_page`, `plugin.enable`) every registered
+  // action was `external: true`, so the authz gate and this rule agreed; an
+  // internal kind proposed at working autonomy came back `within-autonomy`
+  // and executed at 0.45 confidence past a 0.6 bar (found 2026-09-18). A
+  // machine run with no envelope, and a person or token holding the grant,
+  // still write within their autonomy as before.
+  const gated = decision.gate === 'approve'
+    || (input.principal.kind === 'agent' && typeof input.proposal?.confidence === 'number');
   const [run] = await db
     .insert(actionRunSchema)
     .values({
