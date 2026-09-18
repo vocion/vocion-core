@@ -117,6 +117,7 @@ import {
   rewriteDraftRoute,
   snoozeActionRoute,
   submitFeedback,
+  undoActionRoute,
 } from './Review';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
@@ -290,6 +291,7 @@ export const router = {
     listPendingActionTypes: listPendingActionTypesRoute,
     listAutoExecuted: listAutoExecutedRoute,
     decideAction: decideActionRoute,
+    undoAction: undoActionRoute,
     snoozeAction: snoozeActionRoute,
     regenerateAction: regenerateActionRoute,
     propose: proposeFromRecommendationRoute,

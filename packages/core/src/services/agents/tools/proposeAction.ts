@@ -85,7 +85,7 @@ export function proposeActionTool(ctx: RuntimeContext) {
         if (res.status === 'pending') {
           return `Proposed ${action_id} → action run #${res.runId} is PENDING human approval in the review queue (confidence ${confidence}). Do NOT claim the change was made — say it has been queued for approval.`;
         }
-        return `${action_id} executed immediately (run #${res.runId}): ${JSON.stringify(res.result ?? {}).slice(0, 500)}`;
+        return `${action_id} is DONE (run #${res.runId}, confidence ${confidence}) — it was reversible and above the bar, so it ran without waiting. Say it was done, and that a person can undo it from the Review queue's Decided tab. Result: ${JSON.stringify(res.result ?? {}).slice(0, 400)}`;
       } catch (err) {
         if (err instanceof ActionError) {
           return `Proposal refused (${err.code}): ${err.message}`;
@@ -95,7 +95,7 @@ export function proposeActionTool(ctx: RuntimeContext) {
     },
     {
       name: 'propose_action',
-      description: `Propose a connector-write action (CRM update, email send) for human approval. Use when your analysis concludes a record should be created/updated or a message sent. The proposal lands in the review queue with your confidence + rationale — a human approves before anything touches the outside world. Available actions:\n${available}`,
+      description: `Propose a connector-write action (CRM update, email send). Use when your analysis concludes a record should be created/updated or a message sent. Done for you by default: a REVERSIBLE, low-risk action (a HubSpot property update) executes at once when your confidence is 0.8 or higher, and a person can undo it in one click; anything else — an email send, a low-confidence call, a kind a person has held — lands in the review queue with your confidence + rationale for approval. Give an honest confidence: it decides whether this runs now or waits. Available actions:\n${available}`,
       schema: z.object({
         action_id: z.string().describe('Registered action id, e.g. "hubspot.update" or "gmail.send"'),
         action_input: z.record(z.string(), z.unknown()).describe('The action\'s input payload (e.g. for hubspot.update: { objectType: "deals", objectId: "123", properties: { dealstage: "..." } })'),

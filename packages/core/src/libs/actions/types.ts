@@ -271,4 +271,12 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string) => Promise<void>;
   /** Do the write. Returns a result object persisted on the action_run. */
   execute: (ctx: ActionContext, input: z.infer<S>) => Promise<Record<string, unknown>>;
+  /**
+   * Put the write back, given what `execute` returned. Declaring this is what
+   * makes a kind REVERSIBLE, and reversible is what lets it run on its own by
+   * default (`libs/actions/autoAccept.ts`): done for you, with Undo one move
+   * away. `execute` has to record whatever undo needs — the previous values,
+   * the created id — in its result. Return what undo did, for the run.
+   */
+  undo?: (ctx: ActionContext, input: z.infer<S>, result: Record<string, unknown>) => Promise<Record<string, unknown> | void>;
 };

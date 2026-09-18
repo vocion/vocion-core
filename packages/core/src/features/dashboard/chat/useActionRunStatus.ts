@@ -18,10 +18,16 @@ export type ActionRunStatus = {
   status: string;
   decidedBy: string | null;
   decidedAt: string | null;
+  /** The ladder released it without a person — "done for you". */
+  approvedByAgent?: boolean;
+  /** A done run the card can put back. */
+  undoable?: boolean;
+  /** Why it ran on its own, when it did. */
+  reason?: string | null;
   fetchedAt: number;
 };
 
-export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'rejected']);
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'rejected', 'undone']);
 
 const MIN_MS = 2_000;
 const MAX_MS = 30_000;
@@ -63,7 +69,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
 
     const tick = async () => {
       try {
-        const res = await client.review.actionStatus({ id }) as { status: string; decidedBy: string | null; decidedAt: string | null };
+        const res = await client.review.actionStatus({ id }) as { status: string; decidedBy: string | null; decidedAt: string | null; approvedByAgent?: boolean; undoable?: boolean; reason?: string | null };
         if (cancelled) {
           return;
         }
@@ -74,7 +80,7 @@ export function useActionRunStatus(runId: number | undefined): ActionRunStatus |
             unchanged = 0;
             delay = MIN_MS;
           }
-          return { status: res.status, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, fetchedAt: Date.now() };
+          return { status: res.status, decidedBy: res.decidedBy ?? null, decidedAt: res.decidedAt ?? null, approvedByAgent: res.approvedByAgent, undoable: res.undoable, reason: res.reason ?? null, fetchedAt: Date.now() };
         });
         if (TERMINAL_STATUSES.has(res.status)) {
           return;
@@ -123,6 +129,8 @@ export function describeActionStatus(s: string): { label: string; tone: 'muted' 
       return { label: 'Failed', tone: 'red' };
     case 'rejected':
       return { label: 'Rejected', tone: 'red' };
+    case 'undone':
+      return { label: 'Undone', tone: 'muted' };
     case 'snoozed':
       return { label: 'Snoozed', tone: 'muted' };
     default:

@@ -89,6 +89,14 @@ Where a rung comes from, and which wins:
 
 ## Rules
 
+- **Done for you by default.** A kind nobody has written a rule for, and no one
+  has parked or held, executes on its own when three things are true: the
+  action declares `undo` (it can be put back), its risk tier is `low`, and the
+  agent's confidence clears the kind's bar (0.8; `libs/actions/autoAccept.ts`).
+  Every such run is listed on the Review queue's Decided tab as "done for you"
+  with Undo one click away; an undo counts like the rejection of an
+  auto-executed run and can demote the kind. A `trust.yaml` rule for the kind,
+  or any rung a person set, replaces the default. Irreversible kinds always ask.
 - `autoApproveAbove` must be between 0 and 1 inclusive.
 - A rule with `enabled: false` never auto-approves, whatever the threshold says.
 - Some kinds are held at `execute-with-approval` by the platform regardless of

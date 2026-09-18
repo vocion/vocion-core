@@ -3042,7 +3042,7 @@ export const actionRunSchema = pgTable(
     /** Registered action id, e.g. `gmail.send`. */
     actionId: text('action_id').notNull(),
     input: jsonb('input').$type<Record<string, unknown>>().default({}).notNull(),
-    /** pending | approved | executing | done | failed | rejected */
+    /** pending | approved | executing | done | failed | rejected | undone (a done run a person put back) */
     status: text('status').default('pending').notNull(),
     result: jsonb('result').$type<Record<string, unknown>>(),
     error: text('error'),
@@ -3072,6 +3072,10 @@ export const actionRunSchema = pgTable(
       evidence?: string[];
       autoApproved?: boolean;
       autoApprovedThreshold?: number;
+      /** Why it ran without a person, in one clause (`libs/actions/autoAccept.ts`). */
+      autoApprovedReason?: string;
+      /** Which rule released it: `trust-rule` (a promoted kind) or `default` (reversible, low-risk, above the bar). */
+      autoApprovedBy?: string;
       /**
        * Which agent's judgement this proposal represents. `invokedBy` cannot
        * always answer that: a proposal made over the API records the human or
