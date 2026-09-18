@@ -152,7 +152,8 @@ export function createDataRoomTool(ctx: RuntimeContext) {
         cast: coerceJson(args.cast),
         ...(args.deal ? { deal: coerceJson(args.deal) } : {}),
       });
-      return `Opened data room #${room.id} "${room.title}" (${roomHref(room.id)}). Matching domains: ${(room.meta.domains ?? []).join(', ') || 'none yet — add the client\'s email domain so transcripts and threads can be filed to it automatically'}.`;
+      ctx.emit({ type: 'record_created', record: { type: 'object', id: String(room.id), label: room.title, href: roomHref(room.id) } });
+      return `Opened data room #${room.id} "${room.title}". When you tell the person, link it inline as [${room.title}](${roomHref(room.id)}) — the link is how they open it. Matching domains: ${(room.meta.domains ?? []).join(', ') || 'none yet — add the client\'s email domain so transcripts and threads can be filed to it automatically'}.`;
     },
     {
       name: 'create_data_room',

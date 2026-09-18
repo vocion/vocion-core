@@ -6,6 +6,7 @@ import type { Deliverable } from '@/libs/chat/deliverable';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { appendRecordLinks } from '@/libs/chat/recordLinks';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
@@ -432,6 +433,9 @@ export async function runAgentDeep(opts: {
   // window in which it emits its `documents` event via ctx.emit).
   let activeSpecialist: string | null = null;
   const emittedCards: string[] = [];
+  // Records the turn made (a data room, a proposal) — linked at the end of the
+  // answer if the model forgot to (`appendRecordLinks`).
+  const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -442,6 +446,9 @@ export async function runAgentDeep(opts: {
     }
     if (event.type === 'recommended_action') {
       emittedCards.push(event.recommendation.label);
+    }
+    if (event.type === 'record_created') {
+      createdRecords.push(event.record);
     }
     recordedEvents.push(event);
     rawEmit(event);
@@ -839,6 +846,13 @@ export async function runAgentDeep(opts: {
     emit({ type: 'response_delta', delta: tail.answer });
   }
   finalText = normalizeAnswerHtml(finalText).trim();
+  if (createdRecords.length > 0) {
+    const linked = appendRecordLinks(finalText, createdRecords);
+    if (linked !== finalText) {
+      emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
+      finalText = linked;
+    }
+  }
 
   // Card backstop (structural, workspace-opt-in): prompt compliance for
   // recommend_action proved unreliable — a long tool output (the daily brief)
