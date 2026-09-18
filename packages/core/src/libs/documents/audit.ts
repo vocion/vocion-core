@@ -113,7 +113,7 @@ export function verificationReceipt(v: DocumentVerification, opts: { images?: bo
   const head = [
     `${v.sheets.length} ${v.sheets.length === 1 ? 'sheet' : 'sheets'}`,
     v.footerAligned ? `footers aligned${baseline === null ? '' : ` at ${baseline}px`}` : 'footers NOT aligned',
-    v.pdfPages === null ? 'PDF not printed' : `PDF ${v.pdfPages} ${v.pdfPages === 1 ? 'page' : 'pages'}`,
+    v.pdfPages === null ? (v.pdf ? 'PDF printed · page count unavailable' : 'PDF not printed') : `PDF ${v.pdfPages} ${v.pdfPages === 1 ? 'page' : 'pages'}`,
     v.ok ? 'no issues' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`,
   ].join(' · ');
   const lines = [head];
