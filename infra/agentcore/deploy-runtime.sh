@@ -45,50 +45,7 @@ docker push "$IMAGE" >/dev/null
 echo "-- pushed ${TAG}"
 
 # ---------------------------------------------------------------- 3. runtime
-# Tracing. On by default; export OBSERVABILITY=false to deploy a runtime that
-# emits nothing. What each variable does:
-#
-#   AGENT_OBSERVABILITY_ENABLED  the switch AWS's OpenTelemetry distro reads.
-#       With it on, the distro exports every span rather than a sample, copies
-#       `session.id` out of baggage onto each span, and turns on the GenAI span
-#       processing that AgentCore Evaluations needs to read a trace.
-#   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT  where the spans go. The distro only
-#       uses its X-Ray exporter when this exactly matches
-#       https://xray.<region>.amazonaws.com/v1/traces — a trailing slash or a
-#       different host silently falls back to a plain OTLP exporter that has no
-#       AWS credentials, and the spans go nowhere.
-#   OTEL_EXPORTER_OTLP_TRACES_PROTOCOL  http/protobuf is the only protocol that
-#       endpoint accepts; it speaks HTTP, never gRPC.
-#   OTEL_LOGS_EXPORTER / OTEL_METRICS_EXPORTER = none  we export traces, not
-#       logs or metrics. Left unset, the distro warns on every start about
-#       missing log-group headers, and AWS's own guidance is to turn metrics off
-#       here so Transaction Search is not billed twice.
-#   OTEL_RESOURCE_ATTRIBUTES  the name this runtime appears under in the GenAI
-#       Observability console.
-#
-# Spans reach CloudWatch Logs (the `aws/spans` group that batch evaluation
-# reads) only if Transaction Search is on in this region — provision.sh turns
-# it on, and it is billed per span ingested.
-OBSERVABILITY="${OBSERVABILITY:-true}"
-ENV_VARS=$(python3 - "$REGION" "$RUNTIME_NAME" "$OBSERVABILITY" <<'PYENV'
-import json, sys
-
-region, runtime_name, observability = sys.argv[1], sys.argv[2], sys.argv[3]
-env = {"VOCION_MODEL_PROVIDER": "bedrock", "AWS_REGION": region}
-if observability.lower() == "true":
-    env.update({
-        "AGENT_OBSERVABILITY_ENABLED": "true",
-        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": f"https://xray.{region}.amazonaws.com/v1/traces",
-        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf",
-        "OTEL_TRACES_EXPORTER": "otlp",
-        "OTEL_LOGS_EXPORTER": "none",
-        "OTEL_METRICS_EXPORTER": "none",
-        "OTEL_RESOURCE_ATTRIBUTES": f"service.name={runtime_name}",
-    })
-print(json.dumps(env))
-PYENV
-)
-echo "-- observability: ${OBSERVABILITY}"
+ENV_VARS="{\"VOCION_MODEL_PROVIDER\":\"bedrock\",\"AWS_REGION\":\"${REGION}\",\"VOCION_AGENT_RUNTIME_AUTH_MODE\":\"agentcore\"}"
 EXISTING_ID=$(aws bedrock-agentcore-control list-agent-runtimes \
   --query "agentRuntimes[?agentRuntimeName=='${RUNTIME_NAME}'].agentRuntimeId | [0]" --output text)
 
