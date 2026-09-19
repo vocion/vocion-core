@@ -99,7 +99,7 @@ describe('planPluginPanel', () => {
 
     const taught = planPluginPanel({
       ...base,
-      learnings: [{ id: 4, text: 'Name the Kestrel Capital owner in the first line.', status: 'approved', at: new Date('2026-09-17T10:00:00Z'), step: 'brief-writing' }],
+      learnings: [{ id: 'candidate:4', text: 'Name the Kestrel Capital owner in the first line.', status: 'approved', at: new Date('2026-09-17T10:00:00Z'), step: 'brief-writing' }],
       actions: [{ id: 9, title: 'Send the Northwind brief', status: 'done', at: new Date('2026-09-18T08:00:00Z') }],
     });
 
@@ -129,6 +129,7 @@ describe('rule text and status pills', () => {
 
   it('reads an approved candidate as adopted, and names the three ends a decided action reaches', () => {
     expect(learningPill('approved')).toEqual({ status: 'completed', label: 'Adopted' });
+    expect(learningPill('adopted')).toEqual({ status: 'completed', label: 'Adopted' });
     expect(learningPill('rejected')).toEqual({ status: 'rejected', label: 'Rejected' });
     expect(learningPill('pending')).toEqual({ status: 'pending', label: 'Pending' });
 
