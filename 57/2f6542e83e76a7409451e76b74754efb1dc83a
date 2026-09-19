@@ -1,0 +1,29 @@
+packages/core/src/features/review/ReviewSurface.tsx
+  s_57146da98e2611::t_4a30ac541d7cb1 349,358,385-386,390,400,404
+  s_57146da98e2611::t_806939c1eb2507 593-601,939,960,963
+packages/core/e2e/queue/approve-each-send.queue.spec.ts
+  s_57146da98e2611::t_06700a7437d510 110-116
+packages/core/src/features/review/ReviewSurface.test.tsx
+  s_57146da98e2611::t_f89369d3d3f718 311-314
+packages/core/src/features/review/ReviewSurface.walk.test.tsx
+  s_57146da98e2611::t_12066e3719be0b 259,261
+  s_57146da98e2611::t_f89369d3d3f718 224,237-258,260,262-267
+packages/core/src/features/personalization/LeadDetail.test.tsx
+  s_57146da98e2611::t_f89369d3d3f718 273-278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "572f6542e83e76a7409451e76b74754efb1dc83a",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
