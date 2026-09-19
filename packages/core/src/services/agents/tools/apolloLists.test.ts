@@ -47,6 +47,7 @@ function ctxFor(orgId = ORG, sources: string[] = ['apollo'], grants: string[] = 
     searchConfig: {},
     harnessConfig: { grantTools: grants },
     emit: () => {},
+    actor: { kind: 'user', id: 'user_1' },
     citationSeq: { current: 0 },
   };
 }

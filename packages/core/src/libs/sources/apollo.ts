@@ -147,6 +147,9 @@ export const apolloConnector: SourceConnector<typeof apolloConfigSchema> = {
   description: 'Prospecting and contact enrichment, queried live. Net-new people and company search, verified work emails, and saved lists as a staging area.',
   icon: 'Radar',
   authKind: 'apikey',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   syncless: true,
   configSchema: apolloConfigSchema,
   inspectNote: `Runs five checks against Apollo and reports what this key opens. It spends ${APOLLO_PROBE_CREDIT_COST} Apollo credit, on the company-search check; the other four are free. Nothing is saved.`,

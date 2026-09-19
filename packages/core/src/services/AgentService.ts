@@ -3,12 +3,14 @@ import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
+import type { Actor } from '@/services/SourceCredentialService';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { tokenCostCents } from '@/libs/pricing';
 import { agentSchema } from '@/models/Schema';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
@@ -344,6 +346,17 @@ export async function runAgentDeep(opts: {
   agentSlug: string;
   message: string;
   userId?: string;
+  /**
+   * Who this turn resolves personal credentials for. Only a caller holding a
+   * verified session (the chat stream route) passes a user actor; everything
+   * else — schedules, workflows, missions, the eval runner, the CLIs — leaves
+   * it unset and runs as the system, which reaches no personal grant.
+   *
+   * Deliberately not derived from `userId`: that field carries sentinels like
+   * `'gen-team-brief'`, and a sentinel that happened to match a member's id
+   * would be a cross-user read with nothing in the code saying so.
+   */
+  actor?: Actor;
   /** Per-user connection ACL — restricts retrieval to these source slugs. */
   allowedSourceSlugs?: string[];
   /** Set for mission runs — lets mission-scoped tools (update_mission_notes) resolve their mission. */
@@ -489,7 +502,7 @@ export async function runAgentDeep(opts: {
   }
 
   const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
+  bindRequestEmit(compiled, emit, opts.userId, opts.actor ?? SYSTEM_ACTOR, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];

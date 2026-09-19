@@ -25,7 +25,7 @@ import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
-import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { actorFor, getCredentialsForSource } from '@/services/SourceCredentialService';
 
 export class ActionError extends Error {
   code: string;
@@ -534,7 +534,11 @@ export async function executeAction(
         : {}),
     })
     .where(eq(actionRunSchema.id, runId));
-  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
+  // The reviewer who ran it, when a person did; the system when the queue
+  // executed it on its own. An action's own `invokedBy` is not used: it can be
+  // an agent slug, and a credential is resolved for a person or for nobody.
+  const actor = actorFor(opts?.reviewedBy);
+  const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug, actor) : undefined;
 
   try {
     const result = await action.execute({

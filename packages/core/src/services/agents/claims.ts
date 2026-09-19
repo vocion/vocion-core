@@ -22,6 +22,17 @@ export type TenantClaim = {
   orgId: string;
   agentSlug: string;
   userId?: string;
+  /**
+   * Who the invocation resolves personal credentials for.
+   *
+   * On the claim rather than derived from `userId` at the far end, because
+   * `userId` is an attribution string carrying sentinels and the artifact must
+   * not be the thing that decides which of them counts as a person. Core says
+   * it once, here, signed; the tool endpoint reads it and nothing else.
+   * Absent on a claim minted before this landed, which reads as the system
+   * actor — the safe half.
+   */
+  actor?: import('@/services/SourceCredentialService').Actor;
   /** Per-user source ACL for this request (SourceAccessService). */
   allowedSourceSlugs?: string[];
   /** Mission scope for mission-run tools. */

@@ -134,7 +134,12 @@ async function main() {
       sourceSlug: source,
       raw: { refreshToken: tokens.refresh_token, clientId, clientSecret },
       displayName: `Google OAuth (${source})`,
-      userId: 'google-oauth-cli',
+      // NULL, not a sentinel: a null `user_id` is a WORKSPACE grant, which is
+      // what an admin installing a source from the CLI is doing. A sentinel
+      // string would be a per-user grant belonging to a user that does not
+      // exist, which after per-user resolution landed would be reachable by
+      // nobody at all.
+      userId: null,
       projectId: project.id,
     });
     console.log(`✓ stored durable ${source} credential #${credentialId} (refresh token, vault-encrypted)`);

@@ -21,6 +21,7 @@ import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 
 vi.mock('@/libs/Auth', () => ({ clerkAuth: vi.fn() }));
 vi.mock('@/services/SourceCredentialService', () => ({
+  actorFor: (id?: string | null) => (id ? { kind: 'user', id } : { kind: 'system' }),
   ConnectorCredentialError: class ConnectorCredentialError extends Error {
     reason: string;
     constructor(reason: string, message: string) {
@@ -123,6 +124,9 @@ describe('GET /rpc/sources/[id]/credentials', () => {
       orgId: 'org_1',
       connectorSlug: 'strapi',
       apiTokenId: 'cred_a',
+      // Resolved FOR the signed-in person: on a personal connector that is the
+      // difference between their grant and a colleague's.
+      actor: { kind: 'user', id: 'user_1' },
     });
   });
 

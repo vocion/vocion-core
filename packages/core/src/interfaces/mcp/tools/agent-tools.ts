@@ -33,6 +33,7 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { agentSchema, projectSchema } from '@/models/Schema';
 import { buildDomainTools } from '@/services/agents/tools/registry';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 
 type ToolModule = {
   name: string;
@@ -90,6 +91,9 @@ function ctxFor(orgId: string, row: AgentRow, userId: string, events: AgentEvent
   return {
     orgId,
     userId,
+    // An MCP caller is not a signed-in person: the transport authenticates an
+    // org. No personal grant is reachable from here.
+    actor: SYSTEM_ACTOR,
     citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],

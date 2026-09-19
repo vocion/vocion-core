@@ -93,6 +93,9 @@ export const webConnector: SourceConnector<typeof webConfigSchema> = {
   description: 'Crawl a list of public URLs or a single site (same-origin BFS, capped depth + page count).',
   icon: 'Globe',
   authKind: 'none',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: webConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = webConfigSchema.parse(ctx.config);

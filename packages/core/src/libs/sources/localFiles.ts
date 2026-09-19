@@ -45,6 +45,9 @@ export const localFilesConnector: SourceConnector<typeof localFilesConfigSchema>
   description: 'Ingest a directory of markdown / plain-text files from the filesystem. Useful for demos, fixtures, and one-shot corpus imports.',
   icon: 'FolderOpen',
   authKind: 'none',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: localFilesConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = localFilesConfigSchema.parse(ctx.config);

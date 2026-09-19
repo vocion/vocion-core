@@ -185,6 +185,9 @@ export const zoomConnector: SourceConnector<typeof zoomConfigSchema> = {
   description: 'Ingest cloud-recording meetings + transcripts, company-wide (Server-to-Server OAuth).',
   icon: 'Video',
   authKind: 'oauth',
+  // Both readings are legitimate, so it defaults to `personal` and offers the
+  // workspace grant as a second choice when one exists.
+  identity: 'either',
   configSchema: zoomConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = zoomConfigSchema.parse(ctx.config);

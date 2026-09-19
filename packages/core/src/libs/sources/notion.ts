@@ -370,6 +370,9 @@ export const notionConnector: SourceConnector<typeof notionConfigSchema> = {
   description: 'Ingest the Notion pages and databases shared with an integration — title, properties and block text.',
   icon: 'NotebookText',
   authKind: 'apikey',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: notionConfigSchema,
   defaultReconcileCron: '0 4 * * *',
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

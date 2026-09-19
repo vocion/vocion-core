@@ -19,6 +19,7 @@ vi.mock('@/libs/sources/registry', () => ({ getConnector: vi.fn() }));
 // they are never reached: "persists nothing" is the promise the dialog makes
 // before someone pastes a live key into it.
 vi.mock('@/services/SourceCredentialService', () => ({
+  actorFor: (id?: string | null) => (id ? { kind: 'user', id } : { kind: 'system' }),
   getCredentialsForConnector: vi.fn(),
   storedCredentialIdForSource: vi.fn(),
   storeCredentialForSource: vi.fn(),
@@ -210,7 +211,7 @@ describe('re-testing a connected source', () => {
     const res = await POST(inspectRequest({ sourceId: 7 }), context('apollo'));
 
     expect(res.status).toBe(200);
-    expect(getCredentialsForConnector).toHaveBeenCalledWith({ orgId: 'org_1', connectorSlug: 'apollo', apiTokenId: 'cred_1' });
+    expect(getCredentialsForConnector).toHaveBeenCalledWith({ orgId: 'org_1', connectorSlug: 'apollo', apiTokenId: 'cred_1', actor: { kind: 'user', id: 'user_1' } });
     expect(inspectHook).toHaveBeenCalledWith({
       config: { _connector: 'apollo', baseUrl: 'https://api.apollo.io' },
       credentials: { token: 'vaulted-key' },

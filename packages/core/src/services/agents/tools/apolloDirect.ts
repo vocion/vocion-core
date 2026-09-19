@@ -105,7 +105,7 @@ export async function apolloClientForCtx(ctx: RuntimeContext): Promise<ApolloCtx
     return noApolloCredentials('No Apollo source is connected in this workspace, so live Apollo reads are unavailable. Say that rather than guessing.');
   }
   for (const source of sources) {
-    const credentials = await getCredentialsForSource(ctx.orgId, source.slug);
+    const credentials = await getCredentialsForSource(ctx.orgId, source.slug, ctx.actor);
     const apiKey = keyFromCredentials(credentials as Record<string, unknown> | undefined);
     if (apiKey) {
       const baseUrl = typeof source.configJson?.baseUrl === 'string' ? source.configJson.baseUrl : undefined;

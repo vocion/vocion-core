@@ -45,6 +45,12 @@ export const driveConnector: SourceConnector<typeof driveConfigSchema> = {
   description: 'Ingest Google Drive documents (Docs, Sheets, Slides, text) — incremental by modified time.',
   icon: 'FileText',
   authKind: 'oauth',
+  // Per-member grant reaching one person's own data. Live-read only: never
+  // synced, never chunked (see `SourceIdentity`).
+  identity: 'personal',
+  scopes: {
+    default: ['https://www.googleapis.com/auth/drive.readonly'],
+  },
   configSchema: driveConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = driveConfigSchema.parse(ctx.config);

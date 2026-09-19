@@ -318,6 +318,9 @@ export const strapiConnector: SourceConnector<typeof strapiConfigSchema> = {
   description: 'Ingest entries from one or more Strapi CMS collections — incremental by updatedAt.',
   icon: 'Database',
   authKind: 'apikey',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: strapiConfigSchema,
 
   /**

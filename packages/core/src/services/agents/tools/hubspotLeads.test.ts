@@ -37,6 +37,7 @@ function ctxFor(sources: string[] = ['hubspot'], allowed?: string[]): RuntimeCon
     searchConfig: {},
     harnessConfig: {},
     emit: () => {},
+    actor: { kind: 'user', id: 'user_1' },
     citationSeq: { current: 0 },
   };
 }

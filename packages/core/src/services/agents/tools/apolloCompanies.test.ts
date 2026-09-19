@@ -39,6 +39,7 @@ function ctxFor(orgId = ORG): RuntimeContext {
     searchConfig: {},
     harnessConfig: {},
     emit: () => {},
+    actor: { kind: 'user', id: 'user_1' },
     citationSeq: { current: 0 },
   };
 }

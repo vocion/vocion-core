@@ -30,6 +30,9 @@ export const slackConnector: SourceConnector<typeof slackConfigSchema> = {
   description: 'Ingest messages from a Slack channel — incremental by timestamp.',
   icon: 'MessageSquare',
   authKind: 'oauth',
+  // Both readings are legitimate, so it defaults to `personal` and offers the
+  // workspace grant as a second choice when one exists.
+  identity: 'either',
   configSchema: slackConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = slackConfigSchema.parse(ctx.config);

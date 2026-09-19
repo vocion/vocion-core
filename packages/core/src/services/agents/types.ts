@@ -269,6 +269,19 @@ export type RuntimeContext = {
   orgId: string;
   /** Who triggered the run (user id, 'mcp', 'scheduled', etc.). */
   userId?: string;
+  /**
+   * WHO this turn resolves personal credentials for — required, and separate
+   * from `userId` on purpose.
+   *
+   * `userId` is an attribution string and carries sentinels (`'mcp'`,
+   * `'gen-team-brief'`, `'regenerate-brief'`), so matching a credential's
+   * `user_id` against it would hand a schedule whichever member's grant
+   * happened to be named like its sentinel. `actor` is set only from an
+   * Auth.js session or a verified `TenantClaim`; everything else is
+   * `{ kind: 'system' }`, which has no id and therefore reaches no personal
+   * grant at all.
+   */
+  actor: import('@/services/SourceCredentialService').Actor;
   /** The agent this graph belongs to — stamps proposals/audit (`agent:<slug>`). */
   agentSlug?: string;
   /** Configured source slugs (knowledge_source.slug) this agent may reach. */

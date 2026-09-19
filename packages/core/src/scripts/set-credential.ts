@@ -74,7 +74,8 @@ async function main() {
     sourceSlug: args.source,
     raw: { ...(args.token ? { token: args.token } : {}), ...args.fields },
     displayName: args.display,
-    userId: 'cli',
+    // A workspace grant — see the same note in `scripts/google-oauth.ts`.
+    userId: null,
     projectId: project.id,
   });
 

@@ -49,7 +49,7 @@ import {
   ingestDocument,
   markSourceSynced,
 } from './IngestionService';
-import { getCredentialsForConnector } from './SourceCredentialService';
+import { getCredentialsForConnector, SYSTEM_ACTOR } from './SourceCredentialService';
 
 /**
  * Log, loading the logger only when it's needed.
@@ -703,10 +703,20 @@ export async function runSync(opts: {
   // claimed also keeps a broken credential out of the sync history, where it
   // would read as an attempt that went wrong rather than one that never
   // started.
+  //
+  // The system actor, always. A sync is the workspace's own install doing what
+  // it was installed to do, and there is no person in it — so on a PERSONAL
+  // connector it reaches only a workspace-wide grant (the shared support@
+  // mailbox an admin installed), never a member's own. That is what makes
+  // "personal sources are live-read only" structural rather than a rule
+  // somebody has to remember: a per-user grant is unreachable from the one
+  // path that writes `knowledge_chunk`, so a member's mailbox can never land
+  // in shared retrieval where every other member can search it.
   const credentials = await getCredentialsForConnector({
     orgId: opts.orgId,
     connectorSlug,
     apiTokenId: row.apiTokenId,
+    actor: SYSTEM_ACTOR,
   });
 
   const { since, cursor } = await beginSync(opts.sourceId, opts.orgId, !!opts.incremental);

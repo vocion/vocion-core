@@ -19,6 +19,47 @@ import type { IngestDoc } from '@/services/IngestionService';
 
 export type SourceAuthKind = 'none' | 'apikey' | 'oauth';
 
+/**
+ * Whose credential a connector authenticates with.
+ *
+ * The distinction is not cosmetic: it decides whether one grant speaks for the
+ * whole workspace or for one person, and therefore whether what the connector
+ * returns may be ingested into shared retrieval at all.
+ *
+ *   - `shared` — HubSpot, Jira, Strapi, S3, Notion, web. One credential the
+ *     workspace holds, connected once by an admin, and everything it reads is
+ *     workspace content. Safe to ingest into `knowledge_chunk`.
+ *   - `personal` — Gmail, Calendar, Drive. One grant per member, reaching that
+ *     member's own mailbox or files. **Live-read only** — never synced, never
+ *     chunked, never a row in `knowledge_document`. Ingesting a personal source
+ *     would need an owner column plus an intersection on every retrieval path,
+ *     and the failure mode of getting that wrong is a leak.
+ *   - `either` — Zoom, Slack. Both readings are legitimate. The default is
+ *     `personal`, because the first connection is then trivially safe; a
+ *     workspace grant, when one exists, is offered as a second choice.
+ */
+export type SourceIdentity = 'shared' | 'personal' | 'either';
+
+/**
+ * The tier a connector resolves under, with `either` settled.
+ *
+ * `either` is a declaration, not a runtime state — every code path that gates
+ * on the tier needs one of the two real answers, and the default is the safe
+ * one (see `SourceIdentity`).
+ */
+export type ResolvedIdentity = 'shared' | 'personal';
+
+/**
+ * Settle a connector's declared identity into the tier it actually resolves
+ * under. `either` defaults to `personal`: the first connection then grants only
+ * the person who made it, and nobody is surprised by a tap that bound a
+ * credential for the whole team.
+ * @param identity - What the connector declared, if it declared anything.
+ */
+export function resolveIdentity(identity: SourceIdentity | undefined): ResolvedIdentity {
+  return identity === 'shared' ? 'shared' : 'personal';
+}
+
 export type SourceContext = {
   /** The knowledge_source row id this run is scoped to. */
   sourceId: number;
@@ -52,6 +93,25 @@ export type SourceConnector<TConfigSchema extends z.ZodTypeAny = z.ZodTypeAny> =
   /** Lucide icon name for the picker tile. */
   icon: string;
   authKind: SourceAuthKind;
+  /**
+   * Whose credential this connector runs on — see `SourceIdentity`.
+   *
+   * Declared on the connector rather than decided globally, because the answer
+   * is a property of what the third party exposes: a HubSpot private-app token
+   * reads the company's CRM whoever holds it, and a Gmail grant reads exactly
+   * one mailbox. Undeclared reads as `personal`, which is the safe default and
+   * the one that cannot silently widen an existing grant.
+   */
+  identity?: SourceIdentity;
+  /**
+   * Minimum vendor scopes each agent tool needs, keyed by tool name.
+   *
+   * What the connect card asks for is derived from the tool the model was
+   * about to call, not from a fixed list — so reading a calendar asks for
+   * `calendar.readonly` and only a later write asks for the write scope. A
+   * tool with no entry falls back to `default`.
+   */
+  scopes?: Record<string, readonly string[]>;
   /**
    * Zod schema validating the config_json blob the user enters when
    * adding the source.

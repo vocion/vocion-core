@@ -9,6 +9,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 
 vi.mock('@/libs/DB');
 vi.mock('@/services/SourceCredentialService', () => ({
+  SYSTEM_ACTOR: { kind: 'system' },
+  actorFor: (id?: string | null) => (id ? { kind: 'user', id } : { kind: 'system' }),
   getCredentialsForSource: vi.fn(async () => ({ token: 'pat-1' })),
 }));
 

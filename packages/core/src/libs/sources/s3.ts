@@ -80,6 +80,9 @@ export const s3Connector: SourceConnector<typeof s3ConfigSchema> = {
   description: 'Ingest the objects under an S3 prefix — one document per file, with fields parsed from the key path and filename. Built for image archives; renders through a presigned in-app URL.',
   icon: 'Database',
   authKind: 'none',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: s3ConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = s3ConfigSchema.parse(ctx.config);

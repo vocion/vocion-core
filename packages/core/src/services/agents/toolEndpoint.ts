@@ -19,6 +19,7 @@ import type { AgentEvent, RuntimeContext } from './types';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { verifyClaim } from './claims';
 import { buildDomainTools } from './tools/registry';
 
@@ -57,6 +58,11 @@ export async function executeToolCall(opts: {
   const ctx: RuntimeContext = {
     orgId: claim.orgId,
     userId: claim.userId,
+    // From the VERIFIED claim and nowhere else. The artifact forwards a
+    // payload the model can influence; the claim is the only part of the
+    // request core signed, so naming another user in the payload changes
+    // nothing here — the same stance the cross-tenant suite already tests.
+    actor: claim.actor ?? SYSTEM_ACTOR,
     citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],

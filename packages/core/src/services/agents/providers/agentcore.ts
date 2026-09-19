@@ -31,6 +31,7 @@
 import type { HarnessMessage, HarnessContentBlock as SdkContentBlock } from '@aws-sdk/client-bedrock-agentcore';
 import type { HarnessSummary, HarnessTool } from '@aws-sdk/client-bedrock-agentcore-control';
 import type { AgentEvent, RuntimeContext } from '../types';
+import type { Actor } from '@/services/SourceCredentialService';
 import { createHash, randomUUID } from 'node:crypto';
 import { BedrockAgentCoreClient, InvokeHarnessCommand } from '@aws-sdk/client-bedrock-agentcore';
 import {
@@ -46,6 +47,7 @@ import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { withToolCallRecord } from '../toolCallRecord';
 import { searchKnowledgeTool } from '../tools/searchKnowledge';
 
@@ -373,6 +375,8 @@ export type HarnessRunOptions = {
   agentSlug: string;
   message: string;
   userId?: string;
+  /** Who the turn resolves personal credentials for. Unset runs as the system. */
+  actor?: Actor;
   allowedSourceSlugs?: string[];
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onEvent?: (event: AgentEvent) => void;
@@ -403,6 +407,7 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
   const ctx: RuntimeContext = {
     orgId: opts.orgId,
     userId: opts.userId,
+    actor: opts.actor ?? SYSTEM_ACTOR,
     citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],

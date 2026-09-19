@@ -4,6 +4,7 @@ import { db } from '@/libs/DB';
 import { businessObjectSchema } from '@/models/Schema';
 import { withToolCallRecord } from '@/services/agents/toolCallRecord';
 import { kitVisionTools } from '@/services/agents/tools/kitVision';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { authApi, isErrorResponse, jsonError, readIdParam } from '../../../_shared';
 
 export const maxDuration = 120;
@@ -59,6 +60,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const rctx: RuntimeContext = {
         orgId: caller.orgId,
         userId: caller.actorId,
+        // An API token authenticates an ORG, not a person — so this run reaches
+        // no personal grant, whatever the token was issued to.
+        actor: SYSTEM_ACTOR,
         agentSlug: 'pack-inspector',
         connectorSources: [],
         objectTypeSlugs: [],

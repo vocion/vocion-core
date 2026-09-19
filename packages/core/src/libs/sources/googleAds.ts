@@ -38,6 +38,9 @@ export const googleAdsConnector: SourceConnector<typeof googleAdsConfigSchema> =
   description: 'Ingest Google Ads campaign performance (impressions, clicks, cost, conversions) by day.',
   icon: 'Megaphone',
   authKind: 'oauth',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: googleAdsConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = googleAdsConfigSchema.parse(ctx.config);

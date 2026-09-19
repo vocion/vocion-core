@@ -20,6 +20,8 @@ vi.mock('@/services/WorkflowService', () => ({
 }));
 // Connectors under test need no credentials; the real one would reach for the vault.
 vi.mock('@/services/SourceCredentialService', () => ({
+  SYSTEM_ACTOR: { kind: 'system' },
+  actorFor: (id?: string | null) => (id ? { kind: 'user', id } : { kind: 'system' }),
   getCredentialsForConnector: vi.fn(async () => undefined),
 }));
 // Ingestion is stubbed for the same reason the concurrency suite stubs it: the

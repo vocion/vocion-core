@@ -17,11 +17,12 @@
 
 import type { RuntimeContext } from '../types';
 import type { HubspotClient, HubspotFailure } from '@/libs/hubspot/client';
+import type { Actor } from '@/services/SourceCredentialService';
 import { and, eq, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { createHubspotClient, noHubspotCredentials, tokenFromCredentials } from '@/libs/hubspot/client';
 import { knowledgeSourceSchema } from '@/models/Schema';
-import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { getCredentialsForSource, SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { hasHubspotSource } from './crm';
 
 /** A source slug that belongs to the HubSpot connector family. */
@@ -84,21 +85,24 @@ export type CtxClient = {
  * @param ctx
  */
 export async function hubspotClientForCtx(ctx: RuntimeContext): Promise<CtxClient | HubspotFailure> {
-  return hubspotClientForOrg(ctx.orgId);
+  return hubspotClientForOrg(ctx.orgId, ctx.actor);
 }
 
 /**
  * Same resolution keyed on the org alone — for service-layer callers (e.g.
  * sequence verification in `saveDraftSequence`) that hold no RuntimeContext.
+ * Those callers ARE the system, and HubSpot is a shared connector, so the
+ * default actor changes nothing about which credential answers.
  * @param orgId
+ * @param actor - Who the credential is resolved for; the system by default.
  */
-export async function hubspotClientForOrg(orgId: string): Promise<CtxClient | HubspotFailure> {
+export async function hubspotClientForOrg(orgId: string, actor: Actor = SYSTEM_ACTOR): Promise<CtxClient | HubspotFailure> {
   const sources = await hubspotSourcesForOrg(orgId);
   if (sources.length === 0) {
     return noHubspotCredentials('No HubSpot source is connected in this workspace, so live HubSpot reads are unavailable. Say that rather than guessing.');
   }
   for (const source of sources) {
-    const credentials = await getCredentialsForSource(orgId, source.slug);
+    const credentials = await getCredentialsForSource(orgId, source.slug, actor);
     const token = tokenFromCredentials(credentials as Record<string, unknown> | undefined);
     if (token) {
       const baseUrl = typeof source.configJson?.baseUrl === 'string' ? source.configJson.baseUrl : undefined;

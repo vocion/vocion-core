@@ -37,11 +37,48 @@ import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { buildCredentialVault } from '@/libs/crypto/credentialVault';
 import { db } from '@/libs/DB';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
+import { getConnector } from '@/libs/sources/registry';
+import { resolveIdentity } from '@/libs/sources/types';
 import { apiTokenSchema, knowledgeSourceSchema, sourceCredentialSchema, sourceInstallSchema } from '@/models/Schema';
 import { resolveCredentialById } from '@/services/ApiTokenService';
 
 /** Decrypted connector credentials (e.g. `{ token, refreshToken, developerToken }`). */
 export type RawCredentials = Record<string, unknown>;
+
+/**
+ * Who a credential is being resolved FOR.
+ *
+ * Required at every resolution, and a tagged union rather than an optional
+ * `actorId?: string`, because the two mistakes it prevents are both mistakes of
+ * omission. An optional id lets a caller pass the conversation's creator in a
+ * context where that is not the requester, and lets a scheduled run pass
+ * nothing and mean "whoever". Tagging forces every call site to say which it
+ * is, and `{ kind: 'system' }` has to be written on purpose.
+ *
+ * The id may only come from an Auth.js session or a verified `TenantClaim` —
+ * never from tool arguments, model output, or an invocation payload. A system
+ * actor carries no id at all, so the personal branch below is unreachable for
+ * it: not a check that can be forgotten, but a value that cannot be supplied.
+ */
+export type Actor
+  = | { kind: 'user'; id: string }
+    | { kind: 'system' };
+
+/** The actor for a schedule, workflow step, MCP caller or minted API token. */
+export const SYSTEM_ACTOR: Actor = { kind: 'system' };
+
+/**
+ * The actor for a request that carries a verified user id, or the system actor
+ * when it does not.
+ *
+ * A run with no human in it must never reach a personal grant, and the way that
+ * fails safely is for an absent id to become `system` here rather than an empty
+ * string that matches nothing later.
+ * @param id - The user id from the session or a verified claim, if there is one.
+ */
+export function actorFor(id: string | null | undefined): Actor {
+  return typeof id === 'string' && id.trim() !== '' ? { kind: 'user', id } : SYSTEM_ACTOR;
+}
 
 /**
  * Encrypt + persist credentials for an install. Returns the new credential id.
@@ -65,19 +102,37 @@ export async function storeCredential(input: {
     input.orgId,
     Buffer.from(JSON.stringify(input.raw), 'utf8'),
   );
-  const [row] = await db
-    .insert(sourceCredentialSchema)
-    .values({
-      installId: input.installId,
-      userId: input.userId ?? null,
-      displayName: input.displayName,
-      dekId,
-      ciphertext,
-      nonce,
-      authTag,
-    })
-    .returning({ id: sourceCredentialSchema.id });
-  return row!.id;
+  const userId = input.userId ?? null;
+  const rows = await db.transaction(async (tx) => {
+    // One live grant per (install, owner). Reconnecting supersedes the grant it
+    // replaces in the same transaction rather than leaving two live rows and
+    // letting `created_at` decide, which is how "whoever connected last wins"
+    // became "whoever connected last wins for everybody". Revoked rather than
+    // deleted, so the audit trail of what this install has held survives.
+    await tx
+      .update(sourceCredentialSchema)
+      .set({ revokedAt: new Date() })
+      .where(and(
+        eq(sourceCredentialSchema.installId, input.installId),
+        isNull(sourceCredentialSchema.revokedAt),
+        userId === null
+          ? isNull(sourceCredentialSchema.userId)
+          : eq(sourceCredentialSchema.userId, userId),
+      ));
+    return tx
+      .insert(sourceCredentialSchema)
+      .values({
+        installId: input.installId,
+        userId,
+        displayName: input.displayName,
+        dekId,
+        ciphertext,
+        nonce,
+        authTag,
+      })
+      .returning({ id: sourceCredentialSchema.id });
+  });
+  return rows[0]!.id;
 }
 
 /**
@@ -558,15 +613,34 @@ function brokenReasonFor(row: {
  * may still hold from before the two were joined up is not read at all. When it
  * is null the install's most recent non-revoked `source_credential` row is
  * decrypted instead, which is where every OAuth grant lives.
+ * Which `source_credential` row answers depends on the connector's identity
+ * tier (`libs/sources/types.ts`), and that is the whole point of `actor`:
+ *
+ *   - **shared** — HubSpot, Jira, Strapi. One credential speaks for the
+ *     workspace, so `user_id` is not consulted and the newest live row wins,
+ *     exactly as before.
+ *   - **personal** (and `either`, which settles to personal) — Gmail, Calendar,
+ *     Drive. The actor's OWN grant, and nothing else. A system actor has no id
+ *     to match, so it resolves nothing at all — a schedule with two members'
+ *     mailboxes connected reads neither, rather than picking one.
+ *
+ * A personal connector with no grant for this actor falls back to a
+ * workspace-wide row (`user_id IS NULL`) when one exists — the `either` tier's
+ * second line, and the way an admin-installed source stays usable. It never
+ * falls back to ANOTHER member's row, which is the bug this replaces: the old
+ * "newest non-revoked row for the install" handed the second person to connect
+ * Gmail to everybody in the workspace.
  * @param input - Which connector to resolve for.
  * @param input.orgId - The org that owns it.
  * @param input.connectorSlug - Connector slug, e.g. `strapi` — names the install.
  * @param input.apiTokenId - The stored credential this connector names, or null.
+ * @param input.actor - Who the credential is being resolved for. Required.
  */
 export async function getCredentialsForConnector(input: {
   orgId: string;
   connectorSlug: string;
   apiTokenId: string | null;
+  actor: Actor;
 }): Promise<RawCredentials | undefined> {
   if (input.apiTokenId) {
     const platformLabel = platformForConnectorSlug(input.connectorSlug)?.label ?? input.connectorSlug;
@@ -596,15 +670,7 @@ export async function getCredentialsForConnector(input: {
     return undefined;
   }
 
-  const [credential] = await db
-    .select()
-    .from(sourceCredentialSchema)
-    .where(and(
-      eq(sourceCredentialSchema.installId, install.id),
-      isNull(sourceCredentialSchema.revokedAt),
-    ))
-    .orderBy(desc(sourceCredentialSchema.createdAt))
-    .limit(1);
+  const credential = await liveCredentialFor(install.id, input.connectorSlug, input.actor);
   if (!credential) {
     return undefined;
   }
@@ -618,6 +684,73 @@ export async function getCredentialsForConnector(input: {
     credential.dekId,
   );
   return JSON.parse(plaintext.toString('utf8')) as RawCredentials;
+}
+
+/**
+ * The `source_credential` row that answers for this install, this connector and
+ * this actor — or undefined when none does.
+ *
+ * Ordered by `created_at` descending within each candidate set, so reconnecting
+ * supersedes a stale grant without anyone having to revoke the old one first.
+ * @param installId - The install whose grants to read.
+ * @param connectorSlug - Names the connector, which declares the identity tier.
+ * @param actor - Who is asking.
+ */
+async function liveCredentialFor(
+  installId: number,
+  connectorSlug: string,
+  actor: Actor,
+) {
+  const live = and(
+    eq(sourceCredentialSchema.installId, installId),
+    isNull(sourceCredentialSchema.revokedAt),
+  );
+  const newestFirst = desc(sourceCredentialSchema.createdAt);
+
+  // A connector this build does not ship (a workspace naming one we removed)
+  // is read as personal: the safe half of the fork, since the cost of being
+  // wrong is a source that refuses rather than one that over-shares.
+  const identity = resolveIdentity(getConnector(connectorSlug)?.identity);
+
+  if (identity === 'shared') {
+    const [row] = await db.select().from(sourceCredentialSchema).where(live).orderBy(newestFirst).limit(1);
+    return row;
+  }
+
+  // Personal. A system actor has no id, so no PER-USER grant is reachable from
+  // it — which is the whole isolation rule: a schedule with two members'
+  // mailboxes connected reads neither, rather than picking one. A
+  // workspace-wide row is a different thing and stays reachable: an admin who
+  // installed a shared support@ mailbox said it belongs to the workspace, and
+  // that is what the nightly sync has always run on.
+  if (actor.kind === 'system') {
+    return workspaceGrant();
+  }
+
+  const [own] = await db
+    .select()
+    .from(sourceCredentialSchema)
+    .where(and(live, eq(sourceCredentialSchema.userId, actor.id)))
+    .orderBy(newestFirst)
+    .limit(1);
+  if (own) {
+    return own;
+  }
+
+  // No grant of their own. A workspace-wide row — `user_id IS NULL`, which is
+  // what an admin install and the `either` tier's second line both write — is
+  // offered; another member's row never is.
+  return workspaceGrant();
+
+  async function workspaceGrant() {
+    const [row] = await db
+      .select()
+      .from(sourceCredentialSchema)
+      .where(and(live, isNull(sourceCredentialSchema.userId)))
+      .orderBy(newestFirst)
+      .limit(1);
+    return row;
+  }
 }
 
 /**
@@ -643,10 +776,12 @@ export async function getCredentialsForConnector(input: {
  * `getCredentialsForConnector` instead and skip the guessing.
  * @param orgId - The org that owns the connector.
  * @param sourceSlug - A connector row's slug, or the slug of the connector it runs.
+ * @param actor - Who the credential is being resolved for. Required.
  */
 export async function getCredentialsForSource(
   orgId: string,
   sourceSlug: string,
+  actor: Actor,
 ): Promise<RawCredentials | undefined> {
   const [namedRow] = await db
     .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
@@ -676,5 +811,27 @@ export async function getCredentialsForSource(
     orgId,
     connectorSlug: sourceSlug,
     apiTokenId,
+    actor,
   });
+}
+
+/**
+ * Resolve the credentials a connector authenticates with, for one actor.
+ *
+ * The connector-object form of `getCredentialsForSource`, for callers that
+ * already hold the connector — the agent tools, the sync orchestrator, the
+ * connect card's readiness check. Identical answer; it just saves a registry
+ * lookup and makes the identity tier visible at the call site.
+ * @param connector - The connector to resolve for.
+ * @param connector.slug
+ * @param connector.identity
+ * @param orgId - The org that owns it.
+ * @param actor - Who the credential is being resolved for. Required.
+ */
+export async function resolveCredential(
+  connector: { slug: string; identity?: import('@/libs/sources/types').SourceIdentity },
+  orgId: string,
+  actor: Actor,
+): Promise<RawCredentials | undefined> {
+  return getCredentialsForSource(orgId, connector.slug, actor);
 }

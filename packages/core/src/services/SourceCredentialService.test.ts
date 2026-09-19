@@ -10,7 +10,7 @@
  * resolve). localVault's DEK mechanics have their own integration suite.
  */
 import { Buffer } from 'node:buffer';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let testDekId = 0;
@@ -63,6 +63,7 @@ const {
   getCredentialsForSource,
   linkSourceToStoredCredential,
   storeCredential,
+  SYSTEM_ACTOR,
   storedCredentialIdForSource,
 } = await import('@/services/SourceCredentialService');
 const { listPlatformCredentials, rotatePlatformCredential, revokeToken, storePlatformKey } = await import('@/services/ApiTokenService');
@@ -100,7 +101,7 @@ async function credentialsInUse(sourceId: number, connectorSlug: string): Promis
     .select({ apiTokenId: knowledgeSourceSchema.apiTokenId })
     .from(knowledgeSourceSchema)
     .where(eq(knowledgeSourceSchema.id, sourceId));
-  return getCredentialsForConnector({ orgId: ORG, connectorSlug, apiTokenId: source?.apiTokenId ?? null });
+  return getCredentialsForConnector({ orgId: ORG, connectorSlug, apiTokenId: source?.apiTokenId ?? null, actor: SYSTEM_ACTOR });
 }
 
 beforeEach(async () => {
@@ -148,13 +149,13 @@ describe('SourceCredentialService', () => {
     expect(row!.nonce).toBeTruthy();
     expect(row!.authTag).toBeTruthy();
 
-    const resolved = await getCredentialsForSource(ORG, 'hubspot');
+    const resolved = await getCredentialsForSource(ORG, 'hubspot', SYSTEM_ACTOR);
 
     expect(resolved).toEqual(raw);
   });
 
   it('returns undefined when the source has no install', async () => {
-    expect(await getCredentialsForSource(ORG, 'never-installed')).toBeUndefined();
+    expect(await getCredentialsForSource(ORG, 'never-installed', SYSTEM_ACTOR)).toBeUndefined();
   });
 
   it('does not resolve a revoked credential', async () => {
@@ -162,7 +163,92 @@ describe('SourceCredentialService', () => {
     const credId = await storeCredential({ orgId: ORG, installId, displayName: 'inbox', raw: { token: 'abc' } });
     await db.update(sourceCredentialSchema).set({ revokedAt: new Date() }).where(eq(sourceCredentialSchema.id, credId));
 
-    expect(await getCredentialsForSource(ORG, 'gmail')).toBeUndefined();
+    expect(await getCredentialsForSource(ORG, 'gmail', SYSTEM_ACTOR)).toBeUndefined();
+  });
+});
+
+/**
+ * Per-owner resolution (migration 0120).
+ *
+ * The bug: `getCredentialsForConnector` took the newest non-revoked row for the
+ * install, so the second person to connect Gmail won for the whole workspace.
+ * Gmail is a PERSONAL connector; HubSpot is SHARED; the two must answer
+ * differently and these are the cases that say so.
+ */
+describe('whose credential answers', () => {
+  const JAMIE = { kind: 'user', id: 'user_jamie' } as const;
+  const DANA = { kind: 'user', id: 'user_dana' } as const;
+
+  it('gives each member their own grant on a personal connector', async () => {
+    const installId = await makeInstall('gmail');
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'jamie-inbox' }, userId: JAMIE.id });
+    await storeCredential({ orgId: ORG, installId, displayName: 'dana', raw: { token: 'dana-inbox' }, userId: DANA.id });
+
+    await expect(getCredentialsForSource(ORG, 'gmail', JAMIE)).resolves.toEqual({ token: 'jamie-inbox' });
+    await expect(getCredentialsForSource(ORG, 'gmail', DANA)).resolves.toEqual({ token: 'dana-inbox' });
+  });
+
+  it('never hands a colleague another member\'s personal grant', async () => {
+    const installId = await makeInstall('gmail');
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'jamie-inbox' }, userId: JAMIE.id });
+
+    // Dana connected nothing. The old code handed her the newest live row.
+    await expect(getCredentialsForSource(ORG, 'gmail', DANA)).resolves.toBeUndefined();
+  });
+
+  it('resolves nothing for a run with no person in it', async () => {
+    const installId = await makeInstall('gmail');
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'jamie-inbox' }, userId: JAMIE.id });
+    await storeCredential({ orgId: ORG, installId, displayName: 'dana', raw: { token: 'dana-inbox' }, userId: DANA.id });
+
+    // A schedule, a workflow step, an MCP caller, a minted API token. Both
+    // grants are present and it reaches neither — there is no id to match.
+    await expect(getCredentialsForSource(ORG, 'gmail', SYSTEM_ACTOR)).resolves.toBeUndefined();
+  });
+
+  it('falls back to a workspace grant, and only to a workspace grant', async () => {
+    const installId = await makeInstall('gmail');
+    // `user_id IS NULL` — what an admin install and the CLI scripts write.
+    await storeCredential({ orgId: ORG, installId, displayName: 'workspace', raw: { token: 'workspace-inbox' } });
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'jamie-inbox' }, userId: JAMIE.id });
+
+    // Jamie's own grant wins over the workspace one.
+    await expect(getCredentialsForSource(ORG, 'gmail', JAMIE)).resolves.toEqual({ token: 'jamie-inbox' });
+    // Dana has none of her own, so she gets the workspace grant — never Jamie's.
+    await expect(getCredentialsForSource(ORG, 'gmail', DANA)).resolves.toEqual({ token: 'workspace-inbox' });
+  });
+
+  it('ignores the owner on a shared connector', async () => {
+    const installId = await makeInstall('hubspot');
+    await storeCredential({ orgId: ORG, installId, displayName: 'admin', raw: { token: 'company-crm' }, userId: JAMIE.id });
+
+    // One credential speaks for the workspace, so everyone gets it — including
+    // a run with nobody in it, which is how a scheduled CRM sync still works.
+    await expect(getCredentialsForSource(ORG, 'hubspot', DANA)).resolves.toEqual({ token: 'company-crm' });
+    await expect(getCredentialsForSource(ORG, 'hubspot', SYSTEM_ACTOR)).resolves.toEqual({ token: 'company-crm' });
+  });
+
+  it('supersedes an owner\'s previous grant when they reconnect', async () => {
+    const installId = await makeInstall('gmail');
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'old' }, userId: JAMIE.id });
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'new' }, userId: JAMIE.id });
+
+    await expect(getCredentialsForSource(ORG, 'gmail', JAMIE)).resolves.toEqual({ token: 'new' });
+
+    const live = await db
+      .select({ id: sourceCredentialSchema.id })
+      .from(sourceCredentialSchema)
+      .where(and(eq(sourceCredentialSchema.installId, installId), isNull(sourceCredentialSchema.revokedAt)));
+
+    expect(live).toHaveLength(1);
+  });
+
+  it('leaves another owner\'s grant alone when one is replaced', async () => {
+    const installId = await makeInstall('gmail');
+    await storeCredential({ orgId: ORG, installId, displayName: 'dana', raw: { token: 'dana-inbox' }, userId: DANA.id });
+    await storeCredential({ orgId: ORG, installId, displayName: 'jamie', raw: { token: 'jamie-inbox' }, userId: JAMIE.id });
+
+    await expect(getCredentialsForSource(ORG, 'gmail', DANA)).resolves.toEqual({ token: 'dana-inbox' });
   });
 });
 
@@ -673,7 +759,7 @@ describe('resolving by slug, for callers that hold only a slug', () => {
     const credential = await storePlatformKey({ orgId: ORG, name: 'Acme HubSpot', platform: 'hubspot', values: HUBSPOT });
     await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'hubspot', apiTokenId: credential.id });
 
-    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toEqual(HUBSPOT);
+    await expect(getCredentialsForSource(ORG, 'hubspot', SYSTEM_ACTOR)).resolves.toEqual(HUBSPOT);
   });
 
   it('finds it when the row is named something else and only runs that connector', async () => {
@@ -687,7 +773,7 @@ describe('resolving by slug, for callers that hold only a slug', () => {
     const credential = await storePlatformKey({ orgId: ORG, name: 'Acme HubSpot', platform: 'hubspot', values: HUBSPOT });
     await linkSourceToStoredCredential({ orgId: ORG, sourceId, connectorSlug: 'hubspot', apiTokenId: credential.id });
 
-    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toEqual(HUBSPOT);
+    await expect(getCredentialsForSource(ORG, 'hubspot', SYSTEM_ACTOR)).resolves.toEqual(HUBSPOT);
   });
 
   it('picks the oldest of several rows running that connector, so the answer is stable', async () => {
@@ -698,7 +784,7 @@ describe('resolving by slug, for callers that hold only a slug', () => {
     await linkSourceToStoredCredential({ orgId: ORG, sourceId: second, connectorSlug: 'hubspot', apiTokenId: secondKey.id });
     await linkSourceToStoredCredential({ orgId: ORG, sourceId: first, connectorSlug: 'hubspot', apiTokenId: firstKey.id });
 
-    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toEqual({ token: 'pat-na1-first' });
+    await expect(getCredentialsForSource(ORG, 'hubspot', SYSTEM_ACTOR)).resolves.toEqual({ token: 'pat-na1-first' });
   });
 
   it('still falls back to the install copy when no row names a credential', async () => {
@@ -707,7 +793,7 @@ describe('resolving by slug, for callers that hold only a slug', () => {
     const installId = await makeInstall('gmail');
     await storeCredential({ orgId: ORG, installId, displayName: 'inbox', raw: { token: 'grant-token' } });
 
-    await expect(getCredentialsForSource(ORG, 'gmail')).resolves.toEqual({ token: 'grant-token' });
+    await expect(getCredentialsForSource(ORG, 'gmail', SYSTEM_ACTOR)).resolves.toEqual({ token: 'grant-token' });
   });
 
   it('ignores another org\'s connector running the same connector', async () => {
@@ -716,7 +802,7 @@ describe('resolving by slug, for callers that hold only a slug', () => {
       .insert(knowledgeSourceSchema)
       .values({ orgId: 'org_somebody_else', slug: 'hubspot-theirs', kind: 'plugin', configJson: { _connector: 'hubspot' }, apiTokenId: theirKey.id });
 
-    await expect(getCredentialsForSource(ORG, 'hubspot')).resolves.toBeUndefined();
+    await expect(getCredentialsForSource(ORG, 'hubspot', SYSTEM_ACTOR)).resolves.toBeUndefined();
   });
 });
 

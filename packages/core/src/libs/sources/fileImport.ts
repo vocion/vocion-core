@@ -87,6 +87,9 @@ export const fileImportConnector: SourceConnector<typeof fileImportConfigSchema>
   description: 'Ingest a single JSONL / CSV / JSON file as documents. Smart-detects columns; override via fieldMapping when needed.',
   icon: 'FileJson',
   authKind: 'none',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: fileImportConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = fileImportConfigSchema.parse(ctx.config);

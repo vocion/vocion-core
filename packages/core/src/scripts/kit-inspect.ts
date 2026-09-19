@@ -21,6 +21,7 @@ import { db } from '@/libs/DB';
 import { projectSchema } from '@/models/Schema';
 import { withToolCallRecord } from '@/services/agents/toolCallRecord';
 import { kitVisionTools, orgS3Source } from '@/services/agents/tools/kitVision';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 
 function parseArgs(argv: string[]) {
   const out: { project?: string; keys: string[]; prefix?: string; limit: number; classifier: boolean } = { keys: [], limit: 50, classifier: false };
@@ -66,6 +67,7 @@ async function main() {
   const ctx: RuntimeContext = {
     orgId: project.id,
     userId: 'cli:kit-inspect',
+    actor: SYSTEM_ACTOR,
     agentSlug: 'pack-inspector',
     connectorSources: ['kit-photos'],
     objectTypeSlugs: ['inspection', 'kit-template'],

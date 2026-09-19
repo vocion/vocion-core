@@ -83,6 +83,9 @@ export const granolaConnector: SourceConnector<typeof granolaConfigSchema> = {
   description: 'Ingest Granola meeting notes — AI summary + transcript per meeting (personal API).',
   icon: 'NotebookPen',
   authKind: 'apikey',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: granolaConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = granolaConfigSchema.parse(ctx.config);

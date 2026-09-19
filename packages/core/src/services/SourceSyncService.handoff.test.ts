@@ -13,6 +13,8 @@ vi.mock('@/services/WorkflowService', () => ({
   startWorkflow: vi.fn(async () => ({ id: 1 })),
 }));
 vi.mock('@/services/SourceCredentialService', () => ({
+  SYSTEM_ACTOR: { kind: 'system' },
+  actorFor: (id?: string | null) => (id ? { kind: 'user', id } : { kind: 'system' }),
   getCredentialsForConnector: vi.fn(async () => undefined),
 }));
 vi.mock('@/services/IngestionService', () => ({

@@ -2202,7 +2202,12 @@ export const sourceCredentialSchema = pgTable('source_credential', {
   installId: integer('install_id')
     .notNull()
     .references(() => sourceInstallSchema.id, { onDelete: 'cascade' }),
-  /** Null for org-wide credentials; set for user-scope credentials. */
+  /**
+   * Who owns this grant. Null is a WORKSPACE credential — what an admin
+   * installs and what a shared connector uses; a user id is one person's own
+   * grant, which only that person resolves (migration 0120, and
+   * `getCredentialsForConnector`).
+   */
   userId: text('user_id'),
   /** Human label shown in the UI, e.g. "chris@metacto.com". */
   displayName: text('display_name').notNull(),
@@ -2221,7 +2226,13 @@ export const sourceCredentialSchema = pgTable('source_credential', {
   lastRefreshedAt: timestamp('last_refreshed_at', { mode: 'date' }),
   revokedAt: timestamp('revoked_at', { mode: 'date' }),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
-});
+}, table => [
+  // Serves per-owner resolution: the live grant on this install belonging to
+  // this owner, newest first. Built CONCURRENTLY in
+  // migrations/concurrent/0120 — declared here for the ORM.
+  index('source_credential_install_owner_live_idx')
+    .on(table.installId, table.userId, table.createdAt),
+]);
 
 export const sourceAuditSchema = pgTable('source_audit', {
   id: serial('id').primaryKey(),

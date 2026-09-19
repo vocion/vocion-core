@@ -28,6 +28,7 @@
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { Actor } from '@/services/SourceCredentialService';
 import { tool as makeTool } from '@langchain/core/tools';
 import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
 import { and, eq, sql } from 'drizzle-orm';
@@ -40,6 +41,7 @@ import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store'
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
@@ -200,6 +202,11 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   const harnessConfig = row.harnessConfig ?? {};
   const ctx: RuntimeContext = {
     orgId,
+    // The graph is shared across requests, so the actor it is built with must
+    // be the one that reaches nothing: `bindRequestEmit` swaps in the real one
+    // per turn, exactly as it does `emit`. A user actor cached here would be
+    // the next caller's actor.
+    actor: SYSTEM_ACTOR,
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
@@ -408,6 +415,7 @@ export function bindRequestEmit(
   compiled: CompiledAgentGraph,
   emit: RuntimeContext['emit'],
   userId?: string,
+  actor: Actor = SYSTEM_ACTOR,
   allowedSourceSlugs?: string[],
   missionSlug?: string,
   missionRunId?: number,
@@ -418,6 +426,7 @@ export function bindRequestEmit(
   internal.__ctx.emit = emit;
   internal.__ctx.pageContext = pageContext;
   internal.__ctx.userId = userId;
+  internal.__ctx.actor = actor;
   internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
   internal.__ctx.missionSlug = missionSlug;
   internal.__ctx.missionRunId = missionRunId;

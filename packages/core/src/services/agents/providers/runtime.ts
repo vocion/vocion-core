@@ -34,6 +34,7 @@
  */
 
 import type { AgentEvent } from '../types';
+import type { Actor } from '@/services/SourceCredentialService';
 import { Buffer } from 'node:buffer';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
@@ -41,6 +42,7 @@ import { mintBedrockSessionForRuntime } from '@/libs/llm/bedrockCredentials';
 import { agentSchema } from '@/models/Schema';
 import { chargeUsage } from '@/services/BudgetService';
 import { conversationSessionId } from '@/services/evals/sessionIds';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 import { signClaim } from '../claims';
 import { buildInitialFiles } from '../harness';
 import { memoryMountPaths } from '../memoryDigest';
@@ -56,6 +58,8 @@ export type RuntimeRunOptions = {
   agentSlug: string;
   message: string;
   userId?: string;
+  /** Who the turn resolves personal credentials for — minted into the claim. */
+  actor?: Actor;
   allowedSourceSlugs?: string[];
   missionSlug?: string;
   /** Persisted conversation id — keys the AgentCore Memory session (Phase 5). */
@@ -102,6 +106,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const catalog = buildToolCatalog({
     orgId: opts.orgId,
     userId: opts.userId,
+    actor: opts.actor ?? SYSTEM_ACTOR,
     citationSeq: { current: 0 },
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
@@ -117,6 +122,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
     orgId: opts.orgId,
     agentSlug: row.slug,
     userId: opts.userId,
+    actor: opts.actor ?? SYSTEM_ACTOR,
     allowedSourceSlugs: opts.allowedSourceSlugs,
     missionSlug: opts.missionSlug,
     conversationId: opts.conversationId,
@@ -241,6 +247,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
             ctx: {
               orgId: opts.orgId,
               userId: opts.userId,
+              actor: opts.actor ?? SYSTEM_ACTOR,
               agentSlug: opts.agentSlug,
               conversationId: opts.conversationId,
               provider: 'runtime',

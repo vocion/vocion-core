@@ -35,6 +35,7 @@ function ctxFor(orgId: string, sources: string[] = ['hubspot'], allowed?: string
     searchConfig: {},
     harnessConfig: {},
     emit: () => {},
+    actor: { kind: 'user', id: 'user_1' },
     citationSeq: { current: 0 },
   };
 }

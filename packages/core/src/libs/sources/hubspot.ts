@@ -215,6 +215,9 @@ export const hubspotConnector: SourceConnector<typeof hubspotConfigSchema> = {
   description: 'Ingest HubSpot CRM records (contacts, deals, companies) — incremental by last-modified.',
   icon: 'Contact',
   authKind: 'apikey',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: hubspotConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = hubspotConfigSchema.parse(ctx.config);

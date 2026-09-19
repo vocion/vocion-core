@@ -33,6 +33,9 @@ export const ga4Connector: SourceConnector<typeof ga4ConfigSchema> = {
   description: 'Ingest GA4 report rows (sessions, conversions, bounce rate) by date + landing page.',
   icon: 'BarChart3',
   authKind: 'oauth',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: ga4ConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = ga4ConfigSchema.parse(ctx.config);

@@ -29,6 +29,7 @@ import { logger } from '@/libs/Logger';
 import { agentSchema } from '@/models/Schema';
 import { buildDomainTools } from '@/services/agents/tools/registry';
 import { mountSkills } from '@/services/playbooks/mount';
+import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
 
 export class SkillTurnError extends Error {
   constructor(message: string) {
@@ -165,6 +166,9 @@ export async function runSkillTurn<T>(opts: SkillTurnOptions<T>): Promise<SkillT
   const ctx: RuntimeContext = {
     orgId: opts.orgId,
     userId: opts.userId,
+    // A skill turn is invoked by the runner, not by a session. Nothing here
+    // reaches a personal grant.
+    actor: SYSTEM_ACTOR,
     citationSeq: { current: 0 },
     agentSlug: agent.slug,
     connectorSources: agent.connectorSources ?? [],

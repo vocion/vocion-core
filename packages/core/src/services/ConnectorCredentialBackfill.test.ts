@@ -56,7 +56,7 @@ const {
   sourceInstallSchema,
 } = await import('@/models/Schema');
 const { backfillConnectorCredentials } = await import('@/services/ConnectorCredentialBackfill');
-const { getCredentialsForConnector, storeCredential } = await import('@/services/SourceCredentialService');
+const { getCredentialsForConnector, storeCredential, SYSTEM_ACTOR } = await import('@/services/SourceCredentialService');
 const { listPlatformCredentials } = await import('@/services/ApiTokenService');
 
 const ORG = 'org_backfill';
@@ -117,6 +117,7 @@ async function credentialsInUse(connector: Connector, connectorSlug: string): Pr
     orgId: ORG,
     connectorSlug,
     apiTokenId: source?.apiTokenId ?? null,
+    actor: SYSTEM_ACTOR,
   });
 }
 

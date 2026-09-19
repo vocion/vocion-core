@@ -191,6 +191,9 @@ export const jiraConnector: SourceConnector<typeof jiraConfigSchema> = {
   description: 'Ingest Jira projects and issues (key, summary, status, description) — incremental by updated date.',
   icon: 'SquareKanban',
   authKind: 'apikey',
+  // One credential the workspace holds — what it reads is workspace content,
+  // so it syncs and ingests like any shared source.
+  identity: 'shared',
   configSchema: jiraConfigSchema,
   defaultReconcileCron: '0 3 * * *',
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {

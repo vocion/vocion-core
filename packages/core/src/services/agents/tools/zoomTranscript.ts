@@ -15,6 +15,7 @@
  * exposes these transcripts through `search_knowledge`.
  */
 import type { RuntimeContext } from '../types';
+import type { Actor } from '@/services/SourceCredentialService';
 import { tool } from '@langchain/core/tools';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -56,16 +57,21 @@ export async function sourcesForConnector(orgId: string, connector: string): Pro
 }
 
 /**
- * First source in the list that has live credentials in the vault.
+ * First source in the list that has live credentials in the vault FOR THIS
+ * ACTOR. A personal connector (Gmail, Calendar, Drive) answers with the
+ * asker's own grant or nothing at all; a shared one answers the same for
+ * everybody. See `getCredentialsForConnector`.
  * @param orgId
  * @param sources
+ * @param actor - Who the credential is being resolved for.
  */
 export async function firstCredentialed(
   orgId: string,
   sources: SourceRow[],
+  actor: Actor,
 ): Promise<{ source: SourceRow; credentials: Record<string, unknown> } | undefined> {
   for (const source of sources) {
-    const credentials = await getCredentialsForSource(orgId, source.slug);
+    const credentials = await getCredentialsForSource(orgId, source.slug, actor);
     if (credentials) {
       return { source, credentials };
     }
@@ -132,7 +138,7 @@ export function zoomTools(ctx: RuntimeContext) {
         }, null, 2);
       }
 
-      const credentialed = await firstCredentialed(ctx.orgId, sources);
+      const credentialed = await firstCredentialed(ctx.orgId, sources, ctx.actor);
       if (!credentialed) {
         return cached
           ? 'The synced copy has no transcript yet and the zoom source has no credentials to fetch live — flag that the transcript is unavailable.'

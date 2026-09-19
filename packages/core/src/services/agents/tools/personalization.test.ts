@@ -53,6 +53,7 @@ function ctxFor(orgId: string, grants: string[] = [...PERSONALIZATION_TOOL_NAMES
     searchConfig: {},
     harnessConfig: { grantTools: grants },
     emit: () => {},
+    actor: { kind: 'user', id: 'user_1' },
     citationSeq: { current: 0 },
   };
 }

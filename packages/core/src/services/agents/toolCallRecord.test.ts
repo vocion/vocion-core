@@ -20,6 +20,7 @@ const ORG_B = 'org_toolcall_b';
 function ctxFor(orgId: string, extra: Partial<RuntimeContext> = {}): RuntimeContext {
   return {
     orgId,
+    actor: { kind: 'user', id: 'user_1' },
     agentSlug: 'revenue-lead',
     connectorSources: [],
     objectTypeSlugs: [],

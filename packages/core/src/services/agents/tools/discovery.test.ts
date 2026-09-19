@@ -64,6 +64,7 @@ function ctxFor(orgId: string, grants: string[] = [...DISCOVERY_TOOL_NAMES]): Ru
     searchConfig: {},
     harnessConfig: { grantTools: grants },
     emit: () => {},
+    actor: { kind: 'user', id: 'user_1' },
     citationSeq: { current: 0 },
   };
 }

@@ -192,6 +192,13 @@ export const gmailConnector: SourceConnector<typeof gmailConfigSchema> = {
   description: 'Ingest Gmail messages (subject, sender, snippet) — incremental by received date.',
   icon: 'Mail',
   authKind: 'oauth',
+  // Per-member grant reaching one person's own data. Live-read only: never
+  // synced, never chunked (see `SourceIdentity`).
+  identity: 'personal',
+  scopes: {
+    default: ['https://www.googleapis.com/auth/gmail.readonly'],
+    get_gmail_thread: ['https://www.googleapis.com/auth/gmail.readonly'],
+  },
   configSchema: gmailConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = gmailConfigSchema.parse(ctx.config);

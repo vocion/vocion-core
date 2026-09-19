@@ -37,6 +37,7 @@ import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
+  actorFor,
   ConnectorCredentialError,
   connectorHoldingCredential,
   credentialIdsInUse,
@@ -53,7 +54,7 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string; locale: string }> },
 ) {
-  const { orgId, role } = await auth();
+  const { orgId, userId, role } = await auth();
   if (!orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -101,7 +102,7 @@ export async function GET(
     optional: field.optional === true,
   }));
   try {
-    const credentials = await getCredentialsForConnector({ orgId, connectorSlug, apiTokenId: linkedCredentialId });
+    const credentials = await getCredentialsForConnector({ orgId, connectorSlug, apiTokenId: linkedCredentialId, actor: actorFor(userId) });
     return Response.json({
       credentials: credentials ?? null,
       available,

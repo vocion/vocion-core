@@ -84,6 +84,12 @@ export const googleCalendarConnector: SourceConnector<typeof calendarConfigSchem
   description: 'Ingest calendar events (title, time, attendees, description) — a rolling window of recent + upcoming.',
   icon: 'Calendar',
   authKind: 'oauth',
+  // Per-member grant reaching one person's own data. Live-read only: never
+  // synced, never chunked (see `SourceIdentity`).
+  identity: 'personal',
+  scopes: {
+    default: ['https://www.googleapis.com/auth/calendar.readonly'],
+  },
   configSchema: calendarConfigSchema,
   async* sync(ctx: SourceContext): AsyncIterable<IngestDoc> {
     const cfg = calendarConfigSchema.parse(ctx.config);

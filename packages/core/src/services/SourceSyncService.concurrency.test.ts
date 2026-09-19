@@ -17,6 +17,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 vi.mock('@/services/SourceCredentialService', () => ({
+  SYSTEM_ACTOR: { kind: 'system' },
+  actorFor: (id?: string | null) => (id ? { kind: 'user', id } : { kind: 'system' }),
   getCredentialsForConnector: vi.fn(async () => undefined),
 }));
 

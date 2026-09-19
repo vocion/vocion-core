@@ -25,7 +25,7 @@
 import { clerkAuth as auth } from '@/libs/Auth';
 import { InspectInputError } from '@/libs/sources/inspect';
 import { getConnector } from '@/libs/sources/registry';
-import { getCredentialsForConnector, storedCredentialIdForSource } from '@/services/SourceCredentialService';
+import { actorFor, getCredentialsForConnector, storedCredentialIdForSource } from '@/services/SourceCredentialService';
 import { getSourceById } from '@/services/SourceSyncService';
 
 /** Body keys the route reads itself; everything else is the connector's. */
@@ -35,7 +35,7 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ slug: string; locale: string }> },
 ) {
-  const { orgId, role } = await auth();
+  const { orgId, userId, role } = await auth();
   if (!orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -80,7 +80,7 @@ export async function POST(
     const apiTokenId = await storedCredentialIdForSource(orgId, sourceId);
     let vaulted: Record<string, unknown> | undefined;
     try {
-      vaulted = await getCredentialsForConnector({ orgId, connectorSlug, apiTokenId });
+      vaulted = await getCredentialsForConnector({ orgId, connectorSlug, apiTokenId, actor: actorFor(userId) });
     } catch (err) {
       // A credential the source points at but cannot use has its own message,
       // and it is exactly what this test exists to surface.

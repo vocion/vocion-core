@@ -223,6 +223,9 @@ export async function POST(request: Request): Promise<Response> {
           agentSlug,
           message: withPageContext(message, pageContext, contextRefs, grounding.text),
           userId,
+          // The one caller that holds a verified session. Everything else runs
+          // as the system and reaches no personal grant.
+          actor: { kind: 'user', id: userId },
           conversationId: conversationId ?? undefined,
           conversationHistory,
           pageContext: pageContext ?? undefined,
