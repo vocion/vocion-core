@@ -7,7 +7,8 @@
  * a zero for a dataset nobody has ever run.
  */
 import { describe, expect, it } from 'vitest';
-import { summariseLastRun, timeAgo } from './lastRun';
+import { timeAgo } from '@/libs/timeAgo';
+import { summariseLastRun } from './lastRun';
 
 const NOW = Date.parse('2026-09-16T12:00:00Z');
 
