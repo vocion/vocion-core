@@ -1,5 +1,9 @@
+import type { RedTeamFinding } from './redTeam';
+import type { DocumentRedTeam } from '@/libs/cards/specs';
 import { describe, expect, it } from 'vitest';
-import { parseFindings, prepareSheetsText, redTeamReceipt } from './redTeam';
+import { redTeamChip } from '@/libs/documents/audit';
+import { exportGate, isClientFacing } from './exportGate';
+import { parseFindings, prepareSheetsText, redTeamReceipt, redTeamRecord } from './redTeam';
 
 // The pure half of the red team: what the reviewer reads, what comes back, what the agent is told.
 
@@ -79,5 +83,137 @@ describe('parseFindings — partial answers', () => {
 
   it('gives up when nothing in the array validates', () => {
     expect(parseFindings(JSON.stringify({ findings: [{ sheet: 'one' }] }))).toBeNull();
+  });
+});
+
+// The gate on the way out: which documents are read as the buyer before they
+// can leave as a PDF, and what the export does in each state. Pure — no
+// database, no model, no browser.
+
+const BLOCK: RedTeamFinding = { sheet: 2, severity: 'block', rule: 'outcome promised', finding: 'Sheet 2 promises a 30% saving.', fix: 'Cut the figure; commit to measuring together.' };
+const FIX: RedTeamFinding = { sheet: 5, severity: 'fix', rule: 'scope', finding: 'Vision reads as included at all plants.', fix: 'Name the one plant.' };
+const CONSIDER: RedTeamFinding = { sheet: 9, severity: 'consider', rule: 'structure', finding: 'Two options read alike.', fix: 'Merge them.' };
+
+function reviewed(findings: RedTeamFinding[]) {
+  return { status: 'reviewed' as const, model: 'test-model', sheets: 12, keeps: null, findings };
+}
+
+describe('redTeamRecord', () => {
+  it('counts by severity and stores the findings blocks first', () => {
+    const record = redTeamRecord(reviewed([CONSIDER, FIX, BLOCK]), 4);
+
+    expect(record.version).toBe(4);
+    expect(record.model).toBe('test-model');
+    expect(record.sheets).toBe(12);
+    expect({ blocks: record.blocks, fixes: record.fixes, considers: record.considers }).toEqual({ blocks: 1, fixes: 1, considers: 1 });
+    expect(record.findings.map(f => f.severity)).toEqual(['block', 'fix', 'consider']);
+  });
+
+  it('caps the stored findings without ever dropping a block', () => {
+    const many = [
+      ...Array.from({ length: 25 }, (_, i) => ({ ...CONSIDER, sheet: i + 1 })),
+      { ...BLOCK, sheet: 30 },
+    ];
+
+    const record = redTeamRecord(reviewed(many), 1);
+
+    expect(record.findings).toHaveLength(20);
+    expect(record.findings[0]).toMatchObject({ severity: 'block', sheet: 30 });
+    expect(record.blocks).toBe(1);
+    expect(record.considers).toBe(25);
+  });
+});
+
+describe('isClientFacing', () => {
+  it('gates the document playbooks that ship today and nothing else', () => {
+    expect(isClientFacing('proposal')).toBe(true);
+    expect(isClientFacing('scope')).toBe(true);
+    expect(isClientFacing('partnership-update')).toBe(true);
+    expect(isClientFacing('email-copy')).toBe(false);
+    expect(isClientFacing('work-sample')).toBe(false);
+  });
+
+  it('never gates a document with no playbook tag', () => {
+    expect(isClientFacing(undefined)).toBe(false);
+    expect(isClientFacing(null)).toBe(false);
+    expect(isClientFacing('  ')).toBe(false);
+  });
+
+  it('reads the tag the way an agent types it', () => {
+    expect(isClientFacing('Proposal')).toBe(true);
+    expect(isClientFacing(' partnership_update ')).toBe(true);
+  });
+
+  it('takes the workspace list over the defaults, and an empty one gates nothing', () => {
+    expect(isClientFacing('proposal', ['statement-of-work'])).toBe(false);
+    expect(isClientFacing('statement-of-work', ['statement-of-work'])).toBe(true);
+    expect(isClientFacing('proposal', [])).toBe(false);
+    expect(isClientFacing('proposal', null)).toBe(true);
+  });
+});
+
+describe('exportGate', () => {
+  const record = (over: Partial<DocumentRedTeam> = {}): DocumentRedTeam => ({
+    at: '2026-09-19T10:00:00.000Z',
+    version: 3,
+    model: 'test-model',
+    sheets: 12,
+    blocks: 0,
+    fixes: 0,
+    considers: 0,
+    findings: [],
+    ...over,
+  });
+
+  it('lets an untagged document straight out, read or not', () => {
+    expect(exportGate({ playbook: undefined, read: { kind: 'none' } })).toEqual({ action: 'export', line: null });
+  });
+
+  it('reads a gated document first when this version has never been read', () => {
+    expect(exportGate({ playbook: 'proposal', read: { kind: 'none' } })).toEqual({ action: 'read-first' });
+  });
+
+  it('exports a gated document that already came back clean, and cites the read', () => {
+    const gate = exportGate({ playbook: 'proposal', read: { kind: 'read', redTeam: record({ fixes: 2, considers: 1 }) } });
+
+    expect(gate.action).toBe('export');
+    expect(gate.action === 'export' && gate.line).toContain('Read as the buyer at v3 on 2026-09-19');
+    expect(gate.action === 'export' && gate.line).toContain('no blocking findings (2 to fix · 1 to consider)');
+  });
+
+  it('says it did the read itself when the export ran it', () => {
+    const gate = exportGate({ playbook: 'proposal', read: { kind: 'read', redTeam: record(), fresh: true } });
+
+    expect(gate.action === 'export' && gate.line).toContain('Read as the buyer first (test-model, 12 sheets): no findings.');
+  });
+
+  it('refuses on a block, naming the sheet and the fix, and says it is not sent', () => {
+    const gate = exportGate({ playbook: 'proposal', read: { kind: 'read', redTeam: record({ blocks: 1, findings: [BLOCK, CONSIDER] }) } });
+
+    expect(gate.action).toBe('refuse');
+    expect(gate.action === 'refuse' && gate.line).toContain('NOT exported');
+    expect(gate.action === 'refuse' && gate.line).toContain('not sent until they are answered');
+    expect(gate.action === 'refuse' && gate.line).toContain('1. sheet 2 · outcome promised: Sheet 2 promises a 30% saving. → Cut the figure');
+    expect(gate.action === 'refuse' && gate.line).not.toContain('Two options read alike');
+  });
+
+  it('never silently blocks when the read could not run — it exports and says why', () => {
+    const gate = exportGate({ playbook: 'proposal', read: { kind: 'unavailable', reason: 'no Anthropic key is configured for this workspace or the server' } });
+
+    expect(gate.action).toBe('export');
+    expect(gate.action === 'export' && gate.line).toContain('NOT read as the buyer first: no Anthropic key');
+  });
+
+  it('honours a workspace that gates nothing', () => {
+    expect(exportGate({ playbook: 'proposal', configured: [], read: { kind: 'none' } })).toEqual({ action: 'export', line: null });
+  });
+});
+
+describe('redTeamChip', () => {
+  it('says whether this version was read, and what it cost', () => {
+    expect(redTeamChip(undefined)).toBe('not read as the buyer');
+    expect(redTeamChip(redTeamRecord(reviewed([]), 1))).toBe('read as the buyer · clean');
+    expect(redTeamChip(redTeamRecord(reviewed([FIX]), 1))).toBe('read as the buyer · 1 to fix');
+    expect(redTeamChip(redTeamRecord(reviewed([BLOCK, BLOCK]), 1))).toBe('read as the buyer · 2 blocking');
   });
 });

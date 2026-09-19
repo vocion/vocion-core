@@ -7,6 +7,13 @@ sheet — the rule broken, what they read, the fix — graded `block` (not sent)
 you call a document ready; fix the blocks by sheet; run it again. Pass the
 rubric below as `rubric` and the room's starred facts in brief as `context`.
 
+**It is a gate, not a habit.** The result is stored on the version it read, and
+`export_document_pdf` refuses to print a client document with a blocking
+finding on its current version. If you have not run it, the export runs it for
+you — on core's generic rubric only, without the house rules below. So run it
+yourself: the rubric here is the part the gate cannot supply. An edit of any
+kind makes the document unread again.
+
 ## House rubric (paste as `rubric`)
 
 - **Grounding.** Every number, name, date and quote traces to the decision log or a starred source. An unsourced figure is a block unless it is a `.ph` placeholder marked "to be baselined".

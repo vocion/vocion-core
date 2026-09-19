@@ -13,10 +13,14 @@ render-verify receipt reads clean**.
 - The `proposal-document` skill: the framework CSS, the component vocabulary,
   the twelve-sheet spine, when a sheet earns a visual, the structure and
   language rules, the verify loop and the red-team rubric.
-- **Red team before send**: `red_team_document` reads the document as the
-  sceptical buyer — grounding, promised outcomes, placeholders, the client's
-  words, scope, commercial clarity, register — and returns numbered findings
-  by sheet with the fix. Blocks are not sent.
+- **Red team before send, enforced by the export**: `red_team_document` reads
+  the document as the sceptical buyer — grounding, promised outcomes,
+  placeholders, the client's words, scope, commercial clarity, register — and
+  returns numbered findings by sheet with the fix, stored on the version it
+  read. `export_document_pdf` will not print a client document that has a
+  blocking finding, and runs the read itself if nobody has. Which playbooks
+  count as client-facing is `defaults.clientFacingPlaybooks` in workspace.yaml
+  (`proposal`, `scope`, `partnership-update` by default).
 - **It learns from every correction.** The writer declares the
   `proposal-feedback` learning step: every review decision on a proposal and
   every correction in chat files a candidate there, and adopted rules mount

@@ -17,9 +17,11 @@
  * per call; no key means the pass is skipped and says so.
  */
 
+import type { DocumentRedTeam } from '@/libs/cards/specs';
 import process from 'node:process';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
+import { DOCUMENT_FINDING_SEVERITIES, documentRedTeamFindingSchema } from '@/libs/cards/specs';
 import { parseSheets, sheetLabel, textOf } from '@/libs/documents/sheets';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
 
@@ -28,20 +30,16 @@ const REVIEW_MODEL = process.env.VOCION_REVIEW_MODEL ?? process.env.VOCION_VISIO
 const MAX_CHARS_PER_SHEET = 6_000;
 const MAX_SHEETS = 20;
 
-export const SEVERITIES = ['block', 'fix', 'consider'] as const;
+/**
+ * The finding shape is the STORED one (`libs/cards/specs.ts`), not a second
+ * copy: what the reviewer returns is what lands on the document's spec and
+ * what the export gate reads back, so there is one definition of a finding.
+ */
+export const SEVERITIES = DOCUMENT_FINDING_SEVERITIES;
 export type Severity = typeof SEVERITIES[number];
 
 const FindingsSchema = z.object({
-  findings: z.array(z.object({
-    sheet: z.number().int().min(0),
-    severity: z.enum(SEVERITIES),
-    /** The rubric rule it breaks, in a few words: "outcome promised". */
-    rule: z.string().min(1).max(80),
-    /** What a buyer would read, quoting the sheet where it helps. */
-    finding: z.string().min(1).max(400),
-    /** The edit that answers it. */
-    fix: z.string().min(1).max(300),
-  })).max(40),
+  findings: z.array(documentRedTeamFindingSchema).max(40),
   /** One or two sentences: what the document does well, so the fixes do not erase it. */
   keeps: z.string().max(400).optional(),
 });
@@ -157,6 +155,42 @@ export function parseFindings(text: string): z.infer<typeof FindingsSchema> | nu
   return { findings: kept, keeps: typeof loose.data.keeps === 'string' ? loose.data.keeps.slice(0, 400) : undefined };
 }
 
+const SEVERITY_ORDER: Record<Severity, number> = { block: 0, fix: 1, consider: 2 };
+
+/**
+ * Findings in the order they must be answered: blocks first, then by sheet.
+ * Pure; exported for tests.
+ * @param findings - Findings in whatever order the reviewer returned them.
+ */
+export function bySeverity(findings: readonly RedTeamFinding[]): RedTeamFinding[] {
+  return [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.sheet - b.sheet);
+}
+
+/** Findings stored on a document, capped: a spec is a row, not a transcript. */
+const MAX_STORED_FINDINGS = 20;
+
+/**
+ * The review as the document carries it — counts by severity and the findings
+ * themselves, blocks first so the cap never drops a blocker in favour of a
+ * `consider`. Pure; exported for tests.
+ * @param outcome - A review that ran.
+ * @param version - The artifact version whose HTML was read.
+ */
+export function redTeamRecord(outcome: Extract<RedTeamOutcome, { status: 'reviewed' }>, version: number): DocumentRedTeam {
+  const sorted = bySeverity(outcome.findings);
+  return {
+    at: new Date().toISOString(),
+    version,
+    model: outcome.model,
+    sheets: outcome.sheets,
+    blocks: sorted.filter(f => f.severity === 'block').length,
+    fixes: sorted.filter(f => f.severity === 'fix').length,
+    considers: sorted.filter(f => f.severity === 'consider').length,
+    findings: sorted.slice(0, MAX_STORED_FINDINGS),
+    ...(outcome.keeps ? { keeps: outcome.keeps } : {}),
+  };
+}
+
 /**
  * The receipt the agent reads: findings by severity, each with sheet, rule
  * and fix, then what to do with them. Pure; exported for tests.
@@ -166,8 +200,7 @@ export function redTeamReceipt(outcome: RedTeamOutcome): string {
   if (outcome.status === 'skipped') {
     return `Red team skipped: ${outcome.reason}.`;
   }
-  const order: Record<Severity, number> = { block: 0, fix: 1, consider: 2 };
-  const sorted = [...outcome.findings].sort((a, b) => order[a.severity] - order[b.severity] || a.sheet - b.sheet);
+  const sorted = bySeverity(outcome.findings);
   const blocks = sorted.filter(f => f.severity === 'block').length;
   const fixes = sorted.filter(f => f.severity === 'fix').length;
   const lines = [
