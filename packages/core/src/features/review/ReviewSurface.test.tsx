@@ -31,8 +31,6 @@ vi.mock('@/libs/Orpc', () => ({
   },
 }));
 
-vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
-
 vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
@@ -226,7 +224,7 @@ describe('one flat template, every object type', () => {
     // the label span rather than the whole node.
     const labels = [...bar.querySelectorAll('button')].map(b => (b.querySelector('span')?.textContent ?? b.textContent ?? '').trim());
 
-    expect(labels).toEqual(['add_feedback', 'Decline', 'Snooze', 'Confirm']);
+    expect(labels).toEqual(['Add feedback', 'Decline', 'Snooze', 'Confirm']);
     expect(bar.textContent).not.toContain('Save for later');
     expect(bar.textContent).not.toContain('Skip');
   });

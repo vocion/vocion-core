@@ -120,7 +120,11 @@ describe('the lead workspace — three zones, three tabs', () => {
     await expect.element(page.getByRole('heading', { name: 'Rowan Pike' })).toBeVisible();
     await expect.element(page.getByRole('link', { name: 'Open in HubSpot ↗' })).toBeVisible();
     await expect.element(page.getByText('Paid social')).toBeVisible();
-    await expect.element(page.getByText('MQL Sep 1')).toBeVisible();
+    // The acquisition facts are label-over-value cells on the one meta row,
+    // not a middot line: the flat template reads them the same way on every
+    // object type.
+    await expect.element(page.getByText('Became MQL')).toBeVisible();
+    await expect.element(page.getByText('Sep 1', { exact: true })).toBeVisible();
     // A coverage STATE, never a percentage: the five dimensions grade how much
     // of the evidence we got, which is not a calibrated probability, and
     // quoting it as one claims a precision nothing behind it earns. The
@@ -216,7 +220,7 @@ describe('the lead workspace — three zones, three tabs', () => {
 
     await expect.element(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.')).toBeVisible();
     await expect.element(page.getByText('Runs an iGaming marketing agency.')).toBeVisible();
-    await expect.element(page.getByText('Became MQL')).toBeVisible();
+    await expect.element(page.getByTestId('evidence-tab').getByText('Became MQL')).toBeVisible();
     await expect.element(page.getByText('Brief version')).toBeVisible();
   });
 });
@@ -231,9 +235,13 @@ describe('the sequence state, resolved before an Enroll button', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('sequence-state-current')).toBeVisible();
-    await expect.element(page.getByTestId('sequence-state-transaction')).toHaveTextContent('Unenroll from MQL Auto-Nurture and enroll in Ebook Inbound Sequence.');
+    // The screen states what the CRM last observed, and then stops. It no
+    // longer spells out what approving will do (settled 2026-09-17): the
+    // sentence was removed and the held primary carries the reason instead,
+    // so a determinable transaction simply leaves Enroll live.
+    await expect.element(page.getByTestId('sequence-state-current')).toHaveTextContent('MQL Auto-Nurture');
     await expect.element(page.getByTestId('decide-approve')).toBeEnabled();
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
 
   it('holds Enroll, and says why, when the data cannot say whether it adds or replaces', async () => {
@@ -251,10 +259,16 @@ describe('the sequence state, resolved before an Enroll button', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('sequence-state-held')).toBeVisible();
-    await expect.element(page.getByTestId('sequence-state-held')).toHaveTextContent(/replaces it or runs alongside it/);
-    await expect.element(page.getByTestId('decide-approve')).toBeDisabled();
-    expect(page.getByTestId('sequence-state-transaction').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('primary-held')).toHaveTextContent(/replaces it or runs alongside it/);
+
+    const approve = page.getByTestId('decide-approve').element();
+
+    expect(approve).toBeDisabled();
+    // The reason is reachable FROM the button, not only from the notice: a
+    // disabled control takes no pointer events, so the tooltip rides a
+    // wrapper and the same text is its accessible description.
+    expect(approve.closest('[title]')?.getAttribute('title')).toMatch(/replaces it or runs alongside it/);
+    expect(document.getElementById(approve.getAttribute('aria-describedby')!)?.textContent).toMatch(/replaces it or runs alongside it/);
   });
 
   it('holds Enroll when the CRM never said whether the contact is in a sequence at all', async () => {
@@ -351,7 +365,7 @@ describe('which tab the page opens on', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('lead-tabs')).toBeVisible();
+    await expect.element(page.getByTestId('review-tabs')).toBeVisible();
     expect(page.getByTestId('brief-tab').elements()).toHaveLength(0);
   });
 
@@ -381,7 +395,7 @@ describe('which tab the page opens on', () => {
       />,
     );
 
-    const labels = await page.getByTestId('lead-tabs').element().textContent;
+    const labels = await page.getByTestId('review-tabs').element().textContent;
 
     expect(labels?.indexOf('Sequence')).toBeLessThan(labels?.indexOf('Brief') ?? -1);
   });
@@ -414,8 +428,7 @@ describe('the sequence tab', () => {
       />,
     );
 
-    await page.getByRole('tab', { name: /Sequence/ }).click();
-
+    // Each send is its own tab now, and the first one opens.
     await expect.element(page.getByText('One line on the ebook.')).toBeVisible();
 
     publishDraftRevision({ runId: 501, contentId: 'send-1', body: 'A shorter line on the ebook.' });
@@ -434,7 +447,6 @@ describe('the sequence tab', () => {
       />,
     );
 
-    await page.getByRole('tab', { name: /Sequence/ }).click();
     publishDraftRevision({ runId: 999, contentId: 'send-1', body: 'not this lead' });
 
     expect(page.getByText('not this lead').elements()).toHaveLength(0);
@@ -450,8 +462,7 @@ describe('the sequence tab', () => {
       />,
     );
 
-    await page.getByRole('tab', { name: /Sequence/ }).click();
-
+    // The control sits beside the send it scopes to, in that send's own tab.
     await expect.element(page.getByRole('button', { name: 'Editing Send 1' })).toBeVisible();
   });
 

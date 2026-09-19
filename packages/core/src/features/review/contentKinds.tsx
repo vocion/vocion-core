@@ -139,31 +139,44 @@ function EmailContent({ item, edit, onEdit, disabled, changed }: ContentRenderPr
         changed && 'bg-brand-amber-tint duration-0',
       )}
     >
+      {/* Nothing to edit here — a guided review, or a run already decided.
+          Prose, then: a disabled field reads as a dead form rather than as the
+          message it is. */}
+      {!onEdit && (
+        <>
+          {subject && <p className="border-b border-rule pb-1.5 text-[17px] font-medium">{subject}</p>}
+          <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/85">{body}</p>
+        </>
+      )}
       {/* An email, not a form. The subject is a subject line with a hairline
           under it, the body grows to its content, and the labels are there for
           a screen reader only — a boxed field inside a boxed row inside a
           boxed card is the nesting `patterns.md` bans outright, and it is what
           made this read as a form. */}
-      <label className="block">
-        <span className="sr-only">Subject</span>
-        <input
-          className={`${inlineFieldClass} border-b border-rule text-[17px] font-medium`}
-          value={subject}
-          placeholder="Subject"
-          onChange={ev => onEdit?.({ subject: ev.target.value })}
-          disabled={disabled || !onEdit}
-          aria-label={`${item.label} subject`}
-        />
-      </label>
+      {onEdit && (
+        <label className="block">
+          <span className="sr-only">Subject</span>
+          <input
+            className={`${inlineFieldClass} border-b border-rule text-[17px] font-medium`}
+            value={subject}
+            placeholder="Subject"
+            onChange={ev => onEdit?.({ subject: ev.target.value })}
+            disabled={disabled}
+            aria-label={`${item.label} subject`}
+          />
+        </label>
+      )}
       {/* No <label> wrapper: the control lives inside `AutoGrow`, so the
           association has to travel as an accessible name instead. */}
-      <AutoGrow
-        label={`${item.label} body`}
-        className={`${inlineFieldClass} mt-1 leading-relaxed`}
-        value={body}
-        onChange={next => onEdit?.({ body: next })}
-        disabled={disabled || !onEdit}
-      />
+      {onEdit && (
+        <AutoGrow
+          label={`${item.label} body`}
+          className={`${inlineFieldClass} mt-1 leading-relaxed`}
+          value={body}
+          onChange={next => onEdit({ body: next })}
+          disabled={disabled}
+        />
+      )}
     </div>
   );
 }

@@ -6,7 +6,6 @@ import type { Crumb } from '@/components/patterns';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Ban, Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
-import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import {
   ConfidenceMeter,
@@ -205,6 +204,8 @@ function MetaRow(props: {
  * @param props.edit.body
  * @param props.onEdit - Patch handler, absent when the kind is not editable.
  * @param props.changed - True for a moment after a conversation rewrite landed.
+ * @param props.actions
+ * @param props.edited
  * @param props.disabled - Held while busy or regenerating.
  * @param props.canRegenerate - Whether the action implements regeneration.
  * @param props.regenerating - True while a pass is in flight.
@@ -217,6 +218,10 @@ function ItemPane(props: {
   label: string;
   editable: boolean;
   children: ReactNode;
+  /** A control the surface adds beside Edit and Regenerate. */
+  actions?: ReactNode;
+  /** True when the working copy differs from what the agent wrote. */
+  edited?: boolean;
   disabled?: boolean;
   canRegenerate: boolean;
   regenerating: boolean;
@@ -238,8 +243,14 @@ function ItemPane(props: {
     // *Add change* (`docs/design/patterns.md` § Select → talk).
     <div data-comment-field={props.label} data-testid={`item-pane-${props.item.id}`}>
       <div className="mb-1 flex items-baseline justify-between gap-3">
-        <h3 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{props.label}</h3>
+        <h3 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
+          {props.label}
+          {/* Your version, not the agent's — said once, quietly, and it
+              survives a tab change where the arrival tint does not. */}
+          {props.edited && <span className="ml-2 font-normal normal-case" data-testid={`edited-${props.item.id}`}>edited</span>}
+        </h3>
         <div className="flex shrink-0 items-center gap-1">
+          {props.actions}
           {props.editable && (
             <button
               type="button"
@@ -325,12 +336,18 @@ export function ReviewSurface(props: {
   'position'?: string;
   /** The rest of the right cluster on the title row: Back, Up next, a shortcuts hint. */
   'actions'?: ReactNode;
-  /** Cells the surface prepends to the meta row, before the card's provenance. */
+  /** Cells the surface adds to the meta row, after the card's provenance. */
   'meta'?: ReadonlyArray<{ label: string; value: ReactNode }>;
+  /** A control beside the item's own Edit and Regenerate — a scoped ask. */
+  'itemActions'?: (item: ReviewContent, label: string) => ReactNode;
   /** Tabs this surface owns — the lead page's Brief, for instance. */
   'extraTabs'?: readonly ReviewExtraTab[];
-  /** What the surface says between the header and the tabs — a shortcuts hint. */
+  /** What the surface says between the header and the tabs — a shortcuts hint, an outcome. */
   'beforeTabs'?: ReactNode;
+  /** Which tab opens. Defaults to the first one. */
+  'defaultTab'?: string;
+  /** The surface's own evidence, under the shell's — claims, a timeline. */
+  'evidenceExtra'?: ReactNode;
   /** Hold the primary: the consequence cannot be determined, and why. */
   'hold'?: { reason: string } | null;
   /** False when there is nothing pending to decide — the screen reads, no bar. */
@@ -341,9 +358,15 @@ export function ReviewSurface(props: {
   'extraContentEdits'?: () => ReviewContentEdit[];
   'onDecided'?: (outcome: ReviewOutcome) => void;
   'onRegenerated'?: () => void;
+  /**
+   * The feedback toggle's wording. English by default, like `StickyActionBar`
+   * itself: the lead page and the stories mount no intl provider, and a shell
+   * that reads `useTranslations` would throw on both. Translated surfaces pass
+   * their own strings.
+   */
+  'barLabels'?: { addField?: string; hideField?: string };
   'data-testid'?: string;
 }) {
-  const t = useTranslations('Review');
   const { run } = props;
   const card = run.card;
   const decidable = props.decidable ?? true;
@@ -388,10 +411,11 @@ export function ReviewSurface(props: {
     'why',
     'evidence',
   ];
-  const [tab, setTab] = useState(tabIds[0]!);
+  const opening = props.defaultTab && tabIds.includes(props.defaultTab) ? props.defaultTab : tabIds[0]!;
+  const [tab, setTab] = useState(opening);
   useEffect(() => {
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
-    setTab(tabIds[0]!);
+    setTab(opening);
     setSnoozeOpen(false);
   }, [run.id]);
   // A tab that stops existing (the content came back shorter) must not leave
@@ -501,8 +525,8 @@ export function ReviewSurface(props: {
     : undefined;
 
   const metaCells = [
+    ...(card.provenance ?? []).map(p => ({ label: p.label, value: p.value as ReactNode })),
     ...(props.meta ?? []),
-    ...(card.provenance ?? []).map(p => ({ label: p.label, value: p.value })),
   ];
 
   const agent = run.invokedBy?.replace('agent:', '');
@@ -584,6 +608,7 @@ export function ReviewSurface(props: {
               </div>
             </Section>
           )}
+          {props.evidenceExtra}
           <Section eyebrow="Run details" data-testid="run-details">
             <FactList
               facts={[
@@ -628,6 +653,7 @@ export function ReviewSurface(props: {
     const label = itemTabs.find(x => x.id === id)!.label;
     const editable = contentKindEditable(item.kind) && !props.guided;
     const Renderer = contentKindRenderer(item.kind);
+    const edit = d.contentEdits[item.id];
     return (
       <ItemPane
         item={item}
@@ -637,10 +663,12 @@ export function ReviewSurface(props: {
         canRegenerate={d.canRegenerate}
         regenerating={d.regenerating}
         onRegenerate={instruction => void regenerate(instruction)}
+        actions={props.itemActions?.(item, label)}
+        edited={edit !== undefined && (edit.subject !== undefined || edit.body !== undefined)}
       >
         <Renderer
           item={item}
-          edit={d.contentEdits[item.id]}
+          edit={edit}
           onEdit={editable ? patch => d.editContent(item.id, patch) : undefined}
           changed={Boolean(justChanged[item.id])}
           disabled={d.held}
@@ -679,7 +707,7 @@ export function ReviewSurface(props: {
       bar={decidable
         ? (
             <StickyActionBar
-              labels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
+              labels={props.barLabels}
               primary={{
                 'label': d.execError ? `Retry ${approveVerb}` : approveVerb,
                 'onClick': () => void decide('approve'),

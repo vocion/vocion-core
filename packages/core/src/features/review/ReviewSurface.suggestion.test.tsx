@@ -20,8 +20,6 @@ vi.mock('@/libs/Orpc', () => ({
   client: { review: { decideAction: vi.fn(), snoozeAction: vi.fn(), regenerateAction: vi.fn(), actionStatus: vi.fn() } },
 }));
 
-vi.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }));
-
 vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));

@@ -211,6 +211,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           position={queuePosition(p.index, p.total)}
           actions={backAndNext}
           beforeTabs={help}
+          barLabels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
           onDecided={p.onCardDecided}
           onRegenerated={p.onCardRegenerated}
         />
