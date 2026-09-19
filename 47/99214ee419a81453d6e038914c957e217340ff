@@ -1,0 +1,35 @@
+packages/core/src/locales/fr.json
+  s_57146da98e2611::t_5e6f1502f829bf 261-262
+packages/core/src/features/review/ReviewSurface.stories.tsx
+  s_57146da98e2611::t_c95489ea88aafc 110-146
+packages/core/src/features/review/ReviewSurface.test.tsx
+  s_57146da98e2611::t_a965929b404709 229-232,285-287,289,293-344
+packages/core/src/locales/en.json
+  s_57146da98e2611::t_5e6f1502f829bf 261-262
+packages/core/src/features/review/useReviewDecision.ts
+  s_57146da98e2611::t_e6a248ef7b8b2a 173-175,177,181
+packages/core/src/features/review/ReviewSurface.tsx
+  s_57146da98e2611::t_11282db79a794b 589
+  s_57146da98e2611::t_5dddf692e75b1f 133-146
+  s_57146da98e2611::t_c3d97435ff68d9 219-273,277-280,285,298,311,319-325,327-360,363-365
+  s_57146da98e2611::t_8a03588d3ed81a 517,519,586-588,590-593,725,728,797-798
+  s_57146da98e2611::t_7e798ec70e318c 300-304,718
+packages/core/src/features/dashboard/StickyActionBar.tsx
+  s_57146da98e2611::t_5e6f1502f829bf 128-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4799214ee419a81453d6e038914c957e217340ff",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
