@@ -1,0 +1,20 @@
+packages/core/src/features/review/ReviewHeader.layout.test.tsx
+  s_ebf02c08875266::t_5f682f04ae3726 2,10-19
+  s_ebf02c08875266::t_5da18d6654788d 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d4bb65645e0da767d11f0b39e9004a1a92e76432",
+  "prompts": {},
+  "sessions": {
+    "s_ebf02c08875266": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4684915b-d634-4453-9ebd-8a06c50f3827",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
