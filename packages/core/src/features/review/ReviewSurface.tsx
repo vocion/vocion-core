@@ -346,6 +346,7 @@ function ItemPane(props: {
                 <button
                   type="button"
                   data-testid={`regenerate-${props.item.id}`}
+                  aria-label={`Regenerate ${props.label}`}
                   disabled={props.disabled || instruction.trim().length === 0}
                   onClick={() => {
                     props.onRegenerate(instruction.trim());
@@ -354,7 +355,7 @@ function ItemPane(props: {
                   className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
                 >
                   {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
-                  {props.regenerating ? 'Regenerating…' : `Regenerate ${props.label}`}
+                  {props.regenerating ? 'Regenerating…' : 'Regenerate'}
                 </button>
               </div>
               <p className="mt-1 text-[13px] text-muted-foreground">
@@ -381,10 +382,12 @@ function ItemPane(props: {
                       data-testid={`unapprove-${props.item.id}`}
                       onClick={props.approval.onUnapprove}
                       disabled={props.disabled}
+                      aria-label={`${props.approval.label} approved — undo`}
+                      title={`${props.approval.label} approved — undo`}
                       className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-[13px] text-brand-pass transition hover:bg-surface-hover disabled:opacity-40"
                     >
                       <Check className="size-4" aria-hidden />
-                      {`${props.approval.label} approved · undo`}
+                      Approved
                     </button>
                   )
                 : (
@@ -394,10 +397,11 @@ function ItemPane(props: {
                       data-testid={`approve-${props.item.id}`}
                       onClick={props.approval.onApprove}
                       disabled={props.disabled}
+                      aria-label={`Approve ${props.approval.label}`}
                       className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-action px-3 text-sm text-action-foreground transition hover:opacity-90 disabled:opacity-40"
                     >
                       <Check className="size-4" aria-hidden />
-                      {`Approve ${props.approval.label}`}
+                      Approve
                     </button>
                   )}
             </div>
@@ -586,8 +590,15 @@ export function ReviewSurface(props: {
    * one place the reason is written, and `BarAction.hint` already puts that
    * reason on a disabled button where a pointer can reach it.
    *
-   * A hold the SURFACE passes wins. That one says the consequence cannot be
-   * determined at all, which outranks "you have not finished reading".
+   * It draws NO notice. The count over the tab row already says how far
+   * through the walk you are, and the reason rides the disabled button
+   * itself, so a banner repeating it was a third copy of one fact taking a
+   * row of the screen. A hold the SURFACE passes still draws one: that is a
+   * condition a reviewer cannot see anywhere else on the page.
+   *
+   * A hold the SURFACE passes also wins outright. That one says the
+   * consequence cannot be determined at all, which outranks "you have not
+   * finished reading".
    *
    * A retry is never held. A run whose execution failed has already been
    * decided once — the copy was approved, the decision's backstop recorded
@@ -925,7 +936,7 @@ export function ReviewSurface(props: {
     >
       {props.beforeTabs}
 
-      {(d.regenerating || d.regenStale || d.execError || hold) && (
+      {(d.regenerating || d.regenStale || d.execError || props.hold) && (
         <div className="flex flex-col gap-2 py-4">
           {d.regenerating && (
             <Notice tone="amber" icon={<Loader2 className="size-4 animate-spin" aria-hidden />} testid="regenerating-banner">
@@ -946,10 +957,10 @@ export function ReviewSurface(props: {
               <p className="mt-0.5 text-[13px] text-muted-foreground">{`Fix the cause if it names one, then ${approveVerb} again to retry.`}</p>
             </Notice>
           )}
-          {hold && (
+          {props.hold && (
             <Notice tone="amber" icon={<Ban className="size-4" aria-hidden />} testid="primary-held">
               <span className="font-medium">{`${approveVerb} is held.`}</span>
-              <span className="text-muted-foreground">{` ${hold.reason}`}</span>
+              <span className="text-muted-foreground">{` ${props.hold.reason}`}</span>
             </Notice>
           )}
         </div>

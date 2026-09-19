@@ -107,7 +107,13 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   // ── The walk starts empty, and Enroll is held ────────────────────────────
   await expect(page.getByTestId('walk-count')).toHaveText('0 of 4 approved');
   await expect(page.getByTestId('decide-approve')).toBeDisabled();
-  await expect(page.getByTestId('primary-held')).toContainText('0 of 4');
+  // The reason rides the button, not a banner: the count over the tab row
+  // already says how far through the walk you are.
+  await expect(page.locator('#bar-hint-decide-approve')).toContainText('0 of 4');
+  await expect(page.getByTestId('primary-held')).toHaveCount(0);
+  // One-word action buttons throughout.
+  await expect(page.getByTestId('decide-approve')).toHaveText(/^Enroll/);
+  await expect(page.getByTestId('approve-send-1')).toHaveText('Approve');
 
   await page.screenshot({ path: 'vitest-test-results/walk-1440-held.png', fullPage: false });
 
