@@ -13,13 +13,11 @@ import { client } from '@/libs/Orpc';
  * The decide path of a review run, as a hook: the working copy of the
  * content edits, the ONE feedback note, snooze, regenerate (with the server's
  * in-flight stamp polled to completion), the execution-failure hold, and the
- * decision itself — everything `ReviewActionCard` does that is not a `<div>`.
+ * decision itself — everything `ReviewSurface` does that is not a `<div>`.
  *
- * Extracted so a page can render the decision in its own type system (the
- * lead page's Detail archetype: sections + a sticky bar) while deciding the
- * SAME run through the SAME calls the card and the queue use. The card keeps
- * its own copy of this logic until PR #337 (which reshapes the card) lands;
- * then `ReviewActionCard` adopts this hook and the duplicate goes.
+ * ONE path, for every surface that decides a run. The review queue and the
+ * lead page both mount `ReviewSurface`, which mounts this: deciding on either
+ * is the same operation on the same run, through the same calls.
  *
  * `extraContentEdits` lets a surface merge edits it did not author — the
  * guided review's revisions, saved per run in `localStorage` — so a rewrite

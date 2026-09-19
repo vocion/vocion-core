@@ -418,6 +418,30 @@ describe('the sequence tab', () => {
     await expect.element(page.getByRole('button', { name: 'Decline' })).toBeEnabled();
   });
 
+  it('IS the review surface — one rendering path, not a second layout that agrees with it', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
+      />,
+    );
+
+    // The shell's own parts, drawn by the shell: the hairline meta row, the
+    // tab strip, the sticky bar. A page that merely looked the same would
+    // carry none of them.
+    await expect.element(page.getByTestId('review-meta')).toBeVisible();
+    await expect.element(page.getByTestId('review-tabs')).toBeVisible();
+    await expect.element(page.getByTestId('sticky-action-bar')).toBeVisible();
+
+    // And the zones no object type can drop, built from the run rather than
+    // from anything the lead page passes.
+    const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
+
+    expect(labels.at(-2)).toBe('Why');
+    expect(labels.at(-1)).toBe('Evidence');
+  });
+
   it('a rewrite asked for in the conversation lands HERE, marked edited — the rail reports it, the record shows it', async () => {
     await render(
       <LeadDetail

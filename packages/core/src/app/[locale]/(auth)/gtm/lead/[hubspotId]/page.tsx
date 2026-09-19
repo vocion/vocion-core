@@ -158,6 +158,24 @@ export default async function LeadPage(props: {
     missing: row.missing,
   });
 
+  // Who decided it, as a person rather than as a key. `lead_brief.decided_by`
+  // stores a user id, and the decision line reads it out loud — a `usr-…` in
+  // the sentence a reviewer screenshots is the identifier `patterns.md` bans
+  // outright. Resolved here, where the database is; the raw id stays in the
+  // review history for the audit.
+  const decidedBy = await (async () => {
+    if (!row.decidedBy) {
+      return null;
+    }
+    const { userSchema } = await import('@/models/Schema');
+    const [who] = await db
+      .select({ name: userSchema.name, email: userSchema.email })
+      .from(userSchema)
+      .where(eq(userSchema.id, row.decidedBy))
+      .limit(1);
+    return who?.name ?? who?.email ?? null;
+  })();
+
   // Dates cross the server/client boundary as ISO strings.
   const lead: LeadRow = {
     id: row.id,
@@ -188,7 +206,7 @@ export default async function LeadPage(props: {
     arrivedAt: row.arrivedAt?.toISOString() ?? null,
     briefedAt: row.briefedAt?.toISOString() ?? null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
-    decidedBy: row.decidedBy,
+    decidedBy,
     briefVersion: row.briefVersion,
     workspaceSha: row.workspaceSha,
     handoffSections: row.handoffSections,
