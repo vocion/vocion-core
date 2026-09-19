@@ -24,6 +24,14 @@ describe('sourceKindOf / emailsOf', () => {
     expect(sourceKindOf({ objectType: 'deals', hubspotId: '1' })).toBeNull();
     expect(emailsOf({ host: 'a@x.example', attendees: ['b@y.example', 'a@x.example'], from: 'c@z.example' })).toEqual(['a@x.example', 'c@z.example', 'b@y.example']);
   });
+
+  it('reads an address out of the header a mail connector actually stores', () => {
+    // Gmail ships the From header verbatim. Left whole, `split('@')[1]` gives
+    // the domain a trailing `>` and the room's strongest signal never matches.
+    expect(emailsOf({ kind: 'gmail-message', from: 'Amy Larkin <Amy@Northwind.example>' })).toEqual(['amy@northwind.example']);
+    expect(emailsOf({ to: ['"Larkfield Systems" <ops@larkfield.example>, pat@contoso.example'] })).toEqual(['ops@larkfield.example', 'pat@contoso.example']);
+    expect(emailsOf({ from: 'Northwind Billing' })).toEqual([]);
+  });
 });
 
 describe('planCollection', () => {
