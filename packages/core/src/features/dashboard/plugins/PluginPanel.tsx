@@ -1,7 +1,7 @@
 import type { PluginPanelAction, PluginPanelAgent, PluginPanelLearning } from './pluginPanelPlan';
 import type { TeamMeasure } from '@/models/Schema';
 import type { MeasureReading } from '@/services/team-report';
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { ChevronDown } from 'lucide-react';
 import { StatusPill } from '@/components/ui/status-pill';
 import { measureValue } from '@/features/dashboard/team-report/format';
@@ -10,7 +10,7 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { listPluginSlugs, loadPlugin, pluginContents, readPluginTeams } from '@/libs/workspace/plugins';
 import { effectiveMeasures } from '@/libs/workspace/team-export';
-import { actionRunSchema, agentSchema, learningCandidateSchema, memoryNamespaceSchema, teamSchema } from '@/models/Schema';
+import { actionRunSchema, agentSchema, learningCandidateSchema, memoryNamespaceSchema, memorySchema, teamSchema } from '@/models/Schema';
 import { enabledPluginsForOrg } from '@/services/PluginService';
 import { actionAgentSlug, readTeamMeasures, windowPhrase } from '@/services/team-report';
 import { actionPill, learningPill, planPluginPanel } from './pluginPanelPlan';
@@ -256,27 +256,67 @@ async function readPluginLearnings(orgId: string, agentSlugs: readonly string[])
   const steps = namespaces.filter(ns => ns.agentSlugs.some(s => agentSlugs.includes(s))).map(ns => ns.name);
   const scoped = and(eq(learningCandidateSchema.scopeKind, 'agent'), inArray(learningCandidateSchema.scopeRef, [...agentSlugs]));
   const where = steps.length > 0 ? or(inArray(learningCandidateSchema.stepName, steps), scoped) : scoped;
-  const rows = await db
-    .select({
-      id: learningCandidateSchema.id,
-      ruleText: learningCandidateSchema.ruleText,
-      editedRuleText: learningCandidateSchema.editedRuleText,
-      status: learningCandidateSchema.status,
-      stepName: learningCandidateSchema.stepName,
-      decidedAt: learningCandidateSchema.decidedAt,
-      createdAt: learningCandidateSchema.createdAt,
+  const [candidates, adopted] = await Promise.all([
+    db
+      .select({
+        id: learningCandidateSchema.id,
+        ruleText: learningCandidateSchema.ruleText,
+        editedRuleText: learningCandidateSchema.editedRuleText,
+        status: learningCandidateSchema.status,
+        stepName: learningCandidateSchema.stepName,
+        decidedAt: learningCandidateSchema.decidedAt,
+        createdAt: learningCandidateSchema.createdAt,
+        memoryKey: learningCandidateSchema.createdMemoryKey,
+      })
+      .from(learningCandidateSchema)
+      .where(and(eq(learningCandidateSchema.orgId, orgId), where))
+      .orderBy(desc(learningCandidateSchema.createdAt))
+      .limit(5),
+    // A rule an agent writes from chat (`add_learning`) or one seeded by the
+    // workspace never passes through the review queue, so the candidate table
+    // cannot see it — and those are exactly the rules now in force. Read the
+    // rules themselves from the steps this plugin's agents own.
+    steps.length > 0
+      ? db
+          .select({ id: memorySchema.id, key: memorySchema.key, value: memorySchema.value, updatedAt: memorySchema.updatedAt })
+          .from(memorySchema)
+          .where(and(eq(memorySchema.orgId, orgId), or(...steps.map(step => like(memorySchema.key, `/workspace/${step}/%`)))))
+          .orderBy(desc(memorySchema.updatedAt))
+          .limit(5)
+      : Promise.resolve([]),
+  ]);
+
+  const adoptedRules: PluginPanelLearning[] = adopted
+    .filter(r => (r.value as { meta?: { kind?: string } }).meta?.kind === 'rule')
+    .map((r) => {
+      const meta = (r.value as { meta?: { adoptedAt?: string } }).meta;
+      const adoptedAt = meta?.adoptedAt ? new Date(meta.adoptedAt) : null;
+      return {
+        id: `rule:${r.id}`,
+        text: String((r.value as { content?: unknown }).content ?? ''),
+        status: 'adopted',
+        at: adoptedAt && !Number.isNaN(adoptedAt.getTime()) ? adoptedAt : r.updatedAt,
+        step: r.key.split('/')[2] ?? '',
+      };
     })
-    .from(learningCandidateSchema)
-    .where(and(eq(learningCandidateSchema.orgId, orgId), where))
-    .orderBy(desc(learningCandidateSchema.createdAt))
-    .limit(5);
-  return rows.map(r => ({
-    id: r.id,
-    text: r.editedRuleText ?? r.ruleText,
-    status: r.status,
-    at: r.decidedAt ?? r.createdAt,
-    step: r.stepName,
-  }));
+    .filter(r => r.text.length > 0);
+  const adoptedKeys = new Set(adopted.map(r => r.key));
+
+  // A candidate somebody adopted became one of those rules; show the rule, not
+  // both — the panel is what the agent reads now, not the paperwork behind it.
+  const pending: PluginPanelLearning[] = candidates
+    .filter(r => !(r.memoryKey && adoptedKeys.has(r.memoryKey)))
+    .map(r => ({
+      id: `candidate:${r.id}`,
+      text: r.editedRuleText ?? r.ruleText,
+      status: r.status,
+      at: r.decidedAt ?? r.createdAt,
+      step: r.stepName,
+    }));
+
+  return [...adoptedRules, ...pending]
+    .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
+    .slice(0, 5);
 }
 
 /** The statuses that mean a proposal has been decided, either way. */

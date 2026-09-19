@@ -22,7 +22,7 @@ import type { Status } from '@/types/Status';
 export type PluginPanelAgent = { slug: string; name: string; description: string | null };
 
 /** A learning candidate or adopted rule whose step belongs to a plugin agent. */
-export type PluginPanelLearning = { id: number; text: string; status: string; at: Date | null; step: string };
+export type PluginPanelLearning = { id: string; text: string; status: string; at: Date | null; step: string };
 
 /** A decided action a plugin agent proposed. */
 export type PluginPanelAction = { id: number; title: string; status: string; at: Date | null };
@@ -47,7 +47,7 @@ export type PluginPanelView = {
   measures: { id: string; teamName: string; reading: MeasureReading }[];
   agents: { slug: string; name: string; description: string | null; profileHref: string; chatHref: string }[];
   skills: { slug: string; label: string; href: string; hint: string }[];
-  learnings: { id: number; text: string; status: string; at: Date | null }[];
+  learnings: { id: string; text: string; status: string; at: Date | null }[];
   actions: { id: number; title: string; status: string; at: Date | null }[];
   /** Neither a learning nor a decision yet — one honest line instead of two empty groups. */
   nothingLearned: boolean;
@@ -63,6 +63,7 @@ const LEARNING_TEXT_MAX = 120;
  */
 export function learningPill(status: string): { status: Status; label: string } {
   switch (status) {
+    case 'adopted':
     case 'approved': return { status: 'completed', label: 'Adopted' };
     case 'rejected': return { status: 'rejected', label: 'Rejected' };
     default: return { status: 'pending', label: 'Pending' };
