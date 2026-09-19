@@ -1,0 +1,51 @@
+packages/core/src/services/adoption/events.ts
+  s_9ce9c9385bb6fb::t_5c5d916db75a92 172-210
+packages/core/src/features/dashboard/chat/useChatSession.ts
+  s_9ce9c9385bb6fb::t_43bc3416889a47 4
+  s_9ce9c9385bb6fb::t_216b51d0b867d9 281-290,635-640,1550-1571,1591-1592
+  s_9ce9c9385bb6fb::t_1f40a40f712bcf 291-295
+packages/core/src/app/[locale]/rpc/connectors/[slug]/connect/route.ts
+  s_9ce9c9385bb6fb::t_9a16a7d7c3878a 29,143,165,180
+packages/core/src/features/dashboard/chat/ChatDock.tsx
+  s_9ce9c9385bb6fb::t_43bc3416889a47 670
+packages/core/src/features/dashboard/chat/ChatShell.tsx
+  s_9ce9c9385bb6fb::t_43bc3416889a47 226
+packages/core/src/libs/actions/neverAuto.ts
+  s_9ce9c9385bb6fb::t_97fe0308880b2c 22-27,37
+packages/core/src/services/OAuthService.ts
+  s_9ce9c9385bb6fb::t_9a16a7d7c3878a 26,276-278
+packages/core/src/features/dashboard/chat/MessageList.tsx
+  s_9ce9c9385bb6fb::t_f7ec7c6214f512 53-54,60,134
+packages/core/src/libs/actions/registry.ts
+  s_9ce9c9385bb6fb::t_e36ea418645543 8,36
+packages/core/src/libs/actions/connect-source.ts
+  s_9ce9c9385bb6fb::t_29148b29e8167d 1-86
+packages/core/src/features/dashboard/chat/AgentMessage.tsx
+  s_9ce9c9385bb6fb::t_f7ec7c6214f512 4,85-91,118,247
+packages/core/src/services/agents/tools/connect.ts
+  s_9ce9c9385bb6fb::t_97fe0308880b2c 87,134,141-147,162-192,204-220
+  s_9ce9c9385bb6fb::t_9a16a7d7c3878a 27,105-121
+  s_9ce9c9385bb6fb::t_76167d7f1d8b31 193-203
+  s_9ce9c9385bb6fb::t_176535b4ed0bbe 221-222
+packages/core/src/services/agents/tools/connect.test.ts
+  s_9ce9c9385bb6fb::t_b65af7804b1080 17-21,128-154
+  s_9ce9c9385bb6fb::t_75dd8f20686b20 155-156
+packages/core/src/app/[locale]/rpc/connectors/[slug]/decline/route.ts
+  s_9ce9c9385bb6fb::t_f7ec7c6214f512 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "46dd5a4c5fba649d71eab0233418686cde92d927",
+  "prompts": {},
+  "sessions": {
+    "s_9ce9c9385bb6fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b81bb2d-a84e-45da-9314-543756b3f7cb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
