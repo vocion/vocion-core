@@ -1,10 +1,11 @@
 'use client';
 
 import type { ContentEdit } from './contentKinds';
-import type { ReviewCardRun } from './ReviewActionCard';
+import type { ReviewCardRun } from './ReviewSurface';
 import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
+import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 
@@ -12,13 +13,11 @@ import { client } from '@/libs/Orpc';
  * The decide path of a review run, as a hook: the working copy of the
  * content edits, the ONE feedback note, snooze, regenerate (with the server's
  * in-flight stamp polled to completion), the execution-failure hold, and the
- * decision itself — everything `ReviewActionCard` does that is not a `<div>`.
+ * decision itself — everything `ReviewSurface` does that is not a `<div>`.
  *
- * Extracted so a page can render the decision in its own type system (the
- * lead page's Detail archetype: sections + a sticky bar) while deciding the
- * SAME run through the SAME calls the card and the queue use. The card keeps
- * its own copy of this logic until PR #337 (which reshapes the card) lands;
- * then `ReviewActionCard` adopts this hook and the duplicate goes.
+ * ONE path, for every surface that decides a run. The review queue and the
+ * lead page both mount `ReviewSurface`, which mounts this: deciding on either
+ * is the same operation on the same run, through the same calls.
  *
  * `extraContentEdits` lets a surface merge edits it did not author — the
  * guided review's revisions, saved per run in `localStorage` — so a rewrite
@@ -127,13 +126,15 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setBusy(true);
     try {
       const { contentEdits: ce, editedInput } = buildDecision();
-      const outcome = await client.review.decideAction({
+      // Never less than ~400ms in flight: a decision that lands instantly
+      // reads as nothing having happened.
+      const outcome = await withMinimumPending(client.review.decideAction({
         id: run.id,
         decision,
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
-      });
+      }));
       // A failed execution is NOT a completed decision: the surface stays
       // with the error on it and Approve becomes Retry.
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
@@ -151,11 +152,11 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setBusy(true);
     try {
       const until = untilOrDays instanceof Date ? untilOrDays : new Date(Date.now() + untilOrDays * 86_400_000);
-      await client.review.snoozeAction({
+      await withMinimumPending(client.review.snoozeAction({
         id: run.id,
         until: until.toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
-      });
+      }));
       onDecided?.('snooze');
     } finally {
       setBusy(false);
@@ -166,12 +167,16 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
   // instruction. The surface HOLDS ITS PLACE: the server stamps the run, this
   // disables on that truth, and the poll re-enables in place when the new
   // content lands — same run id, zero duplicates.
-  const regenerate = async () => {
+  /**
+   * @param instruction - What the pass should do differently. Defaults to the
+   * shared feedback note, for a surface with no per-item control of its own.
+   */
+  const regenerate = async (instruction?: string) => {
     setBusy(true);
     try {
-      const instruction = note.trim();
-      await client.review.regenerateAction({ id: run.id, feedback: instruction });
-      setRegen({ since: new Date().toISOString(), note: instruction });
+      const feedback = (instruction ?? note).trim();
+      await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback }));
+      setRegen({ since: new Date().toISOString(), note: feedback });
       onDecided?.('regenerate');
     } finally {
       setBusy(false);

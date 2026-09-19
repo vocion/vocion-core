@@ -41,6 +41,12 @@ export type BarAction = {
   'shortcut'?: string;
   /** Ghost by default; `danger` reddens on hover. The primary is always ink. */
   'tone'?: 'ghost' | 'danger';
+  /**
+   * Why the button is dead, when it is. A disabled control takes no pointer
+   * events, so the reason rides a wrapper that still hovers, and an
+   * `aria-describedby` so it is not hover-only.
+   */
+  'hint'?: string;
   'data-testid'?: string;
 };
 
@@ -67,13 +73,15 @@ const SOFT = 'bg-[var(--surface-soft,var(--muted))]';
 
 function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
   const Icon = a.icon;
-  return (
+  const hintId = a.hint ? `bar-hint-${String(a['data-testid'] ?? 'action')}` : undefined;
+  const button = (
     <Button
       variant="ghost"
       size="default"
       onClick={a.onClick}
       disabled={a.disabled || a.busy}
       data-testid={a['data-testid']}
+      aria-describedby={hintId}
       className={cn(
         'h-11 w-full gap-2 rounded-lg text-sm sm:h-10 sm:w-auto',
         primary ? `${INK} sm:min-w-36` : GHOST,
@@ -93,6 +101,17 @@ function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
         </kbd>
       )}
     </Button>
+  );
+  if (!a.hint) {
+    return button;
+  }
+  return (
+    // A real box, not `display:contents`: the disabled button takes no pointer
+    // events, so THIS is what the pointer lands on and what the tooltip hangs off.
+    <span title={a.hint} className="flex w-full sm:w-auto">
+      {button}
+      <span id={hintId} className="sr-only">{a.hint}</span>
+    </span>
   );
 }
 

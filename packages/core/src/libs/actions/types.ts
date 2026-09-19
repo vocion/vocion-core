@@ -74,6 +74,12 @@ export type ReviewCard = {
   provenance?: Array<{ label: string; value: string }>;
   /** The recommended action, front and center. `ref` names the thing approving acts on (e.g. the existing sequence it enrolls into). */
   recommendation?: { headline: string; detail?: string; ref?: string };
+  /**
+   * What the recommendation IS, as the meta row's label over it — "Sequence to
+   * enroll", "Record to update". Defaults to "Recommended action", so a
+   * presenter that says nothing still reads.
+   */
+  recommendationLabel?: string;
   /** Heading over the content zone, e.g. `Outreach · 3 sends` / `9 days`. */
   contentHeading?: { label: string; meta?: string };
   /** Typed payload the reviewer decides ON — rendered by the registered renderer for each item's `kind`. */
@@ -112,6 +118,8 @@ export type ReviewContent
     id: string;
     /** e.g. `Day 0`, numbered by position. */
     label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
     subject?: string;
     body: string;
   }
@@ -120,6 +128,8 @@ export type ReviewContent
     id: string;
     /** e.g. `Proposal v3 · 12 pages`. */
     label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
     href: string;
     format?: 'pdf';
     version?: string;
@@ -131,6 +141,8 @@ export type ReviewContent
     kind: 'image';
     id: string;
     label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
     /** Image URL — in-app (`/api/v1/s3/object?…`) or absolute. */
     url: string;
     caption?: string;
