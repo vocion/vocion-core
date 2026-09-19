@@ -367,9 +367,16 @@ function ItemPane(props: {
 
           {props.approval && (
             <div className="mt-5 border-t border-rule pt-3">
+              {/* Keyed apart on purpose. React would otherwise reuse one
+                  `<button>` node across the two states and TRANSITION the ink
+                  primary's background out, so the undo control flashed as a
+                  solid dark pill for the length of the transition — the one
+                  moment it must not look like the primary. Two keys, two
+                  nodes, no morph. */}
               {props.approval.checked
                 ? (
                     <button
+                      key="approved"
                       type="button"
                       data-testid={`unapprove-${props.item.id}`}
                       onClick={props.approval.onUnapprove}
@@ -382,6 +389,7 @@ function ItemPane(props: {
                   )
                 : (
                     <button
+                      key="unapproved"
                       type="button"
                       data-testid={`approve-${props.item.id}`}
                       onClick={props.approval.onApprove}

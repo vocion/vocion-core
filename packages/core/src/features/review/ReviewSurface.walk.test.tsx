@@ -39,6 +39,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 }));
 
 const { ReviewSurface } = await import('./ReviewSurface');
+const stories = await import('./ReviewSurface.stories');
 
 const CRUMBS = [{ label: 'Workspace', href: '/dashboard' }, { label: 'Review queue' }];
 
@@ -308,6 +309,40 @@ describe('Enroll is held until the count is full', () => {
     expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
     expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
+});
+
+describe('every object type, through the same shell', () => {
+  // The seven presenter types as the stories mount them, so the scope rule is
+  // checked against the real cards rather than against a fixture written to
+  // agree with it. Only a sequence walks; the other six are untouched, which
+  // is the promise this plan made about them.
+  const TYPES = [
+    { name: 'MQL enrollment (3 sends)', story: () => stories.MqlEnrollment, walks: true },
+    { name: 'six sends', story: () => stories.SixSends, walks: true },
+    { name: 'follow-up email (one item)', story: () => stories.FollowUpEmail, walks: false },
+    { name: 'CRM update (no content)', story: () => stories.CrmUpdate, walks: false },
+    { name: 'discovery proposal', story: () => stories.DiscoveryProposal, walks: false },
+    { name: 'extracted candidate', story: () => stories.ExtractedCandidate, walks: false },
+    { name: 'kit verification (one photo)', story: () => stories.KitVerification, walks: false },
+    { name: 'proposal document', story: () => stories.ProposalDocument, walks: false },
+  ];
+
+  for (const type of TYPES) {
+    it(`${type.walks ? 'walks' : 'does not walk'} ${type.name}`, async () => {
+      const args = type.story().args as { run: ReviewCardRun; crumbs?: typeof CRUMBS };
+      await render(<ReviewSurface run={args.run} crumbs={CRUMBS} />);
+
+      if (type.walks) {
+        await expect.element(page.getByTestId('walk-count')).toBeVisible();
+        // Held on arrival: nothing has been approved yet.
+        expect(page.getByTestId('decide-approve').element()).toBeDisabled();
+      } else {
+        expect(page.getByTestId('walk-count').elements()).toHaveLength(0);
+        expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
+        expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+      }
+    });
+  }
 });
 
 describe('where the walk applies', () => {
