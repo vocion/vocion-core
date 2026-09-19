@@ -3,7 +3,7 @@ import type { DocumentRedTeam } from '@/libs/cards/specs';
 import { describe, expect, it } from 'vitest';
 import { redTeamChip } from '@/libs/documents/audit';
 import { exportGate, isClientFacing } from './exportGate';
-import { parseFindings, prepareSheetsText, redTeamReceipt, redTeamRecord } from './redTeam';
+import { DEFAULT_RUBRIC, parseFindings, prepareSheetsText, redTeamReceipt, redTeamRecord } from './redTeam';
 
 // The pure half of the red team: what the reviewer reads, what comes back, what the agent is told.
 
@@ -215,5 +215,16 @@ describe('redTeamChip', () => {
     expect(redTeamChip(redTeamRecord(reviewed([]), 1))).toBe('read as the buyer · clean');
     expect(redTeamChip(redTeamRecord(reviewed([FIX]), 1))).toBe('read as the buyer · 1 to fix');
     expect(redTeamChip(redTeamRecord(reviewed([BLOCK, BLOCK]), 1))).toBe('read as the buyer · 2 blocking');
+  });
+});
+
+describe('the default rubric', () => {
+  it('tells the reviewer that what the seller already holds is sourced', () => {
+    expect(DEFAULT_RUBRIC).toContain('IS sourced');
+    expect(DEFAULT_RUBRIC).toContain('never ask for a second copy');
+  });
+
+  it('keeps a third-party claim a separate question from sourcing', () => {
+    expect(DEFAULT_RUBRIC).toContain('needs their permission');
   });
 });

@@ -92,7 +92,7 @@ const FINDINGS_TOOL = {
  * arrive as `bannedPhrases`. Written as what a sceptical buyer checks.
  */
 export const DEFAULT_RUBRIC = [
-  'GROUNDING — every number, date, name and quote must trace to something the seller was told or can cite; an unsourced figure is a `block` unless it is visibly marked as a placeholder to be baselined.',
+  'GROUNDING — every number, date, name and quote must trace to something the seller was told or can cite; an unsourced figure is a `block` unless it is visibly marked as a placeholder to be baselined. A fact carried by WHAT THE SELLER ACTUALLY KNOWS below — a call that happened, a thread, a filed decision log — IS sourced: judge it against that and never ask for a second copy of a record the seller already holds. A claim about a THIRD PARTY (a named reference, another client\'s results) is different: it needs their permission, not just a source.',
   'NO OUTCOME PROMISES — the seller commits to capabilities and to measuring together, never to a business result (revenue, savings, a percentage improvement, a date something will be true). A projected performance figure is a `block`.',
   'PLACEHOLDERS ARE HONEST — anything unbaselined is shown as a placeholder in the open, never as a confident number, and never silently dropped.',
   'THE CLIENT\'S WORDS ARE THE SPINE — their product names, stage names and vocabulary, their actual questions answered in their terms; a pull-quote should be something they said, attributed and dated.',
@@ -254,7 +254,7 @@ export async function redTeamDocument(orgId: string, input: { html: string; rubr
   const body = sheets.map(s => `--- Sheet ${s.n}${s.label ? ` · ${s.label}` : ''} ---\n${s.text}`).join('\n\n');
   const user = [
     `RUBRIC\n${rubric}`,
-    input.context?.trim() ? `WHAT THE SELLER ACTUALLY KNOWS (judge "unsourced" against this)\n${input.context.trim().slice(0, 8_000)}` : 'WHAT THE SELLER ACTUALLY KNOWS: not supplied — treat any specific figure as unsourced unless the sheet itself marks its source.',
+    input.context?.trim() ? `WHAT THE SELLER ACTUALLY KNOWS (judge "unsourced" against this)\n${input.context.trim().slice(0, 8_000)}` : 'WHAT THE SELLER ACTUALLY KNOWS: not supplied — treat any specific figure as unsourced unless the sheet itself marks its source. Say so in the finding rather than implying the seller has no record.',
     `THE DOCUMENT (${sheets.length} sheets)\n${body}`,
     'Return the JSON now.',
   ].join('\n\n');

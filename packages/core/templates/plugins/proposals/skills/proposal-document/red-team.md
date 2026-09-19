@@ -16,7 +16,7 @@ kind makes the document unread again.
 
 ## House rubric (paste as `rubric`)
 
-- **Grounding.** Every number, name, date and quote traces to the decision log or a starred source. An unsourced figure is a block unless it is a `.ph` placeholder marked "to be baselined".
+- **Grounding.** Every number, name, date and quote traces to the decision log or a starred source. **A fact the room already carries is sourced** — a call that happened, a filed transcript, a decision-log line — and asking for a written copy of a record the room holds is not a finding. An unsourced figure is a block unless it is a `.ph` placeholder marked "to be baselined". A claim about a third party (a named reference, another client's results) needs their permission, which is a different question from whether it is sourced.
 - **No outcome promise.** We commit capabilities and to measuring together. A projected saving, percentage, revenue or return figure is a block. The client's own cost numbers belong in the problem statement, never in a promised return.
 - **Placeholders in the open.** Anything unbaselined shows as a `.ph` chip in the document and is an open item on the room. Nothing unknown is dropped or guessed.
 - **The client's words are the spine.** Their product names, their stage names, their question answered in their unit ("100 good and 100 bad per SKU", not "a few weeks"). The pull-quote is something they said, attributed and dated.
