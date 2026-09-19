@@ -24,6 +24,7 @@ import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
+import { saveIntent } from '../connectionIntent';
 
 /**
  * What the card offers, derived from the ledger state.
@@ -82,6 +83,23 @@ export function connectStub(
         return `[${capability.name} is not available in this workspace. Say so plainly and answer from what you already have.]`;
       }
       const requestedScopes = scopesFor(capability.slug, real.name);
+      // What the model was ABOUT to do, saved before the card goes out. It
+      // does not have to be guessed later: the tool and the arguments are
+      // already decided at this exact moment, and replaying them is what makes
+      // the turn that showed the card the turn that answers. Null when there
+      // is nobody to resume as, or when the write failed — resume then falls
+      // back to re-asking, which is still correct.
+      const intentId = ctx.actor.kind === 'user'
+        ? await saveIntent({
+            orgId: ctx.orgId,
+            userId: ctx.actor.id,
+            conversationId: ctx.conversationId,
+            connectorSlug: capability.slug,
+            tool: real.name,
+            args: (args ?? {}) as Record<string, unknown>,
+            scopes: requestedScopes,
+          })
+        : null;
       ctx.emit({
         type: 'connect_source',
         connect: {
@@ -97,6 +115,7 @@ export function connectStub(
           reason: reasonFor(capability, real.name, args),
           requestedScopes,
           tool: real.name,
+          intentId,
           workspaceGrantAvailable: capability.workspaceGrantAvailable,
         },
       });

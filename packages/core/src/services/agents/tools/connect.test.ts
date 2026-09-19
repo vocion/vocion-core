@@ -7,9 +7,13 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { Capability } from '../capabilityLedger';
 import type { AgentEvent, RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { connectStub, scopesFor } from './connect';
+
+// The intent write is Phase 4's; this suite is about the stub's shape and the
+// event it emits, so the row is stubbed and covered in `connectionIntent`.
+vi.mock('../connectionIntent', () => ({ saveIntent: vi.fn(async () => 77) }));
 
 const REAL = tool(
   async () => 'real data',
@@ -73,6 +77,7 @@ describe('connectStub', () => {
         state: 'connect',
         scope: 'user',
         tool: 'list_events',
+        intentId: 77,
         requestedScopes: ['https://www.googleapis.com/auth/calendar.readonly'],
       },
     });

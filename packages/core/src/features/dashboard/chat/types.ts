@@ -116,6 +116,8 @@ export type ConnectSource = {
   requestedScopes: string[];
   /** The tool that triggered this — what resumes once the grant lands. */
   tool: string;
+  /** The saved call this card replays, or null when resume must re-ask instead. */
+  intentId: number | null;
   /** A colleague already connected this for the workspace; offered as a second line. */
   workspaceGrantAvailable: boolean;
 };

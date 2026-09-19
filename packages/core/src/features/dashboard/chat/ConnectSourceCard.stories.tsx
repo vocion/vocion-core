@@ -24,6 +24,7 @@ function base(overrides: Partial<ConnectSource> = {}): ConnectSource {
     reason: 'The answer needs Google Calendar — it was about to read events (timeMin, timeMax).',
     requestedScopes: ['https://www.googleapis.com/auth/calendar.readonly'],
     tool: 'list_events',
+    intentId: null,
     workspaceGrantAvailable: false,
     ...overrides,
   };

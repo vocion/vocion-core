@@ -81,7 +81,7 @@ export type AgentMessageProps = {
    * exists. Phase 4 replaces this with a typed intent that replays the exact
    * tool call the stub intercepted.
    */
-  onResumeAfterConnect?: () => void;
+  onResumeAfterConnect?: (intentId?: number | 'pending' | null) => void;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -236,7 +236,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <ConnectSourceCard
               key={connect.connectorSlug}
               connect={connect}
-              onConnected={() => onResumeAfterConnect?.()}
+              onConnected={c => onResumeAfterConnect?.(c.intentId)}
             />
           ))}
           {(message.artifacts?.length ?? 0) > 0 && (

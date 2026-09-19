@@ -216,12 +216,48 @@ export async function POST(request: Request): Promise<Response> {
       // the client stashes it and never reduces it into the transcript).
       safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId })}\n\n`));
 
+      // Resume (0123). The connector the last turn needed is connected now, so
+      // the call the stub intercepted is MADE — here, with the arguments the
+      // model already chose — and its output is handed to the turn as
+      // grounding. The turn that showed the card is the turn that answers, and
+      // the model never has to decide the same thing twice.
+      //
+      // Failure is never fatal: every `ok: false` reason falls through to an
+      // ordinary turn, which is resume v1 and still correct.
+      //
+      // `resume_intent` is either the id the card held, or `'pending'` — which
+      // is what the OAuth return uses, because the browser left the page and
+      // came back and no longer holds the id. Either way the intent is looked
+      // up server-side for THIS person in THIS thread, so the request cannot
+      // name somebody else's.
+      let replayGrounding = '';
+      if (typeof body.resume_intent === 'number' || body.resume_intent === 'pending') {
+        const { pendingIntent } = await import('@/services/agents/connectionIntent');
+        const { groundingFromReplay, replayIntent } = await import('@/services/agents/resume');
+        const intent = await pendingIntent({ orgId, userId, conversationId });
+        if (intent && (body.resume_intent === 'pending' || intent.id === body.resume_intent)) {
+          const replayed = await replayIntent({
+            orgId,
+            agentSlug,
+            actor: { kind: 'user', id: userId },
+            role,
+            intent,
+          });
+          if (replayed.ok) {
+            replayGrounding = `\n\n${groundingFromReplay(replayed.tool, replayed.output)}`;
+            for (const event of replayed.events) {
+              sendEvent(event);
+            }
+          }
+        }
+      }
+
       try {
         await runAgentDeep({
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext, contextRefs, grounding.text),
+          message: withPageContext(message, pageContext, contextRefs, grounding.text) + replayGrounding,
           userId,
           // The one caller that holds a verified session. Everything else runs
           // as the system and reaches no personal grant.

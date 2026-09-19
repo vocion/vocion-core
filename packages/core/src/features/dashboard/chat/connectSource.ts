@@ -70,6 +70,7 @@ export function readConnectSource(raw: unknown): ConnectSourceCheck {
       reason: text(r.reason),
       requestedScopes,
       tool: text(r.tool),
+      intentId: typeof r.intentId === 'number' && Number.isInteger(r.intentId) ? r.intentId : null,
       workspaceGrantAvailable: r.workspaceGrantAvailable === true,
     },
   };

@@ -1009,7 +1009,7 @@ export function useChatSession({
     };
   }, [agent.slug, isSearchOnly, settleBoot, resumeStream, bootTarget]);
 
-  const sendMessage = useCallback(async (raw: string) => {
+  const sendMessage = useCallback(async (raw: string, opts: { resumeIntent?: number | 'pending' | null } = {}) => {
     // Read the ref, not `isStreaming`: ⌘⏎ (stop-and-send) calls handleStop and
     // sendMessage in the same handler, before React has re-rendered.
     if ((!raw.trim() && !pastedText) || streamingRef.current) {
@@ -1110,6 +1110,11 @@ export function useChatSession({
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
+          // 0123: replay the call a connect card interrupted. The server makes
+          // it with the arguments the model already chose and grounds this
+          // turn in the result, so the turn that showed the card is the turn
+          // that answers.
+          ...(opts.resumeIntent != null ? { resume_intent: opts.resumeIntent } : {}),
           conversation_history: messages
             .slice(-6)
             .filter(m => m.content.trim().length > 0)
@@ -1494,23 +1499,48 @@ export function useChatSession({
   }, [sendQueue]);
 
   /**
-   * Ask again, now that the connector exists — resume v1.
+   * Ask again, now that the connector exists.
    *
-   * The turn that showed the card should be the turn that answers, and the
-   * honest cheap version of that is to re-send the question the moment the
-   * grant lands: the tool surface is rebuilt per turn from the capability
-   * ledger, so the same question now reaches the real tool rather than the
-   * stub. Phase 4 replaces this with a typed `connection_intent` that replays
-   * the exact call the stub intercepted, with the exact args — no second model
-   * turn, and no risk of the model asking a slightly different question.
+   * With an `intentId` the server REPLAYS the call the stub intercepted — the
+   * same tool, the same arguments the model already chose — and grounds this
+   * turn in the result, so nothing has to be decided twice. Without one (an
+   * intent that expired, or a turn with nobody to resume as) the question is
+   * simply re-sent: the tool surface is rebuilt per turn, so it now reaches
+   * the real tool rather than the stub. Both answer; only one costs a second
+   * round of deciding.
    */
-  const resumeAfterConnect = useCallback(() => {
+  const resumeAfterConnect = useCallback((intentId?: number | 'pending' | null) => {
     const lastUserTurn = [...messages].reverse().find(m => m.role === 'user');
     if (!lastUserTurn?.content.trim()) {
       return;
     }
-    void sendMessage(lastUserTurn.content);
+    void sendMessage(lastUserTurn.content, { resumeIntent: intentId ?? null });
   }, [messages, sendMessage]);
+
+  /**
+   * The browser came back from a vendor consent.
+   *
+   * An OAuth connect leaves the page entirely, so the card that started it is
+   * gone and so is the intent id it held. `?connected=<slug>` on the way back
+   * is the signal; the server finds the live intent for this person in this
+   * thread and replays it, which is why `'pending'` is enough here. The query
+   * parameter is stripped either way, so a refresh does not resume twice.
+   */
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (resumedRef.current || typeof window === 'undefined') {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('connected')) {
+      return;
+    }
+    resumedRef.current = true;
+    params.delete('connected');
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    resumeAfterConnect('pending');
+  }, [resumeAfterConnect]);
 
   return {
     /** Re-send the last question once a connector it needed is connected. */

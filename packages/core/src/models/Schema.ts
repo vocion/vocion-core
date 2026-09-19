@@ -2244,6 +2244,72 @@ export const sourceCredentialSchema = pgTable('source_credential', {
     .on(table.installId, table.userId, table.createdAt),
 ]);
 
+/**
+ * One in-flight browser OAuth handshake (migration 0122).
+ *
+ * The callback is a GET anybody can hand a signed-in browser, so the `state`
+ * it carries has to be something this side minted: the row says who started
+ * the flow and which connector for, and holds the PKCE verifier proving the
+ * code belongs to the same consent. Short-lived and single-use — `consumedAt`
+ * rather than a delete, so a replay is refused with something explainable.
+ */
+export const oauthStateSchema = pgTable(
+  'oauth_state',
+  {
+    state: text('state').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Who consented — from the session that STARTED the flow, never the callback. */
+    userId: text('user_id').notNull(),
+    connectorSlug: text('connector_slug').notNull(),
+    platform: text('platform').notNull(),
+    codeVerifier: text('code_verifier'),
+    scopes: text('scopes').default('').notNull(),
+    /** Same-site path to return to. Validated at both ends; absolute = open redirect. */
+    redirectTo: text('redirect_to'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    consumedAt: timestamp('consumed_at', { mode: 'date' }),
+  },
+  table => [
+    index('oauth_state_expires_idx').on(table.expiresAt),
+  ],
+);
+
+/**
+ * What the model was about to do when a connector turned out to be
+ * unconnected (migration 0123).
+ *
+ * The stub does not have to guess what to resume: at the moment it fired, the
+ * model had already chosen the tool and the arguments. Saved here and replayed
+ * once the grant lands, the turn that showed the card is the turn that
+ * answers — no re-asking, and no second model turn that might ask itself a
+ * slightly different question.
+ */
+export const connectionIntentSchema = pgTable(
+  'connection_intent',
+  {
+    id: serial('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    /** Who the replay runs as — a personal credential resolves for a person. */
+    userId: text('user_id').notNull(),
+    conversationId: integer('conversation_id'),
+    connectorSlug: text('connector_slug').notNull(),
+    tool: text('tool').notNull(),
+    /** Exactly what the model was about to call it with. */
+    args: jsonb('args').$type<Record<string, unknown>>().default({}).notNull(),
+    /** What the card asked consent for, so a replay can check the grant covers it. */
+    scopes: text('scopes').default('').notNull(),
+    /** The question behind it — the fallback when the exact call can no longer be made. */
+    message: text('message'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+    consumedAt: timestamp('consumed_at', { mode: 'date' }),
+  },
+  table => [
+    index('connection_intent_lookup_idx').on(table.orgId, table.userId, table.conversationId, table.createdAt),
+  ],
+);
+
 export const sourceAuditSchema = pgTable('source_audit', {
   id: serial('id').primaryKey(),
   orgId: text('org_id').notNull(),

@@ -211,6 +211,12 @@ export type ConnectSourcePayload = {
   /** The tool the model was about to call — what resumes once the grant lands. */
   tool: string;
   /**
+   * The saved call this card can replay (migration 0123), or null when there
+   * is none. Null means resume falls back to re-sending the question, which is
+   * still correct — just a second model turn.
+   */
+  intentId: number | null;
+  /**
    * A workspace-wide grant exists that this person could use instead of
    * authorising their own. The card offers it as a second line.
    */

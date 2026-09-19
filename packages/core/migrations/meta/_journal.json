@@ -855,6 +855,20 @@
       "when": 1787727906003,
       "tag": "0121_conversation_private",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1787727906004,
+      "tag": "0122_oauth_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1787727906005,
+      "tag": "0123_connection_intent",
+      "breakpoints": true
     }
   ]
 }

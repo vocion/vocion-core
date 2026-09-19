@@ -129,12 +129,20 @@ export function ConnectSourceCard({ connect, onConnected, onSkip }: {
   };
 
   const startOauth = () => {
-    // Phase 3 lands the browser flow. Until then an OAuth connector is
-    // connected from Settings, and saying so beats a button that goes nowhere.
-    setPhase({
-      status: 'error',
-      message: `${connect.name} signs in through your browser. Connect it under Settings → Connectors, then ask again.`,
+    // A full-page navigation, not a popup: the vendor's consent is its own
+    // page, and a popup is the thing browsers block. The turn is re-sent on
+    // the way back (`connected` in the query), so the question the person
+    // asked is the question that gets answered.
+    if (!connect.platform) {
+      setPhase({ status: 'error', message: `${connect.name} does not sign in through the browser.` });
+      return;
+    }
+    const params = new URLSearchParams({
+      connector: connect.connectorSlug,
+      scopes: connect.requestedScopes.join(' '),
+      return_to: `${window.location.pathname}${window.location.search}`,
     });
+    window.location.assign(`/api/oauth/${connect.platform}/start?${params.toString()}`);
   };
 
   const complete = fields.length > 0 && fields.every(f => f.optional || (values[f.name] ?? '').trim() !== '');

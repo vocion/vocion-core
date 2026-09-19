@@ -49,7 +49,7 @@ export type MessageListProps = {
   /** The thread — stamped into a failed step's Copy details block. */
   conversationId?: number | null;
   /** Re-send the last question once a connector a turn needed is connected. */
-  onResumeAfterConnect?: () => void;
+  onResumeAfterConnect?: (intentId?: number | 'pending' | null) => void;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
