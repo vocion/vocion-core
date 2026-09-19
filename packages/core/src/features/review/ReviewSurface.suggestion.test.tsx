@@ -22,6 +22,8 @@ vi.mock('@/libs/Orpc', () => ({
 
 vi.mock('@/libs/I18nNavigation', () => ({
   Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
+  usePathname: () => '/dashboard/inbox',
 }));
 
 const { ReviewSurface } = await import('./ReviewSurface');
