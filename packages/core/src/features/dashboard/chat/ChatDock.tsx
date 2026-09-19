@@ -2,7 +2,7 @@
 
 import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption } from './types';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessageSquare, PanelRightClose, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';

@@ -1,10 +1,11 @@
 'use client';
 
 import type { ContentEdit } from './contentKinds';
-import type { ReviewCardRun } from './ReviewActionCard';
+import type { ReviewCardRun } from './ReviewSurface';
 import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
+import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
 
@@ -127,13 +128,15 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setBusy(true);
     try {
       const { contentEdits: ce, editedInput } = buildDecision();
-      const outcome = await client.review.decideAction({
+      // Never less than ~400ms in flight: a decision that lands instantly
+      // reads as nothing having happened.
+      const outcome = await withMinimumPending(client.review.decideAction({
         id: run.id,
         decision,
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
-      });
+      }));
       // A failed execution is NOT a completed decision: the surface stays
       // with the error on it and Approve becomes Retry.
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
@@ -151,11 +154,11 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setBusy(true);
     try {
       const until = untilOrDays instanceof Date ? untilOrDays : new Date(Date.now() + untilOrDays * 86_400_000);
-      await client.review.snoozeAction({
+      await withMinimumPending(client.review.snoozeAction({
         id: run.id,
         until: until.toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
-      });
+      }));
       onDecided?.('snooze');
     } finally {
       setBusy(false);
@@ -166,12 +169,16 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
   // instruction. The surface HOLDS ITS PLACE: the server stamps the run, this
   // disables on that truth, and the poll re-enables in place when the new
   // content lands — same run id, zero duplicates.
-  const regenerate = async () => {
+  /**
+   * @param instruction - What the pass should do differently. Defaults to the
+   * shared feedback note, for a surface with no per-item control of its own.
+   */
+  const regenerate = async (instruction?: string) => {
     setBusy(true);
     try {
-      const instruction = note.trim();
-      await client.review.regenerateAction({ id: run.id, feedback: instruction });
-      setRegen({ since: new Date().toISOString(), note: instruction });
+      const feedback = (instruction ?? note).trim();
+      await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback }));
+      setRegen({ since: new Date().toISOString(), note: feedback });
       onDecided?.('regenerate');
     } finally {
       setBusy(false);

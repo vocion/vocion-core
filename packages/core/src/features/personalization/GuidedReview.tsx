@@ -1,7 +1,7 @@
 'use client';
 
 import type { GuidedSend, GuidedState } from './guidedFlow';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { useCallback, useEffect, useState } from 'react';
 import { SurfaceSection } from '@/components/ui/surface';
 import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';

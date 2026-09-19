@@ -20,8 +20,8 @@ export type ContentRenderProps = {
   /** True for a moment after a conversation rewrite landed on this item. */
   changed?: boolean;
   item: ReviewContent;
-  /** 1-based position in the content list. */
-  position: number;
+  /** 1-based position in the content list — the accordion row's pill. */
+  position?: number;
   /** Working copy of the reviewer's edits to this item, when editable. */
   edit?: ContentEdit;
   onEdit?: (patch: ContentEdit) => void;
@@ -34,16 +34,41 @@ export type ContentRenderProps = {
    * in the flow and takes a soft fill only on focus. Default is the boxed card.
    */
   inline?: boolean;
+  /**
+   * `pane` — the flat screen's presentation: the item already has a tab of its
+   * own, so there is no row to expand and no position pill to draw. The item
+   * simply IS the pane. Default is the accordion row.
+   */
+  pane?: boolean;
 };
 
-const registry = new Map<string, ComponentType<ContentRenderProps>>();
+type Registration = { component: ComponentType<ContentRenderProps>; editable: boolean };
 
-export function registerContentKind(kind: string, component: ComponentType<ContentRenderProps>): void {
-  registry.set(kind, component);
+const registry = new Map<string, Registration>();
+
+/**
+ * Register a renderer for a content kind.
+ * @param kind - The `ReviewContent.kind` this draws.
+ * @param component - The renderer.
+ * @param opts - `editable` when the kind takes the reviewer's edits (edit-then-approve).
+ * @param opts.editable - Whether the kind accepts `onEdit`.
+ */
+export function registerContentKind(kind: string, component: ComponentType<ContentRenderProps>, opts: { editable?: boolean } = {}): void {
+  registry.set(kind, { component, editable: opts.editable ?? false });
 }
 
 export function contentKindRenderer(kind: string): ComponentType<ContentRenderProps> {
-  return registry.get(kind) ?? UnknownContent;
+  return registry.get(kind)?.component ?? UnknownContent;
+}
+
+/**
+ * Whether this kind takes the reviewer's edits. The shell asks the REGISTRY
+ * rather than testing `kind === 'email'` itself, so a new editable kind lands
+ * by registering one and the shell never learns its name.
+ * @param kind - The `ReviewContent.kind`.
+ */
+export function contentKindEditable(kind: string): boolean {
+  return registry.get(kind)?.editable ?? false;
 }
 
 /**
@@ -108,7 +133,7 @@ function AutoGrow({ value, onChange, className, disabled, label }: {
   );
 }
 
-function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline, changed }: ContentRenderProps) {
+function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline, pane, changed }: ContentRenderProps) {
   const [own, setOwn] = useState(defaultExpanded ?? false);
   const expanded = controlled ?? own;
   const setExpanded = (fn: (e: boolean) => boolean) => setOwn(fn(expanded));
@@ -122,6 +147,37 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded:
   }
   const subject = edit?.subject ?? item.subject ?? '';
   const body = edit?.body ?? item.body;
+  // The pane presentation: the item owns a tab, so there is no row to expand.
+  // Subject line, hairline, body that grows to its content — an email, not a
+  // form, and not a box inside a box.
+  if (pane) {
+    return (
+      <div
+        data-changed={changed ? 'true' : undefined}
+        data-testid={`email-pane-${item.id}`}
+        className={cn('rounded-sm transition-colors duration-[2000ms]', changed && 'bg-brand-amber-tint duration-0')}
+      >
+        <label className="block">
+          <span className="sr-only">Subject</span>
+          <input
+            className={`${field} border-b border-rule text-[17px] font-medium`}
+            value={subject}
+            placeholder="Subject"
+            onChange={ev => onEdit?.({ subject: ev.target.value })}
+            disabled={disabled || !onEdit}
+            aria-label={`${item.label} subject`}
+          />
+        </label>
+        <AutoGrow
+          label={`${item.label} body`}
+          className={`${field} mt-1 leading-relaxed`}
+          value={body}
+          onChange={next => onEdit?.({ body: next })}
+          disabled={disabled || !onEdit}
+        />
+      </div>
+    );
+  }
   return (
     <div
       data-changed={changed ? 'true' : undefined}
@@ -246,6 +302,6 @@ function ImageContent({ item }: ContentRenderProps) {
   );
 }
 
-registerContentKind('email', EmailContent);
+registerContentKind('email', EmailContent, { editable: true });
 registerContentKind('document', DocumentContent);
 registerContentKind('image', ImageContent);

@@ -88,7 +88,7 @@ const RUN = {
       { kind: 'email', id: 'send-1', label: 'Day 0', subject: 'Ticket volume', body: 'draft one body' },
     ],
   },
-} as unknown as import('@/features/review/ReviewActionCard').ReviewCardRun;
+} as unknown as import('@/features/review/ReviewSurface').ReviewCardRun;
 
 describe('ChatDock', () => {
   it('claims the one entry function: a collapsed dock reopens and takes focus', async () => {

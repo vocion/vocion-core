@@ -96,11 +96,15 @@ export function DetailPage(props: {
  * @param props.className
  */
 export function DetailColumns(props: { aside?: ReactNode; children: ReactNode; className?: string }) {
+  // `grow`: on a page that sets a min-height, the columns fill what is left of
+  // it, so the sticky bar lands at the bottom of the SCREEN instead of under
+  // whichever section happens to be open. On a page that sets none there is no
+  // free space to take, so it changes nothing.
   if (!props.aside) {
-    return <div data-pattern="detail-columns" className={cn('min-w-0', props.className)}>{props.children}</div>;
+    return <div data-pattern="detail-columns" className={cn('min-w-0 grow', props.className)}>{props.children}</div>;
   }
   return (
-    <div data-pattern="detail-columns" className={cn('@container grid gap-x-10 gap-y-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]', props.className)}>
+    <div data-pattern="detail-columns" className={cn('@container grid grow gap-x-10 gap-y-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]', props.className)}>
       <div className="min-w-0">{props.children}</div>
       {props.aside}
     </div>

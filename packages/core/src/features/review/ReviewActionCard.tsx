@@ -1,8 +1,9 @@
 'use client';
 
 import type { ContentEdit } from './contentKinds';
+import type { ReviewCardRun } from './ReviewSurface';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
-import type { ReviewCard, ReviewContentEdit } from '@/libs/actions/types';
+import type { ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Check, ChevronsDownUp, ChevronsUpDown, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
@@ -44,23 +45,7 @@ const SUGGESTION_BADGE: Record<SuggestedDecision, { label: string; className: st
   snooze: { label: 'Agent suggests revisiting later', className: 'bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200' },
 };
 
-export type ReviewCardRun = {
-  id: number;
-  actionId: string;
-  status: string;
-  input: Record<string, unknown>;
-  invokedBy: string | null;
-  proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: SuggestedDecision; suggestedDecisionReason?: string } | null;
-  card: ReviewCard;
-  /** Server truth for an in-flight regeneration — Date on the feed, ISO over RPC. */
-  regeneratingSince?: Date | string | null;
-  /** The reviewer's instruction the regeneration is answering. */
-  regenerateNote?: string | null;
-  /** What the last execution attempt said, set when `status` is `failed`. */
-  error?: string | null;
-  /** How often this agent's recommendations of this kind matched the person's decision (server-computed, 30d). */
-  alignment?: { agreementRate: number | null; n: number; window: string } | null;
-};
+export type { ReviewCardRun } from './ReviewSurface';
 
 /** The run status, as the lane label a reviewer reads. */
 const STATUS_LABEL: Record<string, string> = {

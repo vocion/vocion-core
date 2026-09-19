@@ -1,5 +1,5 @@
 import type { LeadRow, LeadRunState } from '@/features/personalization/LeadDetail';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { and, eq } from 'drizzle-orm';
 import { UserSearch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';

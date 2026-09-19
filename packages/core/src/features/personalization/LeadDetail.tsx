@@ -1,7 +1,7 @@
 'use client';
 
 import type { LeadDossier } from './LeadTabs';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { ReviewContent } from '@/libs/actions/types';
 import type { LeadArtifactRef } from '@/services/personalization/artifacts';
 import type { CurrentSequence } from '@/services/personalization/sequenceState';
