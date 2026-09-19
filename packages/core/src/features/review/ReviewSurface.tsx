@@ -22,6 +22,7 @@ import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { cn } from '@/utils/Helpers';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
+import { isChecked, walkApplies, walkCount } from './contentWalk';
 import { shortcutFor } from './reviewShortcuts';
 import { useReviewDecision } from './useReviewDecision';
 
@@ -283,6 +284,7 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
  * @param props.regenerating - True while a pass is in flight.
  * @param props.onRegenerate - Runs the pass with the instruction.
  * @param props.history - This item's revisions, oldest first.
+ * @param props.approval - The per-send check, on cards that get the walk.
  */
 function ItemPane(props: {
   item: ReviewContent;
@@ -296,6 +298,7 @@ function ItemPane(props: {
   regenerating: boolean;
   onRegenerate: (instruction: string) => void;
   history: readonly ActionRevision[];
+  approval?: { checked: boolean; onApprove: () => void; onUnapprove: () => void; label: string } | null;
 }) {
   // The instruction is about THIS send, and the pane is KEYED by content id at
   // the call site, so moving to another send remounts it empty. An ask typed
@@ -361,6 +364,36 @@ function ItemPane(props: {
           )}
 
           <ItemHistory entries={props.history} id={props.item.id} />
+
+          {props.approval && (
+            <div className="mt-5 border-t border-rule pt-3">
+              {props.approval.checked
+                ? (
+                    <button
+                      type="button"
+                      data-testid={`unapprove-${props.item.id}`}
+                      onClick={props.approval.onUnapprove}
+                      disabled={props.disabled}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-[13px] text-brand-pass transition hover:bg-surface-hover disabled:opacity-40"
+                    >
+                      <Check className="size-4" aria-hidden />
+                      {`${props.approval.label} approved · undo`}
+                    </button>
+                  )
+                : (
+                    <button
+                      type="button"
+                      data-testid={`approve-${props.item.id}`}
+                      onClick={props.approval.onApprove}
+                      disabled={props.disabled}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-action px-3 text-sm text-action-foreground transition hover:opacity-90 disabled:opacity-40"
+                    >
+                      <Check className="size-4" aria-hidden />
+                      {`Approve ${props.approval.label}`}
+                    </button>
+                  )}
+            </div>
+          )}
         </aside>
       </div>
     </div>
@@ -584,6 +617,51 @@ export function ReviewSurface(props: {
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
 
   /**
+   * The walk. `applies` is count-based, not type-based: two or more items a
+   * reviewer can vouch for is the case it exists for, one is approve-then-
+   * confirm (two clicks for one thing), and none has nothing to walk. So a
+   * follow-up email, a CRM update and a discovery proposal are untouched, and
+   * the lead page gets the walk for free by mounting the same shell.
+   */
+  const walks = walkApplies(content);
+  const count = walkCount(content, d.contentEdits, d.approvals);
+  const checkedIds = new Set(content.filter(i => isChecked(i, d.contentEdits[i.id], d.approvals)).map(i => i.id));
+
+  /**
+   * Approve one send, then move to the next one still unapproved.
+   *
+   * The advance is what makes this a walk rather than a checklist: the screen
+   * puts the next thing it is asking you to vouch for in front of you. The
+   * last one advances nowhere and leaves you on it, with the count full and
+   * the primary released.
+   * @param contentId - The send being approved.
+   */
+  const approveItem = async (contentId: string) => {
+    try {
+      await d.approveContent(contentId);
+    } catch (err) {
+      toast.error('Could not approve that item', { description: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    const next = content.find(i => i.id !== contentId && !checkedIds.has(i.id) && contentKindEditable(i.kind));
+    if (next) {
+      setTab(`item-${next.id}`);
+    }
+  };
+
+  /**
+   * Take one send's check back off. The history it already wrote stands.
+   * @param contentId - The send being unapproved.
+   */
+  const unapproveItem = async (contentId: string) => {
+    try {
+      await d.unapproveContent(contentId);
+    } catch (err) {
+      toast.error('Could not undo that approval', { description: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  /**
    * This item's slice of the run's history. A run written before the record
    * shipped carries none, and the column simply does not render.
    * @param contentId
@@ -726,6 +804,14 @@ export function ReviewSurface(props: {
         actions={props.itemActions?.(item, label)}
         edited={edit !== undefined && (edit.subject !== undefined || edit.body !== undefined)}
         history={historyFor(item.id)}
+        approval={walks && contentKindEditable(item.kind)
+          ? {
+              checked: checkedIds.has(item.id),
+              onApprove: () => void approveItem(item.id),
+              onUnapprove: () => void unapproveItem(item.id),
+              label,
+            }
+          : null}
       >
         <Renderer
           item={item}
@@ -837,6 +923,16 @@ export function ReviewSurface(props: {
       )}
 
       <Tabs value={active} onValueChange={setTab} className="pt-4">
+        {/* How far through the walk you are, over the row it is about. A card
+            that does not walk shows no count rather than "1 of 1". */}
+        {walks && (
+          <div className="flex items-baseline justify-between gap-3 pb-2">
+            <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Review content</h2>
+            <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
+              {`${count.approved} of ${count.total} approved`}
+            </span>
+          </div>
+        )}
         {/* The one real ceiling: a long sequence scrolls the tab row rather
             than wrapping it, so the panes below never shift down a line. */}
         <div className="-mx-1 overflow-x-auto px-1">
@@ -851,7 +947,14 @@ export function ReviewSurface(props: {
                     : (props.extraTabs ?? []).find(x => `extra-${x.id}` === id)?.label
                       ?? itemTabs.find(x => x.id === id)?.label
                       ?? id;
-              return <TabsTrigger key={id} value={id} data-testid={`tab-${id}`}>{label}</TabsTrigger>;
+              const item = content.find(c => `item-${c.id}` === id);
+              const checked = item !== undefined && checkedIds.has(item.id);
+              return (
+                <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} data-approved={checked ? 'true' : undefined}>
+                  {checked && <Check className="mr-1.5 inline size-3.5 align-[-2px] text-brand-pass" data-testid={`tab-check-${item.id}`} aria-label="approved" />}
+                  {label}
+                </TabsTrigger>
+              );
             })}
           </TabsList>
         </div>
