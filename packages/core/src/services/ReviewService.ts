@@ -16,6 +16,7 @@ import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { nextRevisionVersion, revisionsFor } from '@/libs/actions/revisions';
 import { parseSuggestedDecision, parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
@@ -979,6 +980,14 @@ export async function decide(
         await (await import('@/services/personalization/artifacts'))
           .pinLeadArtifactsForRun(orgId, item.id)
           .catch(() => []);
+        // The approved copy, filed before the payload it describes is replaced.
+        // Same window as `labelVerdicts` above and for the same reason: after
+        // `updateActionInput` the input is the approved one and the question
+        // "what did this run actually send" has no column that answers it.
+        // A reviewer who walked every send finds their own approvals already
+        // there; one who clicked straight through gets the record made for
+        // them. Best effort — a decision never fails on its audit trail.
+        await recordApprovedCopy(item.id, orgId, opts?.editedInput, reviewedBy);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
@@ -1436,7 +1445,7 @@ export async function rewriteDraft(opts: {
   let discardedEdit: string | undefined;
   if (rewritten.trim() !== original.trim()) {
     const existing = run.revisions ?? [];
-    const priorForContent = existing.filter(r => (opts.contentId ? r.contentId === opts.contentId : r.contentId === undefined));
+    const priorForContent = revisionsFor(existing, opts.contentId);
     discardedEdit = priorForContent.length > 0 ? priorForContent[priorForContent.length - 1]!.body : undefined;
     await db
       .update(actionRunSchema)
@@ -1444,12 +1453,13 @@ export async function rewriteDraft(opts: {
         revisions: [...existing, {
           ...(opts.contentId ? { contentId: opts.contentId } : {}),
           ...(targetStep !== null ? { step: targetStep } : {}),
-          version: priorForContent.length + 2,
+          version: nextRevisionVersion(existing, opts.contentId, 'regenerated'),
           body: rewritten,
           ...(opts.hint ? { ask: opts.hint } : {}),
           ...(discardedEdit !== undefined ? { discardedEdit } : {}),
           at: new Date().toISOString(),
           ...(opts.userId ? { by: opts.userId } : {}),
+          kind: 'regenerated' as const,
         }],
       })
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)));
@@ -1475,6 +1485,46 @@ export async function rewriteDraft(opts: {
   }
   const key = input.body !== undefined ? 'body' : 'notes';
   return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}), ...(voiceError !== undefined ? { voiceError } : {}) };
+}
+
+/**
+ * File the copy each content item carried at the moment it was approved.
+ *
+ * Split out of `decide` the same way `recordVoiceEditDiff` is, and for the
+ * same reason: the window it depends on — before `updateActionInput` replaces
+ * `input` wholesale — is stated once, and a failure here is swallowed without
+ * swallowing anything else. A decision must never fail on its audit trail.
+ * @param runId - The action run being approved.
+ * @param orgId - The project id.
+ * @param editedInput - What the reviewer approved, when they edited it.
+ * @param reviewedBy - Who approved it.
+ */
+async function recordApprovedCopy(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown> | undefined,
+  reviewedBy?: string,
+): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!row) {
+      return;
+    }
+    const { recordApprovedRevisions } = await import('@/services/review/contentRecord');
+    await recordApprovedRevisions({
+      orgId,
+      runId,
+      actionId: row.actionId,
+      approvedInput: editedInput ?? row.input,
+      ...(reviewedBy ? { by: reviewedBy } : {}),
+    });
+  } catch (err) {
+    logger.warn('could not record the approved revisions', { runId, orgId, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /**

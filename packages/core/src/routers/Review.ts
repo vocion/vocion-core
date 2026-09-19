@@ -465,6 +465,12 @@ export const regenerateActionRoute = os
     id: z.number().int().positive(),
     /** What should change. Required: a regeneration without instructions is a coin flip. */
     feedback: z.string().trim().min(1).max(2000),
+    /**
+     * Which content item the instruction is about (`send-3`), so the record
+     * lands on the send a reviewer was reading. Absent on a run with a single
+     * body, which is every non-sequence action.
+     */
+    contentId: z.string().min(1).max(200).optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -497,6 +503,24 @@ export const regenerateActionRoute = os
     if (isRegeneratingFresh(run.regeneratingSince)) {
       throw ApiError.badRequest('This card is already regenerating — it re-enables when the new version lands.');
     }
+
+    // The record, BEFORE anything replaces the copy it is about. This is the
+    // last moment `input` still holds what the reviewer is looking at: the
+    // redraft's dedup refresh replaces `input` wholesale and clears the stamp
+    // and the note with it, so a body not filed here is gone for good. Filed
+    // with the ask it is about to answer, which is what makes the history
+    // read as a conversation rather than as a list of bodies. Best effort: a
+    // regeneration must never fail on its audit trail.
+    const { recordPreRegenerationCopy } = await import('@/services/review/contentRecord');
+    await recordPreRegenerationCopy({
+      orgId,
+      runId: input.id,
+      actionId: run.actionId,
+      runInput: run.input,
+      ...(input.contentId ? { contentId: input.contentId } : {}),
+      ask: input.feedback,
+      ...(userId ? { by: userId } : {}),
+    }).catch(err => logger.warn('could not record the pre-regeneration copy', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) }));
 
     // Server truth first: every surface reads the stamp, so the card is
     // disabled everywhere before any work runs.
@@ -531,6 +555,78 @@ export const regenerateActionRoute = os
     // it: feedback job, classifier, duplicate detection, learning candidate.
     const { recordActionSignal } = await import('@/services/ReviewService');
     await recordActionSignal({ orgId, runId: input.id, signal: 'regenerate', userId: userId ?? undefined, hint: input.feedback });
+    return { ok: true };
+  });
+
+/**
+ * A run a per-send approval may be recorded against: still open, and not
+ * mid-regeneration. Shared by both checkpoint routes so "which runs take a
+ * check" is answered once.
+ * @param id - The action run.
+ * @param orgId - The project that owns it.
+ */
+async function guardCheckpointable(id: number, orgId: string): Promise<void> {
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const { and, eq } = await import('drizzle-orm');
+  const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
+  const [run] = await db
+    .select({ status: actionRunSchema.status, regeneratingSince: actionRunSchema.regeneratingSince })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, id), eq(actionRunSchema.orgId, orgId)))
+    .limit(1);
+  // A decided run is history. Checking a send on it would put a reviewer's
+  // name against copy that already ran, or against a card nobody can change.
+  if (!run || (run.status !== 'pending' && run.status !== 'failed')) {
+    throw ApiError.notFound(`no open action ${id}`);
+  }
+  if (isRegeneratingFresh(run.regeneratingSince)) {
+    throw ApiError.badRequest('This card is being regenerated — it re-enables when the new version lands.');
+  }
+}
+
+/**
+ * Approve ONE content item — a checkpoint, not an execution.
+ *
+ * Nothing leaves the building here: the run stays pending, `input` is
+ * untouched, and Enroll remains the single act that reaches the outside
+ * world, so the autonomy gate keeps one door. What this records is that a
+ * person read this send and vouched for exactly this copy — a hash of it, so
+ * the check clears itself the moment the copy changes underneath.
+ */
+export const approveContentRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    contentId: z.string().min(1).max(200),
+    subject: z.string().max(10_000).optional(),
+    body: z.string().max(100_000),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    await guardCheckpointable(input.id, orgId);
+    const { recordApprovedContent } = await import('@/services/review/contentRecord');
+    const hash = await recordApprovedContent({
+      orgId,
+      runId: input.id,
+      contentId: input.contentId,
+      ...(input.subject !== undefined ? { subject: input.subject } : {}),
+      body: input.body,
+      ...(userId ? { by: userId } : {}),
+    });
+    return { ok: true, hash };
+  });
+
+/** Take one content item's check back off. The history it wrote stands. */
+export const unapproveContentRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    contentId: z.string().min(1).max(200),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    await guardCheckpointable(input.id, orgId);
+    const { clearApprovedContent } = await import('@/services/review/contentRecord');
+    await clearApprovedContent({ orgId, runId: input.id, contentId: input.contentId });
     return { ok: true };
   });
 

@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import type { ReviewOutcome } from './useReviewDecision';
 import type { Crumb } from '@/components/patterns';
+import type { ActionRevision } from '@/libs/actions/revisions';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Ban, Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
@@ -77,6 +78,15 @@ export type ReviewCardRun = {
   regeneratingSince?: Date | string | null;
   /** The reviewer's instruction the regeneration is answering. */
   regenerateNote?: string | null;
+  /**
+   * Which content items a reviewer has already approved, keyed by content id,
+   * each holding a HASH of the copy that was approved. The check is derived
+   * from it and never stored as a flag, so a regeneration or an inline edit
+   * clears it on its own (`libs/actions/contentHash.ts`).
+   */
+  contentReview?: Record<string, { hash: string; at: string; by?: string }> | null;
+  /** The per-item history the walk reads: proposed, every ask, approved. */
+  revisions?: ActionRevision[] | null;
   /** What the last execution attempt said, set when `status` is `failed`. */
   error?: string | null;
   /** How often this agent's recommendations of this kind matched the person's decision (server-computed, 30d). */

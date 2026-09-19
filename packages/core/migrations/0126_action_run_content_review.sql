@@ -1,0 +1,16 @@
+-- 0126 — which sends a reviewer approved, one at a time.
+--
+-- A sequence is approved send by send before it is enrolled, and the check on
+-- each tab has to survive a reload, a second window and the audit. The value
+-- is a HASH of the copy that was approved (`libs/actions/contentHash.ts`),
+-- keyed by the card's content id — never a boolean.
+--
+-- Storing the hash is what makes a check self-invalidating: the tab is checked
+-- only while the hash still matches what is on screen, so a regeneration or an
+-- inline edit clears it with no clearing logic anywhere. A flag would need
+-- wiping in the regenerate route, in the dedup refresh that lands a redraft
+-- and in the editor, and the first one anybody forgot would leave a check
+-- standing over copy nobody approved.
+--
+-- Nullable jsonb with no default: additive, no table rewrite, no lock.
+ALTER TABLE "action_run" ADD COLUMN IF NOT EXISTS "content_review" jsonb;

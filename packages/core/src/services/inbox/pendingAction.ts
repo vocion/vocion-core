@@ -53,6 +53,11 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     proposal: (row.proposal as ActionRun['proposal']) ?? null,
     regeneratingSince: row.regeneratingSince ?? null,
     regenerateNote: row.regenerateNote ?? null,
+    // The two columns the per-send walk reads: which sends carry a check, and
+    // the history under each one. Both ride the run, so the surface needs no
+    // new props and every surface that mounts it gets the walk.
+    contentReview: row.contentReview ?? null,
+    revisions: row.revisions ?? null,
     error: row.error ?? null,
     ...(card ? { card } : {}),
     typeLabel: getAction(row.actionId)?.name ?? undefined,
