@@ -496,6 +496,24 @@ tbody tr:last-child td {
   flex-wrap: wrap;
   gap: 7px;
 }
+/* The placeholder chip. Everything the document does not yet know shows as
+   one of these, in the open, and the same word appears as an open item on the
+   room — the one visual signal the red team's grounding rule leans on. Amber
+   because it is neither a claim nor an error: it is a number somebody still
+   has to baseline. */
+.ph {
+  display: inline-block;
+  font-family: 'Barlow', sans-serif;
+  font-weight: 700;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  background: rgba(252, 190, 69, 0.18);
+  border: 1px solid rgba(241, 135, 0, 0.45);
+  color: #8a5300;
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
 .syschip {
   font-family: 'Barlow', sans-serif;
   font-weight: 700;
