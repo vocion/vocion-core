@@ -5,7 +5,7 @@
  * the look proves what a designer would notice. Neither reads the WORDS the way
  * the person on the other side will: the number nobody baselined, the outcome
  * quietly promised, the paragraph that invites a no, the scope line a buyer
- * could read two ways. Chris red-teamed the Armorock proposal by hand with a
+ * could read two ways. Chris red-teamed a real client proposal by hand with a
  * second model and applied the findings (2026-09-18); this is that pass as a
  * tool, so every proposal gets it and the findings that recur become rules.
  *
@@ -52,7 +52,7 @@ export type RedTeamOutcome
 /**
  * The review runs as a TOOL CALL, not as "return JSON and nothing else".
  *
- * The first live run (2026-09-19, the Armorock proposal) came back unparseable
+ * The first live run (2026-09-19, on a real client proposal) came back unparseable
  * twice and the agent read the document by hand instead — a sceptical reviewer
  * writes long, and a dozen findings do not fit the budget the prose form was
  * given, so the JSON was cut mid-object. A declared tool the model must call
