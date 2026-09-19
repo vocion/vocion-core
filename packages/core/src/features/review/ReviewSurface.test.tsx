@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { publishDraftRevision } from '@/features/personalization/draftRevision';
+import { contentHash } from '@/libs/actions/contentHash';
 // The real stylesheet, so the layout claims below are about geometry rather
 // than about class names (`ReviewHeader.layout.test.tsx` sets the precedent).
 import '@/styles/global.css';
@@ -26,6 +27,8 @@ vi.mock('@/libs/Orpc', () => ({
       decideAction: (input: Record<string, unknown>) => decideAction(input),
       snoozeAction: (input: Record<string, unknown>) => snoozeAction(input),
       regenerateAction: (input: Record<string, unknown>) => regenerateAction(input),
+      approveContent: async () => ({ ok: true, hash: 'x' }),
+      unapproveContent: async () => ({ ok: true }),
       actionStatus: async () => ({ regeneratingSince: null, regenerateNote: null }),
     },
   },
@@ -40,6 +43,22 @@ vi.mock('@/libs/I18nNavigation', () => ({
 const { ReviewSurface } = await import('./ReviewSurface');
 
 const CRUMBS = [{ label: 'Workspace', href: '/dashboard' }, { label: 'Review queue', href: '/dashboard/inbox' }, { label: 'Recommendations' }];
+
+/**
+ * The same run with its walk already complete, for the tests that are about
+ * something other than the walk. Phase 4 holds the primary until every send
+ * carries a check, so a card that is not the subject of a test arrives with
+ * them rather than having the assertion weakened around it.
+ * @param run - The run to stamp as fully approved.
+ */
+function approved(run: ReviewCardRun): ReviewCardRun {
+  return {
+    ...run,
+    contentReview: Object.fromEntries((run.card.content ?? [])
+      .filter(i => i.kind === 'email')
+      .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, i.kind === 'email' ? i.body : ''), at: '2026-09-18T12:00:00.000Z' }])),
+  };
+}
 
 /**
  * An enrollment run with `n` sends — the shape that grows.
@@ -226,14 +245,20 @@ describe('one flat template, every object type', () => {
     // the label span rather than the whole node.
     const labels = [...bar.querySelectorAll('button')].map(b => (b.querySelector('span')?.textContent ?? b.textContent ?? '').trim());
 
-    expect(labels).toEqual(['Add feedback', 'Decline', 'Snooze', 'Confirm']);
+    // "Add a note", not "Add feedback": the bar's box is about the DECISION,
+    // and the box that asks for a rewrite now sits beside the copy it is
+    // about. Two boxes, named as two jobs.
+    expect(labels).toEqual(['Add a note', 'Decline', 'Snooze', 'Confirm']);
     expect(bar.textContent).not.toContain('Save for later');
     expect(bar.textContent).not.toContain('Skip');
   });
 
   it('decides from the keyboard, and never while you are typing', async () => {
     decideAction.mockClear();
-    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+    // A walk this card has already completed, so the keyboard test is about
+    // the keyboard. That `a` cannot bypass an INCOMPLETE walk is asserted in
+    // ReviewSurface.walk.test.tsx, where the hold is the subject.
+    await render(<ReviewSurface run={approved(enrollment(3))} crumbs={CRUMBS} />);
 
     await page.getByTestId('email-pane-send-1').element().querySelector('textarea')!.focus();
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
@@ -259,6 +284,14 @@ describe('one flat template, every object type', () => {
     const live = page.getByTestId('email-pane-send-3').element().querySelector('textarea')!;
     await page.elementLocator(live).fill('Rewritten in the tab.');
 
+    // Each send it edited is then approved, which is the walk's real path and
+    // what releases the primary.
+    for (const id of ['send-1', 'send-2', 'send-3', 'send-4']) {
+      await page.getByTestId(`tab-item-${id}`).click();
+      await page.getByTestId(`approve-${id}`).click();
+      await vi.waitFor(() => expect(page.getByTestId(`tab-item-${id}`).element().getAttribute('data-approved')).toBe('true'));
+    }
+
     await page.getByTestId('decide-approve').click();
     await vi.waitFor(() => expect(decideAction).toHaveBeenCalled());
 
@@ -279,13 +312,66 @@ describe('one flat template, every object type', () => {
     // Not on the bar: one Regenerate there means whichever item its author had in mind.
     expect(page.getByTestId('sticky-action-bar').element().textContent).not.toContain('Regenerate');
 
-    await page.getByTestId('regenerate-send-2').click();
+    // No disclosure to open — the instruction box is the right column, and it
+    // is open, because a control that hides the copy it acts on was the
+    // defect this layout fixes.
     await page.getByRole('textbox', { name: 'Regenerate instruction for Day 3' }).fill('Soften the ask.');
-    await page.getByTestId('regenerate-send-2-submit').click();
+    await page.getByTestId('regenerate-send-2').click();
 
     await vi.waitFor(() => expect(regenerateAction).toHaveBeenCalled());
 
-    expect(regenerateAction.mock.calls[0]![0]).toMatchObject({ id: 501, feedback: 'Soften the ask.' });
+    // Keyed to the send it was typed against, so the record lands on that one.
+    expect(regenerateAction.mock.calls[0]![0]).toMatchObject({ id: 501, feedback: 'Soften the ask.', contentId: 'send-2' });
+  });
+
+  it('keeps the copy and the instruction box on screen together', async () => {
+    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+
+    await page.getByTestId('tab-item-send-2').click();
+
+    // The old layout opened the instruction UNDER the send and pushed the
+    // copy off screen — exactly when a reviewer needed to read it while
+    // writing the ask. Both boxes have to be laid out at once.
+    const copy = page.getByTestId('email-pane-send-2').element().getBoundingClientRect();
+    const box = page.getByTestId('regenerate-send-2-open').element().getBoundingClientRect();
+
+    expect(copy.width).toBeGreaterThan(0);
+    expect(box.width).toBeGreaterThan(0);
+    // Side by side at this width, not stacked.
+    expect(box.left).toBeGreaterThanOrEqual(copy.right - 1);
+  });
+
+  it('does not carry an instruction typed for one send over to the next', async () => {
+    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+
+    await page.getByTestId('tab-item-send-2').click();
+    await page.getByRole('textbox', { name: 'Regenerate instruction for Day 3' }).fill('Soften the ask.');
+    await page.getByTestId('tab-item-send-3').click();
+
+    await expect.element(page.getByRole('textbox', { name: 'Regenerate instruction for Day 6' })).toHaveValue('');
+  });
+
+  it('reads the history of the send it is about, and only that one', async () => {
+    await render(
+      <ReviewSurface
+        run={enrollment(3, {
+          revisions: [
+            { contentId: 'send-1', version: 1, kind: 'proposed', body: 'First draft.', ask: 'lead with the hiring signal', at: '2026-09-17T10:00:00.000Z', by: 'revenue-lead' },
+            { contentId: 'send-1', version: 2, kind: 'regenerated', body: 'Second draft.', at: '2026-09-18T10:00:00.000Z' },
+            { contentId: 'send-2', version: 1, kind: 'proposed', body: 'Other send.', ask: 'not this one', at: '2026-09-18T10:00:00.000Z' },
+          ],
+        })}
+        crumbs={CRUMBS}
+      />,
+    );
+
+    const history = page.getByTestId('history-send-1').element();
+
+    expect(history.textContent).toContain('v1 proposed by revenue-lead');
+    expect(history.textContent).toContain('Sep 17');
+    expect(history.textContent).toContain('asked “lead with the hiring signal”');
+    expect(history.textContent).toContain('v2 regenerated');
+    expect(history.textContent).not.toContain('not this one');
   });
 
   it('holds a regenerating item in place, with the instruction on screen', async () => {

@@ -36,7 +36,7 @@ describe('StickyActionBar', () => {
   it('keeps the feedback field folded until asked', () => {
     const out = html(createElement(StickyActionBar, { primary, field: { label: 'Feedback', value: '', onChange: noop } }));
 
-    expect(out).toContain('Add feedback');
+    expect(out).toContain('Add a note');
     expect(out).not.toContain('<textarea');
   });
 
@@ -47,7 +47,7 @@ describe('StickyActionBar', () => {
     }));
 
     expect(out).toContain('<textarea');
-    expect(out).toContain('Hide feedback');
+    expect(out).toContain('Hide the note');
     expect(out).toContain('Regenerate');
   });
 

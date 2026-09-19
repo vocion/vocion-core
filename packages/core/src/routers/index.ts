@@ -107,6 +107,7 @@ import { changePasswordRoute, getProfileRoute, updateNameRoute } from './Profile
 import { list as listProjects, setActive as setActiveProject } from './Projects';
 import {
   actionStatusRoute,
+  approveContentRoute,
   cancel,
   contextRoute,
   decideActionRoute,
@@ -122,6 +123,7 @@ import {
   rewriteDraftRoute,
   snoozeActionRoute,
   submitFeedback,
+  unapproveContentRoute,
   undoActionRoute,
 } from './Review';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
@@ -306,6 +308,8 @@ export const router = {
     undoAction: undoActionRoute,
     snoozeAction: snoozeActionRoute,
     regenerateAction: regenerateActionRoute,
+    approveContent: approveContentRoute,
+    unapproveContent: unapproveContentRoute,
     propose: proposeFromRecommendationRoute,
     recordSignal: recordSignalRoute,
     rewriteDraft: rewriteDraftRoute,

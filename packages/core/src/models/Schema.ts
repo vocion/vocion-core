@@ -3253,6 +3253,35 @@ export const actionRunSchema = pgTable(
       discardedEdit?: string;
       at: string;
       by?: string;
+      /**
+       * What this entry IS, so one column reads as a history rather than a
+       * list of bodies: `proposed` is the copy the agent wrote before any
+       * rewrite touched it, `regenerated` a version that came back, and
+       * `approved` the copy a reviewer vouched for. Optional because every
+       * row written before this shipped is a rewrite's answer, which is what
+       * an absent kind reads as.
+       */
+      kind?: 'proposed' | 'regenerated' | 'approved';
+    }>>(),
+    /**
+     * Which content items a reviewer has approved one at a time, keyed by the
+     * card's content id (`send-2`).
+     *
+     * The value is a HASH of the copy that was approved, never a boolean. A
+     * check is then derived: the tab is checked only while the hash still
+     * matches what is on screen, so a regeneration or an inline edit clears it
+     * on its own. A flag would need clearing logic in three places — the
+     * regenerate route, the dedup refresh that lands a redraft, and the
+     * editor — and the first one anybody forgot would leave a check standing
+     * over copy nobody approved.
+     *
+     * `libs/actions/contentHash.ts` owns the hash, for both the route that
+     * writes it and the surface that compares against it.
+     */
+    contentReview: jsonb('content_review').$type<Record<string, {
+      hash: string;
+      at: string;
+      by?: string;
     }>>(),
     /**
      * The exact artifact VERSIONS this decision approved (0112).

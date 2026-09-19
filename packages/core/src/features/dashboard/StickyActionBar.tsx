@@ -125,8 +125,8 @@ export function StickyActionBar(props: {
   aside?: ReactNode;
   className?: string;
 }) {
-  const addLabel = props.labels?.addField ?? 'Add feedback';
-  const hideLabel = props.labels?.hideField ?? 'Hide feedback';
+  const addLabel = props.labels?.addField ?? 'Add a note';
+  const hideLabel = props.labels?.hideField ?? 'Hide the note';
   const { primary, secondary = [], field, aside } = props;
   const [fieldOpen, setFieldOpen] = useState(field?.defaultOpen ?? false);
   const showField = field !== undefined && (fieldOpen || field.value.trim().length > 0);

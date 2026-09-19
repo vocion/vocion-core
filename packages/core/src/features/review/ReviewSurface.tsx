@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import type { ReviewOutcome } from './useReviewDecision';
 import type { Crumb } from '@/components/patterns';
+import type { ActionRevision } from '@/libs/actions/revisions';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { ReviewCard, ReviewContent, ReviewContentEdit } from '@/libs/actions/types';
 import { AlarmClock, Ban, Check, Loader2, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react';
@@ -21,6 +22,7 @@ import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { cn } from '@/utils/Helpers';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
+import { isChecked, walkApplies, walkCount } from './contentWalk';
 import { shortcutFor } from './reviewShortcuts';
 import { useReviewDecision } from './useReviewDecision';
 
@@ -77,6 +79,15 @@ export type ReviewCardRun = {
   regeneratingSince?: Date | string | null;
   /** The reviewer's instruction the regeneration is answering. */
   regenerateNote?: string | null;
+  /**
+   * Which content items a reviewer has already approved, keyed by content id,
+   * each holding a HASH of the copy that was approved. The check is derived
+   * from it and never stored as a flag, so a regeneration or an inline edit
+   * clears it on its own (`libs/actions/contentHash.ts`).
+   */
+  contentReview?: Record<string, { hash: string; at: string; by?: string }> | null;
+  /** The per-item history the walk reads: proposed, every ask, approved. */
+  revisions?: ActionRevision[] | null;
   /** What the last execution attempt said, set when `status` is `failed`. */
   error?: string | null;
   /** How often this agent's recommendations of this kind matched the person's decision (server-computed, 30d). */
@@ -119,6 +130,20 @@ const SNOOZES = [
   { label: '3 days', days: 3 },
   { label: 'Next week', days: 7 },
 ];
+
+/** What a revision entry IS, as the history line names it. */
+const REVISION_KIND: Record<NonNullable<ActionRevision['kind']>, string> = {
+  proposed: 'proposed',
+  regenerated: 'regenerated',
+  approved: 'approved',
+};
+
+/**
+ * Day and month on a history line. Fixed to `en-US` rather than the viewer's
+ * locale: these render in tests and stories that mount no intl provider, and
+ * a date that reads differently per machine makes a screenshot diff noise.
+ */
+const REVISION_DATE = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
@@ -192,56 +217,101 @@ function MetaRow(props: {
 }
 
 /**
- * One content item, full pane: the item's own Edit and Regenerate at the top
- * right, then the registered renderer. Regenerate sits HERE rather than on the
- * bar, because one Regenerate on a shared bar silently means whichever item
- * its author had in mind.
+ * One send's history, read off the run's `revisions` column: what was
+ * proposed, every ask made of it, and the copy that was approved.
+ *
+ * Under the instruction box rather than beside the copy, because it is the
+ * context for the NEXT ask — "I already told it to lead with the hiring
+ * signal" is the thing a reviewer needs while typing, and it is the thing
+ * that used to be gone by the time they could look for it.
+ * @param props - The entries for this item.
+ * @param props.entries - This item's revisions, oldest first.
+ * @param props.id - The content id, for the test hook.
+ */
+function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) {
+  if (props.entries.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-5 border-t border-rule pt-3" data-testid={`history-${props.id}`}>
+      <h4 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">History</h4>
+      <ol className="mt-2 flex flex-col gap-2">
+        {props.entries.map((r, i) => (
+          <li key={`${r.version}-${r.at}-${i}`} className="text-[13px]">
+            <p className="text-muted-foreground">
+              <span className="font-medium text-foreground/85">{`v${r.version} ${REVISION_KIND[r.kind ?? 'regenerated']}`}</span>
+              {r.by && <span>{` by ${r.by}`}</span>}
+              {/* Anything dated is shown with its date (principle 10). */}
+              <span>{` · ${REVISION_DATE.format(new Date(r.at))}`}</span>
+            </p>
+            {r.ask && <p className="mt-0.5 break-words text-muted-foreground/90">{`asked “${r.ask}”`}</p>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * One content item, as a split pane: the copy on the left, the instruction
+ * that asks for a rewrite on the right, and that item's history under it.
+ *
+ * The split is the point. The instruction box used to sit on the decision bar,
+ * away from the copy it was about, and Regenerate opened a panel UNDERNEATH
+ * the send that pushed the copy off screen exactly when a reviewer needed to
+ * read it while writing the instruction. Side by side, the copy stays put and
+ * the ask is made against something you can still see.
+ *
+ * Regenerate is therefore always open, not a disclosure: a control that hides
+ * the thing it acts on is the defect, and one fewer click to reach it is the
+ * fix. Edit is gone for the same reason — the copy on the left is already
+ * editable in place, so a button whose only job was to focus it was chrome
+ * naming an affordance that was already there.
+ *
+ * Narrow (a phone, or the pane squeezed beside an open conversation) it stacks
+ * copy-then-instruction, which is the reading order anyway. The breakpoint is
+ * a CONTAINER query, not a viewport one, because the thing that takes the
+ * width away is the conversation rail rather than the window.
  * @param props - The item, its working copy, and the regenerate path.
  * @param props.item - The content item.
  * @param props.label - What the tab calls it, so the controls can name it.
- * @param props.edit - The reviewer's working copy.
- * @param props.edit.subject
- * @param props.edit.body
- * @param props.onEdit - Patch handler, absent when the kind is not editable.
- * @param props.changed - True for a moment after a conversation rewrite landed.
- * @param props.actions
- * @param props.edited
+ * @param props.editable - Whether the kind takes the reviewer's edits.
+ * @param props.children - The registered renderer, already built.
+ * @param props.actions - A control the surface adds beside the item's own.
+ * @param props.edited - True when the working copy differs from what the agent wrote.
  * @param props.disabled - Held while busy or regenerating.
  * @param props.canRegenerate - Whether the action implements regeneration.
  * @param props.regenerating - True while a pass is in flight.
  * @param props.onRegenerate - Runs the pass with the instruction.
- * @param props.editable - Whether the kind takes the reviewer's edits.
- * @param props.children - The registered renderer, already built.
+ * @param props.history - This item's revisions, oldest first.
+ * @param props.approval - The per-send check, on cards that get the walk.
  */
 function ItemPane(props: {
   item: ReviewContent;
   label: string;
   editable: boolean;
   children: ReactNode;
-  /** A control the surface adds beside Edit and Regenerate. */
   actions?: ReactNode;
-  /** True when the working copy differs from what the agent wrote. */
   edited?: boolean;
   disabled?: boolean;
   canRegenerate: boolean;
   regenerating: boolean;
   onRegenerate: (instruction: string) => void;
+  history: readonly ActionRevision[];
+  approval?: { checked: boolean; onApprove: () => void; onUnapprove: () => void; label: string } | null;
 }) {
-  const pane = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  // The instruction is about THIS send, and the pane is KEYED by content id at
+  // the call site, so moving to another send remounts it empty. An ask typed
+  // against send 3 arriving on send 4 is the one mistake this layout could
+  // newly cause, and a key rules it out where an effect only tidies up after
+  // it.
   const [instruction, setInstruction] = useState('');
-
-  const focusBody = () => {
-    const field = pane.current?.querySelector<HTMLTextAreaElement | HTMLInputElement>('textarea:not([disabled]), input:not([disabled])');
-    field?.focus();
-    field?.setSelectionRange?.(field.value.length, field.value.length);
-  };
 
   return (
     // `data-comment-field`: the item is a region the selection control can
     // anchor to, so highlighting a sentence in it offers *Ask about this* /
     // *Add change* (`docs/design/patterns.md` § Select → talk).
-    <div data-comment-field={props.label} data-testid={`item-pane-${props.item.id}`}>
+    <div data-comment-field={props.label} data-testid={`item-pane-${props.item.id}`} className="@container">
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <h3 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
           {props.label}
@@ -249,79 +319,91 @@ function ItemPane(props: {
               survives a tab change where the arrival tint does not. */}
           {props.edited && <span className="ml-2 font-normal normal-case" data-testid={`edited-${props.item.id}`}>edited</span>}
         </h3>
-        <div className="flex shrink-0 items-center gap-1">
-          {props.actions}
-          {props.editable && (
-            <button
-              type="button"
-              data-testid={`edit-${props.item.id}`}
-              onClick={focusBody}
-              disabled={props.disabled}
-              className="inline-flex h-8 items-center rounded-lg px-2 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-            >
-              Edit
-            </button>
-          )}
-          {props.canRegenerate && (
-            <button
-              type="button"
-              data-testid={`regenerate-${props.item.id}`}
-              onClick={() => setOpen(o => !o)}
-              disabled={props.disabled}
-              aria-expanded={open}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-            >
-              {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
-              {props.regenerating ? 'Regenerating…' : `Regenerate ${props.label}`}
-            </button>
-          )}
-        </div>
+        <div className="flex shrink-0 items-center gap-1">{props.actions}</div>
       </div>
 
-      <div ref={pane}>{props.children}</div>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-6 @2xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="min-w-0">{props.children}</div>
 
-      {open && props.canRegenerate && (
-        <div className="mt-3 border-t border-rule pt-3" data-testid={`regenerate-${props.item.id}-open`}>
-          <label className="block">
-            <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-              {`What should ${props.label} do differently?`}
-            </span>
-            <textarea
-              value={instruction}
-              onChange={e => setInstruction(e.target.value)}
-              rows={3}
-              aria-label={`Regenerate instruction for ${props.label}`}
-              placeholder="e.g. Shorter, and lead with the hiring signal rather than the guide."
-              className="mt-1.5 w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30"
-            />
-          </label>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            This re-runs the work behind the recommendation with your instruction. The item holds its place here and re-enables when the new version lands.
-          </p>
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="h-9 rounded-lg px-3 text-sm text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              data-testid={`regenerate-${props.item.id}-submit`}
-              disabled={props.disabled || instruction.trim().length === 0}
-              onClick={() => {
-                props.onRegenerate(instruction.trim());
-                setOpen(false);
-                setInstruction('');
-              }}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-action px-3 text-sm text-action-foreground transition hover:opacity-90 disabled:opacity-40"
-            >
-              Regenerate
-            </button>
-          </div>
-        </div>
-      )}
+        <aside className="min-w-0 border-t border-rule pt-5 @2xl:border-t-0 @2xl:border-l @2xl:pt-0 @2xl:pl-6">
+          {props.canRegenerate && (
+            <div data-testid={`regenerate-${props.item.id}-open`}>
+              <label className="block">
+                <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
+                  {`What should ${props.label} do differently?`}
+                </span>
+                <textarea
+                  value={instruction}
+                  onChange={e => setInstruction(e.target.value)}
+                  rows={3}
+                  disabled={props.disabled}
+                  aria-label={`Regenerate instruction for ${props.label}`}
+                  placeholder="e.g. Shorter, and lead with the hiring signal rather than the guide."
+                  className="mt-1.5 w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
+                />
+              </label>
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  data-testid={`regenerate-${props.item.id}`}
+                  disabled={props.disabled || instruction.trim().length === 0}
+                  onClick={() => {
+                    props.onRegenerate(instruction.trim());
+                    setInstruction('');
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+                >
+                  {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
+                  {props.regenerating ? 'Regenerating…' : `Regenerate ${props.label}`}
+                </button>
+              </div>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                This re-runs the work behind the recommendation with your instruction. The item holds its place here and re-enables when the new version lands.
+              </p>
+            </div>
+          )}
+
+          <ItemHistory entries={props.history} id={props.item.id} />
+
+          {props.approval && (
+            <div className="mt-5 border-t border-rule pt-3">
+              {/* Keyed apart on purpose. React would otherwise reuse one
+                  `<button>` node across the two states and TRANSITION the ink
+                  primary's background out, so the undo control flashed as a
+                  solid dark pill for the length of the transition — the one
+                  moment it must not look like the primary. Two keys, two
+                  nodes, no morph. */}
+              {props.approval.checked
+                ? (
+                    <button
+                      key="approved"
+                      type="button"
+                      data-testid={`unapprove-${props.item.id}`}
+                      onClick={props.approval.onUnapprove}
+                      disabled={props.disabled}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-[13px] text-brand-pass transition hover:bg-surface-hover disabled:opacity-40"
+                    >
+                      <Check className="size-4" aria-hidden />
+                      {`${props.approval.label} approved · undo`}
+                    </button>
+                  )
+                : (
+                    <button
+                      key="unapproved"
+                      type="button"
+                      data-testid={`approve-${props.item.id}`}
+                      onClick={props.approval.onApprove}
+                      disabled={props.disabled}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-action px-3 text-sm text-action-foreground transition hover:opacity-90 disabled:opacity-40"
+                    >
+                      <Check className="size-4" aria-hidden />
+                      {`Approve ${props.approval.label}`}
+                    </button>
+                  )}
+            </div>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }
@@ -396,6 +478,17 @@ export function ReviewSurface(props: {
   // Why for one paint and leave a fields-only type there.
   const propertyKeys = d.hasProperties ? Object.keys((run.input.properties ?? {}) as Record<string, unknown>) : [];
   const propertyValue = (k: string) => d.propertyEdits[k] ?? str((run.input.properties as Record<string, unknown>)[k]);
+
+  /**
+   * The walk. `applies` is count-based, not type-based: two or more items a
+   * reviewer can vouch for is the case it exists for, one is approve-then-
+   * confirm (two clicks for one thing), and none has nothing to walk. So a
+   * follow-up email, a CRM update and a discovery proposal are untouched, and
+   * the lead page gets the walk for free by mounting the same shell.
+   */
+  const walks = walkApplies(content);
+  const count = walkCount(content, d.contentEdits, d.approvals);
+  const checkedIds = new Set(content.filter(i => isChecked(i, d.contentEdits[i.id], d.approvals)).map(i => i.id));
 
   // The tabs, derived. Nothing here enumerates object types, kinds or counts:
   // N items produce N tabs, the surface's own tabs slot in, and Why and
@@ -473,16 +566,41 @@ export function ReviewSurface(props: {
     }
   };
 
-  const regenerate = async (instruction: string) => {
+  const regenerate = async (instruction: string, contentId?: string) => {
     try {
-      await d.regenerate(instruction);
+      await d.regenerate(instruction, contentId);
       toast.info(`Regenerating · ${card.title}`, { description: 'The item re-enables here when the new version lands.' });
     } catch (err) {
       toast.error(`Could not regenerate · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
     }
   };
 
-  const heldPrimary = d.held || Boolean(props.hold);
+  /**
+   * The walk's own hold: the primary waits until every send carries a check.
+   *
+   * This is the phase that makes the walk required, and the only one that can
+   * block a queue if the count is ever wrong — which is why the count is
+   * derived from the same hash the checks are, rather than tracked beside
+   * them. It reuses the hold already shipped for the sequence-state case
+   * rather than inventing a second way to disable a primary: one mechanism,
+   * one place the reason is written, and `BarAction.hint` already puts that
+   * reason on a disabled button where a pointer can reach it.
+   *
+   * A hold the SURFACE passes wins. That one says the consequence cannot be
+   * determined at all, which outranks "you have not finished reading".
+   *
+   * A retry is never held. A run whose execution failed has already been
+   * decided once — the copy was approved, the decision's backstop recorded
+   * it, and the thing that went wrong was HubSpot, not the reading. Making
+   * someone walk a four-send sequence again to re-send what they already
+   * approved would be the count blocking a queue, which is the one way this
+   * phase can do harm.
+   */
+  const walkHold = walks && !count.complete && !d.execError
+    ? { reason: `${approveVerb} opens when every send is approved — ${count.approved} of ${count.total} so far.` }
+    : null;
+  const hold = props.hold ?? walkHold;
+  const heldPrimary = d.held || Boolean(hold);
 
   // The keyboard decides too: a / d / s, never while you are typing.
   useEffect(() => {
@@ -541,6 +659,48 @@ export function ReviewSurface(props: {
   // A read-only field that is also an editable property is shown once — in the
   // Changes pane — so "industry" does not read twice.
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
+
+  /**
+   * Approve one send, then move to the next one still unapproved.
+   *
+   * The advance is what makes this a walk rather than a checklist: the screen
+   * puts the next thing it is asking you to vouch for in front of you. The
+   * last one advances nowhere and leaves you on it, with the count full and
+   * the primary released.
+   * @param contentId - The send being approved.
+   */
+  const approveItem = async (contentId: string) => {
+    try {
+      await d.approveContent(contentId);
+    } catch (err) {
+      toast.error('Could not approve that item', { description: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    const next = content.find(i => i.id !== contentId && !checkedIds.has(i.id) && contentKindEditable(i.kind));
+    if (next) {
+      setTab(`item-${next.id}`);
+    }
+  };
+
+  /**
+   * Take one send's check back off. The history it already wrote stands.
+   * @param contentId - The send being unapproved.
+   */
+  const unapproveItem = async (contentId: string) => {
+    try {
+      await d.unapproveContent(contentId);
+    } catch (err) {
+      toast.error('Could not undo that approval', { description: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  /**
+   * This item's slice of the run's history. A run written before the record
+   * shipped carries none, and the column simply does not render.
+   * @param contentId
+   */
+  const historyFor = (contentId: string): ActionRevision[] =>
+    (run.revisions ?? []).filter(r => r.contentId === contentId);
 
   const renderPane = (id: string) => {
     if (id === 'changes') {
@@ -666,15 +826,25 @@ export function ReviewSurface(props: {
     const edit = d.contentEdits[item.id];
     return (
       <ItemPane
+        key={item.id}
         item={item}
         label={label}
         editable={editable}
         disabled={d.held}
         canRegenerate={d.canRegenerate}
         regenerating={d.regenerating}
-        onRegenerate={instruction => void regenerate(instruction)}
+        onRegenerate={instruction => void regenerate(instruction, item.id)}
         actions={props.itemActions?.(item, label)}
         edited={edit !== undefined && (edit.subject !== undefined || edit.body !== undefined)}
+        history={historyFor(item.id)}
+        approval={walks && contentKindEditable(item.kind)
+          ? {
+              checked: checkedIds.has(item.id),
+              onApprove: () => void approveItem(item.id),
+              onUnapprove: () => void unapproveItem(item.id),
+              label,
+            }
+          : null}
       >
         <Renderer
           item={item}
@@ -725,7 +895,7 @@ export function ReviewSurface(props: {
                 'busy': d.busy,
                 'icon': Check,
                 'shortcut': 'a',
-                'hint': props.hold?.reason,
+                'hint': hold?.reason,
                 'data-testid': 'decide-approve',
               }}
               secondary={[
@@ -743,8 +913,8 @@ export function ReviewSurface(props: {
                 </span>
               )}
               field={{
-                label: 'Feedback',
-                placeholder: 'Add feedback with your decision. To rewrite something, use Regenerate beside the item it belongs to.',
+                label: 'Note',
+                placeholder: 'A note that rides this decision and trains the agent. To rewrite a draft, use the instruction box beside it.',
                 value: d.note,
                 onChange: d.setNote,
                 disabled: d.held,
@@ -755,7 +925,7 @@ export function ReviewSurface(props: {
     >
       {props.beforeTabs}
 
-      {(d.regenerating || d.regenStale || d.execError || props.hold) && (
+      {(d.regenerating || d.regenStale || d.execError || hold) && (
         <div className="flex flex-col gap-2 py-4">
           {d.regenerating && (
             <Notice tone="amber" icon={<Loader2 className="size-4 animate-spin" aria-hidden />} testid="regenerating-banner">
@@ -776,16 +946,26 @@ export function ReviewSurface(props: {
               <p className="mt-0.5 text-[13px] text-muted-foreground">{`Fix the cause if it names one, then ${approveVerb} again to retry.`}</p>
             </Notice>
           )}
-          {props.hold && (
+          {hold && (
             <Notice tone="amber" icon={<Ban className="size-4" aria-hidden />} testid="primary-held">
               <span className="font-medium">{`${approveVerb} is held.`}</span>
-              <span className="text-muted-foreground">{` ${props.hold.reason}`}</span>
+              <span className="text-muted-foreground">{` ${hold.reason}`}</span>
             </Notice>
           )}
         </div>
       )}
 
       <Tabs value={active} onValueChange={setTab} className="pt-4">
+        {/* How far through the walk you are, over the row it is about. A card
+            that does not walk shows no count rather than "1 of 1". */}
+        {walks && (
+          <div className="flex items-baseline justify-between gap-3 pb-2">
+            <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Review content</h2>
+            <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
+              {`${count.approved} of ${count.total} approved`}
+            </span>
+          </div>
+        )}
         {/* The one real ceiling: a long sequence scrolls the tab row rather
             than wrapping it, so the panes below never shift down a line. */}
         <div className="-mx-1 overflow-x-auto px-1">
@@ -800,7 +980,14 @@ export function ReviewSurface(props: {
                     : (props.extraTabs ?? []).find(x => `extra-${x.id}` === id)?.label
                       ?? itemTabs.find(x => x.id === id)?.label
                       ?? id;
-              return <TabsTrigger key={id} value={id} data-testid={`tab-${id}`}>{label}</TabsTrigger>;
+              const item = content.find(c => `item-${c.id}` === id);
+              const checked = item !== undefined && checkedIds.has(item.id);
+              return (
+                <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} data-approved={checked ? 'true' : undefined}>
+                  {checked && <Check className="mr-1.5 inline size-3.5 align-[-2px] text-brand-pass" data-testid={`tab-check-${item.id}`} aria-label="approved" />}
+                  {label}
+                </TabsTrigger>
+              );
             })}
           </TabsList>
         </div>
