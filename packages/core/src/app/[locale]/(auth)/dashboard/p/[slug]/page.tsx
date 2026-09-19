@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
 import { LinkRow } from '@/features/dashboard/LinkRow';
+import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -19,6 +20,7 @@ import { Link } from '@/libs/I18nNavigation';
 import {
   applyFilter,
   computeStat,
+  pagePlugin,
   readWorkspacePage,
   readWorkspacePageContent,
   resolveField,
@@ -335,6 +337,9 @@ export default async function WorkspacePage(props: {
       }, new Map<string, PageRow[]>())].map(([label, rs]) => ({ label, rows: rs }))
     : [{ label: null, rows }];
 
+  // Which plugin shipped this page, if any — the panel's slug.
+  const ownedBy = pagePlugin(manifest);
+
   const fields = manifest.fields ?? [
     { key: 'title', label: 'Title', format: 'text' as const },
     { key: 'status', label: 'Status', from: 'status', format: 'badge' as const },
@@ -343,6 +348,11 @@ export default async function WorkspacePage(props: {
   return (
     <>
       <TitleBar title={manifest.title} description={manifest.description} />
+
+      {/* A page a plugin shipped carries that plugin's outcome panel — the
+          same one the Proposals and Data rooms surfaces carry, decided by
+          where the YAML came from rather than by the page's slug. */}
+      {ownedBy && <PluginPanel orgId={orgId} slug={ownedBy} />}
 
       {content && manifest.archetype === 'markdown' && (
         <article className="prose prose-sm max-w-3xl dark:prose-invert">

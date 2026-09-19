@@ -3,6 +3,7 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
+import { RelatedPages } from '@/features/dashboard/manage/RelatedPages';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -50,8 +51,9 @@ export default async function EvalsPage(props: Props) {
     <>
       <TitleBar
         title="Evals"
-        description="Test sets for your agents: a list of cases, run on demand or on a schedule, and scored by one or more graders. Cases are authored in YAML at workspace/<org>/evals/<slug>.yaml; every run and its per-case results are kept, so the trend over time is real history rather than the last measurement."
+        description="Whether an agent still does its job: cases run on demand or on a schedule, scored by graders, with every run kept as history. Authored in workspace/evals."
       />
+      <RelatedPages urls={['/dashboard/teams', '/dashboard/skills', '/dashboard/marketplace']} />
 
       <form action="/dashboard/evals" className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">

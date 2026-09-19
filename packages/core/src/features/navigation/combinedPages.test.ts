@@ -7,7 +7,7 @@ describe('combinedPage — tab deep-links', () => {
 
     expect(page.owner.url).toBe('/dashboard/teams');
     expect(page.active.url).toBe('/dashboard/agents');
-    expect(page.tabs.map(t => t.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/marketplace']);
+    expect(page.tabs.map(t => t.url)).toEqual(['/dashboard/teams', '/dashboard/agents']);
   });
 
   it('resolves the owner url to the same page with the first tab active', () => {
@@ -27,5 +27,8 @@ describe('combinedPage — tab deep-links', () => {
     expect(combinedPageTitle('/dashboard/agents')).toBe('Agents · Teams & agents');
     expect(combinedPageTitle('/dashboard/models')).toBe('Vision models · Skills & tools');
     expect(combinedPageTitle('/dashboard/evals')).toBeUndefined();
+    // The Marketplace left the tab strip: it owns no tabs and is a tab of
+    // nothing, so it titles itself (a plain metadata title on the page).
+    expect(combinedPageTitle('/dashboard/marketplace')).toBeUndefined();
   });
 });

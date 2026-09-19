@@ -222,6 +222,17 @@ export function readWorkspacePage(slug: string): LoadedPage | null {
 }
 
 /**
+ * The plugin that ships this page, or null for a page the workspace authored
+ * itself. `origin` already carries it as `plugin:<slug>`; this is the one
+ * place that string is taken apart, so a surface asking "is this a plugin
+ * page" never parses it by hand.
+ * @param page - A loaded page.
+ */
+export function pagePlugin(page: Pick<LoadedPage, 'origin'>): string | null {
+  return page.origin.startsWith('plugin:') ? page.origin.slice('plugin:'.length) : null;
+}
+
+/**
  * Markdown content for a `markdown` archetype page (or a list page's intro),
  * read beside the YAML that declared it — a plugin page's prose ships with the
  * plugin, a workspace page's with the workspace.

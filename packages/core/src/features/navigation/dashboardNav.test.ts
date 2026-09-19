@@ -65,13 +65,29 @@ describe('dashboardNav registry', () => {
     expect(sections.map(s => s.routes.map(r => r.url))).toEqual([
       ['/dashboard/teams', '/dashboard/missions', '/dashboard/workflows', '/dashboard/automation'],
       ['/dashboard/connectors', '/dashboard/objects', '/dashboard/learnings', '/dashboard/workspace'],
-      ['/dashboard/skills', '/dashboard/evals', '/dashboard/plugins'],
+      ['/dashboard/skills', '/dashboard/evals', '/dashboard/marketplace'],
       ['/dashboard/team-report', '/dashboard/activity', '/dashboard/observability', '/dashboard/autonomy', '/dashboard/adoption'],
       ['/dashboard/members', '/dashboard/developers', '/api-docs', '/dashboard/admin'],
     ]);
-    expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/marketplace']);
+    expect(tabsOf('/dashboard/teams').map(r => r.url)).toEqual(['/dashboard/teams', '/dashboard/agents']);
     expect(tabsOf('/dashboard/skills').map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/tools', '/dashboard/models']);
     expect(tabsOf('/dashboard/missions')).toEqual([]);
+  });
+
+  it('puts the Marketplace in Build, not in the Teams & agents tab strip', () => {
+    const marketplace = dashboardRoute('/dashboard/marketplace')!;
+    const build = manageNavGroups(true).find(s => s.group.id === 'Build')!;
+
+    // Chris, 2026-09-18: the roster you have and the capability you could turn
+    // on are different questions, so the catalogue left Teams & agents and the
+    // separate Plugins row folded into it.
+    expect(marketplace.group).toBe('Build');
+    expect(marketplace.tabOf).toBeUndefined();
+    expect(build.routes.map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/evals', '/dashboard/marketplace']);
+    expect(tabsOf('/dashboard/teams').map(r => r.url)).not.toContain('/dashboard/marketplace');
+    expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/plugins')).toBe(false);
+    // It absorbed the Plugins row's words, so ⌘K "turn on wiki" still lands.
+    expect(marketplace.keywords).toEqual(expect.arrayContaining(['plugin', 'plugins', 'install', 'turn on', 'wiki', 'data rooms', 'proposals']));
   });
 
   it('hides admin-only rows from members, in the sections and in the pinnable list', () => {

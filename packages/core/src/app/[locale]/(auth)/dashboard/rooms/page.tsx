@@ -2,6 +2,7 @@ import { FolderOpen } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Column, ListEmpty, ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
+import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { listDataRooms, roomAnchor, roomHref } from '@/services/DataRoomService';
 
@@ -22,6 +23,8 @@ export default async function DataRoomsPage(props: { params: Promise<{ locale: s
 
   return (
     <ListPage title="Data rooms" description="One room per entity — a deal, a project, an engagement: everything ingested about it and everything written from it, with the rules and notes that keep it growing on its own.">
+      <PluginPanel orgId={orgId} slug="data-rooms" />
+
       {rooms.length === 0
         ? <ListEmpty variant="page" icon={FolderOpen} title="No data rooms yet" description="Ask the agent to open one, or let a deal reaching Proposal stage open its own after the next CRM sync." />
         : (

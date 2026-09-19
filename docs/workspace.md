@@ -144,8 +144,8 @@ and overrides any of its files by slug, exactly as it does with the base pack:
 plugins: [wiki, data-rooms, proposals] # dependencies come along; OMIT → none
 ```
 
-Three ship today — `wiki`, `data-rooms`, `proposals` — and the **Plugins** page
-(`/dashboard/plugins`) switches them on and off by editing this list and
+Three ship today — `wiki`, `data-rooms`, `proposals` — and the **Marketplace**
+(`/dashboard/marketplace`) switches them on and off by editing this list and
 applying. Composition rules, anatomy and how to write one: [`docs/plugins.md`](./plugins.md).
 
 ## Base packs — activate + extend (`extends` / `use` / `disable`)

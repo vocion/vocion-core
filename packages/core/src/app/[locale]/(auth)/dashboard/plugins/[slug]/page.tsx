@@ -52,9 +52,9 @@ export default async function PluginDetailPage(props: { params: Promise<{ locale
   return (
     <>
       <div className="mb-4">
-        <Link href="/dashboard/plugins" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <Link href="/dashboard/marketplace" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-3" />
-          Back to Plugins
+          Back to Marketplace
         </Link>
       </div>
 

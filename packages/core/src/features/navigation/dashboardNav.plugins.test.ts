@@ -23,10 +23,13 @@ describe('plugin-owned routes', () => {
     expect(workPinnableRoutes().map(r => r.url)).toContain('/dashboard/rooms');
   });
 
-  it('Plugins is a Build row for everyone; admin gating still holds', () => {
+  it('the plugin catalogue is the Marketplace, a Build row for everyone; admin gating still holds', () => {
     const build = manageNavGroups({ isAdmin: false, enabledPlugins: [] }).find(g => g.group.id === 'Build')!;
 
-    expect(build.routes.map(r => r.url)).toContain('/dashboard/plugins');
+    // The catalogue used to be its own row beside Skills & tools and Evals; it
+    // is a section of the Marketplace now, and /dashboard/plugins 308s there.
+    expect(build.routes.map(r => r.url)).toContain('/dashboard/marketplace');
+    expect(build.routes.map(r => r.url)).not.toContain('/dashboard/plugins');
     expect(manageNavGroups(false).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).not.toContain('/dashboard/adoption');
     expect(manageNavGroups(true).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).toContain('/dashboard/adoption');
   });

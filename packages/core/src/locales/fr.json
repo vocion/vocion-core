@@ -68,14 +68,15 @@
     "members": "Membres",
     "system": "Système",
     "profile": "Profil",
-    "marketplace": "Place de marché"
+    "marketplace": "Place de marché",
+    "see_also": "Voir aussi :"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
     "meta_description": "Vocion aide les équipes à construire, gérer et développer leur entreprise avec une intelligence contextuelle."
   },
   "Teams": {
-    "title_bar_description": "Your AI workforce, by team. Every team has a lead agent and an accountable person.",
+    "title_bar_description": "Qui travaille pour vous, par équipe : l’agent responsable de chaque équipe, son effectif et la personne qui en répond. Défini dans workspace/agents et workspace/teams.",
     "workspace_lead_badge": "Workspace Lead",
     "workspace_lead_description": "Runs the whole workspace — briefs you by consulting the team leads.",
     "accountable_label": "Accountable:",
@@ -285,7 +286,9 @@
     "context_error": "Lecture impossible :"
   },
   "Marketplace": {
-    "title_bar_description": "Agents que vous n'avez pas encore recrutés. Chacun fonctionne dès le premier jour à partir de fichiers que vous importez — connectez un système plus tard pour l'enrichir.",
+    "title_bar_description": "Ce que cet espace de travail peut activer : des plugins qui regroupent agents, compétences, pages et mesures, et des agents que vous n'avez pas encore recrutés. Chaque agent fonctionne dès le premier jour à partir de fichiers que vous importez — connectez un système plus tard pour l'enrichir. Livrés dans templates/plugins et templates/catalog ; activer un plugin écrit une ligne dans workspace.yaml.",
+    "plugins_heading": "Plugins",
+    "agents_heading": "Agents à recruter",
     "view_profile": "Voir le profil",
     "skill_count": "{count, plural, one {# compétence} other {# compétences}}",
     "empty_title": "Tout votre catalogue est en service",

@@ -68,14 +68,15 @@
     "members": "Members",
     "system": "System",
     "profile": "Profile",
-    "marketplace": "Marketplace"
+    "marketplace": "Marketplace",
+    "see_also": "See also:"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",
     "meta_description": "Vocion helps teams build, manage, and scale their business with contextual intelligence."
   },
   "Teams": {
-    "title_bar_description": "Your AI workforce, by team. Every team has a lead agent and an accountable person.",
+    "title_bar_description": "Who works for you, by team: each team’s lead agent, its roster and the one person accountable for it. Authored in workspace/agents and workspace/teams.",
     "workspace_lead_badge": "Workspace Lead",
     "workspace_lead_description": "Runs the whole workspace — briefs you by consulting the team leads.",
     "accountable_label": "Accountable:",
@@ -285,7 +286,9 @@
     "context_error": "Could not read:"
   },
   "Marketplace": {
-    "title_bar_description": "Agents you have not hired yet. Every one works from uploads on day one — connect a system later to deepen it.",
+    "title_bar_description": "What this workspace can turn on: plugins that bundle agents, skills, pages and measures, and agents you have not hired yet. Every agent works from uploads on day one — connect a system later to deepen it. Shipped in templates/plugins and templates/catalog; turning a plugin on writes one line in workspace.yaml.",
+    "plugins_heading": "Plugins",
+    "agents_heading": "Agents for hire",
     "view_profile": "View profile",
     "skill_count": "{count, plural, one {# skill} other {# skills}}",
     "empty_title": "Your whole catalog is working",

@@ -2,7 +2,6 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   BarChart3,
-  Blocks,
   BookOpen,
   CalendarClock,
   CheckSquare,
@@ -130,7 +129,6 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
   { url: '/dashboard/teams', title: 'Teams & agents', tabTitle: 'Teams', tabI18nKey: 'teams', group: 'Team', icon: Network, i18nKey: 'teams_agents', keywords: ['org chart', 'roster', 'teams'] },
   { url: '/dashboard/agents', title: 'Agents', group: 'Team', icon: Users, i18nKey: 'agents', tabOf: '/dashboard/teams', keywords: ['roster', 'leads', 'specialists'] },
-  { url: '/dashboard/marketplace', title: 'Marketplace', group: 'Team', icon: Store, i18nKey: 'marketplace', tabOf: '/dashboard/teams', keywords: ['catalog', 'hire', 'install', 'inactive agents'] },
   { url: '/dashboard/missions', title: 'Missions', group: 'Team', icon: Compass, i18nKey: 'missions', keywords: ['goals', 'objectives'] },
   { url: '/dashboard/workflows', title: 'Workflows', group: 'Team', icon: GitBranch, i18nKey: 'workflows' },
   { url: '/dashboard/automation', title: 'Automations', group: 'Team', icon: CalendarClock, i18nKey: 'automations', keywords: ['schedules', 'cron', 'triggers', 'automation'] },
@@ -151,10 +149,13 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench, i18nKey: 'tools', tabOf: '/dashboard/skills', keywords: ['capabilities', 'web search', 'keys'] },
   { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu, i18nKey: 'vision_models', tabOf: '/dashboard/skills', keywords: ['rekognition', 'classifier', 'analyze'] },
   { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', keywords: ['tests', 'datasets'] },
-  // The plugin catalogue: what this core can turn on for the workspace — wiki,
-  // data rooms, proposals — each with what it adds and an on/off switch that
-  // edits workspace.yaml and applies. Under Build because it is capability.
-  { url: '/dashboard/plugins', title: 'Plugins', group: 'Build', icon: Blocks, keywords: ['plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
+  // Everything this workspace could turn on, in one place: the plugins this
+  // core ships (wiki, data rooms, proposals) and the catalog agents nobody has
+  // hired yet. Under Build beside Skills & tools and Evals because both are
+  // capability — it stopped being a tab of Teams & agents, which is the roster
+  // you already have (Chris, 2026-09-18: "Marketplace probably belongs outside
+  // of Teams & Agents… should combine Plugins and Agents available for hire").
+  { url: '/dashboard/marketplace', title: 'Marketplace', group: 'Build', icon: Store, i18nKey: 'marketplace', keywords: ['catalog', 'hire', 'inactive agents', 'plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
 
   // ── MANAGE · Insights — how it is going ─────────────────────────────────
   { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },

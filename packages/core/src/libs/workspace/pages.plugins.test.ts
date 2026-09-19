@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PageManifestSchema, readWorkspacePageContent, readWorkspacePages } from './pages';
+import { PageManifestSchema, pagePlugin, readWorkspacePageContent, readWorkspacePages } from './pages';
 
 // Plugin pages ride the same loader as workspace pages: an enabled plugin's
 // pages/ dir joins the list, a same-slug workspace page wins, and prose is
@@ -69,6 +69,16 @@ describe('plugin pages', () => {
     workspace('');
 
     expect(readWorkspacePages().pages.map(p => p.slug)).not.toContain('wiki');
+  });
+
+  it('names the plugin that shipped a page, and null for one the workspace wrote', () => {
+    workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
+    const { pages } = readWorkspacePages();
+
+    // The panel a plugin page carries is decided by where the YAML came from,
+    // never by the page's slug — so this is the one place `origin` is parsed.
+    expect(pagePlugin(pages.find(p => p.slug === 'wiki')!)).toBe('wiki');
+    expect(pagePlugin(pages.find(p => p.slug === 'ours')!)).toBeNull();
   });
 
   it('the artifacts source validates its narrowing', () => {

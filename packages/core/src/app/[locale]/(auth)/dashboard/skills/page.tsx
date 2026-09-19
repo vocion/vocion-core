@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
+import { RelatedPages } from '@/features/dashboard/manage/RelatedPages';
 import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
@@ -132,8 +133,9 @@ export default async function SkillsPage(props: { params: Promise<{ locale: stri
     <>
       <CombinedPageHeader
         active="/dashboard/skills"
-        description="What the team knows how to do. A skill mounts for the agents that name it and is read when the model judges it relevant; a playbook is context attached to a skill or an agent by name. Base rows ship with the platform; the workspace can override any of them by slug."
+        description="What the team knows how to do: a skill mounts for the agents that name it and is read when the model judges it relevant, a playbook is context attached to a skill or an agent. Authored in workspace/skills and workspace/playbooks — a base row ships with the platform and is overridden by slug."
       />
+      <RelatedPages urls={['/dashboard/teams', '/dashboard/evals', '/dashboard/marketplace']} />
 
       {rows.length === 0
         ? (
