@@ -34,6 +34,7 @@ const KNOWN: Record<string, StepLabels> = {
   edit_document: { running: 'Editing the document…', done: 'Edited the document' },
   read_document: { running: 'Reading the document…', done: 'Read the document' },
   verify_document: { running: 'Verifying the document…', done: 'Verified the document' },
+  red_team_document: { running: 'Reading it as the buyer…', done: 'Read it as the buyer' },
   export_document_pdf: { running: 'Exporting the PDF…', done: 'Exported the PDF' },
   render_table: { running: 'Building the table…', done: 'Built the table' },
   render_chart: { running: 'Drawing the chart…', done: 'Drew the chart' },
