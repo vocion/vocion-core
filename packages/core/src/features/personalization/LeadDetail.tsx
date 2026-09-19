@@ -312,7 +312,13 @@ export const LeadView = (props: {
           />
         )}
       >
-        {lead.recommendedSequence?.reason && <p className="mb-3 max-w-3xl text-sm leading-relaxed text-foreground/80">{lead.recommendedSequence.reason}</p>}
+        {/* Why this sequence is the run's rationale, and the shell already
+            carries it under Why. It only reads here when there is no run to
+            carry it — a lead already decided, or one whose sends were never
+            proposed. */}
+        {lead.recommendedSequence?.reason && !run?.proposal?.rationale && (
+          <p className="mb-3 max-w-3xl text-sm leading-relaxed text-foreground/80">{lead.recommendedSequence.reason}</p>
+        )}
 
         {/* The sends themselves are one tab each, from the run. This is what
             is left: the whole-sequence rewrite, and the read-only draft for a

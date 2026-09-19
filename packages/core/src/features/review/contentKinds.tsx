@@ -199,7 +199,7 @@ function DocumentContent({ item }: ContentRenderProps) {
           href={item.href}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-muted"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs underline decoration-border underline-offset-4 transition hover:bg-surface-hover hover:decoration-foreground"
         >
           Open side by side
           <ExternalLink className="size-3" aria-hidden />
@@ -211,7 +211,7 @@ function DocumentContent({ item }: ContentRenderProps) {
           src={item.previewHref}
           title={item.label}
           loading="lazy"
-          className="mt-3 h-80 w-full rounded-md border border-border bg-background"
+          className="mt-3 h-80 w-full rounded-md bg-background"
         />
       )}
     </div>
@@ -224,7 +224,9 @@ function ImageContent({ item }: ContentRenderProps) {
   }
   return (
     <div className="py-3">
-      <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border bg-muted/30">
+      {/* No frame: the page has one surface and this is not it. The rounded
+          clip and the soft ground are enough to say "image". */}
+      <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md bg-muted/30">
         <img src={item.url} alt={item.label} loading="lazy" className="max-h-[420px] w-full object-contain" />
       </a>
       {item.caption && <p className="mt-2 text-sm break-words text-foreground/85">{item.caption}</p>}

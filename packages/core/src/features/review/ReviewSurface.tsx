@@ -531,7 +531,13 @@ export function ReviewSurface(props: {
 
   const agent = run.invokedBy?.replace('agent:', '');
   const alignmentRate = run.alignment && run.alignment.n > 0 ? run.alignment.agreementRate : null;
-  const summaryDiffers = card.summary !== undefined && card.summary !== run.proposal?.rationale;
+  // Said once. Most presenters build the recommendation's detail and the
+  // summary out of the same sentence the run already carries as its
+  // rationale, and three copies of one paragraph under one tab reads as three
+  // different arguments that happen to agree.
+  const rationale = run.proposal?.rationale;
+  const detail = card.recommendation?.detail !== rationale ? card.recommendation?.detail : undefined;
+  const summary = card.summary !== rationale && card.summary !== detail ? card.summary : undefined;
   // A read-only field that is also an editable property is shown once — in the
   // Changes pane — so "industry" does not read twice.
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
@@ -545,8 +551,12 @@ export function ReviewSurface(props: {
             {propertyKeys.map(k => (
               <label key={k} className="flex gap-4 text-sm">
                 <span className="w-32 shrink-0 pt-1.5 text-[12px] text-muted-foreground">{k}</span>
+                {/* Grows to what it holds. A fixed height with a resize grip
+                    leaves a drag handle sitting in empty space on a one-line
+                    value, which is chrome saying "form field" on a surface
+                    meant to read as a record. */}
                 {k === 'notes' || k === 'body'
-                  ? <textarea className={cn(INLINE_FIELD, 'min-h-28 resize-y leading-relaxed')} value={propertyValue(k)} onChange={ev => d.editProperty(k, ev.target.value)} disabled={d.held} aria-label={k} />
+                  ? <textarea rows={1} className={cn(INLINE_FIELD, 'resize-none overflow-hidden leading-relaxed [field-sizing:content]')} value={propertyValue(k)} onChange={ev => d.editProperty(k, ev.target.value)} disabled={d.held} aria-label={k} />
                   : <input className={INLINE_FIELD} value={propertyValue(k)} onChange={ev => d.editProperty(k, ev.target.value)} disabled={d.held} aria-label={k} />}
               </label>
             ))}
@@ -557,9 +567,9 @@ export function ReviewSurface(props: {
     if (id === 'why') {
       return (
         <div data-testid="why-pane">
-          {run.proposal?.rationale && (
-            <Section eyebrow="Why">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{run.proposal.rationale}</p>
+          {rationale && (
+            <Section eyebrow="The reasoning">
+              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{rationale}</p>
             </Section>
           )}
           {/* Not folded into "Why" above: that one is the case for the payload,
@@ -572,17 +582,17 @@ export function ReviewSurface(props: {
               <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{run.proposal.suggestedDecisionReason}</p>
             </Section>
           )}
-          {card.recommendation?.detail && (
+          {detail && (
             <Section eyebrow="The recommendation">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{card.recommendation.detail}</p>
+              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{detail}</p>
             </Section>
           )}
-          {summaryDiffers && (
+          {summary && (
             <Section eyebrow="Summary">
-              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{card.summary}</p>
+              <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{summary}</p>
             </Section>
           )}
-          {!run.proposal?.rationale && !(run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason) && !card.recommendation?.detail && !summaryDiffers && (
+          {!rationale && !(run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason) && !detail && !summary && (
             <Section eyebrow="Why"><p className="text-muted-foreground">No rationale recorded for this proposal.</p></Section>
           )}
         </div>
