@@ -96,7 +96,7 @@ export function ReviewFocus(props: {
     }
   }, [run.id]);
 
-  const signal = (s: 'skip' | 'save') => {
+  const signal = (s: 'skip') => {
     void client.review.recordSignal({ runId: run.id, signal: s }).catch(() => {});
   };
 
@@ -115,13 +115,6 @@ export function ReviewFocus(props: {
     signal('skip');
     setSkipped(s => [...s, run.id]);
     goTo(next.id);
-  };
-
-  const onSave = () => {
-    signal('save');
-    setDecided(d => d + 1);
-    toast.info(`Saved for later · ${describeAction(run).title}`, { description: 'Still pending; it stays on the review queue.' });
-    leave();
   };
 
   const buildEditedInput = (): Record<string, unknown> | undefined => {
@@ -260,7 +253,6 @@ export function ReviewFocus(props: {
       canBack={Boolean(prev)}
       onBack={onBack}
       onSkip={onSkip}
-      onSave={onSave}
       onCardDecided={onCardDecided}
       onCardRegenerated={() => router.refresh()}
       edited={edited}

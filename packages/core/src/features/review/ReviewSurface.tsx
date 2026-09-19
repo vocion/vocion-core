@@ -329,6 +329,8 @@ export function ReviewSurface(props: {
   'meta'?: ReadonlyArray<{ label: string; value: ReactNode }>;
   /** Tabs this surface owns — the lead page's Brief, for instance. */
   'extraTabs'?: readonly ReviewExtraTab[];
+  /** What the surface says between the header and the tabs — a shortcuts hint. */
+  'beforeTabs'?: ReactNode;
   /** Hold the primary: the consequence cannot be determined, and why. */
   'hold'?: { reason: string } | null;
   /** False when there is nothing pending to decide — the screen reads, no bar. */
@@ -484,7 +486,19 @@ export function ReviewSurface(props: {
   });
 
   const title = props.title ?? card.object?.title ?? card.subject?.name ?? card.title;
-  const subtitle = props.subtitle ?? card.object?.subtitle ?? [card.subject?.role, card.subject?.company].filter(Boolean).join(' · ');
+  const subline = props.subtitle ?? card.object?.subtitle ?? [card.subject?.role, card.subject?.company].filter(Boolean).join(' · ');
+  const subtitle = (subline || card.subject?.href)
+    ? (
+        <>
+          {subline}
+          {card.subject?.href && (
+            <a href={card.subject.href} target="_blank" rel="noreferrer" className={cn('underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground', subline && 'ml-2')}>
+              {`Open ${card.subject.name} ↗`}
+            </a>
+          )}
+        </>
+      )
+    : undefined;
 
   const metaCells = [
     ...(props.meta ?? []),
@@ -527,7 +541,9 @@ export function ReviewSurface(props: {
           {/* Not folded into "Why" above: that one is the case for the payload,
               this is the case for the recommendation, and on a card the agent
               wants turned down they are different arguments. */}
-          {run.proposal?.suggestedDecisionReason && (
+          {/* An orphan reason renders nothing: a sentence arguing for an
+              outcome, with no outcome named, tells a reviewer nothing. */}
+          {run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason && (
             <Section eyebrow="Why it suggests that" data-testid="suggested-decision-reason">
               <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{run.proposal.suggestedDecisionReason}</p>
             </Section>
@@ -542,7 +558,7 @@ export function ReviewSurface(props: {
               <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{card.summary}</p>
             </Section>
           )}
-          {!run.proposal?.rationale && !run.proposal?.suggestedDecisionReason && !card.recommendation?.detail && !summaryDiffers && (
+          {!run.proposal?.rationale && !(run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason) && !card.recommendation?.detail && !summaryDiffers && (
             <Section eyebrow="Why"><p className="text-muted-foreground">No rationale recorded for this proposal.</p></Section>
           )}
         </div>
@@ -623,7 +639,6 @@ export function ReviewSurface(props: {
         onRegenerate={instruction => void regenerate(instruction)}
       >
         <Renderer
-          pane
           item={item}
           edit={d.contentEdits[item.id]}
           onEdit={editable ? patch => d.editContent(item.id, patch) : undefined}
@@ -644,7 +659,7 @@ export function ReviewSurface(props: {
       className="min-h-svh"
       crumbs={props.crumbs}
       title={title}
-      subtitle={subtitle || undefined}
+      subtitle={subtitle}
       actions={(
         <>
           {props.position && <span className="tabular-nums" data-testid="queue-position">{props.position}</span>}
@@ -700,6 +715,8 @@ export function ReviewSurface(props: {
           )
         : undefined}
     >
+      {props.beforeTabs}
+
       {(d.regenerating || d.regenStale || d.execError || props.hold) && (
         <div className="flex flex-col gap-2 py-4">
           {d.regenerating && (

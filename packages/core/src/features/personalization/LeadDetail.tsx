@@ -488,10 +488,10 @@ export const LeadView = (props: {
                   <Accordion
                     open={openSends}
                     onToggle={(id, on) => setOpenSends(o => (on ? [...o, id] : o.filter(x => x !== id)))}
-                    items={cardContent.map((item, i) => {
+                    items={cardContent.map((item) => {
                       if (item.kind !== 'email') {
                         const Renderer = contentKindRenderer(item.kind);
-                        return { id: item.id, label: item.label, title: item.id, children: <Renderer item={item} position={i + 1} disabled={d.held} /> };
+                        return { id: item.id, label: item.label, title: item.id, children: <Renderer item={item} disabled={d.held} /> };
                       }
                       const edit = d.contentEdits[item.id];
                       const subject = edit?.subject ?? item.subject ?? '';

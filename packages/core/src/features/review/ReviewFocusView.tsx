@@ -4,7 +4,7 @@ import type { ReviewType } from './reviewQueueModel';
 import type { ReviewShortcut } from './reviewShortcuts';
 import type { UpNextEntry } from './UpNextMenu';
 import type { ReviewCard } from '@/libs/actions/types';
-import { AlarmClock, Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Check, Loader2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
@@ -13,10 +13,10 @@ import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { describeAction } from './describeAction';
-import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
 import { SHORTCUTS } from './reviewShortcuts';
+import { ReviewSurface } from './ReviewSurface';
 import { TypeChips } from './TypeChips';
 import { UpNextMenu } from './UpNextMenu';
 
@@ -26,12 +26,12 @@ import { UpNextMenu } from './UpNextMenu';
  * story and the container (`features/dashboard/ReviewFocus.tsx`) stays about
  * data.
  *
- * Shape (Chris, 2026-09-15): breadcrumb + item title, one meta row, then the
- * item as hairline-divided sections with the decision in a sticky bar. No
- * outer card, no persistent Up-next rail. Since the two decision surfaces
- * became one, this is the `proposal` kind's detail on "Review queue": the
- * crumbs say so, the Up-next walks the filtered inbox, and the kind chips are
- * the list's job (pass `types` only where a standalone queue wants them).
+ * A proposal that carries a card IS `ReviewSurface` — crumbs, name, role and
+ * company, position, then the content as tabs with the decision in a sticky
+ * bar. This file is what sits around it: the queue's own controls (Back, Up
+ * next, the shortcut hint), the empty state, and the fallback for a run with
+ * no presenter behind it. The kind chips are the list's job (pass `types` only
+ * where a standalone queue wants them).
  */
 
 export type ActionRun = {
@@ -75,7 +75,6 @@ export type ReviewFocusViewProps = {
   canBack: boolean;
   onBack: () => void;
   onSkip: () => void;
-  onSave: () => void;
   onCardDecided: (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => void;
   onCardRegenerated: () => void;
   /** Generic (presenter-less) items: the editable working copy and the steer field. */
@@ -164,18 +163,72 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   const longField = desc.isEmail ? 'body' : 'notes';
   const held = p.busy || p.steering;
 
+  const backAndNext = (
+    <>
+      <button
+        type="button"
+        onClick={p.onBack}
+        disabled={!p.canBack}
+        className="rounded-md px-1.5 py-1 transition enabled:hover:bg-surface-hover enabled:hover:text-foreground disabled:opacity-40"
+      >
+        {`‹ ${t('back')}`}
+      </button>
+      <UpNextMenu next={p.upNext} remaining={Math.max(p.total - 1, p.upNext.length)} onSkipTo={p.onSkipTo} onLoadMore={p.onLoadMore} />
+      <button
+        type="button"
+        onClick={p.onToggleHelp}
+        aria-expanded={p.showHelp}
+        className="hidden items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground sm:inline-flex"
+        title="Keyboard shortcuts"
+      >
+        <kbd className="rounded border border-border px-1 font-mono">?</kbd>
+        {t('shortcuts')}
+      </button>
+    </>
+  );
+  const help = p.showHelp && (
+    <ul className="hidden flex-wrap gap-x-5 gap-y-1 border-b border-rule py-2 text-[12px] text-muted-foreground sm:flex" data-testid="shortcuts-hint">
+      {SHORTCUTS.filter(s => s.action !== 'help').map(s => (
+        <li key={s.key} className="inline-flex items-center gap-1.5">
+          <kbd className="rounded border border-border px-1 font-mono">{s.key}</kbd>
+          {shortcutLabel[s.action as Exclude<ReviewShortcut, 'help'>]}
+        </li>
+      ))}
+    </ul>
+  );
+
+  // A proposal with a presenter behind it IS the flat template — one shell,
+  // whatever the object type, and the same shell the lead page mounts.
+  if (current.card) {
+    return (
+      <div data-testid="review-focus" className="relative">
+        {chips}
+        <ReviewSurface
+          run={{ ...current, card: current.card }}
+          crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
+          title={title}
+          subtitle={object?.subtitle}
+          position={queuePosition(p.index, p.total)}
+          actions={backAndNext}
+          beforeTabs={help}
+          onDecided={p.onCardDecided}
+          onRegenerated={p.onCardRegenerated}
+        />
+      </div>
+    );
+  }
+
   return (
     <div data-testid="review-focus" className="relative">
       <ReviewHeader
         crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
         title={title}
         subtitle={object?.subtitle}
-        subject={current.card?.subject}
-        system={current.card?.system ?? desc.system}
+        system={desc.system}
         status={current.status}
         proposedBy={current.invokedBy}
         confidence={current.proposal?.confidence}
-        confidenceSubject={current.card?.confidenceSubject ?? 'Recommendation'}
+        confidenceSubject="Recommendation"
         alignment={current.alignment}
         suggestion={current.proposal?.suggestedDecision}
         position={queuePosition(p.index, p.total)}
@@ -195,24 +248,11 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </button>
         )}
       />
-      {p.showHelp && (
-        <ul className="hidden flex-wrap gap-x-5 gap-y-1 border-b border-rule py-2 text-[12px] text-muted-foreground sm:flex" data-testid="shortcuts-hint">
-          {SHORTCUTS.filter(s => s.action !== 'help').map(s => (
-            <li key={s.key} className="inline-flex items-center gap-1.5">
-              <kbd className="rounded border border-border px-1 font-mono">{s.key}</kbd>
-              {shortcutLabel[s.action as Exclude<ReviewShortcut, 'help'>]}
-            </li>
-          ))}
-        </ul>
-      )}
+      {help}
       {chips}
 
       <div className="mt-2">
-        {current.card && (
-          <ReviewActionCard run={{ ...current, card: current.card }} presentation="page" onDecided={p.onCardDecided} onRegenerated={p.onCardRegenerated} />
-        )}
-
-        {!current.card && (
+        {(
           <div data-testid="review-generic">
             {current.proposal?.rationale && (
               <section className="border-b border-rule py-6">
@@ -281,8 +321,6 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
               secondary={[
                 { 'label': verb('reject').label, 'onClick': () => p.onDecide('reject'), 'disabled': held, 'icon': X, 'shortcut': verb('reject').shortcut, 'tone': 'danger', 'data-testid': 'decide-reject' },
                 { 'label': verb('snooze').label, 'onClick': p.onToggleSnooze, 'disabled': held, 'icon': AlarmClock, 'shortcut': verb('snooze').shortcut, 'data-testid': 'decide-snooze' },
-                { label: verb('save').label, onClick: p.onSave, disabled: held, icon: Bookmark },
-                { label: verb('skip').label, onClick: p.onSkip, disabled: held, icon: SkipForward, shortcut: verb('skip').shortcut },
               ]}
               aside={p.snoozeOpen && (
                 <div className="flex gap-1" role="group" aria-label="Snooze until">
