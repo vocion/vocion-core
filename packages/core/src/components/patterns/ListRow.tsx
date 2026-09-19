@@ -172,6 +172,14 @@ export type ListRowProps = {
   'chip'?: ReactNode;
   /** Appear on hover and focus-within; always visible on touch. */
   'actions'?: ReactNode;
+  /**
+   * Keep `actions` visible on every device. For a row whose verb is the
+   * POINT of the row rather than a shortcut on it — a Proposals row with
+   * nothing drafted, where Draft is the only thing to do — and never as a
+   * per-row preference: a list decides this by state, and the state is
+   * visible beside it (`/gtm/proposals`, 2026-09-19).
+   */
+  'actionsAlways'?: boolean;
   /** Trailing chevron for navigational rows. Default: on when `href` is set. */
   'chevron'?: boolean;
   'className'?: string;
@@ -221,7 +229,10 @@ export function ListRow(props: ListRowProps) {
   const actions = props.actions && (
     <span
       data-slot="row-actions"
-      className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+      className={cn(
+        'flex shrink-0 items-center gap-1 opacity-100 transition-opacity',
+        !props.actionsAlways && 'sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100',
+      )}
     >
       {props.actions}
     </span>

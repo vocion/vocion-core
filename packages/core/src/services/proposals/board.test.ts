@@ -1,7 +1,7 @@
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { DataRoom } from '@/services/DataRoomService';
 import { describe, expect, it } from 'vitest';
-import { latestDocument, proposalRows, proposalStage, unanchoredDeliverables } from './board';
+import { latestDocument, proposalRows, proposalRowView, proposalStage, unanchoredDeliverables } from './board';
 
 const room = (id: number, meta: DataRoom['meta'], status: string | null = 'active', updatedAt: Date | null = null): DataRoom =>
   ({ id, title: `Room ${id}`, status, meta, createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt });
@@ -82,5 +82,83 @@ describe('unanchoredDeliverables', () => {
 
     expect([...unanchoredDeliverables([room], anchored).entries()]).toEqual([[250, 22]]);
     expect(unanchoredDeliverables([room], new Map([[22, [{ id: 250 } as ArtifactRow, { id: 251 } as ArtifactRow]]])).size).toBe(0);
+  });
+});
+
+describe('proposalRowView — the whole matrix, one glance each', () => {
+  const NOW = Date.parse('2026-09-19T12:00:00Z');
+  const MOVED = new Date('2026-09-15T12:00:00Z');
+  const verification = (ok: boolean, n = 7) => ({ ok, sheets: Array.from({ length: n }), issues: ok ? [] : ['footer moved on sheet 3', 'sheet 5 overflows'] });
+  const read = (blocks: number, fixes: number) => ({ at: '2026-09-19T10:00:00.000Z', version: 2, model: 'test-model', sheets: 7, blocks, fixes, considers: 0, findings: [] });
+
+  const VERIFY = {
+    unverified: { spec: {}, label: 'Not verified', tone: 'neutral' },
+    verified: { spec: { verification: verification(true) }, label: 'Verified', tone: 'pass' },
+    issues: { spec: { verification: verification(false) }, label: '2 issues', tone: 'amber' },
+  } as const;
+  const RED = {
+    'not read': { spec: {}, label: 'Not read', tone: 'neutral' },
+    'read clean': { spec: { redTeam: read(0, 0) }, label: 'Read · clean', tone: 'pass' },
+    'blocks': { spec: { redTeam: read(2, 0) }, label: 'Read · 2 blocking', tone: 'fail' },
+  } as const;
+
+  const rowFor = (stage: string, verify: keyof typeof VERIFY, red: keyof typeof RED) => {
+    const a = doc(40, { title: 'Northwind — Proposal', updatedAt: MOVED, currentVersion: 3, spec: { ...VERIFY[verify].spec, ...RED[red].spec } });
+    const r = room(1, { client: 'Northwind Logistics', stage, statusAt: '2026-09-16' });
+    return proposalRows([r], new Map([[1, [a]]]), new Map([[1, 2]]))[0]!;
+  };
+
+  it('leads with the DOCUMENT, and says its verify verdict and its buyer read in every combination', () => {
+    for (const stage of ['Proposal', 'Proposal sent'] as const) {
+      for (const verify of ['unverified', 'verified', 'issues'] as const) {
+        for (const red of ['not read', 'read clean', 'blocks'] as const) {
+          const v = proposalRowView(rowFor(stage, verify, red), NOW);
+
+          expect(v.subject).toBe('document');
+          expect(v.title).toBe('Northwind — Proposal');
+          expect(v.verify).toEqual({ label: VERIFY[verify].label, tone: VERIFY[verify].tone });
+          expect(v.redTeam).toEqual({ label: RED[red].label, tone: RED[red].tone });
+          expect(v.state.label).toBe(stage === 'Proposal sent' ? 'Sent' : 'Drafted');
+          expect(v.age).toBe('4 days ago');
+          // The room is the context, not the headline.
+          expect(v.subline).toContain('Room 1');
+          expect(v.subline).toContain('v3');
+          expect(v.subline).toContain('status 2026-09-16');
+          expect(v.openItems).toBe(2);
+        }
+      }
+    }
+  });
+
+  it('a row with nothing drafted reads differently: the engagement leads, the state says so, every column is empty', () => {
+    const r = proposalRows([room(9, { client: 'Kestrel Capital', stage: 'Proposal', statusAt: '2026-09-17' })], new Map(), new Map())[0]!;
+
+    const v = proposalRowView(r, NOW);
+
+    expect(v).toMatchObject({
+      subject: 'none',
+      title: 'Room 9',
+      state: { label: 'Nothing drafted', tone: 'amber' },
+      verify: null,
+      redTeam: null,
+      age: '3 days ago',
+      openItems: 0,
+    });
+    expect(v.subline).toEqual(['Kestrel Capital', 'Proposal', 'at this stage since 2026-09-17']);
+  });
+
+  it('the room\'s deliverables say whether it went out; a room at Proposal stage never downgrades a sent document', () => {
+    const a = doc(50, { title: 'Proposal', updatedAt: MOVED, spec: { verification: verification(true) } });
+    const sent = room(2, { client: 'Contoso Supply', stage: 'Proposal', statusAt: '2026-09-16', deliverables: [{ title: 'Proposal — v2.0 (4-month scope)', artifactId: 50, status: 'sent', date: '2026-09-18' }] });
+    const signed = room(3, { client: 'Contoso Supply', stage: 'Proposal', statusAt: '2026-09-16', deliverables: [{ title: 'Proposal', artifactId: 50, status: 'signed' }] });
+
+    expect(proposalRowView(proposalRows([sent], new Map([[2, [a]]]), new Map())[0]!, NOW).state).toEqual({ label: 'Sent', tone: 'pass' });
+    expect(proposalRowView(proposalRows([signed], new Map([[3, [a]]]), new Map())[0]!, NOW).state).toEqual({ label: 'Signed', tone: 'pass' });
+  });
+
+  it('dates what it says: the sheet count and the status date are on the row, not only in a tooltip', () => {
+    const v = proposalRowView(rowFor('Proposal', 'verified', 'read clean'), NOW);
+
+    expect(v.subline).toEqual(['Northwind Logistics', 'Room 1', 'v3', '7 sheets', 'status 2026-09-16']);
   });
 });

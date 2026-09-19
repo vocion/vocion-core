@@ -168,6 +168,94 @@ export function roomAnchor(meta: RoomMeta): RoomAnchor | null {
   return null;
 }
 
+/** Where a document stands. `planned` belongs to a promise, never to a file that exists. */
+export type DocumentState = 'drafted' | 'sent' | 'signed';
+
+/** One document the room produced, carrying the commitment it fulfils. */
+export type RoomDocument = {
+  artifact: ArtifactRow;
+  /** The `deliverables` line this artifact fulfils, when the room wrote one. */
+  deliverable: RoomDeliverable | null;
+  /** The deliverable's word when there is one; a file that exists is at least `drafted`. */
+  state: DocumentState;
+  /** The date the room put on the commitment. Only ever what the room wrote. */
+  date?: string;
+};
+
+export type RoomDeliverablesSplit = {
+  /** Every document and file on the room, each with its commitment merged in. */
+  documents: RoomDocument[];
+  /** Commitments with no artifact to point at — promised, nobody has produced them. */
+  promised: RoomDeliverable[];
+};
+
+/**
+ * Deliverables and documents, collapsed to one truth: **the artifact**.
+ *
+ * Chris, 2026-09-19, on a room showing both: *"the data room has draft doc
+ * (which we already have?)"*. The room listed `… proposal v2.0 (…) — drafted`
+ * under DELIVERABLES and the same artifact again under DOCUMENTS, because
+ * `update_data_room` writes a deliverable line AND anchors the artifact it
+ * names (see `updateDataRoom`). Two surfaces stating one fact is the defect
+ * principle 6 names.
+ *
+ * So the artifact wins: a deliverable that names one is absorbed into that
+ * document's row, where it contributes the only two things the artifact does
+ * not carry — the promised date and the commercial state (`sent`, `signed`).
+ * What is left over is a commitment nobody has produced, and reads as exactly
+ * that. Nothing is dropped from the room's data; a line whose artifact is not
+ * on this room (it moved, or was deleted) stays visible under `promised`.
+ * @param artifacts - Every artifact anchored to the room.
+ * @param deliverables - `meta.deliverables`, newest first.
+ */
+export function roomDeliverables(artifacts: readonly ArtifactRow[], deliverables: readonly RoomDeliverable[] = []): RoomDeliverablesSplit {
+  const docs = artifacts.filter(a => a.kind === 'document' || a.kind === 'file');
+  const byArtifact = new Map<number, RoomDeliverable>();
+  for (const d of deliverables) {
+    // Newest first, so the first line naming an artifact is the current one;
+    // an older duplicate of the same artifact is the same fact said twice.
+    if (d.artifactId !== undefined && docs.some(a => a.id === d.artifactId) && !byArtifact.has(d.artifactId)) {
+      byArtifact.set(d.artifactId, d);
+    }
+  }
+  const documents = docs.map<RoomDocument>((artifact) => {
+    const d = byArtifact.get(artifact.id) ?? null;
+    const said = d?.status;
+    return {
+      artifact,
+      deliverable: d,
+      state: said === 'sent' || said === 'signed' ? said : 'drafted',
+      ...(d?.date ? { date: d.date } : {}),
+    };
+  });
+  // Every line naming a document on this room is absorbed, not just the one
+  // that won: an older line for the same artifact is the duplicate, and
+  // re-listing it as a promise would say the produced thing is unproduced.
+  const produced = new Set(docs.map(a => a.id));
+  return { documents, promised: deliverables.filter(d => d.artifactId === undefined || !produced.has(d.artifactId)) };
+}
+
+/**
+ * Which existing deliverable a new one REPLACES, or -1 for a new line.
+ *
+ * The artifact identifies the deliverable, not its prose: re-rendering the
+ * same document as "… v2.0 (CV model + iPad checklist, 4-month scope)" used to
+ * add a second line beside "… v1.0" for the one thing, which is the duplicate
+ * Chris found on 2026-09-19. A title match stays for a promise made before any
+ * artifact existed — that is how "Proposal — planned" becomes the document's
+ * own line the moment one is rendered under the same name.
+ * @param list - The room's deliverables.
+ * @param incoming - The deliverable being written.
+ */
+export function deliverableIndex(list: readonly RoomDeliverable[], incoming: RoomDeliverable): number {
+  const sameTitle = (d: RoomDeliverable) => d.title.trim().toLowerCase() === incoming.title.trim().toLowerCase();
+  if (incoming.artifactId === undefined) {
+    return list.findIndex(sameTitle);
+  }
+  const byArtifact = list.findIndex(d => d.artifactId === incoming.artifactId);
+  return byArtifact === -1 ? list.findIndex(d => d.artifactId === undefined && sameTitle(d)) : byArtifact;
+}
+
 /**
  * Whether the collector may file into this room on its own. Default yes.
  * @param room
@@ -438,7 +526,7 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
       await anchorArtifact({ orgId, id: patch.deliverable.artifactId, record: { type: 'object', id: String(id), role: 'document' } });
     }
     const list = [...(meta.deliverables ?? [])];
-    const i = list.findIndex(d => d.title.toLowerCase() === patch.deliverable!.title.toLowerCase());
+    const i = deliverableIndex(list, patch.deliverable);
     if (i === -1) {
       list.unshift(patch.deliverable);
     } else {
@@ -835,9 +923,10 @@ export function renderDataRoom(room: DataRoomDetail): string {
   if (m.notes?.trim()) {
     lines.push('## Notes', '', m.notes.trim(), '');
   }
-  if (m.deliverables?.length) {
-    lines.push('## Deliverables', '');
-    for (const d of m.deliverables) {
+  const split = roomDeliverables(room.artifacts, m.deliverables);
+  if (split.promised.length) {
+    lines.push('## Promised', '', 'Committed to, nothing produced yet. What exists is under Documents.', '');
+    for (const d of split.promised) {
       lines.push(`- ${d.date ? `**${d.date}** · ` : ''}${d.title}${d.status ? ` — ${d.status}` : ''}${d.artifactId ? ` (artifact #${d.artifactId})` : ''}`);
     }
     lines.push('');
@@ -885,12 +974,12 @@ export function renderDataRoom(room: DataRoomDetail): string {
   for (const a of logs) {
     lines.push(`## ${a.title}`, '', String((a.spec as { md?: string }).md ?? ''), '');
   }
-  const docs = room.artifacts.filter(a => a.kind === 'document' || a.kind === 'file');
-  if (docs.length) {
+  const docs = split.documents.map(d => d.artifact);
+  if (split.documents.length) {
     lines.push('## Documents', '');
-    for (const a of docs) {
+    for (const { artifact: a, state, date } of split.documents) {
       const spec = a.spec as { sheets?: number; verification?: { ok?: boolean } };
-      lines.push(`- ${a.title} · v${a.currentVersion}${a.kind === 'document' ? ` · ${spec.sheets ?? '?'} sheets${spec.verification ? (spec.verification.ok ? ' · verified' : ' · has issues') : ''}` : ''}${a.url ? ` — ${artifactHref(a.url)}` : ''}`);
+      lines.push(`- ${a.title} · v${a.currentVersion} · ${state}${date ? ` ${date}` : ''}${a.kind === 'document' ? ` · ${spec.sheets ?? '?'} sheets${spec.verification ? (spec.verification.ok ? ' · verified' : ' · has issues') : ''}` : ''}${a.url ? ` — ${artifactHref(a.url)}` : ''}`);
     }
     lines.push('');
   }
