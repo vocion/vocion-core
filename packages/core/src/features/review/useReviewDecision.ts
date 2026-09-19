@@ -170,12 +170,15 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
   /**
    * @param instruction - What the pass should do differently. Defaults to the
    * shared feedback note, for a surface with no per-item control of its own.
+   * @param contentId - Which item the instruction is about (`send-3`), so the
+   * route files the copy it is about to replace against that send rather than
+   * against the run at large. Absent on a surface with one body.
    */
-  const regenerate = async (instruction?: string) => {
+  const regenerate = async (instruction?: string, contentId?: string) => {
     setBusy(true);
     try {
       const feedback = (instruction ?? note).trim();
-      await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback }));
+      await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback, ...(contentId ? { contentId } : {}) }));
       setRegen({ since: new Date().toISOString(), note: feedback });
       onDecided?.('regenerate');
     } finally {

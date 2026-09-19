@@ -226,7 +226,10 @@ describe('one flat template, every object type', () => {
     // the label span rather than the whole node.
     const labels = [...bar.querySelectorAll('button')].map(b => (b.querySelector('span')?.textContent ?? b.textContent ?? '').trim());
 
-    expect(labels).toEqual(['Add feedback', 'Decline', 'Snooze', 'Confirm']);
+    // "Add a note", not "Add feedback": the bar's box is about the DECISION,
+    // and the box that asks for a rewrite now sits beside the copy it is
+    // about. Two boxes, named as two jobs.
+    expect(labels).toEqual(['Add a note', 'Decline', 'Snooze', 'Confirm']);
     expect(bar.textContent).not.toContain('Save for later');
     expect(bar.textContent).not.toContain('Skip');
   });
@@ -279,13 +282,66 @@ describe('one flat template, every object type', () => {
     // Not on the bar: one Regenerate there means whichever item its author had in mind.
     expect(page.getByTestId('sticky-action-bar').element().textContent).not.toContain('Regenerate');
 
-    await page.getByTestId('regenerate-send-2').click();
+    // No disclosure to open — the instruction box is the right column, and it
+    // is open, because a control that hides the copy it acts on was the
+    // defect this layout fixes.
     await page.getByRole('textbox', { name: 'Regenerate instruction for Day 3' }).fill('Soften the ask.');
-    await page.getByTestId('regenerate-send-2-submit').click();
+    await page.getByTestId('regenerate-send-2').click();
 
     await vi.waitFor(() => expect(regenerateAction).toHaveBeenCalled());
 
-    expect(regenerateAction.mock.calls[0]![0]).toMatchObject({ id: 501, feedback: 'Soften the ask.' });
+    // Keyed to the send it was typed against, so the record lands on that one.
+    expect(regenerateAction.mock.calls[0]![0]).toMatchObject({ id: 501, feedback: 'Soften the ask.', contentId: 'send-2' });
+  });
+
+  it('keeps the copy and the instruction box on screen together', async () => {
+    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+
+    await page.getByTestId('tab-item-send-2').click();
+
+    // The old layout opened the instruction UNDER the send and pushed the
+    // copy off screen — exactly when a reviewer needed to read it while
+    // writing the ask. Both boxes have to be laid out at once.
+    const copy = page.getByTestId('email-pane-send-2').element().getBoundingClientRect();
+    const box = page.getByTestId('regenerate-send-2-open').element().getBoundingClientRect();
+
+    expect(copy.width).toBeGreaterThan(0);
+    expect(box.width).toBeGreaterThan(0);
+    // Side by side at this width, not stacked.
+    expect(box.left).toBeGreaterThanOrEqual(copy.right - 1);
+  });
+
+  it('does not carry an instruction typed for one send over to the next', async () => {
+    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+
+    await page.getByTestId('tab-item-send-2').click();
+    await page.getByRole('textbox', { name: 'Regenerate instruction for Day 3' }).fill('Soften the ask.');
+    await page.getByTestId('tab-item-send-3').click();
+
+    await expect.element(page.getByRole('textbox', { name: 'Regenerate instruction for Day 6' })).toHaveValue('');
+  });
+
+  it('reads the history of the send it is about, and only that one', async () => {
+    await render(
+      <ReviewSurface
+        run={enrollment(3, {
+          revisions: [
+            { contentId: 'send-1', version: 1, kind: 'proposed', body: 'First draft.', ask: 'lead with the hiring signal', at: '2026-09-17T10:00:00.000Z', by: 'revenue-lead' },
+            { contentId: 'send-1', version: 2, kind: 'regenerated', body: 'Second draft.', at: '2026-09-18T10:00:00.000Z' },
+            { contentId: 'send-2', version: 1, kind: 'proposed', body: 'Other send.', ask: 'not this one', at: '2026-09-18T10:00:00.000Z' },
+          ],
+        })}
+        crumbs={CRUMBS}
+      />,
+    );
+
+    const history = page.getByTestId('history-send-1').element();
+
+    expect(history.textContent).toContain('v1 proposed by revenue-lead');
+    expect(history.textContent).toContain('Sep 17');
+    expect(history.textContent).toContain('asked “lead with the hiring signal”');
+    expect(history.textContent).toContain('v2 regenerated');
+    expect(history.textContent).not.toContain('not this one');
   });
 
   it('holds a regenerating item in place, with the instruction on screen', async () => {

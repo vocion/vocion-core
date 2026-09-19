@@ -107,6 +107,43 @@ export const FourSends: Story = {
   args: { run: enrollment(4), crumbs: CRUMBS, position: '28 of 224' },
 };
 
+/**
+ * The split pane with a history behind it: what was proposed, what was asked
+ * of it, and what came back. This is what the reviewer reads while writing
+ * the next instruction, and what used to be gone by the time they looked.
+ */
+export const SendWithHistory: Story = {
+  args: {
+    crumbs: CRUMBS,
+    position: '28 of 224',
+    run: {
+      ...enrollment(4),
+      revisions: [
+        { contentId: 'send-1', version: 1, kind: 'proposed', body: 'The first draft of send 1.', ask: 'lead with the hiring signal', at: '2026-09-17T09:12:00.000Z', by: 'revenue-lead' },
+        { contentId: 'send-1', version: 2, kind: 'regenerated', body: 'The second draft of send 1.', at: '2026-09-18T14:40:00.000Z', by: 'revenue-lead' },
+        { contentId: 'send-2', version: 1, kind: 'proposed', body: 'The first draft of send 2.', ask: 'shorter, and drop the apology', at: '2026-09-18T15:02:00.000Z', by: 'revenue-lead' },
+      ],
+    },
+  },
+};
+
+/**
+ * The pane squeezed to the width it gets beside an open conversation. The
+ * split is a CONTAINER query, so it stacks copy-then-instruction here rather
+ * than cramming two columns into a column's worth of room — and the copy is
+ * still the first thing read either way.
+ */
+export const BesideAConversation: Story = {
+  args: { run: enrollment(4), crumbs: CRUMBS, position: '28 of 224' },
+  decorators: [
+    Story => (
+      <div className="@container max-w-xl">
+        <Story />
+      </div>
+    ),
+  ],
+};
+
 /** Follow-up email — one item, no provenance, no recommendation. Verb: Send. */
 export const FollowUpEmail: Story = {
   args: {
