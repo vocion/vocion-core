@@ -147,6 +147,10 @@ not fork one locally.
 - **actions** — hover- and focus-revealed verbs. Always visible on touch.
   When a row both navigates and has actions, the link covers the record and
   the verbs sit beside it — never a button inside an anchor.
+  `actionsAlways` pins them visible for a row whose verb IS the point of the
+  row — a Proposals row with nothing drafted, where Draft is the only thing to
+  do. A list decides that by state, never per row, and the state is visible
+  beside it.
 
 The rule behind the last two: **the link covers the record; anything that
 clicks through to somewhere else sits beside it.** An anchor or a button
