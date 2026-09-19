@@ -282,6 +282,7 @@
     "context_not_enrolled": "Not in a sequence",
     "context_ask": "Ask about this contact",
     "context_none": "None found",
+    "context_not_read": "Context for this recommendation has not been read yet.",
     "context_not_connected": "Not connected",
     "context_error": "Could not read:",
     "context_back": "Back to context",
