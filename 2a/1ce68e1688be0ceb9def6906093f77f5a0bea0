@@ -1,0 +1,23 @@
+packages/core/src/features/review/ReviewFocusView.tsx
+  s_57146da98e2611::t_f22c231854c602 171-184
+packages/core/src/features/review/ReviewSurface.test.tsx
+  s_57146da98e2611::t_ee8206c90ba322 256-276
+packages/core/e2e/queue/support/seed-sequence-review.ts
+  s_57146da98e2611::t_4d88c510175704 57,112-113,120-152,154-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a1ce68e1688be0ceb9def6906093f77f5a0bea0",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
