@@ -9,7 +9,7 @@ import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { RoomKnowledge } from '@/features/dashboard/rooms/RoomKnowledge';
 import { UnfileSource } from '@/features/dashboard/rooms/UnfileSource';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { verificationChip } from '@/libs/documents/audit';
+import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { artifactHref } from '@/libs/tools/artifacts/url';
 import { getDataRoomDetail, roomAnchor, roomHref } from '@/services/DataRoomService';
 
@@ -252,7 +252,7 @@ export default async function DataRoomPage(props: { params: Promise<{ locale: st
 }
 
 function DocumentRow({ a, href }: { a: ArtifactRow; href: string }) {
-  const spec = a.spec as { sheets?: number; playbook?: string; verification?: Parameters<typeof verificationChip>[0] };
+  const spec = a.spec as { sheets?: number; playbook?: string; verification?: Parameters<typeof verificationChip>[0]; redTeam?: Parameters<typeof redTeamChip>[0] };
   const kind = a.kind as keyof typeof ARTIFACT_KIND_ICON;
   const Icon = ARTIFACT_KIND_ICON[kind] ?? ARTIFACT_KIND_ICON.file;
   return (
@@ -260,7 +260,7 @@ function DocumentRow({ a, href }: { a: ArtifactRow; href: string }) {
       href={href}
       icon={Icon}
       title={a.title}
-      subline={<Subline segments={[ARTIFACT_KIND_LABEL[kind] ?? a.kind, spec.playbook, a.kind === 'document' ? verificationChip(spec.verification, spec.sheets) : null, `v${a.currentVersion}`]} />}
+      subline={<Subline segments={[ARTIFACT_KIND_LABEL[kind] ?? a.kind, spec.playbook, a.kind === 'document' ? verificationChip(spec.verification, spec.sheets) : null, a.kind === 'document' ? redTeamChip(spec.redTeam) : null, `v${a.currentVersion}`]} />}
       chip={a.kind === 'document' ? (spec.verification?.ok ? 'Verified' : spec.verification ? 'Issues' : 'Unverified') : 'File'}
       actions={a.url
         ? (

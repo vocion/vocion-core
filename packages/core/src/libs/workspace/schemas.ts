@@ -112,6 +112,18 @@ export const WorkspaceManifestSchema = z.object({
      * entry keeps its full-pass regenerate only.
      */
     regenerateSkills: z.record(z.string(), SlugSchema).optional(),
+    /**
+     * Which document playbooks are client-facing, and so cannot be exported
+     * as a PDF without having been read as the sceptical buyer on their
+     * current version (`services/documents/exportGate.ts`).
+     *
+     * Matched against `playbook` on a document artifact's spec — the tag the
+     * writing skill passes to `render_document`. Omit the key and core's
+     * defaults apply (`proposal`, `scope`, `partnership-update`); author an
+     * EMPTY list to gate nothing, which is the only way to turn the gate off
+     * and is deliberately explicit.
+     */
+    clientFacingPlaybooks: z.array(z.string().max(60)).max(40).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see

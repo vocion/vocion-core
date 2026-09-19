@@ -154,12 +154,60 @@ export const documentVerificationSchema = z.object({
 });
 export type DocumentVerification = z.infer<typeof documentVerificationSchema>;
 
+/** How hard a red-team finding pushes back: `block` is not sent. */
+export const DOCUMENT_FINDING_SEVERITIES = ['block', 'fix', 'consider'] as const;
+export type DocumentFindingSeverity = typeof DOCUMENT_FINDING_SEVERITIES[number];
+
+/** One thing a sceptical buyer would stop on, with the sheet and the edit that answers it. */
+export const documentRedTeamFindingSchema = z.object({
+  sheet: z.number().int().min(0),
+  severity: z.enum(DOCUMENT_FINDING_SEVERITIES),
+  /** The rubric rule it breaks, in a few words: "outcome promised". */
+  rule: z.string().min(1).max(80),
+  /** What a buyer would read, quoting the sheet where it helps. */
+  finding: z.string().min(1).max(400),
+  /** The edit that answers it. */
+  fix: z.string().min(1).max(300),
+});
+export type DocumentRedTeamFinding = z.infer<typeof documentRedTeamFindingSchema>;
+
+/**
+ * The red team a document carries, written the same way `verification` is:
+ * onto the spec of the version that was read, so "has THIS version been read
+ * as the buyer, and did it come back clean" is answerable from the row with
+ * no model call — which is what the export gate asks
+ * (`services/documents/exportGate.ts`).
+ *
+ * `version` is the artifact version whose HTML was read. Recording the read
+ * is itself a version, like a render-verify, so the row that carries the
+ * receipt is `version + 1`; the freshness test is therefore PRESENCE, not the
+ * number. `documentSpec()` only carries the receipt forward when the HTML did
+ * not change, so any edit drops it and the document is unread again.
+ */
+export const documentRedTeamSchema = z.object({
+  at: z.string(),
+  version: z.number().int().nonnegative(),
+  /** The model that read it, so a receipt can say who said so. */
+  model: z.string().max(120),
+  /** How many sheets were read. */
+  sheets: z.number().int().nonnegative(),
+  blocks: z.number().int().nonnegative(),
+  fixes: z.number().int().nonnegative(),
+  considers: z.number().int().nonnegative(),
+  /** The findings themselves, blocks first, capped so a spec stays a spec. */
+  findings: z.array(documentRedTeamFindingSchema).max(20).default([]),
+  /** What to keep, so the fixes do not erase it. */
+  keeps: z.string().max(400).optional(),
+});
+export type DocumentRedTeam = z.infer<typeof documentRedTeamSchema>;
+
 /**
  * A paginated, print-ready HTML document — US-Letter `.sheet`s that print to
  * the PDF a client reads. The HTML is self-contained (styles inline, assets as
  * data URIs); the engine (`libs/documents/`) renders, measures and prints it.
  * `sheets` is the count parsed at write time; `verification` is the last
- * render-verify pass over this exact version.
+ * render-verify pass over this exact version, and `redTeam` the last read of
+ * it as the sceptical buyer.
  */
 export const documentSpecSchema = z.object({
   title: z.string().optional(),
@@ -168,10 +216,13 @@ export const documentSpecSchema = z.object({
   /**
    * Which playbook shaped it — `proposal`, `scope`, `partnership-update`,
    * `email-copy`, `work-sample`… A tag the log filters on and a skill can
-   * name; free text so a workspace's playbooks need no core change.
+   * name; free text so a workspace's playbooks need no core change. It is
+   * also what says whether the document is client-facing, and so whether the
+   * export gate applies (`defaults.clientFacingPlaybooks`).
    */
   playbook: z.string().max(60).optional(),
   verification: documentVerificationSchema.optional(),
+  redTeam: documentRedTeamSchema.optional(),
 });
 export type DocumentSpec = z.infer<typeof documentSpecSchema>;
 

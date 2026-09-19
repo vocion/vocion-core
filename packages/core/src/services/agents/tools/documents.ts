@@ -25,12 +25,13 @@ import type { RuntimeContext } from '../types';
 import type { DocumentSpec } from '@/libs/cards/specs';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { clientFacingPlaybooksFor } from '@/libs/documents/clientFacing';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
-import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
-import { createDocument, documentReceipt, exportDocumentPdf, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
-import { redTeamDocument, redTeamReceipt } from '@/services/documents/redTeam';
+import { createDocument, documentReceipt, exportDocumentPdf, redTeamDocumentArtifact, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
+import { exportGate } from '@/services/documents/exportGate';
+import { redTeamReceipt } from '@/services/documents/redTeam';
 import { openArtifactId } from './editArtifacts';
 import { authorOf } from './renderArtifacts';
 
@@ -284,16 +285,20 @@ export function redTeamDocumentTool(ctx: RuntimeContext) {
       if ('error' in found) {
         return found.error;
       }
-      const artifact = await getArtifact({ orgId: ctx.orgId, id: found.id });
-      if (!artifact || artifact.kind !== 'document') {
-        return `No document #${found.id}.`;
+      try {
+        const { artifact, outcome, record } = await redTeamDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, rubric: args.rubric ?? null, context: args.context ?? null });
+        if (record) {
+          ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
+        }
+        // The read is now ON the document, so export_document_pdf can see it
+        // without asking again — and will run this itself if it has to.
+        return `Red-teamed "${artifact.title}" v${record ? record.version : artifact.currentVersion}.\n\n${redTeamReceipt(outcome)}`;
+      } catch (err) {
+        if (err instanceof ArtifactError) {
+          return `red_team_document rejected: ${err.message}`;
+        }
+        return `Could not red-team the document: ${(err as Error).message ?? 'unknown error'}`;
       }
-      const html = (artifact.spec as Partial<DocumentSpec>).html ?? '';
-      // The workspace's own banned constructions ride along, so the pass
-      // enforces the voice a person authored rather than a generic one.
-      const banned = (await voiceRulesFor(ctx.orgId).catch(() => null))?.never.map(r => (typeof r.pattern === 'string' ? r.pattern : r.pattern.source)) ?? [];
-      const outcome = await redTeamDocument(ctx.orgId, { html, rubric: args.rubric ?? null, context: args.context ?? null, bannedPhrases: banned });
-      return `Red-teamed "${artifact.title}" v${artifact.currentVersion}.\n\n${redTeamReceipt(outcome)}`;
     },
     {
       name: 'red_team_document',
@@ -307,6 +312,48 @@ export function redTeamDocumentTool(ctx: RuntimeContext) {
   );
 }
 
+/**
+ * The gate a client document passes on the way out: it has to have been read
+ * as the sceptical buyer, on THIS version, before it can leave as a PDF.
+ *
+ * It lives at the tool rather than inside `exportDocumentPdf` on purpose.
+ * That function is the printer — HTML in, a file artifact out, an
+ * `ArtifactError` when the print fails — and the gate is a judgement that may
+ * need a model call and whose answer is a receipt written for the agent, not
+ * an exception. Folding it in would make one function both mechanism and
+ * judgement, and would give a future caller no way to report the findings.
+ * The decision itself is NOT here: it is `exportGate`, a pure module, so a
+ * second door (a download button, a mission step) is a few lines rather than
+ * a second implementation.
+ *
+ * Done-for-you, not an approval gate: a gated document nobody has read is
+ * read HERE and then sent if it comes back clean (Chris, 2026-09-19).
+ * @param ctx
+ * @param id - The document artifact.
+ */
+async function gateDocumentExport(ctx: RuntimeContext, id: number): Promise<{ action: 'export'; line: string | null } | { action: 'refuse'; line: string }> {
+  const row = await getArtifact({ orgId: ctx.orgId, id });
+  const spec = (row?.spec ?? {}) as Partial<DocumentSpec>;
+  const configured = await clientFacingPlaybooksFor(ctx.orgId).catch(() => null);
+  const first = exportGate({
+    playbook: spec.playbook ?? null,
+    configured,
+    read: spec.redTeam ? { kind: 'read', redTeam: spec.redTeam } : { kind: 'none' },
+  });
+  if (first.action !== 'read-first') {
+    return first;
+  }
+  // Nobody has read this version. Read it now rather than refusing — and if
+  // the read cannot run at all, say so and still send (never a silent block).
+  const { outcome, record } = await redTeamDocumentArtifact({ orgId: ctx.orgId, id, agentSlug: ctx.agentSlug ?? null });
+  const after = exportGate({
+    playbook: spec.playbook ?? null,
+    configured,
+    read: record ? { kind: 'read', redTeam: record, fresh: true } : { kind: 'unavailable', reason: outcome.status === 'skipped' ? outcome.reason : 'the review returned nothing usable' },
+  });
+  return after.action === 'read-first' ? { action: 'export', line: null } : after;
+}
+
 export function exportDocumentPdfTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -315,16 +362,21 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
         return found.error;
       }
       try {
+        const gate = await gateDocumentExport(ctx, found.id);
+        if (gate.action === 'refuse') {
+          return gate.line;
+        }
         const res = await exportDocumentPdf({ orgId: ctx.orgId, id: found.id, author: authorOf(ctx), conversationId: ctx.conversationId ?? null, visibility: ctx.missionRunId ? 'system' : 'user' });
         ctx.emit({ type: 'artifact', artifact: toPayload(res.file) });
-        return `PDF ready: ${res.filename} (${res.pages ?? '?'} pages, ${Math.max(1, Math.round(res.bytes / 1024))} KB) at ${res.url} — background colours forced on, so the brand rule prints on the client's machine too. It is filed beside the document as a file artifact.`;
+        const head = `PDF ready: ${res.filename} (${res.pages ?? '?'} pages, ${Math.max(1, Math.round(res.bytes / 1024))} KB) at ${res.url} — background colours forced on, so the brand rule prints on the client's machine too. It is filed beside the document as a file artifact.`;
+        return gate.line ? `${head}\n\n${gate.line}` : head;
       } catch (err) {
         return `Could not export the PDF: ${(err as Error).message ?? 'unknown error'}`;
       }
     },
     {
       name: 'export_document_pdf',
-      description: 'Print a document artifact to a PDF file artifact, named from its <title>, with print colours forced on. Use when the person asks for the PDF or the document is ready to send. Omit `id` for the open document.',
+      description: 'Print a document artifact to a PDF file artifact, named from its <title>, with print colours forced on. Use when the person asks for the PDF or the document is ready to send. A CLIENT-FACING document (proposal, scope, partnership update) is read as the sceptical buyer on the way out: if this version has not been red-teamed yet, the export runs it first, and a BLOCKING finding stops the PDF until it is answered. Omit `id` for the open document.',
       schema: z.object({
         id: z.number().int().positive().optional(),
       }),

@@ -19,13 +19,13 @@
  * click plus the words; the agent edits the sheet through edit_document.
  */
 
-import type { DocumentVerification } from '@/libs/cards/specs';
+import type { DocumentRedTeam, DocumentVerification } from '@/libs/cards/specs';
 import type { RecordRef } from '@/services/chat/pageContext';
 import { ExternalLink, FileDown, MessageSquareText, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
-import { verificationChip } from '@/libs/documents/audit';
+import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
@@ -55,6 +55,8 @@ export function DocumentFrame(props: {
   title: string;
   sheets?: number;
   verification?: DocumentVerification;
+  /** The last read of this version as the sceptical buyer — absent when nobody has read it. */
+  redTeam?: DocumentRedTeam;
   /** The artifact this document is — the record a selection is about. Absent for a preview with no row (a pending shell). */
   record?: RecordRef;
   /** Served URL of the document itself, for Open. */
@@ -136,11 +138,15 @@ export function DocumentFrame(props: {
 
   const chip = verificationChip(props.verification, props.sheets);
   const issues = props.verification?.issues ?? [];
+  // Only what a person has to act on: `consider` is a judgement call the
+  // agent already weighed, and listing it here would bury the blocks.
+  const findings = (props.redTeam?.findings ?? []).filter(f => f.severity !== 'consider');
 
   return (
     <div className={cn('flex min-w-0 flex-col gap-2', props.className)} data-document-frame>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span data-document-state className={cn(props.verification && !props.verification.ok && 'text-brand-amber')}>{chip}</span>
+        <span data-document-red-team className={cn((props.redTeam?.blocks ?? 0) > 0 && 'text-brand-amber')}>{redTeamChip(props.redTeam)}</span>
         {props.verification?.pdfPages != null && <span>{`PDF ${props.verification.pdfPages} ${props.verification.pdfPages === 1 ? 'page' : 'pages'}`}</span>}
         <span className="ml-auto flex items-center gap-2">
           {props.verification?.pdf && (
@@ -162,6 +168,20 @@ export function DocumentFrame(props: {
           <summary className="cursor-pointer font-medium text-foreground">{`${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} from the last render-verify`}</summary>
           <ul className="mt-1.5 list-disc space-y-1 pl-4 text-foreground/85">
             {issues.map(i => <li key={i}>{i}</li>)}
+          </ul>
+        </details>
+      )}
+      {findings.length > 0 && (
+        <details className="rounded-md border border-brand-amber/40 bg-brand-amber/5 px-3 py-1.5 text-[12px]" data-document-findings>
+          <summary className="cursor-pointer font-medium text-foreground">
+            {`${findings.length} ${findings.length === 1 ? 'finding' : 'findings'} a sceptical buyer would stop on`}
+          </summary>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-foreground/85">
+            {findings.map(f => (
+              <li key={`${f.sheet}-${f.rule}`}>
+                {`[${f.severity.toUpperCase()}] sheet ${f.sheet} · ${f.rule}: ${f.finding} → ${f.fix}`}
+              </li>
+            ))}
           </ul>
         </details>
       )}
@@ -198,9 +218,10 @@ export function DocumentFrame(props: {
  * @param props.title
  * @param props.sheets
  * @param props.verification
+ * @param props.redTeam
  * @param props.className
  */
-export function DocumentSummary(props: { title: string; sheets?: number; verification?: DocumentVerification; className?: string }) {
+export function DocumentSummary(props: { title: string; sheets?: number; verification?: DocumentVerification; redTeam?: DocumentRedTeam; className?: string }) {
   const first = props.verification?.sheets.find(s => s.image);
   return (
     <div className={cn('flex min-w-0 items-start gap-3', props.className)} data-document-summary>
@@ -210,6 +231,7 @@ export function DocumentSummary(props: { title: string; sheets?: number; verific
       <div className="min-w-0">
         <p className="truncate text-sm font-medium text-foreground">{props.title}</p>
         <p className={cn('text-[11px] text-muted-foreground', props.verification && !props.verification.ok && 'text-brand-amber')}>{verificationChip(props.verification, props.sheets)}</p>
+        <p className={cn('text-[11px] text-muted-foreground', (props.redTeam?.blocks ?? 0) > 0 && 'text-brand-amber')}>{redTeamChip(props.redTeam)}</p>
       </div>
     </div>
   );

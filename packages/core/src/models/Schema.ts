@@ -224,6 +224,19 @@ export const projectSchema = pgTable(
      */
     regenerateSkills: jsonb('regenerate_skills').$type<Record<string, string>>(),
     /**
+     * Which document playbooks are client-facing (migration 0125), and so
+     * cannot be printed to a PDF until the document has been read as the
+     * sceptical buyer on its current version. Authored as
+     * `defaults.clientFacingPlaybooks` in workspace.yaml; read by the export
+     * gate (`services/documents/exportGate.ts`).
+     *
+     * NULL means the workspace authored none and core's defaults apply
+     * (`proposal`, `scope`, `partnership-update`). An empty ARRAY is a
+     * workspace that deliberately gates nothing — the distinction is the
+     * whole reason this is nullable rather than defaulting to `[]`.
+     */
+    clientFacingPlaybooks: jsonb('client_facing_playbooks').$type<string[]>(),
+    /**
      * The workspace's voice rules (migration 0108) — the banned constructions
      * outbound copy is linted against before it can reach a review queue.
      * Authored as `workspace/<org>/voice.yaml`; shape is

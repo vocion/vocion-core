@@ -48,6 +48,16 @@ describe('latestDocument', () => {
     expect(latestDocument([doc(13)])!.verify).toBe('unverified');
     expect(latestDocument([])).toBeNull();
   });
+
+  it('says whether a sceptical buyer has read this version, and what they found', () => {
+    const unread = doc(20, { spec: { sheets: 7, verification: { ok: true, sheets: Array.from({ length: 7 }), issues: [] } } });
+    const blocked = doc(21, { spec: { sheets: 7, redTeam: { at: '2026-09-19T10:00:00.000Z', version: 2, model: 'test-model', sheets: 7, blocks: 2, fixes: 0, considers: 0, findings: [] } } });
+    const clean = doc(22, { spec: { sheets: 7, redTeam: { at: '2026-09-19T10:00:00.000Z', version: 2, model: 'test-model', sheets: 7, blocks: 0, fixes: 0, considers: 1, findings: [] } } });
+
+    expect(latestDocument([unread])).toMatchObject({ redTeam: 'unread', redTeamLabel: 'not read as the buyer' });
+    expect(latestDocument([blocked])).toMatchObject({ redTeam: 'blocking', redTeamLabel: 'read as the buyer · 2 blocking' });
+    expect(latestDocument([clean])).toMatchObject({ redTeam: 'clean', redTeamLabel: 'read as the buyer · clean' });
+  });
 });
 
 describe('proposalRows', () => {

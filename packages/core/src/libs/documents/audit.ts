@@ -10,7 +10,7 @@
  * page count has to equal the sheet count, or a sheet broke across pages.
  */
 
-import type { DocumentSheetAudit, DocumentVerification } from '@/libs/cards/specs';
+import type { DocumentRedTeam, DocumentSheetAudit, DocumentVerification } from '@/libs/cards/specs';
 
 /** Footer rules within this many CSS px of each other count as aligned (the cover's `.fsplit` note shifts it ~2px). */
 export const FOOTER_TOLERANCE_PX = 3;
@@ -143,4 +143,24 @@ export function verificationChip(v: DocumentVerification | undefined, sheetCount
   }
   const state = v.ok ? 'verified' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`;
   return count ? `${count} · ${state}` : state;
+}
+
+/**
+ * A one-line red-team state for the surfaces that already show the verify
+ * chip: "read as the buyer · 2 blocking" / "not read as the buyer". Same
+ * shape as `verificationChip`, beside it, so the two claims read alike
+ * (principle 10 — the claim and its evidence in one place).
+ * @param r - `spec.redTeam`, absent when this version has not been read.
+ */
+export function redTeamChip(r: DocumentRedTeam | undefined): string {
+  if (!r) {
+    return 'not read as the buyer';
+  }
+  if (r.blocks > 0) {
+    return `read as the buyer · ${r.blocks} blocking`;
+  }
+  if (r.fixes > 0) {
+    return `read as the buyer · ${r.fixes} to fix`;
+  }
+  return 'read as the buyer · clean';
 }

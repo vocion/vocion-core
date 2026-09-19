@@ -1,0 +1,15 @@
+-- 0125 — which document playbooks are client-facing.
+--
+-- A `document` artifact carries the playbook that shaped it (`proposal`,
+-- `scope`, `partnership-update`…). This column says which of those tags mean
+-- "a client reads this", and so which documents cannot be printed to a PDF
+-- until they have been read as the sceptical buyer on their current version
+-- (`services/documents/exportGate.ts`). Authored as
+-- `defaults.clientFacingPlaybooks` in workspace.yaml and replaced wholesale on
+-- every apply, same declarative rule as enabled_surfaces.
+--
+-- Nullable on purpose, and with no default: NULL is "this workspace authored
+-- none" and falls back to core's defaults, while an empty array is a workspace
+-- that deliberately gates nothing. A `DEFAULT '[]'` would collapse the two and
+-- silently turn the gate off for every existing workspace.
+ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "client_facing_playbooks" jsonb;

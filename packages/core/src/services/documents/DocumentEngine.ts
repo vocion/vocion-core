@@ -15,7 +15,8 @@
  */
 
 import type { Buffer } from 'node:buffer';
-import type { DocumentSpec, DocumentVerification } from '@/libs/cards/specs';
+import type { RedTeamOutcome } from './redTeam';
+import type { DocumentRedTeam, DocumentSpec, DocumentVerification } from '@/libs/cards/specs';
 import type { DocumentOp } from '@/libs/documents/edit';
 import type { DocumentOutline } from '@/libs/documents/sheets';
 import type { ArtifactRecordScope, ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
@@ -24,8 +25,10 @@ import { applyDocumentOps } from '@/libs/documents/edit';
 import { renderAvailable, renderDocument } from '@/libs/documents/render';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
+import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { ArtifactError, createArtifact, getArtifact, updateArtifact } from '@/services/ArtifactService';
 import { lookAtSheets } from './look';
+import { redTeamDocument, redTeamRecord } from './redTeam';
 
 export type VerifyOptions = {
   /** Take per-sheet screenshots and store them (default true). */
@@ -47,12 +50,18 @@ export type VerifyOutcome = {
 
 /**
  * A stored `document` spec from its parts.
+ *
+ * `redTeam` is passed ONLY by a write that did not change the HTML — a
+ * re-verify, or the red team recording its own read. A revision therefore
+ * drops it, which is the whole freshness rule: a version nobody has read as
+ * the buyer carries no receipt, and the export gate can tell from the row.
  * @param html
  * @param title
  * @param verification
  * @param playbook
+ * @param redTeam - The last read as the buyer, when it is still this HTML.
  */
-export function documentSpec(html: string, title: string | undefined, verification?: DocumentVerification, playbook?: string): DocumentSpec {
+export function documentSpec(html: string, title: string | undefined, verification?: DocumentVerification, playbook?: string, redTeam?: DocumentRedTeam): DocumentSpec {
   const outline = inspectDocument(html);
   return {
     ...(title ? { title } : outline.title ? { title: outline.title } : {}),
@@ -60,6 +69,7 @@ export function documentSpec(html: string, title: string | undefined, verificati
     sheets: outline.sheetCount,
     ...(playbook ? { playbook } : {}),
     ...(verification ? { verification } : {}),
+    ...(redTeam ? { redTeam } : {}),
   };
 }
 
@@ -260,7 +270,8 @@ export async function verifyDocumentArtifact(input: { orgId: string; id: number;
   const html = (existing.spec as Partial<DocumentSpec>).html ?? '';
   const outcome = await verifyHtml(input.orgId, html, input.verify);
   const prior = existing.spec as Partial<DocumentSpec>;
-  const spec = documentSpec(html, prior.title, outcome.verification, prior.playbook);
+  // Re-verifying does not touch the words, so the buyer's read still stands.
+  const spec = documentSpec(html, prior.title, outcome.verification, prior.playbook, prior.redTeam);
   const { artifact } = await updateArtifact({
     orgId: input.orgId,
     id: input.id,
@@ -271,6 +282,55 @@ export async function verifyDocumentArtifact(input: { orgId: string; id: number;
     noCollapse: true,
   });
   return { artifact, outcome };
+}
+
+/**
+ * Read the document as the sceptical buyer and record what came back ON the
+ * version that was read, the same way a render-verify is recorded: one system
+ * version, one verdict, and the row can then answer "has this version been
+ * read, and did it come back clean" with no model call.
+ *
+ * This is the single door for the read — `red_team_document` and the export
+ * gate both come through here — so the workspace's voice bans ride along
+ * either way and neither path can forget to persist the result.
+ *
+ * A review that could not run records nothing: an unusable model must not
+ * leave a receipt that looks like a clean read.
+ * @param input
+ * @param input.orgId
+ * @param input.id
+ * @param input.agentSlug
+ * @param input.rubric - House rules from the calling skill, appended to core's generic rubric.
+ * @param input.context - What the seller actually knows, so "unsourced" is judged fairly.
+ */
+export async function redTeamDocumentArtifact(input: { orgId: string; id: number; agentSlug?: string | null; rubric?: string | null; context?: string | null }): Promise<{ artifact: ArtifactRow; outcome: RedTeamOutcome; record: DocumentRedTeam | null }> {
+  const existing = await getArtifact({ orgId: input.orgId, id: input.id });
+  if (!existing || existing.kind !== 'document') {
+    throw new ArtifactError('NOT_FOUND', `document #${input.id} not found`);
+  }
+  const prior = existing.spec as Partial<DocumentSpec>;
+  const html = prior.html ?? '';
+  // The workspace's own banned constructions ride along, so the pass enforces
+  // the voice a person authored rather than a generic one.
+  const bannedPhrases = (await voiceRulesFor(input.orgId).catch(() => null))?.never.map(r => (typeof r.pattern === 'string' ? r.pattern : r.pattern.source)) ?? [];
+  const outcome = await redTeamDocument(input.orgId, { html, rubric: input.rubric ?? null, context: input.context ?? null, bannedPhrases });
+  if (outcome.status !== 'reviewed') {
+    return { artifact: existing, outcome, record: null };
+  }
+  const record = redTeamRecord(outcome, existing.currentVersion);
+  const spec = documentSpec(html, prior.title, prior.verification, prior.playbook, record);
+  const { artifact } = await updateArtifact({
+    orgId: input.orgId,
+    id: input.id,
+    title: null,
+    spec,
+    author: { kind: 'system', id: input.agentSlug ? `agent:${input.agentSlug}` : null },
+    changeSummary: record.blocks > 0
+      ? `Read as the buyer · ${record.blocks} blocking`
+      : `Read as the buyer · ${record.findings.length === 0 ? 'no findings' : `${record.fixes} to fix · ${record.considers} to consider`}`,
+    noCollapse: true,
+  });
+  return { artifact, outcome, record };
 }
 
 /**

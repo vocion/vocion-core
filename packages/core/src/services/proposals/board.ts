@@ -15,10 +15,10 @@
  * database. `loadProposalBoard` is the two-query loader the page calls.
  */
 
-import type { DocumentVerification } from '@/libs/cards/specs';
+import type { DocumentRedTeam, DocumentVerification } from '@/libs/cards/specs';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { DataRoom } from '@/services/DataRoomService';
-import { verificationChip } from '@/libs/documents/audit';
+import { redTeamChip, verificationChip } from '@/libs/documents/audit';
 import { listArtifactsByIds, listArtifactsForRecords } from '@/services/ArtifactService';
 import { countOpenAsksByGroup } from '@/services/AskService';
 import { DATA_ROOM_TYPE, listDataRooms, roomGroupKey, roomHref } from '@/services/DataRoomService';
@@ -34,6 +34,15 @@ export type ProposalDocument = {
   verify: 'verified' | 'issues' | 'unverified';
   /** The receipt line a person reads: `7 sheets · verified`. */
   chip: string;
+  /**
+   * Whether a sceptical buyer has read THIS version, and what they found —
+   * the same claim the export gate enforces, shown where it is read
+   * (`services/documents/exportGate.ts`). `unread` means the PDF cannot go
+   * out until someone or something reads it.
+   */
+  redTeam: 'clean' | 'findings' | 'blocking' | 'unread';
+  /** The line beside the verify chip: `read as the buyer · 2 blocking`. */
+  redTeamLabel: string;
   version: number;
 };
 
@@ -79,13 +88,16 @@ export function latestDocument(artifacts: readonly ArtifactRow[]): ProposalDocum
     return null;
   }
   const a = [...docs].sort((x, y) => (y.updatedAt ?? y.createdAt).getTime() - (x.updatedAt ?? x.createdAt).getTime())[0]!;
-  const spec = a.spec as { sheets?: number; verification?: DocumentVerification };
+  const spec = a.spec as { sheets?: number; verification?: DocumentVerification; redTeam?: DocumentRedTeam };
+  const r = spec.redTeam;
   return {
     id: a.id,
     title: a.title,
     href: a.conversationId ? `/dashboard/chat/${a.conversationId}?artifact=${a.id}` : `/dashboard/artifacts/${a.id}`,
     verify: spec.verification ? (spec.verification.ok ? 'verified' : 'issues') : 'unverified',
     chip: verificationChip(spec.verification, spec.sheets),
+    redTeam: !r ? 'unread' : r.blocks > 0 ? 'blocking' : r.fixes > 0 ? 'findings' : 'clean',
+    redTeamLabel: redTeamChip(r),
     version: a.currentVersion,
   };
 }

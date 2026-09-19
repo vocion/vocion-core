@@ -59,10 +59,16 @@ sheet of a new document.
 9. **Red team**: `red_team_document` with the rubric from `red-team.md` and
    the room's starred facts as `context`. Fix every BLOCK by sheet and run it
    again. A document is done when verify is clean and the red team has no
-   blocks; say what you left and why.
+   blocks; say what you left and why. The result is stored on the version it
+   read, so an edit makes it unread again.
 10. `export_document_pdf` when the person asks for the PDF, or when it is ready
-   to send. The send email is a separate, light-themed artifact with no dollar
-   figure in it.
+   to send. **The export enforces step 9**: a client document that has not
+   been read as the buyer on its current version is read by the export itself,
+   and a BLOCK stops the PDF until it is answered. Run step 9 yourself anyway —
+   it is the only way the house rubric in `red-team.md` is applied, and it is
+   cheaper to fix a block before you have told the person the PDF is coming.
+   The send email is a separate, light-themed artifact with no dollar figure
+   in it.
 
 Change the open document in place. "Cut page 9", "make it three agents",
 "price it per opening" are `edit_document` ops on named sheets. Never render a

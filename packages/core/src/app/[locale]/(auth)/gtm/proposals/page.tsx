@@ -5,6 +5,7 @@ import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { loadProposalBoard } from '@/services/proposals/board';
+import { cn } from '@/utils/Helpers';
 
 /**
  * Proposals — the GTM app over data rooms and documents: every engagement at
@@ -32,7 +33,7 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
   return (
     <ListPage
       title="Proposals"
-      description="Every engagement at Proposal stage: where it stands, the latest document and whether it verified, what is still open — and Draft, which hands the room to the Proposal Writer."
+      description="Every engagement at Proposal stage: where it stands, the latest document — whether it verified and whether a sceptical buyer has read it — what is still open, and Draft, which hands the room to the Proposal Writer."
     >
       <PluginPanel orgId={orgId} slug="proposals" />
 
@@ -66,8 +67,11 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
                       <Column kind="status">
                         {r.document
                           ? (
-                              <a href={r.document.href} className="truncate text-xs text-muted-foreground hover:text-foreground" title={r.document.title} data-proposal-document>
-                                {r.document.chip}
+                              <a href={r.document.href} className="flex flex-col items-end text-xs text-muted-foreground hover:text-foreground" title={r.document.title} data-proposal-document>
+                                <span className="truncate">{r.document.chip}</span>
+                                <span className={cn('truncate', r.document.redTeam === 'blocking' && 'text-brand-amber')} data-proposal-red-team>
+                                  {r.document.redTeamLabel}
+                                </span>
                               </a>
                             )
                           : <span className="text-xs text-muted-foreground">no document</span>}
