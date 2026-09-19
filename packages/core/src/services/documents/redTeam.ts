@@ -52,6 +52,43 @@ export type RedTeamOutcome
     | { status: 'skipped'; reason: string };
 
 /**
+ * The review runs as a TOOL CALL, not as "return JSON and nothing else".
+ *
+ * The first live run (2026-09-19, the Armorock proposal) came back unparseable
+ * twice and the agent read the document by hand instead — a sceptical reviewer
+ * writes long, and a dozen findings do not fit the budget the prose form was
+ * given, so the JSON was cut mid-object. A declared tool the model must call
+ * removes both failure modes at once: the shape is the schema's, and what is
+ * left is only ever a length problem, which the receipt now names.
+ */
+const FINDINGS_TOOL = {
+  name: 'report_findings',
+  description: 'Report the red-team findings on this document. Call this exactly once.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      findings: {
+        type: 'array',
+        maxItems: 20,
+        items: {
+          type: 'object',
+          properties: {
+            sheet: { type: 'integer', description: 'The sheet number the finding is on.' },
+            severity: { type: 'string', enum: [...SEVERITIES] },
+            rule: { type: 'string', description: 'The rubric rule it breaks, in a few words.' },
+            finding: { type: 'string', description: 'What a buyer reads, in one or two sentences. Quote briefly where it helps.' },
+            fix: { type: 'string', description: 'The edit that answers it.' },
+          },
+          required: ['sheet', 'severity', 'rule', 'finding', 'fix'],
+        },
+      },
+      keeps: { type: 'string', description: 'One or two sentences on what to keep, so the fixes do not erase it.' },
+    },
+    required: ['findings'],
+  },
+};
+
+/**
  * The generic rubric every client document is read against. A calling skill
  * appends its own (house structure, pricing shape); the workspace's voice bans
  * arrive as `bannedPhrases`. Written as what a sceptical buyer checks.
@@ -84,8 +121,11 @@ export function prepareSheetsText(html: string): Array<{ n: number; label: strin
 }
 
 /**
- * Parse the model's answer into findings, or null when it is not the JSON asked for. Pure; exported for tests.
- * @param text - The model's reply.
+ * Parse the model's answer into findings, or null when it is not the shape
+ * asked for. Takes the tool-call input when there was one and falls back to
+ * JSON in the text, because a model that answers in prose anyway should still
+ * be read rather than thrown away. Pure; exported for tests.
+ * @param text - The model's reply, or the JSON of its tool call.
  */
 export function parseFindings(text: string): z.infer<typeof FindingsSchema> | null {
   const start = text.indexOf('{');
@@ -93,11 +133,28 @@ export function parseFindings(text: string): z.infer<typeof FindingsSchema> | nu
   if (start < 0 || end <= start) {
     return null;
   }
+  let value: unknown;
   try {
-    return FindingsSchema.parse(JSON.parse(text.slice(start, end + 1)));
+    value = JSON.parse(text.slice(start, end + 1));
   } catch {
     return null;
   }
+  const parsed = FindingsSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  // One long finding must not lose the other eleven: keep the entries that
+  // validate, drop the ones that do not, and only give up when none survive.
+  const loose = z.object({ findings: z.array(z.unknown()).optional(), keeps: z.unknown().optional() }).safeParse(value);
+  if (!loose.success || !loose.data.findings) {
+    return null;
+  }
+  const FindingSchema = FindingsSchema.shape.findings.element;
+  const kept = loose.data.findings.map(f => FindingSchema.safeParse(f)).filter(r => r.success).map(r => r.data);
+  if (kept.length === 0) {
+    return null;
+  }
+  return { findings: kept, keeps: typeof loose.data.keeps === 'string' ? loose.data.keeps.slice(0, 400) : undefined };
 }
 
 /**
@@ -152,7 +209,7 @@ export async function redTeamDocument(orgId: string, input: { html: string; rubr
     'You are the sceptical buyer on the other side of a B2B proposal: an operations lead who has to carry this into an internal business case and be right. You read for what would make you hesitate, push back, or quietly lose confidence.',
     'Report findings ONLY — never praise per sheet, never restate the document. Each finding names the sheet number, the rule it breaks, what you read (quote briefly when it helps), and the edit that would answer it.',
     'Severity: `block` = must change before this is sent (an unsourced number, a promised outcome, a contradiction in price or scope); `fix` = a buyer would notice and it costs trust; `consider` = a judgement call worth a look.',
-    'Return STRICT JSON and nothing else: {"findings":[{"sheet":<n>,"severity":"block|fix|consider","rule":"<few words>","finding":"<one or two sentences>","fix":"<the edit>"}],"keeps":"<one or two sentences on what to keep>"}. Fewer, sharper findings beat many small ones; cap at the ones that matter.',
+    'Answer by calling report_findings exactly once, with nothing before it. Fewer, sharper findings beat many small ones: at most fifteen, and keep each finding under sixty words so they all fit.',
   ].join(' ');
   const rubric = [DEFAULT_RUBRIC, input.rubric?.trim() ? `HOUSE RULES (from the seller's own skill):\n${input.rubric.trim()}` : '', input.bannedPhrases?.length ? `BANNED PHRASES (any occurrence is a fix): ${input.bannedPhrases.join(' · ')}` : ''].filter(Boolean).join('\n\n');
   const body = sheets.map(s => `--- Sheet ${s.n}${s.label ? ` · ${s.label}` : ''} ---\n${s.text}`).join('\n\n');
@@ -163,11 +220,30 @@ export async function redTeamDocument(orgId: string, input: { html: string; rubr
     'Return the JSON now.',
   ].join('\n\n');
   const client = new Anthropic({ apiKey });
-  const res = await client.messages.create({ model: REVIEW_MODEL, max_tokens: 3000, temperature: 0, system, messages: [{ role: 'user', content: user }] });
-  const text = res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
+  const res = await client.messages.create({
+    model: REVIEW_MODEL,
+    // A dozen findings on a twelve-sheet document is several thousand tokens
+    // of output; the first live run was cut off at 3000 and returned nothing
+    // usable. Budget for the whole answer rather than for the average one.
+    max_tokens: 8_000,
+    temperature: 0,
+    system,
+    messages: [{ role: 'user', content: user }],
+    tools: [FINDINGS_TOOL],
+    tool_choice: { type: 'tool', name: FINDINGS_TOOL.name },
+  });
+  const call = res.content.find(b => b.type === 'tool_use' && b.name === FINDINGS_TOOL.name);
+  const text = call
+    ? JSON.stringify((call as { input: unknown }).input)
+    : res.content.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('\n');
   const parsed = parseFindings(text);
   if (!parsed) {
-    return { status: 'skipped', reason: 'the review model returned something other than the findings JSON' };
+    // Say which failure it was, so the next one is diagnosable from the
+    // receipt instead of from a log nobody is reading (principle 10).
+    const why = res.stop_reason === 'max_tokens'
+      ? 'the review ran past its length budget before it finished — ask for fewer findings, or split the document'
+      : `the review model answered in an unusable shape (stop_reason ${res.stop_reason ?? 'unknown'}${call ? ', tool call did not validate' : ', no tool call'})`;
+    return { status: 'skipped', reason: why };
   }
   return { status: 'reviewed', findings: parsed.findings, keeps: parsed.keeps?.trim() || null, model: REVIEW_MODEL, sheets: sheets.length };
 }
