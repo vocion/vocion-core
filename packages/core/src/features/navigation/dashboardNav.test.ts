@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { combinedPageTitle } from './combinedPages';
 import {
   DASHBOARD_GROUPS,
   DASHBOARD_ROUTES,
@@ -51,7 +52,10 @@ describe('dashboardNav registry', () => {
   it('keeps the review alias in the palette only — the muscle memory, not a second door', () => {
     const alias = DASHBOARD_ROUTES.find(r => r.paletteOnly)!;
 
-    expect(alias).toMatchObject({ url: '/dashboard/inbox?kind=proposal', title: 'Review · Proposals', group: 'Workspace' });
+    // The URL keeps `kind=proposal` — that is the stored kind, not a label —
+    // while the row reads "Recommendations" (Chris, 2026-09-19: "Reviews should
+    // not be proposals. 'Recommendation(s)' should probably be the term there").
+    expect(alias).toMatchObject({ url: '/dashboard/inbox?kind=proposal', title: 'Review · Recommendations', group: 'Workspace' });
     expect(alias.keywords).toContain('review');
     expect(workRoutes().map(r => r.url)).not.toContain(alias.url);
     // It is a Workspace row, so it never reaches a MANAGE section or the pinnable list either.
@@ -83,11 +87,29 @@ describe('dashboardNav registry', () => {
     // separate Plugins row folded into it.
     expect(marketplace.group).toBe('Build');
     expect(marketplace.tabOf).toBeUndefined();
+    // One sidebar row: the Agents-for-hire tab is a tab, not a second row.
     expect(build.routes.map(r => r.url)).toEqual(['/dashboard/skills', '/dashboard/evals', '/dashboard/marketplace']);
     expect(tabsOf('/dashboard/teams').map(r => r.url)).not.toContain('/dashboard/marketplace');
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/plugins')).toBe(false);
     // It absorbed the Plugins row's words, so ⌘K "turn on wiki" still lands.
     expect(marketplace.keywords).toEqual(expect.arrayContaining(['plugin', 'plugins', 'install', 'turn on', 'wiki', 'data rooms', 'proposals']));
+  });
+
+  it('splits the Marketplace into Plugins and Agents for hire, with plugins on the owner URL', () => {
+    // Chris, 2026-09-18: "Make Teams/Agents and Plugins tabs and/or sub-pages
+    // for Marketplace." Two lists, two tabs, each its own registered route.
+    expect(tabsOf('/dashboard/marketplace').map(r => r.url)).toEqual(['/dashboard/marketplace', '/dashboard/marketplace/agents']);
+    // The owner's own tab is the plugin list, so the 308 from /dashboard/plugins
+    // — in pinned entries and in chat's "turn a plugin on" answer — still lands
+    // on plugins rather than beside them.
+    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Plugins');
+    expect(dashboardRoute('/dashboard/marketplace/agents')?.title).toBe('Agents for hire');
+    // A tab, never a second sidebar row.
+    expect(manageNavGroups(true).flatMap(s => s.routes.map(r => r.url))).not.toContain('/dashboard/marketplace/agents');
+    // …but still a pinnable destination and a breadcrumb owner.
+    expect(manageRoutes(true).map(r => r.url)).toContain('/dashboard/marketplace/agents');
+    expect(combinedPageTitle('/dashboard/marketplace/agents')).toBe('Agents for hire · Marketplace');
+    expect(combinedPageTitle('/dashboard/marketplace')).toBe('Marketplace');
   });
 
   it('hides admin-only rows from members, in the sections and in the pinnable list', () => {

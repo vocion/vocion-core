@@ -98,7 +98,7 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
         Agent activity
       </div>
       <p className="mb-4 text-xs text-muted-foreground">
-        Every agent action on this record, with its reasoning — pending items are the same proposals as on
+        Every agent action on this record, with its reasoning — pending items are the same recommendations as on
         {' '}
         <Link href="/dashboard/inbox?kind=proposal" className="underline">Review queue</Link>
         .
@@ -115,7 +115,7 @@ export async function ObjectAgentActivity({ orgId, externalRef }: {
                   <StatusPill status="pending" size="sm" />
                   {who && (
                     <span className="text-xs text-muted-foreground">
-                      proposed by
+                      recommended by
                       {' '}
                       {who}
                     </span>

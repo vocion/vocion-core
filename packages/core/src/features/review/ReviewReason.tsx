@@ -24,7 +24,7 @@ export function ReviewReason({ reason, runId, since, agentSlug }: { reason: stri
       <p className="mt-2 max-w-3xl text-[15px] leading-relaxed break-words text-foreground/90">{reason}</p>
       <p className="mt-2 text-[12px] text-muted-foreground tabular-nums">
         {[
-          agentSlug ? `proposed by ${agentSlug}` : null,
+          agentSlug ? `recommended by ${agentSlug}` : null,
           since ? `waiting ${agoLabel(new Date(since)).replace(/ ago$/, '')}` : null,
           `run #${runId}`,
         ].filter(Boolean).join(' · ')}

@@ -187,7 +187,7 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
       // the subline says what the proposals would do (Chris, 2026-09-16).
       title: recordTitle(g.record),
       titleHint: g.record.fromId === true ? undefined : g.record.idLabel,
-      subline: [changeSummaryLine(summariseChanges(g.rows)), agents.length > 0 ? `proposed by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
+      subline: [changeSummaryLine(summariseChanges(g.rows)), agents.length > 0 ? `recommended by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
       agentSlug: agents[0] ?? null,
       teamSlug: null,
       risk: null,

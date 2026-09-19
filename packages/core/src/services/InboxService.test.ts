@@ -130,10 +130,10 @@ describe('InboxService — proposals', () => {
     const [first, second] = inbox.items; // oldest first
 
     // The record's NAME is the title, the count is a tag beside it, and the
-    // subline says what the proposals would DO — never the name a second time.
+    // subline says what the recommendations would DO — never the name a second time.
     // The href is escaped so the proxy cannot drop it (services/inbox/recordKey).
     expect(first).toMatchObject({ kind: 'proposal', shape: 'sheet', title: 'Northwind renewal', titleHint: 'Deal 7781', count: 2, amount: 48000, confidence: 0.6, href: '/dashboard/inbox/r/hubspot~3Adeals~3A7781' });
-    expect(first!.subline).toBe('1 field update · 1 next step › proposed by deal-desk');
+    expect(first!.subline).toBe('1 field update · 1 next step › recommended by deal-desk');
     expect(Date.now() - first!.at.getTime()).toBeGreaterThan(3.9 * day);
     expect(second).toMatchObject({ kind: 'proposal', shape: 'single', title: 'Enroll Jamie Smith (Contoso Supply) in MSP nurture', actionId: 'personalization.enroll', confidence: 0.88 });
     expect(second!.href).toBe(`/dashboard/inbox/proposal-${second!.reviewId}`);

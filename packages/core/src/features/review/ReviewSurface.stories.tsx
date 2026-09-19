@@ -38,7 +38,7 @@ type Story = StoryObj<typeof ReviewSurface>;
 const CRUMBS = [
   { label: 'Workspace', href: '/dashboard' },
   { label: 'Review queue', href: '/dashboard/inbox' },
-  { label: 'Proposals' },
+  { label: 'Recommendations' },
 ];
 
 /**

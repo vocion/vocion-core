@@ -16,7 +16,7 @@ const row: ReviewRow = {
   proposal: { rationale: 'Transcript confirms Amy offered two intros as the next step.', confidence: 0.85, suggestedDecision: 'approve' },
   described: {
     title: 'Draft email to amy@northwind.example — Intros',
-    subline: 'Email draft › proposed by revenue-lead',
+    subline: 'Email draft › recommended by revenue-lead',
     actionKind: 'Email',
     record: { kind: 'email', key: 'email:amy@northwind.example', name: 'amy@northwind.example' },
     changes: [{ field: 'subject', to: 'Intros' }],

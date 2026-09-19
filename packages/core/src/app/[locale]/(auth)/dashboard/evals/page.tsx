@@ -1,15 +1,17 @@
+import type { Metadata } from 'next';
 import { ArrowRight, Search, TestTube } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { RelatedPages } from '@/features/dashboard/manage/RelatedPages';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { describeProvider } from '@/features/evals/providerCopy';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { EVAL_DATASETS_PAGE_SIZE, listDatasetsPage, summariseDatasetRuns } from '@/services/EvalService';
 import { summariseLastRun } from './lastRun';
+
+export const metadata: Metadata = { title: 'Evals' };
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -53,7 +55,6 @@ export default async function EvalsPage(props: Props) {
         title="Evals"
         description="Whether an agent still does its job: cases run on demand or on a schedule, scored by graders, with every run kept as history. Authored in workspace/evals."
       />
-      <RelatedPages urls={['/dashboard/teams', '/dashboard/skills', '/dashboard/marketplace']} />
 
       <form action="/dashboard/evals" className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative">

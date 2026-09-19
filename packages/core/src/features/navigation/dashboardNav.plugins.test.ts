@@ -27,9 +27,11 @@ describe('plugin-owned routes', () => {
     const build = manageNavGroups({ isAdmin: false, enabledPlugins: [] }).find(g => g.group.id === 'Build')!;
 
     // The catalogue used to be its own row beside Skills & tools and Evals; it
-    // is a section of the Marketplace now, and /dashboard/plugins 308s there.
+    // is the Marketplace's first tab now, on the Marketplace's own URL, and
+    // /dashboard/plugins 308s there — so the old link lands ON the plugins.
     expect(build.routes.map(r => r.url)).toContain('/dashboard/marketplace');
     expect(build.routes.map(r => r.url)).not.toContain('/dashboard/plugins');
+    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Plugins');
     expect(manageNavGroups(false).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).not.toContain('/dashboard/adoption');
     expect(manageNavGroups(true).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).toContain('/dashboard/adoption');
   });

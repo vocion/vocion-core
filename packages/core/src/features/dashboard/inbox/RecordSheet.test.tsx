@@ -68,7 +68,7 @@ beforeEach(() => {
 });
 
 describe('deciding on a record sheet', () => {
-  it('stays on the record, moves the decided row into Decided, and steps to the next proposal', async () => {
+  it('stays on the record, moves the decided row into Decided, and steps to the next recommendation', async () => {
     render(sheet([ask(1, 'Update Northwind renewal — Close date: 2026-11-30'), ask(2, 'Update Northwind renewal — Next step: Send the terms')]));
 
     await page.getByRole('radio', { name: /Approve/ }).first().click();

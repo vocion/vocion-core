@@ -296,7 +296,7 @@ function ItemPane(props: {
             />
           </label>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            This re-runs the work behind the proposal with your instruction. The item holds its place here and re-enables when the new version lands.
+            This re-runs the work behind the recommendation with your instruction. The item holds its place here and re-enables when the new version lands.
           </p>
           <div className="mt-3 flex items-center justify-end gap-2">
             <button
@@ -593,7 +593,7 @@ export function ReviewSurface(props: {
             </Section>
           )}
           {!rationale && !(run.proposal?.suggestedDecision && run.proposal.suggestedDecisionReason) && !detail && !summary && (
-            <Section eyebrow="Why"><p className="text-muted-foreground">No rationale recorded for this proposal.</p></Section>
+            <Section eyebrow="Why"><p className="text-muted-foreground">No rationale recorded for this recommendation.</p></Section>
           )}
         </div>
       );
@@ -624,7 +624,7 @@ export function ReviewSurface(props: {
               facts={[
                 { label: 'Status', value: <StatusDot tone={RED_STATUSES.has(run.status) ? 'fail' : 'pass'} label={STATUS_LABEL[run.status] ?? run.status} /> },
                 card.system ? { label: 'System', value: card.system } : null,
-                agent ? { label: 'Proposed by', value: agent } : null,
+                agent ? { label: 'Recommended by', value: agent } : null,
                 // Confidence lives on the meta row beside the recommendation it
                 // scores; with no recommendation to anchor it, it reads here.
                 !card.recommendation && run.proposal?.confidence !== undefined
