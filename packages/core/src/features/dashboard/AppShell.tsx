@@ -9,6 +9,7 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
 import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
+import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
@@ -144,12 +145,14 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               skipped by PageDock. */}
           <PageContextProvider>
             <div className="flex flex-1 items-stretch">
-              {/* Page gutter (B-034b §3): 24px → 40px, 32px vertical, reading
-                  width capped so prose never runs the whole monitor. */}
+              {/* Page gutter (B-034b §3): 24px → 40px, 32px vertical. */}
               <div className="@container min-w-0 flex-1 px-4 py-6 pr-[calc(1rem+var(--rail-inset,0px))] transition-[padding] duration-200 sm:px-6 sm:pr-[calc(1.5rem+var(--rail-inset,0px))] lg:px-10 lg:py-8 lg:pr-[calc(2.5rem+var(--rail-inset,0px))]">
-                <div className="mx-auto w-full max-w-[1180px]">
-                  {props.children}
-                </div>
+                {/* Capped at a reading width by default; a route that is a
+                    two-pane WORKING surface opts out and gets the window
+                    (`features/navigation/pageWidth.ts`). The gutter above
+                    still pads by `--rail-inset`, so a full-bleed page never
+                    sits under an open rail either. */}
+                <PageWidth>{props.children}</PageWidth>
               </div>
               <PageDock agents={agents} />
             </div>
