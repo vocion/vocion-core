@@ -1,0 +1,23 @@
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_ebf02c08875266::t_107134e92397db 161-178,209
+packages/core/src/features/personalization/LeadDetail.test.tsx
+  s_ebf02c08875266::t_8ab75627d91cec 419-442
+packages/core/src/features/review/useReviewDecision.ts
+  s_ebf02c08875266::t_38c754c7d26c22 15,17-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0df161bfe9f80b2ba4570db898671006dd27edeb",
+  "prompts": {},
+  "sessions": {
+    "s_ebf02c08875266": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4684915b-d634-4453-9ebd-8a06c50f3827",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
