@@ -26,6 +26,7 @@ import { useEffect, useState } from 'react';
 import { failureReport, redactInternalIds } from '@/libs/chat/redact';
 import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { sourceLabels } from './helpers';
+import { liveStepLabel } from './traceReducer';
 import { useElapsed } from './useElapsed';
 
 /**
@@ -378,7 +379,7 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
     <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
       <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
-        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${node.label}` : node.label}</span>
+        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${liveStepLabel(node)}` : liveStepLabel(node)}</span>
         {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
         {node.result && (
           <span className="text-muted-foreground/80">
@@ -502,7 +503,10 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   // line with its first sentence showing (agent-chat-surface.md §9).
   if (streaming) {
     const live = [...trace].reverse().find(n => n.kind !== 'reason' && (n.status === 'start' || n.status === 'progress'));
-    const headline = activity ?? live?.label ?? 'Working…';
+    // "Working…" on its own for a minute told the person nothing (Chris,
+    // twice). The step that is running says what it is on, and — when the
+    // call reports — where it has got to: `Building the document… sheet 7 of 12`.
+    const headline = activity ?? (live ? liveStepLabel(live) : null) ?? 'Working…';
     return (
       <div className="my-2" data-testid="work-timeline-live">
         {liveHeadline && (

@@ -22,7 +22,7 @@ import type { DocumentOutline } from '@/libs/documents/sheets';
 import type { ArtifactRecordScope, ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
 import { evaluateDocument, verificationReceipt } from '@/libs/documents/audit';
 import { applyDocumentOps } from '@/libs/documents/edit';
-import { renderAvailable, renderDocument } from '@/libs/documents/render';
+import { renderAvailable, renderDocument, renderNote } from '@/libs/documents/render';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
@@ -37,6 +37,12 @@ export type VerifyOptions = {
   pdf?: boolean;
   /** Run the vision pass over the sheets (default false — it costs a model call). */
   look?: boolean;
+  /**
+   * Where the verify has got to, as a phrase for the person watching —
+   * `sheet 7 of 12`. Wired to the chat's running step line by the tools; the
+   * engine itself is happy without it.
+   */
+  onProgress?: (note: string) => void;
 };
 
 export type VerifyOutcome = {
@@ -123,7 +129,19 @@ export async function verifyHtml(orgId: string, html: string, opts: VerifyOption
       ms: Date.now() - started,
     };
   }
-  const rendered = await renderDocument(html, { screenshots: opts.screenshots !== false, pdf: opts.pdf !== false });
+  const note = (text: string) => {
+    try {
+      opts.onProgress?.(text);
+    } catch {
+      // Best-effort: the receipt is the product, the commentary is not.
+    }
+  };
+  const rendered = await renderDocument(html, {
+    screenshots: opts.screenshots !== false,
+    pdf: opts.pdf !== false,
+    onProgress: p => note(renderNote(p)),
+  });
+  note('storing the sheets');
   const sheets = await Promise.all(rendered.sheets.map(async (s) => {
     const { png, x: _x, y: _y, width: _w, height: _h, ...rest } = s;
     if (!png) {
@@ -139,6 +157,10 @@ export async function verifyHtml(orgId: string, html: string, opts: VerifyOption
   const verification = evaluateDocument({ sheets, pdfPages: rendered.pdfPages, ...(pdfUrl ? { pdf: pdfUrl } : {}), unresolvedAssets: rendered.unresolvedAssets });
   if (opts.look) {
     const withPng = rendered.sheets.filter(s => s.png).map(s => ({ n: s.n, label: s.label, png: s.png! }));
+    // The look is ONE model call over every sheet at once, so there is no
+    // per-sheet progress inside it to report — only that it has started and
+    // on how many sheets.
+    note(`looking at ${withPng.length} ${withPng.length === 1 ? 'sheet' : 'sheets'}`);
     try {
       const look = await lookAtSheets(orgId, withPng);
       if (look.status === 'looked') {
@@ -303,7 +325,7 @@ export async function verifyDocumentArtifact(input: { orgId: string; id: number;
  * @param input.rubric - House rules from the calling skill, appended to core's generic rubric.
  * @param input.context - What the seller actually knows, so "unsourced" is judged fairly.
  */
-export async function redTeamDocumentArtifact(input: { orgId: string; id: number; agentSlug?: string | null; rubric?: string | null; context?: string | null }): Promise<{ artifact: ArtifactRow; outcome: RedTeamOutcome; record: DocumentRedTeam | null }> {
+export async function redTeamDocumentArtifact(input: { orgId: string; id: number; agentSlug?: string | null; rubric?: string | null; context?: string | null; onProgress?: (note: string) => void }): Promise<{ artifact: ArtifactRow; outcome: RedTeamOutcome; record: DocumentRedTeam | null }> {
   const existing = await getArtifact({ orgId: input.orgId, id: input.id });
   if (!existing || existing.kind !== 'document') {
     throw new ArtifactError('NOT_FOUND', `document #${input.id} not found`);
@@ -313,7 +335,7 @@ export async function redTeamDocumentArtifact(input: { orgId: string; id: number
   // The workspace's own banned constructions ride along, so the pass enforces
   // the voice a person authored rather than a generic one.
   const bannedPhrases = (await voiceRulesFor(input.orgId).catch(() => null))?.never.map(r => (typeof r.pattern === 'string' ? r.pattern : r.pattern.source)) ?? [];
-  const outcome = await redTeamDocument(input.orgId, { html, rubric: input.rubric ?? null, context: input.context ?? null, bannedPhrases });
+  const outcome = await redTeamDocument(input.orgId, { html, rubric: input.rubric ?? null, context: input.context ?? null, bannedPhrases, onProgress: input.onProgress });
   if (outcome.status !== 'reviewed') {
     return { artifact: existing, outcome, record: null };
   }
@@ -342,14 +364,25 @@ export async function redTeamDocumentArtifact(input: { orgId: string; id: number
  * @param input.author
  * @param input.conversationId
  * @param input.visibility
+ * @param input.onProgress - Where the print has got to, for the running step line.
  */
-export async function exportDocumentPdf(input: { orgId: string; id: number; author: Author; conversationId?: number | null; visibility?: 'user' | 'system' }): Promise<{ file: ArtifactRow; url: string; filename: string; pages: number | null; bytes: number }> {
+export async function exportDocumentPdf(input: { orgId: string; id: number; author: Author; conversationId?: number | null; visibility?: 'user' | 'system'; onProgress?: (note: string) => void }): Promise<{ file: ArtifactRow; url: string; filename: string; pages: number | null; bytes: number }> {
   const existing = await getArtifact({ orgId: input.orgId, id: input.id });
   if (!existing || existing.kind !== 'document') {
     throw new ArtifactError('NOT_FOUND', `document #${input.id} not found`);
   }
   const spec = existing.spec as Partial<DocumentSpec>;
-  const rendered = await renderDocument(spec.html ?? '', { screenshots: false, pdf: true });
+  const rendered = await renderDocument(spec.html ?? '', {
+    screenshots: false,
+    pdf: true,
+    onProgress: (p) => {
+      try {
+        input.onProgress?.(renderNote(p));
+      } catch {
+        // Best-effort.
+      }
+    },
+  });
   if (!rendered.pdf) {
     throw new ArtifactError('INVALID_SPEC', 'the PDF could not be printed');
   }

@@ -153,6 +153,26 @@ export function stepLabelFor(labels: StepLabels, status: 'start' | 'progress' | 
   return status === 'done' ? labels.done : labels.running;
 }
 
+/**
+ * The running label with the step's own progress note on the end —
+ * `Building the document… sheet 7 of 12`.
+ *
+ * "'working…' isn't much info" (Chris, twice, 2026-09-18): a twelve-sheet
+ * render is one step line for a minute, so the step says where it has got to.
+ * The note is composed by whatever is doing the work and is always a plain
+ * phrase about the WORK, never a claim about the result — same rule the
+ * labels themselves follow.
+ *
+ * Pure and additive: the label is never rewritten, so a note that stops
+ * arriving leaves the line reading exactly as it did before.
+ * @param label - The step's label for its current status.
+ * @param progress - The note, e.g. `sheet 7 of 12`. Absent leaves the label alone.
+ */
+export function stepProgressLabel(label: string, progress?: string | null): string {
+  const note = progress?.trim();
+  return note ? `${label} ${note}` : label;
+}
+
 /** Words a label may not use: they claim an outcome the call alone cannot know. */
 const OUTCOME_WORDS = /\b(?:found|successfully|succeeded|confirmed|verified that|no issues|completed|finished|returned|\d+ (?:results?|records?|sources?|matches))\b/i;
 

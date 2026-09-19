@@ -17,7 +17,7 @@ import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
-import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
+import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
 
@@ -537,9 +537,30 @@ export function useChatSession({
           }
           node.anchor = textRunsRef.current;
         }
-        map.set(node.id, mergeTraceNode(map.get(node.id), node));
+        const merged = mergeTraceNode(map.get(node.id), node);
+        map.set(node.id, merged);
         traceDirtyRef.current = true;
-        setActivity(node.label);
+        setActivity(liveStepLabel(merged));
+        scheduleFlush();
+        return;
+      }
+      case 'step_progress': {
+        // A long call saying where it has got to — "sheet 7 of 12". It rides
+        // the step line that is already there; it never adds a row.
+        const name = String(evt.tool ?? 'tool');
+        const note = String(evt.note ?? '').trim();
+        if (!note) {
+          return;
+        }
+        const map = pendingTraceRef.current;
+        const next = noteToolProgress([...map.values()], name, note);
+        const touched = next.find(n => n.tool === name && n.progress === note);
+        if (!touched) {
+          return;
+        }
+        map.set(touched.id, touched);
+        traceDirtyRef.current = true;
+        setActivity(liveStepLabel(touched));
         scheduleFlush();
         return;
       }

@@ -228,8 +228,9 @@ export function redTeamReceipt(outcome: RedTeamOutcome): string {
  * @param input.rubric - Rules to read against, appended to the generic rubric.
  * @param input.context - What the seller actually knows (the room's starred sources, in brief), so "unsourced" is judged against it.
  * @param input.bannedPhrases - The workspace's voice bans; any occurrence is a finding.
+ * @param input.onProgress - Where the pass has got to, as a phrase for the running step line. The review is ONE model call over the whole document, so the only honest note is that it has started and on how many sheets — there is no sheet-by-sheet progress to report and none is invented.
  */
-export async function redTeamDocument(orgId: string, input: { html: string; rubric?: string | null; context?: string | null; bannedPhrases?: string[] }): Promise<RedTeamOutcome> {
+export async function redTeamDocument(orgId: string, input: { html: string; rubric?: string | null; context?: string | null; bannedPhrases?: string[]; onProgress?: (note: string) => void }): Promise<RedTeamOutcome> {
   const apiKey = (await resolveOrgProviderKey('anthropic', orgId)) ?? process.env.ANTHROPIC_API_KEY ?? null;
   if (!apiKey) {
     return { status: 'skipped', reason: 'no Anthropic key is configured for this workspace or the server' };
@@ -237,6 +238,11 @@ export async function redTeamDocument(orgId: string, input: { html: string; rubr
   const sheets = prepareSheetsText(input.html);
   if (sheets.length === 0) {
     return { status: 'skipped', reason: 'no sheets to read' };
+  }
+  try {
+    input.onProgress?.(`reading ${sheets.length} ${sheets.length === 1 ? 'sheet' : 'sheets'}`);
+  } catch {
+    // Telling someone what is happening may never break the thing happening.
   }
   const system = [
     'You are the sceptical buyer on the other side of a B2B proposal: an operations lead who has to carry this into an internal business case and be right. You read for what would make you hesitate, push back, or quietly lose confidence.',

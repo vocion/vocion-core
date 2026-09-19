@@ -136,11 +136,22 @@ not fork one locally.
   (a list of facts). Empty segments are dropped, so a missing fact leaves no
   dangling separator. One line, truncated.
 - **columns** — right-aligned `<Column>`s at the `COLUMN` widths, in a fixed
-  order per page, `tabular-nums`, hidden below `sm` unless `always`.
+  order per page, `tabular-nums`, hidden below `sm` unless `always`. Facts:
+  they sit inside the row link, so the whole row is one click target.
+- **columnsAside** — the same columns, for a row where one of them clicks
+  through to somewhere of its own (a chip that opens the document). They
+  render beside the link instead of inside it. Pass a row's WHOLE set here
+  when any one column is interactive, so the order down the list never
+  changes; the chip follows them out, so it is always columns-then-chip.
 - **chip** — the row's state, always visible.
 - **actions** — hover- and focus-revealed verbs. Always visible on touch.
   When a row both navigates and has actions, the link covers the record and
   the verbs sit beside it — never a button inside an anchor.
+
+The rule behind the last two: **the link covers the record; anything that
+clicks through to somewhere else sits beside it.** An anchor or a button
+inside an anchor is invalid HTML — the browser closes the outer link at that
+point and React's hydration fails on the mismatch.
 
 ### Header and filter anatomy
 

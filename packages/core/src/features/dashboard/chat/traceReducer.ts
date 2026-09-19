@@ -1,6 +1,6 @@
 import type { TraceNode } from './types';
 import type { ArtifactPayload } from '@/services/agents/types';
-import { stepLabelFor } from '@/libs/chat/stepLabels';
+import { stepLabelFor, stepProgressLabel } from '@/libs/chat/stepLabels';
 
 /**
  * Fold one `trace_node` SSE event into the turn's accumulating trace.
@@ -28,6 +28,15 @@ export function mergeTraceNode(prev: TraceNode | undefined, event: TraceNode & {
     detail: node.detail ?? prev?.detail,
     labels,
   };
+  // A progress note describes the call while it runs. The moment it lands the
+  // note is gone — a finished step reads "Rendered the document", never
+  // "Rendered the document sheet 11 of 12".
+  const progress = node.progress ?? prev?.progress;
+  if (progress && merged.status !== 'done' && merged.status !== 'error') {
+    merged.progress = progress;
+  } else {
+    delete merged.progress;
+  }
   // Once the pair is known the tense follows the status, whichever event
   // carried which: a `done` that predates the labeler's patch, or a patch
   // that arrives after `done`, both read "Read the brand guide".
@@ -44,9 +53,48 @@ export function mergeTraceNode(prev: TraceNode | undefined, event: TraceNode & {
  * @param trace
  */
 export function finalizeTrace(trace: TraceNode[] | undefined): TraceNode[] {
-  return (trace ?? []).map(n => (n.status === 'error' || n.status === 'done'
-    ? n
-    : { ...n, status: 'done' as const, ...(n.labels ? { label: stepLabelFor(n.labels, 'done') } : {}) }));
+  return (trace ?? []).map((n) => {
+    if (n.status === 'error' || n.status === 'done') {
+      return n;
+    }
+    const { progress: _dropped, ...rest } = n;
+    return { ...rest, status: 'done' as const, ...(n.labels ? { label: stepLabelFor(n.labels, 'done') } : {}) };
+  });
+}
+
+/**
+ * Note where an in-flight tool call has got to, from a `step_progress` event.
+ *
+ * The event names the tool, not the node — a tool does not know its own trace
+ * id — so the newest step still running under that name takes the note, the
+ * same way `failToolNode` closes one from a `tool_error`. Nothing matches?
+ * The trace comes back untouched: a note is never worth inventing a step for.
+ * @param trace - The turn's trace so far.
+ * @param tool - Raw tool name from the event, e.g. `render_document`.
+ * @param note - The phrase to show, e.g. `sheet 7 of 12`.
+ */
+export function noteToolProgress(trace: TraceNode[] | undefined, tool: string, note: string): TraceNode[] {
+  const nodes = trace ?? [];
+  const phrase = note.trim();
+  if (!phrase) {
+    return nodes;
+  }
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i]!;
+    if (n.tool === tool && (n.status === 'start' || n.status === 'progress')) {
+      return [...nodes.slice(0, i), { ...n, status: 'progress', progress: phrase }, ...nodes.slice(i + 1)];
+    }
+  }
+  return nodes;
+}
+
+/**
+ * What the live line says for a step: its label, plus where the call has got
+ * to when it has said.
+ * @param node - The step.
+ */
+export function liveStepLabel(node: Pick<TraceNode, 'label' | 'progress'>): string {
+  return stepProgressLabel(node.label, node.progress);
 }
 
 /**
