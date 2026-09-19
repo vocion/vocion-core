@@ -92,7 +92,7 @@ const inlineFieldClass = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm o
  * @param props.disabled - Read-only when the caller passes no editor.
  * @param props.label - The accessible name; there is no visible label.
  */
-function AutoGrow({ value, onChange, className, disabled, label }: {
+export function AutoGrow({ value, onChange, className, disabled, label }: {
   value: string;
   onChange: (next: string) => void;
   className?: string;

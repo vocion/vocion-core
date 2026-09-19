@@ -274,7 +274,6 @@
     "context_stage": "Stage",
     "context_source": "Came in via",
     "context_since": "In CRM",
-    "context_open_hubspot": "Open in HubSpot",
     "context_touches": "Inbox & outbox",
     "context_in": "They wrote",
     "context_out": "We wrote",
@@ -284,7 +283,17 @@
     "context_ask": "Ask about this contact",
     "context_none": "None found",
     "context_not_connected": "Not connected",
-    "context_error": "Could not read:"
+    "context_error": "Could not read:",
+    "context_back": "Back to context",
+    "context_search": "Search this record",
+    "context_no_match": "Nothing here matches that.",
+    "context_changes": "Changes",
+    "context_documents": "Documents",
+    "context_email": "Email",
+    "context_when": "When",
+    "context_system": "System",
+    "context_today": "Today",
+    "context_proposed": "Proposed"
   },
   "Marketplace": {
     "plugins_tab_description": "What this workspace can turn on: a plugin bundles agents, skills, object types, pages and measures that compose under your workspace in one switch. Shipped in templates/plugins; turning one on writes one line in workspace.yaml and applies it.",

@@ -871,6 +871,16 @@ component.
   to talk about what you found is the link out.
 - **A preview is a place.** It lives in the URL (`?preview=<type>:<id>`), so it
   is linkable, survives a reload, and Back closes it.
+- **The in-page pane is the one exception, and it is narrow.** A pane that is
+  part of the page rather than the rail — the review sheet's context pane —
+  mounts `PreviewPane` directly with `doc` (content the page already assembled
+  on the server, so there is no round trip), `onClose` (its own local
+  selection, so the global `?preview=` is untouched and the rail does not paint
+  a second copy of the same record) and `compact` (drops Share and "Chat about
+  this", which do not fit a 288px column and would take the reader off the
+  decision). It is still the same anatomy and the same `back` affordance — one
+  preview component, two hosts. Anything that points at a record *elsewhere*
+  still goes through `EvidenceRefs` / `PreviewRef` and paints in the rail.
 
 ### Adding a type
 

@@ -274,7 +274,6 @@
     "context_stage": "Étape",
     "context_source": "Arrivé via",
     "context_since": "Dans le CRM",
-    "context_open_hubspot": "Ouvrir dans HubSpot",
     "context_touches": "Reçus et envoyés",
     "context_in": "Ils ont écrit",
     "context_out": "Nous avons écrit",
@@ -284,7 +283,17 @@
     "context_ask": "Interroger sur ce contact",
     "context_none": "Rien trouvé",
     "context_not_connected": "Non connecté",
-    "context_error": "Lecture impossible :"
+    "context_error": "Lecture impossible :",
+    "context_back": "Retour au contexte",
+    "context_search": "Rechercher dans cet enregistrement",
+    "context_no_match": "Rien ici ne correspond.",
+    "context_changes": "Modifications",
+    "context_documents": "Documents",
+    "context_email": "E-mail",
+    "context_when": "Quand",
+    "context_system": "Système",
+    "context_today": "Aujourd’hui",
+    "context_proposed": "Proposé"
   },
   "Marketplace": {
     "plugins_tab_description": "Ce que cet espace de travail peut activer : un plugin regroupe agents, compétences, types d’objets, pages et mesures qui se composent dans votre espace de travail en un seul interrupteur. Livrés dans templates/plugins ; en activer un écrit une ligne dans workspace.yaml et l’applique.",
