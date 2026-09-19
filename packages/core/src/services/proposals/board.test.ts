@@ -97,9 +97,9 @@ describe('proposalRowView — the whole matrix, one glance each', () => {
     issues: { spec: { verification: verification(false) }, label: '2 issues', tone: 'amber' },
   } as const;
   const RED = {
-    'not read': { spec: {}, label: 'Not read', tone: 'neutral' },
-    'read clean': { spec: { redTeam: read(0, 0) }, label: 'Read · clean', tone: 'pass' },
-    'blocks': { spec: { redTeam: read(2, 0) }, label: 'Read · 2 blocking', tone: 'fail' },
+    'not read': { spec: {}, label: 'Unread', tone: 'neutral' },
+    'read clean': { spec: { redTeam: read(0, 0) }, label: 'Read clean', tone: 'pass' },
+    'blocks': { spec: { redTeam: read(2, 0) }, label: '2 blocking', tone: 'fail' },
   } as const;
 
   const rowFor = (stage: string, verify: keyof typeof VERIFY, red: keyof typeof RED) => {
@@ -120,10 +120,15 @@ describe('proposalRowView — the whole matrix, one glance each', () => {
           expect(v.redTeam).toEqual({ label: RED[red].label, tone: RED[red].tone });
           expect(v.state.label).toBe(stage === 'Proposal sent' ? 'Sent' : 'Drafted');
           expect(v.age).toBe('4 days ago');
+          // The two readings LEAD the line under the title, coloured.
+          expect(v.subline.slice(0, 2)).toEqual([v.verify, v.redTeam]);
+
           // The room is the context, not the headline.
-          expect(v.subline).toContain('Room 1');
-          expect(v.subline).toContain('v3');
-          expect(v.subline).toContain('status 2026-09-16');
+          const said = v.subline.map(x => x.label);
+
+          expect(said).toContain('Room 1');
+          expect(said).toContain('v3');
+          expect(said).toContain('status 2026-09-16');
           expect(v.openItems).toBe(2);
         }
       }
@@ -144,7 +149,12 @@ describe('proposalRowView — the whole matrix, one glance each', () => {
       age: '3 days ago',
       openItems: 0,
     });
-    expect(v.subline).toEqual(['Kestrel Capital', 'Proposal', 'at this stage since 2026-09-17']);
+    expect(v.subline).toEqual([
+      { label: 'Nothing written yet', tone: 'amber' },
+      { label: 'Kestrel Capital', tone: 'neutral' },
+      { label: 'Proposal', tone: 'neutral' },
+      { label: 'at this stage since 2026-09-17', tone: 'neutral' },
+    ]);
   });
 
   it('the room\'s deliverables say whether it went out; a room at Proposal stage never downgrades a sent document', () => {
@@ -159,6 +169,7 @@ describe('proposalRowView — the whole matrix, one glance each', () => {
   it('dates what it says: the sheet count and the status date are on the row, not only in a tooltip', () => {
     const v = proposalRowView(rowFor('Proposal', 'verified', 'read clean'), NOW);
 
-    expect(v.subline).toEqual(['Northwind Logistics', 'Room 1', 'v3', '7 sheets', 'status 2026-09-16']);
+    expect(v.subline.map(x => x.label)).toEqual(['Verified', 'Read clean', 'v3', '7 sheets', 'Northwind Logistics', 'Room 1', 'status 2026-09-16']);
+    expect(v.subline.map(x => x.tone)).toEqual(['pass', 'pass', 'neutral', 'neutral', 'neutral', 'neutral', 'neutral']);
   });
 });

@@ -1,4 +1,4 @@
-import type { ProposalRowView, ReadingTone } from '@/services/proposals/board';
+import type { ReadingTone } from '@/services/proposals/board';
 import type { Status } from '@/types/Status';
 import { FilePlus2, FileText } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
@@ -8,7 +8,6 @@ import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { loadProposalBoard, proposalRowView } from '@/services/proposals/board';
-import { cn } from '@/utils/Helpers';
 
 /** A tone is a brand semantic, and `StatusPill` is where those are drawn. */
 const PILL: Record<ReadingTone, Status> = { pass: 'active', amber: 'pending', fail: 'failed', neutral: 'inactive' };
@@ -21,34 +20,20 @@ const INK: Record<ReadingTone, string> = {
 };
 
 /**
- * One claim about the document, coloured by how strongly it is meant, so the
- * row's state is told apart before it is read (principle 10). An em dash where
- * there is no document: the claim is not "unverified", it is "there is
- * nothing to verify".
- * @param props - Props.
- * @param props.reading - The claim, or null when there is no document.
- * @param props.testId - What a test greps for.
- */
-function ReadingText(props: { reading: ProposalRowView['verify']; testId: string }) {
-  if (!props.reading) {
-    return <span className="text-muted-foreground/60">—</span>;
-  }
-  return <span data-testid={props.testId} className={cn('truncate', INK[props.reading.tone])}>{props.reading.label}</span>;
-}
-
-/**
  * Proposals — the GTM app over data rooms and documents. **The document is
- * the subject of a row**: its title, its version, whether it is drafted or
- * sent, whether it render-verified and whether a sceptical buyer has read it,
- * and how long it has been sitting. The room is the context, in the subline,
- * and the whole row is still a door to it.
+ * the subject of a row**: its title leads, the line under it opens with
+ * whether it render-verified and whether a sceptical buyer has read it — both
+ * coloured — then the version, the sheets, the client and the room. The chip
+ * says whether it has gone out; the columns say what is open and how long it
+ * has been sitting. The whole row is still a door to the room.
  *
  * Chris, 2026-09-19: *"this guy has a proposal, but it's not clear from the
  * proposal list"* — the row used to lead with the room name and a status
- * sentence that truncated, with the document reduced to one small column. A
+ * sentence that truncated, with the document reduced to one small column
+ * reading `7 sheets · verified · not read as the buyer`, itself truncated. A
  * row with nothing drafted reads differently on purpose: a different icon, an
- * amber chip that says so, empty columns, and the Draft action always visible
- * rather than revealed on hover.
+ * amber chip and an amber first fact that say so, and the Draft action always
+ * visible rather than revealed on hover.
  *
  * Optional surface at `/gtm/proposals`, linked where `workspace.yaml` lists
  * `surfaces: [proposals]` (`features/navigation/surfaces.ts`); the
@@ -95,11 +80,16 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
                     icon={nothing ? FilePlus2 : FileText}
                     title={v.title}
                     data-testid={`proposal-row-${r.id}`}
-                    subline={<Subline separator="·" segments={v.subline} />}
+                    subline={(
+                      <Subline
+                        separator="·"
+                        segments={v.subline.map(seg => (
+                          <span key={seg.label} data-tone={seg.tone} className={INK[seg.tone]}>{seg.label}</span>
+                        ))}
+                      />
+                    )}
                     columns={(
                       <>
-                        <Column kind="status"><ReadingText reading={v.verify} testId="proposal-verify" /></Column>
-                        <Column kind="status"><ReadingText reading={v.redTeam} testId="proposal-red-team" /></Column>
                         <Column kind="number">{v.openItems > 0 ? `${v.openItems} open` : '—'}</Column>
                         <Column kind="date">{v.age || '—'}</Column>
                       </>

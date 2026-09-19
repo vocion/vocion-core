@@ -93,8 +93,19 @@ export type ProposalRowView = {
   /** What the row LEADS with: the document, or the engagement when there is none. */
   title: string;
   subject: ProposalSubject;
-  /** Facts under the title, `·`-joined. The room is in here — it is the context, not the headline. */
-  subline: string[];
+  /**
+   * The line under the title, `·`-joined, each segment toned.
+   *
+   * The two readings a person is actually scanning for — did it render
+   * cleanly, has a sceptical buyer read it — LEAD this line rather than
+   * sitting in columns, and they are coloured. Columns were the first cut and
+   * they do not fit: with the conversation rail open a row is ~620px, four
+   * `Column`s take 384 of it, and the title — the document, the whole point of
+   * the change — collapsed to nothing. A subline starts at the same x on every
+   * row, so the verdicts still line up down the list; they just line up on the
+   * left (measured in a browser, 2026-09-19).
+   */
+  subline: Reading[];
   /** The row's own state chip: Sent · Drafted · Nothing drafted. */
   state: Reading;
   /** Did it render cleanly. `null` only when there is no document to verify. */
@@ -159,6 +170,21 @@ const VERIFY: Record<ProposalDocument['verify'], ReadingTone> = { verified: 'pas
 const RED_TEAM: Record<ProposalDocument['redTeam'], ReadingTone> = { clean: 'pass', findings: 'amber', blocking: 'fail', unread: 'neutral' };
 
 /**
+ * The buyer read, said in as few words as a row has room for. A list row is
+ * ~190px of line with the conversation rail open, and `read as the buyer ·
+ * 2 blocking` — the long form the room page and the export gate use — spent
+ * all of it on the preamble and truncated the count, which is the only part
+ * that decides anything. Each still names its class, so a colour is never the
+ * whole claim; the long form is one click away on the room.
+ */
+const RED_TEAM_LABEL: Record<ProposalDocument['redTeam'], (chip: string) => string> = {
+  unread: () => 'Unread',
+  clean: () => 'Read clean',
+  findings: chip => chip.replace('read as the buyer · ', ''),
+  blocking: chip => chip.replace('read as the buyer · ', ''),
+};
+
+/**
  * The row, read. The DOCUMENT is the subject — its title leads, its version,
  * its verify verdict and its red-team state are the columns, and the room
  * drops into the subline as context.
@@ -177,11 +203,15 @@ const RED_TEAM: Record<ProposalDocument['redTeam'], ReadingTone> = { clean: 'pas
 export function proposalRowView(row: ProposalRow, now: number): ProposalRowView {
   const d = row.document;
   const sat = row.statusAt?.slice(0, 10);
+  const facts = (...parts: Array<string | undefined>): Reading[] => parts.filter((x): x is string => Boolean(x)).map(label => ({ label, tone: 'neutral' as const }));
   if (!d) {
     return {
       title: row.title,
       subject: 'none',
-      subline: [row.client, row.stageLabel, sat ? `at this stage since ${sat}` : undefined].filter((x): x is string => Boolean(x)),
+      subline: [
+        { label: 'Nothing written yet', tone: 'amber' },
+        ...facts(row.client, row.stageLabel, sat ? `at this stage since ${sat}` : undefined),
+      ],
       state: { label: 'Nothing drafted', tone: 'amber' },
       verify: null,
       redTeam: null,
@@ -192,28 +222,31 @@ export function proposalRowView(row: ProposalRow, now: number): ProposalRowView 
   // The room's stage can only ever say MORE than the deliverable, never less:
   // a document with no deliverable line in a room at "Proposal sent" is sent.
   const state: DocumentState = d.state === 'drafted' && row.stage === 'sent' ? 'sent' : d.state;
+  const verify: Reading = {
+    label: d.verify === 'verified' ? 'Verified' : d.verify === 'issues' ? verificationIssues(d.chip) : 'Not verified',
+    tone: VERIFY[d.verify],
+  };
+  const redTeam: Reading = { label: RED_TEAM_LABEL[d.redTeam](d.redTeamLabel), tone: RED_TEAM[d.redTeam] };
   return {
     title: d.title,
     subject: 'document',
     subline: [
-      row.client,
-      row.title,
-      `v${d.version}`,
-      d.sheets === undefined ? undefined : `${d.sheets} ${d.sheets === 1 ? 'sheet' : 'sheets'}`,
-      sat ? `status ${sat}` : undefined,
-    ].filter((x): x is string => Boolean(x)),
+      verify,
+      redTeam,
+      ...facts(
+        `v${d.version}`,
+        d.sheets === undefined ? undefined : `${d.sheets} ${d.sheets === 1 ? 'sheet' : 'sheets'}`,
+        row.client,
+        row.title,
+        sat ? `status ${sat}` : undefined,
+      ),
+    ],
     state: {
       label: state === 'sent' ? 'Sent' : state === 'signed' ? 'Signed' : 'Drafted',
       tone: state === 'drafted' ? 'neutral' : 'pass',
     },
-    verify: {
-      label: d.verify === 'verified' ? 'Verified' : d.verify === 'issues' ? verificationIssues(d.chip) : 'Not verified',
-      tone: VERIFY[d.verify],
-    },
-    redTeam: {
-      label: d.redTeam === 'unread' ? 'Not read' : `Read · ${d.redTeamLabel.replace('read as the buyer · ', '')}`,
-      tone: RED_TEAM[d.redTeam],
-    },
+    verify,
+    redTeam,
     age: ageLabel(new Date(d.movedAt), now),
     openItems: row.openItems,
   };
