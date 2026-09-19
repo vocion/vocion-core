@@ -69,7 +69,8 @@
     "system": "Système",
     "profile": "Profil",
     "marketplace": "Place de marché",
-    "see_also": "Voir aussi :"
+    "plugins": "Plugins",
+    "agents_for_hire": "Agents à recruter"
   },
   "Dashboard": {
     "meta_title": "Tableau de bord du Vocion",
@@ -286,9 +287,8 @@
     "context_error": "Lecture impossible :"
   },
   "Marketplace": {
-    "title_bar_description": "Ce que cet espace de travail peut activer : des plugins qui regroupent agents, compétences, pages et mesures, et des agents que vous n'avez pas encore recrutés. Chaque agent fonctionne dès le premier jour à partir de fichiers que vous importez — connectez un système plus tard pour l'enrichir. Livrés dans templates/plugins et templates/catalog ; activer un plugin écrit une ligne dans workspace.yaml.",
-    "plugins_heading": "Plugins",
-    "agents_heading": "Agents à recruter",
+    "plugins_tab_description": "Ce que cet espace de travail peut activer : un plugin regroupe agents, compétences, types d’objets, pages et mesures qui se composent dans votre espace de travail en un seul interrupteur. Livrés dans templates/plugins ; en activer un écrit une ligne dans workspace.yaml et l’applique.",
+    "agents_tab_description": "Des rôles que vous n’avez pas encore recrutés : ouvrez un profil pour voir ce que fait un agent avant de l’ajouter à l’équipe. Chaque agent fonctionne dès le premier jour à partir de fichiers que vous importez — connectez un système plus tard pour l’enrichir. Livrés dans templates/catalog.",
     "view_profile": "Voir le profil",
     "skill_count": "{count, plural, one {# compétence} other {# compétences}}",
     "empty_title": "Tout votre catalogue est en service",

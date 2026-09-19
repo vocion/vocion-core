@@ -101,7 +101,7 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
               // grey, beside the name, never in place of it.
               <span
                 className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[11px] font-normal text-muted-foreground tabular-nums"
-                title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'proposal' : 'proposals') : (item.count === 1 ? 'question' : 'questions')} waiting`}
+                title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'recommendation' : 'recommendations') : (item.count === 1 ? 'question' : 'questions')} waiting`}
               >
                 {item.count}
               </span>

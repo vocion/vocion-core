@@ -28,7 +28,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 
 const { ReviewSurface } = await import('./ReviewSurface');
 
-const CRUMBS = [{ label: 'Workspace' }, { label: 'Review queue' }, { label: 'Proposals' }];
+const CRUMBS = [{ label: 'Workspace' }, { label: 'Review queue' }, { label: 'Recommendations' }];
 const REASON = 'Third listing of this same show this week.';
 
 /**

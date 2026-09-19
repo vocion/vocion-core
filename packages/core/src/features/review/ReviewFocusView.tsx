@@ -62,7 +62,7 @@ export type ReviewFocusViewProps = {
   types?: readonly ReviewType[];
   activeTypes?: readonly string[];
   onChangeTypes?: (next: string[]) => void;
-  /** Breadcrumb override; defaults to Workspace › Review queue › Proposals › record. */
+  /** Breadcrumb override; defaults to Workspace › Review queue › Recommendations › record. */
   crumbs?: Array<{ label: string; href?: string }>;
   current: ActionRun | null;
   /** Index of `current` in the working queue, 0-based; -1 when unknown. */
@@ -136,7 +136,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
     const chosenLabel = chosen.length === 1 ? chosen[0]!.label : null;
     return (
       <div data-testid="review-focus">
-        <ReviewHeader crumbs={p.crumbs ?? decisionCrumbs('proposal')} title="Proposals" status="pending" />
+        <ReviewHeader crumbs={p.crumbs ?? decisionCrumbs('proposal')} title="Recommendations" status="pending" />
         {chips}
         <div className="px-2 py-16 text-center">
           <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
@@ -145,7 +145,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {p.decided > 0 ? `${p.decided} handled this session. ` : ''}
-            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on the review queue for your decision.'}
+            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent recommendations land on the review queue for your decision.'}
           </p>
         </div>
       </div>

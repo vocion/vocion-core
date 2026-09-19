@@ -123,7 +123,7 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // Review is no longer a place: the queue is the `proposal` kind of Review queue
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.
-  { url: '/dashboard/inbox?kind=proposal', title: 'Review · Proposals', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
+  { url: '/dashboard/inbox?kind=proposal', title: 'Review · Recommendations', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
   { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'], pinnable: true },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───
@@ -149,13 +149,18 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   { url: '/dashboard/tools', title: 'Tools', group: 'Build', icon: Wrench, i18nKey: 'tools', tabOf: '/dashboard/skills', keywords: ['capabilities', 'web search', 'keys'] },
   { url: '/dashboard/models', title: 'Vision models', group: 'Build', icon: Cpu, i18nKey: 'vision_models', tabOf: '/dashboard/skills', keywords: ['rekognition', 'classifier', 'analyze'] },
   { url: '/dashboard/evals', title: 'Evals', group: 'Build', icon: TestTube, i18nKey: 'evals', keywords: ['tests', 'datasets'] },
-  // Everything this workspace could turn on, in one place: the plugins this
-  // core ships (wiki, data rooms, proposals) and the catalog agents nobody has
-  // hired yet. Under Build beside Skills & tools and Evals because both are
-  // capability — it stopped being a tab of Teams & agents, which is the roster
-  // you already have (Chris, 2026-09-18: "Marketplace probably belongs outside
-  // of Teams & Agents… should combine Plugins and Agents available for hire").
-  { url: '/dashboard/marketplace', title: 'Marketplace', group: 'Build', icon: Store, i18nKey: 'marketplace', keywords: ['catalog', 'hire', 'inactive agents', 'plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
+  // Where you go to ADD capability, as against Teams & agents, which is what
+  // you already have (Chris, 2026-09-19: "Teams/Agents = where you go to see
+  // your agents and capabilities. Marketplace = where you go to add capability
+  // (hire agents, enable plugins)"). Two tabs, because the plugins this core
+  // ships and the catalog agents nobody has hired are two lists, not one long
+  // page. Under Build beside Skills & tools and Evals because both are
+  // capability.
+  { url: '/dashboard/marketplace', title: 'Marketplace', tabTitle: 'Plugins', tabI18nKey: 'plugins', group: 'Build', icon: Store, i18nKey: 'marketplace', keywords: ['catalog', 'hire', 'inactive agents', 'plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
+  // The second tab. `/dashboard/marketplace` keeps the plugin list, so the
+  // 308 from `/dashboard/plugins` still lands on plugins; the agents nobody
+  // has hired get their own URL rather than a second half of one long page.
+  { url: '/dashboard/marketplace/agents', title: 'Agents for hire', group: 'Build', icon: Users, i18nKey: 'agents_for_hire', tabOf: '/dashboard/marketplace', keywords: ['catalog', 'hire', 'recruit', 'roles', 'inactive agents'] },
 
   // ── MANAGE · Insights — how it is going ─────────────────────────────────
   { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },

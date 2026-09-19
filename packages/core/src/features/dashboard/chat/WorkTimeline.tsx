@@ -129,7 +129,7 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
       const conf = typeof input.confidence === 'number' ? ` · ${Math.round((input.confidence as number) * 100)}%` : '';
       // Whether it ran or waits is the run's to say (the card below carries
       // its status); this line stops claiming it was queued.
-      return { label: live ? `Proposing ${actionId}${conf}…` : `Proposed ${actionId}${conf}` };
+      return { label: live ? `Recommending ${actionId}${conf}…` : `Recommended ${actionId}${conf}` };
     }
     case 'create_artifact':
       return { label: live ? 'Creating artifact…' : 'Created artifact', detail: String(input.kind ?? '') || undefined };

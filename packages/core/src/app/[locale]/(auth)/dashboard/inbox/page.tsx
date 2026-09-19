@@ -72,10 +72,10 @@ export default async function InboxPage(props: {
               description={filtered
                 ? 'Clear the search or a filter to see the rest.'
                 : tab === 'open'
-                  ? 'Proposals, rulings, approvals, merges, credentials, recommendations and stopped runs land here as the team works. Nothing is waiting right now.'
+                  ? 'Recommendations, rulings, approvals, merges, credentials, choices and stopped runs land here as the team works. Nothing is waiting right now.'
                   : tab === 'snoozed'
-                    ? 'Proposals you snooze wait here until their time comes.'
-                    : 'Answered asks, decided proposals and adopted rules will be listed here, newest first.'}
+                    ? 'Recommendations you snooze wait here until their time comes.'
+                    : 'Answered asks, decided recommendations and adopted rules will be listed here, newest first.'}
               action={filtered ? { label: 'Clear filters', href: tab === 'open' ? '/dashboard/inbox' : `/dashboard/inbox?tab=${tab}` } : { label: 'See what the team did', href: '/dashboard/activity' }}
             />
           )

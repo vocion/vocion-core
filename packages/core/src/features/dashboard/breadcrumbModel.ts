@@ -5,7 +5,8 @@ import { parseRecordKeyParam, recordKeyLabel } from '@/services/inbox/recordKey'
  * Pure crumb builder for the shell-bar breadcrumb, kept away from React so
  * the parent-tab rule is unit-testable. Registered routes get their registry
  * title; a route that is one TAB of a combined page gets that page inserted
- * before it ("Teams & agents › Agents"); deeper segments (slugs, ids) take
+ * before it ("Teams & agents › Agents") unless the path already went through
+ * it ("Marketplace › Agents for hire"); deeper segments (slugs, ids) take
  * the page's own `<title>` when it has one, else a humanised slug.
  *
  * The decision sheets are the exception the generic rule cannot get right on
@@ -47,7 +48,11 @@ export function buildCrumbs(input: { pathname: string; docTitle: string; workspa
     const registered = dashboardRoute(url);
     if (registered) {
       const owner = registered.tabOf ? dashboardRoute(registered.tabOf) : undefined;
-      if (owner) {
+      // A tab whose URL is nested UNDER its owner's (Marketplace › Agents for
+      // hire) already walked past the owner on the previous segment, so
+      // inserting it again duplicates the crumb AND its React key. Only insert
+      // an owner the path did not already pass through.
+      if (owner && pageCrumbs[pageCrumbs.length - 1]?.url !== owner.url) {
         pageCrumbs.push({ url: owner.url, label: owner.title });
       }
       pageCrumbs.push({ url, label: registered.title });

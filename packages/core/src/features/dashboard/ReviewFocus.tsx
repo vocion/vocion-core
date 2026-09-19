@@ -232,7 +232,7 @@ export function ReviewFocus(props: {
   if (cleared) {
     return (
       <div className="mx-auto w-full max-w-3xl" data-testid="review-cleared">
-        <ReviewHeader crumbs={decisionCrumbs('proposal', record)} title="Queue clear" system="Proposals" status="done" position={`${decided} decided this visit`} />
+        <ReviewHeader crumbs={decisionCrumbs('proposal', record)} title="Queue clear" system="Recommendations" status="done" position={`${decided} decided this visit`} />
         <p className="mt-3 text-sm text-muted-foreground">Nothing else in this queue is waiting on you.</p>
         <p className="mt-4">
           <Link href={listHref} className="text-sm text-primary underline-offset-2 hover:underline" data-testid="review-cleared-back">Back to the review queue</Link>

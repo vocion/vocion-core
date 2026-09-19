@@ -39,7 +39,7 @@ vi.mock('@/libs/I18nNavigation', () => ({
 
 const { ReviewSurface } = await import('./ReviewSurface');
 
-const CRUMBS = [{ label: 'Workspace', href: '/dashboard' }, { label: 'Review queue', href: '/dashboard/inbox' }, { label: 'Proposals' }];
+const CRUMBS = [{ label: 'Workspace', href: '/dashboard' }, { label: 'Review queue', href: '/dashboard/inbox' }, { label: 'Recommendations' }];
 
 /**
  * An enrollment run with `n` sends — the shape that grows.
@@ -175,7 +175,7 @@ describe('one flat template, every object type', () => {
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
     expect(labels).toEqual(['Why', 'Evidence']);
-    await expect.element(page.getByText('No rationale recorded for this proposal.')).toBeVisible();
+    await expect.element(page.getByText('No rationale recorded for this recommendation.')).toBeVisible();
 
     await page.getByTestId('tab-evidence').click();
 

@@ -69,7 +69,8 @@
     "system": "System",
     "profile": "Profile",
     "marketplace": "Marketplace",
-    "see_also": "See also:"
+    "plugins": "Plugins",
+    "agents_for_hire": "Agents for hire"
   },
   "Dashboard": {
     "meta_title": "Vocion Dashboard",
@@ -286,9 +287,8 @@
     "context_error": "Could not read:"
   },
   "Marketplace": {
-    "title_bar_description": "What this workspace can turn on: plugins that bundle agents, skills, pages and measures, and agents you have not hired yet. Every agent works from uploads on day one — connect a system later to deepen it. Shipped in templates/plugins and templates/catalog; turning a plugin on writes one line in workspace.yaml.",
-    "plugins_heading": "Plugins",
-    "agents_heading": "Agents for hire",
+    "plugins_tab_description": "What this workspace can turn on: a plugin bundles agents, skills, object types, pages and measures that compose under your workspace in one switch. Shipped in templates/plugins; turning one on writes one line in workspace.yaml and applies it.",
+    "agents_tab_description": "Roles you have not hired yet: open a profile to see what an agent does before you add it to the team. Every agent works from uploads on day one — connect a system later to deepen it. Shipped in templates/catalog.",
     "view_profile": "View profile",
     "skill_count": "{count, plural, one {# skill} other {# skills}}",
     "empty_title": "Your whole catalog is working",

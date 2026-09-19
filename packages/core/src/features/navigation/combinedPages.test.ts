@@ -27,8 +27,9 @@ describe('combinedPage — tab deep-links', () => {
     expect(combinedPageTitle('/dashboard/agents')).toBe('Agents · Teams & agents');
     expect(combinedPageTitle('/dashboard/models')).toBe('Vision models · Skills & tools');
     expect(combinedPageTitle('/dashboard/evals')).toBeUndefined();
-    // The Marketplace left the tab strip: it owns no tabs and is a tab of
-    // nothing, so it titles itself (a plain metadata title on the page).
-    expect(combinedPageTitle('/dashboard/marketplace')).toBeUndefined();
+    // The Marketplace owns its OWN strip now — Plugins on its own URL, Agents
+    // for hire one segment down (Chris, 2026-09-18).
+    expect(combinedPageTitle('/dashboard/marketplace')).toBe('Marketplace');
+    expect(combinedPageTitle('/dashboard/marketplace/agents')).toBe('Agents for hire · Marketplace');
   });
 });

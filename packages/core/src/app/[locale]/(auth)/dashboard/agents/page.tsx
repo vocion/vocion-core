@@ -103,7 +103,7 @@ export default async function AgentsPage(props: {
     <>
       <CombinedPageHeader
         active="/dashboard/agents"
-        description="Your lead AI agents — the ones you brief directly. Open one to see the specialists it coordinates, its tools, and how it works."
+        description="Your lead AI agents — the ones you brief directly. Open one to see the specialists it coordinates, its tools, and how it works. Authored in workspace/agents; hire another from the Marketplace."
       />
 
       {activatedCards.length === 0 && ghostCards.length === 0

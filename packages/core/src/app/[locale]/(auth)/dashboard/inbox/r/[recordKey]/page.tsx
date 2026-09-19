@@ -47,7 +47,7 @@ export default async function RecordSheetPage(props: { params: Promise<{ locale:
         <ListEmpty
           icon={Inbox}
           title="Nothing waiting on this record"
-          description={`No open or decided proposals about ${view.label} any more.`}
+          description={`No open or decided recommendations about ${view.label} any more.`}
           action={{ label: 'Back to the review queue', href: REVIEW_CRUMB.href }}
         />
       </div>

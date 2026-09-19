@@ -36,7 +36,7 @@ export function recordSheetView(recordKey: string, rows: { open: ReviewRow[]; de
   return {
     state: 'sheet',
     name,
-    title: `${name} — ${open.length} ${open.length === 1 ? 'proposal' : 'proposals'}`,
+    title: `${name} — ${open.length} ${open.length === 1 ? 'recommendation' : 'recommendations'}`,
     open,
     decided,
   };

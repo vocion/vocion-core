@@ -106,7 +106,7 @@ export function ReviewHeader(props: {
   //
   // Chris, 2026-09-17: *"make this bar more concise or visual or… less text?,
   // but with discoverable hover/tooltip if helpful"*. So the grammar goes and
-  // the facts stay: "proposed by revenue-lead" is one fact wearing three words,
+  // the facts stay: "recommended by revenue-lead" is one fact wearing three words,
   // "Recommendation 65%" names the thing the whole page already is, and
   // "(n=9, 30d)" is the working behind the number. Each keeps its full sentence
   // in a tooltip — which is the reduction pass exactly: show the reading, put
@@ -123,7 +123,7 @@ export function ReviewHeader(props: {
   );
   if (props.proposedBy) {
     const agent = props.proposedBy.replace('agent:', '');
-    meta.push(<span key="by" title={`Proposed by ${agent}`}>{agent}</span>);
+    meta.push(<span key="by" title={`Recommended by ${agent}`}>{agent}</span>);
   }
   if (props.confidence !== undefined) {
     // Never a bare score: the meter carries what the confidence is IN.
