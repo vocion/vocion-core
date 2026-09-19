@@ -40,11 +40,14 @@ import { contextPaneRows, filterContextRows, groupContextRows } from './reviewSh
  * own agent surface so the answer arrives beside the decision.
  * @param props
  * @param props.context - The assembled contact context, when the proposal is about an address.
+ * @param props.contextRead
  * @param props.changes - What this recommendation would write.
  * @param props.evidence - The citations behind it.
  */
-export function ReviewContextRail({ context, changes, evidence }: {
+export function ReviewContextRail({ context, contextRead, changes, evidence }: {
   context?: ReviewContextModel | null;
+  /** False when the server did not attempt a context read for this recommendation. */
+  contextRead?: boolean;
   changes?: readonly ActionChange[];
   evidence?: readonly string[];
 }) {
@@ -77,11 +80,12 @@ export function ReviewContextRail({ context, changes, evidence }: {
     none: t('context_none'),
     notConnected: t('context_not_connected'),
     error: t('context_error'),
+    notRead: t('context_not_read'),
   };
   // No `useMemo`: the React Compiler memoizes this, and a hand-written
   // dependency list here cannot name the translator the labels come from
   // without re-running on every render anyway.
-  const pane = contextPaneRows({ context, changes, evidence, labels, agoLabel: at => agoLabel(at) });
+  const pane = contextPaneRows({ context, contextRead, changes, evidence, labels, agoLabel: at => agoLabel(at) });
 
   /**
    * The group eyebrow. Written as literal `t()` calls rather than a lookup so

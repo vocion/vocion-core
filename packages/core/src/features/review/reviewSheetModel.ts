@@ -402,6 +402,13 @@ export type ContextPaneLabels = {
   none: string;
   notConnected: string;
   error: string;
+  /**
+   * The record's context is read on the server and the read calls out to the
+   * CRM, so only the first few recommendations on a sheet get one. Beyond
+   * that the pane must say the context was never read rather than render the
+   * same empty state as "this contact has nothing" (principle 10).
+   */
+  notRead: string;
 };
 
 /** The English defaults, so a story or a test need not build the whole table. */
@@ -428,6 +435,7 @@ export const CONTEXT_PANE_LABELS: ContextPaneLabels = {
   none: 'None found',
   notConnected: 'Not connected',
   error: 'Could not read:',
+  notRead: 'Context for this recommendation has not been read yet.',
 };
 
 /** The record types `services/preview/descriptors` actually registers a resolver for. */
@@ -462,6 +470,7 @@ function sectionNote(section: string, status: string, message: string | undefine
  * in the pane rather than navigating away from the decision.
  * @param input - What the page assembled.
  * @param input.context - The contact context, when the proposal is about an address.
+ * @param input.contextRead
  * @param input.changes - The field changes this proposal would write.
  * @param input.evidence - Citations behind the proposal.
  * @param input.agoLabel - How a timestamp reads ("3d ago"); injected so the model stays pure.
@@ -469,6 +478,8 @@ function sectionNote(section: string, status: string, message: string | undefine
  */
 export function contextPaneRows(input: {
   context?: ReviewContextModel | null;
+  /** Whether a context read was even attempted for this recommendation. */
+  contextRead?: boolean;
   changes?: readonly ActionChange[];
   evidence?: readonly string[];
   agoLabel: (at: Date) => string;
@@ -478,6 +489,7 @@ export function contextPaneRows(input: {
   const rows: ContextPaneRow[] = [];
   const notes: string[] = [];
   const ctx = input.context ?? null;
+  const attempted = input.contextRead ?? true;
 
   if (ctx?.contact.status === 'ok') {
     const c = ctx.contact.data;
@@ -610,6 +622,13 @@ export function contextPaneRows(input: {
       ...(isPreviewable(ref.ref.type) ? { ref: { type: ref.ref.type, id: ref.ref.id } } : {}),
       haystack: `${ref.label} ${ref.sourceLabel} ${source}`.toLowerCase(),
     });
+  }
+
+  // Never let "we did not look" render as "there is nothing here": the
+  // server reads context for the first few recommendations only, and the
+  // rest must say so rather than share the empty state (principle 10).
+  if (!attempted && ctx === null) {
+    notes.push(labels.notRead);
   }
 
   return { warnings: ctx?.warnings ?? [], rows, notes };

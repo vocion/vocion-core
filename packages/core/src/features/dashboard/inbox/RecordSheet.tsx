@@ -178,6 +178,7 @@ export function RecordSheet({ open, decided, title, crumbs, reasons = {}, works 
               aside={ask => (
                 <ReviewContextRail
                   context={contexts[ask.id] ?? null}
+                  contextRead={Object.prototype.hasOwnProperty.call(contexts, ask.id)}
                   // An email's describer emits `subject` as a change so the
                   // LIST row can name it. The composer above already shows it,
                   // so the pane would be saying it twice.

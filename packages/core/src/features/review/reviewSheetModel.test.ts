@@ -1,6 +1,7 @@
 import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
 import { describe, expect, it } from 'vitest';
 import {
+  CONTEXT_PANE_LABELS,
   contextPaneRows,
   decisionLegend,
   editedInputFor,
@@ -334,5 +335,22 @@ describe('contextPaneRows — what the pane lists for a record', () => {
     expect(filterContextRows(rows, 'kestrel').map(r => r.kind)).toEqual(['sequence']);
     expect(filterContextRows(rows, '  ').map(r => r.id)).toEqual(rows.map(r => r.id));
     expect(filterContextRows(rows, 'nothing here at all')).toEqual([]);
+  });
+});
+
+describe('contextPaneRows — a context that was never read', () => {
+  const agoLabel = () => '2d ago';
+
+  it('says the context has not been read when the server did not attempt it', () => {
+    const pane = contextPaneRows({ context: null, contextRead: false, agoLabel });
+
+    expect(pane.rows).toHaveLength(0);
+    expect(pane.notes).toContain(CONTEXT_PANE_LABELS.notRead);
+  });
+
+  it('does not say that when a read happened and found nothing', () => {
+    const pane = contextPaneRows({ context: null, contextRead: true, agoLabel });
+
+    expect(pane.notes).not.toContain(CONTEXT_PANE_LABELS.notRead);
   });
 });

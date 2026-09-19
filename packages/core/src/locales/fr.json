@@ -282,6 +282,7 @@
     "context_not_enrolled": "Dans aucune séquence",
     "context_ask": "Interroger sur ce contact",
     "context_none": "Rien trouvé",
+    "context_not_read": "Le contexte de cette recommandation n'a pas encore été lu.",
     "context_not_connected": "Non connecté",
     "context_error": "Lecture impossible :",
     "context_back": "Retour au contexte",
