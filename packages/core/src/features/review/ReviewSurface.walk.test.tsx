@@ -221,7 +221,7 @@ describe('a check is not a promise', () => {
 });
 
 describe('Enroll is held until the count is full', () => {
-  it('disables the primary and says why, on the button and in a notice', async () => {
+  it('disables the primary and says why on the button, without a notice', async () => {
     await render(<ReviewSurface run={enrollment(4, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
 
     const primary = page.getByTestId('decide-approve').element();
@@ -234,8 +234,37 @@ describe('Enroll is held until the count is full', () => {
     const hint = document.getElementById(primary.getAttribute('aria-describedby')!);
 
     expect(hint?.textContent).toContain('2 of 4');
-    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('Enroll is held.');
-    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('2 of 4');
+    // And NO banner. The count over the tab row already says how far through
+    // the walk you are, so a row repeating it was a third copy of one fact.
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
+  });
+
+  it('keeps the primary one word, whatever the count', async () => {
+    await render(<ReviewSurface run={enrollment(4, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('decide-approve').element().querySelector('span')?.textContent?.trim()).toBe('Enroll');
+  });
+
+  it('names the per-send controls in one word, and in full to a screen reader', async () => {
+    await render(<ReviewSurface run={enrollment(2)} crumbs={CRUMBS} />);
+
+    const approve = page.getByTestId('approve-send-1').element();
+
+    expect(approve.textContent?.trim()).toBe('Approve');
+    // One word on screen; the accessible name still says which send, so four
+    // identical controls are not read out as four identical controls.
+    expect(approve.getAttribute('aria-label')).toBe('Approve Day 0');
+
+    await page.getByTestId('approve-send-1').click();
+
+    await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
+
+    await page.getByTestId('tab-item-send-1').click();
+
+    const undo = page.getByTestId('unapprove-send-1').element();
+
+    expect(undo.textContent?.trim()).toBe('Approved');
+    expect(undo.getAttribute('aria-label')).toBe('Day 0 approved — undo');
   });
 
   it('releases at the full count', async () => {

@@ -308,7 +308,10 @@ describe('one flat template, every object type', () => {
 
     await page.getByTestId('tab-item-send-2').click();
 
-    await expect.element(page.getByTestId('regenerate-send-2')).toHaveTextContent('Regenerate Day 3');
+    // One word on the button; the accessible name still names the send.
+    await expect.element(page.getByTestId('regenerate-send-2')).toHaveTextContent('Regenerate');
+
+    expect(page.getByTestId('regenerate-send-2').element().getAttribute('aria-label')).toBe('Regenerate Day 3');
     // Not on the bar: one Regenerate there means whichever item its author had in mind.
     expect(page.getByTestId('sticky-action-bar').element().textContent).not.toContain('Regenerate');
 

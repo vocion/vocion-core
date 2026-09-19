@@ -270,8 +270,12 @@ describe('the per-send walk, on the lead page too', () => {
       />,
     );
 
-    expect(page.getByTestId('decide-approve').element()).toBeDisabled();
-    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('0 of 2');
+    const primary = page.getByTestId('decide-approve').element();
+
+    expect(primary).toBeDisabled();
+    expect(document.getElementById(primary.getAttribute('aria-describedby')!)?.textContent).toContain('0 of 2');
+    // No banner here either: the count over the tab row carries it.
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
 
   it('releases Enroll here once every send carries a check', async () => {
