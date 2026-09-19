@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { createElement } from 'react';
 import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
+import { RelatedPages } from '@/features/dashboard/manage/RelatedPages';
 import {
   consultCoverage,
   hasOwnerAnywhere,
@@ -78,6 +79,7 @@ function TeamsScreen({ workspace, teams, ungrouped }: {
   return (
     <>
       <CombinedPageHeader active="/dashboard/teams" description={t('title_bar_description')} />
+      <RelatedPages urls={['/dashboard/skills', '/dashboard/evals', '/dashboard/marketplace']} />
 
       {ownerless && (
         <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-border/70 px-4 py-2.5 text-sm text-[var(--brand-amber-deep)]">

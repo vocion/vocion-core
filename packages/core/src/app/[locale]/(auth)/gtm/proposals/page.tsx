@@ -2,6 +2,7 @@ import { FileText, FolderOpen } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Column, ListEmpty, ListPage, ListRow, ListRows, Subline } from '@/components/patterns';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { loadProposalBoard } from '@/services/proposals/board';
 
@@ -33,6 +34,8 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
       title="Proposals"
       description="Every engagement at Proposal stage: where it stands, the latest document and whether it verified, what is still open — and Draft, which hands the room to the Proposal Writer."
     >
+      <PluginPanel orgId={orgId} slug="proposals" />
+
       {rows.length === 0
         ? (
             <ListEmpty

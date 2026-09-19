@@ -27,7 +27,7 @@ icons, admin gating; the ⌘K palette and the breadcrumb read the same list).
 | | Pinned · Pages · surfaces | This person's pins; the workspace's own pages (`/dashboard/p/<slug>`) and saved canvases; surfaces the workspace switched on |
 | **Manage** | Team | Teams & agents `/dashboard/teams` (tab: Agents `/dashboard/agents`) · Missions `/dashboard/missions` · Workflows `/dashboard/workflows` · Automations `/dashboard/automation` |
 | | Knowledge | Connectors `/dashboard/connectors` · Objects `/dashboard/objects` · Learnings `/dashboard/learnings` · Context `/dashboard/workspace` |
-| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` · Plugins `/dashboard/plugins` |
+| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` · Marketplace `/dashboard/marketplace` (plugins + agents for hire; `/dashboard/plugins` 308s here) |
 | | Insights | Team report `/dashboard/team-report` · Activity `/dashboard/activity` · Observability `/dashboard/observability` · Autonomy `/dashboard/autonomy` · Adoption `/dashboard/adoption` (admins) |
 | | Organization | Members `/dashboard/members` · Developers `/dashboard/developers` (MCP + REST endpoints, API credentials, docs) · System `/dashboard/admin` |
 | **You** | avatar menu | Profile `/dashboard/profile` |

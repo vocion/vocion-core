@@ -24,8 +24,10 @@ Three ship in core, at `packages/core/templates/plugins/`:
 | **`proposals`** | The Proposal Writer, the house sheet framework, the Proposals app under GTM, a weekly verify mission, and a team graded on documents rendered and verified clean. | `data-rooms` |
 
 Each plugin directory has a `README.md` that says what it adds and how to
-customise it; the **Plugins** page (`/dashboard/plugins`, under Build) shows
-the same catalogue with an on/off switch.
+customise it; the **Marketplace** (`/dashboard/marketplace`, under Build) shows
+the same catalogue with an on/off switch, beside the catalog agents this
+workspace has not hired. `/dashboard/plugins` 308s there; the per-plugin detail
+page stays at `/dashboard/plugins/<slug>`.
 
 ## Turning one on
 

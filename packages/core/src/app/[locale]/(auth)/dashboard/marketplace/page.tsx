@@ -4,45 +4,51 @@ import { ArrowRight, Wand2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import { createElement } from 'react';
-import { CombinedPageHeader } from '@/features/dashboard/manage/CombinedPageHeader';
-import { combinedPageTitle } from '@/features/navigation/combinedPages';
+import { RelatedPages } from '@/features/dashboard/manage/RelatedPages';
+import { PluginRows } from '@/features/dashboard/plugins/PluginRows';
+import { TitleBar } from '@/features/dashboard/TitleBar';
 import { agentAccent } from '@/libs/agentAccents';
 import { agentIcon } from '@/libs/agentIcons';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listCatalog, listUnhired } from '@/services/CatalogService';
+import { ORG_ROLE } from '@/types/Auth';
 
 /**
- * Marketplace — the third tab of "Teams & agents", listing catalog entries
- * this workspace has not hired.
+ * Marketplace — everything this workspace could turn on, in one place: the
+ * plugins this core ships and the catalog agents nobody has hired yet.
  *
- * The org chart, the roster and who you could still hire are one thing seen
- * three ways, so this is a tab on `/dashboard/teams` rather than a page of
- * its own: one row in `dashboardNav.ts` gives the tab strip, the sidebar,
- * the palette and the breadcrumb, and they cannot disagree.
+ * It used to be the third tab of "Teams & agents", beside the org chart and
+ * the roster, with a separate Plugins page under Build. Two screens answered
+ * the same question — what capability could this workspace have that it does
+ * not — and neither said so (Chris, 2026-09-18: "Marketplace probably belongs
+ * outside of Teams & Agents. Marketplace should probably combine Plugins and
+ * Agents available for hire"). One page now, under Build beside Skills & tools
+ * and Evals; Teams & agents is the workforce you already have.
  *
- * A card carries a role, its description, and a link to the profile. That is
- * all. No readiness badge and no counts of what an implementation still has
- * to author — browsing a catalog is reading, and the profile page is where
- * the system prompt, the skills and the detail belong. Hiring happens there,
- * where somebody has actually seen what they are hiring.
+ * A plugin row carries what it adds and its switch (the same `PluginRows` the
+ * plugin detail page links back to). An agent card carries a role, its
+ * description, and a link to the profile — no readiness badge and no counts of
+ * what an implementation still has to author, because browsing a catalog is
+ * reading, and hiring happens on the profile, where somebody has actually seen
+ * what they are hiring.
  */
 
-export const metadata: Metadata = { title: combinedPageTitle('/dashboard/marketplace') };
+export const metadata: Metadata = { title: 'Marketplace' };
 
 export default async function MarketplacePage(props: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, has } = await auth();
 
   const entries = orgId ? await listUnhired(orgId) : listCatalog();
   // Distinguishes "you have hired everything" from "this deployment has no
   // catalog" — two very different empty states that must not share a screen.
   const catalogSize = listCatalog().length;
 
-  return <MarketplaceScreen entries={entries} catalogSize={catalogSize} />;
+  return <MarketplaceScreen entries={entries} catalogSize={catalogSize} orgId={orgId ?? null} isAdmin={has({ role: ORG_ROLE.ADMIN })} />;
 }
 
 /**
@@ -51,21 +57,40 @@ export default async function MarketplacePage(props: {
  * @param root0
  * @param root0.entries - Catalog entries not yet hired.
  * @param root0.catalogSize - Total entries on disk, to tell the empty states apart.
+ * @param root0.orgId - The project, when the session carries one.
+ * @param root0.isAdmin - Whether this viewer may turn a plugin on or off.
  */
-function MarketplaceScreen({ entries, catalogSize }: { entries: CatalogEntry[]; catalogSize: number }) {
+function MarketplaceScreen({ entries, catalogSize, orgId, isAdmin }: {
+  entries: CatalogEntry[];
+  catalogSize: number;
+  orgId: string | null;
+  isAdmin: boolean;
+}) {
   const t = useTranslations('Marketplace');
+  const layout = useTranslations('DashboardLayout');
 
   return (
     <>
-      <CombinedPageHeader active="/dashboard/marketplace" description={t('title_bar_description')} />
+      <TitleBar title={layout('marketplace')} description={t('title_bar_description')} />
+      <RelatedPages urls={['/dashboard/teams', '/dashboard/skills', '/dashboard/evals']} />
 
-      {entries.length === 0
-        ? <EmptyState hasCatalog={catalogSize > 0} />
-        : (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {entries.map(entry => <MarketplaceCard key={entry.slug} entry={entry} />)}
-            </div>
-          )}
+      {orgId && (
+        <section className="mb-10">
+          <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{t('plugins_heading')}</h2>
+          <PluginRows orgId={orgId} isAdmin={isAdmin} />
+        </section>
+      )}
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{t('agents_heading')}</h2>
+        {entries.length === 0
+          ? <EmptyState hasCatalog={catalogSize > 0} />
+          : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {entries.map(entry => <MarketplaceCard key={entry.slug} entry={entry} />)}
+              </div>
+            )}
+      </section>
     </>
   );
 }
@@ -126,7 +151,7 @@ function EmptyState({ hasCatalog }: { hasCatalog: boolean }) {
 
   if (!hasCatalog) {
     return (
-      <div className="mt-6 rounded-xl border border-dashed border-border px-5 py-6">
+      <div className="rounded-xl border border-dashed border-border px-5 py-6">
         <div className="text-sm font-semibold">{t('none_title')}</div>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t('none_body')}</p>
       </div>
@@ -134,7 +159,7 @@ function EmptyState({ hasCatalog }: { hasCatalog: boolean }) {
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-border/70 px-5 py-6">
+    <div className="rounded-xl border border-border/70 px-5 py-6">
       <div className="text-sm font-semibold">{t('empty_title')}</div>
       <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t('empty_body')}</p>
       <Link
