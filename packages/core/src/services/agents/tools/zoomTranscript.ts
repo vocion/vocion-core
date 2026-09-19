@@ -15,7 +15,6 @@
  * exposes these transcripts through `search_knowledge`.
  */
 import type { RuntimeContext } from '../types';
-import type { Actor } from '@/services/SourceCredentialService';
 import { tool } from '@langchain/core/tools';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -26,8 +25,9 @@ import {
   knowledgeDocumentSchema,
   knowledgeSourceSchema,
 } from '@/models/Schema';
+import { markConversationPrivate } from '@/services/ConversationService';
 import { ensureSource, ingestDocument } from '@/services/IngestionService';
-import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { getCredentialsForSourceScoped } from '@/services/SourceCredentialService';
 
 /** A source slug that belongs to the Zoom connector family. */
 const ZOOM_SLUG = /^zoom(?:$|-)/;
@@ -61,19 +61,31 @@ export async function sourcesForConnector(orgId: string, connector: string): Pro
  * ACTOR. A personal connector (Gmail, Calendar, Drive) answers with the
  * asker's own grant or nothing at all; a shared one answers the same for
  * everybody. See `getCredentialsForConnector`.
+ *
+ * Spending somebody's own grant makes the conversation theirs — see the
+ * comment inside.
  * @param orgId
  * @param sources
- * @param actor - Who the credential is being resolved for.
+ * @param ctx - The turn: who is asking, and which thread this is.
  */
 export async function firstCredentialed(
   orgId: string,
   sources: SourceRow[],
-  actor: Actor,
+  ctx: Pick<RuntimeContext, 'actor' | 'orgId' | 'conversationId'>,
 ): Promise<{ source: SourceRow; credentials: Record<string, unknown> } | undefined> {
   for (const source of sources) {
-    const credentials = await getCredentialsForSource(orgId, source.slug, actor);
-    if (credentials) {
-      return { source, credentials };
+    const resolved = await getCredentialsForSourceScoped(orgId, source.slug, ctx.actor);
+    if (resolved) {
+      // Not a judgement about the content — a side effect of having spent one
+      // person's grant. Gating the credential is the easy half; this is the
+      // half that keeps what the credential PRODUCED from being readable by
+      // the rest of the workspace. Sticky, and deliberately fired before the
+      // data is fetched rather than after, so a turn that fails partway has
+      // still marked the thread.
+      if (resolved.scope === 'user' && ctx.conversationId !== undefined && ctx.actor.kind === 'user') {
+        await markConversationPrivate({ orgId: ctx.orgId, id: ctx.conversationId, userId: ctx.actor.id });
+      }
+      return { source, credentials: resolved.values };
     }
   }
   return undefined;
@@ -138,7 +150,7 @@ export function zoomTools(ctx: RuntimeContext) {
         }, null, 2);
       }
 
-      const credentialed = await firstCredentialed(ctx.orgId, sources, ctx.actor);
+      const credentialed = await firstCredentialed(ctx.orgId, sources, ctx);
       if (!credentialed) {
         return cached
           ? 'The synced copy has no transcript yet and the zoom source has no credentials to fetch live — flag that the transcript is unavailable.'

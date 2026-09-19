@@ -272,7 +272,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
     conversation = await createConversation({ orgId, agentSlug, createdBy, scopeRef, initialTitle: inbound.text.slice(0, 80) });
   }
   const conversationId = conversation.id;
-  const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
+  // The thread's own sender is the one asking — a Slack thread is already
+  // per-sender (`latestConversationForScope` keys on `created_by`).
+  const history = toHistoryTurns(await listMessages({ orgId, conversationId, requestedBy: createdBy }));
   await appendMessage({ orgId, conversationId, role: 'user', content: inbound.text, userId: createdBy });
 
   // Where the person is, on this surface: the channel, the post they replied

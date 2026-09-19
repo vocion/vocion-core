@@ -816,6 +816,73 @@ export async function getCredentialsForSource(
 }
 
 /**
+ * The same answer as `getCredentialsForSource`, plus WHOSE credential it was.
+ *
+ * `scope: 'user'` means this call spent one person's own grant — the fact the
+ * containment rule turns on. A turn that reads a member's mailbox writes that
+ * content into a transcript, and the transcript has to become theirs at that
+ * moment; the caller cannot work that out from the values alone, and asking it
+ * to re-derive the precedence would be a second implementation of the rule.
+ * @param orgId - The org that owns the connector.
+ * @param sourceSlug - A connector row's slug, or the slug of the connector it runs.
+ * @param actor - Who the credential is being resolved for.
+ */
+export async function getCredentialsForSourceScoped(
+  orgId: string,
+  sourceSlug: string,
+  actor: Actor,
+): Promise<{ values: RawCredentials; scope: 'user' | 'workspace' } | undefined> {
+  const values = await getCredentialsForSource(orgId, sourceSlug, actor);
+  if (!values) {
+    return undefined;
+  }
+  // Personal AND resolved for a person: the only combination that can have
+  // answered from a `user_id`-bearing row. A shared connector, or a workspace
+  // grant standing in for a personal one, is workspace scope — nothing to
+  // contain, because nothing private was read.
+  const identity = resolveIdentity(getConnector(connectorSlugOf(sourceSlug))?.identity);
+  if (identity === 'shared' || actor.kind === 'system') {
+    return { values, scope: 'workspace' };
+  }
+  const [install] = await db
+    .select({ id: sourceInstallSchema.id })
+    .from(sourceInstallSchema)
+    .where(and(
+      eq(sourceInstallSchema.orgId, orgId),
+      eq(sourceInstallSchema.sourceSlug, connectorSlugOf(sourceSlug)),
+      eq(sourceInstallSchema.disabled, 'false'),
+    ))
+    .limit(1);
+  if (!install) {
+    return { values, scope: 'workspace' };
+  }
+  const [own] = await db
+    .select({ id: sourceCredentialSchema.id })
+    .from(sourceCredentialSchema)
+    .where(and(
+      eq(sourceCredentialSchema.installId, install.id),
+      isNull(sourceCredentialSchema.revokedAt),
+      eq(sourceCredentialSchema.userId, actor.id),
+    ))
+    .limit(1);
+  return { values, scope: own ? 'user' : 'workspace' };
+}
+
+/**
+ * The connector a source slug runs, for slugs that carry a suffix
+ * (`hubspot-staging` runs `hubspot`). The registry is the authority; a slug it
+ * does not know is passed through unchanged.
+ * @param sourceSlug - A connector row's slug, or a connector slug.
+ */
+function connectorSlugOf(sourceSlug: string): string {
+  if (getConnector(sourceSlug)) {
+    return sourceSlug;
+  }
+  const base = sourceSlug.split('-')[0] ?? sourceSlug;
+  return getConnector(base) ? base : sourceSlug;
+}
+
+/**
  * Resolve the credentials a connector authenticates with, for one actor.
  *
  * The connector-object form of `getCredentialsForSource`, for callers that

@@ -222,6 +222,7 @@ function ChatShellInner({
                     onFeedback={session.handleFeedback}
                     autonomy={session.autonomy}
                     conversationId={session.conversationId}
+                    onResumeAfterConnect={session.resumeAfterConnect}
                   />
                 )}
 

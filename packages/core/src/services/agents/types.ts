@@ -180,6 +180,43 @@ export type TraceNodeEvent = {
   citations?: TraceCitation[];
 };
 
+/**
+ * A connector the turn needed and could not reach — the connect card.
+ *
+ * Emitted by CORE, never by the model. The model decides to attempt the work;
+ * a tool call with no credential behind it is that decision, and this event is
+ * core's answer to it. Nothing here is model-authored: `reason` is core's
+ * words, and a payload that cannot name a real connector never becomes a card
+ * (`features/dashboard/chat/connectSource.ts`).
+ */
+export type ConnectSourcePayload = {
+  /** Connector slug — `google-calendar`, `hubspot`. */
+  connectorSlug: string;
+  /** Human label for the tile. */
+  name: string;
+  /** Lucide icon name, so the card and the Sources page draw the same tile. */
+  icon: string;
+  /** The stored-credential platform, when it authenticates with one. */
+  platform: string | null;
+  /** Whose credential this would be. */
+  scope: 'user' | 'workspace';
+  /** What the person is actually being offered. */
+  state: 'connect' | 'needs-admin' | 'reconnect';
+  /** How the credential is supplied — decides whether the card shows a form or a button. */
+  authKind: 'none' | 'apikey' | 'oauth';
+  /** One line, written by core, saying what the turn was trying to do. */
+  reason: string;
+  /** Minimum vendor scopes the tool that triggered this needs. */
+  requestedScopes: string[];
+  /** The tool the model was about to call — what resumes once the grant lands. */
+  tool: string;
+  /**
+   * A workspace-wide grant exists that this person could use instead of
+   * authorising their own. The card offers it as a second line.
+   */
+  workspaceGrantAvailable: boolean;
+};
+
 export type HitlGatePayload = {
   /** Unique name for the gate, e.g. 'blueprint-review' or 'send-email'. */
   name: string;
@@ -224,6 +261,12 @@ export type AgentEvent
     | { type: 'artifact'; artifact: ArtifactPayload; pending?: boolean; delta?: string }
     | TraceNodeEvent
     | { type: 'hitl_gate'; gate: HitlGatePayload }
+    /**
+     * The turn reached a connector nobody has connected. The chat renders a
+     * connect card; the model is told a card is on screen and to say one line
+     * about what it will do once the grant lands.
+     */
+    | { type: 'connect_source'; connect: ConnectSourcePayload }
     /**
      * One tool call failed, reported by the BYOA artifact. Unlike `error` the
      * turn continues: the model is handed the failure as that tool's output
@@ -282,6 +325,20 @@ export type RuntimeContext = {
    * grant at all.
    */
   actor: import('@/services/SourceCredentialService').Actor;
+  /**
+   * What this workspace and this actor can reach, per connector
+   * (`services/agents/capabilityLedger.ts`).
+   *
+   * Read once per graph build and consulted synchronously while the tool
+   * surface is assembled: a connector with no credential contributes STUBS
+   * rather than nothing, which is what turns "the model can only talk about
+   * it" into "the model can call it and core can act". Undefined for the few
+   * contexts built outside the harness (the tool endpoint rebuilds it), where
+   * every gate falls back to its pre-ledger behaviour.
+   */
+  ledger?: import('./capabilityLedger').CapabilityLedger;
+  /** The requester's role — decides whether a workspace-tier source is theirs to connect. */
+  role?: string | null;
   /** The agent this graph belongs to — stamps proposals/audit (`agent:<slug>`). */
   agentSlug?: string;
   /** Configured source slugs (knowledge_source.slug) this agent may reach. */

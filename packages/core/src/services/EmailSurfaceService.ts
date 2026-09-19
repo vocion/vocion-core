@@ -305,7 +305,7 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
     ? `\n\n[Attachments (not read): ${meta.attachments.map(a => `${a.filename} (${a.contentType})`).join(', ')}]`
     : '';
   const messageText = `${body || '(empty message)'}${attachmentNote}`;
-  const history = toHistoryTurns(await listMessages({ orgId, conversationId }));
+  const history = toHistoryTurns(await listMessages({ orgId, conversationId, requestedBy: `email:${meta.from}` }));
   await appendMessage({ orgId, conversationId, role: 'user', content: messageText, userId: `email:${meta.from}` });
 
   try {

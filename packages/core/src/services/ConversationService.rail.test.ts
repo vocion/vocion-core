@@ -40,11 +40,11 @@ describe('searchConversations', () => {
     await seedThread('Northwind retainer', [['user', 'is northwind dead?'], ['assistant', 'The deal is Northwind – Continuous AI, $216K, Proposal Sent.']]);
     await seedThread('Lucent walkthrough', [['user', 'prep me for the walkthrough'], ['assistant', 'Peter Lutz confirmed; the MSA is still unsigned.']]);
 
-    const byTitle = await svc.searchConversations({ orgId: ORG, q: 'northwind' });
+    const byTitle = await svc.searchConversations({ orgId: ORG, q: 'northwind', requestedBy: null });
 
     expect(byTitle.map(h => h.title)).toEqual(['Northwind retainer']);
 
-    const byContent = await svc.searchConversations({ orgId: ORG, q: 'unsigned' });
+    const byContent = await svc.searchConversations({ orgId: ORG, q: 'unsigned', requestedBy: null });
 
     expect(byContent.map(h => h.title)).toEqual(['Lucent walkthrough']);
     expect(byContent[0]!.snippet).toContain('unsigned');
@@ -54,7 +54,7 @@ describe('searchConversations', () => {
     await seedThread('Everything thread', [['user', 'hello']]);
     await seedThread('Scoped thread', [['user', 'about this lead']], { scopeRef: 'contacts:1' });
 
-    const hits = await svc.searchConversations({ orgId: ORG, q: '' });
+    const hits = await svc.searchConversations({ orgId: ORG, q: '', requestedBy: null });
 
     expect(hits.map(h => h.title)).toEqual(['Everything thread']);
   });
@@ -63,7 +63,7 @@ describe('searchConversations', () => {
     await seedThread('Ours', [['user', 'budget review']]);
     await svc.createConversation({ orgId: 'org_other', agentSlug: 'x', initialTitle: 'budget review theirs' });
 
-    const hits = await svc.searchConversations({ orgId: ORG, q: 'budget' });
+    const hits = await svc.searchConversations({ orgId: ORG, q: 'budget', requestedBy: null });
 
     expect(hits.map(h => h.title)).toEqual(['Ours']);
   });
@@ -125,7 +125,7 @@ describe('autonomy + tail', () => {
     expect(flipped?.autonomy).toBe('act-within-bounds');
     await expect(svc.setConversationAutonomy({ orgId: 'org_other', id: conv.id, autonomy: 'ask' })).resolves.toBeNull();
 
-    const tail = await svc.tailMessages({ orgId: ORG, conversationId: conv.id, limit: 2 });
+    const tail = await svc.tailMessages({ orgId: ORG, conversationId: conv.id, limit: 2, requestedBy: null });
 
     expect(tail.map(t => t.id)).toEqual([ids[2], ids[3]]);
     expect(tail.map(t => t.role)).toEqual(['user', 'assistant']);

@@ -1,0 +1,24 @@
+-- 0121 — a conversation that read one person's inbox belongs to that person.
+--
+-- Gating the credential is the easy half. The half that actually leaks is what
+-- the credential PRODUCED: a turn that read Jamie's mailbox writes that content
+-- into `conversation_message`, and today `getConversation` and `listMessages`
+-- filter by `org_id` alone while `searchConversations` lists every
+-- `scope_ref IS NULL` thread to every member. So a colleague opens the thread
+-- and reads the inbox.
+--
+-- Record-scoped threads are already owner-only (agent-chat-surface.md §3.1,
+-- §8.6, enforced by `latestConversationForScope` keying on `created_by`). This
+-- extends the same rule to any thread that touched a personal grant.
+--
+-- A column rather than a derived answer, because the rule has to hold after
+-- the fact: the credential is resolved once, mid-turn, and nothing later in
+-- the thread's life can re-derive that it happened. Sticky — set on the first
+-- personal tool call and never cleared — because unsetting it would make
+-- content already written visible again.
+--
+-- Holds the OWNER's user id rather than a boolean, so the read paths can
+-- answer "private, and to whom" in one column. NULL is the normal case: a
+-- thread nobody's personal credential was used in.
+ALTER TABLE "conversation"
+  ADD COLUMN IF NOT EXISTS "private_to" text;

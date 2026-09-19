@@ -17,7 +17,14 @@ vi.mock('@/libs/sources/gmail', async (importOriginal) => {
   return { ...actual, fetchGmailThreadDoc: vi.fn(), resolveThreadIdForMessage: vi.fn() };
 });
 vi.mock('@/services/SourceCredentialService', () => ({
-  getCredentialsForSource: vi.fn(),
+  getCredentialsForSourceScoped: vi.fn(),
+}));
+// The containment side effect. `firstCredentialed` marks the thread private
+// the moment it spends somebody's own grant; these tests are about the tool,
+// so the write is stubbed and asserted where it belongs
+// (`ConversationService.private.test.ts`).
+vi.mock('@/services/ConversationService', () => ({
+  markConversationPrivate: vi.fn(),
 }));
 vi.mock('@/libs/retrieval/embedder', () => ({
   embed: vi.fn(async (texts: string[]) => texts.map(() => Array.from({ length: 1536 }, () => 0))),
@@ -26,7 +33,7 @@ vi.mock('@/libs/retrieval/embedder', () => ({
 const { db } = await import('@/libs/DB');
 const { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { fetchGmailThreadDoc, resolveThreadIdForMessage } = await import('@/libs/sources/gmail');
-const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
+const { getCredentialsForSourceScoped } = await import('@/services/SourceCredentialService');
 const { gmailTools } = await import('./gmailThread');
 
 const ORG = 'org_gmail_tool';
@@ -103,7 +110,7 @@ function liveThreadDoc(threadId: string) {
 beforeEach(async () => {
   vi.mocked(fetchGmailThreadDoc).mockReset();
   vi.mocked(resolveThreadIdForMessage).mockReset();
-  vi.mocked(getCredentialsForSource).mockReset();
+  vi.mocked(getCredentialsForSourceScoped).mockReset();
   await db.delete(knowledgeChunkSchema);
   await db.delete(knowledgeDocumentSchema);
   await db.delete(knowledgeSourceSchema);
@@ -139,13 +146,13 @@ describe('cache path', () => {
     expect(out.messageCount).toBe(2);
     expect(out.content).toContain('Sounds good, send the SOW.');
     expect(fetchGmailThreadDoc).not.toHaveBeenCalled();
-    expect(getCredentialsForSource).not.toHaveBeenCalled();
+    expect(getCredentialsForSourceScoped).not.toHaveBeenCalled();
   });
 
   it('re-fetches past the TTL and upserts the grown thread', async () => {
     const sourceId = await seedSource();
     await seedThreadDoc(sourceId, 't1', new Date(Date.now() - 60 * 60_000).toISOString());
-    vi.mocked(getCredentialsForSource).mockResolvedValue(CREDS);
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: CREDS, scope: 'workspace' });
     vi.mocked(fetchGmailThreadDoc).mockResolvedValue(liveThreadDoc('t1'));
 
     const out = JSON.parse(await theTool().invoke({ thread_id: 't1' }));
@@ -162,7 +169,7 @@ describe('cache path', () => {
   it('honors a custom max_age_minutes and force_refresh', async () => {
     const sourceId = await seedSource();
     await seedThreadDoc(sourceId, 't1', new Date(Date.now() - 10 * 60_000).toISOString());
-    vi.mocked(getCredentialsForSource).mockResolvedValue(CREDS);
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: CREDS, scope: 'workspace' });
     vi.mocked(fetchGmailThreadDoc).mockResolvedValue(liveThreadDoc('t1'));
 
     // 10-minute-old copy is fresh under the default 15 but stale under 5.
@@ -202,7 +209,7 @@ describe('message → thread resolution', () => {
   it('falls back to the live lookup when the mirror does not know the message', async () => {
     const sourceId = await seedSource();
     await seedThreadDoc(sourceId, 't1', new Date().toISOString());
-    vi.mocked(getCredentialsForSource).mockResolvedValue(CREDS);
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: CREDS, scope: 'workspace' });
     vi.mocked(resolveThreadIdForMessage).mockResolvedValue('t1');
 
     const out = JSON.parse(await theTool().invoke({ message_id: 'm-unknown' }));
@@ -216,7 +223,7 @@ describe('degradation', () => {
   it('returns a stale copy honestly marked when credentials are missing', async () => {
     const sourceId = await seedSource();
     await seedThreadDoc(sourceId, 't1', new Date(Date.now() - 60 * 60_000).toISOString());
-    vi.mocked(getCredentialsForSource).mockResolvedValue(undefined);
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue(undefined);
 
     const out = JSON.parse(await theTool().invoke({ thread_id: 't1' }));
 
@@ -229,7 +236,7 @@ describe('degradation', () => {
     expect(await theTool().invoke({ thread_id: 't1' })).toMatch(/No gmail source is connected/);
 
     await seedSource();
-    vi.mocked(getCredentialsForSource).mockResolvedValue(CREDS);
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: CREDS, scope: 'workspace' });
     vi.mocked(fetchGmailThreadDoc).mockResolvedValue(null);
 
     expect(await theTool().invoke({ thread_id: 'ghost' })).toMatch(/no thread with id "ghost"/);

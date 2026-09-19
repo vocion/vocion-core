@@ -120,6 +120,39 @@ describe('executeToolCall — claim enforcement', () => {
   });
 });
 
+/**
+ * Cross-USER, beside the cross-tenant cases above.
+ *
+ * The artifact forwards a payload the model can influence and a claim it
+ * cannot: core signed the claim, and the actor rides on it. So naming another
+ * user anywhere in the invocation changes nothing about whose personal
+ * credential the tools resolve — the same stance the cross-tenant suite takes
+ * about orgs, applied to people.
+ */
+describe('whose credentials a claim reaches', () => {
+  it('takes the actor from the claim and from nowhere else', async () => {
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper', actor: { kind: 'user', id: 'user_jamie' } });
+
+    const result = await executeToolCall({
+      token,
+      tool: 'list_learning_steps',
+      // A payload naming somebody else. Nothing reads it.
+      input: { userId: 'user_dana', actor: { kind: 'user', id: 'user_dana' } },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('runs as the system when the claim names no actor', async () => {
+    // A claim minted before the actor existed. The safe half: a system actor
+    // has no id, so no per-user grant is reachable from it.
+    const token = signClaim({ orgId: ORG_A, agentSlug: 'helper' });
+    const result = await executeToolCall({ token, tool: 'list_learning_steps', input: { userId: 'user_dana' } });
+
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('source-gated tools over the endpoint', () => {
   it('refuses an Apollo tool to an agent whose sources do not include apollo', async () => {
     const token = signClaim({ orgId: ORG_A, agentSlug: 'helper' });

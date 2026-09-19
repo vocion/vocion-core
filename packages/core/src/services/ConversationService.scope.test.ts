@@ -77,7 +77,7 @@ describe('trace persistence', () => {
     ];
 
     await appendMessage({ orgId: ORG, conversationId: conv.id, role: 'assistant', content: 'Found it.', trace });
-    const [row] = await listMessages({ orgId: ORG, conversationId: conv.id });
+    const [row] = await listMessages({ orgId: ORG, conversationId: conv.id, requestedBy: null });
 
     expect(row?.traceJson).toEqual(trace);
   });
@@ -86,7 +86,7 @@ describe('trace persistence', () => {
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revops-lead', createdBy: 'user_v' });
 
     await appendMessage({ orgId: ORG, conversationId: conv.id, role: 'assistant', content: 'Plain answer.', trace: [] });
-    const [row] = await listMessages({ orgId: ORG, conversationId: conv.id });
+    const [row] = await listMessages({ orgId: ORG, conversationId: conv.id, requestedBy: null });
 
     expect(row?.traceJson).toBeNull();
   });

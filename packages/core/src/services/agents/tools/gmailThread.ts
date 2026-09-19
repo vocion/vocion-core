@@ -73,7 +73,7 @@ export function gmailTools(ctx: RuntimeContext) {
         if (typeof cachedThreadId === 'string' && cachedThreadId !== '') {
           threadId = cachedThreadId;
         } else {
-          credentialed = await firstCredentialed(ctx.orgId, sources, ctx.actor);
+          credentialed = await firstCredentialed(ctx.orgId, sources, ctx);
           if (!credentialed) {
             return 'No gmail credentials are stored for this workspace, and the synced mirror does not know that message\'s thread.';
           }
@@ -119,7 +119,7 @@ export function gmailTools(ctx: RuntimeContext) {
         }, null, 2);
       }
 
-      credentialed = credentialed ?? await firstCredentialed(ctx.orgId, sources, ctx.actor);
+      credentialed = credentialed ?? await firstCredentialed(ctx.orgId, sources, ctx);
       if (!credentialed) {
         if (cached) {
           const content = await reassembleDocument(ctx.orgId, cached.id);

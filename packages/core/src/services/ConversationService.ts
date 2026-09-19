@@ -155,12 +155,82 @@ export async function latestConversationForScope(opts: {
   return row ?? null;
 }
 
-export async function getConversation(opts: { orgId: string; id: number }) {
+/**
+ * One conversation, or null — including null when it is private to somebody
+ * else.
+ *
+ * `requestedBy` is required, and required as `string | null` rather than
+ * optional, so every call site has to state who is asking. A caller that is
+ * not a person passes null and sees no private thread: a schedule, a webhook
+ * or an API token authenticates an org, and a thread that read one member's
+ * mailbox is not the org's to read.
+ * @param opts - Which conversation, and who wants it.
+ * @param opts.orgId - Tenant.
+ * @param opts.id - Conversation id.
+ * @param opts.requestedBy - The user asking, or null when nobody is.
+ */
+export async function getConversation(opts: { orgId: string; id: number; requestedBy: string | null }) {
+  const row = await conversationRow(opts.orgId, opts.id);
+  if (!row) {
+    return null;
+  }
+  return visibleTo(row.privateTo, opts.requestedBy) ? row : null;
+}
+
+/**
+ * The row, whoever is asking — for WRITES and for the privacy rule itself.
+ *
+ * Appending a turn is not reading the transcript, and the caller that got as
+ * far as streaming one has already passed the read gate; making the write path
+ * re-answer "may I see this" would only mean a private thread could not be
+ * continued by its own owner. Never return this to a client.
+ * @param orgId - Tenant.
+ * @param id - Conversation id.
+ */
+async function conversationRow(orgId: string, id: number) {
   const [row] = await db
     .select()
     .from(conversationSchema)
-    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)));
+    .where(and(eq(conversationSchema.orgId, orgId), eq(conversationSchema.id, id)));
   return row ?? null;
+}
+
+/**
+ * Whether a thread with this `private_to` may be read by this requester.
+ *
+ * Null `privateTo` is the normal case and visible to the whole workspace, the
+ * way every thread was before 0121. A set one is visible to its owner alone —
+ * not to an admin, and not to a null requester.
+ * @param privateTo - The thread's owner, when it has one.
+ * @param requestedBy - The user asking, or null when nobody is.
+ */
+export function visibleTo(privateTo: string | null, requestedBy: string | null): boolean {
+  return privateTo === null || privateTo === requestedBy;
+}
+
+/**
+ * Mark a conversation as one person's, permanently.
+ *
+ * Called at the moment a personal credential resolves — a side effect of the
+ * tool call, not a judgement about the content. First writer wins and nothing
+ * clears it: the transcript already holds what the credential produced, so a
+ * later turn cannot make it shareable again. Two members' personal grants in
+ * one thread is therefore impossible to reach: once it is Jamie's, Dana's
+ * personal tools resolve nothing in it anyway, because they resolve for Dana.
+ * @param opts - Which conversation, and whose it becomes.
+ * @param opts.orgId - Tenant.
+ * @param opts.id - Conversation id.
+ * @param opts.userId - The owner.
+ */
+export async function markConversationPrivate(opts: { orgId: string; id: number; userId: string }): Promise<void> {
+  await db
+    .update(conversationSchema)
+    .set({ privateTo: opts.userId })
+    .where(and(
+      eq(conversationSchema.orgId, opts.orgId),
+      eq(conversationSchema.id, opts.id),
+      isNull(conversationSchema.privateTo),
+    ));
 }
 
 export async function deleteConversation(opts: { orgId: string; id: number }) {
@@ -186,8 +256,16 @@ export async function renameConversation(opts: { orgId: string; id: number; titl
 /* Messages                                                            */
 /* ------------------------------------------------------------------ */
 
-export async function listMessages(opts: { orgId: string; conversationId: number }) {
-  const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
+/**
+ * Every message in a thread, oldest first — empty when the thread does not
+ * exist or is private to somebody else.
+ * @param opts - Which thread, and who wants it.
+ * @param opts.orgId - Tenant.
+ * @param opts.conversationId - The thread.
+ * @param opts.requestedBy - The user asking, or null when nobody is.
+ */
+export async function listMessages(opts: { orgId: string; conversationId: number; requestedBy: string | null }) {
+  const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId, requestedBy: opts.requestedBy });
   if (!conv) {
     return [];
   }
@@ -211,7 +289,7 @@ export async function appendMessage(opts: {
   /** The turn's activity trace, persisted so levels 2 and 3 survive reload. */
   trace?: ConversationTraceNode[] | null;
 }) {
-  const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
+  const conv = await conversationRow(opts.orgId, opts.conversationId);
   if (!conv) {
     throw new Error(`conversation ${opts.conversationId} not found`);
   }
@@ -428,6 +506,7 @@ export type ConversationSearchHit = {
  * @param opts.limit
  * @param opts.agentSlug - Restrict to one agent's threads.
  * @param opts.includeScopedFor - Also include record-scoped threads this user created.
+ * @param opts.requestedBy - The user searching, or null when nobody is.
  */
 export async function searchConversations(opts: {
   orgId: string;
@@ -435,13 +514,23 @@ export async function searchConversations(opts: {
   limit?: number;
   agentSlug?: string;
   includeScopedFor?: string;
+  /** The user searching, or null when nobody is. Private threads are theirs alone. */
+  requestedBy: string | null;
 }): Promise<ConversationSearchHit[]> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
   const q = opts.q.trim();
   const visible = opts.includeScopedFor
     ? or(sql`${conversationSchema.scopeRef} IS NULL`, eq(conversationSchema.createdBy, opts.includeScopedFor))
     : sql`${conversationSchema.scopeRef} IS NULL`;
-  const base = [eq(conversationSchema.orgId, opts.orgId), visible];
+  // Private threads join the same rule the record-scoped ones already follow:
+  // never listed to anyone but their owner. Without this the title and a
+  // snippet of a thread that read somebody's inbox turn up in every member's
+  // history search — which is most of the leak, since the snippet is the
+  // content.
+  const notSomebodyElses = opts.requestedBy
+    ? or(isNull(conversationSchema.privateTo), eq(conversationSchema.privateTo, opts.requestedBy))
+    : isNull(conversationSchema.privateTo);
+  const base = [eq(conversationSchema.orgId, opts.orgId), visible, notSomebodyElses];
   if (opts.agentSlug) {
     base.push(eq(conversationSchema.agentSlug, opts.agentSlug));
   }
@@ -532,9 +621,10 @@ function snippetAround(content: string, q: string, radius = 70): string {
  * @param opts.orgId
  * @param opts.conversationId
  * @param opts.limit
+ * @param opts.requestedBy
  */
-export async function tailMessages(opts: { orgId: string; conversationId: number; limit?: number }) {
-  const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
+export async function tailMessages(opts: { orgId: string; conversationId: number; limit?: number; requestedBy: string | null }) {
+  const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId, requestedBy: opts.requestedBy });
   if (!conv) {
     return [];
   }

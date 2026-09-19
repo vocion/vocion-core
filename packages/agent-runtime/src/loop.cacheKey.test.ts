@@ -30,16 +30,22 @@ describe('definitionHash', () => {
 
   it('separates two orgs holding byte-identical agent definitions', () => {
     const a = definitionHash(request({ trace: { orgId: 'org_a', userId: 'user_1' } }));
-    const b = definitionHash(request({ trace: { orgId: 'org_b', userId: 'user_2' } }));
+    const b = definitionHash(request({ trace: { orgId: 'org_b', userId: 'user_1' } }));
 
     expect(a).not.toBe(b);
   });
 
-  it('ignores the user, so two people in one org share a graph', () => {
+  it('separates two people in one org, because their tool surfaces differ', () => {
+    // It used to share one graph here, and that was right while nothing in the
+    // graph was anybody's. The catalog is now built per person — a connector
+    // one of them has connected contributes real tools, and for the other it
+    // contributes connect stubs — so the actor is part of what the graph IS.
+    // Hashing the catalog would separate these two today; the actor is in the
+    // key so it stays separated when two states produce one catalog.
     const first = definitionHash(request({ trace: { orgId: 'org_a', userId: 'user_1' } }));
     const second = definitionHash(request({ trace: { orgId: 'org_a', userId: 'user_2' } }));
 
-    expect(first).toBe(second);
+    expect(first).not.toBe(second);
   });
 
   it('rebuilds when an org starts sending an AWS session', () => {

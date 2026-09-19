@@ -91,6 +91,35 @@ export type RecommendedAction = {
   suggestedDecisionReason?: string;
 };
 
+/**
+ * A connector the turn needed and could not reach — rendered as a connect card
+ * in the answer.
+ *
+ * Mirrors `ConnectSourcePayload` on the server. Never built from anything the
+ * model wrote: `reason` is core's sentence, and the payload passes
+ * `readConnectSource` before it becomes a card.
+ */
+export type ConnectSource = {
+  connectorSlug: string;
+  name: string;
+  /** Lucide icon name — the same tile the Sources page draws. */
+  icon: string;
+  /** The stored-credential platform, when it authenticates with one. */
+  platform: string | null;
+  /** Whose connection this would be. Always stated on the card; never inferred. */
+  scope: 'user' | 'workspace';
+  state: 'connect' | 'needs-admin' | 'reconnect';
+  authKind: 'none' | 'apikey' | 'oauth';
+  /** One line, from core, saying what the turn was trying to do. */
+  reason: string;
+  /** Minimum vendor scopes, shown before the tap. */
+  requestedScopes: string[];
+  /** The tool that triggered this — what resumes once the grant lands. */
+  tool: string;
+  /** A colleague already connected this for the workspace; offered as a second line. */
+  workspaceGrantAvailable: boolean;
+};
+
 /** How recommended actions behave in a thread (0094). Mirrors `CONVERSATION_AUTONOMY` on the server. */
 export type ConversationAutonomy = 'ask' | 'act-within-bounds';
 
@@ -141,6 +170,8 @@ export type ChatMessage = {
   agentName?: string;
   /** A2UI recommended-action cards emitted during this turn (clickable). */
   recommendations?: RecommendedAction[];
+  /** Connectors this turn needed and could not reach — one card each. */
+  connects?: ConnectSource[];
   /** Artifacts this turn created or changed (0101) — chips under the message. */
   artifacts?: ChatMessageArtifact[];
   documents?: IndexedDocument[];

@@ -666,6 +666,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
                   onFeedback={session.handleFeedback}
                   autonomy={session.autonomy}
                   conversationId={session.conversationId}
+                  onResumeAfterConnect={session.resumeAfterConnect}
                 />
               )}
 

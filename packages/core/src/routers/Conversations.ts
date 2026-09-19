@@ -31,12 +31,14 @@ export const list = os
 export const get = os
   .input(z.object({ id: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const conv = await getConversation({ orgId, id: input.id });
+    const { orgId, userId } = await guardAuth();
+    // A thread that read somebody's inbox is theirs; `notFound` rather than
+    // `forbidden`, so its existence is not confirmed to anyone else.
+    const conv = await getConversation({ orgId, id: input.id, requestedBy: userId });
     if (!conv) {
       throw ApiError.notFound({ id: input.id });
     }
-    const messages = await listMessages({ orgId, conversationId: input.id });
+    const messages = await listMessages({ orgId, conversationId: input.id, requestedBy: userId });
     return { ...conv, messages };
   });
 
@@ -120,16 +122,16 @@ export const search = os
     agentSlug: z.string().optional(),
   }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return searchConversations({ orgId, q: input.q, limit: input.limit, agentSlug: input.agentSlug });
+    const { orgId, userId } = await guardAuth();
+    return searchConversations({ orgId, q: input.q, limit: input.limit, agentSlug: input.agentSlug, requestedBy: userId });
   });
 
 /** The last N message rows (id + role) of a thread, oldest first. */
 export const tail = os
   .input(z.object({ id: z.number().int().positive(), limit: z.number().int().positive().max(20).default(2) }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return tailMessages({ orgId, conversationId: input.id, limit: input.limit });
+    const { orgId, userId } = await guardAuth();
+    return tailMessages({ orgId, conversationId: input.id, limit: input.limit, requestedBy: userId });
   });
 
 /** A thumb (and optional note) on one assistant turn (0094). Null rating clears it. */

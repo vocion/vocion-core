@@ -42,6 +42,7 @@ import { agentSchema, playbookSchema } from '@/models/Schema';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { SYSTEM_ACTOR } from '@/services/SourceCredentialService';
+import { capabilityLedger } from './capabilityLedger';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
@@ -56,8 +57,24 @@ import { buildDomainTools } from './tools/registry';
 const GRAPH_CACHE_LIMIT = 16;
 const graphCache = new Map<string, Awaited<ReturnType<typeof buildGraph>>>();
 
-function cacheKey(orgId: string, agentSlug: string): string {
-  return `${orgId}::${agentSlug}`;
+/**
+ * What partitions the compiled-graph cache.
+ *
+ * The actor is in the key because the TOOL SURFACE now depends on it: a
+ * connector Jamie has connected and Dana has not contributes real tools to
+ * one graph and connect stubs to the other. Before the ledger, two people in
+ * one org could share a graph because nothing in it was theirs.
+ *
+ * This partitioned correctly by accident for a while — a stub's description
+ * differs from the real tool's, so anything hashing the catalog separated
+ * them anyway. Accidental is not enforced, and the accident stops holding the
+ * moment two states produce the same catalog.
+ * @param orgId - Tenant.
+ * @param agentSlug - The agent.
+ * @param actor - Who the graph is built for.
+ */
+function cacheKey(orgId: string, agentSlug: string, actor: Actor): string {
+  return `${orgId}::${agentSlug}::${actor.kind === 'user' ? actor.id : 'system'}`;
 }
 
 function lruSet<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
@@ -175,7 +192,13 @@ export type CompiledAgentGraph = {
   agentRow: typeof agentSchema.$inferSelect;
 };
 
-async function buildGraph(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<CompiledAgentGraph> {
+async function buildGraph(
+  orgId: string,
+  agentSlug: string,
+  modelOverride?: ModelOverride,
+  actor: Actor = SYSTEM_ACTOR,
+  role?: string | null,
+): Promise<CompiledAgentGraph> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -200,13 +223,21 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   // emitter pattern in `runAgentDeep` in services/AgentService.ts.)
   const noopEmit: RuntimeContext['emit'] = () => {};
   const harnessConfig = row.harnessConfig ?? {};
+  // Read once, here, because the tool surface is assembled synchronously
+  // below and a connector with no credential has to contribute STUBS rather
+  // than nothing. The graph cache is keyed on the actor for exactly this
+  // reason — see `cacheKey`.
+  const ledger = await capabilityLedger(orgId, { actor, role });
+
   const ctx: RuntimeContext = {
     orgId,
-    // The graph is shared across requests, so the actor it is built with must
-    // be the one that reaches nothing: `bindRequestEmit` swaps in the real one
-    // per turn, exactly as it does `emit`. A user actor cached here would be
-    // the next caller's actor.
-    actor: SYSTEM_ACTOR,
+    // Unlike `emit`, the actor is NOT a per-request swap: the tool surface was
+    // built from it, so a graph built for Jamie is Jamie's. `bindRequestEmit`
+    // still sets it, and `getCompiledAgent` keys the cache on it so the two
+    // can never disagree.
+    actor,
+    role,
+    ledger,
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
@@ -376,23 +407,24 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
 export async function getCompiledAgent(
   orgId: string,
   agentSlug: string,
-  opts: { modelOverride?: ModelOverride } = {},
+  opts: { modelOverride?: ModelOverride; actor?: Actor; role?: string | null } = {},
 ): Promise<CompiledAgentGraph> {
+  const actor = opts.actor ?? SYSTEM_ACTOR;
   if (opts.modelOverride) {
     // An overridden graph is built fresh and never cached: the cache is keyed
     // on the agent, and a cached graph holding the candidate model would answer
     // the next ordinary chat turn on it. Building per call is the price of
     // keeping the agent's own model the only one the cache ever holds.
-    return buildGraph(orgId, agentSlug, opts.modelOverride);
+    return buildGraph(orgId, agentSlug, opts.modelOverride, actor, opts.role);
   }
-  const key = cacheKey(orgId, agentSlug);
+  const key = cacheKey(orgId, agentSlug, actor);
   const cached = graphCache.get(key);
   if (cached) {
     graphCache.delete(key);
     graphCache.set(key, cached);
     return cached;
   }
-  const fresh = await buildGraph(orgId, agentSlug);
+  const fresh = await buildGraph(orgId, agentSlug, undefined, actor, opts.role);
   lruSet(graphCache, key, fresh, GRAPH_CACHE_LIMIT);
   return fresh;
 }
@@ -400,6 +432,24 @@ export async function getCompiledAgent(
 /** Test/dev hook: flush the cache (e.g. after `workspace:apply`). */
 export function resetAgentRuntimeCache(): void {
   graphCache.clear();
+}
+
+/**
+ * Drop every compiled graph for one workspace.
+ *
+ * Needed because the tool surface is now built from the capability ledger:
+ * connect HubSpot and the cached graph still holds connect stubs, so the very
+ * next turn would offer the card again for a credential that now exists. Called
+ * whenever a credential is stored or revoked. Coarse on purpose — graphs are
+ * cheap to rebuild and a stale one is a visible lie.
+ * @param orgId - The workspace whose graphs to drop.
+ */
+export function invalidateAgentGraphs(orgId: string): void {
+  for (const key of [...graphCache.keys()]) {
+    if (key.startsWith(`${orgId}::`)) {
+      graphCache.delete(key);
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

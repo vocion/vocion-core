@@ -48,8 +48,8 @@ function rethrow(err: unknown): never {
 export const listForConversation = os
   .input(z.object({ conversationId: z.number().int().positive() }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    const conv = await getConversation({ orgId, id: input.conversationId });
+    const { orgId, userId } = await guardAuth();
+    const conv = await getConversation({ orgId, id: input.conversationId, requestedBy: userId });
     if (!conv) {
       throw ApiError.notFound({ conversationId: input.conversationId });
     }
@@ -76,8 +76,8 @@ export const list = os
     limit: z.number().int().positive().max(500).default(200),
   }).default({ limit: 200 }))
   .handler(async ({ input }) => {
-    const { orgId } = await guardAuth();
-    return listArtifacts({ orgId, search: input.search, kinds: input.kinds, folder: input.folder, limit: input.limit });
+    const { orgId, userId } = await guardAuth();
+    return listArtifacts({ orgId, search: input.search, kinds: input.kinds, folder: input.folder, limit: input.limit, requestedBy: userId });
   });
 
 export const folders = os

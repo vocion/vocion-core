@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
 import { Link } from '@/libs/I18nNavigation';
 import { ArtifactChips } from './ArtifactChips';
+import { ConnectSourceCard } from './ConnectSourceCard';
 import { classifyDashboardLink } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
@@ -72,6 +73,15 @@ export type AgentMessageProps = {
   onOpenArtifact?: (id: number) => void;
   /** The thread this turn belongs to — stamped into a failed step's Copy details. */
   conversationId?: number | null;
+  /**
+   * Re-send this turn's question once a connector it needed is connected.
+   *
+   * Resume v1: the turn that showed the card is the turn that answers, and the
+   * cheapest honest way to get there is to ask again now that the credential
+   * exists. Phase 4 replaces this with a typed intent that replays the exact
+   * tool call the stub intercepted.
+   */
+  onResumeAfterConnect?: () => void;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -98,7 +108,7 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId, onResumeAfterConnect }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -220,6 +230,15 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           {(message.recommendations?.length ?? 0) > 0 && (
             <RecommendedActionStack recs={message.recommendations!} autoPropose={autonomy === 'act-within-bounds'} />
           )}
+          {/* One card per connector per turn — the reducer already deduped by
+              slug, so this renders what arrived. */}
+          {(message.connects ?? []).map(connect => (
+            <ConnectSourceCard
+              key={connect.connectorSlug}
+              connect={connect}
+              onConnected={() => onResumeAfterConnect?.()}
+            />
+          ))}
           {(message.artifacts?.length ?? 0) > 0 && (
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
           )}

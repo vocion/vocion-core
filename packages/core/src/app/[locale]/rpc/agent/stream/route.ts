@@ -33,7 +33,7 @@ import {
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export async function POST(request: Request): Promise<Response> {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, role } = await auth();
   if (!userId || !orgId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
@@ -97,7 +97,7 @@ export async function POST(request: Request): Promise<Response> {
   // queue as they are emitted — still pending, still a person's decision.
   let autonomy = readAutonomy(body.autonomy);
   if (typeof conversationIdRaw === 'number') {
-    const existing = await getConversation({ orgId, id: conversationIdRaw });
+    const existing = await getConversation({ orgId, id: conversationIdRaw, requestedBy: userId });
     conversationId = existing ? existing.id : null;
     if (existing && 'autonomy' in existing) {
       autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
@@ -133,7 +133,7 @@ export async function POST(request: Request): Promise<Response> {
   // its own UI ornaments echoed back.
   let conversationHistory = clientHistory;
   if (conversationId !== null) {
-    const msgs = await listMessages({ orgId, conversationId });
+    const msgs = await listMessages({ orgId, conversationId, requestedBy: userId });
     conversationHistory = toHistoryTurns(msgs);
     await appendMessage({
       orgId,
@@ -226,6 +226,7 @@ export async function POST(request: Request): Promise<Response> {
           // The one caller that holds a verified session. Everything else runs
           // as the system and reaches no personal grant.
           actor: { kind: 'user', id: userId },
+          role,
           conversationId: conversationId ?? undefined,
           conversationHistory,
           pageContext: pageContext ?? undefined,

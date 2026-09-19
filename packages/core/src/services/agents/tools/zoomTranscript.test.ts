@@ -16,7 +16,14 @@ vi.mock('@/libs/sources/zoom', async (importOriginal) => {
   return { ...actual, fetchZoomMeetingTranscript: vi.fn() };
 });
 vi.mock('@/services/SourceCredentialService', () => ({
-  getCredentialsForSource: vi.fn(),
+  getCredentialsForSourceScoped: vi.fn(),
+}));
+// The containment side effect. `firstCredentialed` marks the thread private
+// the moment it spends somebody's own grant; these tests are about the tool,
+// so the write is stubbed and asserted where it belongs
+// (`ConversationService.private.test.ts`).
+vi.mock('@/services/ConversationService', () => ({
+  markConversationPrivate: vi.fn(),
 }));
 vi.mock('@/libs/retrieval/embedder', () => ({
   embed: vi.fn(async (texts: string[]) => texts.map(() => Array.from({ length: 1536 }, () => 0))),
@@ -25,7 +32,7 @@ vi.mock('@/libs/retrieval/embedder', () => ({
 const { db } = await import('@/libs/DB');
 const { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
 const { fetchZoomMeetingTranscript } = await import('@/libs/sources/zoom');
-const { getCredentialsForSource } = await import('@/services/SourceCredentialService');
+const { getCredentialsForSourceScoped } = await import('@/services/SourceCredentialService');
 const { zoomTools } = await import('./zoomTranscript');
 const { buildDomainTools } = await import('./registry');
 
@@ -83,7 +90,7 @@ async function seedTranscriptDoc(sourceId: number, uuid: string, hasTranscript: 
 
 beforeEach(async () => {
   vi.mocked(fetchZoomMeetingTranscript).mockReset();
-  vi.mocked(getCredentialsForSource).mockReset();
+  vi.mocked(getCredentialsForSourceScoped).mockReset();
   await db.delete(knowledgeChunkSchema);
   await db.delete(knowledgeDocumentSchema);
   await db.delete(knowledgeSourceSchema);
@@ -115,7 +122,7 @@ describe('cache path', () => {
     expect(out.transcript).toContain('ANDREW: hi there');
     expect(out.shareUrl).toBe('https://zoom.us/rec/x');
     expect(fetchZoomMeetingTranscript).not.toHaveBeenCalled();
-    expect(getCredentialsForSource).not.toHaveBeenCalled();
+    expect(getCredentialsForSourceScoped).not.toHaveBeenCalled();
   });
 
   it('matches by numeric meetingId metadata too', async () => {
@@ -131,7 +138,7 @@ describe('cache path', () => {
   it('treats a transcript-less synced doc as a miss', async () => {
     const sourceId = await seedSource();
     await seedTranscriptDoc(sourceId, 'uuid-1', false);
-    vi.mocked(getCredentialsForSource).mockResolvedValue({ accountId: 'a', clientId: 'b', clientSecret: 'c' });
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: { accountId: 'a', clientId: 'b', clientSecret: 'c' }, scope: 'workspace' });
     vi.mocked(fetchZoomMeetingTranscript).mockResolvedValue({
       doc: {
         externalId: 'zoom:uuid-1',
@@ -154,7 +161,7 @@ describe('cache path', () => {
 describe('live path', () => {
   it('fetches, upserts into the mirror, and reports provenance', async () => {
     await seedSource();
-    vi.mocked(getCredentialsForSource).mockResolvedValue({ accountId: 'a', clientId: 'b', clientSecret: 'c' });
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: { accountId: 'a', clientId: 'b', clientSecret: 'c' }, scope: 'workspace' });
     vi.mocked(fetchZoomMeetingTranscript).mockResolvedValue({
       doc: {
         externalId: 'zoom:uuid-live',
@@ -181,7 +188,7 @@ describe('live path', () => {
   it('force_refresh skips a valid cache and re-fetches', async () => {
     const sourceId = await seedSource();
     await seedTranscriptDoc(sourceId, 'uuid-1', true);
-    vi.mocked(getCredentialsForSource).mockResolvedValue({ accountId: 'a', clientId: 'b', clientSecret: 'c' });
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: { accountId: 'a', clientId: 'b', clientSecret: 'c' }, scope: 'workspace' });
     vi.mocked(fetchZoomMeetingTranscript).mockResolvedValue({
       doc: {
         externalId: 'zoom:uuid-1',
@@ -201,7 +208,7 @@ describe('live path', () => {
 
   it('reports a recording without a ready transcript honestly', async () => {
     await seedSource();
-    vi.mocked(getCredentialsForSource).mockResolvedValue({ accountId: 'a', clientId: 'b', clientSecret: 'c' });
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: { accountId: 'a', clientId: 'b', clientSecret: 'c' }, scope: 'workspace' });
     vi.mocked(fetchZoomMeetingTranscript).mockResolvedValue({
       doc: {
         externalId: 'zoom:uuid-fresh',
@@ -223,7 +230,7 @@ describe('live path', () => {
 describe('degradation', () => {
   it('says so when no recording exists', async () => {
     await seedSource();
-    vi.mocked(getCredentialsForSource).mockResolvedValue({ accountId: 'a', clientId: 'b', clientSecret: 'c' });
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue({ values: { accountId: 'a', clientId: 'b', clientSecret: 'c' }, scope: 'workspace' });
     vi.mocked(fetchZoomMeetingTranscript).mockResolvedValue(null);
 
     const out = await theTool().invoke({ meeting: 'nope' });
@@ -235,7 +242,7 @@ describe('degradation', () => {
     expect(await theTool().invoke({ meeting: 'x' })).toMatch(/No zoom source is connected/);
 
     await seedSource();
-    vi.mocked(getCredentialsForSource).mockResolvedValue(undefined);
+    vi.mocked(getCredentialsForSourceScoped).mockResolvedValue(undefined);
 
     expect(await theTool().invoke({ meeting: 'x' })).toMatch(/No zoom credentials/);
     expect(fetchZoomMeetingTranscript).not.toHaveBeenCalled();

@@ -591,6 +591,16 @@ export type ArtifactListFilter = {
    * something nobody would open on purpose.
    */
   visibility?: 'user' | 'all';
+  /**
+   * The person browsing, or null when nobody is.
+   *
+   * An artifact of a PRIVATE conversation (one that used somebody's personal
+   * credential — see migration 0121) is not listed to anyone else. The
+   * transcript gate is not enough on its own: a brief written out of Jamie's
+   * inbox is titled from that content and its body is that content, so the log
+   * would hand over what the thread was closed to hide.
+   */
+  requestedBy: string | null;
 };
 
 /**
@@ -615,6 +625,12 @@ export async function listArtifacts(filter: ArtifactListFilter): Promise<Artifac
   if (folder) {
     where.push(or(eq(artifactSchema.folder, folder), ilike(artifactSchema.folder, `${folder}/%`))!);
   }
+  // Artifacts of somebody else's private conversation are absent. An artifact
+  // with no conversation behind it (a record artifact, an imported file) is
+  // unaffected — the left join leaves `private_to` null for those.
+  where.push(filter.requestedBy
+    ? or(isNull(conversationSchema.privateTo), eq(conversationSchema.privateTo, filter.requestedBy))!
+    : isNull(conversationSchema.privateTo));
   const rows = await db
     .select({
       artifact: artifactSchema,

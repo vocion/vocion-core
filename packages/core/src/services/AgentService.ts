@@ -357,6 +357,12 @@ export async function runAgentDeep(opts: {
    * would be a cross-user read with nothing in the code saying so.
    */
   actor?: Actor;
+  /**
+   * The requester's role, when a session supplied one. Decides whether a
+   * workspace-tier connector the turn needs is theirs to connect or an
+   * admin's — the difference between a Connect button and "ask an admin".
+   */
+  role?: string | null;
   /** Per-user connection ACL — restricts retrieval to these source slugs. */
   allowedSourceSlugs?: string[];
   /** Set for mission runs — lets mission-scoped tools (update_mission_notes) resolve their mission. */
@@ -501,7 +507,7 @@ export async function runAgentDeep(opts: {
     return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
   }
 
-  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
+  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride, actor: opts.actor, role: opts.role });
   bindRequestEmit(compiled, emit, opts.userId, opts.actor ?? SYSTEM_ACTOR, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 

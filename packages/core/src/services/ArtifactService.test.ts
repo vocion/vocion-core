@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
-const { createConversation } = await import('@/services/ConversationService');
+const { createConversation, markConversationPrivate } = await import('@/services/ConversationService');
 const {
   ArtifactError,
   COLLAPSE_WINDOW_MS,
@@ -218,13 +218,13 @@ describe('ArtifactService', () => {
     const { artifact } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'chart', title: 'Pipeline by stage', spec: { type: 'bar', x: ['a'], series: [{ name: 's', values: [1] }] }, author: AGENT });
     await updateArtifact({ orgId: ORG, id: artifact.id, title: 'Pipeline by stage (Q3)', author: AGENT, changeSummary: 'scoped to Q3' });
 
-    const rows = await listArtifacts({ orgId: ORG, kinds: ['chart'] });
+    const rows = await listArtifacts({ orgId: ORG, kinds: ['chart'], requestedBy: null });
     const row = rows.find(r => r.id === artifact.id);
 
     expect(row).toMatchObject({ title: 'Pipeline by stage (Q3)', versions: 2, version: 2, conversationTitle: 'Pipeline review' });
     expect(rows[0]!.updatedAt >= rows.at(-1)!.updatedAt).toBe(true);
 
-    expect((await listArtifacts({ orgId: ORG, search: 'pipeline by stage' })).map(r => r.id)).toContain(artifact.id);
+    expect((await listArtifacts({ orgId: ORG, search: 'pipeline by stage', requestedBy: null })).map(r => r.id)).toContain(artifact.id);
   });
 
   it('keeps system output out of the log a person browses, without deleting it', async () => {
@@ -237,23 +237,37 @@ describe('ArtifactService', () => {
     const { artifact: mine } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Northwind research brief', spec: { md: 'Brief.' }, author: AGENT });
     const { artifact: exhaust } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Discovery Calls Mission — Check #186', spec: { md: 'Found nothing.' }, author: AGENT, visibility: 'system' });
 
-    const listed = (await listArtifacts({ orgId: ORG })).map(r => r.id);
+    const listed = (await listArtifacts({ orgId: ORG, requestedBy: null })).map(r => r.id);
 
     expect(listed).toContain(mine.id);
     expect(listed).not.toContain(exhaust.id);
 
     // Still there, still versioned, still reachable for an audit.
-    const all = (await listArtifacts({ orgId: ORG, visibility: 'all' })).map(r => r.id);
+    const all = (await listArtifacts({ orgId: ORG, visibility: 'all', requestedBy: null })).map(r => r.id);
 
     expect(all).toContain(exhaust.id);
     expect(await getArtifact({ orgId: ORG, id: exhaust.id })).toMatchObject({ title: 'Discovery Calls Mission — Check #186' });
+  });
+
+  it('keeps an artifact of somebody else\'s private conversation out of the log', async () => {
+    // The transcript gate is not enough on its own. A brief written out of
+    // Jamie's inbox is TITLED from that content and its body IS that content,
+    // so the log would hand over exactly what the closed thread was hiding.
+    const c = await conv('Inbox digest');
+    const { artifact } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Bellwater Hall renewal thread', spec: { md: 'From the mailbox.' }, author: AGENT });
+    await markConversationPrivate({ orgId: ORG, id: c.id, userId: 'usr-alice' });
+
+    expect((await listArtifacts({ orgId: ORG, requestedBy: 'usr-alice' })).map(r => r.id)).toContain(artifact.id);
+    expect((await listArtifacts({ orgId: ORG, requestedBy: 'usr-bob' })).map(r => r.id)).not.toContain(artifact.id);
+    // Nobody in particular is asking — a webhook, an API token, a schedule.
+    expect((await listArtifacts({ orgId: ORG, requestedBy: null })).map(r => r.id)).not.toContain(artifact.id);
   });
 
   it('defaults an artifact to user-visible, so nothing disappears by omission', async () => {
     const c = await conv();
     const { artifact } = await createArtifact({ orgId: ORG, conversationId: c.id, kind: 'markdown', title: 'Weekly note', spec: { md: 'x' }, author: AGENT });
 
-    expect((await listArtifacts({ orgId: ORG })).map(r => r.id)).toContain(artifact.id);
+    expect((await listArtifacts({ orgId: ORG, requestedBy: null })).map(r => r.id)).toContain(artifact.id);
   });
 
   it('exports a markdown artifact as a workspace page and refuses the kinds that have no archetype', async () => {

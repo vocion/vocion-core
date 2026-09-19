@@ -21,7 +21,7 @@ export default async function ArtifactsPage(props: { params: Promise<{ locale: s
   const { orgId, userId } = await auth();
   const [artifacts, folders, prefs] = orgId
     ? await Promise.all([
-        listArtifacts({ orgId }),
+        listArtifacts({ orgId, requestedBy: userId ?? null }),
         listArtifactFolders({ orgId }),
         userId ? getNavPrefs({ orgId, userId }) : Promise.resolve({ pins: [], dismissed: [] }),
       ])

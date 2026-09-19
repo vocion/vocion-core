@@ -9,6 +9,7 @@ import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { client } from '@/libs/Orpc';
 import { isIntentTag } from './composerTags';
+import { readConnectSource } from './connectSource';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
@@ -598,6 +599,34 @@ export function useChatSession({
           return;
         }
         appendToLatestAgent(m => ({ ...m, recommendations: [...(m.recommendations ?? []), checked.rec] }));
+        return;
+      }
+      case 'connect_source': {
+        // Core emitted this, not the model: a tool call with no credential
+        // behind it IS the decision to ask. Validated at the boundary for the
+        // same reason a recommendation is — a card is one tap from an OAuth
+        // redirect or a credential write, and a payload that cannot name a
+        // real connector must never become one.
+        flushDeltas();
+        const checked = readConnectSource(evt.connect);
+        if (!checked.ok) {
+          console.warn(`useChatSession: dropped an invalid connect_source — ${checked.reason}`);
+          appendToLatestAgent(m => ({
+            ...m,
+            runs: [...(m.runs ?? []), { type: 'tool', name: 'connect_source', state: 'error', output: checked.reason }],
+          }));
+          return;
+        }
+        // Rule 3: one card per connector per turn. A model that calls two
+        // HubSpot tools in one turn asks the same question twice, and two
+        // identical cards read as a bug rather than as two decisions.
+        appendToLatestAgent(m => ({
+          ...m,
+          connects: [
+            ...(m.connects ?? []).filter(c => c.connectorSlug !== checked.connect.connectorSlug),
+            checked.connect,
+          ],
+        }));
         return;
       }
       case 'artifact': {
@@ -1464,7 +1493,28 @@ export function useChatSession({
     }
   }, [sendQueue]);
 
+  /**
+   * Ask again, now that the connector exists — resume v1.
+   *
+   * The turn that showed the card should be the turn that answers, and the
+   * honest cheap version of that is to re-send the question the moment the
+   * grant lands: the tool surface is rebuilt per turn from the capability
+   * ledger, so the same question now reaches the real tool rather than the
+   * stub. Phase 4 replaces this with a typed `connection_intent` that replays
+   * the exact call the stub intercepted, with the exact args — no second model
+   * turn, and no risk of the model asking a slightly different question.
+   */
+  const resumeAfterConnect = useCallback(() => {
+    const lastUserTurn = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUserTurn?.content.trim()) {
+      return;
+    }
+    void sendMessage(lastUserTurn.content);
+  }, [messages, sendMessage]);
+
   return {
+    /** Re-send the last question once a connector it needed is connected. */
+    resumeAfterConnect,
     /** The agent this chat is talking to right now. */
     agent,
     /** Chips for the empty state — the picked agent's own, else the workspace set. */

@@ -30,7 +30,7 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
   if (!row) {
     notFound();
   }
-  const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId }) : null;
+  const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId, requestedBy: userId ?? null }) : null;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-2">

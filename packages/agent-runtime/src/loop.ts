@@ -105,6 +105,13 @@ export function definitionHash(req: InvocationRequest): string {
       // NOT hashed: it is minted per invocation, so hashing it would miss
       // the cache every single time.
       orgId: req.trace?.orgId,
+      // And by ACTOR, for the same reason one step further in: the tool
+      // catalog is now built per person — a connector Jamie has connected and
+      // Dana has not yields real tools in one catalog and connect stubs in the
+      // other. Hashing the catalog separates them today, but that is the
+      // accident, not the rule: two states that happened to produce the same
+      // catalog would share a graph, and the actor is what actually differs.
+      actorId: req.trace?.userId,
       // Whether a credential is present, not what it is. The model client
       // decides at build time whether to override its credential chain at
       // all, so an org that stores an AWS key after its first run needs a

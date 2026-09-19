@@ -16,6 +16,7 @@
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { RuntimeContext } from '../types';
 import { z } from 'zod';
+import { capabilityFor } from '../capabilityLedger';
 import { withToolCallRecord } from '../toolCallRecord';
 import { apolloAccountTools } from './apolloAccount';
 import { apolloCompanyTools } from './apolloCompanies';
@@ -24,6 +25,7 @@ import { apolloListTools } from './apolloLists';
 import { apolloPeopleTools } from './apolloPeople';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
+import { connectStub } from './connect';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -76,12 +78,49 @@ function hubspotDirectTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!hubspotDirectInScope(ctx)) {
     return [];
   }
-  return [
+  return offerWhenUnconnected(ctx, 'hubspot', [
     ...hubspotLeadsTools(ctx),
     ...hubspotCompanyTools(ctx),
     ...hubspotDealTools(ctx),
     ...hubspotCatalogTools(ctx),
-  ];
+  ]);
+}
+
+/**
+ * Hand back the real tools when the connector is connected, and stubs when it
+ * is not.
+ *
+ * The binary `…InScope` gates decide whether an AGENT is allowed near a
+ * connector; this decides whether there is a credential behind it. Keeping the
+ * two separate matters: a tool withheld because the agent has no business with
+ * HubSpot should stay absent, while one withheld because nobody has connected
+ * HubSpot should be present and offer the connection.
+ *
+ * Without a ledger — the handful of contexts built outside the harness — the
+ * tools are returned as they always were. A missing credential then surfaces
+ * the way it did before: as the tool's own "no credentials" result.
+ * @param ctx - The turn.
+ * @param connectorSlug - Which connector these tools run on.
+ * @param tools - The real tools.
+ */
+function offerWhenUnconnected(
+  ctx: RuntimeContext,
+  connectorSlug: string,
+  tools: StructuredToolInterface[],
+): StructuredToolInterface[] {
+  if (!ctx.ledger) {
+    return tools;
+  }
+  const capability = capabilityFor(ctx.ledger, connectorSlug);
+  if (capability.state.kind === 'ready') {
+    return tools;
+  }
+  // Not shipped in this build: absent, as before. There is nothing to offer,
+  // and a card that cannot be acted on is worse than no card.
+  if (capability.state.kind === 'unavailable') {
+    return [];
+  }
+  return tools.map(t => connectStub(t, capability, ctx));
 }
 
 /**
@@ -96,12 +135,12 @@ function apolloTools(ctx: RuntimeContext): StructuredToolInterface[] {
   if (!apolloInScope(ctx)) {
     return [];
   }
-  return [
+  return offerWhenUnconnected(ctx, 'apollo', [
     ...apolloPeopleTools(ctx),
     ...apolloCompanyTools(ctx),
     ...apolloListTools(ctx),
     ...apolloAccountTools(ctx),
-  ];
+  ]);
 }
 
 export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[] {
@@ -152,8 +191,10 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...apolloTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).
-    ...zoomTools(ctx),
-    ...gmailTools(ctx),
+    // Both are PERSONAL connectors, so an unconnected one offers the person
+    // their own grant rather than reporting that the workspace has none.
+    ...offerWhenUnconnected(ctx, 'zoom', zoomTools(ctx)),
+    ...offerWhenUnconnected(ctx, 'gmail', gmailTools(ctx)),
     // Granted-only (harness.grantTools) — empty for agents without the grant.
     ...discoveryTools(ctx),
     ...personalizationTools(ctx),

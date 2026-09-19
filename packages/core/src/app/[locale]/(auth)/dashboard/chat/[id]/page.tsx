@@ -26,7 +26,7 @@ export default async function ConversationArtifactPage(props: {
   if (!orgId || !Number.isInteger(conversationId) || conversationId <= 0) {
     notFound();
   }
-  const conversation = await getConversation({ orgId, id: conversationId });
+  const conversation = await getConversation({ orgId, id: conversationId, requestedBy: userId ?? null });
   if (!conversation) {
     notFound();
   }

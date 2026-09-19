@@ -1346,6 +1346,16 @@ export const conversationSchema = pgTable(
      * enum, so a new rung is a code change.
      */
     autonomy: text('autonomy').default('ask').notNull(),
+    /**
+     * Set to the owner's user id the first time this thread used somebody's
+     * PERSONAL credential (Gmail, Calendar, Drive). Sticky and never cleared:
+     * the transcript already holds that person's inbox content, and unsetting
+     * it would make what is already written visible again. Null is the normal
+     * case. Migration 0121; enforced in the three read paths
+     * (`getConversation`, `listMessages`, `searchConversations`) and in the
+     * artifacts list.
+     */
+    privateTo: text('private_to'),
     messageCount: integer('message_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()

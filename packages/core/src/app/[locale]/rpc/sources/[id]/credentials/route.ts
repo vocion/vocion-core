@@ -35,6 +35,7 @@
 import { clerkAuth as auth } from '@/libs/Auth';
 import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
+import { invalidateAgentGraphs } from '@/services/agents/harness';
 import { listPlatformCredentials, rotatePlatformCredential, storePlatformKey } from '@/services/ApiTokenService';
 import {
   actorFor,
@@ -245,6 +246,9 @@ export async function POST(
         connectorSlug,
         apiTokenId: pickedCredentialId,
       });
+      // A stored credential changes the tool surface: the cached graph
+      // still holds connect stubs for it until this runs.
+      invalidateAgentGraphs(orgId);
       return Response.json({ ok: true, apiTokenId: pickedCredentialId, keyHint: rotated.keyHint });
     } catch (err) {
       const isSafeToShow = err instanceof CredentialValidationError || err instanceof CredentialInUseError;
@@ -269,6 +273,7 @@ export async function POST(
         connectorSlug,
         apiTokenId: pickedCredentialId,
       });
+      invalidateAgentGraphs(orgId);
       return Response.json({ ok: true, apiTokenId: pickedCredentialId });
     } catch (err) {
       const isSafeToShow = err instanceof ConnectorCredentialError || err instanceof CredentialInUseError;
@@ -304,6 +309,7 @@ export async function POST(
         connectorSlug,
         apiTokenId: stored.id,
       });
+      invalidateAgentGraphs(orgId);
       return Response.json({ ok: true, apiTokenId: stored.id, keyHint: stored.keyHint });
     } catch (err) {
       // Only the registry's own validation messages are safe to show: each is
@@ -332,6 +338,7 @@ export async function POST(
       userId,
       projectId: orgId,
     });
+    invalidateAgentGraphs(orgId);
     return Response.json({ ok: true, credentialId });
   } catch (err) {
     // Same gate as the GET catch and the rotate and link branches. A raw

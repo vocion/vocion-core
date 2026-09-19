@@ -56,7 +56,7 @@ export default async function ConversationsPage(props: {
   const session = await auth();
   const orgId = session.orgId;
   const rows = orgId
-    ? await searchConversations({ orgId, q, limit: 100, includeScopedFor: session.userId ?? undefined })
+    ? await searchConversations({ orgId, q, limit: 100, includeScopedFor: session.userId ?? undefined, requestedBy: session.userId ?? null })
     : [];
 
   const now = new Date();
