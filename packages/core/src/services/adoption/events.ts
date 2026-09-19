@@ -169,6 +169,45 @@ export const ADOPTION_EVENTS = {
       version: z.number().int().positive(),
     }),
   },
+  /**
+   * The agent hit a connector nobody had connected and served a card for it.
+   *
+   * `system: true`, because the turn that emits it may be a schedule or an
+   * API caller rather than a person — a gap outside chat is exactly the case
+   * worth counting, and dropping those rows would make the denominator lie.
+   *
+   * Offered / granted / declined together answer the only question this
+   * feature really has: does putting the connection where the work is get it
+   * connected? A card nobody ever taps is a card that should not be shown.
+   */
+  'connection.offered': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      connector: z.string().max(64),
+      // `connect` | `needs-admin` | `reconnect` — a member told to find an
+      // admin is a different outcome from one who could act.
+      state: z.enum(['connect', 'needs-admin', 'reconnect']),
+      scope: z.enum(['user', 'workspace']),
+      /** Where the gap was met. A schedule cannot show anybody a card. */
+      surface: z.enum(['chat', 'schedule', 'workflow', 'api']),
+    }),
+  },
+  /** Somebody connected it. `resumed` says whether the turn picked itself back up. */
+  'connection.granted': {
+    agent: true,
+    meta: z.object({
+      connector: z.string().max(64),
+      scope: z.enum(['user', 'workspace']),
+      /** `oauth` came through the browser consent; `key` through the inline form. */
+      via: z.enum(['oauth', 'key']),
+    }),
+  },
+  /** Somebody read the card and chose to go without. Signal, not a non-event. */
+  'connection.declined': {
+    agent: true,
+    meta: z.object({ connector: z.string().max(64) }),
+  },
   'learning.added': { agent: true },
   /**
    * Feedback proposed a rule nobody had proposed before, so a candidate is

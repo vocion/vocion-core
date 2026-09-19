@@ -5,6 +5,7 @@
  */
 
 import type { Action } from './types';
+import { connectSourceAction } from './connect-source';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
@@ -32,6 +33,7 @@ registerAction(hubspotUpdateAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);
+registerAction(connectSourceAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);

@@ -19,6 +19,12 @@
  *   - `objects.propose_candidate` — approving an extracted record is what lets
  *     it be published outside; the moderation loop exists so a human sees
  *     every candidate.
+ *   - `connection.connect_source` — its execute is deliberately inert, because
+ *     the credential is supplied under Connectors and an action must never be
+ *     the thing that holds one. Auto-approving it would therefore close the
+ *     item with nothing connected, which is worse than the silence it replaced:
+ *     the queue would show the gap as handled while every run kept answering
+ *     short.
  *
  * Deliberately not configurable. Fails safe — it can only keep an item in the
  * review queue, never release it.
@@ -28,6 +34,7 @@ export const NEVER_AUTO_ACTION_IDS: ReadonlySet<string> = new Set([
   'discovery.review_proposal',
   'personalization.enroll',
   'objects.propose_candidate',
+  'connection.connect_source',
 ]);
 
 /** Grants that put an action on the never-auto list whatever its id. */

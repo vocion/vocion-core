@@ -23,6 +23,7 @@ import { platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { resolveIdentity } from '@/libs/sources/types';
 import { oauthStateSchema } from '@/models/Schema';
+import { track } from '@/services/adoption/track';
 import { invalidateAgentGraphs } from '@/services/agents/harness';
 import { listPlatformCredentials, resolveCredentialById } from '@/services/ApiTokenService';
 import { storeCredentialForSource } from '@/services/SourceCredentialService';
@@ -272,6 +273,9 @@ export async function completeOAuth(input: {
   // The tool surface changed: without this the next turn still holds connect
   // stubs and offers a card for a credential that now exists.
   invalidateAgentGraphs(row.orgId);
+  void track({ orgId: row.orgId, userId: row.userId }, 'connection.granted', {
+    meta: { connector: row.connectorSlug, scope, via: 'oauth' },
+  });
 
   return {
     returnTo: row.redirectTo ?? '/dashboard/connectors',

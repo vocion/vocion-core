@@ -14,6 +14,11 @@ import { connectStub, scopesFor } from './connect';
 // The intent write is Phase 4's; this suite is about the stub's shape and the
 // event it emits, so the row is stubbed and covered in `connectionIntent`.
 vi.mock('../connectionIntent', () => ({ saveIntent: vi.fn(async () => 77) }));
+// Adoption counting is fire-and-forget and has its own coverage.
+vi.mock('@/services/adoption/track', () => ({ track: vi.fn() }));
+// The queue write outside chat — asserted here by call, executed elsewhere.
+const proposeAction = vi.fn(async () => ({ runId: 1, status: 'pending' as const }));
+vi.mock('@/services/ActionService', () => ({ proposeAction }));
 
 const REAL = tool(
   async () => 'real data',
@@ -117,6 +122,35 @@ describe('connectStub', () => {
     // A card nobody could act on is worse than no card.
     expect(events).toEqual([]);
     expect(String(output)).toContain('not available');
+  });
+});
+
+describe('a gap outside chat', () => {
+  it('files a review item instead of quietly answering short', async () => {
+    proposeAction.mockClear();
+    const events: AgentEvent[] = [];
+    // No `conversationId`: a scheduled run, a workflow step, an API caller.
+    // There is nobody to show a card to.
+    const ctx = { ...ctxFor(events), conversationId: undefined, actor: { kind: 'system' } as const };
+    const stub = connectStub(REAL, capability({ slug: 'hubspot', name: 'HubSpot', identity: 'shared', state: { kind: 'needs-admin' } }), ctx);
+
+    await stub.invoke({ timeMin: 'a', timeMax: 'b' });
+
+    expect(proposeAction).toHaveBeenCalledWith(expect.objectContaining({
+      actionId: 'connection.connect_source',
+      input: expect.objectContaining({ connector: 'hubspot', surface: 'schedule', scope: 'workspace' }),
+    }));
+  });
+
+  it('files nothing when somebody is looking at a card instead', async () => {
+    proposeAction.mockClear();
+    const events: AgentEvent[] = [];
+    const stub = connectStub(REAL, capability(), { ...ctxFor(events), conversationId: 42 });
+
+    await stub.invoke({ timeMin: 'a', timeMax: 'b' });
+
+    expect(proposeAction).not.toHaveBeenCalled();
+    expect(events).toHaveLength(1);
   });
 });
 

@@ -26,6 +26,7 @@ import { VaultDecryptionError } from '@/libs/crypto/credentialVault';
 import { CredentialValidationError, platformForConnectorSlug } from '@/libs/platforms/registry';
 import { getConnector } from '@/libs/sources/registry';
 import { resolveIdentity } from '@/libs/sources/types';
+import { track } from '@/services/adoption/track';
 import { capabilityLedger } from '@/services/agents/capabilityLedger';
 import { invalidateAgentGraphs } from '@/services/agents/harness';
 import { listPlatformCredentials, storePlatformKey } from '@/services/ApiTokenService';
@@ -139,6 +140,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
         projectId: orgId,
       });
       invalidateAgentGraphs(orgId);
+      void track({ orgId, userId }, 'connection.granted', { meta: { connector: slug, scope: 'user', via: 'key' } });
       return Response.json({ ok: true, credentialId, scope: 'user' });
     }
 
@@ -160,6 +162,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
         await linkSourceToStoredCredential({ orgId, sourceId, connectorSlug: slug, apiTokenId });
       }
       invalidateAgentGraphs(orgId);
+      void track({ orgId, userId }, 'connection.granted', { meta: { connector: slug, scope: 'workspace', via: 'key' } });
       return Response.json({ ok: true, apiTokenId, scope: 'workspace' });
     }
 
@@ -174,6 +177,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       projectId: orgId,
     });
     invalidateAgentGraphs(orgId);
+    void track({ orgId, userId }, 'connection.granted', { meta: { connector: slug, scope: 'workspace', via: 'key' } });
     return Response.json({ ok: true, credentialId, scope: 'workspace' });
   } catch (err) {
     // Only messages written for a person and naming no secret may cross.

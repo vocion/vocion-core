@@ -1,7 +1,7 @@
 'use client';
 
 import type { DashboardLinkKind } from './links';
-import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
+import type { AgentRun, ChatMessage, ConnectSource, ConversationAutonomy, IndexedDocument } from './types';
 import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
@@ -82,6 +82,13 @@ export type AgentMessageProps = {
    * tool call the stub intercepted.
    */
   onResumeAfterConnect?: (intentId?: number | 'pending' | null) => void;
+  /**
+   * The person chose to go without. Remembered for the conversation — rule 3:
+   * one card per connector per turn, and a decline is not re-asked in the same
+   * thread. Not a standing preference: somebody who declines Calendar today
+   * should still be offered it tomorrow when the work needs it.
+   */
+  onDeclineConnect?: (connect: ConnectSource) => void;
 };
 
 function formatTime(ts: number | undefined): string {
@@ -108,7 +115,7 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId, onResumeAfterConnect }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId, onResumeAfterConnect, onDeclineConnect }: AgentMessageProps) => {
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
   const sourceCount = message.documents?.length ?? message.citationCount ?? 0;
@@ -237,6 +244,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               key={connect.connectorSlug}
               connect={connect}
               onConnected={c => onResumeAfterConnect?.(c.intentId)}
+              onSkip={onDeclineConnect}
             />
           ))}
           {(message.artifacts?.length ?? 0) > 0 && (

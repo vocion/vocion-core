@@ -1,7 +1,7 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
+import type { AgentOption, AgentRun, ChatMessage, ChatMessageArtifact, ConnectSource, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
@@ -278,6 +278,21 @@ export function useChatSession({
   }, [scopeRef]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  /**
+   * Connectors this thread has already been offered and turned down.
+   *
+   * Rule 3: one card per connector per turn, and a decline is remembered for
+   * the conversation. Without this the next turn hits the same gap and serves
+   * the same card, which reads as the agent not listening. Per thread rather
+   * than per person, because it is about this piece of work — somebody who
+   * declines Calendar today should still be offered it tomorrow.
+   */
+  const [declinedConnectors, setDeclinedConnectors] = useState<Set<string>>(new Set());
+  // Read inside the event reducer, which is defined above the handler that
+  // writes it — a ref rather than the state itself, so the reducer sees the
+  // current set without being rebuilt on every decline.
+  const declinedConnectorsRef = useRef(declinedConnectors);
+  declinedConnectorsRef.current = declinedConnectors;
   const [composerValue, setComposerValue] = useState(initialComposerValue ?? '');
   // Captured pasted material — a chip beside the composer, not a flood in it
   // (032 §2.1 rule 5). Travels with the next message, then clears.
@@ -615,6 +630,12 @@ export function useChatSession({
             ...m,
             runs: [...(m.runs ?? []), { type: 'tool', name: 'connect_source', state: 'error', output: checked.reason }],
           }));
+          return;
+        }
+        if (declinedConnectorsRef.current.has(checked.connect.connectorSlug)) {
+          // Already asked in this thread and turned down. The gap is real and
+          // the agent still says so in prose; what it does not do is put the
+          // same card up again.
           return;
         }
         // Rule 3: one card per connector per turn. A model that calls two
@@ -1526,6 +1547,28 @@ export function useChatSession({
    * thread and replays it, which is why `'pending'` is enough here. The query
    * parameter is stripped either way, so a refresh does not resume twice.
    */
+  /**
+   * The person read the card and chose to go without.
+   *
+   * Two things happen and neither is a preference: the connector stops being
+   * offered in this thread, and the decline is counted. Offered / granted /
+   * declined together are the only honest answer to "does putting the
+   * connection where the work is get it connected" — a card nobody ever taps
+   * is a card that should not be shown.
+   */
+  const declineConnect = useCallback((connect: ConnectSource) => {
+    setDeclinedConnectors(prev => new Set(prev).add(connect.connectorSlug));
+    setMessages(prev => prev.map(m => (
+      m.connects?.some(c => c.connectorSlug === connect.connectorSlug)
+        ? { ...m, connects: m.connects.filter(c => c.connectorSlug !== connect.connectorSlug) }
+        : m
+    )));
+    void fetch(`/rpc/connectors/${connect.connectorSlug}/decline`, { method: 'POST' }).catch((error) => {
+      // Counting is best-effort; the card is already gone from the transcript.
+      console.warn('useChatSession: could not record the declined connection', error);
+    });
+  }, []);
+
   const resumedRef = useRef(false);
   useEffect(() => {
     if (resumedRef.current || typeof window === 'undefined') {
@@ -1545,6 +1588,8 @@ export function useChatSession({
   return {
     /** Re-send the last question once a connector it needed is connected. */
     resumeAfterConnect,
+    /** The person chose to go without — stops offering it in this thread. */
+    declineConnect,
     /** The agent this chat is talking to right now. */
     agent,
     /** Chips for the empty state — the picked agent's own, else the workspace set. */

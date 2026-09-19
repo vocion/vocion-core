@@ -50,12 +50,14 @@ export type MessageListProps = {
   conversationId?: number | null;
   /** Re-send the last question once a connector a turn needed is connected. */
   onResumeAfterConnect?: (intentId?: number | 'pending' | null) => void;
+  /** The person chose to go without — remembered for this thread. */
+  onDeclineConnect?: (connect: import('./types').ConnectSource) => void;
 };
 
 /** How close to the bottom (px) still counts as "pinned". */
 const PIN_THRESHOLD = 48;
 
-export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId, onResumeAfterConnect }: MessageListProps) {
+export function MessageList({ messages, agentName, streaming = false, activity, onShowSources, onCitationClick, blocks = [], onFeedback, autonomy, onOpenArtifact, conversationId, onResumeAfterConnect, onDeclineConnect }: MessageListProps) {
   const t = useTranslations('Chat');
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Whether the view should follow the stream. A ref (not state): scroll
@@ -129,6 +131,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                     onOpenArtifact={onOpenArtifact}
                     conversationId={conversationId}
                     onResumeAfterConnect={onResumeAfterConnect}
+                    onDeclineConnect={onDeclineConnect}
                   />
                 )}
             {blocksAfter(i)}
