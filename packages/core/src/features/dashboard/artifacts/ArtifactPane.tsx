@@ -44,6 +44,16 @@ import { TableArtifactEditor } from './TableArtifactEditor';
 import { VersionMenu } from './VersionMenu';
 
 const EDITABLE: ReadonlySet<string> = new Set(['markdown', 'table', 'document']);
+/**
+ * Kinds that are PROSE, and so keep a measure even when the page around them
+ * is full-bleed: a markdown artifact would otherwise run a line the width of a
+ * monitor, and a document's sheet renders 1:1 at 850px and gains nothing past
+ * it. A table or a chart takes whatever width it is given — more columns on
+ * screen is the whole point of the extra pixels.
+ */
+const PROSE: ReadonlySet<string> = new Set(['markdown', 'document']);
+/** `DOCUMENT_FRAME_WIDTH` (850px) plus this body's own padding. */
+const PROSE_MAX_WIDTH = 'max-w-[882px]';
 
 export type ArtifactPaneProps = {
   artifact: ArtifactEntry;
@@ -385,32 +395,20 @@ export function ArtifactPane(props: ArtifactPaneProps) {
       )}
 
       <div ref={bodyRef} className={cn('p-4', (props.scroll ?? 'pane') === 'pane' ? 'min-h-0 flex-1 overflow-auto' : 'flex-1')} data-artifact-body>
-        {artifact.pending
-          ? (
-              <div className="animate-pulse space-y-2" aria-label="Writing…">
-                <div className="h-3 w-2/3 rounded bg-muted" />
-                <div className="h-3 w-full rounded bg-muted" />
-                <div className="h-3 w-5/6 rounded bg-muted" />
-              </div>
-            )
-          : draft !== null && artifact.kind === 'markdown'
+        <div className={cn('flex h-full min-h-0 w-full flex-col', PROSE.has(artifact.kind) && `mx-auto ${PROSE_MAX_WIDTH}`)}>
+          {artifact.pending
             ? (
-                <MarkdownArtifactEditor
-                  value={String((draft as Partial<MarkdownSpec>).md ?? '')}
-                  onChange={md => setDraft({ ...draft, md })}
-                  onSave={() => void save()}
-                  onCancel={() => {
-                    setDraft(null);
-                    props.onEndEdit?.();
-                  }}
-                  disabled={saving}
-                />
+                <div className="animate-pulse space-y-2" aria-label="Writing…">
+                  <div className="h-3 w-2/3 rounded bg-muted" />
+                  <div className="h-3 w-full rounded bg-muted" />
+                  <div className="h-3 w-5/6 rounded bg-muted" />
+                </div>
               )
-            : draft !== null && artifact.kind === 'document'
+            : draft !== null && artifact.kind === 'markdown'
               ? (
                   <MarkdownArtifactEditor
-                    value={String((draft as { html?: string }).html ?? '')}
-                    onChange={html => setDraft({ ...draft, html })}
+                    value={String((draft as Partial<MarkdownSpec>).md ?? '')}
+                    onChange={md => setDraft({ ...draft, md })}
                     onSave={() => void save()}
                     onCancel={() => {
                       setDraft(null);
@@ -419,11 +417,11 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                     disabled={saving}
                   />
                 )
-              : draft !== null && artifact.kind === 'table'
+              : draft !== null && artifact.kind === 'document'
                 ? (
-                    <TableArtifactEditor
-                      draft={draft as unknown as DataTableSpec}
-                      onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                    <MarkdownArtifactEditor
+                      value={String((draft as { html?: string }).html ?? '')}
+                      onChange={html => setDraft({ ...draft, html })}
                       onSave={() => void save()}
                       onCancel={() => {
                         setDraft(null);
@@ -432,7 +430,21 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                       disabled={saving}
                     />
                   )
-                : <ArtifactCard artifact={shown} surface="artifact" />}
+                : draft !== null && artifact.kind === 'table'
+                  ? (
+                      <TableArtifactEditor
+                        draft={draft as unknown as DataTableSpec}
+                        onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                        onSave={() => void save()}
+                        onCancel={() => {
+                          setDraft(null);
+                          props.onEndEdit?.();
+                        }}
+                        disabled={saving}
+                      />
+                    )
+                  : <ArtifactCard artifact={shown} surface="artifact" />}
+        </div>
       </div>
 
       {/* Select-to-ask: highlighting inside the pane offers "Ask Vocion",

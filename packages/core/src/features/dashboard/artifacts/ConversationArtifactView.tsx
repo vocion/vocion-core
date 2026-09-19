@@ -42,9 +42,9 @@ import { mergeArtifactEvent } from '@/features/dashboard/chat/traceReducer';
 import { useChatCommands } from '@/features/dashboard/chat/useChatCommands';
 import { useChatSession } from '@/features/dashboard/chat/useChatSession';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
-import { cn } from '@/utils/Helpers';
 import { ArtifactPane } from './ArtifactPane';
 import { artifactReducer, initialArtifactPaneState, openArtifact } from './artifactReducer';
+import { ConversationSplit } from './ConversationSplit';
 import { useArtifactEvents } from './useArtifactEvents';
 
 export type ConversationArtifactViewProps = {
@@ -245,80 +245,84 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
         </div>
       </ShellBarActionsPortal>
 
-      <div className={cn('grid min-h-0 flex-1 gap-4', open ? 'lg:grid-cols-[minmax(22rem,5fr)_minmax(0,7fr)]' : 'grid-cols-1')}>
-        {/* Conversation */}
-        <div className="flex min-h-0 flex-col">
-          <div className="mb-2 flex items-baseline gap-2 px-1">
-            <h1 className="truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
-            <span className="text-xs text-muted-foreground">{session.agent.name}</span>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col">
-            {session.messages.length === 0 && !session.resuming
-              ? <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Nothing here yet — ask for something and it opens beside you.</p>
-              : (
-                  <MessageList
-                    messages={messages}
-                    agentName={session.agent.name}
-                    streaming={session.isStreaming}
-                    activity={session.activity}
-                    onShowSources={session.handleShowSources}
-                    onCitationClick={session.handleCitationClick}
-                    onOpenArtifact={openById}
-                  />
-                )}
-            {session.pendingHitl && (
-              <HitlGate gate={session.pendingHitl} onApprove={session.handleApproveHitl} onReject={session.handleRejectHitl} disabled={session.isStreaming} />
-            )}
-            {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
-            <ChatComposer
-              onCommand={onCommand}
-              controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
-              settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, tc('autonomy_thread'))]}
-              onSetting={(id, opt) => {
-                const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
-                if (rung) {
-                  session.setAutonomy(rung);
-                }
-              }}
-              value={session.composerValue}
-              onChange={session.setComposerValue}
-              onSubmit={() => void session.sendMessage(session.composerValue)}
-              // Not until the session is on THIS conversation: the hook boots on
-              // the last-viewed pointer and switches a beat later, and a line
-              // sent in that beat would open a new thread beside the one on
-              // screen — then vanish from view when the switch landed.
-              disabled={!session.booted || session.conversationId !== props.conversationId}
-              streaming={session.isStreaming}
-              {...queueProps}
-              {...tagProps}
-              onStop={session.handleStop}
-              placeholder={session.composerPlaceholder}
-              pastedText={session.pastedText}
-              onPasteText={session.setPastedText}
-              onClearPasted={() => session.setPastedText(null)}
-              tags={session.contextRefs}
-              onAddTag={session.addContextRef}
-              onRemoveTag={session.removeContextRef}
-            />
-          </div>
-        </div>
-
-        {/* The one artifact */}
-        {open && (
-          <ArtifactPane
-            key={open.id}
-            artifact={open}
-            selfId={props.selfId}
-            workspaceSlug={props.workspaceSlug}
-            conflict={pane.conflict}
-            onBeginEdit={() => dispatch({ type: 'beginEdit' })}
-            onEndEdit={() => dispatch({ type: 'endEdit' })}
-            onDismissConflict={() => dispatch({ type: 'dismissConflict' })}
-            onUpdated={a => dispatch({ type: 'upsert', artifact: a, focus: true })}
-            onClose={() => dispatch({ type: 'close' })}
-          />
+      {/* The two panes and the line between them. The widths are the rule and
+          the ratio is derived from them, so the transcript keeps its measure
+          and the document gets the rest of the window (ConversationSplit). */}
+      <ConversationSplit
+        conversation={(
+          <>
+            <div className="mb-2 flex items-baseline gap-2 px-1">
+              <h1 className="truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
+              <span className="text-xs text-muted-foreground">{session.agent.name}</span>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              {session.messages.length === 0 && !session.resuming
+                ? <p className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Nothing here yet — ask for something and it opens beside you.</p>
+                : (
+                    <MessageList
+                      messages={messages}
+                      agentName={session.agent.name}
+                      streaming={session.isStreaming}
+                      activity={session.activity}
+                      onShowSources={session.handleShowSources}
+                      onCitationClick={session.handleCitationClick}
+                      onOpenArtifact={openById}
+                    />
+                  )}
+              {session.pendingHitl && (
+                <HitlGate gate={session.pendingHitl} onApprove={session.handleApproveHitl} onReject={session.handleRejectHitl} disabled={session.isStreaming} />
+              )}
+              {quoted && <QuotedPassage text={quoted} onDrop={() => setIntent(null)} />}
+              <ChatComposer
+                onCommand={onCommand}
+                controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+                settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, tc('autonomy_thread'))]}
+                onSetting={(id, opt) => {
+                  const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
+                  if (rung) {
+                    session.setAutonomy(rung);
+                  }
+                }}
+                value={session.composerValue}
+                onChange={session.setComposerValue}
+                onSubmit={() => void session.sendMessage(session.composerValue)}
+                // Not until the session is on THIS conversation: the hook boots on
+                // the last-viewed pointer and switches a beat later, and a line
+                // sent in that beat would open a new thread beside the one on
+                // screen — then vanish from view when the switch landed.
+                disabled={!session.booted || session.conversationId !== props.conversationId}
+                streaming={session.isStreaming}
+                {...queueProps}
+                {...tagProps}
+                onStop={session.handleStop}
+                placeholder={session.composerPlaceholder}
+                pastedText={session.pastedText}
+                onPasteText={session.setPastedText}
+                onClearPasted={() => session.setPastedText(null)}
+                tags={session.contextRefs}
+                onAddTag={session.addContextRef}
+                onRemoveTag={session.removeContextRef}
+              />
+            </div>
+          </>
         )}
-      </div>
+        pane={open
+          ? (
+              <ArtifactPane
+                key={open.id}
+                artifact={open}
+                selfId={props.selfId}
+                workspaceSlug={props.workspaceSlug}
+                conflict={pane.conflict}
+                onBeginEdit={() => dispatch({ type: 'beginEdit' })}
+                onEndEdit={() => dispatch({ type: 'endEdit' })}
+                onDismissConflict={() => dispatch({ type: 'dismissConflict' })}
+                onUpdated={a => dispatch({ type: 'upsert', artifact: a, focus: true })}
+                onClose={() => dispatch({ type: 'close' })}
+              />
+            )
+          : null}
+      />
     </div>
   );
 }
