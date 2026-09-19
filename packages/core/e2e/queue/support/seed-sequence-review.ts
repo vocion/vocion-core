@@ -54,7 +54,7 @@ const SENDS = [
 ];
 
 const { values } = parseArgs({
-  options: { email: { type: 'string' }, read: { type: 'string' }, clean: { type: 'boolean' } },
+  options: { email: { type: 'string' }, read: { type: 'string' }, clean: { type: 'boolean' }, count: { type: 'string' }, longName: { type: 'boolean' } },
 });
 
 /**
@@ -109,40 +109,50 @@ async function main(): Promise<void> {
   const orgId = await orgOf(email);
 
   // Its own earlier rows first, so a rerun never walks a stale one.
-  await db.delete(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.dedupKey, DEDUP_KEY)));
+  const { like } = await import('drizzle-orm');
+  await db.delete(actionRunSchema).where(and(eq(actionRunSchema.orgId, orgId), like(actionRunSchema.dedupKey, `${DEDUP_KEY}%`)));
 
   if (values.clean) {
     console.error('[seed-sequence-review] cleaned');
     process.exit(0);
   }
 
-  const [run] = await db
-    .insert(actionRunSchema)
-    .values({
-      orgId,
-      actionId: 'personalization.enroll',
-      status: 'pending',
-      dedupKey: DEDUP_KEY,
-      invokedBy: 'agent:revenue-lead',
-      input: {
-        contactRef: 'contacts:88201',
-        contactName: 'Rowan Pike',
-        companyName: 'Tideline Gaming',
-        sequenceId: 'seq-e2e-nurture',
-        sequenceName: 'Ebook Inbound Nurture',
-        sends: SENDS,
-      },
-      proposal: {
-        confidence: 0.62,
-        rationale: 'The careers page names two live-ops roles beside a studio launch.',
-        evidence: ['https://tideline.example/careers'],
-        agentSlug: 'revenue-lead',
-      },
-    })
-    .returning({ id: actionRunSchema.id });
+  // `--count` fills the queue so the header renders a position and an Up-next
+  // entry; `--longName` gives the first card the long record name that made
+  // the title wrap onto three lines on the live queue.
+  const count = Math.max(1, Number(values.count ?? 1));
+  const ids: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const first = i === 0;
+    const [run] = await db
+      .insert(actionRunSchema)
+      .values({
+        orgId,
+        actionId: 'personalization.enroll',
+        status: 'pending',
+        dedupKey: `${DEDUP_KEY}:${i}`,
+        invokedBy: 'agent:revenue-lead',
+        input: {
+          contactRef: `contacts:8820${i}`,
+          contactName: first && values.longName ? 'Marisol Okonkwo-Vasquez' : `Rowan Pike ${i + 1}`,
+          companyName: first && values.longName ? 'Northwind Logistics Group (Pvt.) Limited' : 'Tideline Gaming',
+          sequenceId: 'seq-e2e-nurture',
+          sequenceName: first ? 'Ebook Inbound Nurture' : 'New Operational AI Inbound Sequence',
+          sends: SENDS,
+        },
+        proposal: {
+          confidence: 0.62,
+          rationale: 'The careers page names two live-ops roles beside a studio launch.',
+          evidence: ['https://tideline.example/careers'],
+          agentSlug: 'revenue-lead',
+        },
+      })
+      .returning({ id: actionRunSchema.id });
+    ids.push(run!.id);
+  }
 
-  console.error(`[seed-sequence-review] run ${run!.id} in ${orgId}`);
-  process.stdout.write(`${JSON.stringify({ orgId, runId: run!.id })}\n`);
+  console.error(`[seed-sequence-review] ${ids.length} run(s) in ${orgId}`);
+  process.stdout.write(`${JSON.stringify({ orgId, runId: ids[0], runIds: ids })}\n`);
   process.exit(0);
 }
 

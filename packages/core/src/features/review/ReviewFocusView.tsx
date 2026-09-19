@@ -168,29 +168,20 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   const longField = desc.isEmail ? 'body' : 'notes';
   const held = p.busy || p.steering;
 
-  const backAndNext = (
-    <>
-      <button
-        type="button"
-        onClick={p.onBack}
-        disabled={!p.canBack}
-        className="rounded-md px-1.5 py-1 transition enabled:hover:bg-surface-hover enabled:hover:text-foreground disabled:opacity-40"
-      >
-        {`‹ ${t('back')}`}
-      </button>
-      <UpNextMenu next={p.upNext} remaining={Math.max(p.total - 1, p.upNext.length)} onSkipTo={p.onSkipTo} onLoadMore={p.onLoadMore} />
-      <button
-        type="button"
-        onClick={p.onToggleHelp}
-        aria-expanded={p.showHelp}
-        className="hidden items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground sm:inline-flex"
-        title="Keyboard shortcuts"
-      >
-        <kbd className="rounded border border-border px-1 font-mono">?</kbd>
-        {t('shortcuts')}
-      </button>
-    </>
-  );
+  // The flat template's title row carries the record and nothing else.
+  //
+  // It used to carry the queue controls too — position, Back, Up next and the
+  // shortcuts chip — and on a real queue that cluster is not small: Up next
+  // renders the whole next item's name ("Enroll Larry Chao (Baser Potential)
+  // in New Operational AI Inbound Sequence"), which took most of the row and
+  // squeezed a three-word heading into three wrapped lines. The controls were
+  // costing the thing they sat beside.
+  //
+  // Nothing is lost that a person cannot reach: `j` and `k` walk the queue,
+  // `?` opens the shortcut list, and the breadcrumb goes back to it. The
+  // legacy (non-card) header below keeps its own cluster, because that path
+  // has no tabs and the row has the room.
+
   const help = p.showHelp && (
     <ul className="hidden flex-wrap gap-x-5 gap-y-1 border-b border-rule py-2 text-[12px] text-muted-foreground sm:flex" data-testid="shortcuts-hint">
       {SHORTCUTS.filter(s => s.action !== 'help').map(s => (
@@ -213,8 +204,6 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
           title={title}
           subtitle={object?.subtitle}
-          position={queuePosition(p.index, p.total)}
-          actions={backAndNext}
           beforeTabs={help}
           barLabels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
           onDecided={p.onCardDecided}

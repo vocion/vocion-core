@@ -253,6 +253,27 @@ describe('one flat template, every object type', () => {
     expect(bar.textContent).not.toContain('Skip');
   });
 
+  it('gives a long record name the whole title row when the header carries no controls', async () => {
+    // The live defect: the queue controls (position, Back, and an Up next
+    // that renders the WHOLE next item's name) took most of the row, so the
+    // title fell back to its 20rem basis and a three-word heading wrapped
+    // onto three lines. The controls were costing the thing they sat beside.
+    await render(
+      <ReviewSurface
+        run={approved(enrollment(3))}
+        crumbs={CRUMBS}
+        title="Enroll MQL in sequence — Musa Raza · Digital Dost (Pvt.) Limited"
+        subtitle="Founder & CEO · Digital Dost (Pvt.) Limited"
+      />,
+    );
+
+    const heading = page.getByRole('heading', { level: 1 }).element();
+    const row = heading.parentElement!.parentElement!;
+
+    // Not pinned to the 320px basis: the name gets the row it is the subject of.
+    expect(heading.getBoundingClientRect().width).toBeGreaterThan(row.getBoundingClientRect().width * 0.8);
+  });
+
   it('decides from the keyboard, and never while you are typing', async () => {
     decideAction.mockClear();
     // A walk this card has already completed, so the keyboard test is about
