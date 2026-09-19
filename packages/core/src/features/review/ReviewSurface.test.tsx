@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { publishDraftRevision } from '@/features/personalization/draftRevision';
+import { contentHash } from '@/libs/actions/contentHash';
 // The real stylesheet, so the layout claims below are about geometry rather
 // than about class names (`ReviewHeader.layout.test.tsx` sets the precedent).
 import '@/styles/global.css';
@@ -26,6 +27,8 @@ vi.mock('@/libs/Orpc', () => ({
       decideAction: (input: Record<string, unknown>) => decideAction(input),
       snoozeAction: (input: Record<string, unknown>) => snoozeAction(input),
       regenerateAction: (input: Record<string, unknown>) => regenerateAction(input),
+      approveContent: async () => ({ ok: true, hash: 'x' }),
+      unapproveContent: async () => ({ ok: true }),
       actionStatus: async () => ({ regeneratingSince: null, regenerateNote: null }),
     },
   },
@@ -40,6 +43,22 @@ vi.mock('@/libs/I18nNavigation', () => ({
 const { ReviewSurface } = await import('./ReviewSurface');
 
 const CRUMBS = [{ label: 'Workspace', href: '/dashboard' }, { label: 'Review queue', href: '/dashboard/inbox' }, { label: 'Recommendations' }];
+
+/**
+ * The same run with its walk already complete, for the tests that are about
+ * something other than the walk. Phase 4 holds the primary until every send
+ * carries a check, so a card that is not the subject of a test arrives with
+ * them rather than having the assertion weakened around it.
+ * @param run - The run to stamp as fully approved.
+ */
+function approved(run: ReviewCardRun): ReviewCardRun {
+  return {
+    ...run,
+    contentReview: Object.fromEntries((run.card.content ?? [])
+      .filter(i => i.kind === 'email')
+      .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, i.kind === 'email' ? i.body : ''), at: '2026-09-18T12:00:00.000Z' }])),
+  };
+}
 
 /**
  * An enrollment run with `n` sends — the shape that grows.
@@ -236,7 +255,10 @@ describe('one flat template, every object type', () => {
 
   it('decides from the keyboard, and never while you are typing', async () => {
     decideAction.mockClear();
-    await render(<ReviewSurface run={enrollment(3)} crumbs={CRUMBS} />);
+    // A walk this card has already completed, so the keyboard test is about
+    // the keyboard. That `a` cannot bypass an INCOMPLETE walk is asserted in
+    // ReviewSurface.walk.test.tsx, where the hold is the subject.
+    await render(<ReviewSurface run={approved(enrollment(3))} crumbs={CRUMBS} />);
 
     await page.getByTestId('email-pane-send-1').element().querySelector('textarea')!.focus();
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
@@ -261,6 +283,14 @@ describe('one flat template, every object type', () => {
     await page.getByTestId('tab-item-send-3').click();
     const live = page.getByTestId('email-pane-send-3').element().querySelector('textarea')!;
     await page.elementLocator(live).fill('Rewritten in the tab.');
+
+    // Each send it edited is then approved, which is the walk's real path and
+    // what releases the primary.
+    for (const id of ['send-1', 'send-2', 'send-3', 'send-4']) {
+      await page.getByTestId(`tab-item-${id}`).click();
+      await page.getByTestId(`approve-${id}`).click();
+      await vi.waitFor(() => expect(page.getByTestId(`tab-item-${id}`).element().getAttribute('data-approved')).toBe('true'));
+    }
 
     await page.getByTestId('decide-approve').click();
     await vi.waitFor(() => expect(decideAction).toHaveBeenCalled());

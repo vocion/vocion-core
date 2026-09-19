@@ -3,6 +3,7 @@ import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { contentHash } from '@/libs/actions/contentHash';
 import { computeConfidenceDimensions, researchState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { publishDraftRevision } from './draftRevision';
 import { LeadDetail } from './LeadDetail';
@@ -58,6 +59,21 @@ const PENDING_RUN: ReviewCardRun = {
     verbs: { approve: 'Enroll', reject: 'Decline' },
   },
 } as ReviewCardRun;
+
+/**
+ * The same run with both sends already approved.
+ *
+ * The lead page mounts the same shell, so it gets the per-send walk and its
+ * hold — which is the point (both surfaces, one operation). A test that is
+ * about something else therefore arrives past the walk rather than having its
+ * assertion weakened around it. `LeadDetail.walk` covers the hold itself.
+ */
+const WALKED_RUN: ReviewCardRun = {
+  ...PENDING_RUN,
+  contentReview: Object.fromEntries((PENDING_RUN.card.content ?? [])
+    .filter(i => i.kind === 'email')
+    .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, i.kind === 'email' ? i.body : ''), at: '2026-09-18T12:00:00.000Z' }])),
+};
 
 const CLAIMS = [
   { text: 'Runs an iGaming marketing agency.', kind: 'Fact', source: 'https://tideline.example/about', date: '2026-08-30' },
@@ -225,13 +241,60 @@ describe('the lead workspace — three zones, three tabs', () => {
   });
 });
 
+describe('the per-send walk, on the lead page too', () => {
+  it('shows the same checks and the same count the queue does', async () => {
+    // The lead page mounts the SAME shell, so the walk arrives here without
+    // the page knowing about it — which is the whole point of one template.
+    const half = {
+      ...PENDING_RUN,
+      contentReview: { 'send-1': { hash: contentHash('The ebook you pulled', 'One line on the ebook.'), at: '2026-09-18T12:00:00.000Z' } },
+    } as ReviewCardRun;
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: half }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('1 of 2 approved');
+    await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
+  });
+
+  it('holds Enroll here until the count is full, for the same reason', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
+      />,
+    );
+
+    expect(page.getByTestId('decide-approve').element()).toBeDisabled();
+    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('0 of 2');
+  });
+
+  it('releases Enroll here once every send carries a check', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: WALKED_RUN }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('2 of 2 approved');
+    await expect.element(page.getByTestId('decide-approve')).toBeEnabled();
+  });
+});
+
 describe('the sequence state, resolved before an Enroll button', () => {
   it('states the transaction — unenroll from the automated nurture, enroll in the recommendation', async () => {
     await render(
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
         contactHref={HUBSPOT}
-        runState={{ ...NO_RUN, run: PENDING_RUN }}
+        runState={{ ...NO_RUN, run: WALKED_RUN }}
       />,
     );
 

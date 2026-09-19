@@ -219,6 +219,97 @@ describe('a check is not a promise', () => {
   });
 });
 
+describe('Enroll is held until the count is full', () => {
+  it('disables the primary and says why, on the button and in a notice', async () => {
+    await render(<ReviewSurface run={enrollment(4, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
+
+    const primary = page.getByTestId('decide-approve').element();
+
+    expect(primary).toBeDisabled();
+
+    // On the button: a disabled control takes no pointer events, so the
+    // reason rides a wrapper that still hovers, and an aria-describedby so it
+    // is not hover-only.
+    const hint = document.getElementById(primary.getAttribute('aria-describedby')!);
+
+    expect(hint?.textContent).toContain('2 of 4');
+    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('Enroll is held.');
+    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('2 of 4');
+  });
+
+  it('releases at the full count', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
+  });
+
+  it('releases as the last send is approved, without a reload', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('decide-approve').element()).toBeDisabled();
+
+    await page.getByTestId('tab-item-send-2').click();
+    await page.getByTestId('approve-send-2').click();
+
+    await vi.waitFor(() => expect(page.getByTestId('decide-approve').element()).not.toBeDisabled());
+  });
+
+  it('holds again when an approved send is edited back out of its check', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+
+    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
+    await page.elementLocator(body).fill('Changed after approval.');
+
+    await vi.waitFor(() => expect(page.getByTestId('decide-approve').element()).toBeDisabled());
+  });
+
+  it('a does not bypass it', async () => {
+    await render(<ReviewSurface run={enrollment(4, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
+
+    (document.activeElement as HTMLElement)?.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(decideAction).not.toHaveBeenCalled();
+  });
+
+  it('never holds a retry — that run was already decided once', async () => {
+    // The execution failed, not the reading. The decision's backstop already
+    // recorded what was approved, and making someone walk four sends again to
+    // re-send copy they approved is the count blocking a queue.
+    await render(<ReviewSurface run={enrollment(4, { status: 'failed', error: 'HubSpot rejected the enrolment.' })} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+    await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Retry Enroll');
+  });
+
+  it('lets a surface\'s own hold outrank the walk\'s', async () => {
+    await render(
+      <ReviewSurface
+        run={enrollment(2, { contentReview: checkFor(1) })}
+        crumbs={CRUMBS}
+        hold={{ reason: 'The sequence is paused in HubSpot.' }}
+      />,
+    );
+
+    // That one says the consequence cannot be determined at all, which
+    // outranks "you have not finished reading".
+    await expect.element(page.getByTestId('primary-held')).toHaveTextContent('The sequence is paused in HubSpot.');
+    expect(page.getByTestId('decide-approve').element()).toBeDisabled();
+  });
+
+  it('never holds a card that does not walk', async () => {
+    await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
+  });
+});
+
 describe('where the walk applies', () => {
   it('shows no checks and no count on a one-item card', async () => {
     await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);

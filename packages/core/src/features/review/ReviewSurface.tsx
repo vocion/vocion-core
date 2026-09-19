@@ -471,6 +471,17 @@ export function ReviewSurface(props: {
   const propertyKeys = d.hasProperties ? Object.keys((run.input.properties ?? {}) as Record<string, unknown>) : [];
   const propertyValue = (k: string) => d.propertyEdits[k] ?? str((run.input.properties as Record<string, unknown>)[k]);
 
+  /**
+   * The walk. `applies` is count-based, not type-based: two or more items a
+   * reviewer can vouch for is the case it exists for, one is approve-then-
+   * confirm (two clicks for one thing), and none has nothing to walk. So a
+   * follow-up email, a CRM update and a discovery proposal are untouched, and
+   * the lead page gets the walk for free by mounting the same shell.
+   */
+  const walks = walkApplies(content);
+  const count = walkCount(content, d.contentEdits, d.approvals);
+  const checkedIds = new Set(content.filter(i => isChecked(i, d.contentEdits[i.id], d.approvals)).map(i => i.id));
+
   // The tabs, derived. Nothing here enumerates object types, kinds or counts:
   // N items produce N tabs, the surface's own tabs slot in, and Why and
   // Evidence are always built — Evidence last.
@@ -556,7 +567,32 @@ export function ReviewSurface(props: {
     }
   };
 
-  const heldPrimary = d.held || Boolean(props.hold);
+  /**
+   * The walk's own hold: the primary waits until every send carries a check.
+   *
+   * This is the phase that makes the walk required, and the only one that can
+   * block a queue if the count is ever wrong — which is why the count is
+   * derived from the same hash the checks are, rather than tracked beside
+   * them. It reuses the hold already shipped for the sequence-state case
+   * rather than inventing a second way to disable a primary: one mechanism,
+   * one place the reason is written, and `BarAction.hint` already puts that
+   * reason on a disabled button where a pointer can reach it.
+   *
+   * A hold the SURFACE passes wins. That one says the consequence cannot be
+   * determined at all, which outranks "you have not finished reading".
+   *
+   * A retry is never held. A run whose execution failed has already been
+   * decided once — the copy was approved, the decision's backstop recorded
+   * it, and the thing that went wrong was HubSpot, not the reading. Making
+   * someone walk a four-send sequence again to re-send what they already
+   * approved would be the count blocking a queue, which is the one way this
+   * phase can do harm.
+   */
+  const walkHold = walks && !count.complete && !d.execError
+    ? { reason: `${approveVerb} opens when every send is approved — ${count.approved} of ${count.total} so far.` }
+    : null;
+  const hold = props.hold ?? walkHold;
+  const heldPrimary = d.held || Boolean(hold);
 
   // The keyboard decides too: a / d / s, never while you are typing.
   useEffect(() => {
@@ -615,17 +651,6 @@ export function ReviewSurface(props: {
   // A read-only field that is also an editable property is shown once — in the
   // Changes pane — so "industry" does not read twice.
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
-
-  /**
-   * The walk. `applies` is count-based, not type-based: two or more items a
-   * reviewer can vouch for is the case it exists for, one is approve-then-
-   * confirm (two clicks for one thing), and none has nothing to walk. So a
-   * follow-up email, a CRM update and a discovery proposal are untouched, and
-   * the lead page gets the walk for free by mounting the same shell.
-   */
-  const walks = walkApplies(content);
-  const count = walkCount(content, d.contentEdits, d.approvals);
-  const checkedIds = new Set(content.filter(i => isChecked(i, d.contentEdits[i.id], d.approvals)).map(i => i.id));
 
   /**
    * Approve one send, then move to the next one still unapproved.
@@ -862,7 +887,7 @@ export function ReviewSurface(props: {
                 'busy': d.busy,
                 'icon': Check,
                 'shortcut': 'a',
-                'hint': props.hold?.reason,
+                'hint': hold?.reason,
                 'data-testid': 'decide-approve',
               }}
               secondary={[
@@ -892,7 +917,7 @@ export function ReviewSurface(props: {
     >
       {props.beforeTabs}
 
-      {(d.regenerating || d.regenStale || d.execError || props.hold) && (
+      {(d.regenerating || d.regenStale || d.execError || hold) && (
         <div className="flex flex-col gap-2 py-4">
           {d.regenerating && (
             <Notice tone="amber" icon={<Loader2 className="size-4 animate-spin" aria-hidden />} testid="regenerating-banner">
@@ -913,10 +938,10 @@ export function ReviewSurface(props: {
               <p className="mt-0.5 text-[13px] text-muted-foreground">{`Fix the cause if it names one, then ${approveVerb} again to retry.`}</p>
             </Notice>
           )}
-          {props.hold && (
+          {hold && (
             <Notice tone="amber" icon={<Ban className="size-4" aria-hidden />} testid="primary-held">
               <span className="font-medium">{`${approveVerb} is held.`}</span>
-              <span className="text-muted-foreground">{` ${props.hold.reason}`}</span>
+              <span className="text-muted-foreground">{` ${hold.reason}`}</span>
             </Notice>
           )}
         </div>
