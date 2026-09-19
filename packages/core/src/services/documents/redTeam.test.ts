@@ -61,3 +61,23 @@ describe('redTeamReceipt', () => {
     expect(redTeamReceipt({ status: 'skipped', reason: 'no key' })).toBe('Red team skipped: no key.');
   });
 });
+
+describe('parseFindings — partial answers', () => {
+  it('keeps the findings that validate when one entry is malformed', () => {
+    const parsed = parseFindings(JSON.stringify({
+      findings: [
+        { sheet: 3, severity: 'block', rule: 'outcome promised', finding: 'Sheet 3 promises a 40% saving.', fix: 'Cut the figure; commit to measuring.' },
+        { sheet: 4, severity: 'shouting', rule: 'x', finding: 'y', fix: 'z' },
+      ],
+      keeps: 'The plan sheet is clear.',
+    }));
+
+    expect(parsed?.findings).toHaveLength(1);
+    expect(parsed?.findings[0]?.rule).toBe('outcome promised');
+    expect(parsed?.keeps).toBe('The plan sheet is clear.');
+  });
+
+  it('gives up when nothing in the array validates', () => {
+    expect(parseFindings(JSON.stringify({ findings: [{ sheet: 'one' }] }))).toBeNull();
+  });
+});
