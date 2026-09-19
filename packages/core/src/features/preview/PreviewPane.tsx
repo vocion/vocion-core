@@ -123,21 +123,42 @@ function Body(props: { doc: PreviewDoc }) {
  * @param props.recordRef - What to show.
  * @param props.back - On a small screen the column is a sheet, so the preview
  * replaces its content rather than splitting it in two; the close control
- * becomes "back to chat" and says so.
+ * becomes "back to chat" and says so. An in-page pane that swaps a list for a
+ * preview uses it for the same reason.
+ * @param props.doc - An already-resolved preview. A surface that assembled the
+ * content on the server (the review sheet's context pane) hands it in rather
+ * than paying for a round trip to fetch what the page already holds; the RPC
+ * is skipped entirely.
+ * @param props.onClose - What the close/back control does. Defaults to closing
+ * the global `?preview=` peek, which is right for the rail and wrong for a
+ * pane whose selection is its own local state.
+ * @param props.backLabel - What the back control promises, when `back` is set.
+ * Defaults to "Back to chat", which is what the rail's sheet goes back to; an
+ * in-page pane names its own list instead.
+ * @param props.compact - Drop the controls that do not fit a narrow in-page
+ * column: Share, and "Chat about this" (which would take the reader off the
+ * decision they are standing on). The link out always stays.
  */
-export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; back?: boolean }) {
+export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; back?: boolean; backLabel?: string; doc?: PreviewDoc; onClose?: () => void; compact?: boolean }) {
   const { recordRef } = props;
-  const [doc, setDoc] = useState<PreviewDoc | null>(null);
+  const [fetched, setFetched] = useState<PreviewDoc | null>(null);
   const [failed, setFailed] = useState(false);
+  // A caller that already holds the content wins outright: there is nothing to
+  // fetch and nothing to wait for.
+  const given = props.doc;
+  const doc = given ?? fetched;
 
   // The pane is keyed on the ref by its parent, so a new reference remounts it
   // and the loading state is the initial state — no reset needed here.
   useEffect(() => {
+    if (given) {
+      return;
+    }
     let live = true;
     client.preview.get({ type: recordRef.type, id: recordRef.id })
       .then((d) => {
         if (live) {
-          setDoc(d as PreviewDoc);
+          setFetched(d as PreviewDoc);
         }
       })
       .catch(() => {
@@ -148,7 +169,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
     return () => {
       live = false;
     };
-  }, [recordRef.type, recordRef.id]);
+  }, [recordRef.type, recordRef.id, given]);
 
   const shown: PreviewDoc = doc ?? {
     ref: { type: recordRef.type, id: recordRef.id },
@@ -175,6 +196,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
     router.push(`/dashboard/chat?${params.toString()}`);
   };
   const iconButton = 'flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground';
+  const dismiss = props.onClose ?? closePreview;
 
   return (
     <section
@@ -191,7 +213,7 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={shown.title}>{shown.title}</h2>
         {shown.href
           ? (
-              <Link href={shown.href} onClick={closePreview} data-testid="preview-detail-link" aria-label="Open full page" title="Open full page" className={iconButton}>
+              <Link href={shown.href} onClick={dismiss} data-testid="preview-detail-link" aria-label="Open full page" title="Open full page" className={iconButton}>
                 <SquareArrowOutUpRight className="size-4" aria-hidden />
               </Link>
             )
@@ -202,13 +224,15 @@ export function PreviewPane(props: { recordRef: Pick<RecordRef, 'type' | 'id'>; 
                 </a>
               )
             : null}
-        {recordRef.type === 'artifact' && /^\d+$/.test(recordRef.id) && (
+        {!props.compact && recordRef.type === 'artifact' && /^\d+$/.test(recordRef.id) && (
           <SharePicker artifactId={Number(recordRef.id)} title={shown.title} dashboardHref={shown.href ?? `/dashboard/artifacts/${recordRef.id}`} />
         )}
-        <button type="button" onClick={discuss} data-testid="preview-discuss" aria-label={`Chat about ${shown.title}`} title="Chat about this" className={iconButton}>
-          <MessageSquareText className="size-4" aria-hidden />
-        </button>
-        <PanelCloseButton onClick={closePreview} label={props.back ? 'Back to chat' : 'Close preview'} icon={props.back ? <ArrowLeft className="size-4" aria-hidden /> : undefined} testId="preview-close" />
+        {!props.compact && (
+          <button type="button" onClick={discuss} data-testid="preview-discuss" aria-label={`Chat about ${shown.title}`} title="Chat about this" className={iconButton}>
+            <MessageSquareText className="size-4" aria-hidden />
+          </button>
+        )}
+        <PanelCloseButton onClick={dismiss} label={props.back ? props.backLabel ?? 'Back to chat' : 'Close preview'} icon={props.back ? <ArrowLeft className="size-4" aria-hidden /> : undefined} testId="preview-close" />
       </header>
       <Body doc={shown} />
     </section>

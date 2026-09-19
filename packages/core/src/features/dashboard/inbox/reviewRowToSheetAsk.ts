@@ -1,6 +1,7 @@
 import type { SheetAsk } from './AskSheet';
 import type { ReviewRow } from '@/services/inbox/reviewRows';
-import { amountLabel, confidenceLabel, humaniseField } from '@/services/inbox/describeActionRun';
+import { sheetHeadline } from '@/features/review/reviewSheetModel';
+import { amountLabel, confidenceLabel, humaniseField, recordTitle } from '@/services/inbox/describeActionRun';
 import { inboxHref } from '@/services/inbox/inboxRef';
 
 /**
@@ -21,10 +22,11 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
     d.amount !== null ? `Amount ${amountLabel(d.amount, d.currency)}` : null,
     d.confidence !== null ? `Confidence ${confidenceLabel(d.confidence)}` : null,
   ].filter(Boolean).join(' · ');
-  // The reason is rendered in full by the sheet's "Why you're seeing this"
-  // block (`ReviewReason`) when the caller passes `reason`; here the body
-  // keeps only what changes and the facts, so nothing is said twice and the
-  // reason is never an italic afterthought (Chris, 2026-09-18).
+  // The reason is rendered in full inside the sheet's "Why this?" fold
+  // (`ReviewWhy`) when the caller passes it; the work card renders the changes
+  // themselves. What is left for the body is the facts the card does not
+  // carry, and it lives in the same fold, so nothing is said twice
+  // (Chris, 2026-09-18, 2026-09-19).
   const body = [
     changes,
     facts || null,
@@ -34,12 +36,24 @@ export function reviewRowToSheetAsk(row: ReviewRow): SheetAsk {
   return {
     id: row.id,
     kind: 'approval',
+    // The stored kind stays `approval`; this is what the header calls it.
+    kindLabel: d.actionKind,
+    isEmail: row.actionId === 'gmail.send',
+    draft: row.input.draft === true,
     title: d.title,
+    headline: sheetHeadline({
+      isEmail: row.actionId === 'gmail.send',
+      subject: typeof row.input.subject === 'string' ? row.input.subject : null,
+      recordName: d.record ? recordTitle(d.record) : null,
+      title: d.title,
+    }),
     subline: d.subline,
     body: body || null,
     options: [
-      { id: 'approve', label: 'Approve', description: `Execute this ${d.actionKind.replace(/^[A-Z](?![A-Z])/, m => m.toLowerCase())} now.`, recommended: isRecommended(row, 'approve') },
-      { id: 'reject', label: 'Reject', description: 'Do not do this. Add a note and the team learns from it.', recommended: isRecommended(row, 'reject') },
+      // The confidence rides the recommended option, which is where the
+      // header reads it from — a meter beside a verdict it belongs to.
+      { id: 'approve', label: 'Approve', description: `Execute this ${d.actionKind.replace(/^[A-Z](?![A-Z])/, m => m.toLowerCase())} now.`, recommended: isRecommended(row, 'approve'), ...(d.confidence !== null ? { confidence: d.confidence } : {}) },
+      { id: 'reject', label: 'Reject', description: 'Do not do this. Add a note and the team learns from it.', recommended: isRecommended(row, 'reject'), ...(d.confidence !== null ? { confidence: d.confidence } : {}) },
     ],
     contextUrl: inboxHref('proposal', row.id),
     // Evidence travels structurally, not as markdown bullets: each citation
