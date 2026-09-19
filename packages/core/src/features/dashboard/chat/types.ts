@@ -71,6 +71,12 @@ export type TraceNode = {
   resultDetail?: string;
   /** Accumulated reasoning text (from `delta` progress events). */
   text?: string;
+  /**
+   * Where the call has got to while it runs — `sheet 7 of 12`. Rendered after
+   * the label on the live step line (`stepProgressLabel`) and dropped the
+   * moment the step lands, so a finished trace never keeps a stale count.
+   */
+  progress?: string;
   result?: string;
   /** Both tenses of the step's name, once known; `label` is re-derived from it as the status changes. */
   labels?: { running: string; done: string };

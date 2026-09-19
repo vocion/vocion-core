@@ -62,7 +62,7 @@ export default async function ProposalsPage(props: { params: Promise<{ locale: s
                     ]}
                     />
                   )}
-                  columns={(
+                  columnsAside={(
                     <>
                       <Column kind="status">
                         {r.document

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackStepLabels, isSafeStepLabels, normalizeStepLabels, stepLabelFor } from './stepLabels';
+import { fallbackStepLabels, isSafeStepLabels, normalizeStepLabels, stepLabelFor, stepProgressLabel } from './stepLabels';
 
 describe('fallbackStepLabels', () => {
   it('names the act, not the mechanism, for the tools a person sees most', () => {
@@ -38,5 +38,21 @@ describe('model-written labels are checked before they are shown', () => {
     expect(isSafeStepLabels({ running: 'x' })).toBe(false);
     expect(isSafeStepLabels({ running: 'a'.repeat(80), done: 'Read it' })).toBe(false);
     expect(isSafeStepLabels({ running: '<b>Reading</b>', done: 'Read' })).toBe(false);
+  });
+});
+
+describe('a long step says where it has got to', () => {
+  /**
+   * "'working…' isn't much info" (Chris, twice, 2026-09-18). The note is
+   * appended to the running label, never substituted for it, so a call that
+   * stops reporting reads exactly as it did before.
+   */
+  it('appends the note to the running label and leaves the label alone without one', () => {
+    const labels = { running: 'Rendering the document…', done: 'Rendered the document' };
+
+    expect(stepProgressLabel(stepLabelFor(labels, 'progress'), 'sheet 7 of 12')).toBe('Rendering the document… sheet 7 of 12');
+    expect(stepProgressLabel(stepLabelFor(labels, 'progress'))).toBe('Rendering the document…');
+    expect(stepProgressLabel(stepLabelFor(labels, 'progress'), '  ')).toBe('Rendering the document…');
+    expect(stepProgressLabel(stepLabelFor(labels, 'done'), 'sheet 7 of 12')).toBe('Rendered the document sheet 7 of 12');
   });
 });

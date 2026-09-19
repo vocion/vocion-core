@@ -105,3 +105,34 @@ describe('WorkTimeline three-level transcript', () => {
     await expect.element(page.getByText('HubSpot 429')).toBeInTheDocument();
   });
 });
+
+describe('the running step says where the call has got to', () => {
+  /**
+   * "'working…' isn't much info" (Chris, twice, 2026-09-18). A twelve-sheet
+   * render holds one step line for a minute; the note rides that line.
+   */
+  const building: TraceNode[] = [
+    { id: 'd1', actor, kind: 'tool', status: 'progress', label: 'Rendering the document…', tool: 'render_document', progress: 'sheet 7 of 12', labels: { running: 'Rendering the document…', done: 'Rendered the document' } },
+  ];
+
+  it('shows the note on the headline and on the step, not on a surface of its own', async () => {
+    const { container } = await render(<WorkTimeline runs={[]} streaming trace={building} activity={null} />);
+
+    const headline = container.querySelector('[data-testid="work-timeline-live"] > div > .work-shimmer');
+    const step = container.querySelector('[data-testid="work-steps-live"] li');
+
+    expect(headline?.textContent).toBe('Rendering the document… sheet 7 of 12');
+    expect(step?.textContent).toContain('Rendering the document… sheet 7 of 12');
+    // One timeline, one step row: the note added information, not a component.
+    expect(container.querySelectorAll('[data-testid="work-timeline-live"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="work-steps-live"] > li')).toHaveLength(1);
+  });
+
+  it('reads plainly again the moment the step lands', async () => {
+    const landed: TraceNode[] = [{ ...building[0]!, status: 'done', label: 'Rendered the document', progress: undefined }];
+    const { container } = await render(<WorkTimeline runs={[]} streaming trace={landed} activity={null} />);
+
+    expect(container.textContent).toContain('Rendered the document');
+    expect(container.textContent).not.toContain('sheet 7 of 12');
+  });
+});

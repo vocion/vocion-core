@@ -51,6 +51,29 @@ function coerceJson(v: unknown): unknown {
 }
 
 /**
+ * The progress channel for a long document call.
+ *
+ * "'working…' isn't much info" (Chris, twice, 2026-09-18): a twelve-sheet
+ * render holds one step line for a minute. Each note lands on THAT line —
+ * `step_progress` is folded onto the step already running under this tool
+ * name — so the chat gains information, not a second surface (principle 6).
+ *
+ * Repeats are dropped, so a stage that reports twice costs nothing.
+ * @param ctx - The runtime context, for its per-request emit.
+ * @param tool - The tool name the step is running under.
+ */
+function progressTo(ctx: RuntimeContext, tool: string): (note: string) => void {
+  let last: string | null = null;
+  return (note: string) => {
+    if (note === last) {
+      return;
+    }
+    last = note;
+    ctx.emit({ type: 'step_progress', tool, note });
+  };
+}
+
+/**
  * Which document "this" is: the open artifact when it is a document, else the
  * newest document in the conversation.
  * @param ctx
@@ -129,7 +152,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
           title,
           html: args.html,
           playbook: args.playbook,
-          verify: { look: args.look ?? false },
+          verify: { look: args.look ?? false, onProgress: progressTo(ctx, 'render_document') },
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         const where = ctx.conversationId ? `open beside the conversation as artifact #${artifact.id}` : `saved as artifact #${artifact.id}`;
@@ -224,7 +247,7 @@ export function editDocumentTool(ctx: RuntimeContext) {
           changeSummary: args.change_summary,
           ops: parsedOps.data,
           title: args.title ?? null,
-          verify: { look: args.look ?? false },
+          verify: { look: args.look ?? false, onProgress: progressTo(ctx, 'edit_document') },
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         return `Updated "${artifact.title}" to v${version.version} (${applied.join('; ')}). The person sees it live in the pane — do NOT repeat the content as text.\n\n${documentReceipt(outcome)}`;
@@ -260,7 +283,7 @@ export function verifyDocumentTool(ctx: RuntimeContext) {
         return found.error;
       }
       try {
-        const { artifact, outcome } = await verifyDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, verify: { look: args.look ?? true } });
+        const { artifact, outcome } = await verifyDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, verify: { look: args.look ?? true, onProgress: progressTo(ctx, 'verify_document') } });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         return `Verified "${artifact.title}" v${artifact.currentVersion}.\n\n${documentReceipt(outcome)}`;
       } catch (err) {
@@ -286,7 +309,7 @@ export function redTeamDocumentTool(ctx: RuntimeContext) {
         return found.error;
       }
       try {
-        const { artifact, outcome, record } = await redTeamDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, rubric: args.rubric ?? null, context: args.context ?? null });
+        const { artifact, outcome, record } = await redTeamDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, rubric: args.rubric ?? null, context: args.context ?? null, onProgress: progressTo(ctx, 'red_team_document') });
         if (record) {
           ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         }
@@ -366,7 +389,7 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
         if (gate.action === 'refuse') {
           return gate.line;
         }
-        const res = await exportDocumentPdf({ orgId: ctx.orgId, id: found.id, author: authorOf(ctx), conversationId: ctx.conversationId ?? null, visibility: ctx.missionRunId ? 'system' : 'user' });
+        const res = await exportDocumentPdf({ orgId: ctx.orgId, id: found.id, author: authorOf(ctx), conversationId: ctx.conversationId ?? null, visibility: ctx.missionRunId ? 'system' : 'user', onProgress: progressTo(ctx, 'export_document_pdf') });
         ctx.emit({ type: 'artifact', artifact: toPayload(res.file) });
         const head = `PDF ready: ${res.filename} (${res.pages ?? '?'} pages, ${Math.max(1, Math.round(res.bytes / 1024))} KB) at ${res.url} — background colours forced on, so the brand rule prints on the client's machine too. It is filed beside the document as a file artifact.`;
         return gate.line ? `${head}\n\n${gate.line}` : head;

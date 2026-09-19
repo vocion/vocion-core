@@ -1,6 +1,6 @@
 import type { TraceNode } from './types';
 import { describe, expect, it } from 'vitest';
-import { failToolNode, finalizeTrace, mergeArtifactEvent, mergeTraceNode, summarizeLiveTrace } from './traceReducer';
+import { failToolNode, finalizeTrace, liveStepLabel, mergeArtifactEvent, mergeTraceNode, noteToolProgress, summarizeLiveTrace } from './traceReducer';
 
 const actor = { id: 'lead', kind: 'lead' as const, name: 'Revenue Director' };
 const start: TraceNode = { id: 't1', actor, kind: 'tool', status: 'start', label: 'Looking up records…', detail: 'deals', tool: 'lookup_objects', args: '{"type":"deal"}' };
@@ -91,5 +91,43 @@ describe('mergeArtifactEvent', () => {
     expect(node.id).toBe(12);
     expect(node.version).toBe(1);
     expect(node.spec.md).toBe('# Ready\nTwo risks.');
+  });
+});
+
+describe('what a long call says while it runs', () => {
+  /**
+   * "'working…' isn't much info" (Chris, twice). A twelve-sheet render holds
+   * one step line for a minute, so the line says where the call has got to —
+   * on the step that is already there, never on a second surface.
+   */
+  it('puts the note on the newest in-flight step for that tool', () => {
+    const render: TraceNode = { id: 'd1', actor, kind: 'tool', status: 'start', label: 'Rendering the document…', tool: 'render_document', labels: { running: 'Rendering the document…', done: 'Rendered the document' } };
+    const out = noteToolProgress([{ ...render, id: 'earlier', status: 'done' }, render], 'render_document', 'sheet 7 of 12');
+
+    expect(out[1]).toMatchObject({ status: 'progress', progress: 'sheet 7 of 12' });
+    expect(liveStepLabel(out[1]!)).toBe('Rendering the document… sheet 7 of 12');
+    expect(out[0]!.progress).toBeUndefined();
+  });
+
+  it('leaves the trace alone when no step of that tool is running', () => {
+    const done: TraceNode = { id: 'd1', actor, kind: 'tool', status: 'done', label: 'Rendered the document', tool: 'render_document' };
+    const trace = [done];
+
+    expect(noteToolProgress(trace, 'render_document', 'sheet 2 of 9')).toBe(trace);
+    expect(noteToolProgress(trace, 'verify_document', 'sheet 2 of 9')).toBe(trace);
+    expect(noteToolProgress([{ ...done, status: 'start' }], 'render_document', '   ')).toHaveLength(1);
+  });
+
+  it('drops the note the moment the step lands, so a finished trace never keeps a count', () => {
+    const running = mergeTraceNode(undefined, { id: 'd1', actor, kind: 'tool', status: 'progress', label: 'Rendering the document…', tool: 'render_document', progress: 'sheet 7 of 12', labels: { running: 'Rendering the document…', done: 'Rendered the document' } });
+
+    expect(running.progress).toBe('sheet 7 of 12');
+    expect(liveStepLabel(running)).toBe('Rendering the document… sheet 7 of 12');
+
+    const landed = mergeTraceNode(running, { id: 'd1', actor, kind: 'tool', status: 'done', label: 'Rendered the document' });
+
+    expect(landed.progress).toBeUndefined();
+    expect(liveStepLabel(landed)).toBe('Rendered the document');
+    expect(finalizeTrace([running])[0]!.progress).toBeUndefined();
   });
 });

@@ -175,6 +175,12 @@ export type TraceNodeEvent = {
   resultDetail?: string;
   /** Incremental text for `reason`/`progress` nodes; the renderer appends. */
   delta?: string;
+  /**
+   * Where a long call has got to, as a plain phrase — `sheet 7 of 12`. Shown
+   * on the running step line after its label, never as a second surface.
+   * Cleared when the step lands.
+   */
+  progress?: string;
   /** Output summary — a count or short synopsis. Never a raw dump. */
   result?: string;
   /**
@@ -246,6 +252,23 @@ export type AgentEvent
      * diagnosable without depending on the model's cooperation.
      */
     | { type: 'tool_error'; tool: string; message: string; status?: number }
+    /**
+     * A long tool call saying where it has got to: `render_document` is on
+     * sheet 7 of 12, `red_team_document` is reading 7 sheets. One step line,
+     * more information on it — "'working…' isn't much info" (Chris, twice,
+     * 2026-09-18).
+     *
+     * It carries no node id because a tool does not know its own: the client
+     * attaches the note to the in-flight step with this tool name, exactly
+     * the way `tool_error` closes one (`noteToolProgress` in
+     * `features/dashboard/chat/traceReducer.ts`). Advisory — a dropped or
+     * duplicated note only changes what the line said for a second, and the
+     * step's own start/done events remain the record.
+     *
+     * Only emit it from a loop that REALLY runs: a note is a fact about the
+     * work, not an animation.
+     */
+    | { type: 'step_progress'; tool: string; note: string }
     /**
      * Approved learnings were mounted for this turn. Silent by design: the
      * chat transcript ignores it; the adoption surfaces (Phase 2 growing-
