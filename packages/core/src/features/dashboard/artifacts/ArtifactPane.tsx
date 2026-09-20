@@ -59,7 +59,14 @@ import { MarkdownArtifactEditor } from './MarkdownArtifactEditor';
 import { TableArtifactEditor } from './TableArtifactEditor';
 import { VersionMenu } from './VersionMenu';
 
-const EDITABLE: ReadonlySet<string> = new Set(['markdown', 'table', 'document']);
+const EDITABLE: ReadonlySet<string> = new Set(['markdown', 'table', 'document', 'mission', 'playbook']);
+/**
+ * Kinds that mirror a workspace FILE (`libs/workspace/source.ts`): a mission's
+ * YAML, a playbook's or a skill's SKILL.md. Edited here as text, exactly like
+ * markdown; the save writes the file and the version comes out of that. The
+ * title follows the file's `name:`, so it is not renamed from the header.
+ */
+const SOURCE: ReadonlySet<string> = new Set(['mission', 'playbook']);
 /**
  * Kinds that are PROSE, and so keep a measure even when the page around them
  * is full-bleed: a markdown artifact would otherwise run a line the width of a
@@ -67,7 +74,7 @@ const EDITABLE: ReadonlySet<string> = new Set(['markdown', 'table', 'document'])
  * it. A table or a chart takes whatever width it is given — more columns on
  * screen is the whole point of the extra pixels.
  */
-const PROSE: ReadonlySet<string> = new Set(['markdown', 'document']);
+const PROSE: ReadonlySet<string> = new Set(['markdown', 'document', 'mission', 'playbook']);
 /** `DOCUMENT_FRAME_WIDTH` (850px) plus this body's own padding. */
 const PROSE_MAX_WIDTH = 'max-w-[882px]';
 
@@ -159,7 +166,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
         id: artifact.id,
         ...(title.trim() && title.trim() !== artifact.title ? { title: title.trim() } : {}),
         ...(draft ? { spec: draft } : {}),
-        changeSummary: draft ? (artifact.kind === 'document' ? 'Edited HTML by hand' : 'Edited by hand') : 'Retitled',
+        changeSummary: draft ? (artifact.kind === 'document' ? 'Edited HTML by hand' : SOURCE.has(artifact.kind) ? 'Edited the file by hand' : 'Edited by hand') : 'Retitled',
         ...(opts.force ? {} : { ifVersion: artifact.version }),
       });
       setDraft(null);
@@ -292,9 +299,12 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   const actions = useMemo(() => actionsFor(surface, {
     kind: artifact.kind,
     dirty,
+    editable: EDITABLE.has(artifact.kind) && !artifact.pending,
+    historical,
     hasPdf: Boolean(verification?.pdf),
     closable: Boolean(props.onClose),
-  }), [artifact.kind, dirty, props.onClose, surface, verification?.pdf]);
+  }), [artifact.kind, artifact.pending, dirty, historical, props.onClose, surface, verification?.pdf]);
+  const isSource = SOURCE.has(artifact.kind);
 
   return (
     <section className={cn('flex h-full min-h-0 flex-col rounded-xl border border-border/70 bg-background', props.className)} aria-label={`Artifact: ${artifact.title}`} data-artifact-pane={artifact.id}>
@@ -320,13 +330,18 @@ export function ArtifactPane(props: ArtifactPaneProps) {
             onRestore={v => void restore(v)}
           />
         )}
+        onEdit={beginEdit}
         onSave={() => void save()}
         saving={saving}
         onExport={() => void client.artifacts.exportPage({ id: artifact.id }).then(setExported).catch(e => toast.error('Could not export this artifact', { description: (e as { message?: string }).message }))}
         shareHref={shareHref}
-        onTitleChange={(next: string) => setTitleDraft(next)}
-        onTitleCommit={() => void save()}
-        onTitleCancel={() => setTitleDraft(null)}
+        {...(isSource
+          ? {}
+          : {
+              onTitleChange: (next: string) => setTitleDraft(next),
+              onTitleCommit: () => void save(),
+              onTitleCancel: () => setTitleDraft(null),
+            })}
         conversationId={props.conversationId ?? null}
         pdfHref={verification?.pdf ?? null}
         pdfPages={verification?.pdfPages ?? null}
@@ -457,31 +472,52 @@ export function ArtifactPane(props: ArtifactPaneProps) {
                         disabled={saving}
                       />
                     )
-                  : draft !== null && artifact.kind === 'table'
+                  : draft !== null && isSource
                     ? (
-                        <TableArtifactEditor
-                          draft={draft as unknown as DataTableSpec}
-                          onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                      // The FILE, as text — the same plain editor markdown gets.
+                      // `yaml` for a mission, `md` for a SKILL.md; the save
+                      // writes it to the workspace and applies (Artifacts.update).
+                        <MarkdownArtifactEditor
+                          value={String(artifact.kind === 'mission' ? (draft as { yaml?: string }).yaml ?? '' : (draft as { md?: string }).md ?? '')}
+                          onChange={text => setDraft(artifact.kind === 'mission' ? { ...draft, yaml: text } : { ...draft, md: text })}
                           onSave={() => void save()}
                           onCancel={() => {
                             setDraft(null);
                             props.onEndEdit?.();
                           }}
                           disabled={saving}
+                          label={artifact.kind === 'mission' ? 'Mission file (YAML)' : 'SKILL.md'}
+                          hint="⌘S saves a new version and applies the workspace · Esc discards"
                         />
                       )
-                    : <ArtifactCard artifact={shown} surface="artifact" className={fills ? 'flex min-h-0 flex-1 flex-col' : undefined} />}
+                    : draft !== null && artifact.kind === 'table'
+                      ? (
+                          <TableArtifactEditor
+                            draft={draft as unknown as DataTableSpec}
+                            onChange={next => setDraft(next as unknown as Record<string, unknown>)}
+                            onSave={() => void save()}
+                            onCancel={() => {
+                              setDraft(null);
+                              props.onEndEdit?.();
+                            }}
+                            disabled={saving}
+                          />
+                        )
+                      : <ArtifactCard artifact={shown} surface="artifact" className={fills ? 'flex min-h-0 flex-1 flex-col' : undefined} />}
         </div>
       </div>
 
-      {/* Select-to-ask: highlighting inside the pane offers "Ask Vocion",
-          which opens the agent surface with the passage quoted. It dispatches
-          the existing openAgentSurface event — the composer is untouched. */}
+      {/* Select-to-talk: highlighting inside the pane offers Ask and — on a
+          kind the agent can change in place — Change, which is Ask with the
+          instruction pre-typed (the same two verbs the document frame shows).
+          Both dispatch the existing openAgentSurface event with the passage
+          quoted and this artifact as the record — the composer is untouched. */}
       {artifact.kind !== 'document' && (
         <AskAboutThis
           variant="none"
           selectionRoot="[data-artifact-body]"
           record={{ type: 'artifact', id: String(artifact.id), label: artifact.title, href: `/dashboard/artifacts/${artifact.id}` }}
+          changeable={EDITABLE.has(artifact.kind)}
         />
       )}
 

@@ -147,7 +147,7 @@ export type ContextRef = {
 export type ChatMessageArtifact = {
   id: number;
   title: string;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document' | 'mission' | 'playbook';
   version: number;
 };
 

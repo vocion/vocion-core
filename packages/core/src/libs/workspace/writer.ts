@@ -1,12 +1,15 @@
-import type { AgentManifest, ObjectTypeManifest, PlaybookManifest } from './schemas';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import type { AgentManifest, MissionManifest, ObjectTypeManifest, PlaybookManifest } from './schemas';
+import type { SourceKind } from './source';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 import {
   AgentManifestSchema,
+  MissionManifestSchema,
   ObjectTypeManifestSchema,
   PlaybookManifestSchema,
 } from './schemas';
+import { sourceRelPath, validateSourceText } from './source';
 
 /**
  * File-level authoring API for workspace repos.
@@ -40,8 +43,13 @@ export type WriteObjectTypeInput = {
   classificationPromptMd?: string;
 };
 
+export type WriteMissionInput = {
+  contextPath: string;
+  manifest: MissionManifest;
+};
+
 export type WrittenResource = {
-  kind: 'skill' | 'agent' | 'objectType';
+  kind: 'skill' | 'playbook' | 'agent' | 'objectType' | 'mission';
   slug: string;
   files: string[];
 };
@@ -62,7 +70,63 @@ export function writeSkill(input: WriteSkillInput): WrittenResource {
   const skillMdPath = join(dir, 'SKILL.md');
   const frontmatter = stringifyYaml(stripDefaults(validated), { lineWidth: 0 }).trimEnd();
   writeText(skillMdPath, `---\n${frontmatter}\n---\n\n${input.promptMd}`);
-  return { kind: 'skill', slug: validated.slug, files: [skillMdPath] };
+  return { kind: input.kind === 'playbook' ? 'playbook' : 'skill', slug: validated.slug, files: [skillMdPath] };
+}
+
+/**
+ * Write a mission as `missions/<slug>.yaml` — the same manifest-in, file-out
+ * shape as `writeSkill`, validated through the real schema before disk.
+ * @param input
+ */
+export function writeMission(input: WriteMissionInput): WrittenResource {
+  const validated = MissionManifestSchema.parse(input.manifest);
+  const dir = resolve(input.contextPath, 'missions');
+  ensureDir(dir);
+  const yamlPath = join(dir, `${slugToDirname(validated.slug)}.yaml`);
+  writeText(yamlPath, stringifyYaml(stripDefaults(validated), { lineWidth: 0 }));
+  return { kind: 'mission', slug: validated.slug, files: [yamlPath] };
+}
+
+export type WriteSourceTextInput = {
+  contextPath: string;
+  kind: SourceKind;
+  slug: string;
+  /** The whole file, exactly as a person or an agent authored it. */
+  content: string;
+};
+
+export type WrittenSourceText = WrittenResource & {
+  /** Absolute path of the file written. */
+  path: string;
+  /** What the file held before, or null when it did not exist. */
+  previous: string | null;
+  /** The title the manifest gives the resource (`name`). */
+  title: string;
+};
+
+/**
+ * Write a mission YAML or a SKILL.md VERBATIM — comments, key order and
+ * spacing kept — after validating the text through the real schema
+ * (`libs/workspace/source.ts`). This is the pane's Save and an agent's edit:
+ * the text a person sees is the text on disk, byte for byte. `writeMission` /
+ * `writeSkill` remain the manifest-shaped door for callers that hold data
+ * rather than a file.
+ * @param input
+ */
+export function writeSourceText(input: WriteSourceTextInput): WrittenSourceText {
+  const validated = validateSourceText(input.kind, input.slug, input.content);
+  const path = resolve(input.contextPath, sourceRelPath(input.kind, input.slug));
+  ensureDir(dirname(path));
+  const previous = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  writeText(path, input.content);
+  return {
+    kind: input.kind === 'skill' ? 'skill' : input.kind === 'playbook' ? 'playbook' : 'mission',
+    slug: input.slug,
+    files: [path],
+    path,
+    previous,
+    title: validated.title,
+  };
 }
 
 export function writeAgent(input: WriteAgentInput): WrittenResource {
@@ -102,13 +166,19 @@ export function writeObjectType(input: WriteObjectTypeInput): WrittenResource {
   return { kind: 'objectType', slug: validated.slug, files };
 }
 
-export function deleteResource(contextPath: string, kind: 'skill' | 'agent' | 'objectType', slug: string): string[] {
+export function deleteResource(contextPath: string, kind: 'skill' | 'playbook' | 'agent' | 'objectType' | 'mission', slug: string): string[] {
   const removed: string[] = [];
-  if (kind === 'skill') {
-    const dir = resolve(contextPath, 'skills', slugToDirname(slug));
+  if (kind === 'skill' || kind === 'playbook') {
+    const dir = resolve(contextPath, kind === 'skill' ? 'skills' : 'playbooks', slugToDirname(slug));
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true });
       removed.push(dir);
+    }
+  } else if (kind === 'mission') {
+    const file = resolve(contextPath, 'missions', `${slugToDirname(slug)}.yaml`);
+    if (existsSync(file)) {
+      rmSync(file);
+      removed.push(file);
     }
   } else if (kind === 'agent') {
     const base = resolve(contextPath, 'agents');

@@ -239,7 +239,29 @@ export const documentSpecSchema = z.object({
 });
 export type DocumentSpec = z.infer<typeof documentSpecSchema>;
 
-export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document'] as const;
+/**
+ * A workspace mission's YAML, mirrored from its file so it edits like an
+ * artifact (`libs/workspace/source.ts`). The file is the source of truth; the
+ * applier keeps this in step, and a Save in the pane writes the FILE first.
+ */
+export const missionSpecSchema = z.object({
+  slug: z.string().min(1).max(120),
+  yaml: z.string().min(1).max(60_000),
+});
+export type MissionSourceSpec = z.infer<typeof missionSpecSchema>;
+
+/**
+ * A SKILL.md — a playbook or a skill — mirrored whole (frontmatter and body)
+ * from its workspace folder. `kind` says which folder; the page is the same.
+ */
+export const playbookSpecSchema = z.object({
+  slug: z.string().min(1).max(120),
+  kind: z.enum(['skill', 'playbook']),
+  md: z.string().min(1).max(200_000),
+});
+export type PlaybookSourceSpec = z.infer<typeof playbookSpecSchema>;
+
+export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document', 'mission', 'playbook'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Card slug per artifact kind — the `__card` the canvas/chat resolve with. */
@@ -252,6 +274,8 @@ export const CARD_SLUG_FOR_KIND: Record<ArtifactKind, string> = {
   file: 'link',
   sequence: 'sequence',
   document: 'document',
+  mission: 'mission',
+  playbook: 'playbook',
 };
 
 export const SPEC_SCHEMA_FOR_KIND = {
@@ -263,6 +287,8 @@ export const SPEC_SCHEMA_FOR_KIND = {
   file: fileSpecSchema,
   sequence: sequenceSpecSchema,
   document: documentSpecSchema,
+  mission: missionSpecSchema,
+  playbook: playbookSpecSchema,
 } as const;
 
 /**

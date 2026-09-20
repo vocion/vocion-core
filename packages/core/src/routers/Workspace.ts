@@ -1,15 +1,12 @@
 import { Buffer } from 'node:buffer';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
 import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, getWorkspacePath, invalidateCurrentContextShaCache, isDeployManaged, judgeMountedFolder, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
-import { projectSchema } from '@/models/Schema';
+import { workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
 import { invalidateChipCache } from '@/services/chat/synthesis';
 import { folderOwner } from '@/services/WorkspaceMountService';
 import { guardAuth, guardRole } from './AuthGuards';
@@ -341,46 +338,10 @@ export const writeFile = os
     };
   });
 
-/**
- * Resolve the workspace directory for a project. Multi-workspace installs
- * map project slugs to folders via VOCION_WORKSPACE_MAP
- * ("<projectSlug>:<path>,<projectSlug>:<path>"); single-workspace installs
- * fall back to WORKSPACE_PATH. Returns null when the project has no
- * workspace folder on this box (drift check silently skips), or when
- * neither the map nor WORKSPACE_PATH is configured.
- * @param projectId
- */
-export async function workspacePathForProject(projectId: string): Promise<string | null> {
-  return (await workspaceFolderForProject(projectId))?.path ?? null;
-}
-
-/**
- * The same folder, saying how it was found: `explicit` when the map named it
- * for this project (then it is this project's by declaration), false when it
- * is the one shared `WORKSPACE_PATH` — which is some project's, not
- * necessarily this one's; `judgeMountedFolder` settles whose.
- * @param projectId
- */
-export async function workspaceFolderForProject(projectId: string): Promise<{ path: string; explicit: boolean } | null> {
-  const [proj] = await db
-    .select({ slug: projectSchema.slug })
-    .from(projectSchema)
-    .where(eq(projectSchema.id, projectId))
-    .limit(1);
-  const map = process.env.VOCION_WORKSPACE_MAP ?? '';
-  if (proj && map) {
-    for (const pair of map.split(',')) {
-      const idx = pair.indexOf(':');
-      if (idx > 0 && pair.slice(0, idx).trim() === proj.slug) {
-        return { path: pair.slice(idx + 1).trim(), explicit: true };
-      }
-    }
-    // Map configured but this project isn't in it — no workspace here.
-    return null;
-  }
-  const path = getWorkspacePath();
-  return path ? { path, explicit: false } : null;
-}
+// Which workspace directory a project reads on this host — shared with the
+// services that write to it (`libs/workspace/project-path.ts`); re-exported so
+// existing callers keep their import.
+export { workspaceFolderForProject, workspacePathForProject };
 
 /** The apply this process is running right now, if any — the cheap "in progress" signal. */
 let applying: Promise<unknown> | null = null;

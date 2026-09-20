@@ -42,7 +42,7 @@ export type ArtifactLogProps = {
   selfId?: string | null;
 };
 
-const KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file'] as const;
+const KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'document', 'mission', 'playbook'] as const;
 
 /**
  * Where a row goes: back to its conversation with the artifact open, or the standalone page.

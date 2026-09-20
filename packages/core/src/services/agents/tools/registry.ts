@@ -71,6 +71,7 @@ import { searchKnowledgeTool } from './searchKnowledge';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
+import { workspaceSourceTools } from './workspaceSource';
 import { zoomTools } from './zoomTranscript';
 
 /**
@@ -175,6 +176,9 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...(ctx.enabledPlugins === undefined || ctx.enabledPlugins.includes('data-rooms') ? dataRoomTools(ctx) : []),
     // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
     ...wikiTools(ctx),
+    // Missions and playbooks edit like artifacts: read the file, write it back
+    // whole through the `workspace.write_*` actions (reviewed by default).
+    ...workspaceSourceTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),

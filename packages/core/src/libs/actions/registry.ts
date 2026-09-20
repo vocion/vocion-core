@@ -18,6 +18,7 @@ import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
 import { wikiWritePageAction } from './wiki-write-page';
+import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
 
 const registry = new Map<string, Action>();
 
@@ -52,6 +53,10 @@ registerAction(learningAdoptRuleAction);
 registerAction(missionUpdateNotesAction);
 registerAction(playbookWriteAction);
 registerAction(agentRevisePromptAction);
+// A mission's YAML or a playbook's SKILL.md, written by an agent — reversible, internal, held at
+// Execute with approval by default (`DEFAULT_RISK_TIER`) until a workspace promotes it.
+registerAction(workspaceWriteMissionAction);
+registerAction(workspaceWritePlaybookAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);

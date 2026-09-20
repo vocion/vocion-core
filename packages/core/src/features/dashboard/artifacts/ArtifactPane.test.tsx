@@ -206,3 +206,114 @@ describe('the artifact pane tab strip', () => {
     expect(document.querySelector('[aria-label="Close the artifact"]')).not.toBeNull();
   });
 });
+
+/**
+ * A mission's YAML and a playbook's SKILL.md wear the same pane a document
+ * does (`libs/workspace/source.ts`): a person edits the FILE in place, every
+ * save is a version, and highlighting a passage offers Ask and Change.
+ */
+const MISSION_YAML = 'slug: keep-main-releasable\nname: Keep main releasable\ngoal: Every merge to main ships.\nagent: release-lead\nsuccessCriteria:\n  - main is green at 09:00\n';
+
+function missionArtifact(): ArtifactEntry {
+  return {
+    id: 252,
+    kind: 'mission',
+    title: 'Keep main releasable',
+    version: 1,
+    authorKind: 'system',
+    authorId: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    folder: 'workspace/missions',
+    conversationId: null,
+    messageId: null,
+    recordType: 'mission',
+    recordId: 'keep-main-releasable',
+    recordRole: 'source',
+    spec: { slug: 'keep-main-releasable', yaml: MISSION_YAML },
+  } as ArtifactEntry;
+}
+
+function markdownArtifact(): ArtifactEntry {
+  return {
+    id: 253,
+    kind: 'markdown',
+    title: 'Notes',
+    version: 1,
+    authorKind: 'agent',
+    authorId: 'agent:revenue-lead',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    folder: null,
+    conversationId: null,
+    messageId: null,
+    spec: { md: '# Notes\n\nA plan the agent wrote, long enough to highlight a passage of.' },
+  } as ArtifactEntry;
+}
+
+/**
+ * Highlight the text of one element the way a person's drag would, and let
+ * the selection watcher see it (it listens for mouseup on the document).
+ * @param el
+ */
+async function highlight(el: Element) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  await new Promise(r => requestAnimationFrame(() => r(null)));
+}
+
+describe('a mission or a playbook in the artifact pane', () => {
+  it('renders the charter from the YAML and offers Edit — but not Rename, since the title is the file\'s name', async () => {
+    render(<ArtifactPane artifact={missionArtifact()} surface="page" />);
+
+    await expect.element(page.getByText('Every merge to main ships.')).toBeVisible();
+
+    expect(document.querySelector('[data-mission-card="charter"]')).not.toBeNull();
+    expect(document.querySelector('[data-artifact-edit]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Rename this artifact"]')).toBeNull();
+  });
+
+  it('Edit opens the file itself in the plain editor, and Save appears', async () => {
+    render(<ArtifactPane artifact={missionArtifact()} surface="page" />);
+
+    await page.getByRole('button', { name: 'Edit in place' }).click();
+
+    const box = page.getByRole('textbox', { name: 'Mission file (YAML)' });
+
+    await expect.element(box).toBeVisible();
+    await expect.element(box).toHaveValue(MISSION_YAML);
+    await expect.element(page.getByText(/applies the workspace/)).toBeVisible();
+    // The way in is gone while there is something to save; the way out is Esc.
+    expect(document.querySelector('[data-artifact-edit]')).toBeNull();
+
+    await userEvent.keyboard('{Escape}');
+
+    await expect.element(page.getByText('Every merge to main ships.')).toBeVisible();
+  });
+
+  it('gives markdown the same door — it had an editor and no way into it', async () => {
+    render(<ArtifactPane artifact={markdownArtifact()} surface="page" />);
+
+    await page.getByRole('button', { name: 'Edit in place' }).click();
+
+    await expect.element(page.getByRole('textbox', { name: 'Artifact body (markdown)' })).toBeVisible();
+  });
+
+  it('highlighting a passage offers Ask and Change', async () => {
+    render(<ArtifactPane artifact={missionArtifact()} surface="page" />);
+
+    await expect.element(page.getByText('Every merge to main ships.')).toBeVisible();
+
+    await highlight(document.querySelector('[data-mission-card="charter"] section p')!);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Selected passage' });
+
+    await expect.element(toolbar).toBeVisible();
+    await expect.element(toolbar.getByRole('button', { name: 'Ask' })).toBeVisible();
+    await expect.element(toolbar.getByRole('button', { name: 'Change' })).toBeVisible();
+  });
+});

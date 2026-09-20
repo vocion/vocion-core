@@ -1,5 +1,6 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
+import { readFileSync } from 'node:fs';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
@@ -168,6 +169,17 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     } catch (err) {
       errors.push({ resource: 'playbook', slug: pb.slug, message: (err as Error).message });
     }
+  }
+
+  // The same files, as ARTIFACTS (`libs/workspace/source.ts`): every mission
+  // and every SKILL.md is mirrored so it edits like an artifact — versions,
+  // restore, the pane, select-to-ask — with the file still the source of
+  // truth. Content-identical mirrors add no version, so an apply that changed
+  // nothing leaves the history alone; one that changed a file adds a
+  // `system` version naming the sha, so "who changed this" has the git
+  // answer beside the in-app ones.
+  if (!dryRun) {
+    await mirrorSources(orgId, loaded, errors);
   }
 
   for (const step of loaded.learningSteps) {
@@ -906,6 +918,34 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: b
     await db.update(workflowSchema).set(payload).where(eq(workflowSchema.id, existing.id));
   }
   return 'updated';
+}
+
+/**
+ * Mirror every mission, skill and playbook file into its `source` artifact.
+ * Non-fatal per file: a mirror that fails (an unreadable path, a body past
+ * the spec's cap) is reported and the apply goes on — the rows the runtime
+ * reads were already written above.
+ * @param orgId
+ * @param loaded
+ * @param errors
+ */
+async function mirrorSources(orgId: string, loaded: LoadedWorkspace, errors: ApplyResult['errors']): Promise<void> {
+  const { mirrorSource } = await import('@/services/workspace/WorkspaceSourceService');
+  const summary = `Applied from the workspace (${loaded.sha.slice(0, 12)})`;
+  const author = { kind: 'system' as const, id: null };
+  const entries: Array<{ kind: 'mission' | 'skill' | 'playbook'; slug: string; title: string; sourceFile: string }> = [
+    ...loaded.missions.map(m => ({ kind: 'mission' as const, slug: m.slug, title: m.name, sourceFile: m.sourceFile })),
+    ...loaded.skills.map(s => ({ kind: 'skill' as const, slug: s.slug, title: s.name, sourceFile: s.sourceFile })),
+    ...loaded.playbooks.map(p => ({ kind: 'playbook' as const, slug: p.slug, title: p.name, sourceFile: p.sourceFile })),
+  ];
+  for (const e of entries) {
+    try {
+      const content = readFileSync(e.sourceFile, 'utf8');
+      await mirrorSource({ orgId, kind: e.kind, slug: e.slug, title: e.title, content, author, changeSummary: summary });
+    } catch (err) {
+      errors.push({ resource: `${e.kind}Source`, slug: e.slug, message: (err as Error).message });
+    }
+  }
 }
 
 async function upsertMission(orgId: string, mission: LoadedMission, dryRun: boolean): Promise<UpsertOutcome> {
