@@ -1,7 +1,7 @@
 import type { AutomationRunRow } from '@/services/AutomationService';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
-import { formatDuration, invokedByLabel, summarizeResult, targetRunHref } from './automationResult';
+import { controlResultOf, formatDuration, invokedByLabel, summarizeResult, targetRunHref } from './automationResult';
 
 /**
  * The run log — every run, one table, newest first.
@@ -47,9 +47,14 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
           {runs.map((run) => {
             const summary = summarizeResult(run.result);
             const href = targetRunHref(run.kind, run.targetRunId);
-            const duration = run.finishedAt
-              ? formatDuration(run.finishedAt.getTime() - run.startedAt.getTime())
-              : null;
+            const control = controlResultOf(run.result);
+            // A pause or resume took no time and dispatched nothing; its
+            // duration and its run link are honestly blank.
+            const duration = control
+              ? null
+              : run.finishedAt
+                ? formatDuration(run.finishedAt.getTime() - run.startedAt.getTime())
+                : null;
             return (
               <tr key={run.id} className="border-b border-border/60 last:border-0">
                 <td className={`${CELL} font-mono whitespace-nowrap`}>
@@ -60,7 +65,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
                     <Link href={`/dashboard/automation/${run.slug}`} className="font-medium hover:underline">{run.slug}</Link>
                   </td>
                 )}
-                <td className={`${CELL} text-muted-foreground`}>{run.kind}</td>
+                <td className={`${CELL} text-muted-foreground`}>{control ? `control · ${control.action}` : run.kind}</td>
                 <td className={`${CELL} font-mono whitespace-nowrap`}>{duration ?? (run.status === 'running' ? 'in flight' : '—')}</td>
                 <td className={`${CELL} whitespace-nowrap text-muted-foreground`} title={run.invokedBy ?? undefined}>
                   {invokedByLabel(run.invokedBy)}

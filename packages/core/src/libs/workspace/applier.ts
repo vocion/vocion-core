@@ -1,6 +1,6 @@
 import type { LoadedAgent, LoadedAutomation, LoadedEvalDataset, LoadedLearningStep, LoadedMission, LoadedObjectType, LoadedPlaybook, LoadedSource, LoadedTeam, LoadedWorkflow, LoadedWorkspace } from './loader';
 import type { KnownProcessorNames, SourceUpsertSpec } from '@/libs/sources/upsert';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { addressOnDomain, defaultMailboxAddress, mailDomain } from '@/libs/mail/mailbox';
 import { canonical, reconcileSourceSchedules, storedProcessorNames, upsertSourceRow } from '@/libs/sources/upsert';
@@ -159,6 +159,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
       errors.push({ resource: 'automation', slug: automation.slug, message: (err as Error).message });
     }
   }
+  await reportPausedAutomations(orgId, loaded, warnings);
 
   for (const pb of loaded.playbooks) {
     try {
@@ -327,12 +328,26 @@ async function reconcileSchedules(
   const { startSourceFullSync } = await import('@/services/SourceScheduleService');
   const { knowledgeSourceSchema: srcSchema } = await import('@/models/Schema');
 
+  // A person's pause lives on the row, not in the YAML, and the Schedule
+  // must come out of this pass still paused — created paused if Temporal
+  // never had it, re-asserted paused if it did.
+  const pausedRows = await db
+    .select({ slug: automationSchema.slug, pausedNote: automationSchema.pausedNote })
+    .from(automationSchema)
+    .where(and(eq(automationSchema.orgId, orgId), isNotNull(automationSchema.pausedAt)));
+  const pausedBySlug = new Map(pausedRows.map(r => [r.slug, { note: r.pausedNote }]));
+
   // Automations are the first-class WHEN. Schedule-whens get a Temporal
   // Schedule; event-whens are matched by EventService at emit time.
   for (const automation of loaded.automations) {
     try {
       if (automation.status === 'active' && automation.when.schedule) {
-        await ensureAutomationSchedule({ orgId, slug: automation.slug, cron: automation.when.schedule });
+        await ensureAutomationSchedule({
+          orgId,
+          slug: automation.slug,
+          cron: automation.when.schedule,
+          paused: pausedBySlug.get(automation.slug),
+        });
       } else {
         await removeAutomationSchedule(orgId, automation.slug);
       }
@@ -966,6 +981,50 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, dry
     await db.update(automationSchema).set(payload).where(eq(automationSchema.id, existing.id));
   }
   return 'updated';
+}
+
+/**
+ * Say which automations in this workspace are under a person's pause.
+ *
+ * `upsertAutomation` never writes the pause columns, so the pause survives
+ * the apply on its own; this makes that visible in the summary rather than
+ * leaving an operator to wonder why a freshly applied schedule is not firing.
+ * A warning, not an error: the workspace applied, and the hold is deliberate.
+ * @param orgId
+ * @param loaded
+ * @param warnings
+ */
+async function reportPausedAutomations(orgId: string, loaded: LoadedWorkspace, warnings: ApplyResult['warnings']): Promise<void> {
+  const slugs = loaded.automations.map(a => a.slug);
+  if (slugs.length === 0) {
+    return;
+  }
+  const paused = await db
+    .select({
+      slug: automationSchema.slug,
+      pausedAt: automationSchema.pausedAt,
+      pausedBy: automationSchema.pausedBy,
+      pausedNote: automationSchema.pausedNote,
+    })
+    .from(automationSchema)
+    .where(and(eq(automationSchema.orgId, orgId), inArray(automationSchema.slug, slugs), isNotNull(automationSchema.pausedAt)));
+  if (paused.length === 0) {
+    return;
+  }
+  const ids = paused.map(p => p.pausedBy).filter((id): id is string => !!id);
+  const users = ids.length > 0
+    ? await db.select({ id: userSchema.id, name: userSchema.name, email: userSchema.email }).from(userSchema).where(inArray(userSchema.id, ids))
+    : [];
+  const nameById = new Map(users.map(u => [u.id, u.name?.trim() || u.email]));
+  for (const p of paused) {
+    const who = (p.pausedBy && nameById.get(p.pausedBy)) ?? p.pausedBy ?? 'someone';
+    const when = p.pausedAt!.toISOString().slice(0, 16).replace('T', ' ');
+    warnings.push({
+      resource: 'automation',
+      slug: p.slug,
+      message: `paused by ${who} at ${when} UTC${p.pausedNote ? ` — ${p.pausedNote}` : ''}; left paused. Resume it from /dashboard/automation/${p.slug}.`,
+    });
+  }
 }
 
 async function upsertPlaybook(orgId: string, pb: LoadedPlaybook, dryRun: boolean): Promise<UpsertOutcome> {

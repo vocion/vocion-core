@@ -12,7 +12,7 @@
 
 import type { ScheduleOptions } from '@temporalio/client';
 import type { MirrorFreshness } from '@/services/CrmRecordsService';
-import { and, desc, eq, gte, inArray, like, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, like, lt, ne, sql } from 'drizzle-orm';
 import { cronIntervalMs, humanizeAge, previousFire } from '@/libs/cron/schedule';
 import { db } from '@/libs/DB';
 import {
@@ -21,8 +21,15 @@ import {
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
-import { automationRunSchema, automationSchema, knowledgeSourceSchema } from '@/models/Schema';
+import { automationRunSchema, automationSchema, knowledgeSourceSchema, userSchema } from '@/models/Schema';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
+
+/**
+ * The `automation_run.kind` of a pause or a resume. Not a fire: it dispatches
+ * nothing and reads as a person's act in the same log the fires are in, so
+ * "why did this go quiet on the 12th" is answered by the row above the gap.
+ */
+export const CONTROL_RUN_KIND = 'control';
 
 export function listAutomations(orgId: string) {
   return db.select().from(automationSchema).where(eq(automationSchema.orgId, orgId));
@@ -132,6 +139,16 @@ export async function beginAutomationFire(
     // produced no run row, no mission run, and therefore no trace anywhere —
     // the fire simply did not appear to have happened.
     const message = `automation "${slug}" is not active`;
+    await db.insert(automationRunSchema).values({ ...row, status: 'error', error: message, finishedAt: new Date() });
+    throw new Error(message);
+  }
+  if (automation.pausedAt) {
+    // The row is the record of a person's pause; Temporal's paused flag and
+    // the event matcher's skip are how it is honoured on the way in. Should a
+    // fire reach here anyway — a schedule Temporal never saw paused, a test
+    // run, a CLI call — it is refused on the same evidence, and the refusal
+    // is written down like the disabled one above.
+    const message = `automation "${slug}" is paused${automation.pausedNote ? ` — ${automation.pausedNote}` : ''}`;
     await db.insert(automationRunSchema).values({ ...row, status: 'error', error: message, finishedAt: new Date() });
     throw new Error(message);
   }
@@ -270,7 +287,8 @@ export type AutomationRunFilter = {
   /** One automation. Omit for every fire in the org — the cross-automation log. */
   slug?: string;
   status?: 'running' | 'ok' | 'error';
-  kind?: 'workflow' | 'mission_check' | 'job';
+  /** The three do-types, or `control` — a person's pause or resume, kept in the same log. */
+  kind?: 'workflow' | 'mission_check' | 'job' | 'control';
   /** `schedule` for automation-fired, `test-run` for the dashboard control. */
   invokedBy?: 'schedule' | 'test-run';
   /** Inclusive lower bound on `started_at`. */
@@ -360,7 +378,9 @@ export async function lastRunBySlug(orgId: string): Promise<Map<string, Automati
   const rows = await db
     .select()
     .from(automationRunSchema)
-    .where(eq(automationRunSchema.orgId, orgId))
+    // A pause or resume is written to the same log but is not a fire: it must
+    // not read as "last ran just now" on a card, nor reset the overdue clock.
+    .where(and(eq(automationRunSchema.orgId, orgId), ne(automationRunSchema.kind, CONTROL_RUN_KIND)))
     .orderBy(desc(automationRunSchema.startedAt), desc(automationRunSchema.id));
   const out = new Map<string, AutomationRunRow>();
   for (const row of rows) {
@@ -545,6 +565,223 @@ export async function reconcileAbandonedRuns(opts: {
 }
 
 /* ------------------------------------------------------------------ */
+/* Pause and resume — a person's hold, on the record                   */
+/* ------------------------------------------------------------------ */
+
+/** The person acting. `name` is what the log shows; `id` is what it is keyed on. */
+export type AutomationActor = { id: string; name?: string | null };
+
+/** What a `control` run row carries in `result`, so the log reads without a join. */
+export type AutomationControlResult = {
+  kind: 'control';
+  action: 'pause' | 'resume';
+  by: { id: string; name: string | null };
+  note: string | null;
+  /** How the Temporal Schedule took it. `null` for an event-when — there is none. */
+  schedule: 'paused' | 'resumed' | 'unreachable' | null;
+  /** On a resume: the pause it lifted. */
+  lifted?: { by: string | null; at: string; note: string | null };
+};
+
+/** The paused state a surface shows: who, when, and the note they left. */
+export type AutomationPause = { by: { id: string; name: string | null }; at: Date; note: string | null };
+
+export class AutomationNotFoundError extends Error {
+  constructor(slug: string) {
+    super(`automation "${slug}" not found`);
+    this.name = 'AutomationNotFoundError';
+  }
+}
+
+/** Pause on a paused automation, or resume on a running one — the state already is what was asked for. */
+export class AutomationPauseStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AutomationPauseStateError';
+  }
+}
+
+/**
+ * Pause an automation, and say who and why.
+ *
+ * Three things, in this order: the row (the record — `beginAutomationFire`
+ * and the event matcher both read it), the Temporal Schedule for a
+ * schedule-when (so the fire never leaves Temporal), then a `control` run
+ * row in the log. Temporal being unreachable does not undo the pause: the
+ * row already refuses every fire, and the control row says `unreachable`
+ * so the next apply — which re-asserts the pause — is known to be needed.
+ * @param orgId - Tenant.
+ * @param slug - Which automation.
+ * @param opts - Who, and the optional note.
+ * @param opts.by
+ * @param opts.note
+ * @param opts.now
+ */
+export async function pauseAutomation(
+  orgId: string,
+  slug: string,
+  opts: { by: AutomationActor; note?: string | null; now?: Date },
+): Promise<AutomationPause> {
+  const automation = await getAutomation(orgId, slug);
+  if (!automation) {
+    throw new AutomationNotFoundError(slug);
+  }
+  if (automation.pausedAt) {
+    throw new AutomationPauseStateError(`automation "${slug}" is already paused`);
+  }
+  const now = opts.now ?? new Date();
+  const note = cleanNote(opts.note);
+  await db
+    .update(automationSchema)
+    .set({ pausedAt: now, pausedBy: opts.by.id, pausedNote: note })
+    .where(eq(automationSchema.id, automation.id));
+
+  const schedule = automation.whenConfig.schedule
+    ? await setScheduleState(orgId, slug, 'pause', controlNote(opts.by, note))
+    : null;
+
+  await recordControl(orgId, slug, now, {
+    kind: 'control',
+    action: 'pause',
+    by: { id: opts.by.id, name: opts.by.name ?? null },
+    note,
+    schedule,
+  });
+  return { by: { id: opts.by.id, name: opts.by.name ?? null }, at: now, note };
+}
+
+/**
+ * Resume a paused automation. Clears the hold, unpauses the Schedule for a
+ * schedule-when, and records who lifted it and whose pause it was.
+ * @param orgId - Tenant.
+ * @param slug - Which automation.
+ * @param opts - Who, and the optional note.
+ * @param opts.by
+ * @param opts.note
+ * @param opts.now
+ */
+export async function resumeAutomation(
+  orgId: string,
+  slug: string,
+  opts: { by: AutomationActor; note?: string | null; now?: Date },
+): Promise<void> {
+  const automation = await getAutomation(orgId, slug);
+  if (!automation) {
+    throw new AutomationNotFoundError(slug);
+  }
+  if (!automation.pausedAt) {
+    throw new AutomationPauseStateError(`automation "${slug}" is not paused`);
+  }
+  const now = opts.now ?? new Date();
+  const note = cleanNote(opts.note);
+  await db
+    .update(automationSchema)
+    .set({ pausedAt: null, pausedBy: null, pausedNote: null })
+    .where(eq(automationSchema.id, automation.id));
+
+  const schedule = automation.whenConfig.schedule
+    ? await setScheduleState(orgId, slug, 'unpause', controlNote(opts.by, note))
+    : null;
+
+  await recordControl(orgId, slug, now, {
+    kind: 'control',
+    action: 'resume',
+    by: { id: opts.by.id, name: opts.by.name ?? null },
+    note,
+    schedule: schedule === 'paused' ? 'resumed' : schedule,
+    lifted: { by: automation.pausedBy, at: automation.pausedAt.toISOString(), note: automation.pausedNote },
+  });
+}
+
+/**
+ * The pause on each automation row, with the person's name resolved — one
+ * user lookup for the whole list. Rows that are not paused are absent.
+ * @param rows - Automation rows, as `listAutomations` returns them.
+ */
+export async function pausesFor(
+  rows: Array<{ slug: string; pausedAt: Date | null; pausedBy: string | null; pausedNote: string | null }>,
+): Promise<Map<string, AutomationPause>> {
+  const paused = rows.filter(r => r.pausedAt !== null);
+  const names = await userNamesById(paused.map(r => r.pausedBy).filter((id): id is string => !!id));
+  return new Map(paused.map(r => [r.slug, {
+    by: { id: r.pausedBy ?? '', name: r.pausedBy ? names.get(r.pausedBy) ?? null : null },
+    at: r.pausedAt!,
+    note: r.pausedNote,
+  }]));
+}
+
+/**
+ * Display names for a set of users: the name they set, else their email.
+ * Empty for an id that no longer resolves — the log's own copy of the name
+ * (in the control row) is what covers that case.
+ * @param ids - `user.id`s.
+ */
+export async function userNamesById(ids: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) {
+    return new Map();
+  }
+  const rows = await db
+    .select({ id: userSchema.id, name: userSchema.name, email: userSchema.email })
+    .from(userSchema)
+    .where(inArray(userSchema.id, unique));
+  return new Map(rows.map(r => [r.id, r.name?.trim() || r.email]));
+}
+
+function cleanNote(note: string | null | undefined): string | null {
+  const trimmed = note?.trim() ?? '';
+  return trimmed === '' ? null : trimmed.slice(0, 500);
+}
+
+/**
+ * The note Temporal keeps on the Schedule, readable in its own UI: who, and why.
+ * @param by - The person acting.
+ * @param note - Their note, if any.
+ */
+function controlNote(by: AutomationActor, note: string | null): string {
+  return `${by.name ?? by.id}${note ? `: ${note}` : ''}`;
+}
+
+async function setScheduleState(
+  orgId: string,
+  slug: string,
+  action: 'pause' | 'unpause',
+  note: string,
+): Promise<'paused' | 'unreachable'> {
+  try {
+    const client = await getTemporalClient();
+    const handle = client.schedule.getHandle(automationScheduleIdFor(orgId, slug));
+    if (action === 'pause') {
+      await handle.pause(note);
+    } else {
+      await handle.unpause(note);
+    }
+    return 'paused';
+  } catch (err) {
+    // A schedule that does not exist yet (Temporal never saw an apply) has
+    // nothing to pause; the row holds the pause and the next apply carries
+    // it in. Anything else is Temporal being away, and is said so.
+    console.warn(`[automation] could not ${action} the Temporal schedule for "${slug}"; the row holds the state`, { error: (err as Error).message });
+    return 'unreachable';
+  }
+}
+
+async function recordControl(orgId: string, slug: string, at: Date, result: AutomationControlResult): Promise<void> {
+  await db.insert(automationRunSchema).values({
+    orgId,
+    slug,
+    kind: CONTROL_RUN_KIND,
+    status: 'ok',
+    invokedBy: `user:${result.by.id}`,
+    dryRun: false,
+    input: { action: result.action, note: result.note },
+    result: result as never,
+    startedAt: at,
+    finishedAt: at,
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Temporal Schedule lifecycle (schedule-whens only)                   */
 /* ------------------------------------------------------------------ */
 
@@ -552,6 +789,13 @@ export type AutomationScheduleSpec = {
   orgId: string;
   slug: string;
   cron: string;
+  /**
+   * A person's standing pause, from the automation row. When set, the
+   * Schedule is created paused and an existing one is re-asserted paused —
+   * a workspace apply never resumes what a person stopped. When absent the
+   * Schedule's own state is left as it was, so apply never resumes anything.
+   */
+  paused?: { note: string | null };
 };
 
 /**
@@ -580,11 +824,16 @@ export function buildAutomationScheduleOptions(spec: AutomationScheduleSpec): Sc
       taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
       args: [{ orgId: spec.orgId, slug: spec.slug }],
     },
+    ...(spec.paused ? { state: { paused: true, note: spec.paused.note ?? undefined } } : {}),
   };
 }
 
 /**
  * Create (or update) the automation's Schedule. Idempotent.
+ *
+ * An update rewrites the spec and the action and touches the state only to
+ * re-assert a person's pause. It never unpauses: the person who paused it is
+ * the one who resumes it, from the app, on the record.
  * @param spec
  */
 export async function ensureAutomationSchedule(spec: AutomationScheduleSpec): Promise<void> {
@@ -595,7 +844,12 @@ export async function ensureAutomationSchedule(spec: AutomationScheduleSpec): Pr
   } catch (err) {
     if (isAlreadyExists(err)) {
       const handle = client.schedule.getHandle(options.scheduleId);
-      await handle.update(prev => ({ ...prev, spec: options.spec, action: options.action }));
+      await handle.update(prev => ({
+        ...prev,
+        spec: options.spec,
+        action: options.action,
+        state: options.state ? { ...prev.state, ...options.state } : prev.state,
+      }));
       return;
     }
     throw err;

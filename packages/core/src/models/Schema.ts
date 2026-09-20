@@ -945,6 +945,15 @@ export const automationSchema = pgTable(
     doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
     ownerAgentSlug: text('owner_agent_slug'),
+    /**
+     * A person's pause, held apart from the authored `status`. `status` is what
+     * the YAML says and is replaced on every apply; this is an operational hold
+     * a person placed from the app, and apply leaves it alone. Set together:
+     * when, who (`user.id`), and the note they left. All null when not paused.
+     */
+    pausedAt: timestamp('paused_at', { mode: 'date' }),
+    pausedBy: text('paused_by'),
+    pausedNote: text('paused_note'),
     updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().$onUpdate(() => new Date()).notNull(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
@@ -966,11 +975,11 @@ export const automationRunSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** The automation's slug — not an FK, so a run survives the automation being removed. */
     slug: text('slug').notNull(),
-    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job'. */
+    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job' — or 'control' for a person's pause/resume, recorded here so the log holds the whole history. */
     kind: text('kind').notNull(),
     /** 'running' | 'ok' | 'error'. */
     status: text('status').default('running').notNull(),
-    /** `automation:<slug>` for a schedule fire, `user:<id>` for a dashboard test run. */
+    /** `automation:<slug>` for a schedule fire, `dashboard:test-run` for a test run, `user:<id>` for a person's pause or resume. */
     invokedBy: text('invoked_by'),
     /** True when the caller asked for a no-writes rehearsal (test runs). */
     dryRun: boolean('dry_run').default(false).notNull(),

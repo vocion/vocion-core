@@ -2,7 +2,8 @@ import { ArrowLeft } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { AutomationCardStatus } from '@/features/dashboard/AutomationCardStatus';
-import { checkResultOf } from '@/features/dashboard/automationResult';
+import { AutomationPauseControl } from '@/features/dashboard/AutomationPauseControl';
+import { checkResultOf, pauseStateOf } from '@/features/dashboard/automationResult';
 import { AutomationRunLog } from '@/features/dashboard/AutomationRunLog';
 import { AutomationRunStrip } from '@/features/dashboard/AutomationRunStrip';
 import { AutomationTestRun } from '@/features/dashboard/AutomationTestRun';
@@ -16,9 +17,11 @@ import { Link } from '@/libs/I18nNavigation';
 import {
   automationRunFacets,
   automationSourceFreshness,
+  CONTROL_RUN_KIND,
   describeAutomationSchedule,
   getAutomation,
   listAutomationRuns,
+  pausesFor,
   scheduleHealth,
 } from '@/services/AutomationService';
 
@@ -63,7 +66,7 @@ export default async function AutomationDetailPage(props: {
   const cron = automation.whenConfig.schedule ?? null;
   const now = await currentTime();
   const query = parseRunLogQuery(await props.searchParams, { slug, limit: 200 });
-  const [{ runs, total }, facets, live, strip] = await Promise.all([
+  const [{ runs, total }, facets, live, strip, pauses] = await Promise.all([
     listAutomationRuns(orgId, query),
     automationRunFacets(orgId),
     cron ? describeAutomationSchedule(orgId, slug) : Promise.resolve(null),
@@ -74,15 +77,20 @@ export default async function AutomationDetailPage(props: {
       since: new Date(now.getTime() - STRIP_DAYS * 24 * 3_600_000),
       limit: 500,
     }),
+    pausesFor([automation]),
   ]);
+  const pause = pauses.get(slug) ?? null;
+  // A pause or a resume sits in the same log but is not a fire: the strip and
+  // "last run" are about the work, so those rows are left to the table below.
+  const fires = strip.runs.filter(run => run.kind !== CONTROL_RUN_KIND);
   // Newest by START time, not by row id: a later-inserted row can be an older
   // run, and the stuck 4 September row would otherwise read as "last run".
-  const lastRun = strip.runs.reduce<typeof strip.runs[number] | null>(
+  const lastRun = fires.reduce<typeof fires[number] | null>(
     (newest, run) => (newest === null || run.startedAt > newest.startedAt ? run : newest),
     null,
   );
   const freshness = await automationSourceFreshness(orgId, checkResultOf(lastRun?.result)?.mirror?.sources ?? []);
-  const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: live?.paused, now });
+  const health = scheduleHealth({ cron, lastFireAt: lastRun?.startedAt ?? null, paused: live?.paused || pause !== null, now });
   const interval = cron ? cronIntervalMs(cron, now) : null;
   const runsEveryHour = interval !== null && interval <= 3_600_000;
 
@@ -128,7 +136,8 @@ export default async function AutomationDetailPage(props: {
                   ? `run job ${automation.doConfig.job}`
                   : 'nothing configured'}
           </div>
-          <div className="pt-2">
+          <div className="flex flex-wrap items-start gap-3 pt-2">
+            <AutomationPauseControl slug={slug} paused={pause ? pauseStateOf(pause) : null} />
             <AutomationTestRun
               slug={slug}
               kind={automation.doConfig.checkMission ? 'mission_check' : automation.doConfig.workflow ? 'workflow' : 'job'}
@@ -137,6 +146,11 @@ export default async function AutomationDetailPage(props: {
           </div>
         </div>
         <div className="text-right text-[11px] text-muted-foreground">
+          {live?.paused && !pause && (
+            <div className="text-amber-600" title="The Temporal schedule is paused, but not from this app — nobody is on the record for it. Pause it here to put a name on it, or resume it in Temporal.">
+              paused in Temporal, not from here
+            </div>
+          )}
           <AutomationCardStatus run={lastRun} health={health} freshness={freshness} slug={slug} />
         </div>
       </div>
@@ -152,7 +166,7 @@ export default async function AutomationDetailPage(props: {
         {/* Empty hours only read as GAPS for a schedule that expects a run in
             every hour. On a daily cron most hours are empty by design, so
             drawing them as gaps would cry outage 23 times a day. */}
-        <AutomationRunStrip runs={strip.runs} days={STRIP_DAYS} expected={runsEveryHour} />
+        <AutomationRunStrip runs={fires} days={STRIP_DAYS} expected={runsEveryHour} />
       </section>
 
       <section>

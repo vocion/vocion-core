@@ -117,6 +117,36 @@ do:
   workflow: discovery-followup
 ```
 
+## Pausing and resuming
+
+An automation can be held from the app — **Pause** on its card at
+`/dashboard/automation` and on its page at `/dashboard/automation/<slug>` —
+and released the same way with **Resume**. The hold is a person's act, so it
+is recorded as one: who, when, and the note they left.
+
+| | |
+|---|---|
+| **Who can** | Any signed-in member of the project — the same guard the mission mutations use (`guardAuth`). The actor is taken from the session, never from the request. |
+| **What it does** | A `schedule` automation's Temporal Schedule is paused (`handle.pause`), with the person and note written into the Schedule's own note so Temporal's UI agrees. An `event` automation is skipped by the event matcher while paused. Either way `beginAutomationFire` refuses a fire that reaches it — a test run, a CLI call, a Schedule Temporal never saw paused — and records the refusal as an `error` run, the way a `disabled` automation's is. |
+| **What is recorded** | On the row: `paused_at`, `paused_by` (the `user.id`), `paused_note`. In the run log: a synthetic run of kind `control`, status `ok`, `invoked_by: user:<id>`, whose `result` names the action (`pause` \| `resume`), the person (id and name, so it reads after the account is gone), the note, and how the Schedule took it (`paused` \| `resumed` \| `unreachable` \| `null` for an event-when). A resume also records the pause it lifted. |
+| **What is shown** | "Paused by *name* *when*: *note*" on the card and the detail page, and one row per pause and resume in the run log, filterable with `kind=control`. A `control` row is not a fire: it does not count as "last run" and does not reset the overdue clock. |
+| **Surface** | `client.automations.pause({ slug, note? })` / `client.automations.resume({ slug, note? })`. Pausing a paused automation (or resuming a running one) answers `CONFLICT` — the state on screen is stale. |
+
+**What apply does to a paused automation.** Nothing to the pause. `status`
+is what the YAML says and is replaced on every apply; the pause lives beside
+it and `workspace:apply` never writes those columns. Schedule reconciliation
+creates the Temporal Schedule paused if Temporal never had it, re-asserts the
+pause if it did, and never unpauses one — apply does not resume what a person
+stopped. The apply summary names each one as a warning:
+`automation/<slug>: paused by <name> at <when> UTC — <note>; left paused.`
+Setting `status: disabled` in the YAML and a pause can both hold at once;
+they are different statements (the author's, and an operator's), and each is
+lifted by the one who made it.
+
+A Schedule paused in Temporal directly, with nobody on the record, shows on
+the card as "paused in Temporal, not from here" — pause it in the app to put
+a name on it, or resume it where it was paused.
+
 ## Rules
 
 - Slugs are unique across automations.

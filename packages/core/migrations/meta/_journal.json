@@ -897,6 +897,13 @@
       "when": 1789750699386,
       "tag": "0127_project_learning_eagerness",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1789750759386,
+      "tag": "0128_automation_pause",
+      "breakpoints": true
     }
   ]
 }

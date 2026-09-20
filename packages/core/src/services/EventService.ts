@@ -230,7 +230,10 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     .from(automationSchema)
     .where(eq(automationSchema.orgId, input.orgId));
   for (const a of automations) {
-    if (a.status !== 'active' || a.whenConfig.event !== input.type || !matchesFilter(payload, a.whenConfig.filter)) {
+    // A paused automation is skipped the way a disabled one is — silently,
+    // not as a refused-fire row per event, which would bury the log while a
+    // busy event type is held. The pause itself is already on the record.
+    if (a.status !== 'active' || a.pausedAt || a.whenConfig.event !== input.type || !matchesFilter(payload, a.whenConfig.filter)) {
       continue;
     }
     try {

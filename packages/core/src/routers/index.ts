@@ -28,6 +28,7 @@ import {
   setShare as setArtifactShareRoute,
   update as updateArtifactRoute,
 } from './Artifacts';
+import { pause as pauseAutomationRoute, resume as resumeAutomationRoute } from './Automations';
 import { acknowledgeAutonomyFlagRoute, demoteAutonomyRoute, listAutonomyRoute, promoteAutonomyRoute } from './Autonomy';
 import { latestRoute as briefingsLatestRoute, regenerateRoute as briefingsRegenerateRoute } from './Briefings';
 import { get as getBudget, upsert as upsertBudget } from './Budgets';
@@ -167,6 +168,10 @@ export const router = {
   playbooks: {
     list: listPlaybooks,
     get: getPlaybook,
+  },
+  automations: {
+    pause: pauseAutomationRoute,
+    resume: resumeAutomationRoute,
   },
   missions: {
     list: listMissionsRoute,
