@@ -142,6 +142,11 @@ export function StickyActionBar(props: {
 
   return (
     <div
+      // The gutter reads this to drop its bottom padding, which is the strip
+      // a sticky box cannot reach (`PageWidth`). A `data-pattern`, like the
+      // rest of the pattern library, rather than the testid: what a page is
+      // built from is not a test hook.
+      data-pattern="sticky-action-bar"
       data-testid="sticky-action-bar"
       className={cn(
         // Sticky to the bottom of the column it lives in; bleeds to the page
