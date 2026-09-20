@@ -91,7 +91,7 @@ Workspace pages have their own guide: [`docs/workspace-pages.md`](./workspace-pa
 2. Name it on each agent that should mount it (`skills:` in the agent YAML).
    A skill activates on the model's judgement; where the work must happen
    every time, name the skill outright in the mission or automation prompt.
-3. `npm run workspace:check -- <path>` — validates without writing
+3. `npm run workspace:check -- <path>` — validates without writing (and without a database, if none answers: counts are then `unknown`)
 4. `npm run workspace:apply -- <path> --project <id|slug>` — writes to DB
 
 ### Attach a playbook
@@ -293,7 +293,7 @@ All run from the vocion-core checkout and take the workspace path as an argument
 | Command | What it does |
 |---|---|
 | `npm run workspace:scaffold -- <name>` | Creates a new minimal-but-valid workspace at `../workspace/<name>`. |
-| `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes. |
+| `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes — and no DB needed: with none reachable, counts are `unknown`. |
 | `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB. Records a `workspace_version` row with the git SHA + diff summary. |
 | `npm run workspace:export` | Reads current DB rows into a directory. Use to bootstrap a new tenant from existing DB state. |
 

@@ -174,6 +174,25 @@ function validateSourceProcessor(spec: SourceUpsertSpec, known: KnownProcessorNa
 }
 
 /**
+ * Check a declared source against the registries it names — the connector,
+ * that connector's config schema, and the `processor` block — without
+ * touching the database. Throws with the source named, exactly as
+ * {@link upsertSourceRow} does, because it is the first half of that
+ * function: the half a dry-run with no database can still do.
+ * @param spec - What the writer declared.
+ * @param known - The org's learning steps and agents a processor may name.
+ */
+export function validateSourceSpec(spec: SourceUpsertSpec, known: KnownProcessorNames): ProcessorRef | undefined {
+  const connector = getConnector(spec.kind);
+  if (!connector) {
+    throw new Error(`source "${spec.slug}" references unknown connector kind: "${spec.kind}". Registered: ${listConnectors().map(c => c.slug).join(', ')}`);
+  }
+  // Validate the per-connector config blob. Throws ZodError on bad input.
+  connector.configSchema.parse(spec.config);
+  return validateSourceProcessor(spec, known);
+}
+
+/**
  * Create or replace one source row.
  *
  * Returns `unchanged` when the stored row already equals what was declared, so
@@ -190,13 +209,7 @@ export async function upsertSourceRow(
   spec: SourceUpsertSpec,
   opts: { known: KnownProcessorNames; dryRun?: boolean },
 ): Promise<{ outcome: SourceUpsertOutcome; id: number | null }> {
-  const connector = getConnector(spec.kind);
-  if (!connector) {
-    throw new Error(`source "${spec.slug}" references unknown connector kind: "${spec.kind}". Registered: ${listConnectors().map(c => c.slug).join(', ')}`);
-  }
-  // Validate the per-connector config blob. Throws ZodError on bad input.
-  connector.configSchema.parse(spec.config);
-  const processor = validateSourceProcessor(spec, opts.known);
+  const processor = validateSourceSpec(spec, opts.known);
 
   const [existing] = await db
     .select()
