@@ -18,12 +18,12 @@ describe('buildCrumbs', () => {
   });
 
   it('does not repeat the owner when the tab sits UNDER it', () => {
-    // `/dashboard/marketplace/agents` walks past its own owner on the first
+    // `/dashboard/marketplace/plugins` walks past its own owner on the first
     // segment; inserting it again gave two identical crumbs and two React
     // children with the same key (seen in the browser, 2026-09-19).
-    expect(buildCrumbs({ pathname: '/dashboard/marketplace/agents', docTitle: '' })).toEqual([
+    expect(buildCrumbs({ pathname: '/dashboard/marketplace/plugins', docTitle: '' })).toEqual([
       { url: '/dashboard/marketplace', label: 'Marketplace' },
-      { url: '/dashboard/marketplace/agents', label: 'Agents for hire' },
+      { url: '/dashboard/marketplace/plugins', label: 'Plugins' },
     ]);
     // …and an agent profile under the Marketplace still reads as its own leaf.
     expect(buildCrumbs({ pathname: '/dashboard/marketplace/lead-researcher', docTitle: 'Lead Researcher' })?.map(c => c.label))

@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   BarChart3,
+  Blocks,
   BookOpen,
   CalendarClock,
   CheckSquare,
@@ -156,11 +157,12 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // ships and the catalog agents nobody has hired are two lists, not one long
   // page. Under Build beside Skills & tools and Evals because both are
   // capability.
-  { url: '/dashboard/marketplace', title: 'Marketplace', tabTitle: 'Plugins', tabI18nKey: 'plugins', group: 'Build', icon: Store, i18nKey: 'marketplace', keywords: ['catalog', 'hire', 'inactive agents', 'plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
-  // The second tab. `/dashboard/marketplace` keeps the plugin list, so the
-  // 308 from `/dashboard/plugins` still lands on plugins; the agents nobody
-  // has hired get their own URL rather than a second half of one long page.
-  { url: '/dashboard/marketplace/agents', title: 'Agents for hire', group: 'Build', icon: Users, i18nKey: 'agents_for_hire', tabOf: '/dashboard/marketplace', keywords: ['catalog', 'hire', 'recruit', 'roles', 'inactive agents'] },
+  { url: '/dashboard/marketplace', title: 'Marketplace', tabTitle: 'Agents for hire', tabI18nKey: 'agents_for_hire', group: 'Build', icon: Store, i18nKey: 'marketplace', keywords: ['catalog', 'hire', 'recruit', 'roles', 'inactive agents', 'plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
+  // The second tab. Hiring is what a person comes here for most often, so the
+  // owner URL is the agent catalog (Chris, 2026-09-20: "flip agents and
+  // plugins on these tabs"); plugins keep a stable URL of their own, and
+  // `/dashboard/plugins` still lands on them.
+  { url: '/dashboard/marketplace/plugins', title: 'Plugins', group: 'Build', icon: Blocks, i18nKey: 'plugins', tabOf: '/dashboard/marketplace', keywords: ['plugin', 'plugins', 'module', 'modules', 'apps', 'install', 'enable', 'turn on', 'wiki', 'data rooms', 'proposals'] },
 
   // ── MANAGE · Insights — how it is going ─────────────────────────────────
   { url: '/dashboard/team-report', title: 'Team report', group: 'Insights', icon: Network, i18nKey: 'team_report', keywords: ['outcome', 'kpi', 'spend', 'members'] },

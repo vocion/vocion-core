@@ -8,8 +8,8 @@ vi.mock('next/navigation', () => ({ permanentRedirect }));
 const { default: PluginsRedirect } = await import('./page');
 
 describe('/dashboard/plugins', () => {
-  it('308s to /dashboard/marketplace — the plugin catalogue is a section of it now, and the old path is in links people already sent', () => {
-    expect(() => PluginsRedirect()).toThrow(/NEXT_REDIRECT:\/dashboard\/marketplace/);
-    expect(permanentRedirect).toHaveBeenCalledWith('/dashboard/marketplace');
+  it('308s to the Marketplace Plugins tab — the catalogue lives there now, and the old path is in links people already sent', () => {
+    expect(() => PluginsRedirect()).toThrow(/NEXT_REDIRECT:\/dashboard\/marketplace\/plugins/);
+    expect(permanentRedirect).toHaveBeenCalledWith('/dashboard/marketplace/plugins');
   });
 });
