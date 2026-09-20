@@ -119,7 +119,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     : null;
 
   return (
-    <SidebarProvider defaultOpen={defaultOpen}>
+    // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
+    // window scrolling and carrying the sidebar and the top bar with it.
+    <SidebarProvider defaultOpen={defaultOpen} className="h-svh overflow-hidden">
       {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
           instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
       <AppSidebar
@@ -131,7 +133,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         needsYouCount={waiting}
         workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
-      <SidebarInset>
+      <SidebarInset className="min-h-0 overflow-hidden">
         <ShellBarActionsProvider>
           <AppSidebarHeader workspace={workspace} usage={usage} />
 
@@ -144,16 +146,14 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               pages that mount their own scoped dock inside `children` are
               skipped by PageDock. */}
           <PageContextProvider>
-            <div className="flex flex-1 items-stretch">
-              {/* Page gutter (B-034b §3): 24px → 40px, 32px vertical. */}
-              <div className="@container min-w-0 flex-1 px-4 py-6 pr-[calc(1rem+var(--rail-inset,0px))] transition-[padding] duration-200 sm:px-6 sm:pr-[calc(1.5rem+var(--rail-inset,0px))] lg:px-10 lg:py-8 lg:pr-[calc(2.5rem+var(--rail-inset,0px))]">
-                {/* Capped at a reading width by default; a route that is a
-                    two-pane WORKING surface opts out and gets the window
-                    (`features/navigation/pageWidth.ts`). The gutter above
-                    still pads by `--rail-inset`, so a full-bleed page never
-                    sits under an open rail either. */}
-                <PageWidth>{props.children}</PageWidth>
-              </div>
+            <div className="flex min-h-0 flex-1 items-stretch">
+              {/* The page gutter and the reading-width cap are one owner now
+                  (`PageWidth`): it knows the route, so it knows whether the
+                  page is capped, and whether the gutter scrolls or the page
+                  lays itself out to the height it was given. The gutter pads
+                  by `--rail-inset`, so a full-bleed page never sits under an
+                  open rail either. */}
+              <PageWidth>{props.children}</PageWidth>
               <PageDock agents={agents} />
             </div>
           </PageContextProvider>

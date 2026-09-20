@@ -17,6 +17,7 @@
 import { Buffer } from 'node:buffer';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { stripDocumentChrome } from '@/libs/documents/sheets';
 import { artifactsDir } from './store';
 import { contentTypeForExt, isInlineType, isSafeArtifactFilename, parseArtifactFilename } from './url';
 
@@ -64,7 +65,12 @@ export async function resolveArtifactFile(opts: {
       // The document itself, for "Open" and for printing from the browser.
       // Sandboxed by CSP: agent-authored HTML runs with an opaque origin, so a
       // script in it can neither read the app's cookies nor its DOM.
-      const body = Buffer.from(row.spec.html, 'utf8');
+      //
+      // Stripped on the way out as well as on the way in: `documentSpec()`
+      // keeps the app's chrome out of every NEW version, and this keeps it out
+      // of rows written before that existed — so nothing prints that is not
+      // the document, on a surface that browsers print directly.
+      const body = Buffer.from(stripDocumentChrome(row.spec.html), 'utf8');
       return {
         status: 200,
         body,

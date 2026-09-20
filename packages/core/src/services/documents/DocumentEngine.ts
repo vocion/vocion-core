@@ -23,7 +23,7 @@ import type { ArtifactRecordScope, ArtifactRow, ArtifactVersionRow, Author } fro
 import { evaluateDocument, verificationReceipt } from '@/libs/documents/audit';
 import { applyDocumentOps } from '@/libs/documents/edit';
 import { renderAvailable, renderDocument, renderNote } from '@/libs/documents/render';
-import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
+import { inspectDocument, outlineText, parseSheets, stripDocumentChrome } from '@/libs/documents/sheets';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { ArtifactError, createArtifact, getArtifact, updateArtifact } from '@/services/ArtifactService';
@@ -61,13 +61,18 @@ export type VerifyOutcome = {
  * re-verify, or the red team recording its own read. A revision therefore
  * drops it, which is the whole freshness rule: a version nobody has read as
  * the buyer carries no receipt, and the export gate can tell from the row.
- * @param html
+ * @param rawHtml
  * @param title
  * @param verification
  * @param playbook
  * @param redTeam - The last read as the buyer, when it is still this HTML.
  */
-export function documentSpec(html: string, title: string | undefined, verification?: DocumentVerification, playbook?: string, redTeam?: DocumentRedTeam): DocumentSpec {
+export function documentSpec(rawHtml: string, title: string | undefined, verification?: DocumentVerification, playbook?: string, redTeam?: DocumentRedTeam): DocumentSpec {
+  // The app's chrome never enters the stored document (`stripDocumentChrome`):
+  // this is the one funnel every create, revision, re-verify and red-team
+  // write goes through, so a `⤓ PDF` button the model drew anyway is gone
+  // before it is a version.
+  const html = stripDocumentChrome(rawHtml);
   const outline = inspectDocument(html);
   return {
     ...(title ? { title } : outline.title ? { title: outline.title } : {}),
@@ -106,11 +111,14 @@ export function pdfFilename(title: string): string {
  * back as a verification that says so, so the write still lands and the
  * receipt is honest about what was and was not checked.
  * @param orgId
- * @param html
+ * @param rawHtml
  * @param opts
  */
-export async function verifyHtml(orgId: string, html: string, opts: VerifyOptions = {}): Promise<VerifyOutcome> {
+export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOptions = {}): Promise<VerifyOutcome> {
   const started = Date.now();
+  // Render what will be STORED, so the screenshots, the PDF and the page count
+  // are all of the same document the person will read (`stripDocumentChrome`).
+  const html = stripDocumentChrome(rawHtml);
   const outline = inspectDocument(html);
   const available = await renderAvailable();
   if (!available.ok) {
@@ -324,6 +332,7 @@ export async function verifyDocumentArtifact(input: { orgId: string; id: number;
  * @param input.agentSlug
  * @param input.rubric - House rules from the calling skill, appended to core's generic rubric.
  * @param input.context - What the seller actually knows, so "unsourced" is judged fairly.
+ * @param input.onProgress
  */
 export async function redTeamDocumentArtifact(input: { orgId: string; id: number; agentSlug?: string | null; rubric?: string | null; context?: string | null; onProgress?: (note: string) => void }): Promise<{ artifact: ArtifactRow; outcome: RedTeamOutcome; record: DocumentRedTeam | null }> {
   const existing = await getArtifact({ orgId: input.orgId, id: input.id });
