@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { ChatComposer } from './ChatComposer';
+import { COMPOSER_CONTROL, COMPOSER_MAX_PX, CONTROL_PX } from './composerBar';
 import { UserMessage } from './UserMessage';
 
 const LONG_PASTE = 'From: client@example.com\n'.repeat(40); // ~1000 chars
@@ -493,5 +494,39 @@ describe('attachments — files in the next turn', () => {
     await userEvent.click(page.getByTestId('composer-attach'));
 
     expect(page.getByRole('option', { name: /Attach a file/ }).elements()).toHaveLength(0);
+  });
+});
+
+describe('the bar has one alignment rule', () => {
+  it('every round control in the bar carries the one control token', async () => {
+    // Streaming with a draft is the fullest bar: (+), the stop ghost and the
+    // primary action are all mounted at once.
+    await render(<ChatComposer value="hi" onChange={() => {}} onSubmit={() => {}} onStop={() => {}} streaming />);
+
+    const form = (await page.getByRole('textbox').element()).closest('form')!;
+    const buttons = [...form.querySelectorAll('button')];
+
+    expect(buttons).toHaveLength(3);
+
+    for (const b of buttons) {
+      for (const cls of COMPOSER_CONTROL.split(' ')) {
+        expect(b.className, `${b.getAttribute('aria-label')} is missing ${cls}`).toContain(cls);
+      }
+    }
+  });
+
+  it('one line of text is exactly one control tall, and the row bottom-aligns', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
+
+    const textarea = (await page.getByRole('textbox').element()) as HTMLTextAreaElement;
+    const form = textarea.closest('form')!;
+
+    // The row's rule: bottom-aligned, so the controls sit beside the LAST line.
+    expect(form.className).toContain('items-end');
+    // A 24px line box plus 4px above and below is one 32px control.
+    expect(textarea.className).toContain('leading-6');
+    expect(textarea.className).toContain('py-1');
+    expect(textarea.style.minHeight).toBe(`${CONTROL_PX}px`);
+    expect(textarea.style.maxHeight).toBe(`${COMPOSER_MAX_PX}px`);
   });
 });

@@ -1034,3 +1034,39 @@ pasted-text chip. One padding rule, expressed in the composer container
 (`ChatComposer`'s `above` slot), never per child — a child that guesses at the
 inset is a child that ends up flush against the rail edge while the box beside
 it is inset.
+
+---
+
+# The composer bar is one control tall, and bottom-aligned
+
+Four things sit in that bar — `(+)`, the gauge, the text, the send button — and
+until 2026-09-19 they sat on four different optical centres, because the row
+bottom-aligned three different heights: a 32px ghost, a 36px send button and a
+24px box holding a 22.8px line. Measured at 1920: send at 27px from the top of
+the box, `(+)` and the gauge at 29px, the first line of text at 32.4px. Chris:
+*"tighten or clean up vertical alignment of elements in chat bar"*.
+
+**The rule, in `features/dashboard/chat/composerBar.ts`:** every control is
+`CONTROL_PX` (32px) tall, one line of text is exactly `CONTROL_PX` tall — a
+fixed 24px line box plus 4px above and below, so 14px and 16px text share a row
+— and the row keeps `items-end`.
+
+Bottom-aligned rather than centred, because the box grows DOWNWARD as it fills:
+the controls belong beside the line the person is typing, not floating at the
+middle of a paragraph. And because one line is exactly one control, *bottom-
+aligned* and *centred* are the same picture when the box is empty. Every
+control's centre is the last line's centre at every height (25px empty, 97px at
+four lines, on both surfaces and both widths).
+
+32px because that is already the repo's round-ghost control size
+(`PanelCloseButton`, and `(+)` and the gauge themselves); the send button
+joined them rather than the other way round, and stays the primary action by
+fill, not by being bigger. The box caps at eight whole lines so the cap never
+leaves half a line above the controls.
+
+**The touch target grows, not the control.** A control that grew to 44px on a
+phone would stop being one line tall and break the rule, so the hit area grows
+instead — a `pointer-coarse:` pseudo-element at `-inset-1.5` (32 + 6 + 6 = 44),
+with the row's gap opening to 12px there so two 44px targets sit side by side
+rather than overlapping. This is the one place that does NOT follow
+`min-h-11 sm:min-h-0`, and the reason is geometric.

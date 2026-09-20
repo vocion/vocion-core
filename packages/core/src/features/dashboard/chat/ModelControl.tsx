@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { isDefaultModelPrefs, MODEL_STRENGTHS, THINKING_EFFORTS } from '@/libs/llm/modelPrefs';
 import { cn } from '@/utils/Helpers';
+import { COMPOSER_CONTROL } from './composerBar';
 
 /**
  * Model strength and thinking effort for THIS conversation — a compact control
@@ -49,8 +50,11 @@ export function ModelControl({ value, onChange }: { value: ModelPrefs; onChange:
           <PopoverPrimitive.Trigger
             data-testid="model-control"
             aria-label={`${t('model_control')}: ${summary}`}
+            // The bar's one control size and hit target (`composerBar.ts`) —
+            // the gauge is a sibling of (+) and send, not its own geometry.
             className={cn(
-              'flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-surface-hover data-[state=open]:bg-surface-hover data-[state=open]:text-foreground',
+              COMPOSER_CONTROL,
+              'hover:bg-surface-hover data-[state=open]:bg-surface-hover data-[state=open]:text-foreground',
               raised ? 'text-brand-amber-deep' : 'text-muted-foreground/70 hover:text-foreground',
             )}
           >

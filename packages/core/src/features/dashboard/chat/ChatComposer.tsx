@@ -7,6 +7,7 @@ import type { ChatAttachment, ContextRef } from './types';
 import { ArrowUp, CornerDownLeft, FileText, Loader2, Plus, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
+import { COMPOSER_CONTROL, COMPOSER_MAX_PX, COMPOSER_ROW, CONTROL_PX } from './composerBar';
 import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
 import { ComposerMenuPanel } from './ComposerMenuPanel';
 import { insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
@@ -19,8 +20,13 @@ import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashComman
  * - rounded-2xl, `focus-within:ring-1` in the ring token at low alpha with a
  *   soft background shift (2026-09-15: it was a 4px amber halo plus a tinted
  *   drop shadow, which read as an error state)
- * - auto-resize textarea (24px → 220px)
- * - round send button, amber filled when enabled
+ * - auto-resize textarea, one 32px line → eight (`composerBar.ts`)
+ * - round send button, amber filled when enabled — the same 32px round target
+ *   as (+) and the gauge, because the bar has ONE control size
+ *
+ * The bar's vertical alignment is one rule, and it lives in `composerBar.ts`:
+ * every control is as tall as one line of text, and the row bottom-aligns, so
+ * the controls sit beside the line being typed at every height.
  *
  * Three quiet affordances ride along (agent-chat-surface.md §9):
  *   `@` tags a record (agent, team, mission, the page) the message is about,
@@ -348,14 +354,16 @@ export function ChatComposer({
     return () => document.removeEventListener('mousedown', onDown);
   }, [panel]);
 
-  // Auto-resize the textarea to fit content (24 → 220 px).
+  // Auto-resize the textarea to fit content — one control-tall line up to the
+  // eight-line cap, both from `composerBar.ts` so the floor stays exactly one
+  // line and the cap never leaves half a line above the controls.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) {
       return;
     }
     el.style.height = 'auto';
-    el.style.height = `${Math.min(220, Math.max(24, el.scrollHeight))}px`;
+    el.style.height = `${Math.min(COMPOSER_MAX_PX, Math.max(CONTROL_PX, el.scrollHeight))}px`;
     // A caret this component asked for lands only once the parent has echoed
     // the value back — controlled inputs reset the selection on re-render.
     const next = pendingCaretRef.current;
@@ -718,7 +726,7 @@ export function ChatComposer({
           data-dragging={dragDepth > 0 || undefined}
           // Restrained focus: a 1px ring in the ring token at low alpha
           // plus a soft ground shift. No halo, no thickened border.
-          className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint"
+          className={`${COMPOSER_ROW} rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint`}
         >
           {/* The file input behind the (+) menu's "Attach a file" row; drop and paste are the other paths. */}
           {canAttach && (
@@ -745,8 +753,8 @@ export function ChatComposer({
                 * (+) — "what can I bring into this turn". It inserts a tag and
                 * nothing else: no store, no event, no flag of its own. What
                 * the person ends up with is the chip they would have got by
-                * typing `@`. Same 32px round target and muted tone as the help
-                * mark on the other end of the box.
+                * typing `@`. The bar's one round target and muted tone, shared
+                * with the gauge and send (`composerBar.ts`).
                 */}
           {/* (+) — the one menu: add to the turn, the thread's settings,
               commands, the shortcut reference (Chris, 2026-09-18: "just a (+)
@@ -757,7 +765,7 @@ export function ChatComposer({
             aria-label={words.attach}
             aria-expanded={panel === 'plus'}
             onClick={() => setPanel(p => (p === 'plus' ? null : 'plus'))}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground"
+            className={`${COMPOSER_CONTROL} text-muted-foreground/70 hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground`}
           >
             <Plus className="size-4" aria-hidden />
           </button>
@@ -781,8 +789,11 @@ export function ChatComposer({
             // Enter can queue and ⌘⏎ can jump the queue.
             // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
             // input under 16px. Compact 14px only from sm: up (no mobile zoom).
-            className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
-            style={{ minHeight: 24, maxHeight: 220 }}
+            // `leading-6` rather than a multiplier: the line box is 24px at
+            // both 16px and 14px, so one line is one control tall on every
+            // breakpoint and the row's centres do not move at `sm`.
+            className="flex-1 resize-none border-0 bg-transparent py-1 text-base leading-6 outline-none placeholder:text-muted-foreground/70 sm:text-sm"
+            style={{ minHeight: CONTROL_PX, maxHeight: COMPOSER_MAX_PX }}
           />
           {/*
                 * One primary action, still (#345). While streaming with an
@@ -796,8 +807,8 @@ export function ChatComposer({
               type="button"
               onClick={() => onStop?.()}
               className={sendEnabled
-                ? 'flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground'
-                : 'flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-brand-amber hover:text-brand-amber-deep'}
+                ? `${COMPOSER_CONTROL} text-muted-foreground/70 hover:bg-surface-hover hover:text-foreground`
+                : `${COMPOSER_CONTROL} border border-border bg-background text-foreground hover:border-brand-amber hover:text-brand-amber-deep`}
               aria-label="Stop generating"
             >
               <Square className="size-3.5 fill-current" aria-hidden="true" />
@@ -808,11 +819,11 @@ export function ChatComposer({
               type="submit"
               disabled={!sendEnabled}
               className={streaming
-                ? 'flex size-9 shrink-0 items-center justify-center rounded-full border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep transition-colors hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50'
-                : 'flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white transition-colors hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50'}
+                ? `${COMPOSER_CONTROL} border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50`
+                : `${COMPOSER_CONTROL} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}
               aria-label={streaming ? words.queueAction : 'Send message'}
             >
-              <ArrowUp className="size-[18px]" aria-hidden="true" />
+              <ArrowUp className="size-4" aria-hidden="true" />
             </button>
           )}
         </form>
