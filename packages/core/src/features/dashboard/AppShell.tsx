@@ -131,7 +131,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         enabledSurfaces={enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id))}
         pluginNav={nav}
         needsYouCount={waiting}
-        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
+        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
       <SidebarInset className="min-h-0 overflow-hidden">
         <ShellBarActionsProvider>

@@ -65,6 +65,17 @@ describe('pluginNav', () => {
     expect(nav.claimedPages).toEqual(['wiki']);
   });
 
+  it('a link page is a row for its href, in the plugin\'s section, and is claimed like any page', () => {
+    const nav = pluginNav({
+      plugins: [plugin({ slug: 'software-factory' })],
+      pages: [{ slug: 'team-report', title: 'Team report', icon: 'bar-chart-3', nav: { section: 'Software factory', order: 9, hidden: false }, origin: 'plugin:software-factory', href: '/dashboard/team-report' }],
+      routes,
+    });
+
+    expect(nav.sections).toEqual([{ label: 'Software factory', items: [{ title: 'Team report', url: '/dashboard/team-report', icon: 'bar-chart-3', plugin: 'software-factory', order: 9 }] }]);
+    expect(nav.claimedPages).toEqual(['team-report']);
+  });
+
   it('nothing enabled, nothing claimed', () => {
     expect(pluginNav({ plugins: [], pages: [], routes })).toEqual({ sections: [], claimedSurfaces: [], claimedPages: [], claimedRoutes: [] });
   });
