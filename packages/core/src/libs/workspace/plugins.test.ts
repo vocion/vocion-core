@@ -28,8 +28,8 @@ afterEach(() => {
 });
 
 describe('the shipped catalogue', () => {
-  it('ships wiki, data-rooms and proposals, each with a valid manifest', () => {
-    expect(listPluginSlugs()).toEqual(expect.arrayContaining(['data-rooms', 'proposals', 'wiki']));
+  it('ships wiki, data-rooms, proposals and software-factory, each with a valid manifest', () => {
+    expect(listPluginSlugs()).toEqual(expect.arrayContaining(['data-rooms', 'proposals', 'software-factory', 'wiki']));
 
     for (const p of listPlugins()) {
       expect(p.manifest.slug).toBe(p.sourcePath.split('/').pop());
@@ -48,8 +48,19 @@ describe('the shipped catalogue', () => {
     expect(wiki.hasTrust).toBe(true);
   });
 
+  it('counts what the software factory ships', () => {
+    const factory = pluginContents(loadPlugin('software-factory'));
+
+    expect(factory.agents).toEqual(['change-reviewer', 'task-engineer', 'task-planner']);
+    expect(factory.skills).toEqual(['review-against-contract', 'write-task-contract']);
+    expect(factory.objectTypes).toEqual(['engineering_task']);
+    expect(factory.missions).toEqual(['close-the-gap', 'no-open-p1']);
+    expect(factory.pages).toEqual(['factory-floor']);
+    expect(factory.hasTrust).toBe(true);
+  });
+
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, proposals, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, proposals, software-factory, wiki/);
   });
 });
 
@@ -178,6 +189,27 @@ describe('loadWorkspace with plugins', () => {
     expect(ws.enabledPlugins).toEqual([]);
     expect(ws.effectiveSurfaces).toEqual([]);
     expect(ws.agents).toEqual([]);
+  });
+});
+
+describe('loadWorkspace with the software factory', () => {
+  it('composes the worker agent, the task type, the missions and the merge bar', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
+
+    expect(ws.enabledPlugins).toEqual(['software-factory']);
+    expect(ws.objectTypes.map(o => o.slug)).toEqual(['engineering_task']);
+    // The engineer runs outside the app (ADR 0004); the planner and reviewer
+    // leave `runsOn` unset, which is how the in-process default stays
+    // reachable.
+    expect(ws.agents.find(a => a.slug === 'task-engineer')?.harness?.runsOn).toBe('external-worker');
+    expect(ws.agents.find(a => a.slug === 'task-planner')?.harness?.runsOn).toBeUndefined();
+    expect(ws.missions.map(m => m.slug)).toEqual(['close-the-gap', 'no-open-p1']);
+    // A push runs on its own; the merge is a person's, and no confidence
+    // releases it.
+    expect(ws.trust?.rules.find(r => r.action === 'git.push_branch')).toMatchObject({ enabled: true, autoApproveAbove: 0.7 });
+    expect(ws.trust?.rules.find(r => r.action === 'git.merge_main')).toMatchObject({ enabled: false, rung: 'execute-with-approval' });
+    expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
+    expect(ws.sha).toContain('+software-factory@1.0.0');
   });
 });
 

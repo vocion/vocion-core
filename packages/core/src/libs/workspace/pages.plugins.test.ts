@@ -54,6 +54,22 @@ describe('plugin pages', () => {
     expect(readWorkspacePageContent(guide!)).toContain('# How the wiki works');
   });
 
+  it('the software-factory floor is a list over the engineering_task object', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const floor = pages.find(p => p.slug === 'factory-floor');
+
+    // The task is the record a person reads and the worker_run underneath it
+    // is the lease — so the floor needs no worker-run source, only the
+    // objects source the list archetype already has.
+    expect(issues).toEqual([]);
+    expect(floor?.origin).toBe('plugin:software-factory');
+    expect(floor?.archetype).toBe('list');
+    expect(floor?.source).toEqual({ kind: 'objects', objectType: 'engineering_task' });
+    expect(floor?.stats?.map(s => s.label)).toContain('Waiting on a person');
+    expect(floor?.rowLink).toBe('/dashboard/objects/{id}');
+  });
+
   it('a workspace page with the same slug replaces the plugin\'s', () => {
     workspace('plugins: [wiki]\n', { 'pages/wiki.yaml': 'slug: wiki\ntitle: Our wiki\narchetype: markdown\n', 'pages/wiki.md': 'Ours.' });
     const { pages } = readWorkspacePages();

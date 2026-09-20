@@ -15,13 +15,14 @@ plugin ships the **meaning**: which agent, on what cadence, graded on what,
 with which pages and which rules. A workspace ships the **concretion**: its
 brand, its overrides, its own facts.
 
-Three ship in core, at `packages/core/templates/plugins/`:
+Four ship in core, at `packages/core/templates/plugins/`:
 
 | Plugin | What turning it on gives you | Depends on |
 |---|---|---|
 | **`wiki`** | The workspace's long-term memory — voice, standing rules, who is who, decisions — as markdown artifacts in a `wiki` folder. Every agent gets the index and the pages that fit in context each turn; any agent writes back through `write_wiki_page`, done for you above a confidence bar and reviewed below it; every save indexes for search; a curator consolidates the week every Friday. | — |
 | **`data-rooms`** | One room per engagement: the `data_room` type, the filing skill, the Room keeper and its daily mission, the Data rooms sidebar row, and the after-sync collector that files clear matches and asks about plausible ones. | — |
 | **`proposals`** | The Proposal Writer, the house sheet framework, the Proposals app under GTM, a weekly verify mission, and a team graded on documents rendered and verified clean. | `data-rooms` |
+| **`software-factory`** | The `engineering_task` contract as a record a person reads, a planner that writes one from a named request, an `external-worker` engineer that executes it in its own checkout, a reviewer that grades the diff against the contract, the Factory floor page, and the bars that let a push run on its own while the merge stays a person's. | — |
 
 Each plugin directory has a `README.md` that says what it adds and how to
 customise it; the **Marketplace** (`/dashboard/marketplace`, under Build) shows

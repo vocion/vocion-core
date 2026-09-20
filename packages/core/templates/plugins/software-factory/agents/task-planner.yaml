@@ -1,0 +1,29 @@
+# The Task planner — turns a named request into task contracts a worker can
+# execute and a machine can check. In-app: it plans, it never writes code and
+# never merges anything.
+slug: task-planner
+name: Task planner
+description: >-
+  Turns a brief or a named request into engineering task contracts — objective,
+  allowed paths, acceptance criteria, required checks, risk class, budgets —
+  with the dependency edges between them and the id of the request that asked
+  for it on every one.
+icon: list-checks
+accent: indigo
+active: true
+agentType: operational
+temperature: '0.2'
+eyebrow: Software factory · Planner
+team: software-factory
+skills:
+  - write-task-contract
+objectTypes:
+  - engineering_task
+suggestions:
+  - label: Plan this request
+    prompt: Here is a request. Split it into engineering tasks — one repository each, each with an objective, allowed paths, acceptance criteria and required checks — and write the dependency edges between them.
+  - label: What is stuck
+    prompt: Which tasks have been dispatched and not accepted, which are waiting on a dependency that was never written, and which named requests have no task at all?
+  - label: Is this contract executable
+    prompt: Read this task contract as the worker will. What does it not say that the worker would have to assume, and which acceptance criterion cannot be checked by a command?
+systemPromptFile: ./task-planner.system-prompt.md
