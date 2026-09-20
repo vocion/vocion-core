@@ -156,13 +156,22 @@ Where a rung comes from, and which wins:
   action behind it (found by id prefix), so `objects.update_meta.request`
   with nothing said about it is low like its action, not high like an
   unknown kind.
+- **An agent may have its own ledger for a kind.** An agent whose
+  `harness.ownLedger` names an action kind proposes it under
+  `<kind>.<agent-slug>` — the wiki plugin's researcher writes under
+  `wiki.write_page.wiki-researcher` and starts at `execute-with-approval`
+  while the curator and every other agent keep the shared `wiki.write_page`
+  rule at 0.6. Same derived-key mechanism as `git.merge.docs`: the rule, the
+  rung and the evidence are the agent's alone, and a person promotes it on
+  the Autonomy page once the evidence is there. Honoured by actions that
+  carry a `by` field the tool fills from the agent (never the model).
 - **A hand-off action** (`Action.manual`, [Needs you → Hand-off actions](../guides/needs-you.md#hand-off-actions))
-  rides the ladder like any other kind, and "execute" means *approve for a
-  person to do*: a promoted `git.push_branch` above its floor goes to
-  `awaiting_execution` on its own, and the worker that proposed it reads that
-  back and pushes. Every other factory hand-off is irreversible, so with no
-  rule it asks, and with the plugin's rule (`execute-with-approval`,
-  `risk: high`) it cannot be approved by any confidence, 1.0 included.
+  rides the ladder like any other kind, and "execute" means *release*: a
+  promoted `git.push_branch` above its floor goes to `awaiting_execution` on
+  its own, and the worker that proposed it reads that back and pushes. Every
+  other factory hand-off is irreversible, so with no rule it asks, and with
+  the plugin's rule (`execute-with-approval`, `risk: high`) it cannot be
+  released by any confidence, 1.0 included.
 - Approval is an action-level concern. A skill or playbook can never grant itself sending rights — see [skill](./skill.md).
 
 ## Related

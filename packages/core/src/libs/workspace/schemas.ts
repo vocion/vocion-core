@@ -739,6 +739,17 @@ export const AgentManifestSchema = z.object({
      * mode and it stops calling the tool (observed 3→0 card regression).
      */
     recommendActionBackstop: z.boolean().optional(),
+    /**
+     * Action kinds this agent earns trust for on its OWN ledger. A proposal
+     * of a listed kind keys the autonomy ladder on `<kind>.<agent-slug>`
+     * (`wiki.write_page.wiki-researcher`) instead of the shared kind, so a
+     * trust rule, the rung and the alignment evidence can be this agent's
+     * alone while every other agent keeps the kind's rule. Honoured by the
+     * actions that carry a `by` field — `wiki.write_page` today; the tool
+     * fills it from the agent, never from the model. Optional rather than
+     * defaulted so agents applied before this exist stay unchanged.
+     */
+    ownLedger: z.array(z.string().min(1)).optional(),
   }).partial().transform(normalizeHarnessBlock).default({}),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),

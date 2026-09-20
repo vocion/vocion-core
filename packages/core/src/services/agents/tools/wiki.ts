@@ -76,11 +76,16 @@ export function writeWikiPageTool(ctx: RuntimeContext) {
         reason: string;
         confidence: number;
       };
+      // An agent whose `harness.ownLedger` names this kind earns trust on its
+      // own ledger: the write keys the ladder on `wiki.write_page.<slug>`.
+      // Read from the agent's config, never from the model's arguments.
+      const ownLedger = (ctx.harnessConfig.ownLedger ?? []).includes('wiki.write_page') && ctx.agentSlug ? ctx.agentSlug : undefined;
+      const proposalInput = { slug, title, md, append, summary, reason, ...(ownLedger ? { by: ownLedger } : {}) };
       try {
         const res = await proposeAction({
           orgId: ctx.orgId,
           actionId: 'wiki.write_page',
-          input: { slug, title, md, append, summary, reason },
+          input: proposalInput,
           principal: {
             kind: 'agent',
             id: ctx.agentSlug ? `agent:${ctx.agentSlug}` : 'agent:unknown',
@@ -97,7 +102,7 @@ export function writeWikiPageTool(ctx: RuntimeContext) {
           },
         });
         ctx.emit({ type: 'tool_progress', tool: 'write_wiki_page', meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
-        emitSelfUpdate(ctx, { actionId: 'wiki.write_page', input: { slug, title, md, append, summary, reason }, res });
+        emitSelfUpdate(ctx, { actionId: 'wiki.write_page', input: proposalInput, res });
         if (res.outcome === 'already_decided') {
           return `Not written: a person already decided an identical change to "${slug}" (run #${res.runId}, ${res.status}). Say so; do not propose it again.`;
         }
