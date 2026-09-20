@@ -1,0 +1,25 @@
+packages/core/src/features/dashboard/StickyActionBar.tsx
+  s_57146da98e2611::t_6542fb417c9f0d 145-149
+packages/core/e2e/queue/approve-each-send.queue.spec.ts
+  s_57146da98e2611::t_ebe7fd7f17097e 107,109-114,130,152,156,175,181-184,267
+  s_57146da98e2611::t_6958ecabd1be7f 303-306
+  s_57146da98e2611::t_7c97b252d72800 310-350
+packages/core/src/features/dashboard/PageWidth.tsx
+  s_57146da98e2611::t_6542fb417c9f0d 39-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3cdb0e34e86e18cad73a46b904b2f6be50d5c384",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
