@@ -5,6 +5,12 @@
 # (worker_run rows — docs/entities/worker-run.md); no new table, no new route.
 # Bookkeeping runs (`compact`, `snapshot`) are left out: they are the
 # machinery's own noise, not the factory's work.
+#
+# Live: a worker heartbeats every ~30s with its progress, its cost and a
+# fresh lease, so the page re-reads itself every 15s while it is open — a
+# running row shows its phase moving, its heartbeat ageing and its lease
+# holding, and a row that has gone quiet is visible before the reaper marks
+# it lost. One request per interval per open tab; nothing new is emitted.
 slug: factory-log
 title: Factory log
 description: Every run the factory made — who ran, what kind, what it cost, what it said it did, and the pull request it opened.
@@ -12,6 +18,7 @@ icon: scroll-text
 nav: {section: Software factory, order: 4}
 archetype: list
 source: {kind: workerRuns, kinds: [worker, lead, red-team], limit: 200}
+live: {every: 15}
 sort: {field: createdAt, dir: desc}
 stats:
   - {label: Runs, kind: count}
@@ -23,6 +30,12 @@ fields:
   - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {worker: info, lead: muted, red-team: warn}}
   - {key: status, label: Status, from: status, format: badge, tones: {queued: muted, running: info, paused: muted, awaiting_review: warn, completed: ok, failed: bad, cancelled: muted, lost: bad}}
   - {key: attempt, label: Attempt, from: meta.attempt, format: mono}
+  # What the worker said on its last heartbeat, and whether it is still breathing.
+  - {key: progress, label: Progress, from: meta.progress, format: progress}
+  - {key: heartbeat, label: Heartbeat, from: meta.heartbeatAt, format: relative}
+  - {key: lease, label: Lease, from: meta.leaseExpiresAt, format: relative}
+  # Shows only on a run a person asked to stop; an off flag is not a badge.
+  - {key: stop, label: Stop asked, from: meta.stopRequested, format: badge, tones: {'true': warn}}
   - {key: cents, label: Cost, from: meta.cents, format: money}
   - {key: tokens, label: Tokens, from: meta.tokens, format: mono}
   - {key: summary, label: Said it did, from: meta.summary}

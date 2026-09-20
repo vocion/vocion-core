@@ -11,6 +11,9 @@ icon: hammer
 nav: {section: Software factory, order: 2}
 archetype: list
 source: {kind: objects, objectType: engineering_task}
+# Tasks change state as workers claim, finish and get reviewed; the floor
+# re-reads itself every 15s while open so what is stuck stays true.
+live: {every: 15}
 sort: {field: createdAt, dir: desc}
 stats:
   - {label: Tasks, kind: count}

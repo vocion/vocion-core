@@ -164,8 +164,10 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   floor** (every task, what is waiting on a person, what carries evidence),
   the **Product board** (stage, URLs, our price beside the incumbent's, who is
   accountable), the **Factory log** (every run — who, what kind, what it cost,
-  what it said it did, the PR one tap away), and **Team report** (a link row
-  seating the core spend report beside the log).
+  what it said it did, its last heartbeat and lease, the PR one tap away), and
+  **Team report** (a link row seating the core spend report beside the log).
+  The floor and the log are live: they re-read themselves every 15 seconds
+  while open, so work in flight is seen as it happens, not as of page load.
 - The **software-factory** team, graded on tasks a person accepted, requests
   answered inside a week, pull requests opened (the worker's own count, shown
   as the weakest provenance) and worker spend; cost per accepted task is

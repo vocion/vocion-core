@@ -11,18 +11,22 @@ import remarkGfm from 'remark-gfm';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
 import { LinkRow } from '@/features/dashboard/LinkRow';
+import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
+import { relativeLabel } from '@/libs/timeAgo';
 import {
   applyFilter,
   computeStat,
+  formatProgress,
   pagePlugin,
   readWorkspacePageContent,
   resolveField,
+  toDate,
 } from '@/libs/workspace/pages';
 import {
   agentSchema,
@@ -158,6 +162,14 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
           createdAt: r.createdAt,
           claimedAt: r.claimedAt,
           completedAt: r.completedAt,
+          // The live signal (docs/entities/worker-run.md): every heartbeat
+          // moves these, so a live page can show a run breathing.
+          heartbeatAt: r.heartbeatAt,
+          leaseExpiresAt: r.leaseExpiresAt,
+          endsAt: r.endsAt,
+          progress: r.progress,
+          stopRequested: r.stopRequested,
+          capCents: r.capCents,
           counts: r.counts,
           result: r.result ?? {},
           input: r.input,
@@ -236,7 +248,16 @@ function toneToStatus(tone: string): PillStatus {
   }
 }
 
-function Cell({ row, field }: { row: PageRow; field: PageField }) {
+/**
+ * Now, read once per render — `Date.now()` counts as impure inside a render
+ * (the automation page does the same), and one instant keeps every
+ * `relative` cell on the page agreeing with the others.
+ */
+async function currentTime(): Promise<number> {
+  return Date.now();
+}
+
+function Cell({ row, field, now }: { row: PageRow; field: PageField; now: number }) {
   const raw = resolveField(row, field.from ?? field.key);
   if (raw === undefined || raw === null || raw === '') {
     return <span className="text-muted-foreground">—</span>;
@@ -245,6 +266,10 @@ function Cell({ row, field }: { row: PageRow; field: PageField }) {
   switch (field.format) {
     case 'badge': {
       const tone = field.tones?.[s];
+      // A flag that is off is nothing to badge unless the page maps it.
+      if (raw === false && !tone) {
+        return <span className="text-muted-foreground">—</span>;
+      }
       return tone
         ? <StatusPill status={toneToStatus(tone)} label={s} size="sm" />
         : <Badge variant="outline">{s}</Badge>;
@@ -264,6 +289,20 @@ function Cell({ row, field }: { row: PageRow; field: PageField }) {
     }
     case 'link':
       return <a href={s} target="_blank" rel="noreferrer" className="font-mono text-xs underline underline-offset-2">{s}</a>;
+    case 'relative': {
+      // Rendered on the server at request time, so on a live page it is
+      // re-read with the rows; the exact moment is one hover away.
+      const d = toDate(raw);
+      return d
+        ? <time dateTime={d.toISOString()} title={d.toLocaleString()} className="font-mono text-xs text-muted-foreground tabular-nums">{relativeLabel(d, now)}</time>
+        : <span className="text-sm">{s}</span>;
+    }
+    case 'progress': {
+      const line = formatProgress(raw);
+      return line
+        ? <span className="text-sm">{line}</span>
+        : <span className="text-muted-foreground">—</span>;
+    }
     case 'image':
       return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
     default:
@@ -339,6 +378,7 @@ export default async function WorkspacePage(props: {
   }
 
   const content = readWorkspacePageContent(manifest);
+  const now = await currentTime();
 
   let rows: PageRow[] = [];
   if (manifest.archetype !== 'markdown' && manifest.source) {
@@ -395,7 +435,11 @@ export default async function WorkspacePage(props: {
 
   return (
     <>
-      <TitleBar title={manifest.title} description={manifest.description} />
+      <TitleBar
+        title={manifest.title}
+        description={manifest.description}
+        actions={manifest.live ? <LiveRefresh everyMs={manifest.live.every * 1000} /> : undefined}
+      />
 
       {/* A page a plugin shipped carries that plugin's outcome panel — the
           same one the Proposals and Data rooms surfaces carry, decided by
@@ -457,7 +501,7 @@ export default async function WorkspacePage(props: {
                 {g.rows.map((row) => {
                   const cells = fields.map(f => (
                     <td key={f.key} className="px-4 py-2.5">
-                      <Cell row={row} field={f} />
+                      <Cell row={row} field={f} now={now} />
                     </td>
                   ));
                   return manifest.rowLink

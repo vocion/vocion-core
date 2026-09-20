@@ -91,6 +91,25 @@ describe('plugin pages', () => {
     expect(pages.find(p => p.slug === 'team-report')).toMatchObject({ archetype: 'link', href: '/dashboard/team-report' });
   });
 
+  it('the floor and the log are live, and the log reads the heartbeat', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const log = pages.find(p => p.slug === 'factory-log');
+    const fields = Object.fromEntries((log?.fields ?? []).map(f => [f.key, f]));
+
+    // A worker heartbeats every ~30s; 15s keeps a running row moving without
+    // a request the database would notice. No other page is live.
+    expect(issues).toEqual([]);
+    expect(pages.find(p => p.slug === 'factory-floor')?.live).toEqual({ every: 15 });
+    expect(log?.live).toEqual({ every: 15 });
+    expect(pages.filter(p => p.origin === 'plugin:software-factory' && p.live).map(p => p.slug)).toEqual(['factory-floor', 'factory-log']);
+    // What the worker said, when it last spoke, how long its lease holds, whether it was told to stop.
+    expect(fields.progress).toMatchObject({ from: 'meta.progress', format: 'progress' });
+    expect(fields.heartbeat).toMatchObject({ from: 'meta.heartbeatAt', format: 'relative' });
+    expect(fields.lease).toMatchObject({ from: 'meta.leaseExpiresAt', format: 'relative' });
+    expect(fields.stop).toMatchObject({ from: 'meta.stopRequested', format: 'badge', tones: { true: 'warn' } });
+  });
+
   it('the portfolio reads agent-maintained counters off the product record, and says so', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
