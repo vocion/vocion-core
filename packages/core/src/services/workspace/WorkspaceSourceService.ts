@@ -28,9 +28,12 @@ import type { SourceKind } from '@/libs/workspace';
 import type { ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { and, eq, inArray, notInArray } from 'drizzle-orm';
+import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
-import { applyWorkspace, deleteResource, invalidateCurrentContextShaCache, loadWorkspace, pluginRoots, sourceArtifactKind, sourceContentOf, sourceFolder, sourceKindOf, sourceRecord, sourceRelPath, sourceSpec, SourceValidationError, validateSourceText, WorkspaceTemplateError, WorkspaceValidationError, writeSourceText } from '@/libs/workspace';
+import { applyWorkspace, deleteResource, invalidateCurrentContextShaCache, loadWorkspace, pluginRoots, SOURCE_ROLE, sourceArtifactKind, sourceContentOf, sourceFolder, sourceKindOf, sourceRecord, sourceRelPath, sourceSpec, SourceValidationError, validateSourceText, WorkspaceTemplateError, WorkspaceValidationError, writeSourceText } from '@/libs/workspace';
 import { workspacePathForProject } from '@/libs/workspace/project-path';
+import { artifactSchema } from '@/models/Schema';
 import { deleteArtifact, getArtifact, getArtifactVersion, listArtifactsForRecord, upsertRecordArtifact } from '@/services/ArtifactService';
 
 /** The base pack shipped inside the runtime — the last layer a file can come from. */
@@ -134,6 +137,11 @@ export async function ensureSourceArtifact(orgId: string, kind: SourceKind, slug
  * for every mission, skill and playbook on every apply; the write path calls
  * it once with the author's name before applying. Content-identical writes
  * add no version.
+ *
+ * Mirrors are `visibility: 'system'`: they are reached from the mission and
+ * skills pages and by id, never listed in the general artifacts log — a
+ * workspace should not wake up to every file it ships as a new row nobody
+ * asked for. Listing them is a workspace switch, when one is wanted.
  * @param opts
  * @param opts.orgId
  * @param opts.kind
@@ -167,8 +175,51 @@ export async function mirrorSource(opts: {
     changeSummary: opts.changeSummary,
     runId: opts.runId ?? null,
     noCollapse: opts.noCollapse ?? true,
-    visibility: 'user',
+    visibility: 'system',
   });
+}
+
+/**
+ * Drop the mirror for a file that is gone — `workspace_delete`, an undo of a
+ * create. Returns whether one was there. The versions go with it: a mirror
+ * with no file behind it is exactly the row a Save could resurrect a deleted
+ * file from, so it must not stay editable.
+ * @param orgId
+ * @param kind
+ * @param slug
+ */
+export async function deleteSourceMirror(orgId: string, kind: SourceKind, slug: string): Promise<boolean> {
+  const mirror = await getSourceArtifact(orgId, kind, slug);
+  if (!mirror) {
+    return false;
+  }
+  await deleteArtifact({ orgId, id: mirror.id });
+  return true;
+}
+
+/**
+ * Remove every `source` mirror whose file the workspace no longer ships —
+ * the applier's counterpart to `mirrorSource`, so a deleted or renamed file
+ * does not leave an orphan behind. `keep` is what was just loaded.
+ * @param orgId
+ * @param keep - The `{ type, id }` records that still have a file.
+ */
+export async function pruneSourceMirrors(orgId: string, keep: Array<{ type: string; id: string }>): Promise<number> {
+  const keys = new Set(keep.map(k => `${k.type}:${k.id}`));
+  const rows = await db
+    .select({ id: artifactSchema.id, recordType: artifactSchema.recordType, recordId: artifactSchema.recordId })
+    .from(artifactSchema)
+    .where(and(
+      eq(artifactSchema.orgId, orgId),
+      eq(artifactSchema.recordRole, SOURCE_ROLE),
+      inArray(artifactSchema.recordType, ['mission', 'playbook']),
+      ...(keep.length > 0 ? [notInArray(artifactSchema.recordId, [...new Set(keep.map(k => k.id))])] : []),
+    ));
+  const orphans = rows.filter(r => !keys.has(`${r.recordType}:${r.recordId}`));
+  for (const o of orphans) {
+    await deleteArtifact({ orgId, id: o.id });
+  }
+  return orphans.length;
 }
 
 export type WriteWorkspaceSourceInput = {
@@ -186,6 +237,13 @@ export type WriteWorkspaceSourceInput = {
   /** Who to name on the `workspace_version` row. */
   appliedBy?: string;
   runId?: string | null;
+  /**
+   * Refuse when no layer ships this file any more — the pane's Save and a
+   * Restore, which edit a file that exists. Without it, a mirror left behind
+   * by a delete would write the deleted file straight back. The orphan is
+   * dropped on the way out.
+   */
+  existingOnly?: boolean;
 };
 
 export type WriteWorkspaceSourceResult = {
@@ -240,6 +298,12 @@ export async function writeWorkspaceSource(input: WriteWorkspaceSourceInput): Pr
   }
 
   const mirror = await getSourceArtifact(input.orgId, input.kind, input.slug);
+  if (input.existingOnly && !resolveSourceFile(dir, input.kind, input.slug)) {
+    if (mirror) {
+      await deleteArtifact({ orgId: input.orgId, id: mirror.id });
+    }
+    throw new WorkspaceSourceError('NOT_FOUND', `${input.kind} "${input.slug}" no longer has a file in the workspace, a plugin or the base pack — it was removed; nothing to save it to`);
+  }
   if (typeof input.ifVersion === 'number' && mirror && mirror.currentVersion !== input.ifVersion) {
     throw new WorkspaceSourceError('CONFLICT', `${input.kind} "${input.slug}" is at v${mirror.currentVersion}, not v${input.ifVersion}`);
   }
@@ -347,6 +411,7 @@ export async function restoreWorkspaceSource(opts: { orgId: string; id: number; 
     author: opts.author,
     changeSummary: `Restored v${opts.version}`,
     noCollapse: true,
+    existingOnly: true,
   });
 }
 
@@ -372,10 +437,7 @@ export async function removeWorkspaceSource(opts: { orgId: string; kind: SourceK
   const rows = opts.kind === 'mission'
     ? await db.delete(missionSchema).where(and(eq(missionSchema.orgId, opts.orgId), eq(missionSchema.slug, opts.slug))).returning()
     : await db.delete(playbookSchema).where(and(eq(playbookSchema.orgId, opts.orgId), eq(playbookSchema.slug, opts.slug))).returning();
-  const mirror = await getSourceArtifact(opts.orgId, opts.kind, opts.slug);
-  if (mirror) {
-    await deleteArtifact({ orgId: opts.orgId, id: mirror.id });
-  }
+  await deleteSourceMirror(opts.orgId, opts.kind, opts.slug);
   if (removed.length > 0) {
     const loaded = loadWorkspace(dir);
     await applyWorkspace(loaded, { orgId: opts.orgId, appliedBy: opts.appliedBy ?? 'undo' });

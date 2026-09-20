@@ -22,6 +22,7 @@ const { applyWorkspace, loadWorkspace } = await import('@/libs/workspace');
 const { listArtifactVersions } = await import('@/services/ArtifactService');
 const { executeAction, proposeAction, undoAction } = await import('@/services/ActionService');
 const { ensureSourceArtifact, getSourceArtifact, restoreWorkspaceSource, writeWorkspaceSource } = await import('./WorkspaceSourceService');
+const { listArtifacts } = await import('@/services/ArtifactService');
 const { workspaceWriteMissionAction } = await import('@/libs/actions/workspace-source');
 const { readMissionTool, writePlaybookTool } = await import('@/services/agents/tools/workspaceSource');
 
@@ -78,7 +79,11 @@ describe('the applier mirrors every mission, skill and playbook', () => {
     const playbook = await getSourceArtifact(ORG, 'playbook', 'house-style');
     const skill = await getSourceArtifact(ORG, 'skill', 'triage');
 
-    expect(mission).toMatchObject({ kind: 'mission', title: 'Keep main releasable', folder: 'workspace/missions', currentVersion: 1, recordType: 'mission', recordId: 'keep-main-releasable', recordRole: 'source' });
+    expect(mission).toMatchObject({ kind: 'mission', title: 'Keep main releasable', folder: 'workspace/missions', currentVersion: 1, recordType: 'mission', recordId: 'keep-main-releasable', recordRole: 'source', visibility: 'system' });
+    // Reached from the mission and skills pages and by id — never as ~30 new
+    // rows in the general log the morning after a deploy.
+    expect((await listArtifacts({ orgId: ORG })).map(a => a.id)).not.toContain(mission!.id);
+    expect((await listArtifacts({ orgId: ORG, visibility: 'all' })).map(a => a.id)).toContain(mission!.id);
     expect(mission!.spec).toEqual({ slug: 'keep-main-releasable', yaml: MISSION });
     expect(playbook).toMatchObject({ kind: 'playbook', title: 'House style', folder: 'workspace/playbooks', currentVersion: 1 });
     expect(playbook!.spec).toEqual({ slug: 'house-style', kind: 'playbook', md: PLAYBOOK });
@@ -100,7 +105,7 @@ describe('the applier mirrors every mission, skill and playbook', () => {
     writeFileSync(join(dir, 'missions', 'late.yaml'), 'slug: late\nname: Late\ngoal: Arrive.\nagent: release-lead\n');
     const late = await ensureSourceArtifact(ORG, 'mission', 'late');
 
-    expect(late).toMatchObject({ kind: 'mission', title: 'Late', currentVersion: 1 });
+    expect(late).toMatchObject({ kind: 'mission', title: 'Late', currentVersion: 1, visibility: 'system' });
     expect(await versionsOf(late!.id)).toEqual([{ version: 1, authorKind: 'system', changeSummary: 'Mirrored from the workspace file' }]);
     expect(await ensureSourceArtifact(ORG, 'mission', 'nobody-ships-this')).toBeNull();
   });
@@ -183,6 +188,58 @@ describe('a person\'s save', () => {
     expect(missionFile()).toBe(MISSION);
     expect(await missionGoal()).toBe('Every merge to main ships.');
     expect((await versionsOf(mirror.id))[0]).toEqual({ version: 3, authorKind: 'human', changeSummary: 'Restored v1' });
+  });
+});
+
+describe('a file that is deleted', () => {
+  it('loses its mirror on the next apply, and a save against the old mirror cannot write the file back', async () => {
+    const late = (await getSourceArtifact(ORG, 'mission', 'late'))!;
+
+    expect(late).toBeDefined();
+
+    rmSync(join(dir, 'missions', 'late.yaml'));
+    const result = await applyWorkspace(loadWorkspace(dir), { orgId: ORG });
+
+    expect(result.errors).toEqual([]);
+    expect(await getSourceArtifact(ORG, 'mission', 'late')).toBeNull();
+    // The other mirrors are untouched by the prune.
+    expect(await getSourceArtifact(ORG, 'mission', 'keep-main-releasable')).not.toBeNull();
+    expect(await getSourceArtifact(ORG, 'skill', 'triage')).not.toBeNull();
+
+    // The pane's Save on a stale mirror: refused, and nothing reappears on disk.
+    await expect(writeWorkspaceSource({ orgId: ORG, kind: 'mission', slug: 'late', content: 'slug: late\nname: Late\ngoal: Back from the dead.\nagent: release-lead\n', author: { kind: 'human', id: 'user_1' }, changeSummary: 'x', ifVersion: 1, existingOnly: true }))
+      .rejects
+      .toMatchObject({ code: 'NOT_FOUND' });
+
+    expect(existsSync(join(dir, 'missions', 'late.yaml'))).toBe(false);
+    expect(await getSourceArtifact(ORG, 'mission', 'late')).toBeNull();
+  });
+
+  it('an orphan mirror that survived somehow is dropped by the guarded save itself', async () => {
+    const { mirrorSource } = await import('./WorkspaceSourceService');
+    const orphan = await mirrorSource({ orgId: ORG, kind: 'mission', slug: 'ghost', title: 'Ghost', content: 'slug: ghost\nname: Ghost\ngoal: g\nagent: release-lead\n', author: { kind: 'system', id: null }, changeSummary: 'stale' });
+
+    expect(orphan.created).toBe(true);
+    await expect(writeWorkspaceSource({ orgId: ORG, kind: 'mission', slug: 'ghost', content: 'slug: ghost\nname: Ghost\ngoal: g2\nagent: release-lead\n', author: { kind: 'human', id: 'user_1' }, changeSummary: 'x', existingOnly: true }))
+      .rejects
+      .toMatchObject({ code: 'NOT_FOUND' });
+
+    expect(await getSourceArtifact(ORG, 'mission', 'ghost')).toBeNull();
+    expect(existsSync(join(dir, 'missions', 'ghost.yaml'))).toBe(false);
+  });
+
+  it('a mirror write that fails is a warning, not an error — the apply still counts as applied', async () => {
+    // A body past the spec's cap cannot be mirrored; the playbook row still applies.
+    mkdirSync(join(dir, 'playbooks', 'huge'), { recursive: true });
+    writeFileSync(join(dir, 'playbooks', 'huge', 'SKILL.md'), `---\nslug: huge\nname: Huge\ndescription: d\n---\n\n${'x'.repeat(210_000)}\n`);
+    const result = await applyWorkspace(loadWorkspace(dir), { orgId: ORG });
+
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([expect.objectContaining({ resource: 'playbookSource', slug: 'huge', message: expect.stringMatching(/mirror not updated/) })]);
+    expect(result.counts.playbooks.created).toBe(1);
+
+    rmSync(join(dir, 'playbooks', 'huge'), { recursive: true, force: true });
+    await applyWorkspace(loadWorkspace(dir), { orgId: ORG });
   });
 });
 

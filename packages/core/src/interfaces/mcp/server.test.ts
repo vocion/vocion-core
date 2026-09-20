@@ -283,6 +283,8 @@ describe('MCP server (end-to-end)', () => {
 
         expect(del.removed).toHaveLength(1);
         expect(del.dbRowsDeleted).toBe(1);
+        // …and the mirror went with the row: no editable copy of a deleted file.
+        expect(await getSourceArtifact('test_org_mcp', 'mission', 'keep-main-releasable')).toBeNull();
       } finally {
         await server.close();
       }

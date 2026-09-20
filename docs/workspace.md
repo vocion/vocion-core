@@ -160,6 +160,14 @@ How a change becomes a version and a commit:
 | Restore, from the version menu | `client.artifacts.restore` → `restoreWorkspaceSource` | The old text is written **forward** — to the file and as a new head — so disk and history agree and neither rewinds. |
 | An MCP client | `workspace_write_mission`, `workspace_write_playbook` | The manifest-shaped door, in the exact shape of `workspace_write_skill`: write the file, apply, and — opt-in — commit. |
 
+**Not in the log, by default.** Mirrors are `visibility: system`: reached from
+the mission and skills pages, by id, and as chips — never as a row per file in
+`/dashboard/artifacts`. Listing them there is a workspace switch, when one is
+wanted. **A deleted file takes its mirror with it**: the applier prunes mirrors
+whose file is gone, `workspace_delete` drops the mirror with the row, and a Save
+against a stale mirror is refused rather than writing the file back. A mirror
+that fails to write is a *warning* on the apply, never an error.
+
 **Git stays yours.** Nothing written from the app commits; the workspace
 shows *dirty* until you commit, exactly as it does after an MCP write with
 `autoCommit=false`. `workspace_version` answers "what was applied when", the

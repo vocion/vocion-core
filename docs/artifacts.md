@@ -156,7 +156,9 @@ screen. A document reaches its editor through its HTML tab as before.
 stays the source of truth; the applier keeps a `mission` / `playbook` artifact
 in step with it (`libs/workspace/source.ts`), and a Save in the pane writes the
 file first, then the version, then applies (`WorkspaceSourceService`). Restore
-writes the old text forward to the file. An agent's edit goes through the
+writes the old text forward to the file. Mirrors are `visibility: system` —
+reached from their pages and by id, not listed in the log — and a deleted file
+takes its mirror with it. An agent's edit goes through the
 reviewed `workspace.write_*` actions rather than `update_artifact`, which
 redirects it. The whole loop is in [workspace.md](./workspace.md#edit-a-mission-or-a-playbook-in-the-app).
 

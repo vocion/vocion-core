@@ -275,12 +275,17 @@ async function deleteFromDb(orgId: string, kind: 'agent' | 'skill' | 'playbook' 
     const rows = await db.delete(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, slug))).returning();
     return rows.length;
   }
+  // The file's artifact mirror goes with the row (`libs/workspace/source.ts`)
+  // — an orphan mirror is an editable copy of a deleted file.
+  const { deleteSourceMirror } = await import('@/services/workspace/WorkspaceSourceService');
   if (kind === 'skill' || kind === 'playbook') {
     const rows = await db.delete(playbookSchema).where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.slug, slug), eq(playbookSchema.kind, kind))).returning();
+    await deleteSourceMirror(orgId, kind, slug);
     return rows.length;
   }
   if (kind === 'mission') {
     const rows = await db.delete(missionSchema).where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, slug))).returning();
+    await deleteSourceMirror(orgId, 'mission', slug);
     return rows.length;
   }
   const rows = await db.delete(businessObjectTypeSchema).where(and(eq(businessObjectTypeSchema.orgId, orgId), eq(businessObjectTypeSchema.slug, slug))).returning();

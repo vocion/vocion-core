@@ -177,9 +177,10 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   // truth. Content-identical mirrors add no version, so an apply that changed
   // nothing leaves the history alone; one that changed a file adds a
   // `system` version naming the sha, so "who changed this" has the git
-  // answer beside the in-app ones.
+  // answer beside the in-app ones. A file that is gone takes its mirror with
+  // it, so nothing editable is left that could write the file back.
   if (!dryRun) {
-    await mirrorSources(orgId, loaded, errors);
+    await mirrorSources(orgId, loaded, warnings);
   }
 
   for (const step of loaded.learningSteps) {
@@ -921,16 +922,17 @@ async function upsertWorkflow(orgId: string, workflow: LoadedWorkflow, dryRun: b
 }
 
 /**
- * Mirror every mission, skill and playbook file into its `source` artifact.
- * Non-fatal per file: a mirror that fails (an unreadable path, a body past
- * the spec's cap) is reported and the apply goes on — the rows the runtime
- * reads were already written above.
+ * Mirror every mission, skill and playbook file into its `source` artifact,
+ * and drop the mirrors of files that are gone. A WARNING per file, never an
+ * error: the rows the runtime reads were written above, and an apply that
+ * applied them all must not exit non-zero over a mirror (an unreadable path,
+ * a body past the spec's cap). The message still names the file.
  * @param orgId
  * @param loaded
- * @param errors
+ * @param warnings
  */
-async function mirrorSources(orgId: string, loaded: LoadedWorkspace, errors: ApplyResult['errors']): Promise<void> {
-  const { mirrorSource } = await import('@/services/workspace/WorkspaceSourceService');
+async function mirrorSources(orgId: string, loaded: LoadedWorkspace, warnings: ApplyResult['warnings']): Promise<void> {
+  const { mirrorSource, pruneSourceMirrors } = await import('@/services/workspace/WorkspaceSourceService');
   const summary = `Applied from the workspace (${loaded.sha.slice(0, 12)})`;
   const author = { kind: 'system' as const, id: null };
   const entries: Array<{ kind: 'mission' | 'skill' | 'playbook'; slug: string; title: string; sourceFile: string }> = [
@@ -943,8 +945,13 @@ async function mirrorSources(orgId: string, loaded: LoadedWorkspace, errors: App
       const content = readFileSync(e.sourceFile, 'utf8');
       await mirrorSource({ orgId, kind: e.kind, slug: e.slug, title: e.title, content, author, changeSummary: summary });
     } catch (err) {
-      errors.push({ resource: `${e.kind}Source`, slug: e.slug, message: (err as Error).message });
+      warnings.push({ resource: `${e.kind}Source`, slug: e.slug, message: `mirror not updated: ${(err as Error).message}` });
     }
+  }
+  try {
+    await pruneSourceMirrors(orgId, entries.map(e => ({ type: e.kind === 'mission' ? 'mission' : 'playbook', id: e.slug })));
+  } catch (err) {
+    warnings.push({ resource: 'source', slug: '(prune)', message: `orphan mirrors not removed: ${(err as Error).message}` });
   }
 }
 

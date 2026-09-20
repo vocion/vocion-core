@@ -126,6 +126,7 @@ export const update = os
             changeSummary: input.changeSummary ?? 'Edited by hand',
             ifVersion: input.ifVersion ?? null,
             appliedBy: auth.userId ?? 'user',
+            existingOnly: true,
           });
           if (!res.unchanged) {
             void track(auth, 'artifact.edited', { resource: ['artifact', res.artifact.id], meta: { kind: res.artifact.kind, action: 'edited', version: res.version.version } });
