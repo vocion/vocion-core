@@ -139,8 +139,8 @@ describe('the lead workspace — three zones, three tabs', () => {
     // The acquisition facts are label-over-value cells on the one meta row,
     // not a middot line: the flat template reads them the same way on every
     // object type.
-    await expect.element(page.getByText('Became MQL')).toBeVisible();
-    await expect.element(page.getByText('Sep 1', { exact: true })).toBeVisible();
+    await expect.element(page.getByTestId('review-meta').getByText('Became MQL')).toBeVisible();
+    await expect.element(page.getByTestId('review-meta').getByText('Sep 1', { exact: true })).toBeVisible();
     // A coverage STATE, never a percentage: the five dimensions grade how much
     // of the evidence we got, which is not a calibrated probability, and
     // quoting it as one claims a precision nothing behind it earns. The
@@ -209,8 +209,10 @@ describe('the lead workspace — three zones, three tabs', () => {
     await expect.element(page.getByText('Research confidence')).toBeVisible();
     expect(page.getByText('No public team size.').elements()).toHaveLength(1);
 
-    // CRM context is real, and it is under Evidence rather than in the brief.
-    expect(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.').elements()).toHaveLength(0);
+    // CRM context is real, and it belongs to Evidence rather than the brief —
+    // said once, in the dossier under the content, not repeated in the brief.
+    expect(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.').elements()).toHaveLength(1);
+    expect(page.getByTestId('evidence-pane').getByText('Enrolled in an automated nurture minutes after becoming an MQL.').elements()).toHaveLength(1);
   });
 
   it('shows engagement as UNAVAILABLE rather than as a low score', async () => {
@@ -232,8 +234,8 @@ describe('the lead workspace — three zones, three tabs', () => {
   it('puts the timeline, the claims and the run details under Evidence', async () => {
     await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Rowan Pike' })} contactHref={null} runState={NO_RUN} />);
 
-    await page.getByRole('tab', { name: 'Evidence' }).click();
-
+    // Under the content, not behind a tab: the strip is what there is to
+    // review, and the evidence for it reads without a click.
     await expect.element(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.')).toBeVisible();
     await expect.element(page.getByText('Runs an iGaming marketing agency.')).toBeVisible();
     await expect.element(page.getByTestId('evidence-tab').getByText('Became MQL')).toBeVisible();
@@ -507,11 +509,14 @@ describe('the sequence tab', () => {
     await expect.element(page.getByTestId('sticky-action-bar')).toBeVisible();
 
     // And the zones no object type can drop, built from the run rather than
-    // from anything the lead page passes.
+    // from anything the lead page passes. Off the strip now, still on the
+    // page: the strip is what there is to review.
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
-    expect(labels.at(-2)).toBe('Why');
-    expect(labels.at(-1)).toBe('Evidence');
+    expect(labels).not.toContain('Why');
+    expect(labels).not.toContain('Evidence');
+    await expect.element(page.getByTestId('why-pane')).toBeVisible();
+    await expect.element(page.getByTestId('evidence-pane')).toBeVisible();
   });
 
   it('a rewrite asked for in the conversation lands HERE, marked edited — the rail reports it, the record shows it', async () => {
@@ -639,8 +644,6 @@ describe('what happened, when nothing is waiting', () => {
     );
 
     await expect.element(page.getByTestId('decision-line')).toHaveTextContent('Enrolled in Ebook Inbound Sequence by reviewer@example.com · Sep 1, 2026');
-
-    await page.getByRole('tab', { name: 'Evidence' }).click();
 
     await expect.element(page.getByText('Approved · brief')).toBeVisible();
     await expect.element(page.getByText('#11 · v3')).toBeVisible();

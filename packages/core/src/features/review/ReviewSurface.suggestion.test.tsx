@@ -60,8 +60,8 @@ describe('the agent recommendation on the review surface', () => {
   it('puts the advice with the rest of the run\'s facts, under Evidence', async () => {
     await render(<ReviewSurface run={runWith({ confidence: 0.9, suggestedDecision: 'reject', suggestedDecisionReason: REASON })} crumbs={CRUMBS} />);
 
-    await page.getByTestId('tab-evidence').click();
-
+    // Evidence is on the page now rather than behind a tab, so the advice is
+    // read without a click.
     await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests turning down');
   });
 
@@ -95,8 +95,6 @@ describe('the agent recommendation on the review surface', () => {
     await render(<ReviewSurface run={runWith({ confidence: 0.9, suggestedDecision: 'approve' })} crumbs={CRUMBS} />);
 
     expect(page.getByTestId('suggested-decision-reason').elements()).toHaveLength(0);
-
-    await page.getByTestId('tab-evidence').click();
 
     await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests approving');
   });

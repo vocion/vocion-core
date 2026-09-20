@@ -285,11 +285,12 @@ describe('one primary, and the walk is what it does', () => {
   it('opens the send still waiting rather than approving one you are not looking at', async () => {
     await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
 
-    await page.getByTestId('tab-evidence').click();
+    // Send 1 already carries a check, so standing on it is standing on
+    // nothing that needs approving.
+    await page.getByTestId('tab-item-send-1').click();
 
-    // Nothing to vouch for on this tab, so the press BRINGS the send that is
-    // waiting — approving copy off screen is the one mistake one button could
-    // newly make.
+    // So the press BRINGS the send that is waiting — approving copy off
+    // screen is the one mistake one button could newly make.
     await page.getByTestId('decide-approve').click();
 
     await expect.element(page.getByTestId('item-pane-send-2')).toBeVisible();

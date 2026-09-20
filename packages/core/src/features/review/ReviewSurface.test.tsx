@@ -140,14 +140,17 @@ describe('one flat template, every object type', () => {
     expect(boxes.map(b => b.className)).toEqual([]);
   });
 
-  it.each([3, 4, 5, 6])('turns n=%s content items into n tabs, plus Why and Evidence last', async (n) => {
+  it.each([3, 4, 5, 6])('turns n=%s content items into exactly n tabs, and nothing else', async (n) => {
     await render(<ReviewSurface run={enrollment(n)} crumbs={CRUMBS} />);
 
     const tabs = page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]');
     const labels = [...tabs].map(t => t.textContent);
 
-    expect(labels).toEqual([...Array.from({ length: n }, (_, i) => `Day ${i * 3}`), 'Why', 'Evidence']);
-    expect(labels.at(-1)).toBe('Evidence');
+    // The strip is what there is to review. Why and Evidence are on the page,
+    // under the content, not two tabs beside the four a reviewer came for.
+    expect(labels).toEqual(Array.from({ length: n }, (_, i) => `Day ${i * 3}`));
+    await expect.element(page.getByTestId('why-pane')).toBeVisible();
+    await expect.element(page.getByTestId('evidence-pane')).toBeVisible();
   });
 
   it.each([3, 4, 5, 6])('keeps every one of n=%s item tabs reachable and on one row', async (n) => {
@@ -174,12 +177,12 @@ describe('one flat template, every object type', () => {
 
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
-    expect(labels).toEqual(['Changes', 'Why', 'Evidence']);
+    expect(labels).toEqual(['Changes']);
     await expect.element(page.getByTestId('changes-pane')).toBeVisible();
     await expect.element(page.getByRole('textbox', { name: 'notes' })).toBeVisible();
   });
 
-  it('builds Why and Evidence from the run even when the presenter says nothing', async () => {
+  it('builds Why and Evidence from the run even when the presenter says nothing, and with no strip at all', async () => {
     const bare: ReviewCardRun = {
       id: 503,
       actionId: 'x.y',
@@ -191,13 +194,10 @@ describe('one flat template, every object type', () => {
     };
     await render(<ReviewSurface run={bare} crumbs={CRUMBS} />);
 
-    const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
-
-    expect(labels).toEqual(['Why', 'Evidence']);
+    // Nothing to review on this card, so there is no strip — and the dossier
+    // is the whole screen rather than a lone tab a reviewer has to open.
+    expect(page.getByTestId('review-tabs').elements()).toHaveLength(0);
     await expect.element(page.getByText('No rationale recorded for this recommendation.')).toBeVisible();
-
-    await page.getByTestId('tab-evidence').click();
-
     await expect.element(page.getByText('No citations recorded.')).toBeVisible();
     await expect.element(page.getByTestId('run-details')).toBeVisible();
   });
@@ -441,16 +441,16 @@ describe('one flat template, every object type', () => {
 
     const bar = page.getByTestId('sticky-action-bar').element();
     const first = bar.getBoundingClientRect().top;
-    await page.getByTestId('tab-evidence').click();
-    const onEvidence = bar.getBoundingClientRect().top;
+    await page.getByTestId('tab-item-send-6').click();
+    const onLast = bar.getBoundingClientRect().top;
     await page.getByTestId('tab-item-send-1').click();
     const back = bar.getBoundingClientRect().top;
 
-    expect(Math.round(onEvidence)).toBe(Math.round(first));
+    expect(Math.round(onLast)).toBe(Math.round(first));
     expect(Math.round(back)).toBe(Math.round(first));
   });
 
-  it('renders a surface tab where the surface asks for one, with Evidence still last', async () => {
+  it('renders a surface tab where the surface asks for one, after the content', async () => {
     await render(
       <ReviewSurface
         run={enrollment(3)}
@@ -461,7 +461,7 @@ describe('one flat template, every object type', () => {
 
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
-    expect(labels).toEqual(['Day 0', 'Day 3', 'Day 6', 'Brief', 'Why', 'Evidence']);
+    expect(labels).toEqual(['Day 0', 'Day 3', 'Day 6', 'Brief']);
 
     await page.getByTestId('tab-extra-brief').click();
 
