@@ -4,7 +4,8 @@ import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusPill } from '@/components/ui/status-pill';
 import { AutomationCardStatus } from '@/features/dashboard/AutomationCardStatus';
-import { checkResultOf } from '@/features/dashboard/automationResult';
+import { AutomationPauseControl } from '@/features/dashboard/AutomationPauseControl';
+import { checkResultOf, pauseStateOf } from '@/features/dashboard/automationResult';
 import { AutomationTestRun } from '@/features/dashboard/AutomationTestRun';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { cronToText } from '@/features/dashboard/TriggerBadge';
@@ -19,6 +20,7 @@ import {
   describeAutomationSchedule,
   lastRunBySlug,
   listAutomations,
+  pausesFor,
   scheduleHealth,
 } from '@/services/AutomationService';
 import { listMissions } from '@/services/MissionService';
@@ -62,22 +64,28 @@ export default async function AutomationPage(props: {
   const missionAgentBySlug = new Map(missions.map(m => [m.slug, m.agentSlug]));
   const agentNameBySlug = new Map(agents.map(ag => [ag.slug, ag.name]));
 
+  const rows = await listAutomations(orgId);
+  const pauses = await pausesFor(rows);
   const automations = await Promise.all(
-    (await listAutomations(orgId)).map(async (a) => {
+    rows.map(async (a) => {
       const live = a.whenConfig.schedule ? await describeAutomationSchedule(orgId, a.slug) : null;
       const lastRun = lastRuns.get(a.slug) ?? null;
+      const pause = pauses.get(a.slug) ?? null;
       // The mirror slugs come from the last fire's own tool calls, so the
       // freshness shown is of the data this work actually reads.
       const mirrorSlugs = checkResultOf(lastRun?.result)?.mirror?.sources ?? [];
       return {
         ...a,
         live,
+        pause,
         ownerSlug: automationOwnerAgentSlug(a, missionAgentBySlug),
         lastRun,
         health: scheduleHealth({
           cron: a.whenConfig.schedule ?? null,
           lastFireAt: lastRun?.startedAt ?? null,
-          paused: live?.paused,
+          // A person's pause is quiet on purpose; so is one placed in Temporal
+          // directly, though that one is flagged on the card as not from here.
+          paused: live?.paused || pause !== null,
         }),
         freshness: await automationSourceFreshness(orgId, mirrorSlugs),
       };
@@ -176,7 +184,11 @@ export default async function AutomationPage(props: {
                       </div>
 
                       <div className="shrink-0 text-right text-[11px] text-muted-foreground">
-                        {a.live?.paused && <div className="text-amber-600">paused</div>}
+                        {a.live?.paused && !a.pause && (
+                          <div className="text-amber-600" title="The Temporal schedule is paused, but not from this app — nobody is on the record for it. Pause it here to put a name on it, or resume it in Temporal.">
+                            paused in Temporal, not from here
+                          </div>
+                        )}
                         {next && (
                           <div>
                             next
@@ -192,6 +204,7 @@ export default async function AutomationPage(props: {
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border pt-3">
+                      <AutomationPauseControl slug={a.slug} paused={a.pause ? pauseStateOf(a.pause) : null} />
                       <AutomationTestRun
                         slug={a.slug}
                         kind={a.doConfig.checkMission ? 'mission_check' : a.doConfig.workflow ? 'workflow' : 'job'}
