@@ -95,20 +95,21 @@ describe('dashboardNav registry', () => {
     expect(marketplace.keywords).toEqual(expect.arrayContaining(['plugin', 'plugins', 'install', 'turn on', 'wiki', 'data rooms', 'proposals']));
   });
 
-  it('splits the Marketplace into Plugins and Agents for hire, with plugins on the owner URL', () => {
+  it('splits the Marketplace into Agents for hire and Plugins, with hiring on the owner URL', () => {
     // Chris, 2026-09-18: "Make Teams/Agents and Plugins tabs and/or sub-pages
     // for Marketplace." Two lists, two tabs, each its own registered route.
-    expect(tabsOf('/dashboard/marketplace').map(r => r.url)).toEqual(['/dashboard/marketplace', '/dashboard/marketplace/agents']);
-    // The owner's own tab is the plugin list, so the 308 from /dashboard/plugins
-    // — in pinned entries and in chat's "turn a plugin on" answer — still lands
-    // on plugins rather than beside them.
-    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Plugins');
-    expect(dashboardRoute('/dashboard/marketplace/agents')?.title).toBe('Agents for hire');
+    expect(tabsOf('/dashboard/marketplace').map(r => r.url)).toEqual(['/dashboard/marketplace', '/dashboard/marketplace/plugins']);
+    // Chris, 2026-09-20: "flip agents and plugins on these tabs" — hiring is
+    // the commoner errand, so it owns the URL. Plugins keep a stable URL of
+    // their own and the 308 from /dashboard/plugins points at it, so a pinned
+    // entry and chat's "turn a plugin on" answer still land on plugins.
+    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Agents for hire');
+    expect(dashboardRoute('/dashboard/marketplace/plugins')?.title).toBe('Plugins');
     // A tab, never a second sidebar row.
-    expect(manageNavGroups(true).flatMap(s => s.routes.map(r => r.url))).not.toContain('/dashboard/marketplace/agents');
+    expect(manageNavGroups(true).flatMap(s => s.routes.map(r => r.url))).not.toContain('/dashboard/marketplace/plugins');
     // …but still a pinnable destination and a breadcrumb owner.
-    expect(manageRoutes(true).map(r => r.url)).toContain('/dashboard/marketplace/agents');
-    expect(combinedPageTitle('/dashboard/marketplace/agents')).toBe('Agents for hire · Marketplace');
+    expect(manageRoutes(true).map(r => r.url)).toContain('/dashboard/marketplace/plugins');
+    expect(combinedPageTitle('/dashboard/marketplace/plugins')).toBe('Plugins · Marketplace');
     expect(combinedPageTitle('/dashboard/marketplace')).toBe('Marketplace');
   });
 

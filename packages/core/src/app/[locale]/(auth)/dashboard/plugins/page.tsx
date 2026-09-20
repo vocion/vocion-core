@@ -3,7 +3,7 @@ import { permanentRedirect } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
 /**
- * /dashboard/plugins → /dashboard/marketplace (308).
+ * /dashboard/plugins → /dashboard/marketplace/plugins (308).
  *
  * The plugin catalogue and the agent catalogue were two pages asking the same
  * question — what could this workspace turn on that it has not — so they are
@@ -14,5 +14,5 @@ export const dynamic = 'force-dynamic';
  * recommend cards link straight to it.
  */
 export default function PluginsRedirect(): never {
-  permanentRedirect('/dashboard/marketplace');
+  permanentRedirect('/dashboard/marketplace/plugins');
 }

@@ -31,7 +31,7 @@ describe('plugin-owned routes', () => {
     // /dashboard/plugins 308s there — so the old link lands ON the plugins.
     expect(build.routes.map(r => r.url)).toContain('/dashboard/marketplace');
     expect(build.routes.map(r => r.url)).not.toContain('/dashboard/plugins');
-    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Plugins');
+    expect(dashboardRoute('/dashboard/marketplace')?.tabTitle).toBe('Agents for hire');
     expect(manageNavGroups(false).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).not.toContain('/dashboard/adoption');
     expect(manageNavGroups(true).find(g => g.group.id === 'Insights')!.routes.map(r => r.url)).toContain('/dashboard/adoption');
   });

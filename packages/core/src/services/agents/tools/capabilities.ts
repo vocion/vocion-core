@@ -38,7 +38,7 @@ export function listCapabilitiesTool(ctx: RuntimeContext) {
       const connected = new Set((await listSources(ctx.orgId)).map(s => s.kind ?? s.slug));
       const connectors = listConnectors().map(c => `- ${c.name ?? c.slug} (${c.slug}) — ${connected.has(c.slug) ? 'connected' : 'not connected'}`);
       return [
-        'PLUGINS (turn one on with recommend_action → plugin.enable {slug}; a person can also do it in the Plugins section of /dashboard/marketplace):',
+        'PLUGINS (turn one on with recommend_action → plugin.enable {slug}; a person can also do it on /dashboard/marketplace/plugins):',
         ...plugins,
         '',
         'CONNECTORS (a person connects at /dashboard/connectors — use where_to connect-source for the link):',

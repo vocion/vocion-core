@@ -30,6 +30,6 @@ describe('combinedPage — tab deep-links', () => {
     // The Marketplace owns its OWN strip now — Plugins on its own URL, Agents
     // for hire one segment down (Chris, 2026-09-18).
     expect(combinedPageTitle('/dashboard/marketplace')).toBe('Marketplace');
-    expect(combinedPageTitle('/dashboard/marketplace/agents')).toBe('Agents for hire · Marketplace');
+    expect(combinedPageTitle('/dashboard/marketplace/plugins')).toBe('Plugins · Marketplace');
   });
 });
