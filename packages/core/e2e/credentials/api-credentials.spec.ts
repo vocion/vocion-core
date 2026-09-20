@@ -169,6 +169,7 @@ test.describe('the platform selector decides which controls exist', () => {
       'HubSpot',
       'Jira',
       'Notion',
+      'PostHog',
       'Strapi',
       'Google',
       'Slack',

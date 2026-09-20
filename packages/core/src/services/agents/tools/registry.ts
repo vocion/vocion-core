@@ -61,6 +61,7 @@ import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
 import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
+import { posthogCountTools } from './posthogCounts';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
 import { renderArtifactTools } from './renderArtifacts';
@@ -184,6 +185,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...hubspotDirectTools(ctx),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...apolloTools(ctx),
+    // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
+    ...posthogCountTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),
