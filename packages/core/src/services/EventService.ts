@@ -194,6 +194,14 @@ export const PERSONALIZATION_BRIEF_REGENERATE_REQUESTED = 'personalization.brief
  */
 export const PERSONALIZATION_ARTIFACT_REGENERATE_REQUESTED = 'personalization.artifact_regenerate_requested';
 
+/**
+ * The GitHub source's events — `pr.opened`, `pr.synchronized`,
+ * `pr.checks_completed`, `pr.review_submitted`, `pr.merged`, `pr.closed` and
+ * `run.failed` — live in `libs/github/events.ts` with their payload types,
+ * beside the pure mapping both the poller and the webhook receiver share.
+ * Same contract as the constants above: renaming one breaks subscribers.
+ */
+
 export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;

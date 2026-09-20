@@ -66,6 +66,7 @@ about them.
 ## Guides
 
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
+- [GitHub as an event source](./guides/github.md) — pull requests, checks, reviews, merges and failed deploy runs on the repositories a workspace lists become `pr.*` and `run.failed` events automations act on; the read-only token and its permissions, the payload shapes, dedupe keys that make a re-poll idempotent, the optional webhook at `/api/webhooks/github`, and an example `when: { event: pr.checks_completed, filter: { conclusion: failure } }`.
 - [Team performance](./guides/team-performance.md) — the measurement model behind `/dashboard/team-report`: measures with provenance (verified · observed · human-confirmed · agent-reported), what Vocion derives (attainment, trend, cost per outcome, human load), the setup state, evidence chains and outcome lineage.
 - [PostHog as a knowledge source](./guides/posthog.md) — one document per day of event counts, unique users, totals and error counts from a PostHog project, read with `search_knowledge` and summed with `posthog_event_counts`; the personal-key-not-project-token rule, what is and is not stored (aggregates only), and how the day window and checkpoint work.
 - [Web analytics as a measure source](./guides/web-analytics-measures.md) — read qualified traffic, users, conversions and signups from GA4 so an adoption number carries a **verified** chip instead of an agent's own count; the service-account role it needs, and why an unconfigured measure shows "not connected" rather than 0.

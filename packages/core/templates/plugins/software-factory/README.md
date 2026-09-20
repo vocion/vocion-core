@@ -475,6 +475,7 @@ action to move a bar.
   that is out of band.
 - **Intake adapters.** Nothing here turns a store review or a mailbox into a
   `request.created` event.
+- **CI events — done, in core.** The `github` source (`docs/guides/github.md`) emits `pr.checks_completed` (with `conclusion` and the failed check names), `pr.review_submitted`, `pr.merged` and `run.failed` on the deploy branch, polled or by webhook; a workspace points `factory-ci-failure` at `pr.checks_completed` / `conclusion: failure` instead of the placeholder event.
 - **Registered actions — done, in core.** `git.push_branch`, `git.merge`
   (one id; `riskClass` in the input picks the `git.merge.<class>` rule and
   ledger), `deploy.release`, `deploy.provision`, `aws.mutate`,

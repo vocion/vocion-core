@@ -448,6 +448,7 @@ describe('connector platforms', () => {
     expect(getPlatform('jira').fields.map(field => field.name)).toEqual(['email', 'apiToken']);
     expect(getPlatform('strapi').fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
     expect(getPlatform('posthog').fields.map(field => field.name)).toEqual(['host', 'projectId', 'apiKey']);
+    expect(getPlatform('github').fields.map(field => field.name)).toEqual(['token']);
   });
 
   it('keeps the PostHog host and project id with the key, shown in full, and refuses the public project token', () => {
@@ -477,6 +478,24 @@ describe('connector platforms', () => {
       .toThrow(/starts with http/);
     expect(() => validatePlatformCredential('posthog', { host: 'https://eu.posthog.com', projectId: 'phc_public', apiKey: 'phx_fixture_key_0001' }))
       .toThrow(/numeric project id/);
+  });
+
+  it('shares one GitHub token across github sources and names the read-only permissions it needs', () => {
+    // One token reads every repository it was granted; a source narrows by its
+    // repository list, so a second source over the same account types nothing.
+    expect(getPlatform('github').connectorSlugs).toEqual(['github']);
+    expect(credentialsAreShareable('github')).toBe(true);
+    expect(holdsManyCredentials('github')).toBe(false);
+    expect(platformForConnectorSlug('github')?.id).toBe('github');
+
+    for (const permission of ['pull_requests:read', 'checks:read', 'contents:read', 'metadata:read', 'actions:read']) {
+      expect(getPlatform('github').helpText).toContain(permission);
+    }
+
+    // Fine-grained, classic and installation tokens all work, so none is refused by shape.
+    expect(validatePlatformCredential('github', { token: ' github_pat_fixture_0001 ' })).toEqual({ token: 'github_pat_fixture_0001' });
+    expect(validatePlatformCredential('github', { token: 'ghs_fixture_0001' })).toEqual({ token: 'ghs_fixture_0001' });
+    expect(() => validatePlatformCredential('github', { token: '  ' })).toThrow();
   });
 
   it('hints at the secret half of a two-field connector credential', () => {

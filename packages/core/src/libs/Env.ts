@@ -62,6 +62,12 @@ export const Env = createEnv({
     VOCION_EMAIL_SURFACE: z.string().optional(),
     VOCION_MAIL_DOMAIN: z.string().optional(),
     RESEND_WEBHOOK_SECRET: z.string().optional(),
+    /**
+     * Signs deliveries to `/api/webhooks/github` (`X-Hub-Signature-256`). The
+     * same secret is typed into the webhook on GitHub; unset, the route answers
+     * 501 and the `github` source relies on polling alone.
+     */
+    GITHUB_WEBHOOK_SECRET: z.string().optional(),
   },
   client: {
     NEXT_PUBLIC_APP_URL: z.string().optional(),
@@ -103,6 +109,7 @@ export const Env = createEnv({
     VOCION_EMAIL_SURFACE: process.env.VOCION_EMAIL_SURFACE,
     VOCION_MAIL_DOMAIN: process.env.VOCION_MAIL_DOMAIN,
     RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
+    GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
