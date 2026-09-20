@@ -9,7 +9,32 @@
  * so the gate that releases work and the ledger that earns it agree.
  */
 
-import { getAction } from './registry';
+import type { Action } from './types';
+import { getAction, listActions } from './registry';
+
+/**
+ * The registered action behind a ladder key — the key itself when it is an
+ * action id, else the action whose id is the longest prefix of it
+ * (`git.merge.docs` → `git.merge`, `objects.update_meta.request` →
+ * `objects.update_meta`). Every reader that turns a key back into "what
+ * kind of action is this" — the risk tier default, the never-auto hold —
+ * goes through here, so a derived key with no rule of its own is judged as
+ * its action rather than as an unknown, high-risk kind.
+ * @param policyKey - An action id or a key `policyKeyForRun` derived from one.
+ */
+export function actionForPolicyKey(policyKey: string): Action | undefined {
+  const exact = getAction(policyKey);
+  if (exact) {
+    return exact;
+  }
+  let best: Action | undefined;
+  for (const action of listActions()) {
+    if (policyKey.startsWith(`${action.id}.`) && (!best || action.id.length > best.id.length)) {
+      best = action;
+    }
+  }
+  return best;
+}
 
 /**
  * @param actionId - The registered action id on the run.

@@ -3809,6 +3809,25 @@ export type AskOption = {
 };
 
 /**
+ * One record an ask is about: an object type slug and the object's id, as a
+ * string. Carried on `ask.decided` so a subscriber can write the answer back
+ * where the question came from.
+ */
+export type AskObjectRef = { type: string; id: string };
+
+/**
+ * What sort of thing an ask is waiting for, and how much rides on it. Defined
+ * here, beside the row, so an action module (`libs/actions/ask-file.ts`) can
+ * read the vocabulary without importing the service — the action registry
+ * sits under the service's import graph, and a static import back into it
+ * is a cycle. `AskService` re-exports both.
+ */
+export const ASK_KINDS = ['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate'] as const;
+export type AskKind = typeof ASK_KINDS[number];
+export const ASK_RISKS = ['low', 'medium', 'high'] as const;
+export type AskRisk = typeof ASK_RISKS[number];
+
+/**
  * One QUESTION waiting on a PERSON: an approval, a ruling, an input or
  * credential, a merge, a recommendation, a gate. Unlike `action_run` nothing
  * executes when it is answered — the answer IS the outcome, and whoever filed
@@ -3841,6 +3860,20 @@ export const askSchema = pgTable(
     risk: text('risk'),
     /** Named answers. The free-text "other" answer is always available on top. */
     options: jsonb('options').$type<AskOption[]>().default([]).notNull(),
+    /**
+     * The records this question is about — `[{ type, id }]`, an object type
+     * slug and the object's id (migration 0129). Read back onto the record
+     * when the ask is decided: `ask.decided` carries them, so an automation
+     * can write the person's answer where the question came from. Filed by
+     * an agent's `file_ask` or over `POST /api/v1/asks`.
+     */
+    objectRefs: jsonb('object_refs').$type<AskObjectRef[]>().default([]).notNull(),
+    /**
+     * Minutes of a person's attention this decision is estimated to take —
+     * what a batch of asks costs against a daily decision budget. Said by the
+     * asker; null when it did not say.
+     */
+    decisionCost: integer('decision_cost'),
     /** Several asks sharing a key form one decision sheet. */
     groupKey: text('group_key'),
     groupTitle: text('group_title'),

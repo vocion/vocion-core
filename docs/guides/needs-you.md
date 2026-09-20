@@ -20,7 +20,7 @@ screen you decide it on.
 | Kind | What it is | Where it comes from | Opens at |
 |---|---|---|---|
 | **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. A **hand-off** proposal (a merge, a deploy, a credential) is approved the same way, but approving *releases* it to be done by hand; see [Hand-off actions](#hand-off-actions). | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
-| **Ruling** | A decision only you can make; the team is blocked on it. | [`ask`](../entities/ask.md) with `kind: ruling` | `/dashboard/inbox/:id`; several under one group: `/dashboard/inbox/g/:groupKey` |
+| **Ruling** | A decision only you can make; the team is blocked on it. | [`ask`](../entities/ask.md) with `kind: ruling` — filed by an agent's `file_ask` or over `POST /api/v1/asks` | `/dashboard/inbox/:id`; several under one group: `/dashboard/inbox/g/:groupKey` |
 | **Approval** | Permission for something the team wants to do (nothing executes on answer). | `ask` · `approval` | as above |
 | **Merge** | A pull request ready for a human to merge. | `ask` · `merge` | as above |
 | **Input** | A fact, a file, an answer the team needs. | `ask` · `input` | as above |

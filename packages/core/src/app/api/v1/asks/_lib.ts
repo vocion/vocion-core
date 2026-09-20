@@ -1,7 +1,6 @@
 import type { NextResponse } from 'next/server';
 import type { Ask } from '@/services/AskService';
-import { workspaceUrl } from '@/libs/links';
-import { AskError } from '@/services/AskService';
+import { AskError, askUrlFor } from '@/services/AskService';
 import { projectSlugById } from '@/services/ProjectService';
 import { jsonError } from '../_shared';
 
@@ -24,7 +23,7 @@ export type ApiAsk = Ask & {
  */
 export async function withAskUrls<T extends Ask>(orgId: string, asks: T[]): Promise<(T & { url: string | null })[]> {
   const slug = asks.length ? await projectSlugById(orgId) : null;
-  return asks.map(a => ({ ...a, url: slug ? workspaceUrl(slug, `/dashboard/inbox/${a.id}`, { absolute: true }) : null }));
+  return asks.map(a => ({ ...a, url: slug ? askUrlFor(slug, a.id) : null }));
 }
 
 /**

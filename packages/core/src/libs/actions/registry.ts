@@ -6,6 +6,8 @@
 
 import type { Action } from './types';
 import { agentRevisePromptAction } from './agent-revise-prompt';
+import { askFileAction } from './ask-file';
+import { askWithdrawAction } from './ask-withdraw';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { factoryActions } from './factory';
 import { gmailSendAction } from './gmail-send';
@@ -13,6 +15,7 @@ import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
+import { objectsUpdateMetaAction } from './objects-update-meta';
 import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
@@ -40,6 +43,15 @@ registerAction(hubspotUpdateAction);
 registerAction(discoveryReviewProposalAction);
 registerAction(personalizationEnrollAction);
 registerAction(objectProposeCandidateAction);
+// An agent writes declared fields on a record that exists — reversible (the
+// previous values ride the run), low-risk, done-for-you above the bar. The
+// record's write history is these runs.
+registerAction(objectsUpdateMetaAction);
+// An agent puts a question in front of a person, and takes it back when the
+// thing it asked about went away. Both reversible and internal: the ask is
+// the outcome, nothing executes on the answer.
+registerAction(askFileAction);
+registerAction(askWithdrawAction);
 // Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
 registerAction(pluginEnableAction);
 // A wiki page write — reversible (restore the previous version), done-for-you above the wiki plugin's bar.

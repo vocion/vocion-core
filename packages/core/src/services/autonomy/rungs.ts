@@ -98,6 +98,13 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   'personalization.enroll': 'medium',
   'discovery.review_proposal': 'low',
   'objects.propose_candidate': 'medium',
+  // Internal writes an agent makes on the workspace's own records and queue.
+  // Each is reversible and costs a person at most a minute to put back, so
+  // the done-for-you default applies. A workspace holding a type's writes to
+  // approval says so in trust.yaml.
+  'objects.update_meta': 'low',
+  'ask.file': 'low',
+  'ask.withdraw': 'low',
   'qc.hold': 'low',
   'qc.release': 'medium',
   'qc.request_rework': 'low',
@@ -113,11 +120,14 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
 /**
  * The default tier for an action id, given whether the registry marks it as
  * touching the outside world.
- * @param actionId
+ * @param actionId - The ladder key: an action id, or a key derived from one.
  * @param external - `Action.external`; unknown ids are treated as external.
+ * @param baseActionId - The registered id behind a derived key, whose own
+ * default stands in when the key has none (`objects.update_meta.request` →
+ * `objects.update_meta`).
  */
-export function defaultRiskTier(actionId: string, external: boolean | undefined = true): RiskTier {
-  return DEFAULT_RISK_TIER[actionId] ?? (external ? 'high' : 'low');
+export function defaultRiskTier(actionId: string, external: boolean | undefined = true, baseActionId?: string): RiskTier {
+  return DEFAULT_RISK_TIER[actionId] ?? (baseActionId ? DEFAULT_RISK_TIER[baseActionId] : undefined) ?? (external ? 'high' : 'low');
 }
 
 /* ------------------------------------------------------------------ */

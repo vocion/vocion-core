@@ -904,6 +904,13 @@
       "when": 1789750759386,
       "tag": "0128_automation_pause",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1789750819386,
+      "tag": "0129_ask_object_refs",
+      "breakpoints": true
     }
   ]
 }

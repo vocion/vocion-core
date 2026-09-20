@@ -120,10 +120,10 @@ describe('listAsks', () => {
 });
 
 describe('decideAsk', () => {
-  it('announces the decision as an `ask.decided` event an automation can subscribe to, scalars only', async () => {
+  it('announces the decision as an `ask.decided` event an automation can subscribe to — scalars to filter on, and the records it was about', async () => {
     const { ask } = await svc.upsertAsk({
       orgId: ORG,
-      ask: { kind: 'recommendation', title: 'Build #41?', agentSlug: 'product-manager', teamSlug: 'software-factory', groupKey: 'software-factory:batch/2026-09-21', sourceRef: 'software-factory:recommendation/41', options: svc.normaliseOptions([{ id: 'build', label: 'Build it', recommended: true }, 'Decline']) },
+      ask: { kind: 'recommendation', title: 'Build #41?', agentSlug: 'product-manager', teamSlug: 'software-factory', groupKey: 'software-factory:batch/2026-09-21', sourceRef: 'software-factory:recommendation/41', objectRefs: svc.normaliseObjectRefs([{ type: 'request', id: 41 }]), options: svc.normaliseOptions([{ id: 'build', label: 'Build it', recommended: true }, 'Decline']) },
     });
 
     const decided = await svc.decideAsk({ orgId: ORG, id: ask.id, decision: 'build', decidedBy: 'user_chris' });
@@ -144,6 +144,9 @@ describe('decideAsk', () => {
         teamSlug: 'software-factory',
         groupKey: 'software-factory:batch/2026-09-21',
         sourceRef: 'software-factory:recommendation/41',
+        // The one non-scalar: what the answer is about, for the subscriber
+        // that writes it back onto the request.
+        objectRefs: [{ type: 'request', id: '41' }],
         decidedBy: 'user_chris',
         decidedAt: decided.decidedAt!.toISOString(),
       },
@@ -193,7 +196,7 @@ describe('decideAsk', () => {
     expect(vi.mocked(track)).toHaveBeenCalledWith(
       { orgId: ORG, userId: 'user_chris' },
       'ask.decided',
-      expect.objectContaining({ agentSlug: 'ceo', resource: ['ask', id], meta: { kind: 'recommendation', status: 'rejected' } }),
+      expect.objectContaining({ agentSlug: 'ceo', resource: ['ask', id], meta: { kind: 'recommendation', status: 'rejected', objectRefs: [] } }),
     );
     expect(vi.mocked(enqueue)).toHaveBeenCalledWith(expect.objectContaining({
       orgId: ORG,
