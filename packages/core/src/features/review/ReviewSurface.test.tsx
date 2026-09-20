@@ -13,6 +13,7 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { publishDraftRevision } from '@/features/personalization/draftRevision';
 import { contentHash } from '@/libs/actions/contentHash';
+import { canonicalBody } from './contentWalk';
 // The real stylesheet, so the layout claims below are about geometry rather
 // than about class names (`ReviewHeader.layout.test.tsx` sets the precedent).
 import '@/styles/global.css';
@@ -56,7 +57,7 @@ function approved(run: ReviewCardRun): ReviewCardRun {
     ...run,
     contentReview: Object.fromEntries((run.card.content ?? [])
       .filter(i => i.kind === 'email')
-      .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, i.kind === 'email' ? i.body : ''), at: '2026-09-18T12:00:00.000Z' }])),
+      .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, canonicalBody(i.kind === 'email' ? i.body : '')), at: '2026-09-18T12:00:00.000Z' }])),
   };
 }
 
@@ -140,14 +141,17 @@ describe('one flat template, every object type', () => {
     expect(boxes.map(b => b.className)).toEqual([]);
   });
 
-  it.each([3, 4, 5, 6])('turns n=%s content items into n tabs, plus Why and Evidence last', async (n) => {
+  it.each([3, 4, 5, 6])('turns n=%s content items into exactly n tabs, and nothing else', async (n) => {
     await render(<ReviewSurface run={enrollment(n)} crumbs={CRUMBS} />);
 
     const tabs = page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]');
     const labels = [...tabs].map(t => t.textContent);
 
-    expect(labels).toEqual([...Array.from({ length: n }, (_, i) => `Day ${i * 3}`), 'Why', 'Evidence']);
-    expect(labels.at(-1)).toBe('Evidence');
+    // The strip is what there is to review. Why and Evidence are on the page,
+    // under the content, not two tabs beside the four a reviewer came for.
+    expect(labels).toEqual(Array.from({ length: n }, (_, i) => `Day ${i * 3}`));
+    await expect.element(page.getByTestId('why-pane')).toBeVisible();
+    await expect.element(page.getByTestId('evidence-pane')).toBeVisible();
   });
 
   it.each([3, 4, 5, 6])('keeps every one of n=%s item tabs reachable and on one row', async (n) => {
@@ -174,12 +178,12 @@ describe('one flat template, every object type', () => {
 
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
-    expect(labels).toEqual(['Changes', 'Why', 'Evidence']);
+    expect(labels).toEqual(['Changes']);
     await expect.element(page.getByTestId('changes-pane')).toBeVisible();
     await expect.element(page.getByRole('textbox', { name: 'notes' })).toBeVisible();
   });
 
-  it('builds Why and Evidence from the run even when the presenter says nothing', async () => {
+  it('builds Why and Evidence from the run even when the presenter says nothing, and with no strip at all', async () => {
     const bare: ReviewCardRun = {
       id: 503,
       actionId: 'x.y',
@@ -191,13 +195,10 @@ describe('one flat template, every object type', () => {
     };
     await render(<ReviewSurface run={bare} crumbs={CRUMBS} />);
 
-    const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
-
-    expect(labels).toEqual(['Why', 'Evidence']);
+    // Nothing to review on this card, so there is no strip — and the dossier
+    // is the whole screen rather than a lone tab a reviewer has to open.
+    expect(page.getByTestId('review-tabs').elements()).toHaveLength(0);
     await expect.element(page.getByText('No rationale recorded for this recommendation.')).toBeVisible();
-
-    await page.getByTestId('tab-evidence').click();
-
     await expect.element(page.getByText('No citations recorded.')).toBeVisible();
     await expect.element(page.getByTestId('run-details')).toBeVisible();
   });
@@ -284,7 +285,10 @@ describe('one flat template, every object type', () => {
     // ReviewSurface.walk.test.tsx, where the hold is the subject.
     await render(<ReviewSurface run={approved(enrollment(3))} crumbs={CRUMBS} />);
 
-    await page.getByTestId('email-pane-send-1').element().querySelector('textarea')!.focus();
+    // The body is a contenteditable now, which is neither an input nor a
+    // textarea — `shortcutFor` refuses it on `isContentEditable`, and this is
+    // what proves the refusal still covers the field a reviewer types in.
+    page.getByTestId('email-pane-send-1').element().querySelector<HTMLElement>('[contenteditable="true"]')!.focus();
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
 
     expect(decideAction).not.toHaveBeenCalled();
@@ -302,10 +306,10 @@ describe('one flat template, every object type', () => {
 
     // Edit the third send, in its own tab, after switching away and back.
     await page.getByTestId('tab-item-send-3').click();
-    const body = page.getByTestId('email-pane-send-3').element().querySelector('textarea')!;
+    const body = page.getByTestId('email-pane-send-3').element().querySelector('[contenteditable="true"]')!;
     await page.getByTestId('tab-item-send-1').click();
     await page.getByTestId('tab-item-send-3').click();
-    const live = page.getByTestId('email-pane-send-3').element().querySelector('textarea')!;
+    const live = page.getByTestId('email-pane-send-3').element().querySelector<HTMLElement>('[contenteditable="true"]')!;
     await page.elementLocator(live).fill('Rewritten in the tab.');
 
     // Each send it edited is then approved, which is the walk's real path and
@@ -323,7 +327,7 @@ describe('one flat template, every object type', () => {
     expect(body).toBeTruthy();
     expect(decideAction.mock.calls[0]![0]).toMatchObject({
       decision: 'approve',
-      contentEdits: [{ id: 'send-3', body: 'Rewritten in the tab.' }],
+      contentEdits: [{ id: 'send-3', body: '<p>Rewritten in the tab.</p>' }],
     });
   });
 
@@ -441,16 +445,16 @@ describe('one flat template, every object type', () => {
 
     const bar = page.getByTestId('sticky-action-bar').element();
     const first = bar.getBoundingClientRect().top;
-    await page.getByTestId('tab-evidence').click();
-    const onEvidence = bar.getBoundingClientRect().top;
+    await page.getByTestId('tab-item-send-6').click();
+    const onLast = bar.getBoundingClientRect().top;
     await page.getByTestId('tab-item-send-1').click();
     const back = bar.getBoundingClientRect().top;
 
-    expect(Math.round(onEvidence)).toBe(Math.round(first));
+    expect(Math.round(onLast)).toBe(Math.round(first));
     expect(Math.round(back)).toBe(Math.round(first));
   });
 
-  it('renders a surface tab where the surface asks for one, with Evidence still last', async () => {
+  it('renders a surface tab where the surface asks for one, after the content', async () => {
     await render(
       <ReviewSurface
         run={enrollment(3)}
@@ -461,7 +465,7 @@ describe('one flat template, every object type', () => {
 
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
-    expect(labels).toEqual(['Day 0', 'Day 3', 'Day 6', 'Brief', 'Why', 'Evidence']);
+    expect(labels).toEqual(['Day 0', 'Day 3', 'Day 6', 'Brief']);
 
     await page.getByTestId('tab-extra-brief').click();
 
@@ -478,7 +482,8 @@ describe('one flat template, every object type', () => {
 
     await expect.element(page.getByTestId('item-pane-send-3')).toBeVisible();
     await expect.element(page.getByTestId('email-pane-send-3')).toHaveAttribute('data-changed', 'true');
-    expect(page.getByTestId('email-pane-send-3').element().querySelector('textarea')!.value).toBe('The rail rewrote this one.');
+    // The rail publishes prose; the editor shows it as the paragraph it is.
+    expect(page.getByTestId('email-pane-send-3').element().querySelector('[contenteditable="true"]')!.textContent).toBe('The rail rewrote this one.');
   });
 
   it('reads without a bar when there is nothing pending to decide', async () => {

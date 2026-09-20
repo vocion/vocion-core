@@ -127,7 +127,9 @@ describe('the hand-off card, pending', () => {
 
     const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
 
-    expect(labels).toEqual(['Recipe', 'Why', 'Evidence']);
+    // The strip is what there is to review; Why and Evidence render under the
+    // content rather than beside it (`ReviewSurface.test.tsx`).
+    expect(labels).toEqual(['Recipe']);
     await expect.element(page.getByTestId('steps-pane-recipe')).toBeVisible();
 
     expect(page.getByTestId('command-block').elements()).toHaveLength(2);
@@ -140,8 +142,6 @@ describe('the hand-off card, pending', () => {
 
   it('has ONE Why, with the suggestion inline, rather than the reasoning beside why it suggests that', async () => {
     await render(<ReviewSurface run={handoff()} crumbs={CRUMBS} />);
-
-    await page.getByTestId('tab-why').click();
 
     await expect.element(page.getByTestId('why-merged')).toBeVisible();
 
@@ -157,8 +157,6 @@ describe('the hand-off card, pending', () => {
 
   it('renders the named sources as links, and says the recommendation nowhere else', async () => {
     await render(<ReviewSurface run={handoff()} crumbs={CRUMBS} />);
-
-    await page.getByTestId('tab-evidence').click();
 
     const pricing = page.getByRole('link', { name: 'Route 53 pricing ↗' });
 
@@ -178,8 +176,6 @@ describe('the hand-off card, pending', () => {
   it('says who runs it and where the run stands: Approve is the current step', async () => {
     await render(<ReviewSurface run={handoff()} crumbs={CRUMBS} />);
 
-    await page.getByTestId('tab-evidence').click();
-
     await expect.element(page.getByTestId('who-runs-it')).toHaveTextContent('Anyone with the account; mark done when finished');
 
     const steps = [...page.getByTestId('handoff-lifecycle').element().querySelectorAll('li')];
@@ -191,8 +187,6 @@ describe('the hand-off card, pending', () => {
 
   it('names the assignee when the queue routed it to someone', async () => {
     await render(<ReviewSurface run={handoff({ assignee: 'Rowan Pike' })} crumbs={CRUMBS} />);
-
-    await page.getByTestId('tab-evidence').click();
 
     await expect.element(page.getByTestId('who-runs-it')).toHaveTextContent('Rowan Pike');
   });
@@ -223,8 +217,6 @@ describe('the hand-off card, approved and waiting for a person', () => {
 
   it('moves the lifecycle on: Approve done by name, a person runs the steps current', async () => {
     await render(<ReviewSurface run={awaiting()} crumbs={CRUMBS} />);
-
-    await page.getByTestId('tab-evidence').click();
 
     const steps = [...page.getByTestId('handoff-lifecycle').element().querySelectorAll('li')];
 
@@ -276,8 +268,6 @@ describe('a card without a headline', () => {
     await render(<ReviewSurface run={run} crumbs={CRUMBS} />);
 
     expect(page.getByTestId('decision-header').elements()).toHaveLength(0);
-
-    await page.getByTestId('tab-evidence').click();
 
     await expect.element(page.getByTestId('run-details')).toHaveTextContent('Recommended by');
     await expect.element(page.getByTestId('run-details')).toHaveTextContent('Agent suggests approving');

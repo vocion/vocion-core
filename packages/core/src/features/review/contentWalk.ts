@@ -3,6 +3,7 @@ import type { ActionRevision } from '@/libs/actions/revisions';
 import type { ReviewContent } from '@/libs/actions/types';
 import { contentHash } from '@/libs/actions/contentHash';
 import { copyOf } from '@/libs/actions/revisions';
+import { isHtmlBody, textToParagraphs } from '@/libs/writing/emailBodyShape';
 
 /**
  * The walk: which sends a reviewer has vouched for, and whether each check
@@ -34,8 +35,26 @@ export function currentCopy(item: ReviewContent, edit?: ContentEdit): { subject?
   }
   return {
     ...(edit?.subject ?? base.subject) !== undefined ? { subject: edit?.subject ?? base.subject } : {},
-    body: edit?.body ?? base.body,
+    body: canonicalBody(edit?.body ?? base.body),
   };
+}
+
+/**
+ * The ONE form a body is compared and approved in: its HTML.
+ *
+ * A check is a hash of the copy it was given for, and the same words in two
+ * encodings hash differently — so an agent's prose and that prose loaded into
+ * the editor and typed back unchanged would have read as a change, quietly
+ * asking for an approval again. Canonicalising first means an edit that
+ * changes nothing IS nothing, while bolding a phrase changes the HTML and so
+ * clears the check, which is exactly right: the bold is what goes out.
+ *
+ * It is also the form the approval RECORDS, because it is the form HubSpot
+ * receives.
+ * @param body - The stored body, prose or HTML.
+ */
+export function canonicalBody(body: string): string {
+  return isHtmlBody(body) ? body : textToParagraphs(body);
 }
 
 /**
@@ -143,12 +162,13 @@ export function seedEditsFromApprovals(
       continue;
     }
     const approved = [...mine].reverse().find(r => r.kind === 'approved');
-    if (!approved || contentHash(copyOf(item)?.subject, approved.body) !== check.hash) {
+    if (!approved || contentHash(copyOf(item)?.subject, canonicalBody(approved.body)) !== check.hash) {
       continue;
     }
     // Already what is rendered — nothing to restore, and seeding it would put
-    // an "edited" badge on copy nobody edited.
-    if (approved.body !== copyOf(item)!.body) {
+    // an "edited" badge on copy nobody edited. Compared canonically, so a
+    // body stored as prose and approved as HTML is recognised as the same.
+    if (canonicalBody(approved.body) !== canonicalBody(copyOf(item)!.body)) {
       seeded[item.id] = { body: approved.body };
     }
   }

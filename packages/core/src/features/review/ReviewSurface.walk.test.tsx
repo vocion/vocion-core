@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { contentHash } from '@/libs/actions/contentHash';
+import { canonicalBody } from './contentWalk';
 import '@/styles/global.css';
 
 const decideAction = vi.fn(async (_input: Record<string, unknown>) => ({ execution: null }));
@@ -81,7 +82,15 @@ function enrollment(n: number, over: Partial<ReviewCardRun> = {}): ReviewCardRun
  * @param at
  */
 const checkFor = (n: number, at = '2026-09-18T12:00:00.000Z') =>
-  ({ [`send-${n}`]: { hash: contentHash(sendSubject(n), sendBody(n)), at } });
+  ({ [`send-${n}`]: { hash: contentHash(sendSubject(n), canonicalBody(sendBody(n))), at } });
+
+/**
+ * The body field of a send — a contenteditable now, not a textarea, because a
+ * reviewer composes formatting rather than typing markup.
+ * @param id - The content id.
+ */
+const bodyField = (id: string) =>
+  page.elementLocator(page.getByTestId(`email-pane-${id}`).element().querySelector<HTMLElement>('[contenteditable="true"]')!);
 
 beforeEach(() => {
   decideAction.mockClear();
@@ -99,7 +108,9 @@ describe('a check per send', () => {
 
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalled());
 
-    expect(approveContent.mock.calls[0]![0]).toMatchObject({ id: 501, contentId: 'send-1', subject: sendSubject(1), body: sendBody(1) });
+    // The canonical form: an approval records the copy as it will go out, and
+    // what goes out is HTML.
+    expect(approveContent.mock.calls[0]![0]).toMatchObject({ id: 501, contentId: 'send-1', subject: sendSubject(1), body: canonicalBody(sendBody(1)) });
     await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
     await expect.element(page.getByTestId('walk-count')).toHaveTextContent('1 of 4 approved');
     // The advance is what makes it a walk: the next thing it is asking you to
@@ -122,13 +133,14 @@ describe('a check per send', () => {
   it('carries the reviewer\'s edited copy into the approval, not the agent\'s', async () => {
     await render(<ReviewSurface run={enrollment(2)} crumbs={CRUMBS} />);
 
-    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
-    await page.elementLocator(body).fill('Tightened.');
+    await bodyField('send-1').fill('Tightened.');
     await page.getByTestId('decide-approve').click();
 
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalled());
 
-    expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-1', body: 'Tightened.' });
+    // HTML, because that is what the reviewer composed and what HubSpot is
+    // sent. The approval records the copy as it will go out.
+    expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-1', body: '<p>Tightened.</p>' });
   });
 
   it('keeps the checks and the count a reload lands with', async () => {
@@ -175,8 +187,7 @@ describe('a check is not a promise', () => {
 
     await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
 
-    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
-    await page.elementLocator(body).fill('Changed after approval.');
+    await bodyField('send-1').fill('Changed after approval.');
 
     await vi.waitFor(() => expect(page.getByTestId('tab-item-send-1').element().getAttribute('data-approved')).toBeNull());
 
@@ -186,7 +197,7 @@ describe('a check is not a promise', () => {
   it('clears when a regeneration replaced the copy under it, with no page load', async () => {
     // The redraft landed: the run now carries the new body, and the check was
     // given for the old one. Nothing cleared it — it no longer refers to this.
-    const stale = { 'send-1': { hash: contentHash(sendSubject(1), 'The body that was approved.'), at: '2026-09-18T12:00:00.000Z' } };
+    const stale = { 'send-1': { hash: contentHash(sendSubject(1), canonicalBody('The body that was approved.')), at: '2026-09-18T12:00:00.000Z' } };
     await render(<ReviewSurface run={enrollment(2, { contentReview: stale })} crumbs={CRUMBS} />);
 
     expect(page.getByTestId('tab-item-send-1').element().getAttribute('data-approved')).toBeNull();
@@ -196,11 +207,12 @@ describe('a check is not a promise', () => {
   it('comes back when the copy is edited back to what was approved', async () => {
     await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
 
-    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
-    await page.elementLocator(body).fill('Changed.');
+    await bodyField('send-1').fill('Changed.');
     await vi.waitFor(() => expect(page.getByTestId('tab-item-send-1').element().getAttribute('data-approved')).toBeNull());
 
-    await page.elementLocator(body).fill(sendBody(1));
+    // Typed back to the approved words. The check is a hash of the copy, and
+    // the copy is the same copy, so it comes back on its own.
+    await bodyField('send-1').fill(sendBody(1));
 
     await vi.waitFor(() => expect(page.getByTestId('tab-item-send-1').element().getAttribute('data-approved')).toBe('true'));
   });
@@ -213,7 +225,7 @@ describe('a check is not a promise', () => {
     await render(
       <ReviewSurface
         run={enrollment(2, {
-          contentReview: { 'send-1': { hash: contentHash(sendSubject(1), approvedBody), at: '2026-09-18T12:00:00.000Z' } },
+          contentReview: { 'send-1': { hash: contentHash(sendSubject(1), canonicalBody(approvedBody)), at: '2026-09-18T12:00:00.000Z' } },
           revisions: [{ contentId: 'send-1', version: 2, kind: 'approved', body: approvedBody, at: '2026-09-18T12:00:00.000Z' }],
         })}
         crumbs={CRUMBS}
@@ -221,7 +233,7 @@ describe('a check is not a promise', () => {
     );
 
     await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
-    expect(page.getByTestId('email-pane-send-1').element().querySelector('textarea')!.value).toBe(approvedBody);
+    expect(page.getByTestId('email-pane-send-1').element().querySelector('[contenteditable="true"]')!.textContent).toContain(approvedBody);
   });
 });
 
@@ -276,8 +288,7 @@ describe('one primary, and the walk is what it does', () => {
 
     expect(primaryWord()).toBe('Enroll');
 
-    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
-    await page.elementLocator(body).fill('Changed after approving it.');
+    await bodyField('send-1').fill('Changed after approving it.');
 
     await vi.waitFor(() => expect(primaryWord()).toBe('Approve'));
   });
@@ -285,11 +296,12 @@ describe('one primary, and the walk is what it does', () => {
   it('opens the send still waiting rather than approving one you are not looking at', async () => {
     await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
 
-    await page.getByTestId('tab-evidence').click();
+    // Send 1 already carries a check, so standing on it is standing on
+    // nothing that needs approving.
+    await page.getByTestId('tab-item-send-1').click();
 
-    // Nothing to vouch for on this tab, so the press BRINGS the send that is
-    // waiting — approving copy off screen is the one mistake one button could
-    // newly make.
+    // So the press BRINGS the send that is waiting — approving copy off
+    // screen is the one mistake one button could newly make.
     await page.getByTestId('decide-approve').click();
 
     await expect.element(page.getByTestId('item-pane-send-2')).toBeVisible();

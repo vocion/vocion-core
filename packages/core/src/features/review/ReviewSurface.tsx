@@ -638,15 +638,27 @@ export function ReviewSurface(props: {
    * @param item - The content item.
    */
   const labelOf = (item: ReviewContent) => itemTabs.find(x => x.id === `item-${item.id}`)?.label ?? item.label;
+  /**
+   * The tab strip is what there is to REVIEW, and nothing else.
+   *
+   * Why and Evidence used to sit on it, which put two tabs a reviewer never
+   * opens beside the four they came to read (Chris, 2026-09-20: *"i don't
+   * like the additional tabs for WHY and EVIDENCE. remove them. should just
+   * be the email tabs for review"*). They still render, stacked under the
+   * content as ordinary sections: the run is what supplies them and no object
+   * type may ship without its evidence, so taking them OFF the page would
+   * drop the citations behind a recommendation rather than tidy a strip.
+   */
   const tabIds = [
     ...(propertyKeys.length > 0 ? ['changes'] : []),
     ...before.map(x => `extra-${x.id}`),
     ...itemTabs.map(x => x.id),
     ...after.map(x => `extra-${x.id}`),
-    'why',
-    'evidence',
   ];
-  const opening = props.defaultTab && tabIds.includes(props.defaultTab) ? props.defaultTab : tabIds[0]!;
+  // `''` rather than undefined when there is no strip at all: a card with
+  // nothing to review (a CRM update with no editable properties) is all
+  // dossier, and Radix's Tabs wants a string either way.
+  const opening = props.defaultTab && tabIds.includes(props.defaultTab) ? props.defaultTab : tabIds[0] ?? '';
   const [tab, setTab] = useState(opening);
   useEffect(() => {
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
@@ -655,7 +667,7 @@ export function ReviewSurface(props: {
   }, [run.id]);
   // A tab that stops existing (the content came back shorter) must not leave
   // the pane blank; fall back to the first one rather than rendering nothing.
-  const active = tabIds.includes(tab) ? tab : tabIds[0]!;
+  const active = tabIds.includes(tab) ? tab : tabIds[0] ?? '';
 
   /**
    * A rewrite asked for in the conversation lands HERE, in the copy you are
@@ -1235,50 +1247,64 @@ export function ReviewSurface(props: {
         </div>
       )}
 
-      <Tabs value={active} onValueChange={setTab} className="pt-4">
-        {/* How far through the walk you are, over the row it is about. A card
+      {tabIds.length > 0 && (
+        <Tabs value={active} onValueChange={setTab} className="pt-4">
+          {/* How far through the walk you are, over the row it is about. A card
             that does not walk shows no count rather than "1 of 1". */}
-        {walks && (
-          <div className="flex items-baseline justify-between gap-3 pb-2">
-            <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Review content</h2>
-            <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
-              {`${count.approved} of ${count.total} approved`}
-            </span>
-          </div>
-        )}
-        {/* The one real ceiling: a long sequence scrolls the tab row rather
+          {walks && (
+            <div className="flex items-baseline justify-between gap-3 pb-2">
+              <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Review content</h2>
+              <span className="text-[13px] text-muted-foreground tabular-nums" data-testid="walk-count">
+                {`${count.approved} of ${count.total} approved`}
+              </span>
+            </div>
+          )}
+          {/* The one real ceiling: a long sequence scrolls the tab row rather
             than wrapping it, so the panes below never shift down a line. */}
-        <div className="-mx-1 overflow-x-auto px-1">
-          <TabsList variant="line" className="w-max" data-testid="review-tabs">
-            {tabIds.map((id) => {
-              const label = id === 'changes'
-                ? 'Changes'
-                : id === 'why'
-                  ? 'Why'
-                  : id === 'evidence'
-                    ? 'Evidence'
-                    : (props.extraTabs ?? []).find(x => `extra-${x.id}` === id)?.label
-                      ?? itemTabs.find(x => x.id === id)?.label
-                      ?? id;
-              const item = content.find(c => `item-${c.id}` === id);
-              const checked = item !== undefined && checkedIds.has(item.id);
-              return (
-                <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} data-approved={checked ? 'true' : undefined}>
-                  {checked && <Check className="mr-1.5 inline size-3.5 align-[-2px] text-brand-pass" data-testid={`tab-check-${item.id}`} aria-label="approved" />}
-                  {label}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </div>
-        {tabIds.map(id => (
+          <div className="-mx-1 overflow-x-auto px-1">
+            <TabsList variant="line" className="w-max" data-testid="review-tabs">
+              {tabIds.map((id) => {
+                const label = id === 'changes'
+                  ? 'Changes'
+                  : id === 'why'
+                    ? 'Why'
+                    : id === 'evidence'
+                      ? 'Evidence'
+                      : (props.extraTabs ?? []).find(x => `extra-${x.id}` === id)?.label
+                        ?? itemTabs.find(x => x.id === id)?.label
+                        ?? id;
+                const item = content.find(c => `item-${c.id}` === id);
+                const checked = item !== undefined && checkedIds.has(item.id);
+                return (
+                  <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} data-approved={checked ? 'true' : undefined}>
+                    {checked && <Check className="mr-1.5 inline size-3.5 align-[-2px] text-brand-pass" data-testid={`tab-check-${item.id}`} aria-label="approved" />}
+                    {label}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </div>
+          {tabIds.map(id => (
           // A minimum height so the decision bar holds its place as you move
-          // between a two-line email and a full Evidence pane.
-          <TabsContent key={id} value={id} className="min-h-80 pt-2">
-            {active === id && renderPane(id)}
-          </TabsContent>
-        ))}
-      </Tabs>
+          // between a two-line email and a longer pane.
+            <TabsContent key={id} value={id} className="min-h-80 pt-2">
+              {active === id && renderPane(id)}
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
+
+      {/* The case and the citations, under what they are about. Off the tab
+          strip (above), on the page: a recommendation whose evidence needs a
+          tab click is a claim you have to take on trust, and this shell
+          builds both from the run precisely so no card can ship without
+          them. A card with nothing to review — a CRM update, a proposal —
+          has an empty strip and these are the whole screen, which is why
+          they render here rather than in a tab that would be the only one. */}
+      <div data-testid="review-dossier">
+        {renderPane('why')}
+        {renderPane('evidence')}
+      </div>
     </DetailPage>
   );
 }

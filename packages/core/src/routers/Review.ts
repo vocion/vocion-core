@@ -437,7 +437,14 @@ export const decideActionRoute = os
         .limit(1);
       const apply = run ? getAction(run.actionId)?.applyContentEdits : undefined;
       if (run && apply) {
-        editedInput = apply({ ...run.input, ...(editedInput ?? {}) }, input.contentEdits) as Record<string, unknown>;
+        // A body may now be HTML a reviewer composed, and it arrived over RPC.
+        // Sanitized HERE, before it is mapped into the input and stored, so
+        // what the action persists is already inside the allowlist and no
+        // later reader has to wonder (`libs/writing/emailBody.ts`). The
+        // editor's schema agrees with this list, so for a real client it is
+        // the identity.
+        const { safeContentEdits } = await import('@/services/review/safeEdits');
+        editedInput = apply({ ...run.input, ...(editedInput ?? {}) }, safeContentEdits(input.contentEdits)) as Record<string, unknown>;
       }
     }
 
@@ -625,12 +632,17 @@ export const approveContentRoute = os
     const { orgId, userId } = await guardAuth();
     await guardCheckpointable(input.id, orgId);
     const { recordApprovedContent } = await import('@/services/review/contentRecord');
+    // Sanitized before it is hashed AND before it is filed, so the check
+    // refers to the copy that would actually go out rather than to whatever
+    // was posted. A client whose HTML survives the allowlist unchanged — which
+    // is every real one, the editor shares the list — computes the same hash.
+    const { safeBody } = await import('@/services/review/safeEdits');
     const hash = await recordApprovedContent({
       orgId,
       runId: input.id,
       contentId: input.contentId,
       ...(input.subject !== undefined ? { subject: input.subject } : {}),
-      body: input.body,
+      body: safeBody(input.body),
       ...(userId ? { by: userId } : {}),
     });
     return { ok: true, hash };
