@@ -90,6 +90,17 @@ Per run: `tokens` and `cents` accumulate from what the worker reports. Per agent
 is also charged to the agent's period budget (`agent_budget`), so the caps a workspace already sets
 apply to external work too. `capCents` on the run is a second, per-run ceiling.
 
+**Per record.** A run queued *for* an object — `input: {record: {type: '<object type slug>', id:
+<object id>}, …}` on create — writes its cost onto that object when it ends (`complete` or `fail`;
+a failed attempt still cost money). Core sums `cents` over every run queued for the same record and
+writes the sum as `metadata.actualCents`, with `costUpdatedAt`, and when the record carries an
+`estimateCents` (or, failing that, the run had a `capCents` to stand in for one) writes
+`estimateCents` and `varianceCents` (actual minus estimate) beside it. The figure is recomputed from
+the rows, never incremented, so a task picked up three times is charged for three runs, once. Any
+`rollups` the org's object types declare over that record's type are recomputed in the same moment
+([Object type](./object-type.md)). Best effort: a write-back that fails is logged and never hands
+the worker an error for work it finished. A run without a record lands on nothing.
+
 ## What it deliberately does not do
 
 It does not make missions long-running, does not host the worker, and does not add a checkpointer

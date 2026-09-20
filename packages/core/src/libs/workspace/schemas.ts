@@ -1024,6 +1024,44 @@ export type MissionManifest = z.infer<typeof MissionManifestSchema>;
 // Re-export InterpolatableStringSchema for step authors who want to type inputs explicitly.
 export { InterpolatableStringSchema };
 
+/**
+ * A metadata key as it may be inlined into a `metadata ->> 'key'` expression:
+ * a rollup's link fields reach the database as literals, so the grammar is
+ * what makes that safe rather than a convention.
+ */
+const MetaKeySchema = z.string().regex(/^[a-z_]\w*$/i, {
+  message: 'a metadata key is letters, digits and underscores',
+});
+
+/**
+ * One figure this type carries that is COMPUTED from another type's rows —
+ * the sum of a child field, or the count of children — rather than typed.
+ *
+ * The link runs one of two ways: `by` names the child's field that holds
+ * this record's id (`engineering_task.requestId` → `request`), `ids` names
+ * this record's field that lists child ids (`release.taskIds`). Core
+ * recomputes every rollup that reaches a child when that child's cost is
+ * written back from a worker run (`services/objects/rollups.ts`), and stamps
+ * `rollupsUpdatedAt` beside the figures; a page reads them like any other
+ * metadata. Nothing here reaches the database schema — the declaration is
+ * read from the type file at the moment it is needed, the way pages are.
+ */
+export const RollupSchema = z.object({
+  /** The metadata key written on THIS type. */
+  field: MetaKeySchema,
+  from: z.object({
+    /** The child object type. */
+    type: SlugSchema,
+    /** The child's metadata key holding this record's id. */
+    by: MetaKeySchema.optional(),
+    /** This record's metadata key listing child ids. */
+    ids: MetaKeySchema.optional(),
+  }).refine(l => (l.by !== undefined) !== (l.ids !== undefined), { message: 'a rollup link names exactly one of `by` (the child points here) or `ids` (this record lists its children)' }),
+  /** The child's metadata key to sum. Omitted, the rollup is a count of children. */
+  sum: MetaKeySchema.optional(),
+});
+export type Rollup = z.infer<typeof RollupSchema>;
+
 export const ObjectTypeManifestSchema = z.object({
   slug: SlugSchema,
   label: z.string(),
@@ -1034,6 +1072,8 @@ export const ObjectTypeManifestSchema = z.object({
   classificationPromptFile: z.string().optional(),
   classificationPrompt: z.string().optional(),
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
+  /** Figures computed from another type's rows — see {@link RollupSchema}. */
+  rollups: z.array(RollupSchema).optional(),
 });
 export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 

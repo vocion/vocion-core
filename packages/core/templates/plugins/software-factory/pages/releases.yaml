@@ -27,6 +27,11 @@ fields:
   - {key: released, label: Released, from: meta.releasedAt, format: date}
   - {key: deploy, label: Deploy run, from: meta.deployRunUrl, format: link}
   - {key: commit, label: Commit, from: meta.commitSha, format: mono}
+  # What the shipped tasks were expected to cost and what they cost, rolled up
+  # over `taskIds`; the total under each product is that product's spend on
+  # what actually reached people.
+  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true}
+  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
   - {key: notesBy, label: Notes by, from: meta.notesSource, format: badge, tones: {agent: info, human: ok}}
   - {key: announced, label: Announced, from: meta.announcedAt, format: date}
   - {key: announcement, label: Announcement, from: meta.announcement}

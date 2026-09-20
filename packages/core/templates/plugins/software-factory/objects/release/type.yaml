@@ -45,6 +45,19 @@ schema:
       type: string
       description: 'The largest size class the release carried, in release terms: `major` — a new capability or product; `minor` — a feature within a product; `patch` — fixes only. Decides how it is announced and how loudly.'
       enum: [major, minor, patch]
+    estimateCents:
+      type: integer
+      description: ROLLED UP — the sum of `estimateCents` over the tasks in `taskIds`, in cents. What the work this release shipped was expected to cost.
+    actualCents:
+      type: integer
+      description: ROLLED UP — the sum of `actualCents` over the tasks in `taskIds`, in cents. What the work this release shipped actually cost in model spend. Recomputed by core when any of those tasks' cost is written; a release recorded after its tasks' runs ended picks the figures up the next time one of them changes, so read `rollupsUpdatedAt` beside it.
+    varianceCents:
+      type: integer
+      description: ROLLED UP — the sum of the shipped tasks' `varianceCents`; negative is under the estimate.
+    rollupsUpdatedAt:
+      type: string
+      format: date-time
+      description: When the rolled-up figures were last recomputed.
     healthAfter:
       type: string
       description: What the post-deploy check said — the black-box e2e and the curl of the deployed URL against this version. `unknown` until the check has run; a release whose health stays `unknown` past the check window is treated as `degraded` by the board.
@@ -83,3 +96,10 @@ schema:
       properties:
         channels: {type: array, items: {type: string}}
         requestIds: {type: array, items: {type: integer}}
+# What rolls up onto a release: the tasks it lists in `taskIds`. Same
+# mechanism as the request's, linked the other way round — the parent names
+# its children.
+rollups:
+  - {field: estimateCents, from: {type: engineering_task, ids: taskIds}, sum: estimateCents}
+  - {field: actualCents, from: {type: engineering_task, ids: taskIds}, sum: actualCents}
+  - {field: varianceCents, from: {type: engineering_task, ids: taskIds}, sum: varianceCents}

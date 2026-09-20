@@ -87,10 +87,35 @@ schema:
       type: string
       format: date-time
       description: When the answer or the shipped change went back to the asker. The seven-day clock stops here.
+    tags:
+      type: array
+      description: >-
+        Feature tags, free strings — `onboarding`, `billing`, `search` — the
+        handle a person uses to ask "what has search cost us so far". A
+        request carries as many as fit; the Costs page groups by them, so a
+        request tagged twice is counted under both, and a total under a tag
+        is the cumulative spend on everything that carried it.
+      items: {type: string}
     taskIds:
       type: array
       description: The `engineering_task` records this became. Usually one; several when it spanned repositories.
       items: {type: integer}
+    estimateCents:
+      type: integer
+      description: ROLLED UP — the sum of `estimateCents` over the tasks whose `requestId` is this record, in cents. Recomputed by core when any of those tasks' cost is written; read `rollupsUpdatedAt` beside it.
+    actualCents:
+      type: integer
+      description: ROLLED UP — the sum of `actualCents` over the tasks whose `requestId` is this record, in cents. What this feature or bug has actually cost in model spend, every attempt included.
+    varianceCents:
+      type: integer
+      description: ROLLED UP — the sum of the tasks' `varianceCents`; negative is under the estimate.
+    taskCount:
+      type: integer
+      description: ROLLED UP — how many tasks carry this request's id, whatever their status.
+    rollupsUpdatedAt:
+      type: string
+      format: date-time
+      description: When the rolled-up figures above were last recomputed. Empty means no task for this request has had a run end yet.
     duplicateOf:
       type: integer
       description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
@@ -147,6 +172,15 @@ schema:
     decisionReason:
       type: string
       description: The person's note on their decision, verbatim. On a rejection it is why, and it is quoted in the body if the request is ever recommended again on new evidence.
+# What rolls up onto a request, and from where: the tasks that point at it.
+# Core recomputes these from every such task when one task's cost is written
+# (packages/core/src/services/objects/rollups.ts); the page reads them like
+# any other field.
+rollups:
+  - {field: estimateCents, from: {type: engineering_task, by: requestId}, sum: estimateCents}
+  - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
+  - {field: varianceCents, from: {type: engineering_task, by: requestId}, sum: varianceCents}
+  - {field: taskCount, from: {type: engineering_task, by: requestId}}
 classificationPrompt: >-
   Given a message from any channel — a form on a product site, a store
   review, an email, a chat message, a GitHub issue, a note from someone on the

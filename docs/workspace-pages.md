@@ -34,10 +34,43 @@ folder belongs to — the one it was last applied to, or the one its
 the pages of the plugins it has on (`project.enabled_plugins`) and nothing of
 the folder's.
 
-A `list`/`queue` page composes: a stats row (`stats:`), grouping
-(`groupBy:`), filtering (`filters:`), sorting, per-field formats
-(`text|badge|score|date|mono|image|money|link|relative|progress`, with badge
-tone maps), a `rowLink` click-through, and custom widgets.
+A `list`/`queue` page composes: a stats row (`stats:`), a series strip
+(`series:`), grouping (`groupBy:`), filtering (`filters:`), sorting, per-field
+formats (`text|badge|score|date|mono|image|money|link|relative|progress`,
+with badge tone maps), column totals (`total: true`), a `rowLink`
+click-through, and custom widgets.
+
+Stats are `count`, `countWhere`, `sum`, `avg`, `min`, `max` or `pctGte` over
+a field, optionally narrowed by a `where` filter, and render as a number or —
+with `format: money` — as dollars read from cents. Filters compare with `eq`,
+`neq`, `gte`, `lte`, `in`, `exists`, or `since`: `{field: meta.paidAt, op:
+since, value: month}` keeps the rows whose date is in this calendar month
+(`week`, `today` and `<n>d` are the other windows; UTC throughout).
+
+A field with `total: true` is summed under the table — under each group's
+table on a grouped page — as money for a `money` column and as a number
+otherwise. `groupBy` over a field that holds a list (a record's tags) puts the
+row in every group it names, so a page grouped by tag reads as "everything
+under this tag" with the cumulative figure beneath it; a row with no value,
+or an empty list, sits under "—".
+
+`series:` draws figures over time under the stats: one strip per entry, one
+column per bucket (`day`, `week` or `month`; `buckets` of them, oldest first,
+ending now), one row per measure (`sum`, `count` or `avg` of a field), each
+row bucketed by its `dateField`. A table rather than a chart — the figures
+are the point.
+
+```yaml
+series:
+  - label: Per week, last 8
+    dateField: meta.costUpdatedAt
+    bucket: week
+    buckets: 8
+    format: money
+    measures:
+      - {label: Estimated, field: meta.estimateCents}
+      - {label: Actual, field: meta.actualCents}
+```
 
 `relative` renders a timestamp as its distance from now ("12s ago", "in 4m")
 with the exact moment on hover; `progress` renders a worker's `{phase, note}`
