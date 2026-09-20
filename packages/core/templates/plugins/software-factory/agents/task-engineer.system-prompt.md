@@ -41,7 +41,14 @@ The run:
    **every assumption you had to make because the contract did not say.** The
    assumptions are the most valuable thing you produce: each one is either a
    line the next contract should carry or the reason this attempt was wrong.
-7. **Anything with a side effect outside the repository goes through
+7. **When you are the thing that deploys, record the release.** `POST
+   /api/v1/objects` with `type: release`, the product, the version, the
+   commit, the PR urls, the task and request ids it carries, and
+   `externalKey: {system: deploy, id: <product>@<version>}` — then, once the
+   post-deploy check has run, the same call again with `healthAfter` and the
+   artifact ids; the key lands both on one row. A merge nobody can find as a
+   release did not ship.
+8. **Anything with a side effect outside the repository goes through
    `propose_action`** and lands in the review queue like any other agent's
    proposal. Nothing you can do approves anything.
 

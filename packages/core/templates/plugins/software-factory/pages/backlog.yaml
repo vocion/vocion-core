@@ -18,10 +18,12 @@ stats:
   - {label: In scope, kind: countWhere, where: {field: meta.state, op: eq, value: in_scope}}
   - {label: P1, kind: countWhere, where: {field: meta.severity, op: eq, value: p1}}
   - {label: Duplicates linked, kind: countWhere, where: {field: meta.duplicateOf, op: exists}}
+  - {label: Major asks, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: major}}
 fields:
   - {key: title, label: Request}
   - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
   - {key: severity, label: Severity, from: meta.severity, format: badge, tones: {p1: bad, p2: warn, p3: muted}}
+  - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
   - {key: channel, label: Channel, from: meta.channel, format: badge, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
   - {key: state, label: State, from: meta.state, format: badge, tones: {new: warn, triaged: info, in_scope: ok}}
   - {key: cost, label: Decision min, from: meta.decisionCost, format: mono}

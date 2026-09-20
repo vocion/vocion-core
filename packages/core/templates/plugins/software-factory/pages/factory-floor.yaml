@@ -18,6 +18,7 @@ stats:
   - {label: Changes requested, kind: countWhere, where: {field: status, op: eq, value: changes_requested}}
   - {label: Accepted, kind: countWhere, where: {field: status, op: eq, value: accepted}}
   - {label: Retried, kind: countWhere, where: {field: meta.attempt, op: gte, value: 2}}
+  - {label: Major in flight, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: major}}
   # A task carries evidence when its first verification entry points at an
   # artifact. The accessor indexes into the array; there is no artifact-link
   # format for a field, so the proof itself is one tap on from the row.
@@ -26,6 +27,7 @@ fields:
   - {key: title, label: Task}
   - {key: repo, label: Repository, from: meta.repoSlug, format: mono}
   - {key: product, label: Product, from: meta.productSlug, format: mono}
+  - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
   - {key: risk, label: Risk, from: meta.riskClass, format: badge, tones: {docs: muted, marketing: muted, deps: info, ui: info, logic: warn, auth: bad, billing: bad, schema: bad, infra: bad, promise: bad}}
   - {key: status, label: Status, from: status, format: badge, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
   - {key: attempt, label: Attempt, from: meta.attempt, format: mono}

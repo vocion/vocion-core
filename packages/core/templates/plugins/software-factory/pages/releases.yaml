@@ -1,0 +1,33 @@
+# Releases — what actually reached people, newest first. The row the
+# portfolio's "shipped this month" counts and the row `tell-the-requester`
+# reads to close the loop. Written by the deploy — a script or the engineer —
+# over POST /api/v1/objects with the deploy's own key, then the health result
+# against the same row once the post-deploy check has run.
+slug: releases
+title: Releases
+description: Every deploy that reached people — product, version, what it carried, what the post-deploy check said, and who has been told.
+icon: rocket
+nav: {section: AppCurious, order: 1}
+archetype: list
+source: {kind: objects, objectType: release}
+sort: {field: meta.releasedAt, dir: desc}
+groupBy: meta.product
+stats:
+  - {label: Releases, kind: count}
+  - {label: Major, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: major}}
+  - {label: Patch, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: patch}}
+  - {label: Unhealthy after, kind: countWhere, where: {field: meta.healthAfter, op: in, value: [down, degraded]}}
+  - {label: Health unknown, kind: countWhere, where: {field: meta.healthAfter, op: eq, value: unknown}}
+  - {label: Notes owned by a person, kind: countWhere, where: {field: meta.notesSource, op: eq, value: human}}
+fields:
+  - {key: title, label: Release}
+  - {key: version, label: Version, from: meta.version, format: mono}
+  - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
+  - {key: health, label: Health after, from: meta.healthAfter, format: badge, tones: {ok: ok, degraded: warn, down: bad, unknown: muted}}
+  - {key: released, label: Released, from: meta.releasedAt, format: date}
+  - {key: deploy, label: Deploy run, from: meta.deployRunUrl, format: link}
+  - {key: commit, label: Commit, from: meta.commitSha, format: mono}
+  - {key: notesBy, label: Notes by, from: meta.notesSource, format: badge, tones: {agent: info, human: ok}}
+  - {key: announced, label: Announced, from: meta.announcedAt, format: date}
+  - {key: announcement, label: Announcement, from: meta.announcement}
+rowLink: /dashboard/objects/{id}

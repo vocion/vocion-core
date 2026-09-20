@@ -96,6 +96,10 @@ not a faster merge, it is a rejected one. This is also why a bug fix can be
 fast: the danger is in the files a fix touches, not in the word "bug", and
 the floor is what says which files.
 
+**`sizeClass`** — `major`, `minor` or `patch`, carried from the request. It
+is what the release it rides in inherits (the largest class aboard), and a
+`major` task is the one the initiative limit counts.
+
 **`decisionCost`** — the minutes of a person's attention the merge ask will
 take: 1 for docs or deps, 5 for ui or logic, 60 for anything that changes an
 architecture, a price, a plan limit or a promise. The promoter sums this over

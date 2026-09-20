@@ -52,11 +52,11 @@ describe('the shipped catalogue', () => {
     const factory = pluginContents(loadPlugin('software-factory'));
 
     expect(factory.agents).toEqual(['change-reviewer', 'task-engineer', 'task-planner']);
-    expect(factory.skills).toEqual(['review-against-contract', 'triage-request', 'write-task-contract']);
+    expect(factory.skills).toEqual(['review-against-contract', 'triage-request', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['house-voice', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
-    expect(factory.objectTypes).toEqual(['engineering_task', 'product', 'repo', 'request']);
-    expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'no-open-p1', 'stand-up-product', 'tell-the-requester']);
-    expect(factory.pages).toEqual(['backlog', 'factory-floor', 'factory-log', 'product-board', 'team-report']);
+    expect(factory.objectTypes).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
+    expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'stand-up-product', 'tell-the-requester']);
+    expect(factory.pages).toEqual(['backlog', 'changelog', 'factory-floor', 'factory-log', 'portfolio', 'product-board', 'releases', 'team-report']);
     expect(factory.hasTrust).toBe(true);
   });
 
@@ -198,7 +198,14 @@ describe('loadWorkspace with the software factory', () => {
     const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
 
     expect(ws.enabledPlugins).toEqual(['software-factory']);
-    expect(ws.objectTypes.map(o => o.slug).sort()).toEqual(['engineering_task', 'product', 'repo', 'request']);
+    expect(ws.objectTypes.map(o => o.slug).sort()).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
+
+    // The board's counters are on the product record, each described as agent-maintained.
+    const product = ws.objectTypes.find(o => o.slug === 'product')?.schema as { properties: Record<string, { description?: string }> };
+    for (const key of ['openRequests', 'p1Open', 'shippedThisMonth', 'medianDaysToShip', 'lastReleaseAt', 'health']) {
+      expect(product.properties[key]?.description).toContain('AGENT-MAINTAINED');
+    }
+
     // Playbooks a plugin ships are active and attached: through a skill's
     // frontmatter for the planner and reviewer, through `playbooks:` on the
     // engineer, which has no skill of its own.
@@ -210,7 +217,7 @@ describe('loadWorkspace with the software factory', () => {
     // reachable.
     expect(ws.agents.find(a => a.slug === 'task-engineer')?.harness?.runsOn).toBe('external-worker');
     expect(ws.agents.find(a => a.slug === 'task-planner')?.harness?.runsOn).toBeUndefined();
-    expect(ws.missions.map(m => m.slug)).toHaveLength(7);
+    expect(ws.missions.map(m => m.slug)).toHaveLength(8);
     // A push runs on its own. A merge is one bar per risk class: docs may
     // earn its way to running within bounds (medium tier), promise never
     // does (high tier); every one starts at approval.
@@ -218,8 +225,12 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'git.merge.docs')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.trust?.rules.find(r => r.action === 'git.merge.promise')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'high', autoApproveAbove: 1 });
     expect(ws.trust?.rules.filter(r => r.action.startsWith('git.merge.'))).toHaveLength(10);
+    // Telling an asker and announcing a release are gated, medium-tier: they may earn their way, never start there.
+    expect(ws.trust?.rules.find(r => r.action === 'notify.requester')).toMatchObject({ enabled: false, risk: 'medium' });
+    expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
+    expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.1.0');
+    expect(ws.sha).toContain('+software-factory@1.2.0');
   });
 });
 

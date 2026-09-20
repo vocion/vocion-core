@@ -1,0 +1,85 @@
+slug: release
+label: Release
+description: >-
+  One deploy of one product that reached people: what went out, which tasks
+  and requests it carried, what the post-deploy check said, and who was told.
+  A release is the unit the portfolio counts ("shipped this month") and the
+  unit `tell-the-requester` reads to close the loop, so it is written by the
+  thing that deployed — a script or the engineer — over `POST /api/v1/objects`
+  with the deploy's own key, and the health result is written to the same row
+  once the check has run. A task that merged but never shipped is not a
+  release, and a release nobody was told about is not finished.
+icon: rocket
+schema:
+  type: object
+  properties:
+    product:
+      type: string
+      description: Slug of the `product` this release belongs to. The join the two dashboards meet on.
+    version:
+      type: string
+      description: The version or tag as the repository names it — `v1.4.2`, `2026.09.20`. What a person quotes when they say "since the release".
+    releasedAt:
+      type: string
+      format: date-time
+      description: When it reached the deployed environment, not when the merge happened. The portfolio's "shipped this month" counts from here.
+    deployRunUrl:
+      type: string
+      description: The deploy job that did it — a CI run, an action log — one tap from the release to the thing that made it.
+    commitSha:
+      type: string
+      description: The commit that was deployed. Read against `engineering_task.commitSha` to know which accepted tasks are actually live.
+    prUrls:
+      type: array
+      description: The pull requests this release carried.
+      items: {type: string}
+    taskIds:
+      type: array
+      description: The `engineering_task` records whose merges rode in it. Each one moves to `accepted` only when its commit is in a release.
+      items: {type: integer}
+    requestIds:
+      type: array
+      description: The `request` records this release closes — the people who asked for something this shipped. `tell-the-requester` reads this list and proposes the reply to each on the channel they used.
+      items: {type: integer}
+    sizeClass:
+      type: string
+      description: 'The largest size class the release carried, in release terms: `major` — a new capability or product; `minor` — a feature within a product; `patch` — fixes only. Decides how it is announced and how loudly.'
+      enum: [major, minor, patch]
+    healthAfter:
+      type: string
+      description: What the post-deploy check said — the black-box e2e and the curl of the deployed URL against this version. `unknown` until the check has run; a release whose health stays `unknown` past the check window is treated as `degraded` by the board.
+      enum: [ok, degraded, down, unknown]
+    healthCheckedAt:
+      type: string
+      format: date-time
+      description: When `healthAfter` was read, so a stale result reads as stale.
+    verificationArtifactIds:
+      type: array
+      description: The artifacts behind `healthAfter` — the trace, the screenshot, the curl. Evidence one tap from the release row.
+      items: {type: integer}
+    notes:
+      type: string
+      description: >-
+        The release notes, markdown, in the product's voice — written from the
+        tasks the release carried and the requests it closed, NEVER from the
+        diff. Each item names what a person can now do and cites the request
+        that asked for it; no internal task ids, no model names, no file
+        paths. Drafted by the agent (`write-release-notes`), owned by a person
+        before it goes anywhere — see `notesSource`.
+    notesSource:
+      type: string
+      description: 'Who last wrote `notes`: `agent` — the draft, as the skill produced it; `human` — a person edited or approved it, and the agent does not overwrite it again. AI fills, human wins.'
+      enum: [agent, human]
+    announcement:
+      type: string
+      description: The short public text — one or two sentences a store listing, a status page or a chat channel can carry whole. Written from `notes`, in the house voice, and released only through the `release.announce` action.
+    announcedAt:
+      type: string
+      format: date-time
+      description: When the announcement was released by a person. Empty means the release has not been announced, and `tell-the-requester` puts it first.
+    announcedTo:
+      type: object
+      description: Where the announcement went and who was told — the channels it was posted to, and the request ids whose askers heard that their request shipped (`notify.requester`, one reply each, on the channel they used). The difference between `requestIds` and `announcedTo.requestIds` is the loop still open.
+      properties:
+        channels: {type: array, items: {type: string}}
+        requestIds: {type: array, items: {type: integer}}

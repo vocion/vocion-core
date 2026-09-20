@@ -18,8 +18,8 @@
 # person accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 1.1.0
-description: Every request — bug, review, email, incident — becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, and a person owns the merge — with the backlog, the products and the floor each on one page.
+version: 1.2.0
+description: Every request — bug, review, email, incident — becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []
 recommend:

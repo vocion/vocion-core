@@ -7,6 +7,72 @@ the evidence attached; a person merges; the asker hears back. Nothing in that
 sentence is new machinery — it is the record noun, the worker-run control
 plane, the review queue and the trust ladder, pointed at changing code.
 
+## Two views, joined on `product`
+
+The plugin puts two dashboards in the nav, and keeps them apart on purpose.
+
+**AppCurious** — the portfolio, first in the nav — is the **outcome view**:
+every product a person answers for, its stage and health, our price beside
+the incumbent's dated list price, what shipped this month, what is still
+owed, how fast a request becomes a release, and the **Releases** that reached
+people. This is what the factory exists to move. Its numbers are read from
+the `product` record or **agent-maintained** on it, and every column that is
+maintained says so.
+
+**Software factory** — the section underneath — is the **evidence**: the
+Backlog, the Factory floor, the Product board, the Factory log and the Team
+report. Every figure on the portfolio can be traced one section down to the
+requests, tasks, runs and spend it was computed from.
+
+Outcomes people own on top, evidence you can reach underneath (values 1 and
+3), joined on the one noun both sides carry: `product`.
+
+### What the lead's tick maintains
+
+A page's stats compute over their own rows, so "open requests per product"
+cannot be a stat on a page whose rows are products. The counters live on the
+`product` record instead — `openRequests`, `p1Open`, `shippedThisMonth`,
+`medianDaysToShip`, `lastReleaseAt`, `health`, stamped `countersUpdatedAt` —
+and the `keep-the-board-honest` mission recomputes them every morning from the
+request and release records, naming the rows each came from. They are labelled
+**agent-maintained** on the page and in the type, because that is their
+provenance: the agent computed them, nothing independent confirmed them, and
+they are dated so a stale one reads as stale. `revenueMonthCents` stays empty
+until a verified Stripe source exists; the column is labelled "no source yet"
+rather than showing a zero nobody measured.
+
+### The release write path
+
+A `release` is written by the thing that deployed — a script or the engineer —
+over **`POST /api/v1/objects`** with `type: release` and
+`externalKey: {system: deploy, id: <product>@<version>}`. Once the post-deploy
+check has run, the same call again with `healthAfter` and the artifact ids
+lands on the same row: the key is what makes a retried write one release, not
+two. `tell-the-requester` then reads each release's `requestIds` against its
+`announcedTo` and proposes the reply to everyone not yet told, on the channel
+they used; the portfolio counts `releasedAt` for "shipped this month". A merge
+nobody can find as a release did not ship.
+
+### Release notes and the announcement
+
+Releases are the unit of "what shipped", so the notes live on the release.
+The **`write-release-notes`** skill drafts them from the tasks the release
+carried and the requests it closed — never from the diff — naming what a
+person can now do and citing the request that asked (`#<requestId>`), in the
+house voice, with no internal task ids or model names. The draft is
+`notesSource: agent`; **a person edits or approves it and it becomes
+`notesSource: human`, after which the agent never writes it again** — AI
+fills, human wins. The `announcement` is one or two public sentences written
+only from owned notes, and releasing it is the **`release.announce`** action:
+approval to start, the medium tier like marketing copy, earning its way to
+running within bounds as people stop editing it. Telling each asker that their
+request shipped is **`notify.requester`** — the same action as the honest "no"
+— one reply per request on the channel they used. `tell-the-requester` puts a
+release with notes and no announcement first in every pass. The **Changelog**
+page (AppCurious) is the public-facing read of the same rows: the announcement
+line per release, newest first; a field cannot render markdown, so the notes
+are one tap on.
+
 ## The decision this plugin rests on
 
 **The `engineering_task` object is the durable record a person looks at. The
@@ -23,7 +89,7 @@ the `workerRuns` source. No second history list, no new route.
 
 ## The nouns
 
-Four object types, one intake door:
+Five object types, one intake door:
 
 - **`request`** — the single intake noun. Every channel lands here as one
   object: `kind` (bug, gap, idea, incident, question), `channel`, `product`,
@@ -43,7 +109,18 @@ Four object types, one intake door:
   class a change touching it may carry), owners, product.
 - **`product`** — name, working name versus launch name, stage, the incumbent
   with its dated and sourced list price beside ours, URLs, repositories, the
-  accountable person, and the written **`promises`**.
+  accountable person, the written **`promises`**, and the agent-maintained
+  counters the portfolio reads (`health`, `openRequests`, `p1Open`,
+  `shippedThisMonth`, `medianDaysToShip`, `lastReleaseAt`, `countersUpdatedAt`).
+- **`release`** — one deploy that reached people: product, version,
+  `releasedAt`, the deploy run, the commit, the PRs, the task and request ids
+  it carried, `sizeClass` (the largest aboard), `healthAfter` with its
+  artifacts, the release `notes` with `notesSource` (agent or human), the
+  `announcement`, `announcedAt` and `announcedTo` (channels and requester ids).
+
+`request` and `engineering_task` both carry a **`sizeClass`** — `major` (a new
+capability or product; counts against the initiative limit), `minor` (a
+feature within a product), `patch` (a fix) — in release terms, not effort.
 
 ## What turning it on adds
 
@@ -61,22 +138,28 @@ Four object types, one intake door:
   a contract line. **Approves nothing without an artifact behind every check**,
   and rejects a contract whose class sits below its floor without reading the
   diff.
-- **Three skills**: `triage-request`, `write-task-contract`,
-  `review-against-contract`.
+- **Four skills**: `triage-request`, `write-task-contract`,
+  `review-against-contract`, `write-release-notes`.
 - **Four playbooks** — the narrative context read before writing anything, and
   the plugin's defaults a workspace overrides with its own facts:
   `the-twenty-percent`, `written-promises`, `verify-against-reality`, and
   `house-voice` (a stub; see below).
-- **Seven standing missions**, each with its cadence: `close-the-gap` (the
+- **Eight standing missions**, each with its cadence: `keep-the-board-honest`
+  (every morning, the portfolio's counters recomputed from the records), `close-the-gap` (the
   lead's promoter tick — no request waits more than a week), `no-open-p1`,
   `stand-up-product` (one product from brief to dogfood; the initiative WIP
   limit lives here), `keep-it-running` (weekly), `half-of-incumbent`
   (monthly read, daily reaction), `green-every-night` (nightly black-box e2e
   against production), `tell-the-requester` (every two hours, the reply back
-  on the asker's channel). Plus two event-triggered intake automations: a
+  on the asker's channel, read from the releases). Plus two event-triggered intake automations: a
   request arriving and a check failing.
 - **Trust rules** per risk class — see *Earned speed*.
-- **Five rows in the plugin's own nav section, "Software factory"**: the
+- **Three rows in the "AppCurious" section, first in the nav**: the
+  **portfolio** (the outcome view above), **Releases** (what reached people,
+  newest first, by product, with the post-deploy health and who owns the
+  notes) and the **Changelog** (the announcement line per release, for the
+  public's eyes).
+- **Five rows in the "Software factory" section underneath**: the
   **Backlog** (every open request, oldest first, by product), the **Factory
   floor** (every task, what is waiting on a person, what carries evidence),
   the **Product board** (stage, URLs, our price beside the incumbent's, who is
@@ -153,7 +236,9 @@ makes a fix dangerous is the risk class of the files it touches — and
 ## Mechanism, meaning, concretion
 
 **Core ships the mechanism**: the record noun and its list archetype, the
-`workerRuns` page source and the `link` row, the `worker_run` control plane
+`workerRuns` page source and the `link` row, `POST /api/v1/objects` (create
+or upsert an object by its external key, so a deploy can record a release),
+the `worker_run` control plane
 (claim, lease, heartbeat, checkpoint, complete, fail, cancel, budgets,
 `counts`), the `external-worker` harness target, artifacts, asks, the review
 queue, the trust ladder and the team report.
@@ -203,7 +288,7 @@ action to move a bar.
 - **Intake adapters.** Nothing here turns a store review or a mailbox into a
   `request.created` event.
 - **Registered actions.** Core does not yet register `git.push_branch`,
-  `git.merge.<class>`, `request.answer`, `deploy.release` or
+  `git.merge.<class>`, `notify.requester`, `release.announce`, `deploy.release` or
   `credentials.write`; the trust rules set the bar and the autonomy page shows
   it, but a worker cannot propose them until core does.
 - **Decision cost on the ask, and a budget on the mission.** Convention today
@@ -218,3 +303,10 @@ action to move a bar.
   Backlog groups by product instead.
 - **A run detail route.** The Factory log's rows open the activity stream
   filtered to workers; a page per run would let the log link straight to it.
+- **A verified revenue source.** `revenueMonthCents` is empty until a Stripe
+  connector can read it as `verified`; the portfolio labels the column "no
+  source yet" and the board mission does not write it.
+- **Cross-type page stats.** The agent-maintained counters exist because a
+  page cannot count another type's rows; a page stat that reads `objects`
+  of a second type keyed on a field would make `openRequests` observed
+  rather than agent-maintained.

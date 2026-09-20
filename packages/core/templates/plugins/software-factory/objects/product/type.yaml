@@ -59,6 +59,37 @@ schema:
         `logic` and never earns its way past a person; the reviewer reads this
         list before approving anything on this product.
       items: {type: string}
+    health:
+      type: string
+      description: >-
+        How the product is doing right now, from the last nightly black-box
+        e2e and the newest release's `healthAfter`. AGENT-MAINTAINED — set by
+        the lead's `keep-the-board-honest` tick from evidence it can point at,
+        never typed by hand, and read with `countersUpdatedAt` beside it.
+      enum: [ok, degraded, down, unknown]
+    openRequests:
+      type: integer
+      description: How many `request` records for this product are still owed an outcome (state new, triaged, in_scope or building). AGENT-MAINTAINED by the lead's tick; a page's stats compute over their own rows, so a cross-type count lives here.
+    p1Open:
+      type: integer
+      description: How many open requests for this product carry severity `p1`. AGENT-MAINTAINED by the lead's tick.
+    shippedThisMonth:
+      type: integer
+      description: How many `release` records for this product have a `releasedAt` in the current calendar month. AGENT-MAINTAINED by the lead's tick.
+    medianDaysToShip:
+      type: number
+      description: Median days from `request.askedAt` to the `releasedAt` of the release that closed it, over the last ninety days of closed requests for this product. AGENT-MAINTAINED — the tick computes it from the records; the team measure that sums a counts key cannot, which is why it lives here and reads as the agent's own figure.
+    lastReleaseAt:
+      type: string
+      format: date-time
+      description: The newest `release.releasedAt` for this product. AGENT-MAINTAINED by the lead's tick.
+    revenueMonthCents:
+      type: integer
+      description: Revenue this month, in cents. LEFT EMPTY until a verified revenue source (Stripe) exists — the portfolio shows the column as "no source yet" rather than a zero nobody measured, because an empty cell is honest and a zero is a claim.
+    countersUpdatedAt:
+      type: string
+      format: date-time
+      description: When the agent-maintained counters above were last recomputed. Shown beside them; a counter older than a day is stale and the board says so.
     notes:
       type: string
       description: Standing knowledge about the product — positioning, who it is for, what was decided and when. Markdown.

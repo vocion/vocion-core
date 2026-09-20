@@ -57,6 +57,10 @@ schema:
       type: string
       description: For bugs and incidents. `p1` — people cannot use what was promised, nothing waits overnight. `p2` — promised, broken, worked around. `p3` — wrong but tolerable. Not a priority score for ideas; an idea has value, not severity.
       enum: [p1, p2, p3]
+    sizeClass:
+      type: string
+      description: 'Size in release terms, not in effort: `major` — a new capability or product, which counts against the initiative limit of one in flight; `minor` — a feature within a product; `patch` — a fix. Decides which release class it rides in and how it is announced.'
+      enum: [major, minor, patch]
     decisionCost:
       type: integer
       description: >-
