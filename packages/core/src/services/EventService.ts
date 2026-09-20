@@ -12,9 +12,11 @@
  * workflow engine's job (Temporal); this is the fan-out.
  */
 
+import type { CausalChain } from '@/services/automations/fireGuards';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { eventLogSchema, workflowSchema } from '@/models/Schema';
+import { eventFireCeiling, selfTriggerReason } from '@/services/automations/fireGuards';
 import { startWorkflow } from '@/services/WorkflowService';
 
 export type EmitEventInput = {
@@ -34,6 +36,14 @@ export type EmitEventInput = {
    * held open for minutes. Only a caller in a request scope may pass it.
    */
   dispatchMode?: 'inline' | 'background';
+  /**
+   * The automation fires whose work raised this event, newest first. A
+   * mission run started by a check carries the check's automation; the
+   * matcher skips every automation on the chain, so nothing is ever fired by
+   * its own run's residue (`services/automations/fireGuards.ts`). Recorded on
+   * the event row. Omit when no automation is behind the event.
+   */
+  causedBy?: CausalChain | null;
 };
 
 /**
@@ -206,6 +216,8 @@ export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;
   triggered: Array<{ slug: string; runId: number }>;
+  /** Automations that matched and were refused by a guard, with the `skipped` run row that says why. */
+  skipped: Array<{ slug: string; automationRunId: number; reason: 'self_trigger' | 'rate_limited' }>;
 };
 
 /**
@@ -358,7 +370,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
       .where(and(eq(eventLogSchema.orgId, input.orgId), eq(eventLogSchema.dedupeKey, input.dedupeKey)))
       .limit(1);
     if (existing) {
-      return { eventId: existing.id, deduped: true, triggered: [] };
+      return { eventId: existing.id, deduped: true, triggered: [], skipped: [] };
     }
   }
 
@@ -377,6 +389,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   });
 
   const triggered: Array<{ slug: string; runId: number }> = [];
+  const skipped: EmitEventResult['skipped'] = [];
   for (const w of matches) {
     try {
       const run = await startWorkflow({
@@ -397,7 +410,15 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   // {do: workflow | checkMission}). The workflow-embedded triggers above
   // remain as a deprecated legacy path.
   const { automationSchema } = await import('@/models/Schema');
-  const { beginAutomationFire, completeAutomationFire, fireAutomation } = await import('@/services/AutomationService');
+  const {
+    beginAutomationFire,
+    completeAutomationFire,
+    countRecentEventFires,
+    fireAutomation,
+    recordSkippedFire,
+    scheduleCoalescedFire,
+  } = await import('@/services/AutomationService');
+  const causedBy = input.causedBy && input.causedBy.length > 0 ? input.causedBy : null;
   const automations = await db
     .select()
     .from(automationSchema)
@@ -422,6 +443,42 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
       }
     }
     try {
+      // An automation never fires on its own run's event. The chain on the
+      // event names the fires behind it; a candidate on that chain, or one
+      // whose own mission just completed, is refused and the refusal logged.
+      // Sixty `wiki-debrief` runs in minutes on 20 September is why.
+      const selfTrigger = selfTriggerReason(a, { type: input.type, payload, causedBy });
+      if (selfTrigger) {
+        const skipId = await recordSkippedFire(input.orgId, a.slug, {
+          event: input.type,
+          payload,
+          result: { kind: 'skipped', reason: 'self_trigger', detail: selfTrigger, event: input.type, causedBy },
+        });
+        skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'self_trigger' });
+        continue;
+      }
+      // The ceiling: past `when.maxFiresPer10m` event fires in the window,
+      // the fire is held and one coalesced fire is arranged for after it.
+      const ceiling = eventFireCeiling(a.whenConfig);
+      if (ceiling !== null && await countRecentEventFires(input.orgId, a.slug) >= ceiling) {
+        const coalesce = await scheduleCoalescedFire(input.orgId, a.slug);
+        const skipId = await recordSkippedFire(input.orgId, a.slug, {
+          event: input.type,
+          payload,
+          result: {
+            kind: 'skipped',
+            reason: 'rate_limited',
+            detail: `over ${ceiling} event fire${ceiling === 1 ? '' : 's'} in ten minutes (when.maxFiresPer10m); ${coalesce === 'unreachable' ? 'Temporal was unreachable, so this fire will not be replayed' : 'held for one coalesced fire after the window'}`,
+            event: input.type,
+            causedBy,
+            ceiling,
+            coalesce,
+            coalescedInto: null,
+          },
+        });
+        skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'rate_limited' });
+        continue;
+      }
       if (input.dispatchMode === 'background') {
         // The fire's row exists before we answer; the pass itself runs after
         // the response. A mission check holds an agent loop for minutes, and
@@ -429,6 +486,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         const pending = await beginAutomationFire(input.orgId, a.slug, {
           input: payload,
           invokedBy: input.invokedBy ?? `event:${input.type}`,
+          causedBy,
         });
         const { after } = await import('next/server');
         after(async () => {
@@ -441,6 +499,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         const res = await fireAutomation(input.orgId, a.slug, {
           input: payload,
           invokedBy: input.invokedBy ?? `event:${input.type}`,
+          causedBy,
         });
         triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
       }
@@ -451,8 +510,8 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
 
   const [row] = await db
     .insert(eventLogSchema)
-    .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null })
+    .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null, causedBy })
     .returning({ id: eventLogSchema.id });
 
-  return { eventId: row!.id, deduped: false, triggered };
+  return { eventId: row!.id, deduped: false, triggered, skipped };
 }

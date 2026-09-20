@@ -981,7 +981,13 @@ export const AutomationManifestSchema = z.object({
     event: z.union([z.string(), z.array(z.string().min(1)).min(1)]).optional(),
     /** Payload filter for event-whens: every key must equal the payload's value. */
     filter: z.record(z.string(), z.unknown()).optional(),
-  }).refine(w => !!w.schedule !== !!w.event, { message: 'when must have exactly one of schedule | event' }),
+    /**
+     * Ceiling on event fires in a rolling ten-minute window (default 6).
+     * Beyond it the fires are held and coalesced into one run after the
+     * window. Event-whens only — a schedule fires on its cron.
+     */
+    maxFiresPer10m: z.number().int().min(1).max(1000).optional(),
+  }).refine(w => !!w.schedule !== !!w.event, { message: 'when must have exactly one of schedule | event' }).refine(w => w.maxFiresPer10m === undefined || !!w.event, { message: 'when.maxFiresPer10m applies to event-whens only — a schedule fires on its cron' }),
   do: z.object({
     workflow: z.string().optional(),
     checkMission: z.string().optional(),

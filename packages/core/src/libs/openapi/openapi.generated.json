@@ -583,6 +583,43 @@
         ]
       }
     },
+    "/api/v1/automations": {
+      "get": {
+        "operationId": "get_automations",
+        "summary": "every automation, with its state.",
+        "tags": [
+          "automations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "every automation, with its state.\n\nWhat an operator needs before deciding which one to stop: each\nautomation's `status` (the authored one), `paused` (a person's hold — who,\nwhen, the note — or null), `when` and `do`, its `lastFire` (the most recent\nreal fire: id, kind, status, when it started and finished — a pause or a\nrefused match is not a fire), and `skips` — what the guards refused in the\nlast ten minutes, so a rate-limited automation is visible from the list."
+      }
+    },
     "/api/v1/automations/runs": {
       "get": {
         "operationId": "get_automations_runs",
@@ -701,6 +738,128 @@
               "type": "string"
             }
           }
+        ]
+      }
+    },
+    "/api/v1/automations/{slug}/pause": {
+      "post": {
+        "operationId": "post_automations_slug_pause",
+        "summary": "the emergency stop.",
+        "tags": [
+          "automations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "the emergency stop.\n\nHolds the automation: a schedule-when's Temporal Schedule is paused, an\nevent-when is skipped by the matcher, and any fire that reaches\n`beginAutomationFire` anyway is refused and recorded. The same service path\nas the dashboard's Pause button, so the record is the same: who (the\nsession's person, or the API token), when, and the `note` — which is\nrequired here, because a stop with no reason is the row nobody can act on\na week later.\n\nNeeds an owner or PM (a tenant token carries its role; a `['*']` grant\npasses too). Pausing an automation that is already paused answers 409 with\nthe current state, so a second operator learns the first got there.\n\n**Requires the `pause_automation` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "pause_automation"
+        ]
+      }
+    },
+    "/api/v1/automations/{slug}/resume": {
+      "post": {
+        "operationId": "post_automations_slug_resume",
+        "summary": "lift a pause.",
+        "tags": [
+          "automations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "lift a pause.\n\nClears the hold, unpauses the Temporal Schedule for a schedule-when, and\nrecords who lifted it and whose pause it was — the same `control` row the\ndashboard's Resume writes. The note is optional here: the reason for a\nresume is usually the pause's note, answered.\n\nNeeds an owner or PM. Resuming an automation that is not paused answers\n409.\n\n**Requires the `pause_automation` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "pause_automation"
         ]
       }
     },
@@ -2617,6 +2776,82 @@
         ]
       }
     },
+    "/api/v1/mission-runs": {
+      "get": {
+        "operationId": "get_mission_runs",
+        "summary": "the run list across every mission.",
+        "tags": [
+          "mission-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "the run list across every mission.\n\nThe read an operator hunts a runaway with: `?status=running` says what is\nin flight right now, `missionSlug` narrows it to one mission's runs, and\n`total` is how many matched — so \"sixty debrief runs\" is one call, not a\ncount in `psql`. Each row is the run's identity and state, with `causedBy`\n(the automation fires behind it, newest first) so the loop that made it can\nbe followed; the plan and the task outputs are on\n`GET /api/v1/mission-runs/:id`.\n\nQuery parameters:\n- `status` — only the runs in that state (`planning`, `running`, `paused`, `awaiting_review`, `completed`, `failed`, `cancelled`).\n- `missionSlug` — only the runs of that mission template.\n- `limit` — how many rows, newest first (default 50, maximum 200).",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state (`planning`, `running`, `paused`, `awaiting_review`, `completed`, `failed`, `cancelled`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "missionSlug",
+            "in": "query",
+            "required": false,
+            "description": "only the runs of that mission template.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "how many rows, newest first (default 50, maximum 200).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/mission-runs/{id}": {
       "get": {
         "operationId": "get_mission_runs_id",
@@ -2683,6 +2918,101 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/mission-runs/{id}/cancel": {
+      "post": {
+        "operationId": "post_mission_runs_id_cancel",
+        "summary": "stop one mission run.",
+        "tags": [
+          "mission-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `MISSION_RUN_SETTLED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "stop one mission run.\n\nThe run is settled `cancelled` with the reason (default \"cancelled by\nuser\"); the loop's own final write honours a settled run and does not\noverwrite it (`settleRun` in `services/missions/runtime.ts`). The same\nservice path as the dashboard and the `mission_cancel` MCP tool.\n\nA run that is already `completed`, `failed` or `cancelled` answers 409 —\nthere is nothing left to stop, and re-labelling a finished run as\ncancelled would rewrite what happened. A missing id, or another org's,\n404s.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "reason": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/missions/{slug}/runs": {

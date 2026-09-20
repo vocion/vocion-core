@@ -22,7 +22,9 @@ import {
   getAutomation,
   listAutomationRuns,
   pausesFor,
+  recentSkipsBySlug,
   scheduleHealth,
+  SKIPPED_RUN_KIND,
 } from '@/services/AutomationService';
 
 /** Two weeks of hourly runs is what makes "healthy for twelve days" visible as such. */
@@ -66,7 +68,7 @@ export default async function AutomationDetailPage(props: {
   const cron = automation.whenConfig.schedule ?? null;
   const now = await currentTime();
   const query = parseRunLogQuery(await props.searchParams, { slug, limit: 200 });
-  const [{ runs, total }, facets, live, strip, pauses] = await Promise.all([
+  const [{ runs, total }, facets, live, strip, pauses, skips] = await Promise.all([
     listAutomationRuns(orgId, query),
     automationRunFacets(orgId),
     cron ? describeAutomationSchedule(orgId, slug) : Promise.resolve(null),
@@ -78,11 +80,13 @@ export default async function AutomationDetailPage(props: {
       limit: 500,
     }),
     pausesFor([automation]),
+    recentSkipsBySlug(orgId, now),
   ]);
   const pause = pauses.get(slug) ?? null;
-  // A pause or a resume sits in the same log but is not a fire: the strip and
-  // "last run" are about the work, so those rows are left to the table below.
-  const fires = strip.runs.filter(run => run.kind !== CONTROL_RUN_KIND);
+  // A pause, a resume or a refused match sits in the same log but is not a
+  // fire: the strip and "last run" are about the work, so those rows are
+  // left to the table below.
+  const fires = strip.runs.filter(run => run.kind !== CONTROL_RUN_KIND && run.kind !== SKIPPED_RUN_KIND);
   // Newest by START time, not by row id: a later-inserted row can be an older
   // run, and the stuck 4 September row would otherwise read as "last run".
   const lastRun = fires.reduce<typeof fires[number] | null>(
@@ -151,7 +155,7 @@ export default async function AutomationDetailPage(props: {
               paused in Temporal, not from here
             </div>
           )}
-          <AutomationCardStatus run={lastRun} health={health} freshness={freshness} slug={slug} />
+          <AutomationCardStatus run={lastRun} health={health} freshness={freshness} slug={slug} skips={skips.get(slug) ?? null} />
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import type { AutomationRunRow } from '@/services/AutomationService';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Link } from '@/libs/I18nNavigation';
-import { controlResultOf, formatDuration, invokedByLabel, summarizeResult, targetRunHref } from './automationResult';
+import { controlResultOf, formatDuration, invokedByLabel, skipResultOf, summarizeResult, targetRunHref } from './automationResult';
 
 /**
  * The run log — every run, one table, newest first.
@@ -48,9 +48,10 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
             const summary = summarizeResult(run.result);
             const href = targetRunHref(run.kind, run.targetRunId);
             const control = controlResultOf(run.result);
-            // A pause or resume took no time and dispatched nothing; its
-            // duration and its run link are honestly blank.
-            const duration = control
+            const skip = skipResultOf(run.result);
+            // A pause, a resume or a refused match took no time and dispatched
+            // nothing; its duration and its run link are honestly blank.
+            const duration = control || skip
               ? null
               : run.finishedAt
                 ? formatDuration(run.finishedAt.getTime() - run.startedAt.getTime())
@@ -65,7 +66,7 @@ export function AutomationRunLog({ runs, showAutomation = true }: { runs: Automa
                     <Link href={`/dashboard/automation/${run.slug}`} className="font-medium hover:underline">{run.slug}</Link>
                   </td>
                 )}
-                <td className={`${CELL} text-muted-foreground`}>{control ? `control · ${control.action}` : run.kind}</td>
+                <td className={`${CELL} text-muted-foreground`}>{control ? `control · ${control.action}` : skip ? `skipped · ${skip.reason === 'rate_limited' ? 'rate limit' : 'own run'}` : run.kind}</td>
                 <td className={`${CELL} font-mono whitespace-nowrap`}>{duration ?? (run.status === 'running' ? 'in flight' : '—')}</td>
                 <td className={`${CELL} whitespace-nowrap text-muted-foreground`} title={run.invokedBy ?? undefined}>
                   {invokedByLabel(run.invokedBy)}

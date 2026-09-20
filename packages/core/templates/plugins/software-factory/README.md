@@ -198,17 +198,6 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   the core spend report beside the log). The floor and the log are live:
   they re-read themselves every 15 seconds while open, so work in flight is
   seen as it happens, not as of page load.
-- **The log, in chat.** Every agent — the workspace lead included — has core's
-  `list_recent_runs` tool, which reads the same `worker_run` rows the Factory
-  log renders: the count, the spend, a count per status, and the most recent
-  runs newest first — id, kind, status, agent, what it was asked to do, the
-  record it ran for, what it said it did, cost, PR, branch and commit when the
-  worker reported them, started and ended — **whether or not a task record
-  exists for the run**, with the recent `release` records beside them. So
-  "what have you built?" and "what shipped?" are answered from the log's own
-  rows, never from a task list that may be empty (2026-09-20: a lead read an
-  empty task list and said "no worker runs" while the log showed fifteen).
-  The product manager `handles` those questions when nobody names an agent.
 - The **software-factory** team, graded on tasks a person accepted, requests
   answered inside a week, recommendations a person decided, pull requests
   opened (the worker's own count, shown as the weakest provenance) and worker
@@ -289,6 +278,11 @@ with a `description` that says why in one sentence, each visible on
 The prompt tells the agent it acts only when one of these fires or a person
 asks it in chat. A workspace changes a cadence by overriding the automation by
 slug; pausing one from the dashboard is a core follow-up (see below).
+`product-debrief`, like every event automation, is never fired by an event its
+own run raised and is held to `when.maxFiresPer10m` (default 6) fires in ten
+minutes, the rest coalesced into one run; pause it over
+`POST /api/v1/automations/product-debrief/pause` or `automation_pause` when it
+must stop now ([automation](../../../../../docs/entities/automation.md#pausing-and-resuming)).
 
 **Earned authorization.** `trust.yaml` carries `product.recommend` (rung
 `recommend`, `low`: the recommendation is the ask, there is nothing for an

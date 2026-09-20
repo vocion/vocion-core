@@ -2,6 +2,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { agentTools } from './tools/agent-tools';
+import { automationTools } from './tools/automation-tools';
 import { capabilityTools } from './tools/capability-tools';
 import { chatTools } from './tools/chat-tools';
 import { dataTools } from './tools/data-tools';
@@ -47,6 +48,7 @@ export async function buildServer(
     ...dataTools(config),
     ...capabilityTools(config),
     ...missionTools(config),
+    ...automationTools(config, identity),
     ...teamsTools(config),
     ...pluginTools(config),
     ...workflowTools(config),
