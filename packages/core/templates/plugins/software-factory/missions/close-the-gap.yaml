@@ -1,0 +1,23 @@
+slug: close-the-gap
+name: No request waits more than a week
+description: >-
+  The standing responsibility of the Task planner — not a one-off run.
+goal: >-
+  Every named request has either a shipped change or an honest written answer
+  within seven days. Nothing sits in the gap between "somebody asked" and
+  "somebody looked": a request that will not be built is answered saying so and
+  why, and a request that will be is a task contract with an objective, allowed
+  paths, acceptance criteria and required checks.
+agent: task-planner
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - No named request is more than seven days old without a merged change or a written answer to the person who asked
+  - Every task carries the id of the request that asked for it; a task that carries none is closed, not dispatched
+  - Every dispatched task has acceptance criteria a command or a person can check, and required checks that were actually run
+  - Every task that could not be made checkable is a question on the review queue, naming what would make it checkable
+desiredArtifacts:
+  - A task contract per request that will be built
+  - A written answer per request that will not be, in the requester's own terms
+  - The four-line plan report per check
+schedule: '0 15 * * 1-5'

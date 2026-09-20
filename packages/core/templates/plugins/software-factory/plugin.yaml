@@ -1,0 +1,31 @@
+# The software-factory plugin — a named request becomes a task contract, a
+# headless worker in its own checkout executes it, deterministic checks decide
+# whether it worked, and a person merges.
+#
+# Learned from running it by hand: the part that made it safe was never the
+# model, it was the contract — an objective, the paths the worker may touch,
+# the checks that have to pass, and the id of the request that asked for it.
+# Everything that went wrong went wrong where the contract was vague. So the
+# contract is the object here, and the worker is the cheap, replaceable part.
+#
+# Core ships the MECHANISM (the `engineering_task` object noun's storage, the
+# `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
+# `counts` — the `external-worker` harness target, the review queue, the trust
+# ladder, the list archetype); this plugin ships the MEANING: what a task
+# contract holds, who writes one, who reviews it against the diff, the bar for
+# a push versus a merge, and the floor a person watches it from. The workspace
+# ships the CONCRETION: its repositories, its products, its budgets and the
+# person accountable for the merge.
+slug: software-factory
+name: Software factory
+version: 1.0.0
+description: Named requests become task contracts, headless workers execute them in isolation, deterministic checks decide whether it worked, and a person owns the merge — with the whole floor on one page.
+depends: []
+surfaces: []
+recommend:
+  when:
+    - a deployment has repositories and wants changes proposed, verified and merged by a person
+    - bug reports or feature requests arrive faster than anyone is working them
+    - the same small change is made by hand in several repositories
+    - a person asks what is in flight, what is stuck, and what nobody has answered for a week
+  connectors: []

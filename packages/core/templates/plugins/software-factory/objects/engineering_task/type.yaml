@@ -1,0 +1,130 @@
+slug: engineering_task
+label: Engineering task
+description: >-
+  One unit of change a worker can execute and a machine can check: what to do,
+  where it may touch, what has to pass, and which named request asked for it.
+  This is the DURABLE record — a person reads the task, not the run. The
+  `worker_run` underneath it is the execution lease (claim, heartbeat, budget,
+  `counts`); a task that was picked up three times is still one task with three
+  attempts, and a task nobody has started yet is still a task. Everything a
+  worker sends back — the branch, the diff, the checks, what it could not
+  establish — lands on the same record, so the contract and its result are read
+  in one place.
+icon: hammer
+schema:
+  type: object
+  properties:
+    repo:
+      type: string
+      description: The repository this change lands in, as owner/name. One task, one repository — a change that spans two is two tasks with a dependency between them.
+    baseSha:
+      type: string
+      description: The commit the work starts from. Written down because a check that passed against a different base proves nothing, and a reviewer reading the diff needs to know what it is a diff against.
+    objective:
+      type: string
+      description: What to accomplish, in one or two sentences, stated as an outcome rather than a set of steps. If it cannot be stated without naming files to edit, the task is not understood well enough to dispatch.
+    requestId:
+      type: string
+      description: >-
+        The id of the named request that asked for this — a review item, an
+        ask, a support thread, a person's message. Required by convention and
+        the single thing that stops the factory building what nobody asked
+        for; a task with no request is a task to close, not to dispatch.
+    requestSummary:
+      type: string
+      description: The request in the requester's own words, one or two lines, so the reviewer can judge the change against what was actually asked rather than against the objective the planner wrote.
+    acceptanceContract:
+      type: array
+      description: >-
+        What has to be true for this to be accepted, one line each, each one
+        checkable by a person or a command without re-reading the whole diff.
+        The reviewer decides against THIS list and nothing else.
+      items: {type: string}
+    allowedPaths:
+      type: array
+      description: >-
+        Globs the worker may create or modify. The blast radius, written before
+        the work starts: a diff that touches anything outside this list is a
+        contract violation and is rejected without being read on its merits.
+      items: {type: string}
+    riskClass:
+      type: string
+      description: >-
+        What the change can break if it is wrong, which is what decides how
+        much evidence the merge takes. Ordered roughly by blast radius — docs
+        and marketing are reversible prose, schema and infra are not.
+      enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra]
+    dependencies:
+      type: array
+      description: Ids of engineering tasks that must be accepted before this one is dispatched. The planner writes the edges; a worker never discovers them at run time.
+      items: {type: string}
+    modelPolicy:
+      type: string
+      description: Which model tier the worker should run on for this task, in the workspace's own words (for example "cheap model, escalate on the second attempt"). The deployment decides what the words mean.
+    tokenBudget:
+      type: integer
+      description: Token ceiling for the whole task across attempts. Charged against the agent's period budget by the run's reported usage, so this is the task's share of it rather than a second budget system.
+    wallClockBudget:
+      type: integer
+      description: Minutes the task may take before the run's deadline passes and the worker is told to stop on its next heartbeat. A task that needs longer than its budget is a task that was scoped wrong.
+    attempt:
+      type: integer
+      description: Which attempt this is, counted from 1. Raised when a run is lost or a fix is dispatched after a failed check — the record shows how many workers it took, which is the honest cost of the task.
+    requiredChecks:
+      type: array
+      description: >-
+        The commands that decide whether the work is done, in the order they
+        run. Deterministic and repeatable: a check no one can run again is not
+        a check. Nothing is accepted on a worker's assurance that it tested it.
+      items: {type: string}
+    status:
+      type: string
+      description: Where the task stands. Plain text rather than an enum because a deployment's stages are its own; these are the ones the plugin's own page filters on.
+      enum: [drafted, ready, dispatched, running, awaiting_review, changes_requested, accepted, rejected, abandoned]
+    branch:
+      type: string
+      description: The branch the worker pushed. Comes back from the run.
+    commitSha:
+      type: string
+      description: The commit the checks actually ran against, which is what the reviewer reads and what a person merges.
+    prUrl:
+      type: string
+      description: The pull request. The one link that takes a person from this record to the change itself, in one move.
+    filesChanged:
+      type: array
+      description: Every path the diff touches, so a contract violation is visible without opening the pull request.
+      items: {type: string}
+    checks:
+      type: array
+      description: The result of each required check, as run. A check with no exit code was not run, and a task whose checks were not run is not reviewable.
+      items:
+        type: object
+        properties:
+          name: {type: string, description: The check, as named in requiredChecks.}
+          passed: {type: boolean}
+          exitCode: {type: integer, description: What the command returned. Kept beside `passed` because a non-zero exit a worker decided was fine is exactly the thing to look at.}
+          artifact: {type: string, description: Where the full output is — a log artifact or a URL. The receipt behind the verdict, one move away.}
+    knownFailures:
+      type: array
+      description: What the worker knows is still broken and is telling you about rather than hiding. A task that ships with a known failure is a decision a person makes, not one a worker makes quietly.
+      items: {type: string}
+    assumptions:
+      type: array
+      description: >-
+        What the worker had to assume because the contract did not say. Read
+        these before the diff: every one of them is either a fact to add to the
+        contract next time or the reason this attempt went wrong.
+      items: {type: string}
+    summary:
+      type: string
+      description: The worker's own one-paragraph account of what it did and what it did not do. Its own words, kept as its own words, never rewritten into the record as fact.
+classificationPrompt: >-
+  Given a request — a review item, an ask, a support thread, a message —
+  decide whether it is one engineering task or several. One task changes one
+  repository, has one objective a worker can execute without asking a
+  question, and has acceptance criteria a command or a reviewer can check.
+  Split on repository boundaries and on anything that has to be accepted
+  before the rest can start, and write the dependency edges. Carry the id of
+  the request onto every task you write. If the request cannot be made
+  checkable, do not write a task: write the question that would make it
+  checkable and put it on the queue.

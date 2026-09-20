@@ -1,0 +1,33 @@
+# The Factory floor — every engineering task, newest first, with what is
+# stuck at the top of the eye. An ordinary `list` over the object noun: the
+# task IS the record a person reads, so there is no worker-run source here and
+# none is needed. Each row opens the task; the pull request is one move on from
+# there. No new table, no new route.
+slug: factory-floor
+title: Factory floor
+description: Every engineering task — its contract, its checks, its pull request and who it is waiting on.
+icon: hammer
+nav: {section: Workspace, order: 7}
+archetype: list
+source: {kind: objects, objectType: engineering_task}
+sort: {field: createdAt, dir: desc}
+stats:
+  - {label: Tasks, kind: count}
+  - {label: Waiting on a person, kind: countWhere, where: {field: status, op: eq, value: awaiting_review}}
+  - {label: Changes requested, kind: countWhere, where: {field: status, op: eq, value: changes_requested}}
+  - {label: Accepted, kind: countWhere, where: {field: status, op: eq, value: accepted}}
+  - {label: Retried, kind: countWhere, where: {field: meta.attempt, op: gte, value: 2}}
+fields:
+  - {key: title, label: Task}
+  - {key: repo, label: Repository, from: meta.repo, format: mono}
+  - {key: risk, label: Risk, from: meta.riskClass, format: badge, tones: {docs: muted, marketing: muted, deps: info, ui: info, logic: warn, auth: bad, billing: bad, schema: bad, infra: bad}}
+  - {key: status, label: Status, from: status, format: badge, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
+  - {key: attempt, label: Attempt, from: meta.attempt, format: mono}
+  - {key: request, label: Asked by, from: meta.requestId, format: mono}
+  - {key: pr, label: PR, from: meta.prUrl, format: mono}
+  - {key: created, label: Opened, from: createdAt, format: date}
+# Abandoned tasks are the archive, not the floor; a workspace that wants them
+# replaces this file by slug.
+filters:
+  - {field: status, op: neq, value: abandoned}
+rowLink: /dashboard/objects/{id}

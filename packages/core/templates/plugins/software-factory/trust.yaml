@@ -1,0 +1,63 @@
+# Where each of the factory's action kinds starts on the autonomy ladder, and
+# why it starts there. Four bars, ordered by what is on the other side of a
+# mistake — not by how often the action is taken.
+#
+# A note on "forbidden": the ladder has no such rung. `execute-with-approval`
+# with `enabled: false` is the most restrictive bar that still describes what
+# actually happens (the agent proposes, a person decides, and only then does
+# anything run), and `autoApproveAbove: 1` is set on those rules so that even a
+# confidence of 1.0 cannot release them if a workspace later flips `enabled`
+# without thinking about it. `observe` would be more restrictive still and
+# would be a lie: these agents do propose.
+#
+# These action ids are the factory's own. Core registers `wiki.write_page` and
+# the connector writes; it does not yet register a git or deploy action, so
+# until it does these rules set the bar and the autonomy page shows it, and no
+# proposal can be released above it. Registering them is a core change, named
+# as a follow-up in the README.
+rules:
+  # Pushing a branch is the cheapest write in the system: it creates nothing a
+  # person has to live with, it is deleted with one command, and nothing
+  # downstream runs because of it. Holding it for review would put a person in
+  # front of every attempt while buying no safety at all — so it runs on its
+  # own at 0.7, above the reversible-write bar the wiki uses, because a push
+  # carries a worker's whole diff rather than one page.
+  - action: git.push_branch
+    autoApproveAbove: 0.7
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+
+  # The merge is the decision the whole factory exists to put in front of a
+  # person: it is where a change becomes something other people build on, and
+  # it is the one step no agent in this plugin holds authority over — not the
+  # planner that wrote the contract, not the worker that made the diff, not the
+  # reviewer that approved it. Approval-only, permanently: a workspace may
+  # narrow this, and raising it is a decision about who runs the company's
+  # code, not a threshold.
+  - action: git.merge_main
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+
+  # A deploy reaches people who never asked for the change and cannot undo it
+  # from where they are standing. Asked, every time, and at the high tier so
+  # the ladder demands high-tier evidence before it will even offer to promote
+  # it.
+  - action: deploy.release
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+
+  # Anything touching credentials: the worker runs on a machine we do not host,
+  # so a credential it can read is a credential that has left the building. The
+  # agent may say what it needs and why; a person does it. That is `recommend`
+  # rather than `execute-with-approval` on purpose — there is nothing here for
+  # an approval to release, because the action itself is a person's.
+  - action: credentials.write
+    autoApproveAbove: 1
+    enabled: false
+    rung: recommend
+    risk: high
