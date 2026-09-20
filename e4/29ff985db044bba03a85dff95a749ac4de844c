@@ -1,0 +1,22 @@
+packages/core/e2e/queue/approve-each-send.queue.spec.ts
+  s_57146da98e2611::t_a296ab229be1f4 94-97,99-100
+  s_57146da98e2611::t_9285b5e933e402 101
+packages/core/playwright.config.ts
+  s_57146da98e2611::t_a296ab229be1f4 145-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e429ff985db044bba03a85dff95a749ac4de844c",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
