@@ -1,0 +1,176 @@
+packages/core/src/services/agents/tools/zoomTranscript.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 45
+packages/core/migrations/meta/_journal.json
+  s_9ce9c9385bb6fb::t_3ffa53c2715202 844-850,853
+packages/core/src/libs/sources/googleAds.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 41-43
+packages/core/src/libs/sources/slack.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 33-35
+packages/core/src/libs/sources/web.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 96-98
+packages/core/src/services/agents/tools/zoomTranscript.ts
+  s_9ce9c9385bb6fb::t_62c3880dd66d38 141
+  s_9ce9c9385bb6fb::t_15d2cd9b8f7c09 18
+  s_9ce9c9385bb6fb::t_7c80fa9641f74f 60-63,66,71,74
+packages/core/src/services/agents/tools/apolloCompanies.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 42
+packages/core/src/services/SourceSyncService.handoff.test.ts
+  s_9ce9c9385bb6fb::t_703c9c847d146d 16-17
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_9ce9c9385bb6fb::t_ec6a75e5b78f2d 226-228
+packages/core/src/services/agents/skillTurn.ts
+  s_9ce9c9385bb6fb::t_cd3dc5ad3e45c6 32
+  s_9ce9c9385bb6fb::t_7d6636c1a7ac6e 169-171
+packages/core/src/services/SourceSyncService.events.test.ts
+  s_9ce9c9385bb6fb::t_703c9c847d146d 23-24
+packages/core/src/libs/sources/localFiles.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 48-50
+packages/core/src/libs/sources/zoom.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 188-190
+packages/core/src/services/ActionService.ts
+  s_9ce9c9385bb6fb::t_ad9a6d41997ffb 28,537-541
+packages/core/src/services/agents/tools/hubspotCompanies.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 35
+packages/core/src/libs/sources/apollo.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 150-152
+packages/core/src/libs/sources/hubspot.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 218-220
+packages/core/src/services/agents/types.ts
+  s_9ce9c9385bb6fb::t_30bf0da90f63fb 272-284
+packages/core/src/scripts/kit-inspect.ts
+  s_9ce9c9385bb6fb::t_cd3dc5ad3e45c6 24,70
+packages/core/src/app/[locale]/rpc/connectors/[slug]/inspect/route.ts
+  s_9ce9c9385bb6fb::t_5acb9484649da1 28,38,83
+packages/core/src/app/[locale]/rpc/sources/[id]/credentials/route.ts
+  s_9ce9c9385bb6fb::t_15d2cd9b8f7c09 40
+  s_9ce9c9385bb6fb::t_5acb9484649da1 57,105
+packages/core/src/services/SourceCredentialService.ts
+  s_9ce9c9385bb6fb::t_44c973924a2471 779,784,814,817-825,828-836
+  s_9ce9c9385bb6fb::t_15d2cd9b8f7c09 826-827
+  s_9ce9c9385bb6fb::t_62b1da9ed1bcf3 105-135
+  s_9ce9c9385bb6fb::t_2909e9f32fda61 616-632,637,643,673,689-719,726,728-742
+  s_9ce9c9385bb6fb::t_774886a0b63037 40-41,48-81,754,837
+  s_9ce9c9385bb6fb::t_19119cce0fd94b 720-725,727,743-753
+  s_9ce9c9385bb6fb::t_8031a62aaa0faf 82,755
+packages/core/src/services/agents/tools/apolloDirect.ts
+  s_9ce9c9385bb6fb::t_7cb1ce1db429a5 108
+packages/core/migrations/0120_source_credential_owner.sql
+  s_9ce9c9385bb6fb::t_3ffa53c2715202 1-49
+packages/core/src/services/agents/tools/gmailThread.ts
+  s_9ce9c9385bb6fb::t_62c3880dd66d38 76,122
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_9ce9c9385bb6fb::t_703c9c847d146d 12-13
+packages/core/src/services/agents/tools/hubspotDeals.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 36
+packages/core/src/services/agents/tools/gmailThread.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 46
+packages/core/src/libs/sources/strapi.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 321-323
+packages/core/src/libs/sources/ga4.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 36-38
+packages/core/src/services/agents/tools/discovery.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 67
+packages/core/src/services/agents/tools/hubspotDirect.ts
+  s_9ce9c9385bb6fb::t_7cb1ce1db429a5 20,25,88,94-95,97,99,105
+packages/core/src/services/agents/toolEndpoint.ts
+  s_9ce9c9385bb6fb::t_99913314170982 61-65
+  s_9ce9c9385bb6fb::t_c41f3c916e30ad 22
+packages/core/src/services/agents/claims.ts
+  s_9ce9c9385bb6fb::t_99913314170982 25-35
+packages/core/src/libs/sources/googleCalendar.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 87-92
+packages/core/migrations/concurrent/0120_source_credential_owner_idx.sql
+  s_9ce9c9385bb6fb::t_3ffa53c2715202 1-21
+packages/core/src/services/agents/tools/personalization.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 56
+packages/core/src/app/[locale]/rpc/sources/[id]/credentials/route.test.ts
+  s_9ce9c9385bb6fb::t_299e3be22ed02a 24,127-129
+packages/core/src/scripts/google-oauth.ts
+  s_9ce9c9385bb6fb::t_64577fe7528d0e 137-142
+packages/core/src/libs/sources/s3.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 83-85
+packages/core/src/libs/sources/fileImport.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 90-92
+packages/core/src/models/Schema.ts
+  s_9ce9c9385bb6fb::t_c85347b10ebbff 2205-2210,2229-2235
+packages/core/src/app/api/v1/objects/[id]/analyze/route.ts
+  s_9ce9c9385bb6fb::t_cd3dc5ad3e45c6 7
+  s_9ce9c9385bb6fb::t_7d6636c1a7ac6e 63-65
+packages/core/src/services/agents/tools/hubspotCatalog.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 36
+packages/core/src/services/agents/toolCallRecord.test.ts
+  s_9ce9c9385bb6fb::t_aa2399b1f3d4fb 23
+packages/core/src/libs/sources/granola.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 86-88
+packages/core/src/services/SourceSyncService.concurrency.test.ts
+  s_9ce9c9385bb6fb::t_703c9c847d146d 20-21
+packages/core/src/services/agents/tools/apolloPeople.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 40
+packages/core/src/services/agents/providers/runtime.ts
+  s_9ce9c9385bb6fb::t_ec6a75e5b78f2d 37,45
+  s_9ce9c9385bb6fb::t_75f740f308323f 61-62,109,125
+  s_9ce9c9385bb6fb::t_7d6636c1a7ac6e 250
+packages/core/src/services/AgentService.ts
+  s_9ce9c9385bb6fb::t_99913314170982 6,13
+  s_9ce9c9385bb6fb::t_95ece6ceb89e0f 349-359,505
+packages/core/src/services/SourceSyncService.ts
+  s_9ce9c9385bb6fb::t_19119cce0fd94b 52,708-714
+  s_9ce9c9385bb6fb::t_df0c167ebd9de2 706-707,719
+packages/core/src/app/[locale]/rpc/connectors/[slug]/inspect/route.test.ts
+  s_9ce9c9385bb6fb::t_299e3be22ed02a 22,214
+packages/core/src/libs/sources/drive.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 48-53
+packages/core/src/libs/sources/jira.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 194-196
+packages/core/src/services/agents/tools/hubspotLeads.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 40
+packages/core/src/services/SourceCredentialService.test.ts
+  s_9ce9c9385bb6fb::t_328c9d3220aad8 13,167-236,238-251
+  s_9ce9c9385bb6fb::t_aa2399b1f3d4fb 66,104,152,158,166,762,776,787,796,805
+  s_9ce9c9385bb6fb::t_15d2cd9b8f7c09 237
+packages/core/src/services/agents/providers/agentcore.ts
+  s_9ce9c9385bb6fb::t_15d2cd9b8f7c09 34,50
+  s_9ce9c9385bb6fb::t_50b6c0ccf46566 378-379
+  s_9ce9c9385bb6fb::t_7d6636c1a7ac6e 410
+packages/core/src/libs/sources/gmail.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 195-201
+packages/core/src/services/ConnectorCredentialBackfill.test.ts
+  s_9ce9c9385bb6fb::t_aa2399b1f3d4fb 59,120
+packages/core/src/services/SourceSyncService.processor.test.ts
+  s_9ce9c9385bb6fb::t_703c9c847d146d 25-26
+packages/core/src/interfaces/mcp/tools/agent-tools.ts
+  s_9ce9c9385bb6fb::t_7d6636c1a7ac6e 94-96
+  s_9ce9c9385bb6fb::t_cd3dc5ad3e45c6 36
+packages/core/src/libs/sources/types.ts
+  s_9ce9c9385bb6fb::t_aa8d1c56eaab38 22-62,96-114
+packages/core/src/services/agents/harness.ts
+  s_9ce9c9385bb6fb::t_15d2cd9b8f7c09 31
+  s_9ce9c9385bb6fb::t_98ed4168c21c2d 205-209,418,429
+  s_9ce9c9385bb6fb::t_a6c2336b13b3b3 44
+packages/core/src/scripts/set-credential.ts
+  s_9ce9c9385bb6fb::t_64577fe7528d0e 77-78
+packages/core/src/services/agents/tools/apolloLists.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 50
+packages/core/src/libs/sources/notion.ts
+  s_9ce9c9385bb6fb::t_b85f661a4d6996 373-375
+packages/core/src/services/agents/tools/apolloAccount.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 39
+packages/core/src/services/agents/tools/crm.test.ts
+  s_9ce9c9385bb6fb::t_1f4ba21dffcfe9 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "68545fe1af5ed68b783d54574f9e40e04ca16477",
+  "prompts": {},
+  "sessions": {
+    "s_9ce9c9385bb6fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b81bb2d-a84e-45da-9314-543756b3f7cb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

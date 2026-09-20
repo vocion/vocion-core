@@ -1,0 +1,80 @@
+packages/core/src/models/Schema.ts
+  s_9ce9c9385bb6fb::t_4df5f7e1e0e5a9 2247-2277
+  s_9ce9c9385bb6fb::t_f8aeb98abac38d 2278-2312
+packages/core/migrations/0123_connection_intent.sql
+  s_9ce9c9385bb6fb::t_5b4187a0f8101a 1-44
+packages/core/src/features/dashboard/chat/connectSource.ts
+  s_9ce9c9385bb6fb::t_e47c6de41d15d7 73
+packages/core/src/app/api/oauth/[platform]/start/route.ts
+  s_9ce9c9385bb6fb::t_3ec20b74235d8a 1-65
+packages/core/src/services/agents/connectionIntent.test.ts
+  s_9ce9c9385bb6fb::t_0f97208f028474 1-88
+packages/core/src/services/agents/types.ts
+  s_9ce9c9385bb6fb::t_e47c6de41d15d7 214-218
+  s_9ce9c9385bb6fb::t_69f4321c0a3ad0 213
+packages/core/src/libs/oauth/providers.ts
+  s_9ce9c9385bb6fb::t_e89db43b5f0b25 1-83
+packages/core/src/services/agents/resume.ts
+  s_9ce9c9385bb6fb::t_482b6ef2b54928 1-17,19-26,29-122
+  s_9ce9c9385bb6fb::t_d859d1a4a3bf06 18
+  s_9ce9c9385bb6fb::t_09c39f19beb7b2 27-28
+packages/core/src/features/dashboard/chat/AgentMessage.tsx
+  s_9ce9c9385bb6fb::t_815e913407c404 239
+  s_9ce9c9385bb6fb::t_b28e4df327b722 84
+packages/core/src/features/dashboard/chat/types.ts
+  s_9ce9c9385bb6fb::t_e47c6de41d15d7 119-120
+packages/core/src/features/dashboard/chat/ConnectSourceCard.stories.tsx
+  s_9ce9c9385bb6fb::t_2d645132768c37 27
+packages/core/src/services/OAuthService.test.ts
+  s_9ce9c9385bb6fb::t_b081ef943beb05 1-119,124-205
+  s_9ce9c9385bb6fb::t_edd5f7bd842e9a 120-123
+packages/core/src/services/OAuthService.ts
+  s_9ce9c9385bb6fb::t_110becc14a887c 1-46,50-73,77-295
+  s_9ce9c9385bb6fb::t_8f471070f602d5 47-49
+  s_9ce9c9385bb6fb::t_abf650bfc8db2a 74-76
+packages/core/src/features/dashboard/chat/ConnectSourceCard.tsx
+  s_9ce9c9385bb6fb::t_190e097c869d8f 132-143,145
+packages/core/src/services/agents/tools/connect.test.ts
+  s_9ce9c9385bb6fb::t_9cec1d27a84c60 10,14-17,80
+packages/core/migrations/meta/_journal.json
+  s_9ce9c9385bb6fb::t_8a3846fb719f5f 858-864
+  s_9ce9c9385bb6fb::t_5b4187a0f8101a 865-871
+packages/core/src/app/api/oauth/[platform]/callback/route.ts
+  s_9ce9c9385bb6fb::t_3ec20b74235d8a 1-16,21-60
+  s_9ce9c9385bb6fb::t_e58b88f1be03ef 17-20
+packages/core/src/features/dashboard/chat/MessageList.tsx
+  s_9ce9c9385bb6fb::t_b28e4df327b722 52
+packages/core/src/features/dashboard/chat/useChatSession.ts
+  s_9ce9c9385bb6fb::t_815e913407c404 1113-1116,1502,1504-1510,1517
+  s_9ce9c9385bb6fb::t_6791cdcd175602 1520-1544
+  s_9ce9c9385bb6fb::t_b28e4df327b722 1012,1117,1512
+packages/core/migrations/0122_oauth_state.sql
+  s_9ce9c9385bb6fb::t_8a3846fb719f5f 1-34
+packages/core/src/services/agents/tools/connect.ts
+  s_9ce9c9385bb6fb::t_e47c6de41d15d7 27,86-102,118
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_9ce9c9385bb6fb::t_92c09f03061a69 219-226,233,235-237,239-254,260
+  s_9ce9c9385bb6fb::t_b28e4df327b722 227-232,234,238
+packages/core/src/services/agents/connectionIntent.ts
+  s_9ce9c9385bb6fb::t_a288b952518007 1-155
+packages/core/src/libs/oauth/pkce.ts
+  s_9ce9c9385bb6fb::t_e89db43b5f0b25 1-11,13-15,18-38
+  s_9ce9c9385bb6fb::t_dced533370f4fa 12
+  s_9ce9c9385bb6fb::t_2bd5a9bef26f69 16-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a1e68c734b96f410128171533fafea9950361da8",
+  "prompts": {},
+  "sessions": {
+    "s_9ce9c9385bb6fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b81bb2d-a84e-45da-9314-543756b3f7cb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

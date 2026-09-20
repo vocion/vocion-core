@@ -1,0 +1,128 @@
+packages/core/src/services/agents/tools/gmailThread.test.ts
+  s_9ce9c9385bb6fb::t_7b4041b40d9cb6 20-27,36,113,149,155,172,212,226,239
+packages/core/src/services/agents/tools/zoomTranscript.test.ts
+  s_9ce9c9385bb6fb::t_7b4041b40d9cb6 19-26,35,93,125,141,164,191,211,233,245
+packages/core/src/features/dashboard/chat/AgentMessage.tsx
+  s_9ce9c9385bb6fb::t_abcf31477808d6 12
+  s_9ce9c9385bb6fb::t_db1da946894330 76-84,111,233-241
+packages/core/src/features/dashboard/chat/MessageList.tsx
+  s_9ce9c9385bb6fb::t_8e399e74d75361 51-52,58,131
+packages/core/src/features/dashboard/chat/ChatDock.tsx
+  s_9ce9c9385bb6fb::t_2fb4a50dd1125f 669
+packages/core/src/services/ArtifactService.test.ts
+  s_9ce9c9385bb6fb::t_1f147be188e54c 5,252-263
+  s_9ce9c9385bb6fb::t_3af324c48be06c 221,227,240,246,270
+  s_9ce9c9385bb6fb::t_33902696adcd4f 264-265
+packages/core/src/app/[locale]/rpc/connectors/[slug]/connect/route.ts
+  s_9ce9c9385bb6fb::t_36bce90b978ff7 1-28,31-39,44-140,142-161,163-175,177-208,210-223
+  s_9ce9c9385bb6fb::t_abcf31477808d6 29-30,40-43
+  s_9ce9c9385bb6fb::t_327bbb3d4ecd5c 141,162,176
+  s_9ce9c9385bb6fb::t_b0e942ad6e6bfe 209
+packages/core/src/features/dashboard/chat/connectSource.ts
+  s_9ce9c9385bb6fb::t_0978b20781a7cd 1-76
+packages/agent-runtime/src/loop.cacheKey.test.ts
+  s_9ce9c9385bb6fb::t_37c02cc7187bb5 33,38-44,48
+packages/core/src/app/[locale]/(auth)/dashboard/chat/[id]/page.tsx
+  s_9ce9c9385bb6fb::t_b15db58b4074d6 29
+packages/core/src/services/ConversationService.private.test.ts
+  s_9ce9c9385bb6fb::t_d39b07cf461d6c 1-102
+packages/core/src/services/agents/types.ts
+  s_9ce9c9385bb6fb::t_026362fe10054c 183-219,264-269
+  s_9ce9c9385bb6fb::t_e7661757167d7f 328-341
+packages/core/src/services/agents/tools/connect.ts
+  s_9ce9c9385bb6fb::t_abcf31477808d6 28-31
+  s_9ce9c9385bb6fb::t_613153e85c59c3 1-27,32-133
+packages/core/src/services/agents/tools/zoomTranscript.ts
+  s_9ce9c9385bb6fb::t_abcf31477808d6 28
+  s_9ce9c9385bb6fb::t_cd292a9bc2be68 30,64-66,69,74,77-88,153
+packages/core/src/services/EmailSurfaceService.ts
+  s_9ce9c9385bb6fb::t_3b042d92f8459f 308
+packages/core/src/features/dashboard/chat/ConnectSourceCard.tsx
+  s_9ce9c9385bb6fb::t_826557802d31de 1-271
+packages/core/src/features/dashboard/chat/types.ts
+  s_9ce9c9385bb6fb::t_0978b20781a7cd 94-122,173-174
+packages/core/src/services/agents/capabilityLedger.test.ts
+  s_9ce9c9385bb6fb::t_2cc9c81b5d2a2a 1-30,36-151
+  s_9ce9c9385bb6fb::t_abcf31477808d6 31-35
+packages/core/migrations/0121_conversation_private.sql
+  s_9ce9c9385bb6fb::t_a77b0fe0b42749 1-24
+packages/core/src/services/agents/tools/connect.test.ts
+  s_9ce9c9385bb6fb::t_9380b818658eee 1-127
+packages/core/src/services/agents/tools/gmailThread.ts
+  s_9ce9c9385bb6fb::t_cd292a9bc2be68 76,122
+packages/core/src/services/agents/tools/registry.ts
+  s_9ce9c9385bb6fb::t_e7661757167d7f 19,28,81,86-123,138,143,194-197
+packages/core/src/services/ConversationService.ts
+  s_9ce9c9385bb6fb::t_abcf31477808d6 624
+  s_9ce9c9385bb6fb::t_0eee3883e755e1 158-172,174-177,198-235,259-268,509,517-518,525-533,626-627
+  s_9ce9c9385bb6fb::t_ba4d5f6c5fa1a1 173,178-190,194,292
+packages/core/migrations/meta/_journal.json
+  s_9ce9c9385bb6fb::t_a77b0fe0b42749 851-857
+packages/core/src/features/dashboard/chat/ChatShell.tsx
+  s_9ce9c9385bb6fb::t_8e399e74d75361 225
+packages/core/src/services/SourceCredentialService.ts
+  s_9ce9c9385bb6fb::t_cd292a9bc2be68 818-884
+packages/core/src/services/ConversationService.rail.test.ts
+  s_9ce9c9385bb6fb::t_0292f8f6e7e3c8 43,47,57,66,128
+packages/core/src/app/[locale]/(auth)/dashboard/artifacts/page.tsx
+  s_9ce9c9385bb6fb::t_0f75a42de598f4 24
+packages/core/src/services/agents/harness.ts
+  s_9ce9c9385bb6fb::t_700528a4e40798 45,195-201,226-231,234-240
+  s_9ce9c9385bb6fb::t_f235e61307573e 60-77,410,412,418,420,427
+  s_9ce9c9385bb6fb::t_327bbb3d4ecd5c 437-454
+packages/core/src/app/[locale]/rpc/sources/[id]/credentials/route.ts
+  s_9ce9c9385bb6fb::t_87501cd5c4945d 276,312,341
+  s_9ce9c9385bb6fb::t_327bbb3d4ecd5c 249-251
+  s_9ce9c9385bb6fb::t_abcf31477808d6 38
+packages/core/src/services/ChatSurfaceService.ts
+  s_9ce9c9385bb6fb::t_3b042d92f8459f 275-277
+packages/core/src/routers/Conversations.ts
+  s_9ce9c9385bb6fb::t_de8340dfdd65ee 34-37,41,125-126,133-134
+packages/agent-runtime/src/loop.ts
+  s_9ce9c9385bb6fb::t_37c02cc7187bb5 108-114
+packages/core/src/services/agents/capabilityLedger.ts
+  s_9ce9c9385bb6fb::t_31ec34a8f604bc 1-4,6-23,25-39,42-88,93-162,173-259
+  s_9ce9c9385bb6fb::t_abcf31477808d6 5,24,89-92,163-172
+  s_9ce9c9385bb6fb::t_1b6d5a2c9ba13b 40-41
+packages/core/src/models/Schema.ts
+  s_9ce9c9385bb6fb::t_f98a08cea1e289 1349-1358
+packages/core/src/services/agents/toolEndpoint.test.ts
+  s_9ce9c9385bb6fb::t_d2c72ff84b972a 123-155
+packages/core/src/services/ArtifactService.ts
+  s_9ce9c9385bb6fb::t_3d5f5a8edc2132 594-603,628-633
+packages/core/src/services/AgentService.ts
+  s_9ce9c9385bb6fb::t_13ff4cd9af78c8 360-365,510
+packages/core/src/services/ConversationService.scope.test.ts
+  s_9ce9c9385bb6fb::t_0292f8f6e7e3c8 80,89
+packages/core/src/app/[locale]/(auth)/dashboard/artifacts/[id]/page.tsx
+  s_9ce9c9385bb6fb::t_b15db58b4074d6 33
+packages/core/src/app/[locale]/(auth)/dashboard/conversations/page.tsx
+  s_9ce9c9385bb6fb::t_b15db58b4074d6 59
+packages/core/src/routers/Artifacts.ts
+  s_9ce9c9385bb6fb::t_de8340dfdd65ee 51-52
+  s_9ce9c9385bb6fb::t_8e4edb0d506078 79-80
+packages/core/src/app/[locale]/rpc/agent/stream/route.ts
+  s_9ce9c9385bb6fb::t_13ff4cd9af78c8 36,229
+  s_9ce9c9385bb6fb::t_3b042d92f8459f 100,136
+packages/core/src/features/dashboard/chat/useChatSession.ts
+  s_9ce9c9385bb6fb::t_0ccdf7625fbdfa 1496-1507,1509-1512,1514,1516-1517
+  s_9ce9c9385bb6fb::t_f0fb8fe11c19f8 604-631
+  s_9ce9c9385bb6fb::t_a04bf488713280 12
+  s_9ce9c9385bb6fb::t_8e399e74d75361 1508,1513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8bcf4767482fb865e47ae4f67340e01f9efdefa0",
+  "prompts": {},
+  "sessions": {
+    "s_9ce9c9385bb6fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b81bb2d-a84e-45da-9314-543756b3f7cb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
