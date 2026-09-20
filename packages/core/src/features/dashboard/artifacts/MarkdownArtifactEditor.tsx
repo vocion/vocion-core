@@ -12,12 +12,16 @@
 
 import { useEffect, useRef } from 'react';
 
-export function MarkdownArtifactEditor({ value, onChange, onSave, onCancel, disabled }: {
+export function MarkdownArtifactEditor({ value, onChange, onSave, onCancel, disabled, label, hint }: {
   value: string;
   onChange: (next: string) => void;
   onSave: () => void;
   onCancel: () => void;
   disabled?: boolean;
+  /** What the textarea holds, for assistive tech. Default: the markdown body. */
+  label?: string;
+  /** The one-line footer. Default names ⌘S and Esc. */
+  hint?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -41,10 +45,10 @@ export function MarkdownArtifactEditor({ value, onChange, onSave, onCancel, disa
         }}
         spellCheck
         className="min-h-64 flex-1 resize-none rounded-lg border border-border bg-background p-3 font-mono text-[13px] leading-6 text-foreground focus:border-foreground/30 focus:outline-none"
-        aria-label="Artifact body (markdown)"
+        aria-label={label ?? 'Artifact body (markdown)'}
       />
       <p className="text-[11px] text-muted-foreground">
-        ⌘S saves a new version · Esc discards
+        {hint ?? '⌘S saves a new version · Esc discards'}
       </p>
     </div>
   );

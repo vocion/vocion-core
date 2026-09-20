@@ -102,6 +102,12 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   'qc.release': 'medium',
   'qc.request_rework': 'low',
   'dataset.add_example': 'low',
+  // Reversible and internal, so the done-for-you default would run them above
+  // 0.8 — but a mission is a standing responsibility and a playbook is the
+  // procedure every run reads. Medium holds both at Execute with approval
+  // until a workspace's trust.yaml promotes them.
+  'workspace.write_mission': 'medium',
+  'workspace.write_playbook': 'medium',
 };
 
 /**

@@ -19,6 +19,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { SOURCE_ARTIFACT_KINDS } from '@/libs/workspace/source';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload, updateArtifact } from '@/services/ArtifactService';
 import { authorOf } from './renderArtifacts';
 
@@ -115,10 +116,19 @@ export function updateArtifactTool(ctx: RuntimeContext) {
       }
       try {
         const spec = args.spec === undefined ? undefined : coerceJson(args.spec);
-        if (spec !== undefined || args.content_markdown !== undefined) {
+        if (spec !== undefined || args.content_markdown !== undefined || args.title !== undefined) {
           const row = await getArtifact({ orgId: ctx.orgId, id: found.id });
-          if (row?.kind === 'document') {
+          if (row?.kind === 'document' && (spec !== undefined || args.content_markdown !== undefined)) {
             return `update_artifact cannot rewrite a document's content — use edit_document(${found.id}, ops) so the change is by sheet and render-verified. Title and folder changes are fine here.`;
+          }
+          // A mission or a playbook mirrors a workspace FILE; the file is the
+          // source of truth and an agent's change to it is reviewed. Only its
+          // folder is metadata that can move here.
+          if (row && SOURCE_ARTIFACT_KINDS.has(row.kind)) {
+            const slug = typeof row.spec.slug === 'string' ? row.spec.slug : row.recordId;
+            return row.kind === 'mission'
+              ? `This artifact is mission "${slug}" — its YAML file. Use read_mission then write_mission (the change is reviewed and applied); the title follows the file's name.`
+              : `This artifact is ${row.spec.kind === 'skill' ? 'skill' : 'playbook'} "${slug}" — its SKILL.md. Use read_playbook then write_playbook (the change is reviewed and applied); the title follows the frontmatter's name.`;
           }
         }
         if (spec === undefined && args.content_markdown === undefined && args.title === undefined && args.folder === undefined) {

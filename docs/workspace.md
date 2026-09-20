@@ -132,6 +132,53 @@ fewShotExamples:
 
 Open `agents/<agent>.system-prompt.md` in the workspace, edit, save, re-apply. The agent uses the new prompt on the next request.
 
+### Edit a mission or a playbook in the app
+
+A mission's YAML and a playbook's (or skill's) `SKILL.md` **edit like
+artifacts** — the file is the source of truth, and it is *mirrored* into an
+artifact of kind `mission` or `playbook` (`libs/workspace/source.ts`) so it
+gets what every artifact has: the pane, **Edit** and ⌘S, a version for every
+save, Restore, Share, and select-to-ask. Nothing is versioned twice: the
+applier keeps the mirror in step the same way it keeps the `mission` and
+`playbook` rows in step, and a content-identical apply adds no version.
+
+What a person sees:
+
+- **`/dashboard/missions/<slug>`** — the charter as before, and below it the
+  file in the artifact pane. **Edit** opens the YAML in place; ⌘S saves.
+  Highlight anything in the charter or the file and the toolbar offers **Ask**
+  and **Change**.
+- **`/dashboard/skills/<slug>`** — the SKILL.md rendered through the same
+  pane (frontmatter as a meta line, body as markdown), with the same verbs.
+
+How a change becomes a version and a commit:
+
+| Who | Path | What happens |
+|---|---|---|
+| A person, in the pane | `client.artifacts.update` → `WorkspaceSourceService.writeWorkspaceSource` | The text is validated through the real schema, the **file is written**, the whole workspace is loaded (a refused load puts the file back), a version lands on the mirror under the person's name, then the workspace is **applied** — a `workspace_version` row like any `workspace:apply`. Their workspace, their edit: not an action. |
+| An agent, from chat | `read_mission` / `read_playbook`, then `write_mission` / `write_playbook` → the `workspace.write_mission` / `workspace.write_playbook` actions | The whole file is proposed with a reason and a confidence. The Review card carries the **diff**. Both kinds start at **Execute with approval** (`DEFAULT_RISK_TIER` marks them `medium`); a workspace promotes them in `trust.yaml` once approvals have earned it. Approving runs the same write path; **Undo** restores the previous text as a new version. |
+| Restore, from the version menu | `client.artifacts.restore` → `restoreWorkspaceSource` | The old text is written **forward** — to the file and as a new head — so disk and history agree and neither rewinds. |
+| An MCP client | `workspace_write_mission`, `workspace_write_playbook` | The manifest-shaped door, in the exact shape of `workspace_write_skill`: write the file, apply, and — opt-in — commit. |
+
+**Not in the log, by default.** Mirrors are `visibility: system`: reached from
+the mission and skills pages, by id, and as chips — never as a row per file in
+`/dashboard/artifacts`. Listing them there is a workspace switch, when one is
+wanted. **A deleted file takes its mirror with it**: the applier prunes mirrors
+whose file is gone, `workspace_delete` drops the mirror with the row, and a Save
+against a stale mirror is refused rather than writing the file back. A mirror
+that fails to write is a *warning* on the apply, never an error.
+
+**Git stays yours.** Nothing written from the app commits; the workspace
+shows *dirty* until you commit, exactly as it does after an MCP write with
+`autoCommit=false`. `workspace_version` answers "what was applied when", the
+mirror's versions answer "who changed this and why".
+
+A mission inherited from a plugin or the base pack has no workspace file yet:
+its mirror shows the inherited text, and saving creates the workspace's own
+copy. For a YAML kind that copy needs `extends: core` to be read as an
+override — the save reports the loader's message if it is missing. Skills and
+playbooks replace by slug, so no marker is needed.
+
 ## How eager the system is to improve itself (`defaults.learningEagerness`)
 
 ```yaml

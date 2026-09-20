@@ -66,6 +66,8 @@ export type ArtifactHeaderProps = {
   actions: ArtifactActionId[];
   /** The version menu, which is async and pane-owned. */
   history?: ReactNode;
+  /** Open the in-place editor (`edit`). */
+  onEdit?: () => void;
   onSave?: () => void;
   saving?: boolean;
   onExport?: () => void;
@@ -286,6 +288,16 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
   switch (id) {
     case 'history':
       return props.history ?? null;
+    case 'edit':
+      return props.onEdit
+        ? (
+            <IconAction label="Edit in place">
+              <button type="button" onClick={props.onEdit} className={ICON_BUTTON} aria-label="Edit in place" data-artifact-edit>
+                <Pencil className="size-3.5" aria-hidden />
+              </button>
+            </IconAction>
+          )
+        : null;
     case 'save':
       return (
         <Button size="sm" variant="default" className="h-7 gap-1.5 px-2 text-xs" onClick={props.onSave} disabled={props.saving}>

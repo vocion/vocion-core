@@ -3,6 +3,9 @@ import { ArrowLeft, ScrollText, Zap } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
+import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
+import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { DocViewer } from '@/features/dashboard/DocViewer';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -11,7 +14,10 @@ import { Link } from '@/libs/I18nNavigation';
 import { WorkspaceTemplateError } from '@/libs/workspace';
 import { agentSchema, playbookSchema } from '@/models/Schema';
 import { skillUsageCounts } from '@/services/ActivityService';
+import { toPayload } from '@/services/ArtifactService';
+import { recordRef } from '@/services/chat/recordContext';
 import { readByOrigin } from '@/services/playbooks/mount';
+import { ensureSourceArtifact } from '@/services/workspace/WorkspaceSourceService';
 
 type Props = {
   params: Promise<{ locale: string; slug: string }>;
@@ -76,15 +82,23 @@ function SkillBody(props: { slug: string; markdownBody: string; templateProblem:
 }
 
 /**
- * Skill / playbook detail — the SKILL.md body plus provenance: whether
- * the workspace runs the base version or its own override, which agents
- * mount it, and how often it has been read.
+ * Skill / playbook detail — the SKILL.md plus provenance: whether the
+ * workspace runs the base version or its own override, which agents mount
+ * it, and how often it has been read.
+ *
+ * The SKILL.md edits like an artifact (`libs/workspace/source.ts`): the body
+ * renders through the same `ArtifactPane` a document gets — Edit, ⌘S, a
+ * version for every save, Restore, Share — and a save writes the file, then
+ * applies the workspace. Highlight a passage and the toolbar offers Ask and
+ * Change; Change pre-types the instruction and the agent edits the file
+ * through `write_playbook`, which a person approves on a Review card with the
+ * diff. Without a workspace on this host the body renders read-only as before.
  * @param props
  */
 export default async function SkillDetailPage(props: Props) {
   const { locale, slug } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   if (!orgId) {
     notFound();
   }
@@ -118,8 +132,10 @@ export default async function SkillDetailPage(props: Props) {
       : (a.playbookSlugs ?? []).includes(slug) || (a.skillSlugs ?? []).some(sk => attachers.has(sk)))
     .map(a => a.slug))].sort();
 
-  const { raw, templateProblem } = readBodyOrTemplateProblem(row);
+  const source = await ensureSourceArtifact(orgId, row.kind === 'skill' ? 'skill' : 'playbook', slug).catch(() => null);
+  const { raw, templateProblem } = source ? { raw: '', templateProblem: null } : readBodyOrTemplateProblem(row);
   const { content: markdownBody } = stripFrontmatter(raw);
+  const record = recordRef('playbook', slug, row.name);
   const originLabel = row.origin === 'core'
     ? 'Base — the core pack\'s version, no workspace copy.'
     : row.origin === 'override'
@@ -128,6 +144,7 @@ export default async function SkillDetailPage(props: Props) {
 
   return (
     <>
+      <RecordContext record={record} />
       <div className="mb-4">
         <Link
           href="/dashboard/skills"
@@ -139,6 +156,7 @@ export default async function SkillDetailPage(props: Props) {
       </div>
 
       <TitleBar
+        actions={<AskAboutThis record={record} />}
         title={(
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -160,9 +178,17 @@ export default async function SkillDetailPage(props: Props) {
       />
 
       <div className="grid gap-8 lg:grid-cols-[1fr_18rem]">
-        <article>
-          <SkillBody slug={slug} markdownBody={markdownBody} templateProblem={templateProblem} />
-        </article>
+        {source
+          ? (
+              <div className="h-[75vh] min-h-[520px]" data-playbook-source>
+                <StandaloneArtifactView artifact={toPayload(source)} selfId={userId ?? null} conversationId={null} />
+              </div>
+            )
+          : (
+              <article>
+                <SkillBody slug={slug} markdownBody={markdownBody} templateProblem={templateProblem} />
+              </article>
+            )}
 
         <aside className="space-y-6 text-sm">
           <section>

@@ -1,8 +1,9 @@
 import { and, eq } from 'drizzle-orm';
-import { Activity, CalendarClock, NotebookPen, Plus, Target, Users } from 'lucide-react';
+import { Activity, CalendarClock, FileCode2, NotebookPen, Plus, Target, Users } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { StatusPill } from '@/components/ui/status-pill';
+import { StandaloneArtifactView } from '@/features/dashboard/artifacts/StandaloneArtifactView';
 import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { MissionCheckButton } from '@/features/dashboard/MissionCheckButton';
@@ -14,16 +15,24 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import { readPrimitiveFiles } from '@/libs/workspace/reader';
 import { agentSchema, missionSchema } from '@/models/Schema';
+import { toPayload } from '@/services/ArtifactService';
 import { listAutomations } from '@/services/AutomationService';
 import { recordRef } from '@/services/chat/recordContext';
+import { ensureSourceArtifact } from '@/services/workspace/WorkspaceSourceService';
 import { isEntityStatus } from '@/types/Status';
 
 /**
  * Mission detail — the charter, in full. A mission is an OBJECTIVE a team
  * owns: goal, success criteria, team, autonomy. The cadence lives on
  * whichever automations check it; the run history shows the checks.
- * The backing YAML is viewable/editable inline (writes go through the
- * workspace writer and re-apply).
+ *
+ * The mission IS its YAML file, and the file edits like an artifact
+ * (`libs/workspace/source.ts`): the pane at the foot of the page is the
+ * same `ArtifactPane` a document gets — Edit, ⌘S, a version for every save,
+ * Restore, Share — and a save writes the file, then applies the workspace.
+ * Highlight anything in the charter and the toolbar offers Ask and Change;
+ * Change pre-types the instruction and the agent edits the file through
+ * `write_mission`, which a person approves on a Review card with the diff.
  * @param props
  * @param props.params
  */
@@ -32,7 +41,7 @@ export default async function MissionDetailPage(props: {
 }) {
   const { locale, slug } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   if (!orgId) {
     return null;
   }
@@ -51,16 +60,25 @@ export default async function MissionDetailPage(props: {
     db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.parentAgentSlug, mission.agentSlug))),
   ]);
   const checkers = automations.filter(a => a.doConfig.checkMission === slug && a.status === 'active');
-  const sourceFiles = readPrimitiveFiles('mission', slug);
+  // The file as an artifact — created from disk on first visit when the
+  // applier has not mirrored it yet. Null only when this host has no
+  // workspace, in which case the raw file viewer stands in.
+  const source = await ensureSourceArtifact(orgId, 'mission', slug).catch(() => null);
+  const sourceFiles = source ? null : readPrimitiveFiles('mission', slug);
   const isLead = ownerAgent?.role === 'lead';
+  const record = recordRef('mission', slug, mission.name);
 
   return (
-    <>
-      <RecordContext record={recordRef('mission', slug, mission.name)} />
+    <div data-mission-page>
+      <RecordContext record={record} />
+      {/* Highlight anything in the charter: Ask, or Change (the agent edits the
+          file through write_mission, reviewed). The source pane below has its
+          own toolbar over the file itself. */}
+      <AskAboutThis variant="none" selectionRoot="[data-mission-charter]" record={record} agentSlug={mission.agentSlug ?? undefined} changeable />
       <TitleBar
         title={mission.name}
         description={mission.description ?? 'Standing mission'}
-        actions={<AskAboutThis record={recordRef('mission', slug, mission.name)} agentSlug={mission.agentSlug ?? undefined} />}
+        actions={<AskAboutThis record={record} agentSlug={mission.agentSlug ?? undefined} />}
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -75,7 +93,7 @@ export default async function MissionDetailPage(props: {
         </Link>
       </div>
 
-      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+      <div className="mb-6 grid gap-4 lg:grid-cols-2" data-mission-charter>
         <section className="rounded-md border border-border p-5">
           <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
             <Target className="size-4 text-primary" />
@@ -182,12 +200,29 @@ export default async function MissionDetailPage(props: {
         </Link>
       </div>
 
+      {source && (
+        <section className="mb-6" aria-label="Mission file">
+          <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
+            <FileCode2 className="size-4 text-primary" />
+            The file
+            <span className="text-xs font-normal text-muted-foreground">
+              missions/
+              {slug}
+              .yaml — edit here, or highlight and ask; every save is a version and a workspace apply
+            </span>
+          </h2>
+          <div className="h-[70vh] min-h-[480px]" data-mission-source>
+            <StandaloneArtifactView artifact={toPayload(source)} selfId={userId ?? null} conversationId={null} />
+          </div>
+        </section>
+      )}
+
       {sourceFiles && (
         <PrimitiveFiles
           files={sourceFiles.files}
           editInGitPath={sourceFiles.editInGitPath}
         />
       )}
-    </>
+    </div>
   );
 }

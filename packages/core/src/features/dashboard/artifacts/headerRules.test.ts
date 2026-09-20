@@ -126,4 +126,24 @@ describe('openInChatTarget', () => {
     expect(openInChatTarget(251, null)).toEqual({ href: '/dashboard/chat?new=1', stashAbout: true });
     expect(openInChatTarget(251, undefined)).toEqual({ href: '/dashboard/chat?new=1', stashAbout: true });
   });
+
+  describe('edit — the way into the editor', () => {
+    it('leads the verbs on an editable kind while there is nothing to save', () => {
+      expect(actionsFor('page', { kind: 'markdown', editable: true })[0]).toBe('edit');
+      expect(actionsFor('pane', { kind: 'mission', editable: true, closable: true })[0]).toBe('edit');
+      expect(actionsFor('pane', { kind: 'playbook', editable: true })[0]).toBe('edit');
+    });
+
+    it('steps aside once there is a draft, and on an older version', () => {
+      expect(actionsFor('page', { kind: 'markdown', editable: true, dirty: true })).not.toContain('edit');
+      expect(actionsFor('page', { kind: 'markdown', editable: true, dirty: true })[0]).toBe('save');
+      expect(actionsFor('page', { kind: 'mission', editable: true, historical: true })).not.toContain('edit');
+    });
+
+    it('is never offered on a document, whose editor is its HTML tab, nor on a kind with no editor', () => {
+      expect(actionsFor('page', { kind: 'document', editable: true })).not.toContain('edit');
+      expect(actionsFor('page', { kind: 'chart' })).not.toContain('edit');
+      expect(actionsFor('open', { kind: 'markdown', editable: true })).not.toContain('edit');
+    });
+  });
 });

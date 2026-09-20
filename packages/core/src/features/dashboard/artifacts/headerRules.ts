@@ -95,6 +95,8 @@ export function resolveTab(tabs: ArtifactTabDescriptor[], remembered: ArtifactTa
 export type ArtifactActionId
   /** The version menu. */
   = | 'history'
+  /** Open the in-place editor on a kind a person can hand-edit. */
+    | 'edit'
   /** Write the pending edit as the next version. */
     | 'save'
   /** Export as a workspace page. */
@@ -114,6 +116,10 @@ export type ActionInput = {
   kind: ArtifactKind;
   /** There is an unsaved edit. */
   dirty?: boolean;
+  /** A person can hand-edit this kind in the pane (markdown, table, a workspace source). */
+  editable?: boolean;
+  /** Looking at an older version — read-only, so nothing to edit. */
+  historical?: boolean;
   /** The renderer printed a PDF for this version. */
   hasPdf?: boolean;
   /** The surface gave us something to close back to. */
@@ -136,6 +142,11 @@ export type ActionInput = {
  * - **`history`, `save`, `export`, `share` need the pane's state**, which
  *   `/open` does not have: it is a read of one version at full screen, and
  *   offering Save there would mean building a second editor.
+ * - **`edit` is the way INTO the editor** for a kind a person can hand-edit,
+ *   and it is offered only while there is nothing to save and the version on
+ *   screen is the head. A document reaches its editor through its HTML tab
+ *   instead, so it never gets the verb. Before this, markdown and tables had
+ *   an editor and no door to it.
  * @param surface - Where the header is being worn.
  * @param input - The artifact, and what it can do right now.
  */
@@ -147,7 +158,9 @@ export function actionsFor(surface: ArtifactSurface, input: ActionInput): Artifa
       ...(isDocument && input.hasPdf ? (['pdf'] as const) : []),
     ];
   }
+  const canEdit = Boolean(input.editable) && !isDocument && !input.dirty && !input.historical;
   return [
+    ...(canEdit ? (['edit'] as const) : []),
     ...(input.dirty ? (['save'] as const) : []),
     'history',
     ...(surface === 'page' ? (['chat'] as const) : []),
