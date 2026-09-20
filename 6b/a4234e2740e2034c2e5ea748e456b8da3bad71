@@ -1,0 +1,79 @@
+packages/core/src/features/review/RichEmailBody.test.tsx
+  s_57146da98e2611::t_1164a063831289 28,73
+  s_57146da98e2611::t_5a8e2d8c8c7b37 1-27,29-72,74-99
+packages/core/src/libs/writing/emailBody.ts
+  s_57146da98e2611::t_945b52fc0a1cdc 33,35
+  s_57146da98e2611::t_5aea2646d7ff0e 1-32,34,36-87,92-100
+  s_57146da98e2611::t_1164a063831289 88-91
+packages/core/src/libs/writing/emailBodyShape.ts
+  s_57146da98e2611::t_ea5283bf91a316 22-24
+  s_57146da98e2611::t_cb6967b2cebca0 35-40,42
+  s_57146da98e2611::t_945b52fc0a1cdc 1-21,25-34,41,43-62
+packages/core/src/libs/writing/voiceRules.ts
+  s_57146da98e2611::t_649973e4181b8a 26,445-449
+packages/core/src/routers/Review.ts
+  s_57146da98e2611::t_b05457dc820639 440-447,635-639,645
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_57146da98e2611::t_68ce7d6ff5ed41 728-732,734-737
+packages/core/src/services/review/safeEdits.test.ts
+  s_57146da98e2611::t_3cc5fe28694978 1-55
+packages/core/src/features/review/RichEmailBody.tsx
+  s_57146da98e2611::t_196ebe8b19e15c 89-91,95,98,154-158,162,167,183,207-208,216
+  s_57146da98e2611::t_9a259205ca1ec0 1-88,92-94,96-97,99-147,163-166,168-178,182,184-190,192-193,200-202,204-206,209-215,217-220
+  s_57146da98e2611::t_e298632b2846d8 148-153,179-181,191,194-199,203
+  s_57146da98e2611::t_cb6967b2cebca0 159-161
+packages/core/src/libs/writing/emailBody.test.ts
+  s_57146da98e2611::t_f115e2d4827a09 1-42,51-106
+  s_57146da98e2611::t_68ce7d6ff5ed41 43-50
+  s_57146da98e2611::t_e7719ba0895a95 113
+  s_57146da98e2611::t_37bb3cfee99696 107-111,114-122
+  s_57146da98e2611::t_39af102642e46f 112
+packages/core/src/features/review/contentWalk.ts
+  s_57146da98e2611::t_ee53cd05b778e0 6,38,42-59,165,169-171
+packages/core/src/features/review/contentKinds.tsx
+  s_57146da98e2611::t_e3e133aff4a25a 8,144-146,150-152,173-174,176-183
+packages/core/src/features/review/contentWalk.test.ts
+  s_57146da98e2611::t_b74f3b9ecaf662 12,31,118,128
+packages/core/src/features/personalization/LeadDetail.test.tsx
+  s_57146da98e2611::t_3afea4a7a57586 6,76,253
+packages/core/src/libs/hubspot/nurtureSlots.ts
+  s_57146da98e2611::t_68ce7d6ff5ed41 18,74-77
+packages/core/package.json
+  s_57146da98e2611::t_8aabc215f264b2 181
+  s_57146da98e2611::t_a5bb19319bcdfb 114-117,152
+packages/core/src/features/review/ReviewSurface.test.tsx
+  s_57146da98e2611::t_c8d8c8e9a98559 309,312,330,485-486
+  s_57146da98e2611::t_98355a3d3ad6ed 16,60
+  s_57146da98e2611::t_6a84806cf6c8ed 288-291
+packages/core/src/features/review/ReviewSurface.walk.test.tsx
+  s_57146da98e2611::t_b74f3b9ecaf662 19,85,200,228
+  s_57146da98e2611::t_ed3656e996fc7f 87-93,136,141-143,190,210,213-215,236,291
+  s_57146da98e2611::t_5cc203ec2c98ba 111-113
+  s_57146da98e2611::t_9f05ef5fddd8eb 86
+packages/core/src/services/review/safeEdits.ts
+  s_57146da98e2611::t_b05457dc820639 1-32
+packages/core/src/libs/hubspot/nurtureSlots.test.ts
+  s_57146da98e2611::t_f4c7d77352add0 44-62
+packages/core/e2e/queue/approve-each-send.queue.spec.ts
+  s_57146da98e2611::t_d19e6207d8704a 167-168,170,179,218
+  s_57146da98e2611::t_205ece7f9a67d9 140-142
+  s_57146da98e2611::t_2af306cd95ed3d 149,161-162,164-166,169,171-178,189
+package-lock.json
+  s_57146da98e2611::t_b809c9bf9f26a7 3215,3233,3251,3269,3287,3305,3323,3341,3359,3377,3395,3413,3431,3449,3467,3485,3503,3521,3539,3557,3575,3593,3611,3629,3647,3665,14531-14960,15310-15319,19025-19030,21703-21711,25453-25461,25745,25767,25789,25811,25833,25855,25877,25899,25921,25943,25965,25994-25999,30986-30991,31375-31380,32436-32574,34220-34225,34395-34513,37023,37041,37059,37077,37095,37113,37131,37149,37167,37185,37203,37221,37239,37257,37275,37293,37311,37329,37347,37365,37383,37401,37419,37437,37455,37473,37531,38530,38548,38566,38584,38602,38620,38638,38656,38674,38692,38710,38728,38746,38764,38782,38800,38818,38836,38854,38872,38890,38908,38926,38944,38962,38980,39038,40603-40606,40641,40670
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6ba4234e2740e2034c2e5ea748e456b8da3bad71",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
