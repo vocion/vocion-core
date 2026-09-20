@@ -27,6 +27,13 @@ Every page derives from a core page shape rather than inventing one:
 | `queue` | the proposal list (read-only; decisions stay on Needs you, `/dashboard/inbox`) | `skillRuns` |
 | `markdown` | the docs page | a sibling `.md` file |
 
+A deployment can host several projects on one mounted `WORKSPACE_PATH`. That
+folder's own `pages/` (and its plugins' pages) list only for the project the
+folder belongs to — the one it was last applied to, or the one its
+`workspace.yaml` `orgId` names. Every other project under the same mount sees
+the pages of the plugins it has on (`project.enabled_plugins`) and nothing of
+the folder's.
+
 A `list`/`queue` page composes: a stats row (`stats:`), grouping
 (`groupBy:`), filtering (`filters:`), sorting, per-field formats
 (`text|badge|score|date|mono|image|money|link|relative|progress`, with badge

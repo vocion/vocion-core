@@ -241,6 +241,14 @@ export type ReadPagesOptions = {
    * lists name loads once. Omitted = the mounted folder alone, as before.
    */
   enabledPlugins?: readonly string[];
+  /**
+   * Whether the folder on `WORKSPACE_PATH` is the asking project's own
+   * (`services/WorkspaceMountService.ts` decides from what the applier
+   * recorded). Default true — the single-project install, and every CLI
+   * caller. False keeps the folder's pages AND its plugins' pages out: they
+   * are another project's; only `enabledPlugins` contribute.
+   */
+  mounted?: boolean;
 };
 
 /**
@@ -288,7 +296,8 @@ export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: Loaded
     readDir(join(plugin.sourcePath, 'pages'), `plugin:${plugin.manifest.slug}`, false);
   };
 
-  if (ws) {
+  // The mounted folder speaks only for the project it belongs to.
+  if (ws && (opts.mounted ?? true)) {
     readDir(join(ws, 'pages'), 'workspace', true);
     for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
       readPlugin(plugin);

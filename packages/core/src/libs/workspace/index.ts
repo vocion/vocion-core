@@ -1,7 +1,8 @@
 export { type ApplyOptions, type ApplyResult, applyWorkspace } from './applier';
 export { autoCommit, type AutoCommitInput, type AutoCommitResult, currentHeadSha } from './auto-commit';
-export { getCurrentWorkspaceSha, invalidateCurrentContextShaCache } from './current-version';
+export { type AppliedWorkspaceVersion, getCurrentWorkspaceSha, getCurrentWorkspaceVersion, invalidateCurrentContextShaCache } from './current-version';
 export { type LoadedAgent, type LoadedObjectType, type LoadedPlaybook, type LoadedTeam, type LoadedWorkflow, type LoadedWorkspace, loadWorkspace, WorkspaceValidationError } from './loader';
+export { applyNewerThanFolder, folderChangedAt, folderWritable, isDeployManaged, judgeMountedFolder, type MountedFolder, type MountVerdict, readManifestOrgId } from './mounted-project';
 export { enabledPluginsFromWorkspaceDir, listPlugins, listPluginSlugs, type LoadedPlugin, loadPlugin, pluginContents, type PluginContents, type PluginInfo, pluginRoots, PLUGINS_REL, readPluginReadme, resolvePlugins } from './plugins';
 export { getWorkspacePath, WORKSPACE_SLUG_PATTERN } from './reader';
 export * from './schemas';

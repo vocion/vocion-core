@@ -218,6 +218,34 @@ describe('plugin pages', () => {
     });
   });
 
+  // One folder is mounted for several projects. Its own pages, and its
+  // plugins' pages, are the mounted project's; another project under the
+  // same mount sees only its own plugins' pages.
+  describe('a folder that is another project\'s', () => {
+    it('contributes neither its pages nor its plugins\' when mounted is false', () => {
+      workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
+      const { pages, issues } = readWorkspacePages({ enabledPlugins: ['software-factory'], mounted: false });
+
+      expect(issues).toEqual([]);
+      expect(pages.map(p => p.slug)).not.toContain('ours');
+      expect(pages.map(p => p.slug)).not.toContain('wiki');
+      expect(pages.find(p => p.slug === 'factory-floor')?.origin).toBe('plugin:software-factory');
+    });
+
+    it('is read in full for the project it belongs to, and by default', () => {
+      workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
+
+      expect(readWorkspacePages({ mounted: true }).pages.map(p => p.slug)).toEqual(expect.arrayContaining(['ours', 'wiki']));
+      expect(readWorkspacePages().pages.map(p => p.slug)).toEqual(expect.arrayContaining(['ours', 'wiki']));
+    });
+
+    it('a project with no plugins of its own sees nothing under a foreign mount', () => {
+      workspace('plugins: [wiki]\n', { 'pages/ours.yaml': 'slug: ours\ntitle: Ours\narchetype: markdown\n' });
+
+      expect(readWorkspacePages({ enabledPlugins: [], mounted: false }).pages).toEqual([]);
+    });
+  });
+
   it('the artifacts source validates its narrowing', () => {
     expect(PageManifestSchema.safeParse({ slug: 'x', title: 'X', archetype: 'list', source: { kind: 'artifacts', folder: 'wiki', artifactKind: 'markdown' } }).success).toBe(true);
     expect(PageManifestSchema.safeParse({ slug: 'x', title: 'X', archetype: 'list', source: { kind: 'artifacts', limit: 0 } }).success).toBe(false);
