@@ -8,6 +8,7 @@
  * crash-safe, multi-day sessions (Temporal) are Phase 2.
  */
 
+import type { MissionRunCompletedPayload } from '@/services/EventService';
 import { and, eq, notInArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { missionRunSchema, missionSchema } from '@/models/Schema';
@@ -170,6 +171,8 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       });
       if (!settled) {
         log('info', 'mission run was already settled while its tasks were running, leaving that status alone', { runId, orgId, wouldHaveWritten: outcome });
+      } else if (outcome === 'completed') {
+        await announceCompleted(run, missionSlug, tasks);
       }
       return outcome;
     }
@@ -204,6 +207,45 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
       });
     }
     return finalStatus;
+  }
+}
+
+/**
+ * Raise `mission_run.completed` for a run this loop just settled as
+ * completed — once, because `settleRun` said this call was the one that
+ * wrote it. A check-mode run (an automation's mission check) says so in
+ * `mode`, so a debrief automation can filter it out and never fire on its
+ * own check; `automation_run.completed` is the event for those. A failure
+ * to record the event is logged and never re-labels the run.
+ * @param run - The run row as it was read at the start of the loop.
+ * @param missionSlug - The template's slug, when the run has one.
+ * @param tasks - The plan as it ended.
+ */
+async function announceCompleted(run: typeof missionRunSchema.$inferSelect, missionSlug: string | null, tasks: Task[]): Promise<void> {
+  const last = [...tasks].reverse().find(t => t.status === 'completed' && t.output);
+  const payload: MissionRunCompletedPayload = {
+    missionRunId: run.id,
+    missionId: run.missionId ?? null,
+    missionSlug,
+    title: run.title,
+    agentSlug: run.team.lead,
+    mode: tasks.length === 1 && tasks[0]!.id === 'scheduled-check' ? 'check' : 'planned',
+    summary: truncate(last?.output ?? '', 500),
+    tasksTotal: tasks.length,
+    tasksFailed: tasks.filter(t => t.status === 'failed').length,
+    completedAt: new Date().toISOString(),
+  };
+  try {
+    const { emitEvent, MISSION_RUN_COMPLETED } = await import('@/services/EventService');
+    await emitEvent({
+      orgId: run.orgId,
+      type: MISSION_RUN_COMPLETED,
+      payload,
+      dedupeKey: `${MISSION_RUN_COMPLETED}:${run.id}`,
+      invokedBy: `mission_run:${run.id}`,
+    });
+  } catch (error) {
+    log('warn', 'mission run completed but its event could not be raised', { runId: run.id, orgId: run.orgId, error: (error as Error).message ?? 'unknown error' });
   }
 }
 

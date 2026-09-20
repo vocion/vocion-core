@@ -78,8 +78,17 @@ export async function POST(request: Request): Promise<Response> {
   // turn); otherwise the WORKSPACE AGENT answers — the project's lead
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
   // lead is configured. 404 when zero agents authored.
+  //
+  // `route: true` asks the workspace to choose: the router matches the message
+  // against what each agent `handles`, its description and its suggestions,
+  // and defaults to the lead when nothing convinces it
+  // (`services/agents/router.ts`). The decision is the turn's first frame and
+  // is written on the person's message, so "why did this agent answer" has an
+  // answer a person can read. Sent by the composer when the person picked no
+  // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
-  if (!agentSlug) {
+  let routing: import('@/services/agents/router').RoutingDecision | null = null;
+  if (!agentSlug || body.route === true) {
     const agents = await listAgents(orgId);
     if (agents.length === 0) {
       return new Response(
@@ -89,8 +98,14 @@ export async function POST(request: Request): Promise<Response> {
     }
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
-    agentSlug = (lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug;
+    if (body.route === true && typeof message === 'string' && message.trim()) {
+      const { chooseAgent, routableFromRow } = await import('@/services/agents/router');
+      routing = chooseAgent({ agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
+    }
+    agentSlug = routing?.chosen
+      ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
+  const routedAgent = routing ? (await listAgents(orgId)).find(a => a.slug === routing!.chosen) ?? null : null;
   const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
@@ -174,6 +189,7 @@ export async function POST(request: Request): Promise<Response> {
       role: 'user',
       content: message,
       userId,
+      ...(routing ? { routing } : {}),
     });
     if (attachments.length > 0) {
       await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
@@ -267,6 +283,11 @@ export async function POST(request: Request): Promise<Response> {
       // First frame: the resume handle (not part of the AgentEvent union —
       // the client stashes it and never reduces it into the transcript).
       safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId })}\n\n`));
+      // Then who answers, when the workspace decided: the client renders the
+      // turn under that agent's name, and the reason rides with it.
+      if (routing && routedAgent) {
+        writeEvent({ type: 'routed', routing, agent: { slug: routedAgent.slug, name: routedAgent.name } });
+      }
 
       try {
         await runAgentDeep({

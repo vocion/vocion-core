@@ -28,7 +28,7 @@ vi.mock('@/services/jobs/registry', () => ({
 }));
 
 const { db } = await import('@/libs/DB');
-const { automationRunSchema, automationSchema, eventLogSchema, workflowSchema } = await import('@/models/Schema');
+const { agentSchema, automationRunSchema, automationSchema, eventLogSchema, workflowSchema } = await import('@/models/Schema');
 const { startWorkflow } = await import('@/services/WorkflowService');
 const { startMission } = await import('@/services/MissionService');
 const { fireAutomation, listAutomationRuns } = await import('@/services/AutomationService');
@@ -216,5 +216,51 @@ describe('emitEvent → automations', () => {
     const out = await emitEvent({ orgId: ORG, type: 'prospect.reply', payload: {} });
 
     expect(out.triggered).toHaveLength(0);
+  });
+
+  it('fires an automation subscribed to several event types on any of them', async () => {
+    await seedAutomation('debrief', { event: ['worker_run.completed', 'pr.merged'] }, { workflow: 'discovery_followup' });
+
+    expect((await emitEvent({ orgId: ORG, type: 'worker_run.completed', payload: {} })).triggered).toEqual([{ slug: 'automation:debrief', runId: 210 }]);
+    expect((await emitEvent({ orgId: ORG, type: 'pr.merged', payload: {} })).triggered).toEqual([{ slug: 'automation:debrief', runId: 210 }]);
+    expect((await emitEvent({ orgId: ORG, type: 'worker_run.failed', payload: {} })).triggered).toHaveLength(0);
+  });
+});
+
+describe('debriefs and initiative', () => {
+  beforeEach(async () => {
+    await db.delete(agentSchema);
+    await db.insert(agentSchema).values([
+      { orgId: ORG, slug: 'quiet-curator', name: 'Quiet', systemPrompt: 'x', initiative: 'low' },
+      { orgId: ORG, slug: 'eager-researcher', name: 'Eager', systemPrompt: 'x', initiative: 'high' },
+      { orgId: ORG, slug: 'plain-agent', name: 'Plain', systemPrompt: 'x' },
+    ]);
+  });
+
+  afterAll(async () => {
+    await db.delete(agentSchema);
+  });
+
+  it('skips a low-initiative agent\'s automation on a completion event, and fires everyone else\'s', async () => {
+    await db.insert(automationSchema).values([
+      { orgId: ORG, slug: 'quiet-debrief', name: 'q', status: 'active', whenConfig: { event: 'worker_run.completed' }, doConfig: { workflow: 'discovery_followup' }, ownerAgentSlug: 'quiet-curator' },
+      { orgId: ORG, slug: 'eager-debrief', name: 'e', status: 'active', whenConfig: { event: 'worker_run.completed' }, doConfig: { workflow: 'discovery_followup' }, ownerAgentSlug: 'eager-researcher' },
+      { orgId: ORG, slug: 'plain-debrief', name: 'p', status: 'active', whenConfig: { event: 'worker_run.completed' }, doConfig: { workflow: 'discovery_followup' }, ownerAgentSlug: 'plain-agent' },
+    ]);
+
+    const out = await emitEvent({ orgId: ORG, type: 'worker_run.completed', payload: { workerRunId: 1 } });
+
+    expect(out.triggered.map(t => t.slug).sort()).toEqual(['automation:eager-debrief', 'automation:plain-debrief']);
+    // Skipped, not refused: no run row says the quiet one was held.
+    expect(await listAutomationRuns(ORG, { slug: 'quiet-debrief' })).toMatchObject({ runs: [], total: 0 });
+  });
+
+  it('leaves a low-initiative agent\'s other automations alone — initiative gates debriefs, not work', async () => {
+    await seedAutomation('quiet-reply', { event: 'prospect.reply' }, { workflow: 'discovery_followup' });
+    await db.update(automationSchema).set({ ownerAgentSlug: 'quiet-curator' }).where(eq(automationSchema.slug, 'quiet-reply'));
+
+    const out = await emitEvent({ orgId: ORG, type: 'prospect.reply', payload: {} });
+
+    expect(out.triggered).toEqual([{ slug: 'automation:quiet-reply', runId: 210 }]);
   });
 });

@@ -1,0 +1,17 @@
+slug: conversation-sweep
+name: End quiet conversations
+description: >-
+  Every fifteen minutes, decide which conversations are over — no turn for
+  thirty minutes — stamp them ended and raise `conversation.ended` for each,
+  so `wiki-debrief` can read what was settled. Deterministic — a built-in
+  job, not an agent — and idempotent: a thread picked up again ends again
+  later, under a new key. Core ships the job; this plugin is the first to
+  need the event, so it ships the schedule.
+status: active
+agent: wiki-researcher
+when:
+  schedule: '*/15 * * * *'
+do:
+  job: sweep-idle-conversations
+  input:
+    idleMinutes: 30

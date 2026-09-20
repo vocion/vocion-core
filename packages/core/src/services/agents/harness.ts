@@ -28,6 +28,7 @@
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { Initiative } from '@/services/agents/initiative';
 import { tool as makeTool } from '@langchain/core/tools';
 import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
 import { and, eq, sql } from 'drizzle-orm';
@@ -41,6 +42,7 @@ import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { resolveTimeZone } from '@/libs/time/zone';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
+import { readInitiative } from '@/services/agents/initiative';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { enabledPluginsForOrg } from '@/services/PluginService';
@@ -312,6 +314,15 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     systemPrompt = `${systemPrompt}\n\n${capabilitiesNote}`;
   }
 
+  // INITIATIVE (CORE, all agents). Whether a turn ends with an offer to carry
+  // the work forward is the agent's authored `initiative`, not a habit each
+  // prompt reinvents — one line here, the same words for every agent, so a
+  // workspace turns it up or down in YAML and the graph rebuilds on apply.
+  const initiativeNote = initiativePromptNote(readInitiative(row.initiative));
+  if (initiativeNote) {
+    systemPrompt = `${systemPrompt}\n\n${initiativeNote}`;
+  }
+
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
   // paste" rules; fighting that with content-stripping is whack-a-mole (it
@@ -494,6 +505,25 @@ function toFileData(content: string): MountedFileData {
  * when nothing needs saying.
  * @param enabledPlugins - The workspace's enabled plugin slugs.
  */
+/**
+ * The one line that carries an agent's `initiative` into its prompt.
+ *
+ * `high`: a turn that produced a standing fact, a decision or a plan ends with
+ * ONE offer to carry it forward, asked as a question — the researcher's "I can
+ * put this on a wiki page, shall I?". `low`: answer what was asked and stop.
+ * `normal` says nothing: the agent's own prompt decides, as it always has.
+ * @param initiative - The agent's authored level.
+ */
+export function initiativePromptNote(initiative: Initiative): string {
+  if (initiative === 'high') {
+    return 'INITIATIVE: high. When a turn produces something standing — a fact that will hold, a decision, a plan, a rule a person stated — end the reply with ONE concrete offer to carry it forward (write it on a wiki page, file the decision, plan the next step, queue the follow-up), asked as a question a person can answer with yes. One offer, the most useful one; never a list of options, never for a turn that produced nothing standing.';
+  }
+  if (initiative === 'low') {
+    return 'INITIATIVE: low. Answer what was asked and stop. Do not volunteer follow-ups, offers or next steps unless the person asks for them; a person turned this agent down to keep it quiet.';
+  }
+  return '';
+}
+
 export function capabilitiesPromptNote(enabledPlugins: readonly string[]): string {
   let catalogue: ReturnType<typeof listPlugins>;
   try {

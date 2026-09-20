@@ -23,7 +23,13 @@
 # person accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 1.4.1
+# 1.5.0 — the debrief: a finished worker run or a merged pull request is
+# written back on the request by the Product manager (state, what answered
+# it, actual cost beside the estimate, the recommendation refreshed, draft
+# release notes) through `automations/product-debrief.yaml`, on core's
+# completion events. The product manager and the planner declare what they
+# `handle` for the router and their `initiative` — high and normal.
+version: 1.5.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

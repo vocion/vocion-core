@@ -23,6 +23,8 @@ export type AgentCard = {
   icon: string | null;
   accent: string | null;
   eyebrow: string | null;
+  /** How much the agent volunteers (`agent.initiative`); `normal` is the quiet default and shows nothing. */
+  initiative: 'low' | 'normal' | 'high';
   skillCount: number;
   specialists: { slug: string; name: string }[];
   /** false → a core agent this workspace hasn't activated (ghost card). */
@@ -30,6 +32,28 @@ export type AgentCard = {
 };
 
 type Filter = 'all' | 'activated' | 'inactive';
+
+/** The small label under the name for a non-default initiative — what the agent will and will not volunteer. */
+const INITIATIVE_LABEL: Record<'low' | 'high', { text: string; title: string }> = {
+  high: { text: 'High initiative', title: 'Volunteers: ends a turn that produced something standing with one offer to carry it forward, takes routing ties, and debriefs completed work.' },
+  low: { text: 'Low initiative', title: 'Answers what was asked and stops: no offers, no follow-ups, and it sits debriefs out.' },
+};
+
+function InitiativeLabel({ initiative, muted = false }: { initiative: 'low' | 'normal' | 'high'; muted?: boolean }) {
+  if (initiative === 'normal') {
+    return null;
+  }
+  const label = INITIATIVE_LABEL[initiative];
+  return (
+    <span
+      data-testid="initiative-label"
+      title={label.title}
+      className={`rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium ${muted ? 'text-muted-foreground/70' : 'text-muted-foreground'}`}
+    >
+      {label.text}
+    </span>
+  );
+}
 
 function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -107,6 +131,7 @@ function ActiveCard({ card }: { card: AgentCard }) {
             <span className="rounded-md px-1.5 py-0.5 text-[12px] font-medium" style={{ background: a.tint, color: a.ink }}>
               Lead
             </span>
+            <InitiativeLabel initiative={card.initiative} />
           </div>
           {card.eyebrow && <div className="mt-0.5 font-mono text-[11px] tracking-wide text-muted-foreground">{card.eyebrow}</div>}
         </div>
@@ -164,6 +189,7 @@ function GhostCard({ card }: { card: AgentCard }) {
             <span className="rounded-md border border-border px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground">
               Core · not activated
             </span>
+            <InitiativeLabel initiative={card.initiative} muted />
           </div>
           {card.eyebrow && <div className="mt-0.5 font-mono text-[11px] tracking-wide text-muted-foreground/70">{card.eyebrow}</div>}
         </div>

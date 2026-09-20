@@ -1,4 +1,4 @@
-import { Mail, MessagesSquare, Search, Slack } from 'lucide-react';
+import { Mail, MessagesSquare, Plug, Search, Slack } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { EmptyState } from '@/components/ui/empty-state';
 import { TitleBar } from '@/features/dashboard/TitleBar';
@@ -28,7 +28,8 @@ function bucketOf(when: Date, now: Date): string {
   return when.toLocaleDateString(undefined, { month: 'long', year: when.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
-const SURFACE_ICON = { email: Mail, slack: Slack } as const;
+// `mcp`: a conversation an MCP client opened with ask_workspace (`services/chat/workspaceTurn.ts`).
+const SURFACE_ICON = { email: Mail, slack: Slack, mcp: Plug } as const;
 
 /**
  * /dashboard/conversations — every thread in this workspace, newest first.

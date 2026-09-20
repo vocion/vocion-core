@@ -658,6 +658,24 @@ export const AgentManifestSchema = z.object({
   /** Short tagline shown above the chat title. */
   eyebrow: z.string().optional(),
   /**
+   * What this agent answers for — short topics, intents or example asks
+   * (`handles: [wiki, standing rules, research, plans]`). When a message
+   * names no agent, the router matches it against these first, then the
+   * description and suggestions, and defaults to the workspace lead
+   * (`services/agents/router.ts`). Empty: reached by name or delegation only.
+   */
+  handles: z.array(z.string().min(1)).default([]),
+  /**
+   * How much this agent volunteers — `low` | `normal` | `high`, default
+   * `normal`. Three effects, each real: it breaks a routing tie; `high` ends
+   * a turn that produced a standing fact, decision or plan with one offer to
+   * carry it forward, `low` never volunteers; and `low` sits out debriefs —
+   * the automations that fire on completed work (`worker_run.completed`,
+   * `mission_run.completed`, `conversation.ended`, `pr.merged`,
+   * `automation_run.completed`).
+   */
+  initiative: z.enum(['low', 'normal', 'high']).default('normal'),
+  /**
    * Harness config (v0.3) — per-agent knobs for the reusable agent
    * harness. `provider` selects where the agent loop executes:
    * `local` (in-process deepagents loop, the default), `agentcore`
@@ -959,7 +977,8 @@ export const AutomationManifestSchema = z.object({
     /** 5-field cron, UTC. */
     schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
     /** Event type, e.g. `prospect.reply`. */
-    event: z.string().optional(),
+    /** One event type, or several — the automation fires on any of them. */
+    event: z.union([z.string(), z.array(z.string().min(1)).min(1)]).optional(),
     /** Payload filter for event-whens: every key must equal the payload's value. */
     filter: z.record(z.string(), z.unknown()).optional(),
   }).refine(w => !!w.schedule !== !!w.event, { message: 'when must have exactly one of schedule | event' }),

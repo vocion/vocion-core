@@ -191,6 +191,8 @@ export type ChatMessage = {
   /** When a turn was routed to a specialist (`@agent`), who answered — rendered as the speaker (§9). */
   agentSlug?: string;
   agentName?: string;
+  /** When the workspace chose the agent (`services/agents/router.ts`): candidates, pick, reason — the "via" eyebrow's tooltip. */
+  routing?: import('@/services/agents/router').RoutingDecision;
   /** A2UI recommended-action cards emitted during this turn (clickable). */
   recommendations?: RecommendedAction[];
   /** Artifacts this turn created or changed (0101) — chips under the message. */

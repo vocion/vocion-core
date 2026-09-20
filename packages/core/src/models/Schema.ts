@@ -755,6 +755,22 @@ export const agentSchema = pgTable(
     accent: text('accent'),
     /** Short tagline shown above the chat title (v0.2). */
     eyebrow: text('eyebrow'),
+    /**
+     * What this agent answers for — short topics, intents or example asks
+     * (`handles: [wiki, standing rules, research]`). The router matches a
+     * message against these first, then the description and suggestions
+     * (`services/agents/router.ts`). Empty means the agent is reached only by
+     * name, by delegation, or as the workspace lead's default.
+     */
+    handles: jsonb('handles').$type<string[]>().default([]).notNull(),
+    /**
+     * How much the agent volunteers: `low` | `normal` | `high`. Breaks routing
+     * ties, decides whether a turn ends with an offer to carry the work
+     * forward, and whether the agent takes part in debriefs — the automations
+     * that turn completed work into updates. NULL reads as `normal`, so a row
+     * applied before the column exists behaves exactly as it did.
+     */
+    initiative: text('initiative').$type<'low' | 'normal' | 'high'>(),
     /** Langfuse project ID for observability */
     langfuseProjectId: text('langfuse_project_id'),
     /** Icon name (lucide) */
@@ -940,7 +956,8 @@ export const automationSchema = pgTable(
     /** `active` | `disabled` */
     status: text('status').default('active'),
     /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
-    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string; filter?: Record<string, unknown> }>().notNull(),
+    /** `{schedule: cron}` | `{event: type | [types], filter?}` — an array fires on any of the named types. */
+    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown> }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
     doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
@@ -1404,6 +1421,13 @@ export const conversationSchema = pgTable(
     /** How much it thinks: off | low | medium | high. Null = off. */
     thinkingEffort: text('thinking_effort').$type<'off' | 'low' | 'medium' | 'high'>(),
     messageCount: integer('message_count').default(0).notNull(),
+    /**
+     * When the conversation was judged over — no turn for the idle window
+     * the `sweep-idle-conversations` job runs with — and `conversation.ended`
+     * was raised for it. Cleared by the next message, so a thread picked up
+     * again ends again later, under a new dedupe key. NULL means open.
+     */
+    endedAt: timestamp('ended_at', { mode: 'date' }),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1434,6 +1458,14 @@ export const conversationMessageSchema = pgTable('conversation_message', {
   role: text('role').notNull(),
   /** Rendered text content the agent sees on history replay. */
   content: text('content').notNull().default(''),
+  /**
+   * How this message reached its agent, when the workspace chose one rather
+   * than the person: the candidates considered, the slug picked and why
+   * (`RoutingDecision` in services/agents/router.ts). On the `user` row the
+   * decision was made for. NULL when the agent was named — by the composer,
+   * an `@mention`, a channel binding — or for assistant turns.
+   */
+  routingJson: jsonb('routing_json').$type<import('@/services/agents/router').RoutingDecision>(),
   /**
    * Structured breadcrumb array for the chat UI: a series of text
    * runs interleaved with tool breadcrumbs. Tool entries are dropped

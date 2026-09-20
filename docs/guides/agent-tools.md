@@ -101,6 +101,23 @@ one, re-gated at call time. `file_ask` and `withdraw_ask` are present for every 
 widens what the agent may do: a proposal from over MCP rides the same agent principal, at working
 autonomy, judged by the same ladder.
 
+### Asking the workspace
+
+Working *as* an agent is one thing; asking one is another. `ask_workspace` takes a `message` and
+runs one real turn — the same harness, tools, trust gating, enabled plugins and wiki mount the
+dashboard chat runs — as the token's principal, and persists it as a conversation (surface `mcp`,
+visible on `/dashboard/conversations`). Who answers is the **router's** call
+([agent → Behaviour](../entities/agent.md#behaviour)): the message is matched against what each
+agent `handles`, its description and its suggestions, a tie goes to the higher `initiative`, and
+nothing convincing means the workspace lead. The result carries the whole `reply` (no stream),
+`agentSlug` and `agentName`, `routing` — the candidates considered, the chosen slug, `defaulted`,
+one sentence of reason — `conversationId` to continue with, `turnId`, `traceId`, `actions` (anything
+the agent filed for a person, with ids, statuses and inbox links) and `url`. Pass `agent_slug` to
+skip the router, `conversation_id` to continue a thread (its agent answers, no routing), `title` to
+name a new one. A turn longer than `VOCION_CHAT_TURN_LIMIT_MS` (120s) returns what was said so far
+with `truncated: true`; the rest lands in the conversation when the turn finishes. `list_agents` is
+the roster the router chooses from — slug, name, `handles`, `initiative`, suggestions, `lead`.
+
 ## Related
 
 [Trust rules](../entities/trust.md) · [Earned autonomy](./earned-autonomy.md) ·

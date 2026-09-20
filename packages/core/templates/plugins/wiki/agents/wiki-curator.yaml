@@ -13,6 +13,13 @@ agentType: operational
 temperature: '0.2'
 eyebrow: Wiki · Curator
 team: wiki
+handles:
+  - wiki curation
+  - duplicate pages
+  - prune the wiki
+# The slow one: tends pages on Friday, volunteers nothing in chat, and sits
+# debriefs out — the researcher reads completed work; the curator consolidates.
+initiative: low
 skills:
   - wiki-curation
   - wiki-context
