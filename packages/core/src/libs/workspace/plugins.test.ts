@@ -272,7 +272,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.5.0');
+    expect(ws.sha).toContain('+software-factory@1.5.1');
   });
 
   it('seats a product manager who recommends and never authorizes, and says how, when and why it acts', () => {
@@ -326,7 +326,9 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.missions.find(m => m.slug === 'product-debrief')?.agent).toBe('product-manager');
     // Initiative and routing hints: the product manager takes ties and debriefs; the planner is the quiet default.
     expect(pm?.initiative).toBe('high');
-    expect(pm?.handles).toEqual(expect.arrayContaining(['backlog', 'recommendations', 'requests']));
+    expect(pm?.handles).toEqual(expect.arrayContaining(['backlog', 'recommendations', 'requests', 'what shipped', 'what have you built']));
+    // The runs, not the task list, answer "what have you built" (2026-09-20).
+    expect(pm?.resolvedSystemPrompt).toContain('list_recent_runs');
     expect(ws.agents.find(a => a.slug === 'task-planner')?.initiative).toBe('normal');
     expect(ws.agents.find(a => a.slug === 'task-planner')?.handles).toContain('task contract');
 

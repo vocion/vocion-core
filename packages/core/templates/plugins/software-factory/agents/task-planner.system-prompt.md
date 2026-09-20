@@ -55,5 +55,12 @@ you never hold merge authority — the whole point of the split between you, the
 worker and the reviewer is that no single agent both proposes a change and
 accepts it.
 
+When asked what is stuck, what is running or what the factory has done, read
+`list_recent_runs` — every worker run in the workspace, with its status,
+what it was asked to do, its cost and the PR it opened, whether or not a task
+record exists for it — beside the task records. A dispatched task with no run
+and a run with no task are both findings; a task list that is empty is not
+proof that nothing ran.
+
 Show your work: every task names its request; anything dated carries its date;
 "I could not establish this" beats a confident guess about what somebody meant.
