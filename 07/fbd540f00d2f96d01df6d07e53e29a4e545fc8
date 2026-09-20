@@ -1,0 +1,67 @@
+packages/core/src/libs/actions/types.ts
+  s_ebf02c08875266::t_c64782cea00f1f 77-82,121-122,131-132,144-145
+packages/core/src/app/[locale]/(auth)/gtm/lead/[hubspotId]/page.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 2
+packages/core/src/features/personalization/SequencePointer.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 4
+packages/core/src/features/review/useReviewDecision.ts
+  s_ebf02c08875266::t_e9c863239d88a8 7,130-132,138,156,160,171-175,178-180
+  s_ebf02c08875266::t_f7ba0a4b3787bf 4
+packages/core/src/features/review/ReviewActionCard.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 4,6,47
+packages/core/src/features/review/ReviewSurface.test.tsx
+  s_ebf02c08875266::t_be746df0c42d67 15-17
+  s_ebf02c08875266::t_7197bfe6de6af3 225-227
+  s_ebf02c08875266::t_87691dbcfdbdc8 124,134
+  s_ebf02c08875266::t_081dae36f592d8 1-14,18,22-25,29-43,49-104,106-123,125-133,135-143,145-147,149-178,180,182-200,202-204,206-208,210,212-216,218-224,228-245,247-276,278-286,288-309,311,313-350,352,354-361,363-376
+  s_ebf02c08875266::t_c92da9b59490fa 19-21,26-28,44-48,105,144,148,179,181,246,277,287,310,312,351,353,362
+  s_ebf02c08875266::t_d59dcd2cddc93d 201,205,209,211,217
+packages/core/src/features/review/ReviewSurface.tsx
+  s_ebf02c08875266::t_3b1a1b2096389e 1-3,5-128,137-203,206-211,214-217,220-242,244-269,271-318,321,324,326,328,330,332,334,336,338,342-368,374-498,500-510,513-613,615-618,620-623,634-639,645-762
+  s_ebf02c08875266::t_57abcf76e5d894 640-644
+  s_ebf02c08875266::t_7197bfe6de6af3 369-373,499,511-512
+  s_ebf02c08875266::t_2c9622e20b2358 212-213,218-219,243,270,614,619,624-633
+  s_ebf02c08875266::t_6ef78386116e6b 4,129-136,204-205,319-320,322-323,325,327,329,331,333,335,337,339-341
+packages/core/src/features/personalization/GuidedReviewPanel.test.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 1
+packages/core/src/features/personalization/GuidedReview.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 4
+packages/core/src/features/personalization/LeadDetail.test.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 2
+packages/core/src/features/dashboard/StickyActionBar.tsx
+  s_ebf02c08875266::t_e9c863239d88a8 44-49,76-77,84,105-108,112-114
+  s_ebf02c08875266::t_f7ba0a4b3787bf 109-111
+  s_ebf02c08875266::t_ef0199d5cd3dbc 115
+packages/core/src/features/dashboard/chat/ChatDock.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 5
+packages/core/src/features/personalization/LeadDetail.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 4
+packages/core/src/features/dashboard/chat/ChatDock.test.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 88
+packages/core/src/features/review/contentKinds.tsx
+  s_ebf02c08875266::t_5c0842113d967b 37-42,45,47-57,61-71,136,150-180,305
+  s_ebf02c08875266::t_94f5c06cf8edec 23-24
+packages/core/src/features/personalization/GuidedReviewPanel.tsx
+  s_ebf02c08875266::t_f7ba0a4b3787bf 4
+packages/core/src/features/review/ReviewSurface.stories.tsx
+  s_ebf02c08875266::t_178fd0ce323e1c 1-43,48-300
+  s_ebf02c08875266::t_6ef78386116e6b 44-47
+packages/core/src/components/patterns/DetailPage.tsx
+  s_ebf02c08875266::t_f1191f86bb739d 99-102,104,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "07fbd540f00d2f96d01df6d07e53e29a4e545fc8",
+  "prompts": {},
+  "sessions": {
+    "s_ebf02c08875266": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4684915b-d634-4453-9ebd-8a06c50f3827",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

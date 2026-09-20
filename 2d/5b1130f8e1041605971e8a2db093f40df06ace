@@ -1,0 +1,61 @@
+packages/core/migrations/0126_action_run_content_review.sql
+  s_57146da98e2611::t_fea2e236f1a86e 1-16
+packages/core/src/libs/actions/revisions.ts
+  s_57146da98e2611::t_25bf4999b47ed2 1-31,40-41,43,52,54-79
+  s_57146da98e2611::t_3c6c6f960b031e 32-39,42,44-51,53
+packages/core/src/routers/Review.ts
+  s_57146da98e2611::t_697d618ce2dfa7 514-524,561-629,631
+  s_57146da98e2611::t_7866dfaa57eb2f 468-473,507-513
+  s_57146da98e2611::t_a8c866de40c8d5 630,632
+packages/core/src/services/review/contentRecord.ts
+  s_57146da98e2611::t_162c6e06cf4079 1-103,105-110,112-115,117-176,178-250
+  s_57146da98e2611::t_3c6c6f960b031e 104,111,116,177
+  s_57146da98e2611::t_257cc1051efe22 251-261
+packages/core/src/services/ReviewService.ts
+  s_57146da98e2611::t_3c6c6f960b031e 1456
+  s_57146da98e2611::t_63a84f0b7d2683 19
+  s_57146da98e2611::t_a03b8244d63123 990,1490-1527
+  s_57146da98e2611::t_89000f9a8dfcc3 983-989,1448,1462
+  s_57146da98e2611::t_f66941854e43ca 1528-1529
+packages/core/src/services/inbox/pendingAction.ts
+  s_57146da98e2611::t_15a7a4bb203531 56-60
+packages/core/src/routers/index.ts
+  s_57146da98e2611::t_d3e1056ce0b4e6 110,126,311-312
+packages/core/migrations/meta/_journal.json
+  s_57146da98e2611::t_fea2e236f1a86e 886-892,895
+packages/core/src/features/review/ReviewFocusView.tsx
+  s_57146da98e2611::t_cf48449718c1c6 6
+  s_57146da98e2611::t_15a7a4bb203531 48-51
+packages/core/src/services/ReviewService.approvedRevisions.test.ts
+  s_57146da98e2611::t_1749b073879cd2 1-67,80-185,187-189
+  s_57146da98e2611::t_76c21ea7544d47 68-79,186
+packages/core/src/libs/actions/contentHash.ts
+  s_57146da98e2611::t_8f30c79749c22c 1-48
+packages/core/src/models/Schema.ts
+  s_57146da98e2611::t_c4d0469f61c925 3256-3284
+packages/core/src/libs/actions/contentHash.test.ts
+  s_57146da98e2611::t_3371d37e3d2da2 1-28,31-66
+  s_57146da98e2611::t_63a84f0b7d2683 29-30
+packages/core/src/features/review/ReviewSurface.tsx
+  s_57146da98e2611::t_63a84f0b7d2683 6
+  s_57146da98e2611::t_15a7a4bb203531 81-89
+packages/core/src/routers/Review.contentRecord.test.ts
+  s_57146da98e2611::t_24c73ff6214d1a 1-336
+  s_57146da98e2611::t_62f99ce76da5aa 337-339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d5b1130f8e1041605971e8a2db093f40df06ace",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

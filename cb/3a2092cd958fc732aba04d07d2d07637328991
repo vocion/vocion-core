@@ -1,0 +1,24 @@
+packages/core/src/routers/Review.ts
+  s_070d4be2ee8d49::t_4bf897ad14df55 424-426
+packages/core/src/features/review/ReviewActionCard.tsx
+  s_070d4be2ee8d49::t_26b589c555de5f 551-553
+  s_070d4be2ee8d49::t_aafaaaceb4fc7a 847
+packages/core/src/routers/Review.regenerate.test.ts
+  s_070d4be2ee8d49::t_2a70058ac0261c 165-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cb3a2092cd958fc732aba04d07d2d07637328991",
+  "prompts": {},
+  "sessions": {
+    "s_070d4be2ee8d49": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93fb9296-f81c-4702-8a6f-77e5adec3eb8",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

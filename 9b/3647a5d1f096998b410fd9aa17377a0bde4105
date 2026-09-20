@@ -1,0 +1,38 @@
+packages/core/src/features/dashboard/ReviewFocus.tsx
+  s_ebf02c08875266::t_25f4928c66b315 99
+packages/core/src/features/personalization/LeadDetail.tsx
+  s_ebf02c08875266::t_fef82d4065a96d 494
+  s_ebf02c08875266::t_574b7ed00e4c9e 491
+packages/core/src/features/review/ReviewSurface.suggestion.test.tsx
+  s_ebf02c08875266::t_4b7ccbb3066128 1,3,13-19,21-23,28-30,32-58,62,66-67,72-73,75,78,92-93,96-97,102-107,109-113
+  s_ebf02c08875266::t_cfe49423e43531 2,4-12,20,24-27,31,59-61,63-65,68-71,74,76-77,79-91,94-95,99,101,108
+  s_ebf02c08875266::t_c8a735792265c6 98,100
+packages/core/src/features/dashboard/inbox/decisionVerbs.ts
+  s_ebf02c08875266::t_521ad0a80ec818 10,19-25,31,62
+packages/core/src/features/review/ReviewFocusView.tsx
+  s_ebf02c08875266::t_c8a735792265c6 19
+  s_ebf02c08875266::t_d70339b9ea94e7 7,29-34,166-220,251
+  s_ebf02c08875266::t_24d0881e11b6bc 227,231,255
+packages/core/src/features/review/ReviewSurface.tsx
+  s_ebf02c08875266::t_6683b7a6cdc3f1 489-501,662,718-719
+  s_ebf02c08875266::t_9fb0eb230035a6 332-333
+  s_ebf02c08875266::t_e144ac493fbcac 544-546,561
+packages/core/src/features/review/contentKinds.tsx
+  s_ebf02c08875266::t_6366f87c98adba 5-6,10,12,15-18,77,124,133,142-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9b3647a5d1f096998b410fd9aa17377a0bde4105",
+  "prompts": {},
+  "sessions": {
+    "s_ebf02c08875266": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4684915b-d634-4453-9ebd-8a06c50f3827",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}

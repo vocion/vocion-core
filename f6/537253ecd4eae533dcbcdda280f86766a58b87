@@ -1,0 +1,32 @@
+packages/core/src/libs/hubspot/emailHtml.test.ts
+  s_070d4be2ee8d49::t_153bd7e51d370d 1-18
+packages/core/src/libs/hubspot/nurtureSlots.ts
+  s_070d4be2ee8d49::t_426d9e78bcad1c 18
+  s_070d4be2ee8d49::t_4b3c7caf4127b4 74-75
+packages/core/src/libs/hubspot/nurtureSlots.test.ts
+  s_070d4be2ee8d49::t_2358c9e826936a 20,22,24,29-33
+  s_070d4be2ee8d49::t_db13b084152775 34-35
+packages/core/src/libs/actions/personalization-enroll.ts
+  s_070d4be2ee8d49::t_ebf14ee9051075 590-591,596
+packages/core/src/libs/actions/personalization-enroll.test.ts
+  s_070d4be2ee8d49::t_58a06f750f25ce 324
+packages/core/src/libs/hubspot/emailHtml.ts
+  s_070d4be2ee8d49::t_dfb681558ec808 1-9,11-23
+  s_070d4be2ee8d49::t_ffe8de99cdbf00 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f6537253ecd4eae533dcbcdda280f86766a58b87",
+  "prompts": {},
+  "sessions": {
+    "s_070d4be2ee8d49": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93fb9296-f81c-4702-8a6f-77e5adec3eb8",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
