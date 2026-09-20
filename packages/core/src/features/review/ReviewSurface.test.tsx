@@ -248,7 +248,10 @@ describe('one flat template, every object type', () => {
     // "Add a note", not "Add feedback": the bar's box is about the DECISION,
     // and the box that asks for a rewrite now sits beside the copy it is
     // about. Two boxes, named as two jobs.
-    expect(labels).toEqual(['Add a note', 'Decline', 'Snooze', 'Confirm']);
+    // The primary reads Approve here rather than the card's verb because a
+    // three-send card walks, and the walk IS the primary until the count is
+    // full (`ReviewSurface.walk.test.tsx`). Four controls either way.
+    expect(labels).toEqual(['Add a note', 'Decline', 'Snooze', 'Approve']);
     expect(bar.textContent).not.toContain('Save for later');
     expect(bar.textContent).not.toContain('Skip');
   });
@@ -306,10 +309,11 @@ describe('one flat template, every object type', () => {
     await page.elementLocator(live).fill('Rewritten in the tab.');
 
     // Each send it edited is then approved, which is the walk's real path and
-    // what releases the primary.
+    // what turns the primary into the card's verb. Same button every time:
+    // approving one advances to the next.
     for (const id of ['send-1', 'send-2', 'send-3', 'send-4']) {
       await page.getByTestId(`tab-item-${id}`).click();
-      await page.getByTestId(`approve-${id}`).click();
+      await page.getByTestId('decide-approve').click();
       await vi.waitFor(() => expect(page.getByTestId(`tab-item-${id}`).element().getAttribute('data-approved')).toBe('true'));
     }
 

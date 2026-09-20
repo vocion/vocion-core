@@ -1,12 +1,15 @@
 /**
- * The walk: a check per send, a count over the row, and Enroll held until the
- * count is full.
+ * The walk: a check per send, a count over the row, and ONE primary that is
+ * Approve until the count is full and the card's own verb after it.
  *
  * A four-send sequence used to be approved in one click. There was no way to
  * say "I have read send 3", nothing recorded that it was read, and the screen
  * gave a reviewer no sense of progress through the sends it was asking them to
- * vouch for. These assert the walk a reviewer completes — and, just as
- * importantly, the cards that must NOT get one.
+ * vouch for. Then the first cut of the walk put an Approve inside the pane and
+ * left a dead Enroll on the bar, which asked a reviewer to work out that the
+ * second was waiting on the first. These assert the walk a reviewer completes
+ * through one button — and, just as importantly, the cards that must NOT get
+ * one.
  */
 import type { ReviewCardRun } from './ReviewSurface';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -92,7 +95,7 @@ describe('a check per send', () => {
 
     await expect.element(page.getByTestId('walk-count')).toHaveTextContent('0 of 4 approved');
 
-    await page.getByTestId('approve-send-1').click();
+    await page.getByTestId('decide-approve').click();
 
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalled());
 
@@ -108,7 +111,7 @@ describe('a check per send', () => {
     await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
 
     await page.getByTestId('tab-item-send-2').click();
-    await page.getByTestId('approve-send-2').click();
+    await page.getByTestId('decide-approve').click();
 
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalled());
 
@@ -121,7 +124,7 @@ describe('a check per send', () => {
 
     const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
     await page.elementLocator(body).fill('Tightened.');
-    await page.getByTestId('approve-send-1').click();
+    await page.getByTestId('decide-approve').click();
 
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalled());
 
@@ -154,9 +157,11 @@ describe('a check per send', () => {
   it('sends nothing: approving every send never decides the run', async () => {
     await render(<ReviewSurface run={enrollment(2)} crumbs={CRUMBS} />);
 
-    await page.getByTestId('approve-send-1').click();
+    // Twice on the SAME button: approving send 1 advances to send 2, so the
+    // primary is already pointed at the next thing it is asking for.
+    await page.getByTestId('decide-approve').click();
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalledTimes(1));
-    await page.getByTestId('approve-send-2').click();
+    await page.getByTestId('decide-approve').click();
     await vi.waitFor(() => expect(approveContent).toHaveBeenCalledTimes(2));
 
     await expect.element(page.getByTestId('walk-count')).toHaveTextContent('2 of 2 approved');
@@ -220,42 +225,88 @@ describe('a check is not a promise', () => {
   });
 });
 
-describe('Enroll is held until the count is full', () => {
-  it('disables the primary and says why on the button, without a notice', async () => {
+describe('one primary, and the walk is what it does', () => {
+  /** The word on the primary, which is the whole of this phase's UI. */
+  const primaryWord = () => page.getByTestId('decide-approve').element().querySelector('span')?.textContent?.trim();
+
+  it('reads Approve while sends are outstanding, and is never dead', async () => {
     await render(<ReviewSurface run={enrollment(4, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
 
-    const primary = page.getByTestId('decide-approve').element();
-
-    expect(primary).toBeDisabled();
-
-    // On the button: a disabled control takes no pointer events, so the
-    // reason rides a wrapper that still hovers, and an aria-describedby so it
-    // is not hover-only.
-    const hint = document.getElementById(primary.getAttribute('aria-describedby')!);
-
-    expect(hint?.textContent).toContain('2 of 4');
-    // And NO banner. The count over the tab row already says how far through
-    // the walk you are, so a row repeating it was a third copy of one fact.
+    // The disabled Enroll is gone: a button that cannot be pressed asked a
+    // reviewer to work out what it was waiting for.
+    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+    expect(primaryWord()).toBe('Approve');
+    // And no banner: the count over the tab row is where progress is said.
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('2 of 4 approved');
     expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
 
-  it('keeps the primary one word, whatever the count', async () => {
-    await render(<ReviewSurface run={enrollment(4, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
+  it('never draws a second approve button beside the bar\'s', async () => {
+    await render(<ReviewSurface run={enrollment(4)} crumbs={CRUMBS} />);
 
-    expect(page.getByTestId('decide-approve').element().querySelector('span')?.textContent?.trim()).toBe('Enroll');
+    // The pane's own dark pill is what made two primaries on one screen.
+    expect(page.getByTestId('approve-send-1').elements()).toHaveLength(0);
+    expect(primaryWord()).toBe('Approve');
   });
 
-  it('names the per-send controls in one word, and in full to a screen reader', async () => {
+  it('becomes the card\'s own verb once the count is full', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
+
+    expect(primaryWord()).toBe('Enroll');
+    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
+  });
+
+  it('turns into Enroll as the last send is approved, without a reload', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
+
+    await page.getByTestId('tab-item-send-2').click();
+
+    expect(primaryWord()).toBe('Approve');
+
+    await page.getByTestId('decide-approve').click();
+
+    await vi.waitFor(() => expect(primaryWord()).toBe('Enroll'));
+
+    // Approving the last send is still not a decision. Enroll is a second press.
+    expect(decideAction).not.toHaveBeenCalled();
+  });
+
+  it('goes back to Approve when an approved send is edited out of its check', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
+
+    expect(primaryWord()).toBe('Enroll');
+
+    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
+    await page.elementLocator(body).fill('Changed after approving it.');
+
+    await vi.waitFor(() => expect(primaryWord()).toBe('Approve'));
+  });
+
+  it('opens the send still waiting rather than approving one you are not looking at', async () => {
+    await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
+
+    await page.getByTestId('tab-evidence').click();
+
+    // Nothing to vouch for on this tab, so the press BRINGS the send that is
+    // waiting — approving copy off screen is the one mistake one button could
+    // newly make.
+    await page.getByTestId('decide-approve').click();
+
+    await expect.element(page.getByTestId('item-pane-send-2')).toBeVisible();
+    expect(approveContent).not.toHaveBeenCalled();
+
+    // And the next press approves it, now that it is in front of you.
+    await page.getByTestId('decide-approve').click();
+
+    await vi.waitFor(() => expect(approveContent).toHaveBeenCalledTimes(1));
+
+    expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-2' });
+  });
+
+  it('keeps the way back inside the pane, in one word', async () => {
     await render(<ReviewSurface run={enrollment(2)} crumbs={CRUMBS} />);
 
-    const approve = page.getByTestId('approve-send-1').element();
-
-    expect(approve.textContent?.trim()).toBe('Approve');
-    // One word on screen; the accessible name still says which send, so four
-    // identical controls are not read out as four identical controls.
-    expect(approve.getAttribute('aria-label')).toBe('Approve Day 0');
-
-    await page.getByTestId('approve-send-1').click();
+    await page.getByTestId('decide-approve').click();
 
     await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
 
@@ -264,50 +315,27 @@ describe('Enroll is held until the count is full', () => {
     const undo = page.getByTestId('unapprove-send-1').element();
 
     expect(undo.textContent?.trim()).toBe('Approved');
+    // One word on screen; the accessible name still says which send, so four
+    // of these are not read out as four identical controls.
     expect(undo.getAttribute('aria-label')).toBe('Day 0 approved — undo');
   });
 
-  it('releases at the full count', async () => {
-    await render(<ReviewSurface run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
-
-    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
-    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
-  });
-
-  it('releases as the last send is approved, without a reload', async () => {
-    await render(<ReviewSurface run={enrollment(2, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
-
-    expect(page.getByTestId('decide-approve').element()).toBeDisabled();
-
-    await page.getByTestId('tab-item-send-2').click();
-    await page.getByTestId('approve-send-2').click();
-
-    await vi.waitFor(() => expect(page.getByTestId('decide-approve').element()).not.toBeDisabled());
-  });
-
-  it('holds again when an approved send is edited back out of its check', async () => {
-    await render(<ReviewSurface run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })} crumbs={CRUMBS} />);
-
-    expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
-
-    const body = page.getByTestId('email-pane-send-1').element().querySelector('textarea')!;
-    await page.elementLocator(body).fill('Changed after approval.');
-
-    await vi.waitFor(() => expect(page.getByTestId('decide-approve').element()).toBeDisabled());
-  });
-
-  it('a does not bypass it', async () => {
+  it('walks on the keyboard too: a approves the send on screen', async () => {
     await render(<ReviewSurface run={enrollment(4, { contentReview: checkFor(1) })} crumbs={CRUMBS} />);
 
+    await page.getByTestId('tab-item-send-2').click();
     (document.activeElement as HTMLElement)?.blur();
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
 
-    await new Promise(r => setTimeout(r, 50));
+    await vi.waitFor(() => expect(approveContent).toHaveBeenCalled());
 
+    expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-2' });
+    // The shortcut cannot reach HubSpot early for the same reason the button
+    // cannot: until the count is full, this is not the Enroll key.
     expect(decideAction).not.toHaveBeenCalled();
   });
 
-  it('never holds a retry — that run was already decided once', async () => {
+  it('never walks a retry — that run was already decided once', async () => {
     // The execution failed, not the reading. The decision's backstop already
     // recorded what was approved, and making someone walk four sends again to
     // re-send copy they approved is the count blocking a queue.
@@ -317,24 +345,25 @@ describe('Enroll is held until the count is full', () => {
     await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Retry Enroll');
   });
 
-  it('lets a surface\'s own hold outrank the walk\'s', async () => {
+  it('still lets a surface\'s own hold stop it dead', async () => {
     await render(
       <ReviewSurface
-        run={enrollment(2, { contentReview: checkFor(1) })}
+        run={enrollment(2, { contentReview: { ...checkFor(1), ...checkFor(2) } })}
         crumbs={CRUMBS}
         hold={{ reason: 'The sequence is paused in HubSpot.' }}
       />,
     );
 
-    // That one says the consequence cannot be determined at all, which
-    // outranks "you have not finished reading".
+    // That one says the consequence cannot be determined at all, which is a
+    // condition a reviewer cannot see anywhere else on the page.
     await expect.element(page.getByTestId('primary-held')).toHaveTextContent('The sequence is paused in HubSpot.');
     expect(page.getByTestId('decide-approve').element()).toBeDisabled();
   });
 
-  it('never holds a card that does not walk', async () => {
+  it('leaves a card that does not walk with its own verb', async () => {
     await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
 
+    expect(primaryWord()).toBe('Enroll');
     expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
     expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
@@ -363,8 +392,9 @@ describe('every object type, through the same shell', () => {
 
       if (type.walks) {
         await expect.element(page.getByTestId('walk-count')).toBeVisible();
-        // Held on arrival: nothing has been approved yet.
-        expect(page.getByTestId('decide-approve').element()).toBeDisabled();
+        // The primary is the walk on arrival: nothing has been approved yet.
+        await expect.element(page.getByTestId('decide-approve')).toHaveTextContent('Approve');
+        expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
       } else {
         expect(page.getByTestId('walk-count').elements()).toHaveLength(0);
         expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
@@ -379,7 +409,7 @@ describe('where the walk applies', () => {
     await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
 
     expect(page.getByTestId('walk-count').elements()).toHaveLength(0);
-    expect(page.getByTestId('approve-send-1').elements()).toHaveLength(0);
+    expect(page.getByTestId('unapprove-send-1').elements()).toHaveLength(0);
     expect(page.getByTestId('decide-approve').element()).not.toBeDisabled();
   });
 

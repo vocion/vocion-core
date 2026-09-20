@@ -261,7 +261,7 @@ describe('the per-send walk, on the lead page too', () => {
     await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
   });
 
-  it('holds Enroll here until the count is full, for the same reason', async () => {
+  it('reads Approve here until the count is full, for the same reason', async () => {
     await render(
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
@@ -272,13 +272,15 @@ describe('the per-send walk, on the lead page too', () => {
 
     const primary = page.getByTestId('decide-approve').element();
 
-    expect(primary).toBeDisabled();
-    expect(document.getElementById(primary.getAttribute('aria-describedby')!)?.textContent).toContain('0 of 2');
-    // No banner here either: the count over the tab row carries it.
+    // One primary, and it is the walk: live, reading Approve, with the count
+    // over the tab row saying how far along it is.
+    expect(primary).not.toBeDisabled();
+    expect(primary.querySelector('span')?.textContent?.trim()).toBe('Approve');
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('0 of 2 approved');
     expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
 
-  it('releases Enroll here once every send carries a check', async () => {
+  it('becomes Enroll here once every send carries a check', async () => {
     await render(
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
@@ -289,6 +291,7 @@ describe('the per-send walk, on the lead page too', () => {
 
     await expect.element(page.getByTestId('walk-count')).toHaveTextContent('2 of 2 approved');
     await expect.element(page.getByTestId('decide-approve')).toBeEnabled();
+    expect(page.getByTestId('decide-approve').element().querySelector('span')?.textContent?.trim()).toBe('Enroll');
   });
 });
 
@@ -470,11 +473,13 @@ describe('which tab the page opens on', () => {
 
 describe('the sequence tab', () => {
   it('decides the SAME run the review queue does, with the same verbs', async () => {
+    // Walked, so the primary is the card's own verb rather than the walk's
+    // Approve — this is about the verbs the lead page decides WITH.
     await render(
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
         contactHref={HUBSPOT}
-        runState={{ ...NO_RUN, run: PENDING_RUN }}
+        runState={{ ...NO_RUN, run: WALKED_RUN }}
       />,
     );
 

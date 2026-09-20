@@ -22,7 +22,7 @@ import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { cn } from '@/utils/Helpers';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
-import { isChecked, walkApplies, walkCount } from './contentWalk';
+import { approvableItems, isChecked, walkApplies, walkCount } from './contentWalk';
 import { shortcutFor } from './reviewShortcuts';
 import { useReviewDecision } from './useReviewDecision';
 
@@ -284,7 +284,7 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
  * @param props.regenerating - True while a pass is in flight.
  * @param props.onRegenerate - Runs the pass with the instruction.
  * @param props.history - This item's revisions, oldest first.
- * @param props.approval - The per-send check, on cards that get the walk.
+ * @param props.approved - Set once this send carries a check: the way back.
  */
 function ItemPane(props: {
   item: ReviewContent;
@@ -298,7 +298,7 @@ function ItemPane(props: {
   regenerating: boolean;
   onRegenerate: (instruction: string) => void;
   history: readonly ActionRevision[];
-  approval?: { checked: boolean; onApprove: () => void; onUnapprove: () => void; label: string } | null;
+  approved?: { onUndo: () => void; label: string } | null;
 }) {
   // The instruction is about THIS send, and the pane is KEYED by content id at
   // the call site, so moving to another send remounts it empty. An ask typed
@@ -366,44 +366,25 @@ function ItemPane(props: {
 
           <ItemHistory entries={props.history} id={props.item.id} />
 
-          {props.approval && (
+          {/* Approving happens on the decision bar, so the only control here is
+              the way back: a quiet line that says this send is vouched for and
+              takes it back. The pane never draws a second dark pill beside the
+              bar's — one primary on the screen, which is the rule the two
+              competing buttons broke. */}
+          {props.approved && (
             <div className="mt-5 border-t border-rule pt-3">
-              {/* Keyed apart on purpose. React would otherwise reuse one
-                  `<button>` node across the two states and TRANSITION the ink
-                  primary's background out, so the undo control flashed as a
-                  solid dark pill for the length of the transition — the one
-                  moment it must not look like the primary. Two keys, two
-                  nodes, no morph. */}
-              {props.approval.checked
-                ? (
-                    <button
-                      key="approved"
-                      type="button"
-                      data-testid={`unapprove-${props.item.id}`}
-                      onClick={props.approval.onUnapprove}
-                      disabled={props.disabled}
-                      aria-label={`${props.approval.label} approved — undo`}
-                      title={`${props.approval.label} approved — undo`}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-[13px] text-brand-pass transition hover:bg-surface-hover disabled:opacity-40"
-                    >
-                      <Check className="size-4" aria-hidden />
-                      Approved
-                    </button>
-                  )
-                : (
-                    <button
-                      key="unapproved"
-                      type="button"
-                      data-testid={`approve-${props.item.id}`}
-                      onClick={props.approval.onApprove}
-                      disabled={props.disabled}
-                      aria-label={`Approve ${props.approval.label}`}
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-action px-3 text-sm text-action-foreground transition hover:opacity-90 disabled:opacity-40"
-                    >
-                      <Check className="size-4" aria-hidden />
-                      Approve
-                    </button>
-                  )}
+              <button
+                type="button"
+                data-testid={`unapprove-${props.item.id}`}
+                onClick={props.approved.onUndo}
+                disabled={props.disabled}
+                aria-label={`${props.approved.label} approved — undo`}
+                title={`${props.approved.label} approved — undo`}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-[13px] text-brand-pass transition hover:bg-surface-hover disabled:opacity-40"
+              >
+                <Check className="size-4" aria-hidden />
+                Approved
+              </button>
             </div>
           )}
         </aside>
@@ -500,6 +481,11 @@ export function ReviewSurface(props: {
   const before = (props.extraTabs ?? []).filter(x => x.first);
   const after = (props.extraTabs ?? []).filter(x => !x.first);
   const itemTabs = content.map(item => ({ id: `item-${item.id}`, label: (item as { tabLabel?: string }).tabLabel ?? item.label }));
+  /**
+   * The name a send is known by on screen — "Day 3" — for anything naming one.
+   * @param item - The content item.
+   */
+  const labelOf = (item: ReviewContent) => itemTabs.find(x => x.id === `item-${item.id}`)?.label ?? item.label;
   const tabIds = [
     ...(propertyKeys.length > 0 ? ['changes'] : []),
     ...before.map(x => `extra-${x.id}`),
@@ -580,38 +566,88 @@ export function ReviewSurface(props: {
   };
 
   /**
-   * The walk's own hold: the primary waits until every send carries a check.
+   * Approve one send, then move to the next one still unapproved.
    *
-   * This is the phase that makes the walk required, and the only one that can
-   * block a queue if the count is ever wrong — which is why the count is
-   * derived from the same hash the checks are, rather than tracked beside
-   * them. It reuses the hold already shipped for the sequence-state case
-   * rather than inventing a second way to disable a primary: one mechanism,
-   * one place the reason is written, and `BarAction.hint` already puts that
-   * reason on a disabled button where a pointer can reach it.
-   *
-   * It draws NO notice. The count over the tab row already says how far
-   * through the walk you are, and the reason rides the disabled button
-   * itself, so a banner repeating it was a third copy of one fact taking a
-   * row of the screen. A hold the SURFACE passes still draws one: that is a
-   * condition a reviewer cannot see anywhere else on the page.
-   *
-   * A hold the SURFACE passes also wins outright. That one says the
-   * consequence cannot be determined at all, which outranks "you have not
-   * finished reading".
-   *
-   * A retry is never held. A run whose execution failed has already been
-   * decided once — the copy was approved, the decision's backstop recorded
-   * it, and the thing that went wrong was HubSpot, not the reading. Making
-   * someone walk a four-send sequence again to re-send what they already
-   * approved would be the count blocking a queue, which is the one way this
-   * phase can do harm.
+   * The advance is what makes this a walk rather than a checklist: the screen
+   * puts the next thing it is asking you to vouch for in front of you. The
+   * last one advances nowhere and leaves you on it, with the count full and
+   * the primary now reading Enroll.
+   * @param contentId - The send being approved.
    */
-  const walkHold = walks && !count.complete && !d.execError
-    ? { reason: `${approveVerb} opens when every send is approved — ${count.approved} of ${count.total} so far.` }
+  const approveItem = async (contentId: string) => {
+    try {
+      await d.approveContent(contentId);
+    } catch (err) {
+      toast.error('Could not approve that item', { description: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    const next = content.find(i => i.id !== contentId && !checkedIds.has(i.id) && contentKindEditable(i.kind));
+    if (next) {
+      setTab(`item-${next.id}`);
+    }
+  };
+
+  /**
+   * Take one send's check back off. The history it already wrote stands.
+   * @param contentId - The send being unapproved.
+   */
+  const unapproveItem = async (contentId: string) => {
+    try {
+      await d.unapproveContent(contentId);
+    } catch (err) {
+      toast.error('Could not undo that approval', { description: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  /**
+   * The walk IS the primary: one button, and the walk is what it does.
+   *
+   * There used to be two of them — a dark Approve inside the pane and a dead
+   * Enroll on the bar — which left a reviewer to work out that the second was
+   * waiting on the first (Chris, 2026-09-19: *"as a user I should just be
+   * cycled through what I need to approve ... so there shouldn't be two
+   * buttons"*). So the bar's primary reads **Approve** while sends are
+   * outstanding, approves the send on screen and advances, and becomes the
+   * card's own verb — **Enroll** — only once the count is full.
+   *
+   * That holds the send harder than the disabled primary it replaces: Enroll
+   * cannot be pressed early because, until the last check lands, the button is
+   * not Enroll. The count over the tab row says how far along you are, and no
+   * banner repeats it.
+   *
+   * Two modes, because the button must never approve copy that is not on
+   * screen. On an unapproved send it approves that send. Anywhere else — Why,
+   * Evidence, a send already checked — it OPENS the send still waiting, and
+   * the next press approves it. Approving something you were not looking at is
+   * the one mistake this button could newly make, and the mode rules it out.
+   *
+   * A retry never walks. A run whose execution failed was already decided once
+   * — the copy was approved, the decision's backstop recorded it, and what
+   * went wrong was HubSpot, not the reading. Walking four sends again to
+   * re-send copy already approved would be the count blocking a queue.
+   */
+  const activeItem = content.find(i => `item-${i.id}` === active);
+  const waiting = walks && !count.complete && !d.execError
+    ? approvableItems(content).filter(i => !checkedIds.has(i.id))
+    : [];
+  const onDeck = waiting.find(i => i.id === activeItem?.id) ?? waiting[0];
+  const walkStep = onDeck
+    ? { open: onDeck.id !== activeItem?.id, item: onDeck, label: labelOf(onDeck) }
     : null;
-  const hold = props.hold ?? walkHold;
-  const heldPrimary = d.held || Boolean(hold);
+  const heldPrimary = d.held || Boolean(props.hold);
+
+  /** What the bar's primary does: the next step of the walk, or the decision. */
+  const pressPrimary = () => {
+    if (!walkStep) {
+      void decide('approve');
+      return;
+    }
+    if (walkStep.open) {
+      setTab(`item-${walkStep.item.id}`);
+      return;
+    }
+    void approveItem(walkStep.item.id);
+  };
 
   // The keyboard decides too: a / d / s, never while you are typing.
   useEffect(() => {
@@ -625,7 +661,7 @@ export function ReviewSurface(props: {
       }
       if (action === 'approve' && !heldPrimary) {
         e.preventDefault();
-        void decide('approve');
+        pressPrimary();
       } else if (action === 'decline') {
         e.preventDefault();
         void decide('reject');
@@ -670,40 +706,6 @@ export function ReviewSurface(props: {
   // A read-only field that is also an editable property is shown once — in the
   // Changes pane — so "industry" does not read twice.
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
-
-  /**
-   * Approve one send, then move to the next one still unapproved.
-   *
-   * The advance is what makes this a walk rather than a checklist: the screen
-   * puts the next thing it is asking you to vouch for in front of you. The
-   * last one advances nowhere and leaves you on it, with the count full and
-   * the primary released.
-   * @param contentId - The send being approved.
-   */
-  const approveItem = async (contentId: string) => {
-    try {
-      await d.approveContent(contentId);
-    } catch (err) {
-      toast.error('Could not approve that item', { description: err instanceof Error ? err.message : String(err) });
-      return;
-    }
-    const next = content.find(i => i.id !== contentId && !checkedIds.has(i.id) && contentKindEditable(i.kind));
-    if (next) {
-      setTab(`item-${next.id}`);
-    }
-  };
-
-  /**
-   * Take one send's check back off. The history it already wrote stands.
-   * @param contentId - The send being unapproved.
-   */
-  const unapproveItem = async (contentId: string) => {
-    try {
-      await d.unapproveContent(contentId);
-    } catch (err) {
-      toast.error('Could not undo that approval', { description: err instanceof Error ? err.message : String(err) });
-    }
-  };
 
   /**
    * This item's slice of the run's history. A run written before the record
@@ -848,13 +850,8 @@ export function ReviewSurface(props: {
         actions={props.itemActions?.(item, label)}
         edited={edit !== undefined && (edit.subject !== undefined || edit.body !== undefined)}
         history={historyFor(item.id)}
-        approval={walks && contentKindEditable(item.kind)
-          ? {
-              checked: checkedIds.has(item.id),
-              onApprove: () => void approveItem(item.id),
-              onUnapprove: () => void unapproveItem(item.id),
-              label,
-            }
+        approved={walks && checkedIds.has(item.id)
+          ? { onUndo: () => void unapproveItem(item.id), label }
           : null}
       >
         <Renderer
@@ -900,13 +897,15 @@ export function ReviewSurface(props: {
             <StickyActionBar
               labels={props.barLabels}
               primary={{
-                'label': d.execError ? `Retry ${approveVerb}` : approveVerb,
-                'onClick': () => void decide('approve'),
+                // One word, and the walk is what it does: Approve until every
+                // send carries a check, then the card's own verb.
+                'label': walkStep ? 'Approve' : d.execError ? `Retry ${approveVerb}` : approveVerb,
+                'onClick': pressPrimary,
                 'disabled': heldPrimary,
                 'busy': d.busy,
                 'icon': Check,
                 'shortcut': 'a',
-                'hint': hold?.reason,
+                'hint': props.hold?.reason ?? (walkStep?.open ? `Opens ${walkStep.label}, which is still waiting to be approved.` : undefined),
                 'data-testid': 'decide-approve',
               }}
               secondary={[
