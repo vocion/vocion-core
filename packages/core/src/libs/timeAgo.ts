@@ -46,3 +46,37 @@ export function ageLabel(at: Date, now: number): string {
   const said = timeAgo(at, now);
   return said.startsWith('on ') ? said.slice(3) : said;
 }
+
+/**
+ * The same distance at heartbeat precision, either direction: "12s ago",
+ * "3m ago", "2h ago", "in 4m", "in 2d", then the plain date past two weeks.
+ *
+ * `timeAgo` is coarse because what it dates moves daily; a worker heartbeats
+ * every thirty seconds and its lease runs out in minutes, so on the factory
+ * floor "just now" would hide the one thing a person is looking for —
+ * whether the worker is still alive. Same clock injection, same date
+ * fallback; this is the fine end of the one reading, not a second one.
+ * @param at - The moment.
+ * @param now - The clock, injectable so tests do not depend on the real one.
+ */
+export function relativeLabel(at: Date, now: number): string {
+  const delta = Math.round((now - at.getTime()) / 1000);
+  const seconds = Math.abs(delta);
+  const say = (n: number, unit: string) => (delta < 0 ? `in ${n}${unit}` : `${n}${unit} ago`);
+  if (seconds < 60) {
+    return say(seconds, 's');
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return say(minutes, 'm');
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return say(hours, 'h');
+  }
+  const days = Math.round(hours / 24);
+  if (days <= 14) {
+    return say(days, 'd');
+  }
+  return at.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}

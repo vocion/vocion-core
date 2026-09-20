@@ -54,11 +54,33 @@ const FieldSchema = z.object({
    * `image` renders the value (a URL) as a thumbnail; `money` reads an
    * integer of cents and shows dollars; `link` renders a URL as an anchor
    * that opens in a new tab, so a row can carry the pull request beside the
-   * run without the row itself navigating there.
+   * run without the row itself navigating there. `relative` renders a
+   * timestamp as its distance from now ("12s ago", "in 4m") with the full
+   * time one hover away — on a live page it re-reads on every refresh, so a
+   * heartbeat column stays honest. `progress` renders a worker's
+   * `{phase, note}` object as "phase · note" (any other object as its
+   * primitive entries), so coarse progress reads as a sentence, not JSON.
    */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link']).default('text'),
-  /** For `format: badge` — map raw value → status-pill tone. */
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress']).default('text'),
+  /**
+   * For `format: badge` — map raw value → status-pill tone. A boolean
+   * `false` with no `'false'` tone renders as nothing: a flag that is off
+   * (`stopRequested`) is not a state to badge unless the page says so
+   * (the floor's `verified` does, with `'false': bad`).
+   */
   tones: z.record(z.string(), z.enum(['ok', 'warn', 'bad', 'info', 'muted'])).optional(),
+});
+
+/**
+ * A page that stays current while someone is looking at it. The rendered
+ * page re-reads its rows and stats every `every` seconds while the tab is
+ * visible, and says so ("live · 12s ago"). Bounded: under 5s a page would
+ * hammer the database for no reading a person could follow; over 120s it
+ * is not live, it is a page you reload. One request per interval per open
+ * tab is the whole cost.
+ */
+const LiveSchema = z.object({
+  every: z.number().int().min(5).max(120),
 });
 
 const FilterSchema = z.object({
@@ -156,6 +178,8 @@ export const PageManifestSchema = z.object({
   stats: z.array(StatSchema).optional(),
   /** Row click-through, e.g. `/dashboard/objects/{id}`. `{id}` interpolates. */
   rowLink: z.string().optional(),
+  /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
+  live: LiveSchema.optional(),
 
   // ---- review embed (any archetype) ----
   /**
@@ -176,7 +200,9 @@ export const PageManifestSchema = z.object({
   contentFile: z.string().optional(),
 
   widgets: z.array(WidgetSchema).default([]),
-}).refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] });
+})
+  .refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] })
+  .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] });
 
 export type PageManifest = z.infer<typeof PageManifestSchema>;
 /** A validated page plus where it came from, so its prose resolves beside it. */
@@ -187,6 +213,7 @@ export type LoadedPage = PageManifest & {
   origin: 'workspace' | `plugin:${string}`;
 };
 export type PageField = z.infer<typeof FieldSchema>;
+export type PageLive = z.infer<typeof LiveSchema>;
 export type PageStat = z.infer<typeof StatSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
 
@@ -353,6 +380,49 @@ export function resolveField(row: PageRow, from: string): unknown {
     cur = (cur as Record<string, unknown>)[part];
   }
   return cur;
+}
+
+/**
+ * A `format: progress` value as one line. A worker's heartbeat carries
+ * `progress` as its own JSON — the factory's workers send `{phase, note}` —
+ * so the phase and the note read as "phase · note"; any other object reads
+ * as its primitive entries ("files: 12 · step: lint"); a string is itself.
+ * Null when there is nothing to say, so the cell shows the dash.
+ * @param raw - The resolved field value.
+ */
+export function formatProgress(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') {
+    return null;
+  }
+  if (typeof raw !== 'object') {
+    return String(raw);
+  }
+  const obj = raw as Record<string, unknown>;
+  const named = ['phase', 'note'].map(k => obj[k]).filter((v): v is string | number => typeof v === 'string' ? v !== '' : typeof v === 'number');
+  if (named.length > 0) {
+    return named.map(String).join(' · ');
+  }
+  const rest = Object.entries(obj)
+    .filter(([, v]) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+    .map(([k, v]) => `${k}: ${String(v)}`);
+  return rest.length > 0 ? rest.join(' · ') : null;
+}
+
+/**
+ * A field value as a Date, or null when it is not one. Rows carry `Date`
+ * objects from the database and ISO strings from parsed JSON; a `relative`
+ * or `date` column should read both.
+ * @param raw - The resolved field value.
+ */
+export function toDate(raw: unknown): Date | null {
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? null : raw;
+  }
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 }
 
 export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchema>[] | undefined): PageRow[] {

@@ -29,8 +29,21 @@ Every page derives from a core page shape rather than inventing one:
 
 A `list`/`queue` page composes: a stats row (`stats:`), grouping
 (`groupBy:`), filtering (`filters:`), sorting, per-field formats
-(`text|badge|score|date|mono`, with badge tone maps), a `rowLink`
-click-through, and custom widgets.
+(`text|badge|score|date|mono|image|money|link|relative|progress`, with badge
+tone maps), a `rowLink` click-through, and custom widgets.
+
+`relative` renders a timestamp as its distance from now ("12s ago", "in 4m")
+with the exact moment on hover; `progress` renders a worker's `{phase, note}`
+heartbeat object as "phase · note". A badge over a boolean `false` with no
+`'false'` tone renders as nothing, so an off flag is not a column of pills.
+
+A `list`/`queue` page can also stay **live**: `live: {every: 15}` re-reads the
+rows and stats every 15 seconds while the tab is visible (bounded 5–120) and
+shows "live · 12s ago" in the title row. A hidden tab does not poll; coming
+back re-reads at once. It is polling from a small client component, not a
+socket — one request per interval per open tab is the whole cost — and it
+reads whatever the source already records (a worker's heartbeat, a task's
+status), so nothing new has to be emitted for a page to be live.
 
 ## Manifest example
 
