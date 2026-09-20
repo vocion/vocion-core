@@ -5,6 +5,7 @@ import type { ReviewContent } from '@/libs/actions/types';
 import { ExternalLink, FileText } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { cn } from '@/utils/Helpers';
+import { RichEmailBody } from './RichEmailBody';
 
 /**
  * Content-kind renderers for the review surface — kinds register here the way
@@ -140,12 +141,15 @@ function EmailContent({ item, edit, onEdit, disabled, changed }: ContentRenderPr
       )}
     >
       {/* Nothing to edit here — a guided review, or a run already decided.
-          Prose, then: a disabled field reads as a dead form rather than as the
-          message it is. */}
+          The body still renders through the editor, read-only: it may carry a
+          reviewer's formatting, and ProseMirror's schema is what makes showing
+          it safe without trusting what is stored. */}
       {!onEdit && (
         <>
           {subject && <p className="border-b border-rule pb-1.5 text-[17px] font-medium">{subject}</p>}
-          <p className="mt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/85">{body}</p>
+          <div className="mt-2 text-foreground/85">
+            <RichEmailBody value={body} label={`${item.label} body`} />
+          </div>
         </>
       )}
       {/* An email, not a form. The subject is a subject line with a hairline
@@ -166,16 +170,17 @@ function EmailContent({ item, edit, onEdit, disabled, changed }: ContentRenderPr
           />
         </label>
       )}
-      {/* No <label> wrapper: the control lives inside `AutoGrow`, so the
-          association has to travel as an accessible name instead. */}
+      {/* No <label> wrapper: the control is a contenteditable inside
+          `RichEmailBody`, so the association travels as an accessible name. */}
       {onEdit && (
-        <AutoGrow
-          label={`${item.label} body`}
-          className={`${inlineFieldClass} mt-1 leading-relaxed`}
-          value={body}
-          onChange={next => onEdit({ body: next })}
-          disabled={disabled}
-        />
+        <div className="mt-1">
+          <RichEmailBody
+            label={`${item.label} body`}
+            value={body}
+            onChange={next => onEdit({ body: next })}
+            disabled={disabled}
+          />
+        </div>
       )}
     </div>
   );

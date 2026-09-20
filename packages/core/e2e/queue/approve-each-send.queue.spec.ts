@@ -137,14 +137,16 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   const afterOne = recordOf(runId);
   const approved1 = afterOne.revisions.find(r => r.contentId === 'send-1' && r.kind === 'approved');
 
-  expect(approved1?.body).toBe(afterOne.sends[0]!.body);
+  // The approval records the copy in the form it will go out: HTML. The
+  // payload itself is untouched, so the agent's prose is still on the row.
+  expect(approved1?.body).toBe(`<p>${afterOne.sends[0]!.body}</p>`);
   expect(afterOne.contentReview['send-1']).toBeTruthy();
   // A checkpoint, not an execution.
   expect(afterOne.status).toBe('pending');
 
   // ── A check is not a promise: editing send 1 clears it, with no reload ───
   await page.getByTestId('tab-item-send-1').click();
-  const body1 = page.getByTestId('email-pane-send-1').locator('textarea').first();
+  const body1 = page.getByTestId('email-pane-send-1').locator('[contenteditable="true"]').first();
   await body1.fill('Rewritten after approving it.');
 
   await expect(page.getByTestId('tab-item-send-1')).not.toHaveAttribute('data-approved', 'true');
@@ -156,8 +158,25 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   await page.getByTestId('decide-approve').click();
 
   await expect(page.getByTestId('walk-count')).toHaveText('1 of 4 approved');
+  // HTML, because the body is composed now rather than typed as prose, and
+  // HTML is what HubSpot receives.
   expect(recordOf(runId).revisions.filter(r => r.contentId === 'send-1' && r.kind === 'approved').at(-1)?.body)
-    .toBe('Rewritten after approving it.');
+    .toBe('<p>Rewritten after approving it.</p>');
+
+  // ── The formatting a reviewer applies is what gets recorded ──────────────
+  // Approving advanced to send 2, so come back to the one being formatted.
+  await page.getByTestId('tab-item-send-1').click();
+  await body1.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.getByRole('button', { name: 'Bold' }).click();
+
+  // The check clears, because the copy changed: bold is part of what goes out.
+  await expect(page.getByTestId('tab-item-send-1')).not.toHaveAttribute('data-approved', 'true');
+
+  await page.getByTestId('decide-approve').click();
+
+  await expect.poll(() => recordOf(runId).revisions.filter(r => r.contentId === 'send-1' && r.kind === 'approved').at(-1)?.body)
+    .toBe('<p><strong>Rewritten after approving it.</strong></p>');
 
   // ── A reload keeps the check and the edited copy together ────────────────
   await page.reload();
@@ -167,7 +186,7 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
 
   await page.getByTestId('tab-item-send-1').click();
 
-  await expect(page.getByTestId('email-pane-send-1').locator('textarea').first()).toHaveValue('Rewritten after approving it.');
+  await expect(page.getByTestId('email-pane-send-1').locator('[contenteditable="true"]').first()).toHaveText('Rewritten after approving it.');
 
   // ── The rest of the walk ─────────────────────────────────────────────────
   for (const id of ['send-2', 'send-3', 'send-4']) {
@@ -196,7 +215,7 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   for (const [i, send] of walked.sends.entries()) {
     const approved = walked.revisions.filter(r => r.contentId === `send-${i + 1}` && r.kind === 'approved').at(-1);
 
-    expect(approved?.body).toBe(i === 0 ? 'Rewritten after approving it.' : send.body);
+    expect(approved?.body).toBe(i === 0 ? '<p><strong>Rewritten after approving it.</strong></p>' : `<p>${send.body}</p>`);
   }
 });
 

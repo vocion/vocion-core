@@ -725,13 +725,16 @@ export const personalizationEnrollAction: Action<typeof enrollInput> = {
     // The sequences API cannot carry per-enrollment copy, so the APPROVED
     // sends are staged for the sender on the contact's timeline. Non-fatal:
     // the enrollment already happened, and the result says which occurred.
-    // hs_note_body renders as HTML too — convert at the same boundary as the slots.
-    const { textToEmailHtml } = await import('@/libs/hubspot/emailHtml');
+    // hs_note_body renders as HTML too, and each body is converted on its own
+    // rather than after being joined: a reviewer's formatted send is already
+    // HTML, and escaping the whole joined string would show them its tags.
+    const { emailBodyHtml } = await import('@/libs/writing/emailBody');
+    const esc = (v: string) => v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
     const noteBody = [
-      `Approved personalized sends for "${input.sequenceName}" (reviewed in Vocion):`,
-      ...input.sends.map(s => `Send ${s.step}${s.day !== undefined ? ` · Day ${s.day}` : ''}\nSubject: ${s.subject}\n\n${s.body}`),
-    ].join('\n\n---\n\n');
-    const note = await stageSendsAsNote(client, hubspotId, textToEmailHtml(noteBody));
+      `<p>Approved personalized sends for "${esc(input.sequenceName)}" (reviewed in Vocion):</p>`,
+      ...input.sends.map(s => `<p><strong>Send ${s.step}${s.day !== undefined ? ` · Day ${s.day}` : ''}</strong><br>Subject: ${esc(s.subject)}</p>${emailBodyHtml(s.body)}`),
+    ].join('<hr>');
+    const note = await stageSendsAsNote(client, hubspotId, noteBody);
 
     // The lane flip: reviewed sends persist on the lead (the reviewer's
     // edited copy — decide() re-wrote the input before execution), and the

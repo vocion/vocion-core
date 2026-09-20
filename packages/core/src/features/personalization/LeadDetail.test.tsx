@@ -3,6 +3,7 @@ import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { canonicalBody } from '@/features/review/contentWalk';
 import { contentHash } from '@/libs/actions/contentHash';
 import { computeConfidenceDimensions, researchState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { publishDraftRevision } from './draftRevision';
@@ -72,7 +73,7 @@ const WALKED_RUN: ReviewCardRun = {
   ...PENDING_RUN,
   contentReview: Object.fromEntries((PENDING_RUN.card.content ?? [])
     .filter(i => i.kind === 'email')
-    .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, i.kind === 'email' ? i.body : ''), at: '2026-09-18T12:00:00.000Z' }])),
+    .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, canonicalBody(i.kind === 'email' ? i.body : '')), at: '2026-09-18T12:00:00.000Z' }])),
 };
 
 const CLAIMS = [
@@ -249,7 +250,7 @@ describe('the per-send walk, on the lead page too', () => {
     // the page knowing about it — which is the whole point of one template.
     const half = {
       ...PENDING_RUN,
-      contentReview: { 'send-1': { hash: contentHash('The ebook you pulled', 'One line on the ebook.'), at: '2026-09-18T12:00:00.000Z' } },
+      contentReview: { 'send-1': { hash: contentHash('The ebook you pulled', canonicalBody('One line on the ebook.')), at: '2026-09-18T12:00:00.000Z' } },
     } as ReviewCardRun;
     await render(
       <LeadDetail

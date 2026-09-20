@@ -9,7 +9,7 @@
 import type { ReviewContent } from '@/libs/actions/types';
 import { describe, expect, it } from 'vitest';
 import { contentHash } from '@/libs/actions/contentHash';
-import { approvableItems, isChecked, seedEditsFromApprovals, walkApplies, walkCount } from './contentWalk';
+import { approvableItems, canonicalBody, isChecked, seedEditsFromApprovals, walkApplies, walkCount } from './contentWalk';
 
 const send = (n: number, body = `Body ${n}.`): ReviewContent => ({
   kind: 'email',
@@ -28,7 +28,7 @@ const doc: ReviewContent = { kind: 'document', id: 'brief', label: 'Brief', href
  * @param body - The copy approved, when it is not the send's own.
  */
 const approvalOf = (n: number, body?: string) =>
-  ({ [`send-${n}`]: contentHash(`Subject ${n}`, body ?? `Body ${n}.`) });
+  ({ [`send-${n}`]: contentHash(`Subject ${n}`, canonicalBody(body ?? `Body ${n}.`)) });
 
 describe('where the walk applies', () => {
   it('walks a sequence of two or more sends — the case it exists for', () => {
@@ -115,7 +115,7 @@ describe('the count', () => {
 describe('an approved send brings its copy back with its check', () => {
   const item = send(1);
   const approvedBody = 'The copy the reviewer edited and then approved.';
-  const check = { 'send-1': { hash: contentHash('Subject 1', approvedBody), at: '2026-09-18T12:00:00.000Z' } };
+  const check = { 'send-1': { hash: contentHash('Subject 1', canonicalBody(approvedBody)), at: '2026-09-18T12:00:00.000Z' } };
   const approvedRevision = { contentId: 'send-1', version: 2, kind: 'approved' as const, body: approvedBody, at: '2026-09-18T12:00:00.000Z' };
 
   it('restores the working edit behind a standing check', () => {
@@ -125,7 +125,7 @@ describe('an approved send brings its copy back with its check', () => {
   it('restores nothing when the approved copy is already what is rendered', () => {
     const unedited = send(1);
     const body = 'Body 1.';
-    const sameCheck = { 'send-1': { hash: contentHash('Subject 1', body), at: '2026-09-18T12:00:00.000Z' } };
+    const sameCheck = { 'send-1': { hash: contentHash('Subject 1', canonicalBody(body)), at: '2026-09-18T12:00:00.000Z' } };
 
     expect(seedEditsFromApprovals([unedited], sameCheck, [{ ...approvedRevision, body }])).toEqual({});
   });

@@ -13,6 +13,7 @@ import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { publishDraftRevision } from '@/features/personalization/draftRevision';
 import { contentHash } from '@/libs/actions/contentHash';
+import { canonicalBody } from './contentWalk';
 // The real stylesheet, so the layout claims below are about geometry rather
 // than about class names (`ReviewHeader.layout.test.tsx` sets the precedent).
 import '@/styles/global.css';
@@ -56,7 +57,7 @@ function approved(run: ReviewCardRun): ReviewCardRun {
     ...run,
     contentReview: Object.fromEntries((run.card.content ?? [])
       .filter(i => i.kind === 'email')
-      .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, i.kind === 'email' ? i.body : ''), at: '2026-09-18T12:00:00.000Z' }])),
+      .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, canonicalBody(i.kind === 'email' ? i.body : '')), at: '2026-09-18T12:00:00.000Z' }])),
   };
 }
 
@@ -284,7 +285,10 @@ describe('one flat template, every object type', () => {
     // ReviewSurface.walk.test.tsx, where the hold is the subject.
     await render(<ReviewSurface run={approved(enrollment(3))} crumbs={CRUMBS} />);
 
-    await page.getByTestId('email-pane-send-1').element().querySelector('textarea')!.focus();
+    // The body is a contenteditable now, which is neither an input nor a
+    // textarea — `shortcutFor` refuses it on `isContentEditable`, and this is
+    // what proves the refusal still covers the field a reviewer types in.
+    page.getByTestId('email-pane-send-1').element().querySelector<HTMLElement>('[contenteditable="true"]')!.focus();
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
 
     expect(decideAction).not.toHaveBeenCalled();
@@ -302,10 +306,10 @@ describe('one flat template, every object type', () => {
 
     // Edit the third send, in its own tab, after switching away and back.
     await page.getByTestId('tab-item-send-3').click();
-    const body = page.getByTestId('email-pane-send-3').element().querySelector('textarea')!;
+    const body = page.getByTestId('email-pane-send-3').element().querySelector('[contenteditable="true"]')!;
     await page.getByTestId('tab-item-send-1').click();
     await page.getByTestId('tab-item-send-3').click();
-    const live = page.getByTestId('email-pane-send-3').element().querySelector('textarea')!;
+    const live = page.getByTestId('email-pane-send-3').element().querySelector<HTMLElement>('[contenteditable="true"]')!;
     await page.elementLocator(live).fill('Rewritten in the tab.');
 
     // Each send it edited is then approved, which is the walk's real path and
@@ -323,7 +327,7 @@ describe('one flat template, every object type', () => {
     expect(body).toBeTruthy();
     expect(decideAction.mock.calls[0]![0]).toMatchObject({
       decision: 'approve',
-      contentEdits: [{ id: 'send-3', body: 'Rewritten in the tab.' }],
+      contentEdits: [{ id: 'send-3', body: '<p>Rewritten in the tab.</p>' }],
     });
   });
 
@@ -478,7 +482,8 @@ describe('one flat template, every object type', () => {
 
     await expect.element(page.getByTestId('item-pane-send-3')).toBeVisible();
     await expect.element(page.getByTestId('email-pane-send-3')).toHaveAttribute('data-changed', 'true');
-    expect(page.getByTestId('email-pane-send-3').element().querySelector('textarea')!.value).toBe('The rail rewrote this one.');
+    // The rail publishes prose; the editor shows it as the paragraph it is.
+    expect(page.getByTestId('email-pane-send-3').element().querySelector('[contenteditable="true"]')!.textContent).toBe('The rail rewrote this one.');
   });
 
   it('reads without a bar when there is nothing pending to decide', async () => {
