@@ -1,0 +1,64 @@
+slug: product
+label: Product
+description: >-
+  What the factory builds for, and what it has promised. A product carries the
+  written commitments a change may never quietly break, the price it is sold
+  at beside the incumbent it is measured against, the repositories that make
+  it, the person accountable for it, and the stage it is in. Every request
+  belongs to one; every task serves one; the permanent gates — pricing, plan
+  limits, the promises — are read from here.
+icon: package
+schema:
+  type: object
+  properties:
+    name:
+      type: string
+      description: What it is called in prose today.
+    workingName:
+      type: string
+      description: The name used while building, before launch. Kept beside `launchName` so a repository or a file named after the working name still resolves to this product.
+    launchName:
+      type: string
+      description: The name it ships under. Empty until it is decided; a product may reach `dogfood` without one.
+    stage:
+      type: string
+      description: '`idea` — not yet building. `building` — code, no users. `dogfood` — the team uses it daily. `live` — people outside the team rely on it. `retired` — no longer offered, still answered for.'
+      enum: [idea, building, dogfood, live, retired]
+    incumbent:
+      type: object
+      description: The product people use instead today, and what it costs them — the number ours is judged against. Dated and sourced so a stale comparison is visible as stale.
+      properties:
+        name: {type: string}
+        comparePlan: {type: string, description: Which of their plans is the like-for-like comparison.}
+        listPrice: {type: string, description: 'Their price for that plan, as published, with its unit ("$29/user/month").'}
+        checkedOn: {type: string, format: date, description: When the price was last read from the source.}
+        sourceUrl: {type: string, description: Where it was read. One tap from the number to the page.}
+    ourPrice:
+      type: string
+      description: What we charge, with its unit. Changing it is a permanent gate — a person's decision every time, never something a task adjusts on the way past.
+    urls:
+      type: object
+      description: Where it is. What a verification curl hits and what a request's asker was looking at.
+      properties:
+        site: {type: string}
+        app: {type: string}
+        api: {type: string}
+    repos:
+      type: array
+      description: Slugs of the `repo` records that make this product.
+      items: {type: string}
+    accountableUser:
+      type: string
+      description: Email of the person who answers for this product — who a merge ask on it goes to when the repository does not say otherwise, and whose name is on its promises.
+    promises:
+      type: array
+      description: >-
+        The written commitments, one line each, in the words they were made in
+        — what the site says, what the plan says, what was told to a customer.
+        A change that touches the surface a promise describes is at least
+        `logic` and never earns its way past a person; the reviewer reads this
+        list before approving anything on this product.
+      items: {type: string}
+    notes:
+      type: string
+      description: Standing knowledge about the product — positioning, who it is for, what was decided and when. Markdown.

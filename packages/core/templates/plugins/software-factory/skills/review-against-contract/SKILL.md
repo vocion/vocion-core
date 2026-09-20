@@ -5,10 +5,13 @@ description: >-
   The reviewer's procedure for a finished engineering task: what is read and
   what is deliberately not, the order that makes the review cheap (paths,
   checks, criteria, then the request), how findings are keyed to the contract,
-  the three verdicts and what each one means, and the rule that a disagreement
-  with the implementer becomes an ask rather than a third opinion. Read before
-  every review, and before deciding whether a known failure can ship.
-version: 1
+  the three verdicts and what each one means, the rule that a disagreement
+  with the implementer becomes an ask rather than a third opinion, why nothing
+  is approved without verification artifacts, and why a contract below its
+  repository's risk floor is rejected unread. Read before every review, and
+  before deciding whether a known failure can ship.
+playbooks: [written-promises, verify-against-reality]
+version: 2
 ---
 
 # Reviewing against the contract
@@ -19,9 +22,14 @@ whether the worker worked hard.
 
 ## What you read, and what you do not
 
-You read three things: the **task contract**, the **diff**, and the
-**verification output** (each required check, its exit code, its artifact).
-Plus the request in the requester's own words, which you read last.
+You read four things: the **task contract**, the **diff**, the
+**`verification`** entries (each check, its exit code, its one-line summary and
+the artifacts that carry the proof), and the repository's **`riskDefaults`**.
+Plus the request in the asker's own words, which you read last, and the
+product's written **promises**, which you read before approving anything —
+the four in the `written-promises` playbook plus the product's own. What
+counts as proof for each kind of check is the `verify-against-reality`
+playbook; a check whose proof is not on its table is not proven.
 
 You do **not** read the implementer's conversation. An account of how a change
 was made cannot make the change correct, and reading it is how a reviewer
@@ -30,21 +38,36 @@ you actually want is a line the contract was missing.
 
 ## The order, which is what makes this cheap
 
+0. **The floor.** Match every path in `allowedPaths` and `filesChanged`
+   against the repository's `riskDefaults`. If any path falls under a glob
+   whose class is higher than the task's `riskClass`, the contract is wrong,
+   not the work: return `reject` naming the path, the class the floor demands
+   and the class the contract claimed, and do not read the diff. A contract
+   below its floor would put a change in front of a person at the wrong bar,
+   and the bar is the whole point.
 1. **Paths.** Every path in `filesChanged` against `allowedPaths`. A diff
    outside them is a contract violation: name the paths, return `changes`, and
    stop. It is not read on its merits, because the blast radius was agreed
    before the work started and this change is not the one that was agreed.
-2. **Checks.** Every entry in `requiredChecks`, run against the commit in the
-   record, with its exit code and its artifact. A check with no exit code was
-   not run, and a check that was not run is not a pass. A non-zero exit the
-   worker decided was acceptable is a `knownFailure` — see below.
+2. **Verification.** Every entry in `requiredChecks` has a `verification`
+   entry, run against the commit in the record, with its exit code and **at
+   least one artifact** — the JUnit report, the Playwright trace, the
+   screenshot, the curl of the deployed URL. A check with no exit code was not
+   run; a check with no artifact is a claim, not a proof; and a task with an
+   empty `verification` is **not reviewable** — return `changes` asking for the
+   evidence, whatever the diff looks like. You never approve on a worker's
+   word that it tested something. A non-zero exit the worker decided was
+   acceptable is a `knownFailure` — see below.
 3. **Criteria.** Each line of `acceptanceContract`, one at a time, against the
    diff. Quote the hunk that satisfies it, or say plainly that it is not
    satisfied. A criterion you cannot decide from the diff is a criterion that
    was not checkable, and that finding goes back to the planner.
-4. **The request.** A change that meets every criterion and does not serve what
-   was asked is `changes`, not an approval — and the criterion that was missing
-   is the actual finding.
+4. **The request, and the promises.** Read the `request` record in the
+   asker's own words. A change that meets every criterion and does not serve
+   what was asked is `changes`, not an approval — and the criterion that was
+   missing is the actual finding. Then read the product's `promises`: a change
+   that touches the surface a promise describes is a person's decision at the
+   high bar however small the diff, and you say which promise.
 
 ## Findings are keyed to the contract
 
@@ -57,15 +80,17 @@ is written before the work rather than inferred after it.
 
 ## The three verdicts
 
-- **approve** — every criterion met, every required check run and passed, no
-  path outside `allowedPaths`. The merge then goes on a person's queue as an
-  ask; you do not merge, and nothing you do merges.
+- **approve** — every criterion met, every required check run and passed
+  with its evidence attached, no path outside `allowedPaths`, the contract at
+  or above its floor. The merge then goes on a person's queue as an ask
+  carrying the task's `decisionCost` and the verification artifacts one tap
+  away; you do not merge, and nothing you do merges.
 - **changes** — something specific and checkable is wrong, and you can say
   exactly what would make it right. The next attempt carries that line.
-- **reject** — the change does not serve the request, or it is outside the
-  contract in a way another attempt on the same contract would not fix. A
-  reject is a planning finding, not a worker finding; say which contract line
-  was wrong.
+- **reject** — the change does not serve the request, the contract sits
+  below its repository's risk floor, or it is outside the contract in a way
+  another attempt on the same contract would not fix. A reject is a planning
+  finding, not a worker finding; say which contract line was wrong.
 
 ## Known failures
 
@@ -89,6 +114,7 @@ contract as a line, so the same disagreement is not had twice.
 ## The receipt
 
 Report the verdict, then the findings in the order above, each keyed to what it
-fails, each with the diff hunk or exit code behind it. Then the one line a
-person needs to decide the merge: what this changes, what it risks, and what is
-still broken on purpose.
+fails, each with the diff hunk, exit code or artifact behind it. Then the one
+line a person needs to decide the merge: what this changes, what it risks, what
+is still broken on purpose, and how many minutes of their attention it should
+take.

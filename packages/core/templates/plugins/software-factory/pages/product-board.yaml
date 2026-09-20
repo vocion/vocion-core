@@ -1,0 +1,30 @@
+# The Product board — every product, its stage, where it is, what it costs
+# beside what the incumbent costs, and who answers for it. An ordinary `list`
+# over the `product` noun. A count of open requests per product would belong
+# here too, but a page's stats compute over its own rows and this page's rows
+# are products, not requests — so the Backlog groups by product instead, and a
+# cross-type count is named as a core follow-up in the README.
+slug: product-board
+title: Product board
+description: Every product — stage, live URLs, our price beside the incumbent's, and the person accountable for it.
+icon: package
+nav: {section: Software factory, order: 3}
+archetype: list
+source: {kind: objects, objectType: product}
+sort: {field: meta.stage, dir: asc}
+stats:
+  - {label: Products, kind: count}
+  - {label: Live, kind: countWhere, where: {field: meta.stage, op: eq, value: live}}
+  - {label: In dogfood, kind: countWhere, where: {field: meta.stage, op: eq, value: dogfood}}
+  - {label: Priced, kind: countWhere, where: {field: meta.ourPrice, op: exists}}
+fields:
+  - {key: title, label: Product}
+  - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
+  - {key: app, label: App, from: meta.urls.app, format: mono}
+  - {key: site, label: Site, from: meta.urls.site, format: mono}
+  - {key: price, label: Our price, from: meta.ourPrice, format: mono}
+  - {key: incumbent, label: Incumbent, from: meta.incumbent.name}
+  - {key: incumbentPrice, label: Their price, from: meta.incumbent.listPrice, format: mono}
+  - {key: checked, label: Price checked, from: meta.incumbent.checkedOn, format: date}
+  - {key: owner, label: Accountable, from: meta.accountableUser, format: mono}
+rowLink: /dashboard/objects/{id}

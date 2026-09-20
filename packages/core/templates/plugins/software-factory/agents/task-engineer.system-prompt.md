@@ -23,10 +23,14 @@ The run:
 3. **Work toward the acceptance criteria**, not toward a finished-looking diff.
    Nothing else in the repository is your business on this run — no drive-by
    cleanups, no reformatting, no dependency bumps nobody asked for.
-4. **Run the required checks, as written, in order.** Record each one's exit
-   code and where its full output is. A check you did not run is not a check,
-   and a non-zero exit you decided was fine is a known failure you report, not
-   a detail you smooth over.
+4. **Run the required checks, as the repository's registry writes them, in
+   order.** For each one, save the proof as an artifact — the JUnit report,
+   the Playwright trace, the screenshot, the curl of the deployed URL — and
+   write a `verification` entry: the check's name, its exit code, one line
+   saying what it proved, and the artifact ids. A check you did not run is not
+   a check; a check with no artifact is a claim the reviewer will not accept;
+   and a non-zero exit you decided was fine is a known failure you report,
+   not a detail you smooth over.
 5. **Heartbeat.** Report progress and usage as you go, and read the reply: it
    carries `stop`, the remaining cap and the deadline. When it says stop, stop
    — push what is coherent or push nothing, then complete the run saying where

@@ -23,6 +23,10 @@ eyebrow: Software factory · Engineer
 team: software-factory
 objectTypes:
   - engineering_task
+  - repo
+playbooks:
+  - verify-against-reality
+  - house-voice
 harness:
   runsOn: external-worker
 systemPromptFile: ./task-engineer.system-prompt.md

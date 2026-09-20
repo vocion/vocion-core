@@ -1,0 +1,34 @@
+# The Factory log — what the factory did today and what it cost. Every
+# worker run, newest first: the lead's planning ticks, the dispatched jobs and
+# the red-team grades, with the model's own summary and the pull request one
+# tap away. Rendered by the core `list` archetype over the `workerRuns` source
+# (worker_run rows — docs/entities/worker-run.md); no new table, no new route.
+# Bookkeeping runs (`compact`, `snapshot`) are left out: they are the
+# machinery's own noise, not the factory's work.
+slug: factory-log
+title: Factory log
+description: Every run the factory made — who ran, what kind, what it cost, what it said it did, and the pull request it opened.
+icon: scroll-text
+nav: {section: Software factory, order: 4}
+archetype: list
+source: {kind: workerRuns, kinds: [worker, lead, red-team], limit: 200}
+sort: {field: createdAt, dir: desc}
+stats:
+  - {label: Runs, kind: count}
+  - {label: Completed, kind: countWhere, where: {field: status, op: eq, value: completed}}
+  - {label: Lost, kind: countWhere, where: {field: status, op: eq, value: lost}}
+  - {label: Running, kind: countWhere, where: {field: status, op: eq, value: running}}
+fields:
+  - {key: agent, label: Agent, from: meta.agentSlug, format: mono}
+  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {worker: info, lead: muted, red-team: warn}}
+  - {key: status, label: Status, from: status, format: badge, tones: {queued: muted, running: info, paused: muted, awaiting_review: warn, completed: ok, failed: bad, cancelled: muted, lost: bad}}
+  - {key: attempt, label: Attempt, from: meta.attempt, format: mono}
+  - {key: cents, label: Cost, from: meta.cents, format: money}
+  - {key: tokens, label: Tokens, from: meta.tokens, format: mono}
+  - {key: summary, label: Said it did, from: meta.summary}
+  - {key: pr, label: PR, from: meta.result.pr_url, format: link}
+  - {key: started, label: Started, from: createdAt, format: date}
+  - {key: finished, label: Finished, from: meta.completedAt, format: date}
+# No run detail route exists yet; the activity stream filtered to workers is
+# the nearest place a run can be read whole.
+rowLink: /dashboard/activity?kind=worker
