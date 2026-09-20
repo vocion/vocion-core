@@ -4,7 +4,7 @@
 slug: task-planner
 name: Task planner
 description: >-
-  Triages every request that arrives and turns the ones in scope into
+  Architecture (SA). Triages every request that arrives and turns the ones in scope into
   engineering task contracts — objective, allowed paths, acceptance criteria,
   checks named from the repository's registry, a risk class no lower than the
   repository's floor, budgets and a decision cost — with the dependency edges
@@ -15,7 +15,7 @@ accent: indigo
 active: true
 agentType: operational
 temperature: '0.2'
-eyebrow: Software factory · Planner
+eyebrow: Software factory · Architecture · Planner
 team: software-factory
 skills:
   - triage-request

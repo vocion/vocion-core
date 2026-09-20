@@ -106,6 +106,41 @@ export type ArtifactSavedPayload = {
   recordId: string | null;
 };
 
+/**
+ * A person answered an ask (docs/entities/ask.md) — approved it, rejected it,
+ * chose an option, wrote an "other", or marked it done. Emitted fire-and-forget
+ * from `AskService.decideAsk`, the one place a human's answer is written, so a
+ * plugin can act on the decision without polling: the software factory's
+ * product manager subscribes with `filter: { agentSlug: product-manager, kind:
+ * recommendation }` to write the decision back on the request and assemble the
+ * next batch only once the last one is decided. Distinct from the adoption
+ * stream's `ask.decided` row, which is a metric, not a trigger.
+ */
+export const ASK_DECIDED = 'ask.decided';
+
+/** Payload of `ask.decided`. Scalars only — `when.filter` compares with `===`. */
+export type AskDecidedPayload = {
+  askId: number;
+  /** The ask's kind — `approval`, `merge`, `recommendation`, … */
+  kind: string;
+  /** The resulting status: `approved`, `rejected` or `done`. */
+  status: string;
+  /** `approve`, `reject`, `done`, `other`, or the option id chosen. */
+  decision: string;
+  /** Whether the asker owes a read of the note (an "other" on a ruling, approval or recommendation). */
+  followUp: boolean;
+  /** Who filed it, when an agent did; null for a service or an outside caller. */
+  agentSlug: string | null;
+  teamSlug: string | null;
+  /** The decision sheet it belonged to, so a subscriber can tell when a whole batch is decided. */
+  groupKey: string | null;
+  /** The filer's idempotency key, when it was filed from outside. */
+  sourceRef: string | null;
+  decidedBy: string;
+  /** ISO timestamp of the decision. */
+  decidedAt: string;
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 

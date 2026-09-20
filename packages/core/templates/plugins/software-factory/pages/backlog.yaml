@@ -19,6 +19,8 @@ stats:
   - {label: P1, kind: countWhere, where: {field: meta.severity, op: eq, value: p1}}
   - {label: Duplicates linked, kind: countWhere, where: {field: meta.duplicateOf, op: exists}}
   - {label: Major asks, kind: countWhere, where: {field: meta.sizeClass, op: eq, value: major}}
+  - {label: Ranked, kind: countWhere, where: {field: meta.rankedAt, op: exists}}
+  - {label: In front of a person, kind: countWhere, where: {field: meta.recommendationState, op: eq, value: proposed}}
 fields:
   - {key: title, label: Request}
   - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
@@ -26,6 +28,11 @@ fields:
   - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
   - {key: channel, label: Channel, from: meta.channel, format: badge, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
   - {key: state, label: State, from: meta.state, format: badge, tones: {new: warn, triaged: info, in_scope: ok}}
+  # The product manager's ranking, read off the request. The reason sits one tap
+  # on (the record), the date says whether the score is stale.
+  - {key: priority, label: Priority, from: meta.priority, format: mono}
+  - {key: theme, label: Theme, from: meta.theme, format: mono}
+  - {key: ranked, label: Ranked, from: meta.rankedAt, format: date}
   - {key: cost, label: Decision min, from: meta.decisionCost, format: mono}
   - {key: asked, label: Asked, from: meta.askedAt, format: date}
 filters:

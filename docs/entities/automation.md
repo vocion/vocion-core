@@ -43,6 +43,8 @@ These are the ones the server raises on its own:
 | Event | Raised when | Payload |
 |---|---|---|
 | `source.sync_completed` | A source finishes a sync without failing. A run that completed with per-document errors still raises it; a run that failed does not. | `sourceId`, `sourceSlug`, `connector`, `incremental`, `created`, `updated`, `unchanged`, `tombstoned`, `errors`, `completedAt` (ISO) |
+| `artifact.saved` | An artifact is created or a new version of it is written — by an agent, a person or a system pass. | `artifactId`, `kind`, `folder`, `title`, `version`, `change` (`created` \| `revised`), `authorKind`, `recordType`, `recordId` |
+| `ask.decided` | A person answers an ask ([ask](./ask.md)) — approve, reject, an option, an "other", mark done. Raised from the one place a decision is written, so a plugin can act on the answer without polling; `filter` on `agentSlug` and `kind` to hear only your own. | `askId`, `kind`, `status`, `decision`, `followUp`, `agentSlug`, `teamSlug`, `groupKey`, `sourceRef`, `decidedBy`, `decidedAt` (ISO) |
 
 Every payload field is a scalar, so any of them can be used in a `filter`:
 

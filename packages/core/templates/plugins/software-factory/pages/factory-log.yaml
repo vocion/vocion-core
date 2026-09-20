@@ -15,7 +15,7 @@ slug: factory-log
 title: Factory log
 description: Every run the factory made — who ran, what kind, what it cost, what it said it did, and the pull request it opened.
 icon: scroll-text
-nav: {section: Software factory, order: 4}
+nav: {section: Software factory, order: 5}
 archetype: list
 source: {kind: workerRuns, kinds: [worker, lead, red-team], limit: 200}
 live: {every: 15}

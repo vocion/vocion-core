@@ -163,3 +163,71 @@ rules:
     enabled: false
     rung: recommend
     risk: high
+
+  # THE PRODUCT MANAGER'S TWO ACTS. Recommending and authorizing are different
+  # decisions and sit on different rungs.
+  #
+  # `product.recommend` is putting a request in front of the accountable
+  # person with a proposed outcome — today an ask of kind `recommendation`,
+  # graded on the alignment ledger by ask kind. It is `recommend` rather than
+  # `execute-with-approval` for the same reason `credentials.write` is: there
+  # is nothing for an approval to release, because the recommendation IS the
+  # ask. `risk: low` because the blast radius of a wrong recommendation is a
+  # person's minute.
+  - action: product.recommend
+    autoApproveAbove: 1
+    enabled: false
+    rung: recommend
+    risk: low
+
+  # `product.authorize.<class>` is the person's "yes, build it" — one action
+  # id per class, on the model of `git.merge.<class>`, because authorizing a
+  # docs fix and authorizing a feature are different decisions with different
+  # blast radii. Each starts at approval and earns or never earns on its own
+  # ledger: `docs`, `copy` and `deps` are `low` — a wrong yes costs a
+  # reversible pull request the merge gate still holds — so they may earn
+  # their way to running within bounds and, on the low tier's evidence, past
+  # it, which is what "auto-authorization" means here: an approved-class
+  # recommendation released to the planner without a person's click. `fix`
+  # and `feature` are `medium` and stop at running within bounds. `major` and
+  # `promise` are `high`: a new capability counts against the initiative limit
+  # and a promise is a person's whatever the ledger says.
+  #
+  # Until core registers these actions the recommendation is an ask and every
+  # class is a person's answer; these rules set the bar and the autonomy page
+  # shows it, so the day core registers them nothing here changes.
+  - action: product.authorize.docs
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: low
+  - action: product.authorize.copy
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: low
+  - action: product.authorize.deps
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: low
+  - action: product.authorize.fix
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: product.authorize.feature
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: product.authorize.major
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: product.authorize.promise
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high

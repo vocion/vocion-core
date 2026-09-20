@@ -7,6 +7,14 @@ the evidence attached; a person merges; the asker hears back. Nothing in that
 sentence is new machinery — it is the record noun, the worker-run control
 plane, the review queue and the trust ladder, pointed at changing code.
 
+Five disciplines, one team: **Product** (the product manager — which ten
+things, and why), **Architecture** (the task planner — the contract),
+**Engineering** (the task engineer — the change), **QA** (the change reviewer
+— the verdict) and **Design** (no agent yet; the seat is declared empty in
+`teams/software-factory.yaml` rather than left missing). Each agent's `eyebrow`
+names its discipline, because that is the one field every surface that shows a
+tagline already renders.
+
 ## Two views, joined on `product`
 
 The plugin puts two dashboards in the nav, and keeps them apart on purpose.
@@ -20,8 +28,8 @@ the `product` record or **agent-maintained** on it, and every column that is
 maintained says so.
 
 **Software factory** — the section underneath — is the **evidence**: the
-Backlog, the Factory floor, the Product board, the Factory log and the Team
-report. Every figure on the portfolio can be traced one section down to the
+Backlog, the Recommendations, the Factory floor, the Product board, the
+Factory log and the Team report. Every figure on the portfolio can be traced one section down to the
 requests, tasks, runs and spend it was computed from.
 
 Outcomes people own on top, evidence you can reach underneath (values 1 and
@@ -124,27 +132,35 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
 
 ## What turning it on adds
 
-- **Task planner** (in-app): triages every request, turns the ones in scope
+- **Product manager** (in-app, Product): audits the planner's tags and adds
+  theme and ICP, ranks every product's backlog with the reasons on the
+  request, puts at most ten recommendations in front of the accountable
+  person and pauses until they are decided, files a weekly ideas pass as
+  requests, and authorizes nothing — see *The product manager* below.
+- **Task planner** (in-app, Architecture): triages every request, turns the ones in scope
   into contracts with dependency edges and a risk class no lower than the
   repository's floor, promotes from the backlog only while the WIP limits
   allow, and never writes code.
-- **Task engineer** (`harness.runsOn: external-worker`): asking it something
+- **Task engineer** (`harness.runsOn: external-worker`, Engineering): asking it something
   queues a `worker_run` and returns a receipt; a process Vocion does not host
   claims the lease, heartbeats, reports cost, saves the proof of every check as
   an artifact and opens the pull request. It holds no merge authority.
-- **Change reviewer** (in-app): reads the contract, the diff, the
+- **Change reviewer** (in-app, QA): reads the contract, the diff, the
   `verification` entries and the repository's `riskDefaults` — never the
   implementer's conversation — and returns approve, changes or reject keyed to
   a contract line. **Approves nothing without an artifact behind every check**,
   and rejects a contract whose class sits below its floor without reading the
   diff.
-- **Four skills**: `triage-request`, `write-task-contract`,
-  `review-against-contract`, `write-release-notes`.
+- **Seven skills**: `triage-request`, `write-task-contract`,
+  `review-against-contract`, `write-release-notes`, and the product manager's
+  `rank-the-backlog`, `recommend-in-batches`, `ideate-from-evidence`.
 - **Four playbooks** — the narrative context read before writing anything, and
   the plugin's defaults a workspace overrides with its own facts:
   `the-twenty-percent`, `written-promises`, `verify-against-reality`, and
   `house-voice` (a stub; see below).
-- **Eight standing missions**, each with its cadence: `keep-the-board-honest`
+- **Nine standing missions**, each with its cadence: `product-review` (the
+  product manager's — weekly, with four automations underneath it),
+  `keep-the-board-honest`
   (every morning, the portfolio's counters recomputed from the records), `close-the-gap` (the
   lead's promoter tick — no request waits more than a week), `no-open-p1`,
   `stand-up-product` (one product from brief to dogfood; the initiative WIP
@@ -159,8 +175,11 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   newest first, by product, with the post-deploy health and who owns the
   notes) and the **Changelog** (the announcement line per release, for the
   public's eyes).
-- **Five rows in the "Software factory" section underneath**: the
-  **Backlog** (every open request, oldest first, by product), the **Factory
+- **Six rows in the "Software factory" section underneath**: the
+  **Backlog** (every open request, oldest first, by product, with its
+  priority and when it was scored), the **Recommendations** (every request
+  the product manager put in front of a person — the proposed outcome, the
+  evidence, what they decided — by batch), the **Factory
   floor** (every task, what is waiting on a person, what carries evidence),
   the **Product board** (stage, URLs, our price beside the incumbent's, who is
   accountable), the **Factory log** (every run — who, what kind, what it cost,
@@ -169,9 +188,94 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   The floor and the log are live: they re-read themselves every 15 seconds
   while open, so work in flight is seen as it happens, not as of page load.
 - The **software-factory** team, graded on tasks a person accepted, requests
-  answered inside a week, pull requests opened (the worker's own count, shown
-  as the weakest provenance) and worker spend; cost per accepted task is
-  derived from the last two.
+  answered inside a week, recommendations a person decided, pull requests
+  opened (the worker's own count, shown as the weakest provenance) and worker
+  spend; cost per accepted task is derived from the last two.
+
+## The product manager
+
+Three agents build what was asked for. None of them owned the question that
+comes before it — *of everything asked for, which ten things, and why* — and a
+backlog with no owner for that question is answered by whoever shouts. The
+product manager owns it, and owns it the way the rest of the factory owns
+things: on the record, in the open, with a person deciding.
+
+**What it owns.**
+
+- **Tagging and tracking.** Every request carries `product`, `kind`,
+  `severity` where it applies, `theme` (the job it serves) and `icp` (who it
+  is for), and every request that ended carries the task or release that
+  ended it (`taskIds`, `releaseId`) or its `answer`. It **audits the
+  planner's tags rather than redoing triage**: it corrects only what the
+  request's own words contradict, and adds the two tags triage does not set.
+- **Ranking.** Per product, against four inputs and nothing else — the
+  product's written `promises`, the twenty-percent playbook, how many real
+  people asked (duplicates count, comparison charts do not), and evidence
+  from an analytics source **when a PostHog or Sentry source exists in the
+  workspace**, cited with its date. The score and its reasons live on the
+  request: `priority`, `priorityReason`, `rankedAt`. A score without a
+  written reason is not written. (`rank-the-backlog`.)
+- **Recommending.** The top of the ranking becomes **at most ten asks** of
+  kind `recommendation` for the accountable person, sharing one `groupKey`
+  so they are decided as one sheet on Needs you. Each names the request or
+  requests, the proposed outcome — **build, answer, decline or merge** — the
+  decision cost in minutes, and the evidence it rests on. On filing, the
+  request gets `recommendedAt`, `recommendationBatch`, `recommendedOutcome`
+  and `recommendationState: proposed`, which is what the Recommendations
+  page reads. (`recommend-in-batches`.)
+- **Ideating.** Once a week, from feedback in the asker's words, dogfood
+  notes, the incumbent as the `product` record describes it, and analytics
+  when a source exists: at most five ideas, each deduped against every open
+  request, each written to name the job it serves and the evidence it rests
+  on, filed as a `request` of `kind: idea` with `source: product-manager` —
+  **never as a task**. An idea enters the same ranking as everyone else's
+  request and is not built because the agent had it. (`ideate-from-evidence`.)
+
+**The throttle — ten, then pause.** No second batch is assembled while one
+ask of the first is undecided. When a decision lands (`product-batch-decided`
+fires on `ask.decided`), it is written on the request — `recommendationState`,
+`decidedAt`, the person's note as `decisionReason` — and routed: an approved
+**build** sets `state: in_scope` and the planner's next tick writes the
+contract; an approved **answer** or **decline** drafts the `answer` and hands
+it to `tell-the-requester` to propose the reply; an approved **merge** sets
+`duplicateOf`; a **rejection** leaves the request open with its reason and
+**out of the next batch** — a person said no, and asking again next week is
+nagging, not a new recommendation. When a batch is old, the daily check names
+who it is waiting on and for how many days. The person is the bottleneck by
+design, and the board says so in their name rather than routing around them.
+
+**What it never does.** Write a task contract. Decide a merge. Change a price
+or a promise. Tell an asker anything (that is a `notify.requester` proposal a
+person releases). File an idea as a task. Put an eleventh ask in a batch.
+Open a second batch while one is undecided. Rank on effort or on how
+interesting the work is. **Authorize.** The person's answer to the ask *is*
+the authorization; the agent recommends and reads the answer back.
+
+**How, when and why it acts** is not in its prompt. It is four automations,
+each a `checkMission` on `product-review`, each with a `description` that says
+why in one sentence, each visible on `/dashboard/automation` with its runs on
+`/dashboard/automation/runs`:
+
+| Automation | When | Why |
+|---|---|---|
+| `product-tag-audit` | weekdays 11:30 UTC, after the board recompute | a backlog you cannot filter is one you cannot rank; a `shipped` request with no release is a claim nobody can trace. Scheduled, not on an event, because core raises no event when an object's state changes — the file says so |
+| `product-weekly-review` | Mondays 14:00 UTC | re-rank, ideate, and — only if no batch is open — assemble the next ten |
+| `product-recommendations-check` | weekdays 13:00 UTC | the pause is only a throttle if it is visible: names the person and the days when a batch is older than seven |
+| `product-batch-decided` | `ask.decided`, filtered to this agent and kind `recommendation` | write the decision on the request and route it while it is fresh; assemble the next batch only when the last ask of the current one is decided |
+
+The prompt tells the agent it acts only when one of these fires or a person
+asks it in chat. A workspace changes a cadence by overriding the automation by
+slug; pausing one from the dashboard is a core follow-up (see below).
+
+**Earned authorization.** `trust.yaml` carries `product.recommend` (rung
+`recommend`, `low`: the recommendation is the ask, there is nothing for an
+approval to release) and one `product.authorize.<class>` rule per class, on
+the model of `git.merge.<class>`: `docs`, `copy` and `deps` are `low` and may
+earn their way to running without a person — an approved-class recommendation
+released to the planner without a click; `fix` and `feature` are `medium` and
+stop at running within bounds; `major` and `promise` are `high` and never
+earn it. Core does not yet register these actions, so today every class is a
+person's answer; the rules set the bar and the autonomy page shows it.
 
 ## The throttle — three WIP limits, metered by decision cost
 
@@ -246,10 +350,11 @@ the `worker_run` control plane
 queue, the trust ladder and the team report.
 
 **This plugin ships the meaning**: the four nouns and what each field is for,
-who triages, who writes a contract, who reviews it against the diff and the
-evidence, the three WIP limits, what a push costs versus what each class of
-merge costs, the seven standing responsibilities, and the five rows a person
-watches it from.
+who tags and ranks and recommends, who triages, who writes a contract, who
+reviews it against the diff and the evidence, the three WIP limits and the
+ten-then-pause rule, what a push costs versus what each class of merge or
+authorization costs, the nine standing responsibilities, and the six rows a
+person watches it from.
 
 **The workspace ships the concretion**, and it has to:
 
@@ -316,3 +421,38 @@ action to move a bar.
   page cannot count another type's rows; a page stat that reads `objects`
   of a second type keyed on a field would make `openRequests` observed
   rather than agent-maintained.
+- **A Design agent, and an end-to-end QA agent.** The Design seat is declared
+  empty in the team file; nothing reads a request for what it should look
+  like before the planner writes what it should do. `green-every-night` asks
+  for a nightly black-box e2e with screenshots and no agent owns running it —
+  the reviewer grades the diff against the contract, not the product against
+  the screen. Both are their own change.
+- **A discipline field.** Neither the team nor the agent schema has one
+  (`role` is the deprecated lead/specialist flag), and the org chart and the
+  team report roster render an agent's name and icon only — so the
+  discipline rides in each agent's `eyebrow` and the team's description. A
+  `discipline` rendered on `/dashboard/teams` and the Team report roster is
+  the core follow-up.
+- **An in-app way to file an ask or write an object.** Asks are filed over
+  `POST /api/v1/asks` and objects over `POST /api/v1/objects`; no agent tool
+  wraps either, so an in-app agent's recommendation batch and its writes on
+  the request (`priority`, `recommendationState`, …) are the plugin's meaning
+  until core ships `file_ask` and an object-write tool. The `ask.decided`
+  event the batch automation subscribes to does exist (this release adds it
+  to core); the ask it waits for has to be filed from outside today.
+- **A `request.triaged` event.** Core raises no event when an object's state
+  changes, so the tag audit runs daily rather than on triage.
+- **A criteria verdict on a mission check.** A check's run is `ok` when it
+  ran and `error` when it crashed; there is no "the criteria are not met", so
+  `product-recommendations-check` cannot turn its card red when a batch is
+  seven days old — it writes the failure in its report and the Recommendations
+  page counts what is waiting.
+- **Pausing an automation from the dashboard.** `/dashboard/automation` shows
+  every automation and its runs and can test-run one; it cannot pause or edit
+  one — that is `status: disabled` in the file and an apply. Named here so the
+  gap is filed, not built into this plugin.
+- **Registered `product.*` actions.** The eight factory ids above are
+  registered hand-off actions (`libs/actions/factory.ts`); `product.recommend`
+  and `product.authorize.<class>` are not yet. The trust rules set their bar
+  and the autonomy page shows it, and nothing can propose them until core
+  registers them the same way.

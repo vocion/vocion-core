@@ -97,6 +97,56 @@ schema:
     dedupeKey:
       type: string
       description: A normalised handle triage computes — product plus the failing surface or the asked-for thing — so the third person reporting the same broken button is linked to the first rather than opening a third task.
+    # ---- What the Product manager adds. Triage tags what a request IS; the
+    # product manager tags who it serves, where it ranks, what was recommended
+    # and what a person decided — and every one of these is written on the
+    # request so the Backlog and Recommendations pages read it from the record.
+    theme:
+      type: string
+      description: The job this serves, in the product's own vocabulary — "export", "onboarding", "billing clarity". Set by the product manager's tag audit, not by triage; the handle a backlog is grouped and ranked by.
+    icp:
+      type: string
+      description: Who this is for — the ideal customer profile it serves, in the words the product record uses for its people. Set by the product manager; a request that serves nobody the product is for ranks accordingly.
+    source:
+      type: string
+      description: Who filed it, when it was not the asker on a channel. `product-manager` marks an idea from the weekly ideas pass, so the Recommendations page can count "ideas of ours" and the ranking can weigh an agent's idea as one source and zero askers.
+    releaseId:
+      type: integer
+      description: The `release` record that shipped this request — the link from an answered request to the deploy that answered it. Written when the request moves to `shipped`; a `shipped` request with no release is what the tag audit names.
+    priority:
+      type: integer
+      description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the twenty-percent test, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
+      minimum: 0
+      maximum: 100
+    priorityReason:
+      type: string
+      description: One to three sentences naming which of the four inputs moved the score and by how much — the promise kept, the count of askers, the analytics figure with its source and date. A priority without this is not written.
+    rankedAt:
+      type: string
+      format: date-time
+      description: When the priority was last scored. Older than the last weekly review reads as stale, and the page says so by showing the date.
+    recommendedAt:
+      type: string
+      format: date-time
+      description: When the product manager put this request in front of a person as a recommendation ask. Its presence is what puts the request on the Recommendations page.
+    recommendationBatch:
+      type: string
+      description: The ask group key the recommendation was filed under — `software-factory:batch/<date>` — so a batch reads as one thing on the page and the ten-then-pause rule can be checked from the record.
+    recommendedOutcome:
+      type: string
+      description: 'What the product manager proposed a person do with it: `build` (the planner writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is the twenty-percent rule or a promise), `merge` (it duplicates an open request).'
+      enum: [build, answer, decline, merge]
+    recommendationState:
+      type: string
+      description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and out of the next batch.'
+      enum: [proposed, approved, rejected]
+    decidedAt:
+      type: string
+      format: date-time
+      description: When the person decided the recommendation. The gap from `recommendedAt` to here is the decision latency the daily check reports.
+    decisionReason:
+      type: string
+      description: The person's note on their decision, verbatim. On a rejection it is why, and it is quoted in the body if the request is ever recommended again on new evidence.
 classificationPrompt: >-
   Given a message from any channel — a form on a product site, a store
   review, an email, a chat message, a GitHub issue, a note from someone on the

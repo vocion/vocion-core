@@ -448,7 +448,47 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     // option the team recommended? Read back on the sheet and by the ladder.
     recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
   ]);
+  announceDecided(row);
   return row;
+}
+
+/**
+ * Tell the rest of the system an ask was decided — the `ask.decided` event an
+ * automation can subscribe to (`when.event`, docs/entities/automation.md).
+ * Fire-and-forget, the way `ArtifactService` announces a save: the person's
+ * decision is already written and returned, a subscriber that fails is logged
+ * and never surfaces to the decider, and the dynamic import keeps this module
+ * out of the event bus's dependency graph.
+ * @param row - The decided ask, as written.
+ */
+function announceDecided(row: Ask): void {
+  void (async () => {
+    try {
+      const { ASK_DECIDED, emitEvent } = await import('@/services/EventService');
+      await emitEvent({
+        orgId: row.orgId,
+        type: ASK_DECIDED,
+        payload: {
+          askId: row.id,
+          kind: row.kind,
+          status: row.status,
+          decision: row.decision ?? '',
+          followUp: row.followUp,
+          agentSlug: row.agentSlug ?? null,
+          teamSlug: row.teamSlug ?? null,
+          groupKey: row.groupKey ?? null,
+          sourceRef: row.sourceRef ?? null,
+          decidedBy: row.decidedBy ?? '',
+          decidedAt: (row.decidedAt ?? new Date()).toISOString(),
+        },
+        dedupeKey: `ask.decided:${row.id}`,
+        invokedBy: row.decidedBy ?? `ask:${row.id}`,
+      });
+    } catch (err) {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('ask.decided announcement failed', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  })();
 }
 
 /**

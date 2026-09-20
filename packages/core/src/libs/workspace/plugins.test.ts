@@ -51,12 +51,14 @@ describe('the shipped catalogue', () => {
   it('counts what the software factory ships', () => {
     const factory = pluginContents(loadPlugin('software-factory'));
 
-    expect(factory.agents).toEqual(['change-reviewer', 'task-engineer', 'task-planner']);
-    expect(factory.skills).toEqual(['review-against-contract', 'triage-request', 'write-release-notes', 'write-task-contract']);
+    expect(factory.agents).toEqual(['change-reviewer', 'product-manager', 'task-engineer', 'task-planner']);
+    expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'triage-request', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['house-voice', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
     expect(factory.objectTypes).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
-    expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'stand-up-product', 'tell-the-requester']);
-    expect(factory.pages).toEqual(['backlog', 'changelog', 'factory-floor', 'factory-log', 'portfolio', 'product-board', 'releases', 'team-report']);
+    expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-review', 'stand-up-product', 'tell-the-requester']);
+    // Every way the product manager acts is an automation — visible, pausable, named after the mission it serves.
+    expect(factory.automations.filter(a => a.startsWith('product-'))).toEqual(['product-batch-decided', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
+    expect(factory.pages).toEqual(['backlog', 'changelog', 'factory-floor', 'factory-log', 'portfolio', 'product-board', 'recommendations', 'releases', 'team-report']);
     expect(factory.hasTrust).toBe(true);
   });
 
@@ -217,7 +219,7 @@ describe('loadWorkspace with the software factory', () => {
     // reachable.
     expect(ws.agents.find(a => a.slug === 'task-engineer')?.harness?.runsOn).toBe('external-worker');
     expect(ws.agents.find(a => a.slug === 'task-planner')?.harness?.runsOn).toBeUndefined();
-    expect(ws.missions.map(m => m.slug)).toHaveLength(8);
+    expect(ws.missions.map(m => m.slug)).toHaveLength(9);
     // A push runs on its own. A merge is one bar per risk class: docs may
     // earn its way to running within bounds (medium tier), promise never
     // does (high tier); every one starts at approval.
@@ -230,7 +232,60 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.2.1');
+    expect(ws.sha).toContain('+software-factory@1.3.0');
+  });
+
+  it('seats a product manager who recommends and never authorizes, and says how, when and why it acts', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
+    const pm = ws.agents.find(a => a.slug === 'product-manager');
+
+    // In-app, on the factory team, with the three skills and the five nouns it reads.
+    expect(pm?.origin).toBe('core');
+    expect(pm?.team).toBe('software-factory');
+    expect(pm?.harness?.runsOn).toBeUndefined();
+    expect(pm?.skills).toEqual(['rank-the-backlog', 'recommend-in-batches', 'ideate-from-evidence']);
+    expect(pm?.objectTypes).toEqual(['request', 'product', 'release', 'engineering_task', 'repo']);
+    expect(pm?.resolvedSystemPrompt).toContain('Only when one of the plugin\'s automations fires');
+    expect(pm?.resolvedSystemPrompt).toContain('ten, then pause');
+
+    for (const slug of ['rank-the-backlog', 'recommend-in-batches', 'ideate-from-evidence']) {
+      expect(ws.skills.find(s => s.slug === slug)?.playbooks).toEqual(['the-twenty-percent', 'written-promises']);
+    }
+
+    // Five disciplines, one team: each agent's eyebrow names its seat; Design is declared empty in the team file.
+    expect(ws.agents.filter(a => a.team === 'software-factory').map(a => [a.slug, a.eyebrow])).toEqual(expect.arrayContaining([
+      ['product-manager', 'Software factory · Product'],
+      ['task-planner', 'Software factory · Architecture · Planner'],
+      ['task-engineer', 'Software factory · Engineering · Engineer'],
+      ['change-reviewer', 'Software factory · QA · Reviewer'],
+    ]));
+    expect(ws.teams.find(t => t.slug === 'software-factory')?.description).toContain('Design (no agent yet');
+    // The throttle, read from the other side: decisions a person made on recommendation asks.
+    expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.find(m => m.key === 'recommendations_decided')?.source).toEqual({ kind: 'human-confirmed', askKinds: ['recommendation'] });
+
+    // One mission, four triggers — every one a checkMission on it, so the WHEN lives on /dashboard/automation and nowhere else.
+    const mission = ws.missions.find(m => m.slug === 'product-review');
+
+    expect(mission?.agent).toBe('product-manager');
+
+    const triggers = ws.automations.filter(a => a.do.checkMission === 'product-review');
+
+    expect(triggers.map(a => a.slug).sort()).toEqual(['product-batch-decided', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
+    expect(triggers.every(a => a.agent === 'product-manager' && a.status === 'active' && a.do.prompt && a.description)).toBe(true);
+    expect(triggers.find(a => a.slug === 'product-batch-decided')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
+    expect(triggers.find(a => a.slug === 'product-weekly-review')?.when.schedule).toBe(mission?.schedule);
+
+    // Recommending is a rung, not a gate; authorizing is one bar per class, low classes may earn it, promise never does.
+    expect(ws.trust?.rules.find(r => r.action === 'product.recommend')).toMatchObject({ enabled: false, rung: 'recommend', risk: 'low' });
+    expect(ws.trust?.rules.filter(r => r.action.startsWith('product.authorize.')).map(r => r.action)).toEqual(['product.authorize.docs', 'product.authorize.copy', 'product.authorize.deps', 'product.authorize.fix', 'product.authorize.feature', 'product.authorize.major', 'product.authorize.promise']);
+    expect(ws.trust?.rules.find(r => r.action === 'product.authorize.docs')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'low' });
+    expect(ws.trust?.rules.find(r => r.action === 'product.authorize.promise')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'high', autoApproveAbove: 1 });
+
+    // The score, the batch and the decision all live on the request record.
+    const request = ws.objectTypes.find(o => o.slug === 'request')?.schema as { properties: Record<string, unknown> };
+    for (const key of ['theme', 'icp', 'source', 'releaseId', 'priority', 'priorityReason', 'rankedAt', 'recommendedAt', 'recommendationBatch', 'recommendedOutcome', 'recommendationState', 'decidedAt', 'decisionReason']) {
+      expect(request.properties[key]).toBeDefined();
+    }
   });
 });
 

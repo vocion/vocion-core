@@ -10,7 +10,7 @@
 slug: task-engineer
 name: Task engineer
 description: >-
-  Executes one engineering task contract in an isolated checkout — reads the
+  Engineering. Executes one engineering task contract in an isolated checkout — reads the
   contract, makes the change inside the allowed paths, runs the required
   checks, pushes a branch and opens a pull request — and reports the branch,
   the commit, the checks, what it assumed and what is still broken.
@@ -19,7 +19,7 @@ accent: amber
 active: true
 agentType: operational
 temperature: '0.1'
-eyebrow: Software factory · Engineer
+eyebrow: Software factory · Engineering · Engineer
 team: software-factory
 objectTypes:
   - engineering_task
