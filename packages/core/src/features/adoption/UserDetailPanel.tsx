@@ -4,6 +4,7 @@ import type { AdoptionUserDetail, AdoptionWindow } from '@/services/adoption/Ado
 import { useEffect, useState } from 'react';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
+import { inboxHref } from '@/services/inbox/inboxRef';
 import { PeriodPicker } from './AdoptionDashboard';
 import { AdoptionStatusPill } from './AdoptionStatusPill';
 import { formatAgo, formatDuration } from './format';
@@ -19,6 +20,11 @@ const EVENT_LABELS: Record<string, string> = {
   'review.snoozed': 'Snoozed a review',
   'review.feedback': 'Gave feedback',
   'learning.added': 'Added a learning',
+  // The self-improvement class (`libs/actions/selfUpdate.ts`). One label for
+  // every noun in it; `meta.noun` and `meta.target` say which thing moved, so
+  // a new noun needs no row here.
+  'learning.self_updated': 'Taught itself',
+  'learning.self_update_undone': 'Self-update undone',
 };
 
 /**
@@ -32,6 +38,11 @@ function resourceHref(resourceType: string | null, resourceId: string | null): s
   }
   if (resourceType === 'mission_run') {
     return `/dashboard/missions/runs/${resourceId}`;
+  }
+  // A self-update's run is where its Undo lives, so the Activity row reaches
+  // it in one move (principle 10).
+  if (resourceType === 'action_run') {
+    return inboxHref('proposal', Number(resourceId));
   }
   return null;
 }
@@ -142,7 +153,7 @@ export function UserDetailPanel(props: { userId: string }) {
           <ul className="divide-y divide-border/50">
             {detail.recentEvents.map((e) => {
               const href = resourceHref(e.resourceType, e.resourceId);
-              const meta = e.metadata as { kind?: string; decision?: string; rating?: string } | null;
+              const meta = e.metadata as { kind?: string; decision?: string; rating?: string; noun?: string; target?: string; mode?: string } | null;
               return (
                 <li key={e.id} className="flex items-center gap-2 px-3 py-2 text-xs">
                   <span className="w-32 shrink-0 text-muted-foreground tabular-nums" title={new Date(e.createdAt).toLocaleString()}>
@@ -150,6 +161,13 @@ export function UserDetailPanel(props: { userId: string }) {
                   </span>
                   <span className="font-medium">{EVENT_LABELS[e.eventType] ?? e.eventType}</span>
                   {meta?.kind && <span className="text-muted-foreground">{meta.kind}</span>}
+                  {meta?.noun && (
+                    <span className="truncate text-muted-foreground">
+                      {meta.noun}
+                      {meta.target ? ` · ${meta.target}` : ''}
+                      {meta.mode === 'auto' ? ' · on its own' : ''}
+                    </span>
+                  )}
                   {meta?.decision && <span className={meta.decision === 'approved' ? 'text-[var(--brand-pass)]' : 'text-[var(--brand-fail)]'}>{meta.decision}</span>}
                   {meta?.rating && <span className="text-muted-foreground">{meta.rating === 'up' ? '↑' : '↓'}</span>}
                   {e.agentSlug && <span className="font-mono text-muted-foreground">{e.agentSlug}</span>}

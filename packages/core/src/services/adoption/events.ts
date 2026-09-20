@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
+import { SELF_UPDATE_NOUNS } from '@/libs/actions/selfUpdate';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { DISCOVERY_CLASSES, READINESS_CLASSES } from '@/services/discovery/classification';
 
@@ -23,6 +24,8 @@ export const runKind = z.enum(['skill', 'workflow', 'mission', 'action']);
 export const feedbackRating = z.enum(['up', 'down']);
 /** Whether a proposed rule asks the agent to change or to keep doing something. */
 export const learningPolarity = z.enum(['correct', 'reinforce']);
+/** Which of the six things the system changed about itself (`libs/actions/selfUpdate.ts`). */
+export const selfUpdateNoun = z.enum(SELF_UPDATE_NOUNS);
 
 /**
  * How far out a snooze pushed an item, bucketed. Buckets rather than a
@@ -242,6 +245,47 @@ export const ADOPTION_EVENTS = {
   'learning.candidate_decided': {
     agent: true,
     meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
+  },
+  /**
+   * The system changed something about ITSELF and it stuck — a wiki page, a
+   * mission's working notes, a playbook, an agent's own instructions, a
+   * remembered rule, a capability turned on. One event for every member of
+   * the self-improvement class (`libs/actions/selfUpdate.ts`), written from
+   * the single choke point every one of them executes through, so a new noun
+   * in the class needs no new event and no new `track()` call.
+   *
+   * It sits in the `learning.` family deliberately: the adoption rollup
+   * already counts that prefix as interaction, so "how much is this workspace
+   * teaching itself" is one query rather than a new one. `mode` says whether
+   * the ladder released it or a person did; `runId` rides as the resource so
+   * every row links to the run that can undo it.
+   */
+  'learning.self_updated': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      noun: selfUpdateNoun,
+      mode: z.enum(['auto', 'approved']),
+      /** The thing it touched — a page slug, a mission slug, an agent slug. */
+      target: z.string().max(120).optional(),
+      /** How much moved, for the nouns that have a size. Counts only. */
+      linesAdded: z.number().int().nonnegative().optional(),
+      linesRemoved: z.number().int().nonnegative().optional(),
+    }),
+  },
+  /**
+   * A person put a self-update back. The strongest signal in the class: it
+   * demotes the kind on the ladder (`AutonomyService.holdAfterUndo`), and the
+   * count against `learning.self_updated` is the honest answer to "is it
+   * teaching itself the right things".
+   */
+  'learning.self_update_undone': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      noun: selfUpdateNoun,
+      target: z.string().max(120).optional(),
+    }),
   },
   /**
    * A person approved a consolidation proposal: one stronger rule replaced

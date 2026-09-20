@@ -611,6 +611,10 @@ export async function executeAction(
       .update(actionRunSchema)
       .set({ status: 'done', result, error: null, executedAt: new Date() })
       .where(eq(actionRunSchema.id, runId));
+    // Every self-update, from the one place every self-update lands. A new
+    // noun in the class (`libs/actions/selfUpdate.ts`) is therefore in the
+    // log, and countable, with no new `track()` call of its own.
+    void trackSelfUpdate({ orgId, run, runId, result, mode: opts?.reviewedBy ? 'approved' : 'auto' });
     return { runId, status: 'done', result };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -752,6 +756,7 @@ export async function undoAction(runId: number, orgId: string, opts: { by: strin
       decidedAt: new Date(),
     })
     .where(eq(actionRunSchema.id, runId));
+  void trackSelfUpdateUndone({ orgId, run, runId, by: opts.by });
   if (wasAuto) {
     const { holdAfterUndo } = await import('@/services/autonomy/AutonomyService');
     await holdAfterUndo({ orgId, actionId: run.actionId, confidence, by: opts.by }).catch((err) => {
@@ -759,4 +764,98 @@ export async function undoAction(runId: number, orgId: string, opts: { by: strin
     });
   }
   return { runId, status: 'undone', result: run.result ?? null };
+}
+
+/* ------------------------------------------------------------------ */
+/* The self-improvement class, in the log                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Put one executed self-update on the adoption stream. Never throws and
+ * never blocks the run: a missing log line is not worth failing a write that
+ * already happened.
+ * @param opts - The run that just executed.
+ * @param opts.orgId
+ * @param opts.run - The stored row (for its input and who invoked it).
+ * @param opts.run.actionId
+ * @param opts.run.input
+ * @param opts.run.invokedBy
+ * @param opts.run.proposal
+ * @param opts.runId
+ * @param opts.result - What `execute` returned.
+ * @param opts.mode - `auto` when the ladder released it, `approved` when a person did.
+ */
+async function trackSelfUpdate(opts: {
+  orgId: string;
+  run: { actionId: string; input: Record<string, unknown>; invokedBy: string | null; proposal?: { agentSlug?: string } | null };
+  runId: number;
+  result: Record<string, unknown>;
+  mode: 'auto' | 'approved';
+}): Promise<void> {
+  try {
+    const { isSelfUpdate, selfUpdateReceipt, selfUpdateLineCounts } = await import('@/libs/actions/selfUpdate');
+    if (!isSelfUpdate(opts.run.actionId)) {
+      return;
+    }
+    const receipt = selfUpdateReceipt({ actionId: opts.run.actionId, runId: opts.runId, status: 'applied', input: opts.run.input, result: opts.result });
+    if (!receipt) {
+      return;
+    }
+    const { track } = await import('@/services/adoption/track');
+    await track({ orgId: opts.orgId, userId: opts.run.invokedBy ?? 'system' }, 'learning.self_updated', {
+      agentSlug: opts.run.proposal?.agentSlug ?? agentSlugFromInvoker(opts.run.invokedBy),
+      resource: ['action_run', opts.runId],
+      meta: { noun: receipt.noun, mode: opts.mode, target: receipt.target.slice(0, 120), ...selfUpdateLineCounts(opts.result) },
+    });
+  } catch (err) {
+    console.error(`[ActionService] could not log the self-update on run ${opts.runId}`, err);
+  }
+}
+
+/**
+ * Put one undone self-update on the same stream — the count against
+ * `learning.self_updated` is how a person sees whether the eagerness is
+ * earning its keep.
+ * @param opts - The run that was just put back.
+ * @param opts.orgId
+ * @param opts.run
+ * @param opts.run.actionId
+ * @param opts.run.input
+ * @param opts.run.result
+ * @param opts.run.proposal
+ * @param opts.runId
+ * @param opts.by - The person who undid it.
+ */
+async function trackSelfUpdateUndone(opts: {
+  orgId: string;
+  run: { actionId: string; input: Record<string, unknown>; result: Record<string, unknown> | null; proposal?: { agentSlug?: string } | null };
+  runId: number;
+  by: string;
+}): Promise<void> {
+  try {
+    const { isSelfUpdate, selfUpdateReceipt } = await import('@/libs/actions/selfUpdate');
+    if (!isSelfUpdate(opts.run.actionId)) {
+      return;
+    }
+    const receipt = selfUpdateReceipt({ actionId: opts.run.actionId, runId: opts.runId, status: 'applied', input: opts.run.input, result: opts.run.result });
+    if (!receipt) {
+      return;
+    }
+    const { track } = await import('@/services/adoption/track');
+    await track({ orgId: opts.orgId, userId: opts.by }, 'learning.self_update_undone', {
+      agentSlug: opts.run.proposal?.agentSlug ?? null,
+      resource: ['action_run', opts.runId],
+      meta: { noun: receipt.noun, target: receipt.target.slice(0, 120) },
+    });
+  } catch (err) {
+    console.error(`[ActionService] could not log the undo of run ${opts.runId}`, err);
+  }
+}
+
+/**
+ * `agent:<slug>` → `<slug>`, so an agent's own self-updates are attributed to it.
+ * @param invokedBy
+ */
+function agentSlugFromInvoker(invokedBy: string | null | undefined): string | undefined {
+  return invokedBy?.startsWith('agent:') ? invokedBy.slice(6) : undefined;
 }

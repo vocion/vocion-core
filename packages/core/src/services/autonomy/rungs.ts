@@ -9,6 +9,8 @@
  * the applier and the tests all agree on one vocabulary.
  */
 
+import { SELF_UPDATE_RISK } from '@/libs/actions/selfUpdate';
+
 export const RUNGS = [
   'observe',
   'recommend',
@@ -88,6 +90,9 @@ export function isRiskTier(value: unknown): value is RiskTier {
  * assumes the worst about an action it has not been told about.
  */
 export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
+  // The self-improvement class declares its own tiers, so the ladder, the
+  // autonomy page and the class read one table (`libs/actions/selfUpdate.ts`).
+  ...SELF_UPDATE_RISK,
   'hubspot.update': 'low',
   'gmail.send': 'medium',
   'personalization.enroll': 'medium',

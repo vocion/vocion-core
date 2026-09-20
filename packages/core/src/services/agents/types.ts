@@ -6,7 +6,10 @@
  * lock-step. New runtime, same events.
  */
 
+import type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
+
+export type { SelfUpdateReceipt };
 
 /* ------------------------------------------------------------------ */
 /* Event shape — what the SSE adapter emits over the wire             */
@@ -238,6 +241,16 @@ export type AgentEvent
      */
     | { type: 'artifact'; artifact: ArtifactPayload; pending?: boolean; delta?: string }
     | TraceNodeEvent
+    /**
+     * The system improved ITSELF during this turn — a wiki page, a mission's
+     * notes, a playbook, an agent's own instructions, a remembered rule, a
+     * capability. Rendered as one quiet chip under the turn that did it, with
+     * Undo on each entry; several in a turn group into that one chip rather
+     * than stacking. The payload is built by
+     * `libs/actions/selfUpdate.ts#selfUpdateReceipt`, so the chip, the
+     * Activity row and the review toast say the same words about the run.
+     */
+    | { type: 'self_update'; selfUpdate: SelfUpdateReceipt }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**
      * One tool call failed, reported by the BYOA artifact. Unlike `error` the

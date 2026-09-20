@@ -20,10 +20,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { useDraftRevision } from '@/features/personalization/draftRevision';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
+import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { cn } from '@/utils/Helpers';
 import { contentKindEditable, contentKindRenderer } from './contentKinds';
 import { approvableItems, isChecked, walkApplies, walkCount } from './contentWalk';
 import { shortcutFor } from './reviewShortcuts';
+import { showLearnedToast } from './showLearnedToast';
 import { useReviewDecision } from './useReviewDecision';
 
 /**
@@ -539,6 +541,7 @@ export function ReviewSurface(props: {
       toast.success(`${decision === 'approve' ? `${verbLabel}ed` : `${verbLabel}d`} · ${card.title}`, {
         description: decision === 'approve' ? (card.nextAction ?? 'Executing now.') : 'Nothing runs; the agent learns from it.',
       });
+      showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: d.note.trim().length > 0, undoable: isSelfUpdate(run.actionId) });
     } catch (err) {
       toast.error(`Could not ${verbLabel.toLowerCase()} · ${card.title}`, { description: err instanceof Error ? err.message : String(err) });
     }

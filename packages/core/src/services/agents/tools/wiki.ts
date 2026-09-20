@@ -19,6 +19,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { getWikiPage, listWikiPages, wikiSlug } from '@/services/wiki/WikiService';
+import { emitSelfUpdate } from '../selfUpdateEvent';
 
 export const WIKI_PLUGIN = 'wiki';
 
@@ -96,6 +97,7 @@ export function writeWikiPageTool(ctx: RuntimeContext) {
           },
         });
         ctx.emit({ type: 'tool_progress', tool: 'write_wiki_page', meta: { runId: res.runId, status: res.status, outcome: res.outcome } } as never);
+        emitSelfUpdate(ctx, { actionId: 'wiki.write_page', input: { slug, title, md, append, summary, reason }, res });
         if (res.outcome === 'already_decided') {
           return `Not written: a person already decided an identical change to "${slug}" (run #${res.runId}, ${res.status}). Say so; do not propose it again.`;
         }

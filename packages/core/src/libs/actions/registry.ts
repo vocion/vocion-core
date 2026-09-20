@@ -5,12 +5,15 @@
  */
 
 import type { Action } from './types';
+import { agentRevisePromptAction } from './agent-revise-prompt';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
+import { missionUpdateNotesAction } from './mission-update-notes';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { personalizationEnrollAction } from './personalization-enroll';
+import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
 import { wikiWritePageAction } from './wiki-write-page';
@@ -42,6 +45,12 @@ registerAction(wikiWritePageAction);
 // A correction a person made, adopted as a standing rule — reversible (Undo
 // removes it from the step), done-for-you above the bar in the plugin's trust.yaml.
 registerAction(learningAdoptRuleAction);
+// The rest of the self-improvement class (`libs/actions/selfUpdate.ts`) — the
+// system changing itself rather than the world. Each one is reversible, each
+// shows where it happened, and each is undone in one click.
+registerAction(missionUpdateNotesAction);
+registerAction(playbookWriteAction);
+registerAction(agentRevisePromptAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);

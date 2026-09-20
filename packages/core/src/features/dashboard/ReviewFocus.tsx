@@ -8,6 +8,8 @@ import { toast } from '@/components/ui/toast';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
+import { showLearnedToast } from '@/features/review/showLearnedToast';
+import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { inboxHref } from '@/services/inbox/inboxRef';
@@ -142,6 +144,10 @@ export function ReviewFocus(props: {
       toast.success(`${decision === 'approve' ? 'Approved' : 'Declined'} · ${title}`, {
         description: decision === 'approve' ? (editedInput ? 'Your edited version is executing now.' : 'Executing now.') : 'Nothing runs; the agent learns from it.',
       });
+      // The same second line the card's own surface says (principle 6: one
+      // shape) — what the decision TAUGHT, with Undo where there is something
+      // to put back. This page has no note field, so nothing is queued as a rule.
+      showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: false, undoable: isSelfUpdate(run.actionId) });
       leave();
     } catch (err) {
       toast.error(`Could not ${decision === 'approve' ? 'approve' : 'decline'} · ${title}`, { description: err instanceof Error ? err.message : String(err) });
