@@ -10,4 +10,5 @@ export { computeWorkspaceSha } from './sha';
 export { isSourceKind, SOURCE_ARTIFACT_KINDS, SOURCE_KINDS, SOURCE_ROLE, sourceArtifactKind, sourceContentOf, sourceDir, sourceFolder, type SourceKind, sourceKindOf, sourceRecord, sourceRelPath, sourceSpec, SourceValidationError, splitFrontmatter, type ValidatedSource, validateSourceText } from './source';
 export { assertTeams, effectiveTeamSlug } from './teams';
 export { allowlistedTemplateVariableNames, readWorkspaceTextFile, substituteEnvTokens, TEMPLATE_VARS_ALLOWLIST_NAME, WorkspaceTemplateError } from './template-vars';
+export { type LoadedWikiPage, loadWikiPages, parseWikiPageFile, renderSeededWikiIndex, WIKI_INDEX_SLUG, WIKI_PAGES_DIR, WikiPageFrontmatterSchema, wikiPageSha } from './wiki-pages';
 export { deleteResource, slugToDirname, writeAgent, type WriteAgentInput, writeMission, type WriteMissionInput, writeObjectType, type WriteObjectTypeInput, writeSkill, type WriteSkillInput, writeSourceText, type WriteSourceTextInput, type WrittenResource, type WrittenSourceText } from './writer';

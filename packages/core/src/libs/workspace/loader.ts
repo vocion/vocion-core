@@ -3,6 +3,7 @@ import type { ActivatedPack, ComposedEntry, FolderEntry, PackRaw, RawEntry } fro
 import type { Origin } from './merge';
 import type { LoadedPlugin } from './plugins';
 import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { LoadedWikiPage } from './wiki-pages';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
@@ -33,6 +34,7 @@ import {
 import { computeWorkspaceSha } from './sha';
 import { assertTeams } from './teams';
 import { readWorkspaceTextFile } from './template-vars';
+import { loadWikiPages } from './wiki-pages';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -135,6 +137,12 @@ export type LoadedWorkspace = {
   evalDatasets: LoadedEvalDataset[];
   sources: LoadedSource[];
   teams: LoadedTeam[];
+  /**
+   * Wiki pages the workspace seeds from `wiki/<slug>.md` (`wiki-pages.ts`).
+   * Workspace files only — a plugin ships its wiki through its curator, not
+   * through files. Empty when the directory is absent.
+   */
+  wikiPages: LoadedWikiPage[];
   sha: string;
   sourcePath: string;
   fileCount: number;
@@ -290,6 +298,10 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     t => t.slug,
   );
 
+  // Wiki pages seeded from the repo — read as written, validated, sha-tracked
+  // like any other workspace file. The applier turns them into artifacts.
+  const wikiPages = loadWikiPages(abs, files);
+
   // Surfaces name a core-registered route, never a URL — so an unknown id is
   // caught here at `workspace:check` instead of rendering a dead sidebar link.
   // A plugin's surfaces join the workspace's; the error names the plugin.
@@ -355,6 +367,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     evalDatasets,
     sources,
     teams,
+    wikiPages,
     sha,
     sourcePath: abs,
     fileCount: files.length + 1,

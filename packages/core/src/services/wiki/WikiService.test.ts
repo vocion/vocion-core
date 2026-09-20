@@ -77,4 +77,16 @@ describe('planWikiMount', () => {
   it('mounts only the index for an empty wiki', () => {
     expect(Object.keys(planWikiMount([]))).toEqual(['/wiki/index.md']);
   });
+
+  it('a seeded `index` page leads the mounted index, the rendered listing follows, and it is not mounted twice', () => {
+    const files = planWikiMount([
+      page({ slug: 'index', title: 'Start here', md: 'Read Voice first.' }),
+      page({ slug: 'voice', title: 'Voice', summary: 'How we sound.' }),
+    ]);
+
+    expect(Object.keys(files)).toEqual(['/wiki/index.md', '/wiki/voice.md']);
+    expect(files['/wiki/index.md']!.startsWith('# Start here\n\nRead Voice first.\n\n---\n\n# Workspace wiki')).toBe(true);
+    expect(files['/wiki/index.md']).toContain('- **Voice** (`voice`');
+    expect(files['/wiki/index.md']).not.toContain('- **Start here**');
+  });
 });
