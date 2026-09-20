@@ -1,0 +1,27 @@
+slug: growth-weekly-plan
+name: Monday growth plan
+description: >-
+  Wakes the Growth lead every Monday to check the `what-gets-briefed` mission —
+  re-rank every brief against what the closed ones actually returned, promote
+  only what the three limits allow, and say what is waiting and on which limit.
+  A ranking nobody refreshes and a queue nobody bounds are how a backlog turns
+  into a graveyard.
+status: active
+agent: growth-lead
+when:
+  schedule: '0 14 * * 1'
+do:
+  checkMission: what-gets-briefed
+  prompt: >-
+    Three passes, in this order. First, rank (rank-the-demand): score every
+    brief in drafted or ready against the demand it answers, the verdicts of
+    the closest closed briefs in the same theme or channel with their dates,
+    and its expected cost; write the rank, the reason and the date on each;
+    leave unranked anything you cannot give a reason for and say so. Second,
+    check the limits: sum decisionCost over every brief waiting on a person
+    against the day's budget, read the workspace's budgets as they stand this
+    turn, and count the briefs in flight whose claimClass is comparative,
+    performance or regulated. Third, promote from the top of the ranking only
+    while all three allow it, and name the limit that stopped the next one.
+    Report in five lines: promoted, waiting and on which limit, stuck and on
+    whom, dropped and why, what needs a person before anything else moves.

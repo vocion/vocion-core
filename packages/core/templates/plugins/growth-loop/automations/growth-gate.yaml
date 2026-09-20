@@ -1,0 +1,26 @@
+slug: growth-gate
+name: The gate, every weekday
+description: >-
+  Wakes the Standards editor to check the `nothing-public-unchecked` mission.
+  The failure this exists for is not a bad piece being approved — it is a piece
+  reaching a deadline unread and going out because nobody said no, which is why
+  the gate runs on a clock rather than waiting to be asked.
+status: active
+agent: standards-editor
+when:
+  schedule: '0 12 * * 1-5'
+do:
+  checkMission: nothing-public-unchecked
+  prompt: >-
+    Read every brief in in_review, oldest first. For each, go in the cheap
+    order: the do-not-claim list, where one hit is a rejection and the read
+    stops with the forbidden line and the offending sentence quoted; then every
+    acceptance line, recording any you cannot check as a finding about the
+    brief; then every claim against the evidence the brief carries, quoting
+    anything unsupported verbatim; then the staleness pin. Where the claimClass
+    is comparative, performance or regulated, run the adversarial second read on
+    a different model if this workspace has one and say which. Write the verdict,
+    the round, who read it, at most three ordered fixes, the unsupported claims
+    and any do-not-claim hits. Approve nothing you could not check. Report in
+    three lines: graded with verdicts, what they failed on most, which brief
+    field would have prevented it.

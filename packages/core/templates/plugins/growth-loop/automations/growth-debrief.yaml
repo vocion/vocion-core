@@ -1,0 +1,33 @@
+slug: growth-debrief
+name: Write what happened on the brief
+description: >-
+  Fires the moment a piece of the loop finishes — a worker run completes or
+  fails, a mission run ends — so the Growth analyst writes it where a person
+  will look: the brief's state, the actual cost beside the estimate, and the
+  reading scheduled if the brief just went live. The `every-brief-measured`
+  mission's "no brief is finished by work its record does not know about", made
+  a trigger rather than a nightly pass.
+status: active
+agent: growth-analyst
+when:
+  event:
+    - worker_run.completed
+    - worker_run.failed
+    - mission_run.completed
+do:
+  checkMission: every-brief-measured
+  prompt: >-
+    Something in the loop just finished; the event says which kind and carries
+    its ids. Find the growth brief it served — a worker run names its record
+    (recordType, recordId). Read the brief as it stands. Then write, through
+    update_object: on a completed run, move the state to the one the work
+    actually reached and no further — production finished is in_review, never
+    accepted; on a failed run, leave the state where it is and write the failure
+    as one line nobody has to guess at. Read the rolled-up actualCents against
+    estimateCents and write one sentence on the brief when the actual exceeds
+    the estimate by half. If the brief has just become published, confirm
+    publishedAt and readAfterDays are both set, and say plainly if either is
+    missing, because a brief with no due date is a brief that will never be
+    read. Take no reading here — the due date decides that. Grade nothing,
+    publish nothing, promote nothing. Report in one line: what you read, the
+    brief, the state written, the cost.

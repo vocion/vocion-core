@@ -232,3 +232,77 @@ export async function getBudget(opts: { orgId: string; agentSlug: string; period
   }
   return maybeResetPeriod(row);
 }
+
+/* ------------------------------------------------------------------ */
+/* Headroom — what the workspace has left to spend this period         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What every agent budget in this workspace adds up to, in one reading.
+ *
+ * Budgets are per agent (`agent_budget`), which answers "may this agent take
+ * another turn". It does not answer the question adding a teammate asks:
+ * whether the workspace can afford another mouth at all. That is the sum, and
+ * this is the one place it is taken, so the hire gate and any page reporting
+ * it read the same figures rather than each summing the table its own way.
+ *
+ * Only rows that declare a cents limit are counted. A workspace that has set
+ * no limits has no committed allowance and `committedCents` is 0 — budgets are
+ * opt-in, and this reports that honestly rather than inventing a ceiling.
+ * @param orgId - The workspace.
+ * @param period - `daily` (default) or `monthly`.
+ */
+export async function workspaceHeadroom(orgId: string, period: BudgetPeriod = 'daily'): Promise<{
+  period: BudgetPeriod;
+  /** Agents with a budget row in this period. */
+  agents: number;
+  /** Sum of `softCentsLimit` over the rows that declare one. */
+  committedCents: number;
+  /** Sum of `currentCents` over those same rows. */
+  spentCents: number;
+  /** `committedCents − spentCents`, floored at nothing — may be negative. */
+  headroomCents: number;
+  /** True when a soft allowance exists and the period's spend has reached it. */
+  overSoft: boolean;
+  /** Agent slugs already at or past a HARD cents cap — those cannot run at all. */
+  hardStopped: string[];
+}> {
+  const rows = (await listAgentBudgets(orgId)).filter(r => r.period === period);
+  const withSoft = rows.filter(r => r.softCentsLimit !== null);
+  const committedCents = withSoft.reduce((sum, r) => sum + (r.softCentsLimit ?? 0), 0);
+  const spentCents = withSoft.reduce((sum, r) => sum + r.currentCents, 0);
+  const hardStopped = rows
+    .filter(r => r.hardCentsLimit !== null && r.currentCents >= r.hardCentsLimit)
+    .map(r => r.agentSlug)
+    .sort();
+  return {
+    period,
+    agents: rows.length,
+    committedCents,
+    spentCents,
+    headroomCents: committedCents - spentCents,
+    overSoft: committedCents > 0 && spentCents >= committedCents,
+    hardStopped,
+  };
+}
+
+/**
+ * Delete an agent's budget row for a period. Used by the undo of a hire — the
+ * allowance was created with the teammate and goes back with them, so an
+ * undone hire leaves no row behind to be re-used by a later agent of the same
+ * slug.
+ * @param opts - The row to remove.
+ * @param opts.orgId - The workspace.
+ * @param opts.agentSlug - The agent whose allowance goes back.
+ * @param opts.period - `daily` (default) or `monthly`.
+ */
+export async function removeBudget(opts: { orgId: string; agentSlug: string; period?: BudgetPeriod }): Promise<void> {
+  const period: BudgetPeriod = opts.period ?? 'daily';
+  await db
+    .delete(agentBudgetSchema)
+    .where(and(
+      eq(agentBudgetSchema.orgId, opts.orgId),
+      eq(agentBudgetSchema.agentSlug, opts.agentSlug),
+      eq(agentBudgetSchema.period, period),
+    ));
+}

@@ -24,7 +24,7 @@
  */
 
 import type { SelfUpdateNoun, SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
-import { BookOpen, Bot, Brain, ListChecks, Puzzle, RotateCcw, Sparkles, Target } from 'lucide-react';
+import { BookOpen, Bot, Brain, ListChecks, Puzzle, RotateCcw, Sparkles, Target, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { selfUpdateGroupLabel, selfUpdateLine, selfUpdateQueueHref } from '@/libs/actions/selfUpdate';
 import { client } from '@/libs/Orpc';
@@ -36,6 +36,7 @@ const NOUN_ICON: Record<SelfUpdateNoun, typeof Bot> = {
   mission: Target,
   prompt: Bot,
   capability: Puzzle,
+  teammate: UserPlus,
 };
 
 /** Where an undo has got to, per run. */
