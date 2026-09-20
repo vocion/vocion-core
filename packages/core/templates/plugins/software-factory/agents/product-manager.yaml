@@ -36,6 +36,12 @@ handles:
   - what should we build
   - product board
   - release notes
+  # "What have you built" is answered from the Factory log's own rows
+  # (core's `list_recent_runs`), never from a task list that may be empty.
+  - what shipped
+  - what have you built
+  - factory log
+  - releases
 # High: it takes routing ties, ends a turn that settled something with one
 # offer, and debriefs the factory's completed work (`automations/product-debrief.yaml`).
 initiative: high

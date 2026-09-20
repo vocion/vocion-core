@@ -29,7 +29,11 @@ name: Software factory
 # release notes) through `automations/product-debrief.yaml`, on core's
 # completion events. The product manager and the planner declare what they
 # `handle` for the router and their `initiative` — high and normal.
-version: 1.5.0
+#
+# 1.5.1 — the log, in chat: "what have you built" and "what shipped" are
+# answered from the worker runs themselves through core's `list_recent_runs`,
+# whether or not a task record exists; the product manager handles them.
+version: 1.5.1
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []
