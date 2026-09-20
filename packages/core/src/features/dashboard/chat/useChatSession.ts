@@ -1,12 +1,13 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
+import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
 import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
@@ -733,6 +734,20 @@ export function useChatSession({
         // The newest artifact of the turn wins, so a turn that renders three
         // leaves the last one open rather than fighting over the panel.
         openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        return;
+      }
+
+      case 'self_update': {
+        // The chip that says the system improved ITSELF during this turn. The
+        // same fold as the artifact chip — key by run id, so a proposal that
+        // is refreshed mid-turn leaves one entry at its latest state — except
+        // that these group into ONE chip rather than a row each.
+        const u = evt.selfUpdate as { runId?: unknown; noun?: unknown; target?: unknown; status?: unknown } | undefined;
+        if (!u || typeof u.runId !== 'number' || typeof u.noun !== 'string' || typeof u.target !== 'string') {
+          return;
+        }
+        const receipt = evt.selfUpdate as SelfUpdateReceipt;
+        appendToLatestAgent(m => ({ ...m, selfUpdates: mergeSelfUpdate(m.selfUpdates ?? [], receipt) }));
         return;
       }
 

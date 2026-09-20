@@ -6,6 +6,8 @@
  * component import without dragging in the orchestrator.
  */
 
+import type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
+
 export type IndexedDocument = {
   document_id: string;
   semantic_identifier: string;
@@ -150,6 +152,15 @@ export type ChatMessageArtifact = {
 };
 
 /**
+ * One thing the system changed about ITSELF during a turn — a wiki page, a
+ * mission's notes, a playbook, an agent's own instructions, a remembered
+ * rule, a capability. The shape is the server's, imported rather than
+ * mirrored: `libs/actions/selfUpdate.ts` is pure, and one noun beats two that
+ * drift (principle 7).
+ */
+export type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
+
+/**
  * A file a person put into the turn — an image, a PDF, a text file. It is an
  * ARTIFACT (kind `file`, uploaded by a human) so it has a row, a version, an
  * authenticated URL and a place in the artifacts list; the chip in the
@@ -184,6 +195,12 @@ export type ChatMessage = {
   recommendations?: RecommendedAction[];
   /** Artifacts this turn created or changed (0101) — chips under the message. */
   artifacts?: ChatMessageArtifact[];
+  /**
+   * What the system taught itself during this turn — one chip under the
+   * message, each entry undoable. Several in a turn group into that chip
+   * rather than stacking beside it.
+   */
+  selfUpdates?: SelfUpdateReceipt[];
   /** Files the person attached to this (user) message — chips above its text. */
   attachments?: ChatAttachment[];
   documents?: IndexedDocument[];

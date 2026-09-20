@@ -17,6 +17,7 @@ import { liveWorkIndex, segmentTurn } from './interleave';
 import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
+import { SelfUpdateChips } from './SelfUpdateChips';
 import { formatElapsed, useElapsed } from './useElapsed';
 import { WorkTimeline } from './WorkTimeline';
 
@@ -362,6 +363,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           )}
           {(message.artifacts?.length ?? 0) > 0 && (
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
+          )}
+          {(message.selfUpdates?.length ?? 0) > 0 && (
+            <SelfUpdateChips updates={message.selfUpdates!} />
           )}
         </div>
         {message.confidence && (

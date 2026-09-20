@@ -21,6 +21,7 @@ import { listActions } from '@/libs/actions/registry';
 import { parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { ActionError, proposeAction } from '@/services/ActionService';
 import { deriveRecommendationDedupKey } from '@/services/chat/autoPropose';
+import { emitSelfUpdate } from '../selfUpdateEvent';
 
 export function proposeActionTool(ctx: RuntimeContext) {
   const available = listActions().map(a => `${a.id} — ${a.description}`).join('\n');
@@ -78,6 +79,9 @@ export function proposeActionTool(ctx: RuntimeContext) {
           tool: 'propose_action',
           meta: { runId: res.runId, status: res.status, outcome: res.outcome },
         } as never);
+        // A self-improvement kind also says so in the transcript, where the
+        // work happened, with Undo on the chip.
+        emitSelfUpdate(ctx, { actionId: action_id, input: action_input, res });
         // Each outcome reads differently on purpose. An agent that re-reads a
         // page has to be able to tell a person "nothing new here" — with one
         // shared sentence it would report every second pass as fresh work.

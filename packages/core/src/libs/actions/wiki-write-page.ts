@@ -39,6 +39,10 @@ export const wikiWritePageAction: Action<typeof wikiWriteInput> = {
   inputSchema: wikiWriteInput,
   grant: 'write_wiki',
   external: false,
+  // The wiki is what the system knows, so its bar is the workspace's
+  // learning dial rather than the platform's flat one. The wiki plugin's
+  // own `autoApproveAbove: 0.6` still wins where that plugin is on.
+  selfImproving: true,
   dedupKeyFor: input => `wiki.write_page:${input.slug.toLowerCase()}`,
   async reviewCard(ctx, input) {
     const { getWikiPage, wikiSlug } = await import('@/services/wiki/WikiService');

@@ -462,3 +462,32 @@ export async function promoteMissionToWorkflow(runId: number, orgId: string): Pr
   }).onConflictDoNothing();
   return { slug };
 }
+
+/**
+ * Rewrite one mission's working notes, handing back the text that was there.
+ *
+ * The notes are the mission's own memory across scheduled checks, and a
+ * rewrite used to be a bare column write from the agent's tool: no receipt,
+ * no history, no way back. Returning `previous` is what lets
+ * `mission.update_notes` declare an `undo` and therefore run on its own —
+ * the restore is exact, not a regeneration.
+ * @param orgId - The project.
+ * @param slug - The mission.
+ * @param notes - The complete new notes (a full replacement, as the tool has always been). `null` puts the mission back to having none, which is what undo means when it had none.
+ * @returns The mission's name and its notes before the write, or null when there is no such mission.
+ */
+export async function rewriteWorkingNotes(orgId: string, slug: string, notes: string | null): Promise<{ name: string; previous: string | null } | null> {
+  const [before] = await db
+    .select({ name: missionSchema.name, workingNotes: missionSchema.workingNotes })
+    .from(missionSchema)
+    .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, slug)))
+    .limit(1);
+  if (!before) {
+    return null;
+  }
+  await db
+    .update(missionSchema)
+    .set({ workingNotes: notes })
+    .where(and(eq(missionSchema.orgId, orgId), eq(missionSchema.slug, slug)));
+  return { name: before.name, previous: before.workingNotes ?? null };
+}
