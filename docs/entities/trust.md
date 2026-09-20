@@ -24,11 +24,11 @@ This page is the file format and the semantics of each field.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `action` | string | required | Registered action id, e.g. `hubspot.update`. Ids today: `gmail.send`, `hubspot.update`, `discovery.review_proposal`, `personalization.enroll`, `objects.propose_candidate`, `qc.hold`, `qc.release`, `qc.request_rework`, `dataset.add_example` (`packages/core/src/libs/actions/`). |
+| `action` | string | required | Registered action id, e.g. `hubspot.update`. Ids today: `gmail.send`, `hubspot.update`, `discovery.review_proposal`, `personalization.enroll`, `objects.propose_candidate`, `objects.update_meta`, `ask.file`, `ask.withdraw`, `plugin.enable`, `wiki.write_page`, `learning.adopt_rule`, `mission.update_notes`, `playbook.write`, `agent.revise_prompt`, `qc.hold`, `qc.release`, `qc.request_rework`, `dataset.add_example` (`packages/core/src/libs/actions/`). |
 | `autoApproveAbove` | number 0–1 | required | A pending proposal for this action with confidence at or above this value executes without review. Still audited. Becomes the policy's `min_confidence`. |
 | `enabled` | boolean | `false` | Off by default. Flipping it to `false` reverts the rule without deleting it. |
 | `rung` | `observe` \| `recommend` \| `assist` \| `execute-with-approval` \| `execute-within-bounds` \| `autonomous` | derived | Where this kind stands on the ladder. Omitted, an enabled rule reads as `execute-within-bounds` and a disabled one as `execute-with-approval`. The rung and `enabled` must agree — a rung at or above `execute-within-bounds` on a disabled rule (or the reverse) is refused at apply, because the page and the gate would disagree about what runs. |
-| `risk` | `low` \| `medium` \| `high` | registry default | How much evidence the next rung takes. Defaults: `hubspot.update` low; `gmail.send`, `personalization.enroll`, `objects.propose_candidate`, `qc.release` medium; any other external kind high. |
+| `risk` | `low` \| `medium` \| `high` | registry default | How much evidence the next rung takes. Defaults: `hubspot.update`, `objects.update_meta`, `ask.file`, `ask.withdraw` and the internal self-improvement kinds low; `gmail.send`, `personalization.enroll`, `objects.propose_candidate`, `qc.release` medium; any other external kind high. |
 
 `risk` may also be given at the top level as a map, for kinds that have no
 rule yet but whose tier the workspace wants to state:
@@ -56,6 +56,45 @@ risk:
 
 Keep the list short and the thresholds high. Everything that executes this way
 still lands in the review queue's auto-executed list.
+
+## The agent's own writes
+
+Three kinds are how an agent inside the app asks a person and writes on a record, and they are on
+the ladder for the same reason a CRM update is — not because a mistake is expensive, but because
+whether an agent may do these unasked is the workspace's call:
+
+| Id | Tool | What it does | Default |
+|---|---|---|---|
+| `ask.file` | `file_ask` | Puts one question on Needs you ([ask](./ask.md)), owned by the agent and bound to its run. | low, reversible (Undo withdraws it while open) → done for you at 0.8 |
+| `ask.withdraw` | `withdraw_ask` | Closes an open question the agent filed as superseded, with the reason. | low, reversible (Undo reopens it) → done for you at 0.8 |
+| `objects.update_meta` | `update_object` | Writes declared fields on an existing record of an [object type](./object-type.md) — never the title or the lifecycle status. Keyed per type: `objects.update_meta.<objectType>`. | low, reversible (the previous values ride the run) → done for you at 0.8 |
+
+A workspace that wants a person on every question an agent asks, or on every write to its records,
+parks the kind:
+
+```yaml
+rules:
+  - action: ask.file
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+  - action: objects.update_meta.product # one ledger per object type
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+  - action: objects.update_meta.request
+    autoApproveAbove: 0.95
+    enabled: true # writes at 0.95 and above run; the rest wait for a person
+```
+
+Record writes key on the object type — `objects.update_meta.<objectType>` — the way a merge keys
+on its risk class, so `product` can be held at approval while `request` earns its way, and each
+type's evidence is its own. A rule for the bare `objects.update_meta` binds to nothing. A type
+nobody has written a rule for reads the action's own default (low, reversible, done for you):
+the ladder finds the registered action behind a derived key by its id prefix
+(`actionForPolicyKey`), so a derived key with no rule is never mistaken for an unknown, high-risk
+kind. Which types an agent may write at all is not a trust question but the agent's own
+`objectTypes:` list — `update_object` refuses a type outside it before anything is proposed.
 
 ## The two tables
 
@@ -113,7 +152,10 @@ Where a rung comes from, and which wins:
   `riskClass: docs` is gated, tiered and scored under `git.merge.docs`, so a
   rule for `git.merge.docs` and one for `git.merge.schema` bind to the same
   registered action and earn separately. A rule for the bare `git.merge` id
-  binds to nothing.
+  binds to nothing. A derived key with no rule takes its risk tier from the
+  action behind it (found by id prefix), so `objects.update_meta.request`
+  with nothing said about it is low like its action, not high like an
+  unknown kind.
 - **A hand-off action** (`Action.manual`, [Needs you → Hand-off actions](../guides/needs-you.md#hand-off-actions))
   rides the ladder like any other kind, and "execute" means *release*: a
   promoted `git.push_branch` above its floor goes to `awaiting_execution` on

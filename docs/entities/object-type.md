@@ -60,7 +60,7 @@ fewShotExamples:
 
 - Slugs are unique across object types.
 - Only files named `type.yaml` / `type.yml` under `objects/` are loaded — anything else in the folder is treated as a resource, not a manifest.
-- An agent's `objectTypes:` entries name these slugs; activating a base agent pulls in the object types it uses.
+- An agent's `objectTypes:` entries name these slugs; activating a base agent pulls in the object types it uses. They are also what the agent may **write**: `update_object` sets declared fields on a record of a listed type, through the `objects.update_meta` action ([trust](./trust.md#the-agents-own-writes)) — only keys under `schema.properties`, each value checked against its field, never `title`, `status` or the row's bookkeeping. A field the type does not declare is refused with the list of the ones it does, so a new field is a change to `type.yaml` first.
 
 ## Related
 

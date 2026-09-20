@@ -35,6 +35,7 @@ import { documentTools } from './documents';
 import { editArtifactTools } from './editArtifacts';
 import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
+import { fileAskTool, withdrawAskTool } from './fileAsk';
 import { fileFeedbackTool } from './fileFeedback';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
@@ -68,6 +69,7 @@ import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
+import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
 import { wikiTools } from './wiki';
@@ -143,6 +145,10 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
+    // The write beside the read: declared fields on a record of a type the
+    // agent works with, through the `objects.update_meta` action. Empty for
+    // an agent with no object types.
+    ...updateObjectTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),
@@ -153,6 +159,11 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     listRecentRunsTool(ctx),
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
+    // A question for a person on Needs you, and its withdrawal — through the
+    // `ask.file` / `ask.withdraw` actions, so the trust ladder decides whether
+    // an agent may interrupt a person unasked. On for every agent.
+    fileAskTool(ctx),
+    withdrawAskTool(ctx),
     proposeActionTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),

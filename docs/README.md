@@ -75,6 +75,7 @@ about them.
 - [The model-upgrade test](./guides/model-upgrade-test.md) — run one role's eval dataset on today's model and a new release, compare on cost per passed case.
 - [Needs you — the one decision surface](./guides/needs-you.md) — every kind of thing waiting on a person (proposals, asks, stopped runs, suggested rules) in one list; the detail by kind, the verbs and keys, and how each decision feeds learning and autonomy. `/dashboard/review` forwards here.
 - [Acting from context](./guides/act-from-context.md) — structured page/record context on every turn, the `page_context` tool, `<AskAboutThis>`, opening the surface with intent, recommended-action status streaming back, and the `act-within-bounds` autonomy path.
+- [Agent tools that write](./guides/agent-tools.md) — every tool an agent has that changes something, and the action it rides: `propose_action` for connector writes, `file_ask` / `withdraw_ask` for a question to a person, `update_object` for a record's fields, the self-improvement tools; how each is gated, undone and switched off per agent.
 
 ## Deployment
 

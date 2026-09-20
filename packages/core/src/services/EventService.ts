@@ -118,7 +118,7 @@ export type ArtifactSavedPayload = {
  */
 export const ASK_DECIDED = 'ask.decided';
 
-/** Payload of `ask.decided`. Scalars only — `when.filter` compares with `===`. */
+/** Payload of `ask.decided`. Scalars, which `when.filter` compares with `===`, plus the records it was about. */
 export type AskDecidedPayload = {
   askId: number;
   /** The ask's kind — `approval`, `merge`, `recommendation`, … */
@@ -136,6 +136,13 @@ export type AskDecidedPayload = {
   groupKey: string | null;
   /** The filer's idempotency key, when it was filed from outside. */
   sourceRef: string | null;
+  /**
+   * The records the ask was about — `[{ type, id }]`, an object type slug
+   * and the object's id — so a subscriber can write the answer back onto
+   * them. The one non-scalar here: `when.filter` cannot match on it, so
+   * filter on `agentSlug` and `kind` and read the refs off the payload.
+   */
+  objectRefs: Array<{ type: string; id: string }>;
   decidedBy: string;
   /** ISO timestamp of the decision. */
   decidedAt: string;

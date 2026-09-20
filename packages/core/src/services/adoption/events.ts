@@ -306,6 +306,8 @@ export const ADOPTION_EVENTS = {
     meta: z.object({
       kind: z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate']),
       status: z.enum(['approved', 'rejected', 'done', 'superseded']),
+      /** The records the ask was about, so a reader can join the answer to them. */
+      objectRefs: z.array(z.object({ type: z.string(), id: z.string() })).optional(),
     }),
   },
   /**
