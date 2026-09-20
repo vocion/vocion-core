@@ -27,6 +27,18 @@ agentType: operational
 temperature: '0.3'
 eyebrow: Software factory · Product
 team: software-factory
+# What the router sends here when nobody names an agent (`services/agents/router.ts`).
+handles:
+  - backlog
+  - priorities
+  - recommendations
+  - requests
+  - what should we build
+  - product board
+  - release notes
+# High: it takes routing ties, ends a turn that settled something with one
+# offer, and debriefs the factory's completed work (`automations/product-debrief.yaml`).
+initiative: high
 skills:
   - rank-the-backlog
   - recommend-in-batches

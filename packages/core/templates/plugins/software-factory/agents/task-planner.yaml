@@ -17,6 +17,14 @@ agentType: operational
 temperature: '0.2'
 eyebrow: Software factory · Architecture · Planner
 team: software-factory
+handles:
+  - plan this request
+  - task contract
+  - triage
+  - what is stuck
+  - engineering tasks
+# Normal: plans when asked or when an automation fires; volunteers nothing beyond the ask.
+initiative: normal
 skills:
   - triage-request
   - write-task-contract

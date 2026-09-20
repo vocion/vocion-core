@@ -68,14 +68,34 @@ contract is in [`docs/entities/workspace-manifest.md`](../../../../../docs/entit
 
 The researcher shows in the chat agent picker like every agent (its
 `suggestions` are the chips on an empty chat) and, as the team's lead, is the
-wiki agent the workspace lead consults. Over MCP there is no chat verb; an MCP
-client works *as* an agent through the bridged tools: every domain tool
-(`search_knowledge`, `read_wiki_page`, `write_wiki_page`, `web_search`, …)
-takes `agent_slug`, so `write_wiki_page` with `agent_slug: wiki-researcher`
-proposes the page as the researcher, under its own ledger, with its sources
-and grants — or set `VOCION_MCP_AGENT_SLUG=wiki-researcher` to make it the
+wiki agent the workspace lead consults. In chat and over MCP the **router**
+sends it the questions it `handles` — `wiki`, `standing rules`, `research`,
+`plan`, `decision` — when nobody names an agent; its `initiative: high` takes
+a tie against another agent (`services/agents/router.ts`; the decision is
+written on the message, and shown as "via Wiki researcher" with the reason on
+hover). Over MCP the verb is `ask_workspace`: the message is routed, one turn
+runs, and the reply comes back with `routing` — which agents were considered,
+who answered and why — or pass `agent_slug: wiki-researcher` to skip the
+router. An MCP client can also work *as* the researcher through the bridged
+tools: every domain tool (`search_knowledge`, `read_wiki_page`,
+`write_wiki_page`, `web_search`, …) takes `agent_slug`, so `write_wiki_page`
+with `agent_slug: wiki-researcher` proposes the page as the researcher, under
+its own ledger — or set `VOCION_MCP_AGENT_SLUG=wiki-researcher` to make it the
 default agent for the server. `mission_start` and `workflow_run_start` remain
 the ways to run longer work from a client.
+
+**The debrief.** Finished work is read once for what it settled. The
+`wiki-debrief` automation fires on core's completion events —
+`worker_run.completed`, `mission_run.completed`, `conversation.ended`,
+`pr.merged` — and checks the `wiki-debrief` mission: the researcher reads the
+run, the conversation or the pull request itself, decides whether a standing
+fact, a decision or a plan changed, and proposes the page revision through
+`wiki.write_page` (its own ledger, so review until promoted). Work that
+settled nothing writes nothing. `conversation.ended` is raised by the
+`sweep-idle-conversations` job, which this plugin schedules every fifteen
+minutes (`automations/conversation-sweep.yaml`, thirty quiet minutes ends a
+thread); the other three events core raises on its own. The curator is
+`initiative: low` and sits debriefs out — it consolidates on Friday.
 
 **Earned trust.** The researcher's writes key on their own ledger —
 `wiki.write_page.wiki-researcher`, because its `harness.ownLedger` names the

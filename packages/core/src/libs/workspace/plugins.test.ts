@@ -44,7 +44,8 @@ describe('the shipped catalogue', () => {
     expect(wiki.agents).toEqual(['wiki-curator', 'wiki-researcher']);
     expect(wiki.skills).toEqual(['wiki-context', 'wiki-curation', 'wiki-research']);
     expect(wiki.pages).toEqual(['wiki', 'wiki-guide']);
-    expect(wiki.automations).toEqual(['wiki-index', 'wiki-weekly-curation']);
+    expect(wiki.automations).toEqual(['conversation-sweep', 'wiki-debrief', 'wiki-index', 'wiki-weekly-curation']);
+    expect(wiki.missions).toEqual(['wiki-current', 'wiki-debrief']);
     expect(wiki.hasTrust).toBe(true);
   });
 
@@ -55,9 +56,9 @@ describe('the shipped catalogue', () => {
     expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'triage-request', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['house-voice', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
     expect(factory.objectTypes).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
-    expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-review', 'stand-up-product', 'tell-the-requester']);
+    expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-debrief', 'product-review', 'stand-up-product', 'tell-the-requester']);
     // Every way the product manager acts is an automation — visible, pausable, named after the mission it serves.
-    expect(factory.automations.filter(a => a.startsWith('product-'))).toEqual(['product-batch-decided', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
+    expect(factory.automations.filter(a => a.startsWith('product-'))).toEqual(['product-batch-decided', 'product-debrief', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
     expect(factory.pages).toEqual(['backlog', 'changelog', 'costs', 'factory-floor', 'factory-log', 'portfolio', 'product-board', 'recommendations', 'releases', 'team-report']);
     expect(factory.hasTrust).toBe(true);
   });
@@ -102,7 +103,7 @@ describe('loadWorkspace with plugins', () => {
     expect(ws.automations.map(a => a.slug)).toEqual(expect.arrayContaining(['wiki-index', 'wiki-weekly-curation']));
     expect(ws.teams.map(t => t.slug)).toContain('wiki');
     expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page')?.autoApproveAbove).toBe(0.6);
-    expect(ws.sha).toContain('+wiki@1.1.0');
+    expect(ws.sha).toContain('+wiki@1.2.0');
   });
 
   it('the wiki team pairs the researcher (lead, chat-facing, own ledger) with the curator (operational, shared bar)', () => {
@@ -120,8 +121,25 @@ describe('loadWorkspace with plugins', () => {
     expect(curator.harness.ownLedger).toBeUndefined();
     expect(ws.teams.find(t => t.slug === 'wiki')?.lead).toBe('wiki-researcher');
     expect(ws.skills.find(s => s.slug === 'wiki-research')?.origin).toBe('core');
-    // No new automation: the researcher's eagerness lives in chat, not on a cadence.
-    expect(ws.automations.filter(a => a.agent === 'wiki-researcher')).toEqual([]);
+    // The researcher declares what it handles and its initiative; the curator is the quiet one.
+    expect(researcher.handles).toEqual(expect.arrayContaining(['wiki', 'standing rules', 'research', 'plan', 'decision']));
+    expect(researcher.initiative).toBe('high');
+    expect(curator.initiative).toBe('low');
+
+    // The researcher's cadence is the work itself: a debrief on core's completion
+    // events (one automation, four event types) plus the sweep that raises
+    // `conversation.ended`. Nothing on a clock but the sweep.
+    const researcherAutomations = ws.automations.filter(a => a.agent === 'wiki-researcher');
+
+    expect(researcherAutomations.map(a => a.slug).sort()).toEqual(['conversation-sweep', 'wiki-debrief']);
+
+    const debrief = researcherAutomations.find(a => a.slug === 'wiki-debrief')!;
+
+    expect(debrief.when.event).toEqual(['worker_run.completed', 'mission_run.completed', 'conversation.ended', 'pr.merged']);
+    expect(debrief.do.checkMission).toBe('wiki-debrief');
+    expect(debrief.do.prompt).toContain('write_wiki_page');
+    expect(ws.missions.find(m => m.slug === 'wiki-debrief')?.agent).toBe('wiki-researcher');
+    expect(researcherAutomations.find(a => a.slug === 'conversation-sweep')?.do).toEqual({ job: 'sweep-idle-conversations', input: { idleMinutes: 30 } });
     // The researcher's writes start at review on their own ledger; the shared rule is untouched.
     expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page.wiki-researcher')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'low', autoApproveAbove: 0.8 });
     expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', autoApproveAbove: 0.6 });
@@ -241,7 +259,7 @@ describe('loadWorkspace with the software factory', () => {
     // reachable.
     expect(ws.agents.find(a => a.slug === 'task-engineer')?.harness?.runsOn).toBe('external-worker');
     expect(ws.agents.find(a => a.slug === 'task-planner')?.harness?.runsOn).toBeUndefined();
-    expect(ws.missions.map(m => m.slug)).toHaveLength(9);
+    expect(ws.missions.map(m => m.slug)).toHaveLength(10);
     // A push runs on its own. A merge is one bar per risk class: docs may
     // earn its way to running within bounds (medium tier), promise never
     // does (high tier); every one starts at approval.
@@ -254,7 +272,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.4.1');
+    expect(ws.sha).toContain('+software-factory@1.5.0');
   });
 
   it('seats a product manager who recommends and never authorizes, and says how, when and why it acts', () => {
@@ -296,6 +314,21 @@ describe('loadWorkspace with the software factory', () => {
     expect(triggers.every(a => a.agent === 'product-manager' && a.status === 'active' && a.do.prompt && a.description)).toBe(true);
     expect(triggers.find(a => a.slug === 'product-batch-decided')?.when).toEqual({ event: 'ask.decided', filter: { agentSlug: 'product-manager', kind: 'recommendation' } });
     expect(triggers.find(a => a.slug === 'product-weekly-review')?.when.schedule).toBe(mission?.schedule);
+
+    // The debrief: the factory finished something, the record learns it. Its own
+    // mission, on core's completion events, authorizing and announcing nothing.
+    const debrief = ws.automations.find(a => a.slug === 'product-debrief')!;
+
+    expect(debrief).toMatchObject({ agent: 'product-manager', status: 'active' });
+    expect(debrief.when.event).toEqual(['worker_run.completed', 'worker_run.failed', 'pr.merged']);
+    expect(debrief.do.checkMission).toBe('product-debrief');
+    expect(debrief.do.prompt).toContain('Authorize nothing, announce nothing');
+    expect(ws.missions.find(m => m.slug === 'product-debrief')?.agent).toBe('product-manager');
+    // Initiative and routing hints: the product manager takes ties and debriefs; the planner is the quiet default.
+    expect(pm?.initiative).toBe('high');
+    expect(pm?.handles).toEqual(expect.arrayContaining(['backlog', 'recommendations', 'requests']));
+    expect(ws.agents.find(a => a.slug === 'task-planner')?.initiative).toBe('normal');
+    expect(ws.agents.find(a => a.slug === 'task-planner')?.handles).toContain('task contract');
 
     // Recommending is a rung, not a gate; authorizing is one bar per class, low classes may earn it, promise never does.
     expect(ws.trust?.rules.find(r => r.action === 'product.recommend')).toMatchObject({ enabled: false, rung: 'recommend', risk: 'low' });

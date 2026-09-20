@@ -1,0 +1,28 @@
+slug: wiki-debrief
+name: Completed work becomes the wiki
+description: >-
+  The standing responsibility of the Wiki researcher after the fact — not a
+  one-off run. Every piece of finished work is read once for what it settled:
+  a standing fact, a decision, a plan that changed. What did lands on its page;
+  what did not is left alone. `automations/wiki-debrief.yaml` is how, when and
+  why this mission is checked.
+goal: >-
+  Nothing that a run, a conversation or a merged change settled is known only
+  to the person who was there. Within the hour, the standing part of each
+  completed piece of work is proposed to the page that carries it — revised,
+  or a dated section appended — with the source named and an honest
+  confidence; work that settled nothing standing produces no page and no
+  note. The wiki stays small: a debrief writes to an existing page before it
+  creates one, and never writes a ledger of what happened.
+agent: wiki-researcher
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every debrief names the work it read (the run, the conversation or the pull request) and says in one line whether it changed a standing fact, a decision or a plan — or nothing
+  - A change to a standing fact, decision or plan is proposed to the page that carries it within the hour, citing the work as its source
+  - Work that settled nothing standing writes nothing — no page, no note, no "nothing changed" section
+  - Every write revises or appends to an existing page when one fits; a new page is proposed only when none does, and never for a single event
+  - Every write carries its reason and an honest confidence; nothing under the bar is claimed as done
+desiredArtifacts:
+  - The one-line debrief per completed piece of work — what was read, what changed, what was written or left alone
+  - Wiki page revisions or dated sections, each citing the work they came from

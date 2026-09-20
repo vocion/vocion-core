@@ -158,8 +158,10 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   the plugin's defaults a workspace overrides with its own facts:
   `the-twenty-percent`, `written-promises`, `verify-against-reality`, and
   `house-voice` (a stub; see below).
-- **Nine standing missions**, each with its cadence: `product-review` (the
+- **Ten standing missions**, each with its cadence: `product-review` (the
   product manager's — weekly, with four automations underneath it),
+  `product-debrief` (the product manager's other one — no cadence, checked
+  the moment a worker run ends or a pull request merges),
   `keep-the-board-honest`
   (every morning, the portfolio's counters recomputed from the records), `close-the-gap` (the
   lead's promoter tick — no request waits more than a week), `no-open-p1`,
@@ -169,6 +171,12 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   against production), `tell-the-requester` (every two hours, the reply back
   on the asker's channel, read from the releases). Plus two event-triggered intake automations: a
   request arriving and a check failing.
+- **Initiative and routing.** The product manager declares `initiative: high`
+  and what it `handles` (backlog, priorities, recommendations, requests,
+  release notes), so the router sends those questions to it when nobody
+  names an agent, it takes a routing tie, and it debriefs completed work; the
+  planner is `normal` and handles plans, task contracts and triage. See
+  [agent](../../../../../docs/entities/agent.md#behaviour).
 - **Trust rules** per risk class — see *Earned speed*.
 - **Three rows in the "AppCurious" section, first in the nav**: the
   **portfolio** (the outcome view above), **Releases** (what reached people,
@@ -254,10 +262,10 @@ Open a second batch while one is undecided. Rank on effort or on how
 interesting the work is. **Authorize.** The person's answer to the ask *is*
 the authorization; the agent recommends and reads the answer back.
 
-**How, when and why it acts** is not in its prompt. It is four automations,
-each a `checkMission` on `product-review`, each with a `description` that says
-why in one sentence, each visible on `/dashboard/automation` with its runs on
-`/dashboard/automation/runs`:
+**How, when and why it acts** is not in its prompt. It is five automations —
+four `checkMission`s on `product-review` and one on `product-debrief` — each
+with a `description` that says why in one sentence, each visible on
+`/dashboard/automation` with its runs on `/dashboard/automation/runs`:
 
 | Automation | When | Why |
 |---|---|---|
@@ -265,6 +273,7 @@ why in one sentence, each visible on `/dashboard/automation` with its runs on
 | `product-weekly-review` | Mondays 14:00 UTC | re-rank, ideate, and — only if no batch is open — assemble the next ten |
 | `product-recommendations-check` | weekdays 13:00 UTC | the pause is only a throttle if it is visible: names the person and the days when a batch is older than seven |
 | `product-batch-decided` | `ask.decided`, filtered to this agent and kind `recommendation` | write the decision on the request and route it while it is fresh; assemble the next batch only when the last ask of the current one is decided |
+| `product-debrief` | `worker_run.completed`, `worker_run.failed`, `pr.merged` — core's completion events | no request is answered by work its record does not know about: the request's state and what answered it, the actual cost beside the estimate, the recommendation refreshed with the outcome, draft release notes on the release if one exists (`product-debrief` mission). Authorizes nothing, announces nothing |
 
 The prompt tells the agent it acts only when one of these fires or a person
 asks it in chat. A workspace changes a cadence by overriding the automation by

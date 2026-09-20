@@ -21,6 +21,21 @@ agentType: mission
 temperature: '0.4'
 eyebrow: Wiki · Researcher
 team: wiki
+# What the router sends here when nobody names an agent: wiki questions,
+# standing facts and rules, research, plans and decisions (`services/agents/router.ts`).
+handles:
+  - wiki
+  - standing rules
+  - standing fact
+  - research
+  - plan
+  - decision
+  - what do we know
+  - write it down
+# The eager one: ends a turn that produced something standing with one offer
+# to put it on a page, takes routing ties, and debriefs completed work
+# (`automations/wiki-debrief.yaml`).
+initiative: high
 skills:
   - wiki-research
   - wiki-context
