@@ -3,8 +3,9 @@ import { z } from 'zod';
 import {
   cancelMission,
   getMissionRun,
-  listMissionRuns,
+  listMissionRunsPage,
   listMissions,
+  MISSION_RUN_LIST_MAX,
   promoteMissionToWorkflow,
   resumeMission,
   startMission,
@@ -56,11 +57,15 @@ export function missionTools(config: McpConfig): ToolModule[] {
     {
       name: 'mission_list_runs',
       title: 'List mission runs',
-      description: 'List mission runs (optionally filtered by status).',
-      inputSchema: { status: z.string().optional(), limit: z.number().int().positive().max(100).default(50) },
+      description: 'List mission runs newest first, with the total the filters matched. Filter by status (planning | running | paused | awaiting_review | completed | failed | cancelled) and by missionSlug; limit up to 200. Each row carries causedBy — the automation fires behind the run — so a runaway loop can be followed to the automation to pause.',
+      inputSchema: {
+        status: z.string().optional(),
+        missionSlug: z.string().optional(),
+        limit: z.number().int().positive().max(MISSION_RUN_LIST_MAX).default(50),
+      },
       handler: async (input) => {
-        const { status, limit } = input as { status?: string; limit: number };
-        return listMissionRuns(config.orgId, { status, limit });
+        const { status, missionSlug, limit } = input as { status?: string; missionSlug?: string; limit: number };
+        return listMissionRunsPage(config.orgId, { status, missionSlug, limit });
       },
     },
     {
