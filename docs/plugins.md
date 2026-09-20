@@ -37,7 +37,11 @@ Three doors, one write:
 1. **workspace.yaml** — add the slug to `plugins:` and apply (`workspace:apply`,
    the drift banner, or a push in a workspace that applies on deploy).
 2. **The Plugins page** — Turn on. Edits `workspace.yaml` (comments preserved)
-   and applies; the receipt is the new workspace sha.
+   and applies; the receipt is the new workspace sha. Under a shared mount
+   (several projects, one `WORKSPACE_PATH`) the folder is one project's; a
+   toggle from any other project never edits it — it updates that project's
+   `enabled_plugins` and says so, naming the file that makes it permanent
+   (`workspace/<slug>/workspace.yaml` `plugins:` in the workspace repo).
 3. **Chat** — the agent knows which plugins are off and when each helps
    (`plugin.yaml` `recommend.when`). When the conversation calls for one it
    recommends it as a one-tap card; the card is the reversible `plugin.enable`

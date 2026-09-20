@@ -9,8 +9,9 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { listPlugins, listPluginSlugs, loadPlugin, pluginContents, readPluginReadme, readPluginTeams } from '@/libs/workspace/plugins';
-import { workspacePathForProject } from '@/routers/Workspace';
-import { enabledPluginsForOrg, workspaceWriteBlocker } from '@/services/PluginService';
+import { loadProject } from '@/routers/AuthGuards';
+import { workspaceFolderForProject } from '@/routers/Workspace';
+import { enabledPluginsForOrg, pluginWriteTarget } from '@/services/PluginService';
 import { ORG_ROLE } from '@/types/Auth';
 
 /**
@@ -31,8 +32,13 @@ export default async function PluginDetailPage(props: { params: Promise<{ locale
   const teams = readPluginTeams(plugin);
   const readme = readPluginReadme(plugin);
   const enabled = await enabledPluginsForOrg(orgId);
-  const dir = await workspacePathForProject(orgId);
-  const blocker = dir ? workspaceWriteBlocker(dir) : 'this project has no workspace directory on this host';
+  // Same judgement as the catalogue rows: the project's own folder may be
+  // read-only here (blocker); another project's folder is never written, and
+  // the switch updates this project's list alone (repoFile names the door).
+  const [project, folder] = await Promise.all([loadProject(orgId), workspaceFolderForProject(orgId)]);
+  const target = await pluginWriteTarget(orgId, project?.slug ?? orgId, folder?.path ?? null, folder?.explicit ?? false);
+  const blocker = target.blocker;
+  const repoFile = target.mode === 'project' ? target.repoFile : null;
   const on = enabled.includes(slug);
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   const dependents = listPlugins().filter(p => p.manifest.depends.includes(slug)).map(p => p.manifest.slug);
@@ -79,7 +85,7 @@ export default async function PluginDetailPage(props: { params: Promise<{ locale
           </div>
         )}
         description={plugin.manifest.description}
-        actions={<PluginToggle slug={slug} enabled={on} canToggle={isAdmin} blocker={blocker} dependents={dependents} />}
+        actions={<PluginToggle slug={slug} enabled={on} canToggle={isAdmin} blocker={blocker} repoFile={repoFile} dependents={dependents} />}
       />
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
