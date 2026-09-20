@@ -1,0 +1,13 @@
+slug: tell-the-requester-check
+name: Two-hourly reply pass
+description: >-
+  Wakes the Task planner on the cadence of the `tell-the-requester` mission to check the
+  standing charter and do only what needs doing now.
+status: active
+agent: task-planner
+when:
+  schedule: '0 */2 * * *'
+do:
+  checkMission: tell-the-requester
+  prompt: >-
+    Find every request whose task was accepted or whose answer was decided since the last pass and has no reply yet. For each, propose the reply on the channel the request came from — the store, the mailbox, the issue, the chat — written for the asker in their terms, saying what changed or was decided and why. Say nothing is done that is still waiting on a person. Report: proposed, released since last pass, still waiting.

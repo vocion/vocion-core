@@ -25,6 +25,8 @@ export type PluginPageInput = {
   icon?: string;
   nav: { section: string; order: number; hidden: boolean };
   origin: string;
+  /** A `link` page's route — the row opens it directly instead of `/dashboard/p/<slug>`. */
+  href?: string;
 };
 
 /** A core route a plugin owns, as the registry declares it. */
@@ -91,7 +93,7 @@ export function pluginNav(input: {
       }
       claimedPages.push(page.slug);
       const label = page.nav.section && page.nav.section !== 'Workspace' ? page.nav.section : section;
-      push(label, { title: page.title, url: `/dashboard/p/${page.slug}`, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order });
+      push(label, { title: page.title, url: page.href ?? `/dashboard/p/${page.slug}`, icon: page.icon ?? 'panels-top-left', plugin: plugin.slug, order: base + page.nav.order });
     }
     // The core routes it owns.
     for (const route of input.routes) {

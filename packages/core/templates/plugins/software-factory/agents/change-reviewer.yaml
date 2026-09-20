@@ -6,9 +6,10 @@ slug: change-reviewer
 name: Change reviewer
 description: >-
   Reviews a finished engineering task against its contract — the diff, the
-  files changed and the check output — and returns approve, changes or reject
-  with each finding keyed to the acceptance criterion or the allowed-path rule
-  it fails. Never merges; raises the merge as an ask for a person.
+  files changed and the verification artifacts — and returns approve, changes
+  or reject with each finding keyed to the acceptance criterion, the
+  allowed-path rule or the risk floor it fails. Approves nothing without
+  evidence. Never merges; raises the merge as an ask for a person.
 icon: shield-check
 accent: emerald
 active: true
@@ -20,6 +21,9 @@ skills:
   - review-against-contract
 objectTypes:
   - engineering_task
+  - repo
+  - product
+  - request
 suggestions:
   - label: Review this task
     prompt: Read this task's contract, the diff and the check output. Return approve, changes or reject, with every finding keyed to the acceptance criterion or the allowed-path rule it fails.

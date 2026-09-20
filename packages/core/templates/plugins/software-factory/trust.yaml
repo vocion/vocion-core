@@ -1,20 +1,41 @@
 # Where each of the factory's action kinds starts on the autonomy ladder, and
-# why it starts there. Four bars, ordered by what is on the other side of a
-# mistake — not by how often the action is taken.
+# why. Ordered by what is on the other side of a mistake — not by how often
+# the action is taken.
+#
+# EARNED SPEED. The ladder promotes an action kind on evidence — decisions
+# where a person agreed with the recommendation, over a window, with no
+# rejections — and the merge is where that matters. A merge is not one action
+# kind: merging a docs change and merging a billing change are different
+# decisions with different blast radii, so they are different action ids here,
+# one per risk class (`git.merge.<riskClass>`), and each earns or never earns
+# on its own ledger.
+#
+# What this file CAN carry is the starting rung and a risk tier; the tier picks
+# the platform's evidence rule (`services/autonomy/rungs.ts` TIER_RULES):
+#   low    — n≥20,  90%, no rejection in 14d,           ceiling autonomous
+#   medium — n≥40,  95%, no high-confidence reject 30d, ceiling execute-within-bounds
+#   high   — never earns past execute-with-approval
+# What it CANNOT carry is a per-kind n or agreement rate. The thresholds the
+# factory actually holds itself to — docs and deps n≥30 at 95%, marketing n≥50
+# at 95%, ui n≥100 at 97% — are therefore the convention in the README, graded
+# against the ledger by the person who clicks promote, and a per-rule
+# `minN` / `minAgreement` is named there as the core follow-up. `medium` is
+# the nearest tier: stricter than the convention on n for docs and deps,
+# looser than it for ui, which is why the README says ui is not promoted on
+# the page's word alone.
 #
 # A note on "forbidden": the ladder has no such rung. `execute-with-approval`
 # with `enabled: false` is the most restrictive bar that still describes what
-# actually happens (the agent proposes, a person decides, and only then does
-# anything run), and `autoApproveAbove: 1` is set on those rules so that even a
-# confidence of 1.0 cannot release them if a workspace later flips `enabled`
-# without thinking about it. `observe` would be more restrictive still and
-# would be a lie: these agents do propose.
+# happens (the agent proposes, a person decides, only then does anything run),
+# and `autoApproveAbove: 1` means even a confidence of 1.0 releases nothing if
+# a workspace later flips `enabled` without thinking. `risk: high` is what
+# makes "never" true on the ladder itself: the high tier's ceiling is approval.
 #
 # These action ids are the factory's own. Core registers `wiki.write_page` and
-# the connector writes; it does not yet register a git or deploy action, so
-# until it does these rules set the bar and the autonomy page shows it, and no
-# proposal can be released above it. Registering them is a core change, named
-# as a follow-up in the README.
+# the connector writes; it does not yet register a git, deploy, reply or
+# credentials action, so until it does these rules set the bar and the
+# autonomy page shows it, and no proposal can be released above it.
+# Registering them is a core change, named as a follow-up in the README.
 rules:
   # Pushing a branch is the cheapest write in the system: it creates nothing a
   # person has to live with, it is deleted with one command, and nothing
@@ -28,23 +49,91 @@ rules:
     rung: execute-within-bounds
     risk: low
 
-  # The merge is the decision the whole factory exists to put in front of a
-  # person: it is where a change becomes something other people build on, and
-  # it is the one step no agent in this plugin holds authority over — not the
-  # planner that wrote the contract, not the worker that made the diff, not the
-  # reviewer that approved it. Approval-only, permanently: a workspace may
-  # narrow this, and raising it is a decision about who runs the company's
-  # code, not a threshold.
-  - action: git.merge_main
+  # Merges that MAY earn their way to running within bounds. Each starts at
+  # approval — trust is demonstrated, not switched on — and climbs only on its
+  # own ledger. `docs` and `deps` are reversible text and lockfiles with a
+  # failing-before / passing-after check behind them; `marketing` is prose on a
+  # surface people read but do not rely on; `ui` is visible and testable but
+  # is where a promise is most often broken by accident, hence the stricter
+  # convention. `medium` is the tier that can reach execute-within-bounds and
+  # no further — autonomous is not on offer for a merge of any class.
+  - action: git.merge.docs
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: git.merge.deps
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: git.merge.marketing
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+  - action: git.merge.ui
+    autoApproveAbove: 0.97
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+
+  # Merges that NEVER earn it — not this year, not on any ledger. `promise` is
+  # a diff that nears one of the product's written promises (the
+  # `written-promises` playbook) — pricing, plan limits, seats, the free plan —
+  # and is the one class a person decides whatever the files say. `logic` is
+  # where a promise is broken on purpose by a change that meant well; `auth`,
+  # `billing` and `schema` are where a mistake reaches people who never asked
+  # for the change and cannot undo it from where they stand; `infra` is the
+  # ground the rest runs on. Anything touching a product's written promises
+  # is in this group whatever its class. `risk: high` is what makes the ceiling
+  # approval on the ladder itself, so no evidence count ever reads as earned.
+  - action: git.merge.promise
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: git.merge.logic
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: git.merge.auth
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: git.merge.billing
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: git.merge.schema
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: git.merge.infra
     autoApproveAbove: 1
     enabled: false
     rung: execute-with-approval
     risk: high
 
+  # The honest answer back to the person who asked. It leaves the workspace
+  # and lands in a store, an inbox or a chat under the company's name, and a
+  # wrong one cannot be unsent — so it is asked, every time, at the medium
+  # tier: it may earn its way to running within bounds once the ledger shows
+  # people approving replies unchanged, because the words are the agent's and
+  # a person can read fifty of them in an afternoon.
+  - action: request.answer
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+
   # A deploy reaches people who never asked for the change and cannot undo it
-  # from where they are standing. Asked, every time, and at the high tier so
-  # the ladder demands high-tier evidence before it will even offer to promote
-  # it.
+  # from where they are standing. Asked, every time, at the high tier so the
+  # ladder demands high-tier evidence before it will even offer to promote it.
   - action: deploy.release
     autoApproveAbove: 1
     enabled: false

@@ -7,16 +7,27 @@ description: >-
   `worker_run` underneath it is the execution lease (claim, heartbeat, budget,
   `counts`); a task that was picked up three times is still one task with three
   attempts, and a task nobody has started yet is still a task. Everything a
-  worker sends back — the branch, the diff, the checks, what it could not
-  establish — lands on the same record, so the contract and its result are read
-  in one place.
+  worker sends back — the branch, the diff, the checks, the verification
+  artifacts, what it could not establish — lands on the same record, so the
+  contract, its result and the evidence behind it are read in one place.
 icon: hammer
 schema:
   type: object
   properties:
+    repoSlug:
+      type: string
+      description: >-
+        Slug of the `repo` record this change lands in. The contract cites that
+        record's checks by name and takes its risk floor from that record's
+        `riskDefaults`, so a task is only ever written against a repository the
+        factory has been told about. One task, one repository — a change that
+        spans two is two tasks with a dependency between them.
     repo:
       type: string
-      description: The repository this change lands in, as owner/name. One task, one repository — a change that spans two is two tasks with a dependency between them.
+      description: Older shape — the repository as owner/name before the registry existed. Read as the `repo` record whose `url` ends in it; new tasks carry `repoSlug`.
+    productSlug:
+      type: string
+      description: Slug of the `product` this task serves. Read by the reviewer for the product's written promises, which no change may quietly touch.
     baseSha:
       type: string
       description: The commit the work starts from. Written down because a check that passed against a different base proves nothing, and a reviewer reading the diff needs to know what it is a diff against.
@@ -24,12 +35,13 @@ schema:
       type: string
       description: What to accomplish, in one or two sentences, stated as an outcome rather than a set of steps. If it cannot be stated without naming files to edit, the task is not understood well enough to dispatch.
     requestId:
-      type: string
+      type: integer
       description: >-
-        The id of the named request that asked for this — a review item, an
-        ask, a support thread, a person's message. Required by convention and
-        the single thing that stops the factory building what nobody asked
-        for; a task with no request is a task to close, not to dispatch.
+        The id of the `request` record that asked for this. Required by
+        convention and the single thing that stops the factory building what
+        nobody asked for; a task with no request is a task to close, not to
+        dispatch. One noun, whatever the channel — a bug report, a store review
+        and a dogfood note are all a `request`.
     requestSummary:
       type: string
       description: The request in the requester's own words, one or two lines, so the reviewer can judge the change against what was actually asked rather than against the objective the planner wrote.
@@ -52,8 +64,22 @@ schema:
       description: >-
         What the change can break if it is wrong, which is what decides how
         much evidence the merge takes. Ordered roughly by blast radius — docs
-        and marketing are reversible prose, schema and infra are not.
-      enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra]
+        and marketing are reversible prose, schema and infra are not. Never
+        lower than what the repository's `riskDefaults` says for any path in
+        `allowedPaths`: the planner raises it to the floor when writing, the
+        reviewer rejects a contract that sits below it. `promise` is the
+        class for a diff that nears one of the product's written promises —
+        pricing, plan limits, seats, what the free plan includes — and it
+        never earns its way past a person.
+      enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra, promise]
+    decisionCost:
+      type: integer
+      description: >-
+        Minutes of a person's attention the merge ask for this task is expected
+        to take — 1 for a docs change, 5 for a logic change, 60 for anything
+        that changes an architecture or a price. Estimated by the planner from
+        the risk class and the size of the contract; the promoter sums it over
+        open asks against the daily decision budget before dispatching another.
     dependencies:
       type: array
       description: Ids of engineering tasks that must be accepted before this one is dispatched. The planner writes the edges; a worker never discovers them at run time.
@@ -100,10 +126,28 @@ schema:
       items:
         type: object
         properties:
-          name: {type: string, description: The check, as named in requiredChecks.}
+          name: {type: string, description: 'The check, as named in requiredChecks.'}
           passed: {type: boolean}
           exitCode: {type: integer, description: What the command returned. Kept beside `passed` because a non-zero exit a worker decided was fine is exactly the thing to look at.}
-          artifact: {type: string, description: Where the full output is — a log artifact or a URL. The receipt behind the verdict, one move away.}
+          artifact: {type: string, description: 'Where the full output is — a log artifact or a URL. The receipt behind the verdict, one move away.'}
+    verification:
+      type: array
+      description: >-
+        The evidence a merge is decided on — one entry per check that ran,
+        each pointing at core artifacts a person can open in one tap: the
+        JUnit report, the Playwright trace, the screenshot, the curl of the
+        deployed URL. Distinct from `checks`, which is the bare result, because
+        this is where the proof lives: the reviewer does not approve a task
+        whose `verification` is empty or whose entries carry no artifact, and a
+        merge ask with no evidence behind it is not raised.
+      items:
+        type: object
+        properties:
+          check: {type: string, description: 'The check, as named in the repository''s `checks`.'}
+          passed: {type: boolean}
+          exitCode: {type: integer}
+          summary: {type: string, description: 'One line — what the check proved or where it failed, in words a person deciding the merge can read without opening the artifact.'}
+          artifactIds: {type: array, items: {type: integer}, description: 'The artifacts that carry the proof. At least one, or the entry proves nothing.'}
     knownFailures:
       type: array
       description: What the worker knows is still broken and is telling you about rather than hiding. A task that ships with a known failure is a decision a person makes, not one a worker makes quietly.

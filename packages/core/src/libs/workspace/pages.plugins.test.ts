@@ -70,6 +70,24 @@ describe('plugin pages', () => {
     expect(floor?.rowLink).toBe('/dashboard/objects/{id}');
   });
 
+  it('the software-factory ships five rows in its own section — three object lists, the run log, and a link to the team report', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const mine = pages.filter(p => p.origin === 'plugin:software-factory');
+
+    expect(issues).toEqual([]);
+    expect(mine.map(p => p.slug)).toEqual(['backlog', 'factory-floor', 'product-board', 'factory-log', 'team-report']);
+    expect(new Set(mine.map(p => p.nav.section))).toEqual(new Set(['Software factory']));
+    expect(pages.find(p => p.slug === 'backlog')?.source).toEqual({ kind: 'objects', objectType: 'request' });
+    expect(pages.find(p => p.slug === 'backlog')?.filters).toEqual([{ field: 'meta.state', op: 'in', value: ['new', 'triaged', 'in_scope'] }]);
+    expect(pages.find(p => p.slug === 'product-board')?.source).toEqual({ kind: 'objects', objectType: 'product' });
+    // The log is the workerRuns source; the PR column is a link into result.
+    expect(pages.find(p => p.slug === 'factory-log')?.source).toEqual({ kind: 'workerRuns', kinds: ['worker', 'lead', 'red-team'], limit: 200 });
+    expect(pages.find(p => p.slug === 'factory-log')?.fields?.find(f => f.key === 'pr')).toMatchObject({ from: 'meta.result.pr_url', format: 'link' });
+    // The report is a row for a core route, not a second report.
+    expect(pages.find(p => p.slug === 'team-report')).toMatchObject({ archetype: 'link', href: '/dashboard/team-report' });
+  });
+
   it('a workspace page with the same slug replaces the plugin\'s', () => {
     workspace('plugins: [wiki]\n', { 'pages/wiki.yaml': 'slug: wiki\ntitle: Our wiki\narchetype: markdown\n', 'pages/wiki.md': 'Ours.' });
     const { pages } = readWorkspacePages();

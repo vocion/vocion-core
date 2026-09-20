@@ -2,12 +2,13 @@
 # stuck at the top of the eye. An ordinary `list` over the object noun: the
 # task IS the record a person reads, so there is no worker-run source here and
 # none is needed. Each row opens the task; the pull request is one move on from
-# there. No new table, no new route.
+# there. No new table, no new route. Sits in the plugin's own nav section with
+# the backlog before it and the log after it — intake, work, what it cost.
 slug: factory-floor
 title: Factory floor
 description: Every engineering task — its contract, its checks, its pull request and who it is waiting on.
 icon: hammer
-nav: {section: Workspace, order: 7}
+nav: {section: Software factory, order: 2}
 archetype: list
 source: {kind: objects, objectType: engineering_task}
 sort: {field: createdAt, dir: desc}
@@ -17,13 +18,20 @@ stats:
   - {label: Changes requested, kind: countWhere, where: {field: status, op: eq, value: changes_requested}}
   - {label: Accepted, kind: countWhere, where: {field: status, op: eq, value: accepted}}
   - {label: Retried, kind: countWhere, where: {field: meta.attempt, op: gte, value: 2}}
+  # A task carries evidence when its first verification entry points at an
+  # artifact. The accessor indexes into the array; there is no artifact-link
+  # format for a field, so the proof itself is one tap on from the row.
+  - {label: Carrying evidence, kind: countWhere, where: {field: meta.verification.0.artifactIds.0, op: exists}}
 fields:
   - {key: title, label: Task}
-  - {key: repo, label: Repository, from: meta.repo, format: mono}
-  - {key: risk, label: Risk, from: meta.riskClass, format: badge, tones: {docs: muted, marketing: muted, deps: info, ui: info, logic: warn, auth: bad, billing: bad, schema: bad, infra: bad}}
+  - {key: repo, label: Repository, from: meta.repoSlug, format: mono}
+  - {key: product, label: Product, from: meta.productSlug, format: mono}
+  - {key: risk, label: Risk, from: meta.riskClass, format: badge, tones: {docs: muted, marketing: muted, deps: info, ui: info, logic: warn, auth: bad, billing: bad, schema: bad, infra: bad, promise: bad}}
   - {key: status, label: Status, from: status, format: badge, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
   - {key: attempt, label: Attempt, from: meta.attempt, format: mono}
   - {key: request, label: Asked by, from: meta.requestId, format: mono}
+  - {key: verified, label: Verified, from: meta.verification.0.passed, format: badge, tones: {'true': ok, 'false': bad}}
+  - {key: cost, label: Decision min, from: meta.decisionCost, format: mono}
   - {key: pr, label: PR, from: meta.prUrl, format: mono}
   - {key: created, label: Opened, from: createdAt, format: date}
 # Abandoned tasks are the archive, not the floor; a workspace that wants them

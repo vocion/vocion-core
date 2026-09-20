@@ -41,8 +41,13 @@ const FieldSchema = z.object({
   label: z.string().optional(),
   /** Accessor: `title` | `status` | `createdAt` | `meta.<dot.path>` */
   from: z.string().optional(),
-  /** `image` renders the value (a URL) as a thumbnail. */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image']).default('text'),
+  /**
+   * `image` renders the value (a URL) as a thumbnail; `money` reads an
+   * integer of cents and shows dollars; `link` renders a URL as an anchor
+   * that opens in a new tab, so a row can carry the pull request beside the
+   * run without the row itself navigating there.
+   */
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link']).default('text'),
   /** For `format: badge` — map raw value → status-pill tone. */
   tones: z.record(z.string(), z.enum(['ok', 'warn', 'bad', 'info', 'muted'])).optional(),
 });
@@ -88,6 +93,18 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('documents'), source: SlugSchema, limit: z.number().int().positive().max(500).default(100) }),
   z.object({ kind: z.literal('agents'), active: z.boolean().optional() }),
+  // What external workers DID — `worker_run` rows (docs/entities/worker-run.md),
+  // newest first. `agentSlugs`, `status` and `kinds` each narrow when given;
+  // `meta` carries the row's columns plus `result`, `input` and `counts`, so a
+  // field can reach `meta.result.pr_url` the way an artifact field reaches
+  // `meta.playbook`.
+  z.object({
+    kind: z.literal('workerRuns'),
+    agentSlugs: z.array(SlugSchema).optional(),
+    status: z.array(z.string()).optional(),
+    kinds: z.array(z.string()).optional(),
+    limit: z.number().int().positive().max(500).default(100),
+  }),
   // What agents and people MADE — the artifact log, scoped by folder and/or
   // kind. A wiki is a folder of markdown artifacts; a proposal log is the
   // document kind under one playbook. `meta` carries kind, folder, version,
@@ -111,7 +128,15 @@ export const PageManifestSchema = z.object({
     order: z.number().default(0),
     hidden: z.boolean().default(false),
   }).default({ section: 'Workspace', order: 0, hidden: false }),
-  archetype: z.enum(['list', 'queue', 'markdown']),
+  /**
+   * `link` is a nav row, not a page: it pins an existing core route into the
+   * manifest's section under its own label, and `/dashboard/p/<slug>`
+   * redirects to `href`. It exists so a plugin can seat a core surface (the
+   * team report) beside its own pages without duplicating it.
+   */
+  archetype: z.enum(['list', 'queue', 'markdown', 'link']),
+  /** Required by `link`: the route the row opens. */
+  href: z.string().min(1).optional(),
 
   // ---- list / queue config ----
   source: ListSourceSchema.optional(),
@@ -142,7 +167,7 @@ export const PageManifestSchema = z.object({
   contentFile: z.string().optional(),
 
   widgets: z.array(WidgetSchema).default([]),
-});
+}).refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] });
 
 export type PageManifest = z.infer<typeof PageManifestSchema>;
 /** A validated page plus where it came from, so its prose resolves beside it. */

@@ -1,0 +1,103 @@
+slug: request
+label: Request
+description: >-
+  The single intake noun. A bug report, a feature request filed on a product
+  site, a store review, a support email, a message in chat and an incident are
+  ONE object arriving on different channels — not five types — because the
+  factory's promise is made to the request, whatever door it came through:
+  within a week it is a shipped change, an honest written answer, or a link to
+  the request it duplicates. Everything downstream (triage, the task contract,
+  the merge ask, the reply) hangs off this record by id, which is what makes
+  "nobody asked for this" a checkable claim rather than a feeling.
+icon: inbox
+schema:
+  type: object
+  properties:
+    kind:
+      type: string
+      description: >-
+        What sort of thing was asked. `bug` — something promised does not work.
+        `gap` — something expected is missing. `idea` — something new. `incident`
+        — something is down or wrong for people right now. `question` — the
+        asker wants to know, not to change. Decides the default route: bugs and
+        incidents go to severity and a repo; ideas go to the twenty-percent test.
+      enum: [bug, gap, idea, incident, question]
+    channel:
+      type: string
+      description: The door it came through. Kept because the same request arrives differently by channel — a store review is public and terse, a dogfood note is trusted and specific — and the honest answer goes back the way it came.
+      enum: [site, store_review, email, chat, github, dogfood, internal]
+    product:
+      type: string
+      description: Slug of the `product` record this is about. Every request belongs to a product; one that fits none is the first sign it is out of scope.
+    title:
+      type: string
+      description: One line, in the asker's terms where possible. The row on the backlog.
+    body:
+      type: string
+      description: The request as it arrived — the asker's own words, unedited. Triage summarises beside it, never instead of it.
+    askedBy:
+      type: object
+      description: Who asked. Enough to answer them on their channel; nothing more is kept.
+      properties:
+        name: {type: string}
+        email: {type: string}
+        externalId: {type: string, description: 'Their id on the channel — a store reviewer id, a GitHub login, a chat user — so the reply lands where the request came from.'}
+    askedAt:
+      type: string
+      format: date-time
+      description: When they asked. The seven-day clock starts here, not when triage noticed.
+    evidence:
+      type: object
+      description: What the asker gave us to go on. Kept as links and artifact ids so the planner and the reviewer read the same thing the asker saw.
+      properties:
+        urls: {type: array, items: {type: string}}
+        videoUrl: {type: string}
+        screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+    severity:
+      type: string
+      description: For bugs and incidents. `p1` — people cannot use what was promised, nothing waits overnight. `p2` — promised, broken, worked around. `p3` — wrong but tolerable. Not a priority score for ideas; an idea has value, not severity.
+      enum: [p1, p2, p3]
+    decisionCost:
+      type: integer
+      description: >-
+        Minutes of a person's attention the decision this request will ask for
+        is estimated to take — the honest answer to a question, 1; a merge of a
+        docs change, 1; a merge of a logic change, 5; a pricing or architecture
+        call, 60. Summed across open asks against the daily decision budget by
+        the promoter, so ten small merges cost a coffee and ten architecture
+        asks cost a week.
+    state:
+      type: string
+      description: >-
+        Where it stands. `new` — arrived, unread. `triaged` — kind, product and
+        risk tagged, duplicate check done. `in_scope` — it is in the twenty
+        percent; a task will be written. `out_of_scope` — it will not be built,
+        and the honest answer says why. `building` — a task is dispatched.
+        `shipped` — the change merged. `answered` — the reply went back. Every
+        request ends in `shipped`, `answered`, or as a duplicate of one that did.
+      enum: [new, triaged, in_scope, out_of_scope, building, shipped, answered]
+    answer:
+      type: string
+      description: The honest written answer, when the request will not be built or is a question — in the asker's terms, saying what was decided and why, never "we will consider it". Proposed as a gated reply; a person releases it.
+    answeredAt:
+      type: string
+      format: date-time
+      description: When the answer or the shipped change went back to the asker. The seven-day clock stops here.
+    taskIds:
+      type: array
+      description: The `engineering_task` records this became. Usually one; several when it spanned repositories.
+      items: {type: integer}
+    duplicateOf:
+      type: integer
+      description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
+    dedupeKey:
+      type: string
+      description: A normalised handle triage computes — product plus the failing surface or the asked-for thing — so the third person reporting the same broken button is linked to the first rather than opening a third task.
+classificationPrompt: >-
+  Given a message from any channel — a form on a product site, a store
+  review, an email, a chat message, a GitHub issue, a note from someone on the
+  team — decide whether it is a request the factory owes an answer to, and if
+  so which kind: bug, gap, idea, incident or question. Name the product it is
+  about and, for a bug or incident, a severity. Compute a dedupe key from the
+  product and the thing that is broken or asked for. Report a confidence and
+  the words you matched on; when the product is unclear, ask rather than file.

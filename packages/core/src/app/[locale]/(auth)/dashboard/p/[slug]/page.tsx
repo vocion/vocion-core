@@ -129,6 +129,42 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
       }));
   }
 
+  if (src.kind === 'workerRuns') {
+    // What external workers DID — worker_run rows, newest first. A single
+    // value for a filter goes to the service; several are applied here, so
+    // the page never invents a query the service does not have.
+    const { listWorkerRuns } = await import('@/services/WorkerRunService');
+    const one = (xs?: string[]) => (xs?.length === 1 ? xs[0] : undefined);
+    const runs = await listWorkerRuns(orgId, { agentSlug: one(src.agentSlugs), status: one(src.status), kind: one(src.kinds), limit: src.limit });
+    return runs
+      .filter(r => (!src.agentSlugs?.length || src.agentSlugs.includes(r.agentSlug))
+        && (!src.status?.length || src.status.includes(r.status))
+        && (!src.kinds?.length || src.kinds.includes(r.kind)))
+      .map(r => ({
+        id: r.id,
+        title: r.summary?.split('\n')[0] ?? `${r.kind} run #${r.id}`,
+        status: r.status,
+        createdAt: r.createdAt,
+        meta: {
+          agentSlug: r.agentSlug,
+          kind: r.kind,
+          status: r.status,
+          model: r.model,
+          attempt: r.attempt,
+          cents: r.cents,
+          tokens: r.tokens,
+          summary: r.summary,
+          error: r.error,
+          createdAt: r.createdAt,
+          claimedAt: r.claimedAt,
+          completedAt: r.completedAt,
+          counts: r.counts,
+          result: r.result ?? {},
+          input: r.input,
+        },
+      }));
+  }
+
   if (src.kind === 'artifacts') {
     // What agents and people MADE — the artifact log, by folder and/or kind.
     // A wiki page is a markdown artifact in the `wiki` folder; `meta` carries
@@ -222,6 +258,12 @@ function Cell({ row, field }: { row: PageRow; field: PageField }) {
       return <span className="text-sm text-muted-foreground">{raw instanceof Date ? raw.toLocaleDateString() : s}</span>;
     case 'mono':
       return <span className="font-mono text-xs">{s}</span>;
+    case 'money': {
+      const cents = Number(raw);
+      return <span className="font-mono text-sm tabular-nums">{Number.isFinite(cents) ? `$${(cents / 100).toFixed(2)}` : s}</span>;
+    }
+    case 'link':
+      return <a href={s} target="_blank" rel="noreferrer" className="font-mono text-xs underline underline-offset-2">{s}</a>;
     case 'image':
       return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
     default:
@@ -288,6 +330,10 @@ export default async function WorkspacePage(props: {
   const manifest = readWorkspacePage(slug);
   if (!manifest) {
     return notFound();
+  }
+  // A link page is a nav row for a core route; the route is the page.
+  if (manifest.archetype === 'link' && manifest.href) {
+    redirect(manifest.href);
   }
 
   const content = readWorkspacePageContent(manifest);

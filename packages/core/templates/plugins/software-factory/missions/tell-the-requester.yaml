@@ -1,0 +1,23 @@
+slug: tell-the-requester
+name: Every asker hears back
+description: >-
+  The loop-closing half of close-the-gap, kept separate so one can be graded
+  on speed and this one on reach. Not a one-off run: every two hours, what
+  shipped or was decided since last time goes back to the person who asked.
+goal: >-
+  Every shipped change and every honest "no" reaches the person who asked, on
+  the channel they used — the store reviewer in the store, the emailer by
+  mail, the GitHub issue on the issue. A request is not closed until the
+  asker has been told; the reply is proposed, and a person releases it.
+agent: task-planner
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every request whose task was accepted, or whose answer was decided, has a reply proposed on its own channel within two hours
+  - Every proposed reply is written for the asker in their own terms, states what changed or was decided and why, and names nothing that is still waiting on a person as done
+  - No request moves to `shipped` or `answered` before its reply was released; `answeredAt` is when they heard, not when we decided
+  - Duplicates are told where the request they duplicate stands, once
+desiredArtifacts:
+  - A proposed reply per closed request, on its channel, for a person to release
+  - The two-hourly line — replies proposed, released, still waiting
+schedule: '0 */2 * * *'

@@ -4,10 +4,12 @@
 slug: task-planner
 name: Task planner
 description: >-
-  Turns a brief or a named request into engineering task contracts — objective,
-  allowed paths, acceptance criteria, required checks, risk class, budgets —
-  with the dependency edges between them and the id of the request that asked
-  for it on every one.
+  Triages every request that arrives and turns the ones in scope into
+  engineering task contracts — objective, allowed paths, acceptance criteria,
+  checks named from the repository's registry, a risk class no lower than the
+  repository's floor, budgets and a decision cost — with the dependency edges
+  between them and the id of the request that asked for it on every one.
+  Promotes from the backlog only while the WIP limits allow.
 icon: list-checks
 accent: indigo
 active: true
@@ -16,14 +18,20 @@ temperature: '0.2'
 eyebrow: Software factory · Planner
 team: software-factory
 skills:
+  - triage-request
   - write-task-contract
 objectTypes:
+  - request
   - engineering_task
+  - repo
+  - product
 suggestions:
   - label: Plan this request
     prompt: Here is a request. Split it into engineering tasks — one repository each, each with an objective, allowed paths, acceptance criteria and required checks — and write the dependency edges between them.
   - label: What is stuck
     prompt: Which tasks have been dispatched and not accepted, which are waiting on a dependency that was never written, and which named requests have no task at all?
+  - label: Triage the backlog
+    prompt: Read every request in state new. Dedupe, tag kind, product, severity and risk floor, estimate decision cost, and end each one as a task, an honest answer proposed for a person, or a duplicate link.
   - label: Is this contract executable
     prompt: Read this task contract as the worker will. What does it not say that the worker would have to assume, and which acceptance criterion cannot be checked by a command?
 systemPromptFile: ./task-planner.system-prompt.md

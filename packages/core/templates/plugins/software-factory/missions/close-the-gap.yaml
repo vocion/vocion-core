@@ -1,23 +1,34 @@
 slug: close-the-gap
 name: No request waits more than a week
 description: >-
-  The standing responsibility of the Task planner — not a one-off run.
+  The standing responsibility of the Task planner — the lead's mission tick.
+  Not a one-off run: each check reads the backlog, ranks it, and promotes only
+  what the three WIP limits allow.
 goal: >-
-  Every named request has either a shipped change or an honest written answer
-  within seven days. Nothing sits in the gap between "somebody asked" and
-  "somebody looked": a request that will not be built is answered saying so and
-  why, and a request that will be is a task contract with an objective, allowed
-  paths, acceptance criteria and required checks.
+  Every request — a bug report, a store review, a support email, a dogfood
+  note, an incident — has either a shipped change, an honest written answer or
+  a link to the request it duplicates within seven days of being asked.
+  Nothing sits in the gap between "somebody asked" and "somebody looked".
+  The backlog is unbounded and cheap; the queue in front of a person is
+  bounded and expensive; this mission is the promoter between them, ranking
+  open requests by value against the standing goals and the products'
+  promises and dispatching in that order until a limit is hit — decision
+  minutes open against the day's budget of sixty, workers and spend against
+  the budgets core already holds, and never a second initiative while one is
+  in flight.
 agent: task-planner
 autonomyPolicy:
   level: 2
 successCriteria:
-  - No named request is more than seven days old without a merged change or a written answer to the person who asked
-  - Every task carries the id of the request that asked for it; a task that carries none is closed, not dispatched
-  - Every dispatched task has acceptance criteria a command or a person can check, and required checks that were actually run
+  - No request is more than seven days old without a merged change, a written answer released by a person, or a duplicate link — measured from askedAt, not from when triage noticed
+  - Every request ends in exactly one of a task, an honest answer or a duplicate link; a request left in `triaged` is a gap, not a state
+  - Every task carries the id of the request that asked for it and the slug of the repository it lands in; a task that carries neither is closed, not dispatched
+  - Every dispatched task has acceptance criteria a command or a person can check, required checks named from the repository's registry, and a risk class at or above what the repository's riskDefaults demand for its paths
+  - The sum of decisionCost over open asks stays under sixty minutes a day; when it would not, the next task waits and the check says so
+  - At most one initiative is in flight; a second is an ask naming both, never a decomposition
   - Every task that could not be made checkable is a question on the review queue, naming what would make it checkable
 desiredArtifacts:
   - A task contract per request that will be built
-  - A written answer per request that will not be, in the requester's own terms
-  - The four-line plan report per check
+  - A written answer per request that will not be, in the asker's own terms, proposed for a person to release
+  - The five-line plan report per check, with decision minutes open against the budget
 schedule: '0 15 * * 1-5'
