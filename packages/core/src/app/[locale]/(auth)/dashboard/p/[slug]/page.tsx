@@ -21,7 +21,6 @@ import {
   applyFilter,
   computeStat,
   pagePlugin,
-  readWorkspacePage,
   readWorkspacePageContent,
   resolveField,
 } from '@/libs/workspace/pages';
@@ -34,6 +33,7 @@ import {
   toolCallSchema,
 } from '@/models/Schema';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
@@ -327,7 +327,9 @@ export default async function WorkspacePage(props: {
     redirect('/api/auth/signout?callbackUrl=/sign-in');
   }
 
-  const manifest = readWorkspacePage(slug);
+  // Scoped by the project like the rows below it: a plugin this project turned
+  // on shows its pages here even when the mounted workspace never named it.
+  const manifest = await readPageForOrg(slug, orgId);
   if (!manifest) {
     return notFound();
   }

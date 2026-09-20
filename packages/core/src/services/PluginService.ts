@@ -14,6 +14,7 @@
  * a workspace.yaml is documentation as much as config.
  */
 
+import type { LoadedPage } from '@/libs/workspace/pages';
 import { accessSync, constants, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
@@ -21,6 +22,7 @@ import { parseDocument, YAMLSeq } from 'yaml';
 import { db } from '@/libs/DB';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { applyWorkspace, invalidateCurrentContextShaCache, loadWorkspace } from '@/libs/workspace';
+import { readWorkspacePage } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin } from '@/libs/workspace/plugins';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
@@ -46,6 +48,22 @@ export async function enabledPluginsForOrg(orgId: string): Promise<string[]> {
  */
 export async function pluginEnabled(orgId: string, slug: string): Promise<boolean> {
   return (await enabledPluginsForOrg(orgId)).includes(slug);
+}
+
+/**
+ * One dashboard page as THIS project sees it: the mounted workspace's own
+ * pages and its plugins' as before, plus the pages of every plugin the
+ * project has on (`project.enabled_plugins`). A deployment hosts several
+ * projects on one mounted folder, so a plugin only the project turned on
+ * (squatch-factory's `software-factory` under a metacto-revenue mount) is
+ * invisible to the folder alone. One primary-key read; the shell, which
+ * already holds the project row, passes the list to
+ * `readWorkspacePages({ enabledPlugins })` itself.
+ * @param slug - The page slug.
+ * @param orgId - The project.
+ */
+export async function readPageForOrg(slug: string, orgId: string): Promise<LoadedPage | null> {
+  return readWorkspacePage(slug, { enabledPlugins: await enabledPluginsForOrg(orgId) });
 }
 
 /**

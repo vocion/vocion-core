@@ -78,6 +78,17 @@ Pages (`pages/*.yaml`) ride the same rule: an enabled plugin's pages join the
 sidebar, and a workspace page with the same slug replaces the plugin's. A
 plugin page's prose (`<slug>.md`) is read beside its YAML.
 
+Plugin pages follow the **project's** enabled plugins, not only the mounted
+folder's. One deployment mounts one workspace (`WORKSPACE_PATH`) but hosts
+several projects, and each project's apply records its own list on
+`project.enabled_plugins`. Page discovery reads the mounted folder's pages and
+its plugins' as before, then adds the pages of every plugin the current
+project has on, from core's `templates/plugins/<slug>/pages` — the same
+pipeline, the same "workspace first, plugin yields" dedupe, the same
+`plugin:<slug>` origin. So a project that turned on `software-factory` sees
+its Factory floor even when the mounted `workspace.yaml` never named the
+plugin, and a project that did not sees nothing extra.
+
 **Where its rows sit** is decided once, in `plugin.yaml` `nav.section`
 (`features/navigation/pluginNav.ts`): the plugin's pages, the core routes it
 owns (`DashboardRoute.plugin`, e.g. Data rooms) and the surfaces it switches on

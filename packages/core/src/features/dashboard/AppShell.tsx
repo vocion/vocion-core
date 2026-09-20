@@ -98,8 +98,10 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
   // Where each enabled plugin's rows sit (plugin.yaml `nav.section`): its
   // pages, the core routes it owns and its surfaces fold into one section, so
-  // the generic Pages and surface groups skip what a plugin claimed.
-  const pages = readWorkspacePages().pages;
+  // the generic Pages and surface groups skip what a plugin claimed. The
+  // project's plugins come from the row read above — no second lookup — so a
+  // plugin only this project turned on lists its pages under a shared mount.
+  const pages = readWorkspacePages({ enabledPlugins }).pages;
   const nav = pluginNav({
     plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
     pages,
