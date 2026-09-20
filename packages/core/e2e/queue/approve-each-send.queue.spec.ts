@@ -265,3 +265,44 @@ test('the split stacks rather than cramming when the pane is squeezed', async ({
   await expect(page.getByTestId('walk-count')).toHaveText('0 of 4 approved');
   await expect(page.getByTestId('decide-approve')).toBeDisabled();
 });
+
+test('on a phone the decision bar is one row, not half the screen', async ({ page }) => {
+  createBootstrapAdmin();
+  const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill(ADMIN.email);
+  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
+  await page.getByRole('button', { name: /sign in/i }).click();
+  await page.waitForURL(/\/dashboard/);
+
+  await page.goto(`/dashboard/inbox/proposal-${runId}`);
+
+  await expect(page.getByTestId('walk-count')).toBeVisible();
+
+  // The defect: three full-width verbs and the note toggle stacked down the
+  // phone, so the bar took half the viewport on the one surface whose job is
+  // reading what sits underneath it.
+  const bar = (await page.getByTestId('sticky-action-bar').boundingBox())!;
+
+  expect(bar.height).toBeLessThan(844 * 0.2);
+
+  // Side by side, on one row: same top, in reading order left to right.
+  const approve = (await page.getByTestId('decide-approve').boundingBox())!;
+  const decline = (await page.getByTestId('decide-reject').boundingBox())!;
+  const snooze = (await page.getByTestId('decide-snooze').boundingBox())!;
+
+  expect(Math.round(decline.y)).toBe(Math.round(approve.y));
+  expect(Math.round(snooze.y)).toBe(Math.round(approve.y));
+  expect(decline.x).toBeLessThan(snooze.x);
+  expect(snooze.x).toBeLessThan(approve.x);
+
+  // The words went to the screen reader, not away: every verb is still
+  // reachable by its name, and the primary keeps its word on screen.
+  for (const name of ['Enroll', 'Decline', 'Snooze']) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
+  }
+
+  await expect(page.getByTestId('decide-approve')).toHaveText(/Enroll/);
+});
