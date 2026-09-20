@@ -8,7 +8,7 @@ slug: factory-floor
 title: Factory floor
 description: Every engineering task — its contract, its checks, its pull request and who it is waiting on.
 icon: hammer
-nav: {section: Software factory, order: 2}
+nav: {section: Software factory, order: 3}
 archetype: list
 source: {kind: objects, objectType: engineering_task}
 # Tasks change state as workers claim, finish and get reviewed; the floor

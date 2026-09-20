@@ -70,7 +70,7 @@ describe('plugin pages', () => {
     expect(floor?.rowLink).toBe('/dashboard/objects/{id}');
   });
 
-  it('the software-factory ships five rows in its own section — three object lists, the run log, and a link to the team report', () => {
+  it('the software-factory ships six rows in its own section — four object lists, the run log, and a link to the team report', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
@@ -78,9 +78,9 @@ describe('plugin pages', () => {
     expect(issues).toEqual([]);
     // The portfolio comes first (order 0) and its section is AppCurious; the
     // evidence pages sit under Software factory.
-    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'factory-floor', 'product-board', 'factory-log', 'team-report']);
+    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'recommendations', 'factory-floor', 'product-board', 'factory-log', 'team-report']);
     expect(mine.filter(p => p.nav.section === 'AppCurious').map(p => p.slug)).toEqual(['portfolio', 'releases', 'changelog']);
-    expect(mine.filter(p => p.nav.section === 'Software factory')).toHaveLength(5);
+    expect(mine.filter(p => p.nav.section === 'Software factory')).toHaveLength(6);
     expect(pages.find(p => p.slug === 'backlog')?.source).toEqual({ kind: 'objects', objectType: 'request' });
     expect(pages.find(p => p.slug === 'backlog')?.filters).toEqual([{ field: 'meta.state', op: 'in', value: ['new', 'triaged', 'in_scope'] }]);
     expect(pages.find(p => p.slug === 'product-board')?.source).toEqual({ kind: 'objects', objectType: 'product' });
@@ -133,6 +133,26 @@ describe('plugin pages', () => {
     // Size class is on the backlog and the floor as a badge.
     expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
     expect(pages.find(p => p.slug === 'factory-floor')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
+  });
+
+  it('the recommendations page is the request noun cut to what the product manager put in front of a person', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const recs = pages.find(p => p.slug === 'recommendations');
+
+    // The page schema sources objects, runs and artifacts — not asks — so the
+    // batch is read from the fields written on the request when each ask is
+    // filed and decided, grouped by batch, newest first.
+    expect(issues).toEqual([]);
+    expect(recs?.source).toEqual({ kind: 'objects', objectType: 'request' });
+    expect(recs?.filters).toEqual([{ field: 'meta.recommendedAt', op: 'exists' }]);
+    expect(recs?.groupBy).toBe('meta.recommendationBatch');
+    expect(recs?.sort).toEqual({ field: 'meta.recommendedAt', dir: 'desc' });
+    expect(recs?.stats?.map(s => s.label)).toContain('Awaiting decision');
+    expect(recs?.fields?.find(f => f.key === 'outcome')).toMatchObject({ from: 'meta.recommendedOutcome', format: 'badge' });
+    // The ranking is a column on the backlog too, with the date that says whether it is stale.
+    expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'priority')).toMatchObject({ from: 'meta.priority', format: 'mono' });
+    expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'ranked')).toMatchObject({ from: 'meta.rankedAt', format: 'date' });
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

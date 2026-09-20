@@ -8,6 +8,11 @@
 # Everything that went wrong went wrong where the contract was vague. So the
 # contract is the object here, and the worker is the cheap, replaceable part.
 #
+# 1.3.0 seats a Product manager beside the planner, the engineer and the
+# reviewer — five disciplines, one team, the Design seat declared empty — and
+# makes HOW, WHEN and WHY it acts four automations a person can read and pause
+# on /dashboard/automation, never a habit in a prompt.
+#
 # Core ships the MECHANISM (the `engineering_task` object noun's storage, the
 # `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
 # `counts` — the `external-worker` harness target, the review queue, the trust
@@ -18,8 +23,8 @@
 # person accountable for the merge.
 slug: software-factory
 name: Software factory
-version: 1.2.1
-description: Every request — bug, review, email, incident — becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
+version: 1.3.0
+description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []
 recommend:
@@ -29,4 +34,5 @@ recommend:
     - the same small change is made by hand in several repositories
     - a person asks what is in flight, what is stuck, and what nobody has answered for a week
     - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
+    - nobody can say which ten requests are most worth building next, or why, and the person who could decide is handed two hundred
   connectors: []

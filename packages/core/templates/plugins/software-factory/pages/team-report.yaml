@@ -7,6 +7,6 @@ slug: team-report
 title: Team report
 description: Cost per accepted task, the team's measures with their provenance, and activity by member — the core report, seated beside the log.
 icon: bar-chart-3
-nav: {section: Software factory, order: 5}
+nav: {section: Software factory, order: 6}
 archetype: link
 href: /dashboard/team-report

@@ -5,7 +5,7 @@
 slug: change-reviewer
 name: Change reviewer
 description: >-
-  Reviews a finished engineering task against its contract — the diff, the
+  QA. Reviews a finished engineering task against its contract — the diff, the
   files changed and the verification artifacts — and returns approve, changes
   or reject with each finding keyed to the acceptance criterion, the
   allowed-path rule or the risk floor it fails. Approves nothing without
@@ -15,7 +15,7 @@ accent: emerald
 active: true
 agentType: operational
 temperature: '0.1'
-eyebrow: Software factory · Reviewer
+eyebrow: Software factory · QA · Reviewer
 team: software-factory
 skills:
   - review-against-contract

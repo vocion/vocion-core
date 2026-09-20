@@ -8,7 +8,7 @@ slug: product-board
 title: Product board
 description: Every product — stage, live URLs, our price beside the incumbent's, and the person accountable for it.
 icon: package
-nav: {section: Software factory, order: 3}
+nav: {section: Software factory, order: 4}
 archetype: list
 source: {kind: objects, objectType: product}
 sort: {field: meta.stage, dir: asc}
