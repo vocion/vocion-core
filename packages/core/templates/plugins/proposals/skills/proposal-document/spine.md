@@ -18,6 +18,25 @@ be in without you.
 | 11 | **Questions your team will ask** | `.faq`: ten to twelve questions the buyer's colleagues will raise, each answered in two or three sentences; answers that are yes start with "Yes."; the people question answered flat (no per-person scorecards, because a system people feel watched by is one they work around). | `.faq` |
 | 12 | **Appendix · where this goes after** | `.apx` rows grouped by outcome (raise quality further · lower cost to serve · move faster), each marked out of scope; the sentence that nothing here is scheduled, priced or promised, and what comes next is decided at the end-of-term read. | `.apx`, `.futtag` |
 
+## The gap sheet
+
+A thirteenth sheet, optional, and it goes after the cover when the buyer has
+never written the problem down — which is most of the time. One sheet, one
+idea: **what they run today, and what it costs them to run it.**
+
+It earns a **"today" window** (`.win2.plain` — the markup is in
+`components.md`): the spreadsheet, paper log or shared inbox they described on
+the call, drawn plain on purpose. Under it, two or three `.drow` rows with
+what that costs — each ending in a `.ph` placeholder where the number is not
+baselined yet — and one line of prose. No seller colour on this sheet and no
+product on it: the reader should reach the next sheet already wanting one.
+
+The before-and-after then reads off the page rather than out of a sentence:
+the gap sheet is their spreadsheet, and the product sheets are the windows
+that replace it. Do not claim the contrast in prose; the two windows are the
+claim. With the gap sheet in, everything after the cover shifts by one and the
+footers renumber themselves.
+
 ## How the spine flexes
 
 - **A scope doc** drops sheets 8 and 11, keeps 6, 7, 9, 10.

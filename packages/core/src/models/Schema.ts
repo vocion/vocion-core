@@ -237,6 +237,21 @@ export const projectSchema = pgTable(
      */
     clientFacingPlaybooks: jsonb('client_facing_playbooks').$type<string[]>(),
     /**
+     * How eager this workspace is to improve itself, 0–10 (migration 0127).
+     *
+     * Moves the confidence bar for the class of actions that change what the
+     * system knows about how to work — adopting a rule from a correction
+     * today, more nouns later (`libs/actions/eagerness.ts`; an action opts in
+     * with `selfImproving`). 0 always asks; 10 runs on anything it is plainly
+     * confident about. It never moves the confidence itself, so an inferred
+     * rule still asks at 10.
+     *
+     * Authored as `defaults.learningEagerness` in workspace.yaml. NULL means
+     * the workspace authored nothing and the shipped default (7) applies — a
+     * column default would make "unset" and "deliberately 7" the same fact.
+     */
+    learningEagerness: integer('learning_eagerness'),
+    /**
      * The workspace's voice rules (migration 0108) — the banned constructions
      * outbound copy is linted against before it can reach a review queue.
      * Authored as `workspace/<org>/voice.yaml`; shape is

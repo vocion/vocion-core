@@ -132,6 +132,39 @@ fewShotExamples:
 
 Open `agents/<agent>.system-prompt.md` in the workspace, edit, save, re-apply. The agent uses the new prompt on the next request.
 
+## How eager the system is to improve itself (`defaults.learningEagerness`)
+
+```yaml
+# workspace.yaml
+defaults:
+  learningEagerness: 7 # 0–10. Omit for 7.
+```
+
+One dial for the whole workspace, moving the confidence bar for the class of
+actions that change **what the system knows about how to work** — today, the
+rule it adopts when a person corrects an agent's work on a document
+(`learning.adopt_rule`; an action opts into the class with `selfImproving`).
+
+| Dial | Bar | What that means |
+|---|---|---|
+| `0` | never clears | the system always asks before it learns anything |
+| `7` (default) | 72% | a plain directive in the person's own words adopts itself, with Undo; a hedge or an inferred rule asks |
+| `10` | 60% | the same, with more headroom for the middle ground |
+
+It moves the **bar**, never the **confidence**: the number comes from what the
+person actually said (0.9 for an unhedged instruction, 0.5 for a hedge, an
+aside, or a rule the model had to infer), so a workspace at `10` still asks
+about an inferred rule. The formula is one pure function,
+`packages/core/src/libs/actions/eagerness.ts`.
+
+**Precedence:** a rule in `trust.yaml` naming `autoApproveAbove` for a kind
+wins over the dial for that kind — pin one action without changing the
+workspace's overall appetite.
+
+Every adopted rule lands in the agent's own learning step and shows in
+Review › Decided with **Undo**; undoing removes the rule from the store, so
+the agent stops reading it on its next run.
+
 ## Plugins — capability you turn on (`plugins:`)
 
 A **plugin** is a bundle of agents, skills, object types, missions, automations,

@@ -164,6 +164,21 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   grant: string;
   /** Touches the outside world → the autonomy gate can require approval. */
   external: boolean;
+  /**
+   * This kind changes what the SYSTEM knows about how to work — a rule it
+   * adopts from a correction, a standing preference it files — rather than
+   * the outside world or a customer's record.
+   *
+   * Declaring it puts the kind on the workspace's learning dial
+   * (`defaults.learningEagerness`, `libs/actions/eagerness.ts`): its default
+   * bar comes from how eager this workspace is to improve itself, instead of
+   * the platform's flat 0.8. A named threshold on a trust rule still wins.
+   *
+   * The class, not a special case: anything reversible whose only effect is
+   * on the system's own knowledge belongs here, and the next such noun costs
+   * this one line.
+   */
+  selfImproving?: boolean;
   /** Which source's vault credentials this action needs (e.g. `gmail`). */
   sourceSlug?: string;
   /**

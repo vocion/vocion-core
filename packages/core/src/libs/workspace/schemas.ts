@@ -124,6 +124,21 @@ export const WorkspaceManifestSchema = z.object({
      * and is deliberately explicit.
      */
     clientFacingPlaybooks: z.array(z.string().max(60)).max(40).optional(),
+    /**
+     * How eager this workspace is to improve itself, 0–10. Default 7.
+     *
+     * Moves the confidence bar for the class of actions that change what the
+     * system knows about how to work — adopting a rule from a correction a
+     * person made to an agent's work is the first of them
+     * (`libs/actions/eagerness.ts`). 0 always asks. 7 puts the bar at 72%,
+     * 10 at 60%; both clear a plain directive in the person's own words and
+     * neither clears a rule the model had to infer, because the dial moves
+     * the bar and never the confidence.
+     *
+     * A trust rule that names `autoApproveAbove` for a kind wins over the
+     * dial for that kind — pin one action without changing the appetite.
+     */
+    learningEagerness: z.number().int().min(0).max(10).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see

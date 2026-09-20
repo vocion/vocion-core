@@ -23,7 +23,7 @@ import { decideExecution } from '@/libs/actions/autoAccept';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
-import { actionRunSchema } from '@/models/Schema';
+import { actionRunSchema, projectSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
@@ -187,6 +187,26 @@ async function findDecidedRunForKey(
  * @param input.expiresAt
  * @param input.conversationAutonomy
  */
+/**
+ * `defaults.learningEagerness` for this workspace, or null when it authored
+ * none (which reads as the shipped default of 7). A missing project row is
+ * not an error here: the dial is a preference, and an action must not fail
+ * because nobody set one.
+ * @param orgId - The project.
+ */
+async function learningEagernessFor(orgId: string): Promise<number | null> {
+  try {
+    const [row] = await db
+      .select({ learningEagerness: projectSchema.learningEagerness })
+      .from(projectSchema)
+      .where(eq(projectSchema.id, orgId))
+      .limit(1);
+    return row?.learningEagerness ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function proposeAction(input: {
   orgId: string;
   actionId: string;
@@ -448,6 +468,13 @@ export async function proposeAction(input: {
     // parked or held — waits for a person. The reason is written on the run.
     const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
     const policy = await effectivePolicy(input.orgId, action.id);
+    // The workspace's appetite for the system improving itself, read only for
+    // a kind that declares it (`libs/actions/eagerness.ts`). A trust rule or a
+    // promoted policy still wins — `decideExecution` reads the dial on the
+    // default branch only, which is the branch nobody has spoken about.
+    const learningEagerness = action.selfImproving === true
+      ? await learningEagernessFor(input.orgId)
+      : null;
     const verdict = decideExecution({
       actionId: action.id,
       confidence: input.proposal?.confidence,
@@ -459,6 +486,8 @@ export async function proposeAction(input: {
       minConfidence: policy.minConfidence,
       explicit: policy.policy !== null || policy.trustRule !== null,
       conversationAutonomy: input.conversationAutonomy,
+      selfImproving: action.selfImproving === true,
+      learningEagerness,
     });
     if (verdict.mode === 'execute') {
       // Who to credit with the decision. An in-process agent turn stamps

@@ -21,6 +21,16 @@ carries), `visuals.md` (when a sheet earns a visual and the vocabulary) and
 `red-team.md` (how the buyer will read it). Read all three before the first
 sheet of a new document.
 
+**No sheet is a wall of text.** Every sheet carries a component from the
+vocabulary in `components.md`, or it says in one line of its own prose why it
+does not need one. The test is the reader's: would they have to picture
+something they have never seen, or hold several things at once? Five are
+settled — the cover's client lockup and term strip, the gap sheet's plain
+"today" window, a product window on each product sheet, side-by-side windows
+on "what you're buying", the Gantt on the plan. `verify_document` names every
+sheet carrying no component, by number and label. It is a report, not a
+refusal: you answer it by going and looking at those sheets.
+
 ## The loop
 
 1. **Read the data room** (`read_data_room`). The starred sources are what you
@@ -62,7 +72,10 @@ sheet of a new document.
    count, any asset that did not load, and **any class you used that has no
    rule anywhere in the document**. That last one is the difference between a
    designed page and a stack of bare divs: fix it by using a class
-   `components.md` lists, not by inventing a rule.
+   `components.md` lists, not by inventing a rule. The receipt also names
+   **every sheet that carries no component at all** — those are the walls of
+   text. Give each one the component it earns, or one line saying why prose is
+   right there.
 7. **Fix by sheet** with `edit_document` — `replace_sheet` with the trimmed
    sheet, `remove_sheet`, `insert_sheet`, `replace_text` — and read the next
    receipt. Trim content on an overflowing sheet; never shrink the footer
