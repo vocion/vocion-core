@@ -606,6 +606,8 @@ async function upsertAgent(
     persona: agent.persona ?? null,
     accent: agent.accent ?? null,
     eyebrow: agent.eyebrow ?? null,
+    handles: agent.handles,
+    initiative: agent.initiative,
     langfuseProjectId: agent.langfuseProjectId ?? null,
     icon: agent.icon ?? null,
     active: String(agent.active),
@@ -647,7 +649,7 @@ async function upsertAgent(
 }
 
 /** The agent lists a dropped-to-empty apply is worth warning about. */
-const AGENT_LIST_FIELDS = ['playbookSlugs', 'skillSlugs', 'objectTypeSlugs', 'learningSteps'] as const;
+const AGENT_LIST_FIELDS = ['playbookSlugs', 'skillSlugs', 'objectTypeSlugs', 'learningSteps', 'handles'] as const;
 
 /**
  * Warn when this apply would empty out one of an agent's authored lists
@@ -1139,7 +1141,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     name: automation.name ?? automation.slug,
     description: automation.description ?? null,
     status: automation.status,
-    whenConfig: automation.when as { schedule?: string; event?: string; filter?: Record<string, unknown> },
+    whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown> },
     doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> },
     ownerAgentSlug: automation.agent ?? null,
   };
@@ -1627,6 +1629,8 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'persona',
     'accent',
     'eyebrow',
+    'handles',
+    'initiative',
     'langfuseProjectId',
     'icon',
     'active',

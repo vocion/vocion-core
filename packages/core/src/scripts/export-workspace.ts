@@ -99,6 +99,10 @@ async function main(): Promise<void> {
       // export→apply round-trip silently resets them to schema defaults.
       accent: a.accent ?? undefined,
       eyebrow: a.eyebrow ?? undefined,
+      handles: (a.handles ?? []).length > 0 ? a.handles : undefined,
+      // NULL is a row from before the column; `normal` is the schema default
+      // either way, so only a chosen value is worth writing out.
+      initiative: a.initiative && a.initiative !== 'normal' ? a.initiative : undefined,
       suggestions: (a.suggestions ?? []).length > 0 ? a.suggestions : undefined,
       subagents: (a.subagents ?? []).length > 0 ? a.subagents : undefined,
       playbooks: (a.playbookSlugs ?? []).length > 0 ? a.playbookSlugs : undefined,

@@ -132,6 +132,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                     // A routed turn (`@agent`, `/search`, a delegation) is
                     // attributed, never re-identified: "via <specialist>" (§9.10).
                     via={msg.agentName && msg.agentName !== agentName ? t('via', { name: msg.agentName }) : undefined}
+                    viaReason={msg.routing?.reason}
                     streaming={streaming && i === lastIdx}
                     activity={i === lastIdx ? activity : undefined}
                     onShowSources={onShowSources}

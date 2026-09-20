@@ -82,6 +82,8 @@ export type AgentMessageProps = {
   autonomy?: ConversationAutonomy;
   /** Preformatted attribution for a routed turn ("via Proposal Writer") — the workspace stays the speaker (§9.10). */
   via?: string;
+  /** Why the workspace routed the turn there, when it chose (`RoutingDecision.reason`) — shown on hover, so the attribution can be checked. */
+  viaReason?: string;
   /** Opens an artifact this turn produced in the pane beside the conversation. */
   onOpenArtifact?: (id: number) => void;
   /** The thread this turn belongs to — stamped into a failed step's Copy details. */
@@ -112,7 +114,7 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -170,7 +172,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <AgentMark name={agentName} />
           {via && (
-            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
+            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case" title={viaReason}>{via}</span>
           )}
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (

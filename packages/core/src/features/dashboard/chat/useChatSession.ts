@@ -3,6 +3,7 @@
 import type { TurnOutcome } from './queueReducer';
 import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
+import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
@@ -506,6 +507,13 @@ export function useChatSession({
       return;
     }
     switch (evt.type) {
+      case 'routed': {
+        // The workspace chose the agent (`route: true`): attribute the turn to
+        // it the way an `@mention` does, and keep the reason on the message.
+        const routed = evt as unknown as { agent: { slug: string; name: string }; routing: RoutingDecision };
+        appendToLatestAgent(m => ({ ...m, agentSlug: routed.agent.slug, agentName: routed.agent.name, routing: routed.routing }));
+        return;
+      }
       case 'run_meta': {
         // Which model answers this turn — the footer's fact, never a guess.
         const meta = evt as unknown as TurnModel & { type: 'run_meta' };
@@ -1206,6 +1214,10 @@ export function useChatSession({
         body: JSON.stringify({
           message: text,
           agent_slug: turnAgent.slug,
+          // Nobody named an agent for this turn: let the workspace choose
+          // (`services/agents/router.ts`). The reply is attributed to whoever
+          // answers, exactly as an `@mention` is; the reason rides with it.
+          ...(!routed && !isSearchOnly ? { route: true } : {}),
           // The turn's deliverable contract (0102) — a typed field, decided
           // before the turn runs, not a judgement the model makes during it.
           deliverable,
