@@ -99,6 +99,36 @@ export type RoomHighlight = {
   addedAt: string;
 };
 
+/**
+ * The client's own mark, held on the room so it is fetched once and reused
+ * by every document written from the room.
+ *
+ * Kept as a data URI rather than a link on purpose: a client document is
+ * self-contained HTML that prints to PDF and is opened a year later, so an
+ * image it references by URL is an image that will one day be a broken box
+ * on a cover. `source` is the URL it came from, so the claim "this is their
+ * logo" is checkable in one move (design principle 10).
+ */
+export type RoomImage = {
+  /** `data:image/png;base64,…` — ready to inline in a document. */
+  dataUri: string;
+  width: number | null;
+  height: number | null;
+  bytes: number;
+  contentType: string;
+  /** Where it was fetched from. */
+  source: string;
+  fetchedAt: string;
+  /** The served artifact, for a surface that wants a URL rather than bytes. */
+  url?: string;
+};
+
+/** The client's brand as the room knows it: the full lockup and the square mark. */
+export type RoomBrand = { logo?: RoomImage; mark?: RoomImage };
+
+export const ROOM_BRAND_SLOTS = ['logo', 'mark'] as const;
+export type RoomBrandSlot = typeof ROOM_BRAND_SLOTS[number];
+
 export type RoomMeta = {
   client?: string;
   codename?: string;
@@ -119,6 +149,11 @@ export type RoomMeta = {
   rules?: string[];
   milestones?: RoomMilestone[];
   highlights?: RoomHighlight[];
+  /**
+   * The client's brand — the seller's own is `brand.yaml` (`get_brand`), and
+   * this is the other half of the lockup on a cover.
+   */
+  brand?: RoomBrand;
   /** `false` keeps the collector out of this room; filings then come only from tools and people. */
   autoFile?: boolean;
   /** Knowledge documents a person or agent took back out — the collector never re-files these on its own. */
@@ -358,6 +393,18 @@ export function mergeRules(existing: string[] | undefined, add: string[] | undef
 }
 
 /**
+ * The brand after a fetch: one slot replaced, the other left exactly as it
+ * was. Replacement rather than merge, because half of an old logo and half
+ * of a new one is not a logo. Pure; exported for the test.
+ * @param existing - The brand on the room.
+ * @param slot - Which mark was fetched.
+ * @param image - The fetched image.
+ */
+export function mergeBrand(existing: RoomBrand | undefined, slot: RoomBrandSlot, image: RoomImage): RoomBrand {
+  return { ...(existing ?? {}), [slot]: image };
+}
+
+/**
  * Open a room for an engagement.
  * @param orgId - The project.
  * @param userId - Who opened it.
@@ -425,6 +472,8 @@ export type UpdateDataRoomInput = Partial<Omit<CreateDataRoomInput, 'title'>> & 
   milestone?: RoomMilestone;
   /** Highlights to add. Duplicates by text are dropped. */
   highlights?: Array<Omit<RoomHighlight, 'addedAt'>>;
+  /** The client's logo or mark, fetched and verified — replaces whatever that slot held. */
+  brandImage?: { slot: RoomBrandSlot; image: RoomImage };
   autoFile?: boolean;
 };
 
@@ -493,6 +542,9 @@ export async function updateDataRoom(orgId: string, id: number, patch: UpdateDat
     const addedAt = new Date().toISOString();
     const fresh = patch.highlights.filter(h => h.text.trim() && !have.has(h.text.trim().toLowerCase())).map(h => ({ ...h, text: h.text.trim(), addedAt }));
     meta.highlights = [...(meta.highlights ?? []), ...fresh];
+  }
+  if (patch.brandImage) {
+    meta.brand = mergeBrand(meta.brand, patch.brandImage.slot, patch.brandImage.image);
   }
   if (patch.autoFile !== undefined) {
     meta.autoFile = patch.autoFile;
@@ -930,6 +982,18 @@ export function renderDataRoom(room: DataRoomDetail): string {
       lines.push(`- ${d.date ? `**${d.date}** · ` : ''}${d.title}${d.status ? ` — ${d.status}` : ''}${d.artifactId ? ` (artifact #${d.artifactId})` : ''}`);
     }
     lines.push('');
+  }
+  if (m.brand?.logo || m.brand?.mark) {
+    // The data URI is here in full, because the consumer of this bundle is
+    // the thing writing the document, and a logo it has to fetch again is a
+    // logo it will fabricate instead.
+    lines.push('## Client brand', '', 'Inline these exactly, as they are. Do not redraw the mark as text.', '');
+    for (const slot of ROOM_BRAND_SLOTS) {
+      const img = m.brand?.[slot];
+      if (img) {
+        lines.push(`- **${slot}** — ${img.width && img.height ? `${img.width}×${img.height}, ` : ''}${Math.round(img.bytes / 1024)} KB, from ${img.source} on ${img.fetchedAt.slice(0, 10)}`, '', `  \`${img.dataUri}\``, '');
+      }
+    }
   }
   if (m.cast?.length) {
     lines.push('## Cast', '', '| Name | Role | Email | Side |', '|---|---|---|---|');

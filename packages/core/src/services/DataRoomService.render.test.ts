@@ -2,7 +2,7 @@ import type { DataRoomDetail } from './DataRoomService';
 import type { ArtifactRow } from '@/services/ArtifactService';
 import type { Ask } from '@/services/AskService';
 import { describe, expect, it } from 'vitest';
-import { deliverableIndex, mergeRules, renderDataRoom, roomAnchor, roomDeliverables } from './DataRoomService';
+import { deliverableIndex, mergeBrand, mergeRules, renderDataRoom, roomAnchor, roomDeliverables } from './DataRoomService';
 
 /**
  * The bundle the agent reads and a person downloads: order and sections. The
@@ -171,5 +171,36 @@ describe('mergeRules', () => {
     expect(mergeRules(existing, ['  Never quote headcount. '], undefined)).toEqual(existing);
     expect(mergeRules(existing, undefined, ['Never quote headcount.'])).toEqual(['Call the product Managed AI.']);
     expect(mergeRules(undefined, ['a', '', 'a'], undefined)).toEqual(['a']);
+  });
+});
+
+/**
+ * The client's brand lives on the room, not on one document — so the logo is
+ * fetched once and every later proposal written from that room uses the same
+ * mark instead of inventing a wordmark (2026-09-19).
+ */
+describe('client brand on the room', () => {
+  const logo = { dataUri: 'data:image/png;base64,iVBORw0KG', width: 240, height: 60, bytes: 3072, contentType: 'image/png', source: 'https://northwind.example/logo.png', fetchedAt: '2026-09-19T09:00:00Z', url: '/api/artifacts/x/y.png' };
+  const mark = { ...logo, width: 64, height: 64, source: 'https://northwind.example/mark.svg', contentType: 'image/svg+xml', dataUri: 'data:image/svg+xml;base64,PHN2Zw' };
+
+  it('replaces one slot and leaves the other alone', () => {
+    expect(mergeBrand({ logo }, 'mark', mark)).toEqual({ logo, mark });
+    expect(mergeBrand({ logo, mark }, 'logo', { ...logo, source: 'https://northwind.example/v2.png' }).logo?.source).toBe('https://northwind.example/v2.png');
+    expect(mergeBrand(undefined, 'logo', logo)).toEqual({ logo });
+  });
+
+  it('prints the data URI in full, with where it came from and when', () => {
+    const md = renderDataRoom({ ...detail, meta: { ...detail.meta, brand: { logo } } });
+
+    expect(md).toContain('## Client brand');
+    expect(md).toContain(logo.dataUri);
+    expect(md).toContain('240×60');
+    expect(md).toContain('https://northwind.example/logo.png');
+    expect(md).toContain('2026-09-19');
+    expect(md).toContain('Do not redraw the mark as text');
+  });
+
+  it('says nothing at all when the room has no brand', () => {
+    expect(renderDataRoom(detail)).not.toContain('## Client brand');
   });
 });

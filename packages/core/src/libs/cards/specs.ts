@@ -149,6 +149,12 @@ export const documentVerificationSchema = z.object({
   /** Served URL of the PDF the verification printed, when one was. */
   pdf: z.string().optional(),
   unresolvedAssets: z.array(z.string().max(300)).max(20).default([]),
+  /**
+   * Classes the markup uses that no rule in the document's own stylesheet
+   * defines — the components that render as bare `<div>`s
+   * (`libs/documents/classAudit.ts`).
+   */
+  undefinedClasses: z.array(z.string().max(80)).max(40).default([]),
   issues: z.array(z.string().max(300)).max(40).default([]),
   ok: z.boolean(),
 });

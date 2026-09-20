@@ -22,6 +22,8 @@ export type AuditInput = {
   pdfPages: number | null;
   pdf?: string;
   unresolvedAssets: string[];
+  /** Classes used with no rule in the document's stylesheet (`classAudit.ts`). */
+  undefinedClasses?: string[];
   at?: string;
 };
 
@@ -83,6 +85,12 @@ export function evaluateDocument(input: AuditInput): DocumentVerification {
   if (input.pdfPages !== null && input.pdfPages !== input.sheets.length) {
     issues.push(`The PDF has ${input.pdfPages} pages for ${input.sheets.length} sheets — a sheet is taller than one page or the @page size is off.`);
   }
+  const undefinedClasses = (input.undefinedClasses ?? []).slice(0, 40);
+  if (undefinedClasses.length > 0) {
+    // Named in full, because the fix is per class and the model cannot see
+    // which ones are missing by reading either half of the document.
+    issues.push(`${undefinedClasses.length} class${undefinedClasses.length === 1 ? '' : 'es'} used with no rule anywhere in the document's stylesheet: ${undefinedClasses.join(', ')}. Each one renders as a bare div. Add the rules, or use classes the framework defines.`);
+  }
   if (input.unresolvedAssets.length > 0) {
     issues.push(`${input.unresolvedAssets.length} asset${input.unresolvedAssets.length === 1 ? '' : 's'} did not load (${input.unresolvedAssets.slice(0, 4).join(', ')}${input.unresolvedAssets.length > 4 ? ', …' : ''}). Inline logos as data URIs; a relative path has nothing to resolve against.`);
   }
@@ -96,6 +104,7 @@ export function evaluateDocument(input: AuditInput): DocumentVerification {
     pdfPages: input.pdfPages,
     ...(input.pdf ? { pdf: input.pdf } : {}),
     unresolvedAssets: input.unresolvedAssets.slice(0, 20),
+    undefinedClasses,
     issues: issues.slice(0, 40),
     ok: issues.length === 0,
   };

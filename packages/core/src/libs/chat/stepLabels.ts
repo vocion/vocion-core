@@ -27,6 +27,7 @@ const KNOWN: Record<string, StepLabels> = {
   search_knowledge: { running: 'Searching sources…', done: 'Searched sources' },
   web_search: { running: 'Searching the web…', done: 'Searched the web' },
   fetch_url: { running: 'Reading a web page…', done: 'Read a web page' },
+  fetch_image: { running: 'Fetching the image…', done: 'Fetched the image' },
   crawl_site: { running: 'Crawling the site…', done: 'Crawled the site' },
   lookup_objects: { running: 'Looking up records…', done: 'Looked up records' },
   render_markdown: { running: 'Writing the document…', done: 'Wrote the document' },

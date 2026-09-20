@@ -7,7 +7,7 @@ description: >-
   grounded in the client's data room. Read before the first sheet, and again
   before changing one: it carries the framework, the component vocabulary, the
   structure rules, the language rules and the verify loop.
-version: 3
+version: 4
 resources: [framework.css, components.md, spine.md, visuals.md, red-team.md]
 ---
 
@@ -35,9 +35,17 @@ sheet of a new document.
 3. **Draft the sheet list** before any HTML: one line per sheet, in order,
    from `spine.md`. Pass `room_id` on `render_document` so the document lands
    on the room and the Proposals board.
-4. **Read the brand** (`get_brand`): paste its `:root` tokens into the
-   `<style>` block ahead of `framework.css`, inline its logo data URIs in the
-   strip and the cover, and keep its voice rules beside the ones below.
+4. **Read the brand** — both of them. `get_brand` is the seller's:
+   paste its `:root` tokens into the `<style>` block, inline its logo data
+   URIs in the strip and the cover, and keep its voice rules beside the ones
+   below. The CLIENT's logo is the other half of the cover lockup, and it is
+   on the data room: `read_data_room` prints it under **Client brand** as a
+   data URI to inline exactly. If the room has none, find the image's own URL
+   (`brand_lookup` returns one) and call `fetch_image` with the `room_id`,
+   which verifies it is really an image, shrinks it, and files it on the room
+   so the next document does not fetch it again. If it cannot be fetched, say
+   so on the room as an open item. **Never draw a company's mark as styled
+   text and present it as their logo.**
 5. **Build sheet by sheet, never the whole document in one call.** A 12-sheet
    proposal is 40 KB of HTML; one tool call that size runs into the model's
    output cap and arrives truncated (production, 2026-09-18: `render_document`
@@ -45,11 +53,16 @@ sheet of a new document.
    tokens, `framework.css` and the COVER sheet only; then `edit_document` with
    one `insert_sheet` per sheet, in order, reading each receipt. Every call
    stays small, and every sheet gets its own verdict.
-   Inline `framework.css` into the `<style>` block; use the components in
-   `components.md`; logos as data URIs.
+   **Do not paste `framework.css`.** The render path injects it under your
+   `<style>` block on every render, every edit and every verify, so your own
+   block is the brand's `:root` tokens and nothing else. Use the components
+   in `components.md`; logos as data URIs.
 6. **Read the receipt.** It names every sheet whose footer moved, every sheet
    that overflows and by how much, every element past the edge, the PDF page
-   count and any asset that did not load.
+   count, any asset that did not load, and **any class you used that has no
+   rule anywhere in the document**. That last one is the difference between a
+   designed page and a stack of bare divs: fix it by using a class
+   `components.md` lists, not by inventing a rule.
 7. **Fix by sheet** with `edit_document` — `replace_sheet` with the trimmed
    sheet, `remove_sheet`, `insert_sheet`, `replace_text` — and read the next
    receipt. Trim content on an overflowing sheet; never shrink the footer
@@ -93,7 +106,9 @@ second document to make a change.
   inside `@media print` with `!important` — or the brand rule and the sage
   panels vanish on the client's own printer. Headless print has them on, so a
   test PDF hides the trap.
-- **Light, always.** Client documents ship no dark-mode block.
+- **Light, always.** Client documents ship no dark-mode block. The product UI
+  windows (`.win2`, `.plat`, `.ovc`) are the one dark thing on a sheet, and
+  their darkness is the titlebar, not the page.
 - Renumber footers programmatically — `edit_document` does it — never by hand.
 
 ## Structure rules

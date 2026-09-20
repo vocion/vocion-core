@@ -27,6 +27,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { clientFacingPlaybooksFor } from '@/libs/documents/clientFacing';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
+import { stripFramework } from '@/libs/documents/framework';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
 import { createDocument, documentReceipt, exportDocumentPdf, redTeamDocumentArtifact, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
@@ -191,7 +192,11 @@ export function readDocumentTool(ctx: RuntimeContext) {
         return `No document #${found.id}.`;
       }
       const spec = row.spec as Partial<DocumentSpec>;
-      const html = spec.html ?? '';
+      // The injected framework is the engine's, not the author's: reading it
+      // back would spend 45 KB of context on CSS the model cannot edit, and
+      // `part: "style"` would hand back the framework instead of the
+      // document's own tokens (`libs/documents/framework.ts`).
+      const html = stripFramework(spec.html ?? '');
       const parsed = parseSheets(html);
       const part = args.part ?? (args.sheets?.length ? 'sheets' : 'outline');
       const head = `Document #${row.id} "${row.title}" v${row.currentVersion}`;
