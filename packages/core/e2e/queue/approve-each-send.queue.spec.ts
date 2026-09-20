@@ -104,16 +104,15 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
 
   await page.goto(`/dashboard/inbox/proposal-${runId}`);
 
-  // ── The walk starts empty, and Enroll is held ────────────────────────────
+  // ── The walk starts empty, and the primary IS the walk ───────────────────
   await expect(page.getByTestId('walk-count')).toHaveText('0 of 4 approved');
-  await expect(page.getByTestId('decide-approve')).toBeDisabled();
-  // The reason rides the button, not a banner: the count over the tab row
-  // already says how far through the walk you are.
-  await expect(page.locator('#bar-hint-decide-approve')).toContainText('0 of 4');
+  // ONE button, live, reading Approve. There is no disabled Enroll beside it
+  // and no second approve control inside the pane: two buttons asked a
+  // reviewer to work out that one was waiting on the other.
+  await expect(page.getByTestId('decide-approve')).toBeEnabled();
+  await expect(page.getByTestId('decide-approve')).toHaveText(/^Approve/);
+  await expect(page.getByTestId('approve-send-1')).toHaveCount(0);
   await expect(page.getByTestId('primary-held')).toHaveCount(0);
-  // One-word action buttons throughout.
-  await expect(page.getByTestId('decide-approve')).toHaveText(/^Enroll/);
-  await expect(page.getByTestId('approve-send-1')).toHaveText('Approve');
 
   await page.screenshot({ path: 'vitest-test-results/walk-1440-held.png', fullPage: false });
 
@@ -128,7 +127,7 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   expect(ask!.x).toBeGreaterThanOrEqual(copy!.x + copy!.width - 1);
 
   // ── Approve send 1: the tab checks, the count rises, the screen advances ─
-  await page.getByTestId('approve-send-1').click();
+  await page.getByTestId('decide-approve').click();
 
   await expect(page.getByTestId('tab-check-send-1')).toBeVisible();
   await expect(page.getByTestId('walk-count')).toHaveText('1 of 4 approved');
@@ -150,11 +149,11 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
 
   await expect(page.getByTestId('tab-item-send-1')).not.toHaveAttribute('data-approved', 'true');
   await expect(page.getByTestId('walk-count')).toHaveText('0 of 4 approved');
-  await expect(page.getByTestId('decide-approve')).toBeDisabled();
+  await expect(page.getByTestId('decide-approve')).toHaveText(/^Approve/);
 
   // Approving it again records the edited copy, which is what a reviewer
   // vouched for — not what the agent wrote.
-  await page.getByTestId('approve-send-1').click();
+  await page.getByTestId('decide-approve').click();
 
   await expect(page.getByTestId('walk-count')).toHaveText('1 of 4 approved');
   expect(recordOf(runId).revisions.filter(r => r.contentId === 'send-1' && r.kind === 'approved').at(-1)?.body)
@@ -173,14 +172,16 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
   // ── The rest of the walk ─────────────────────────────────────────────────
   for (const id of ['send-2', 'send-3', 'send-4']) {
     await page.getByTestId(`tab-item-${id}`).click();
-    await page.getByTestId(`approve-${id}`).click();
+    await page.getByTestId('decide-approve').click();
 
     await expect(page.getByTestId(`tab-item-${id}`)).toHaveAttribute('data-approved', 'true');
   }
 
   await expect(page.getByTestId('walk-count')).toHaveText('4 of 4 approved');
-  // The hold releases only here.
-  await expect(page.getByTestId('decide-approve')).toBeEnabled();
+  // The button becomes Enroll only here — which is a harder guarantee than
+  // the disabled primary it replaced: it cannot be pressed early because,
+  // until the last check lands, it is not Enroll.
+  await expect(page.getByTestId('decide-approve')).toHaveText(/^Enroll/);
   await expect(page.getByTestId('primary-held')).toHaveCount(0);
 
   await page.screenshot({ path: 'vitest-test-results/walk-1440-complete.png', fullPage: false });
@@ -263,7 +264,7 @@ test('the split stacks rather than cramming when the pane is squeezed', async ({
 
   // The walk is still the walk at this width.
   await expect(page.getByTestId('walk-count')).toHaveText('0 of 4 approved');
-  await expect(page.getByTestId('decide-approve')).toBeDisabled();
+  await expect(page.getByTestId('decide-approve')).toHaveText(/^Approve/);
 });
 
 test('on a phone the decision bar is one row, not half the screen', async ({ page }) => {
@@ -299,10 +300,52 @@ test('on a phone the decision bar is one row, not half the screen', async ({ pag
   expect(snooze.x).toBeLessThan(approve.x);
 
   // The words went to the screen reader, not away: every verb is still
-  // reachable by its name, and the primary keeps its word on screen.
-  for (const name of ['Enroll', 'Decline', 'Snooze']) {
+  // reachable by its name, and the primary keeps its word on screen. Approve
+  // rather than Enroll, because nothing is approved yet and the primary IS
+  // the walk until the count is full.
+  for (const name of ['Approve', 'Decline', 'Snooze']) {
     await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
   }
 
-  await expect(page.getByTestId('decide-approve')).toHaveText(/Enroll/);
+  await expect(page.getByTestId('decide-approve')).toHaveText(/Approve/);
+});
+
+test('the decision bar reaches the bottom of the screen, at every scroll position', async ({ page }) => {
+  createBootstrapAdmin();
+  const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill(ADMIN.email);
+  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
+  await page.getByRole('button', { name: /sign in/i }).click();
+  await page.waitForURL(/\/dashboard/);
+
+  await page.goto(`/dashboard/inbox/proposal-${runId}`);
+
+  await expect(page.getByTestId('sticky-action-bar')).toBeVisible();
+
+  /** How far the bar's bottom edge is from the bottom of the window. */
+  const gap = () => page.evaluate(() => {
+    const bar = document.querySelector('[data-testid="sticky-action-bar"]')!.getBoundingClientRect();
+    return Math.round(window.innerHeight - bar.bottom);
+  });
+
+  // The defect: a sticky box is constrained to its scroller's CONTENT box, so
+  // the page gutter's 24px of bottom padding was a strip the bar could never
+  // reach — and the content scrolled through it, under the stuck bar, on the
+  // one surface whose job is reading what sits there. Measured at 24px in
+  // both Chromium and WebKit before the gutter gave that padding up.
+  expect(await gap()).toBe(0);
+
+  await page.evaluate(() => {
+    const scroller = document.querySelector('[data-page-gutter]')!;
+    scroller.scrollTop = scroller.scrollHeight;
+  });
+
+  // And it does not move at the end of the scroll, which is where the
+  // containing block would otherwise pull it up.
+  expect(await gap()).toBe(0);
+
+  await page.screenshot({ path: 'vitest-test-results/walk-390-bar-pinned.png', fullPage: false });
 });
