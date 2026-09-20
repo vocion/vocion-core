@@ -33,6 +33,7 @@ import { dataRoomTools } from './dataRooms';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
 import { editArtifactTools } from './editArtifacts';
+import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
 import { fileFeedbackTool } from './fileFeedback';
 import { findScreenshotsTool } from './findScreenshots';
@@ -116,6 +117,10 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     searchKnowledgeTool(ctx),
     webSearchTool(ctx),
     fetchUrlTool(ctx),
+    // The same URL, handled as BYTES: a logo or a product shot, verified and
+    // returned as a data URI a document can hold. `fetch_url` is a prose
+    // reader and hands an image back as mojibake (2026-09-19).
+    fetchImageTool(ctx),
     crawlSiteTool(ctx),
     // A company's own site, read rather than recalled. Source-gated like the
     // other paid providers would be, except that brand lookup is useful to

@@ -12,7 +12,7 @@ seen, or hold several things at once. Otherwise it is a sentence.
 
 | The reader must… | Use | Example |
 |---|---|---|
-| picture a process they asked about | a numbered **step strip** (`.journey`, three to five `.jstep`s) | "how would this change the flow of operations?" → five steps of the walkaround |
+| picture a process they asked about | a numbered **step strip** — `.journey` for three with arrows, `.journey.n4` / `.journey.n5 mid` for four or five without | "how would this change the flow of operations?" → five steps of the walkaround |
 | see a product they are buying but cannot see | a **window mock** (`.win2` / `.plat`): mac dots, hairline rows, status pills | the inspection queue with four believable rows and their states |
 | hold time with parallel tracks | a de-boxed **Gantt** (`.gantt`): bars on month or week columns, solid = build, lighter = live and compounding, a dashed gate | the 4-month plan |
 | grasp a method, not a result | a **categories-only dashboard** (`.dtiles`): Baseline · Measured · Tracked · Target, no numbers | the measurement sheet |
@@ -23,7 +23,7 @@ seen, or hold several things at once. Otherwise it is a sentence.
 | Element | Form | Meaning |
 |---|---|---|
 | Open blocks | a 3px coloured top rule on the page background, never a white card | teal = foundation, people, context · accent = automation, agents, high trust |
-| Window mock | the **only** boxed element in a document: mac-dot header, hairline rows, `.pill` states | "this is software" |
+| Window mock | the **only** boxed element in a document: `.win2` with a dark `.wh` titlebar naming the client's own app and place, `.wr-meta` queue state on the right, `.wr2` hairline rows of real-looking records, `.pill` states | "this is software" |
 | Gantt | de-boxed swim lanes, bars over week or month columns, a dashed gate line, a `.g-note` anchoring week 1 to a real date | time |
 | Chips | small-caps tags (`.syschip`, `.sk`) for measures, systems, skills; dashed and greyed (`.futtag`) when not built yet | what is measured, what is reached, what is later |
 | Glyphs | inline line SVG, 24 viewBox, 1.8px stroke, `currentColor`: window = interface · nodes = intelligence · database = context · shield = trust · bot = agent · person = human | the kind of thing |
@@ -37,6 +37,7 @@ seen, or hold several things at once. Otherwise it is a sentence.
 ## Traps
 
 - Short generic class names collide with house styles and make text vanish or turn accent-coloured. Use the framework's classes; do not invent `.gr` or `.roadmap` siblings.
+- A class with no rule renders as a bare `<div>` and looks exactly like a component that "did not come out well". The render receipt now names every one of them; a clean receipt is part of the look, not just the layout.
 - A Gantt bar lands on the wrong column silently. The look pass checks; read the receipt.
 - Headless Chrome defaults to dark mode and can mojibake non-ASCII characters in a local render. Entity-escape them; ship no dark-mode block.
 - Background colours print only because `print-color-adjust:exact` is forced; the client's own printer has "Background graphics" off by default.

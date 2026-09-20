@@ -5,6 +5,14 @@ do not invent siblings. Palette is CSS variables on `:root` in the same file
 (`--ink`, `--body`, `--muted`, `--teal`, `--accent`, `--seafoam`, `--sage`,
 `--line`, `--line2`, `--cream`).
 
+**You do not paste `framework.css` into the document.** The render path puts it
+into every document it renders, underneath whatever `<style>` you write, and
+re-injects the current file on every edit and every verify. Your `<style>` block
+carries the brand's `:root` tokens and nothing else it does not need. A class
+you use that has no rule anywhere in the document is reported by name in the
+render receipt — every one of them renders as a bare `<div>`, which is the
+single biggest reason a document looks less designed than it reads.
+
 ## Sheet skeleton
 
 ```html
@@ -47,7 +55,13 @@ Add `dense` to `.body` on a sheet that carries a table and a list (`<div class="
   <div class="jstep">…</div>
 </div>
 ```
-Three steps, two arrows. `o` makes a step accent.
+Three steps, two arrows — the cover's shape. `o` makes a step accent.
+
+For a process with **four or five steps**, add `n4` or `n5` to `.journey` and
+drop the arrows: `<div class="journey n5 mid">` with five `.jstep`s, no
+`.jarr`. `mid` is the smaller top margin for a strip inside a sheet rather
+than under the cover's mission paragraph. Colour the rules by phase — leave
+the steps the client does teal, and make the ones the system does `o`.
 
 ## Agents and people
 
@@ -57,9 +71,38 @@ Three steps, two arrows. `o` makes a step accent.
 
 ## Product UI windows
 
-- `.win2` / `.plat` — the one boxed element in a document: mac dots `.wd.r/.y/.g`, a `.plat-url`, then `.plat-nav` + `.plat-main`. `.mock-cap` caption under it. Call it "the product UI", never "mock".
-- `.ovcards` › `.ovc` › `.ovh` (dots + `.oht` title) + `.ovb` body — three small windows side by side.
+The **only** boxed elements in a document. Call it "the product UI" in prose,
+never "mock", and put a `.mock-cap` italic caption under every one.
+
+`.win2` is the workhorse: a dark titlebar over hairline rows of believable
+records. Titlebar names the client's own app and where they are; the right of
+the titlebar carries the queue state; each row is a title, a muted subline and
+a status `.pill`.
+
+```html
+<div class="win2">
+  <div class="wh">
+    <i class="wd r"></i><i class="wd y"></i><i class="wd g"></i>
+    <span class="wu"><b>Northwind Quality</b> · Bellwater Yard</span>
+    <span class="wr-meta">14 structures in queue · 3 awaiting sign-off</span>
+  </div>
+  <div class="wr2">
+    <div class="tl2">48" manhole · Structure 48-2291<i>Pour complete 09:40 · Inspector: assigned</i></div>
+    <span class="pill hold">In walkaround</span>
+  </div>
+  <!-- three more .wr2 rows -->
+</div>
+<div class="mock-cap">Illustrative interface. Checklists, SKU types and which steps require a photo are defined with your quality team in month 1.</div>
+```
+
+- `.wh` — the dark titlebar. `.wd.r/.y/.g` mac dots, `.wu` the app and place (`<b>` the app name), `.wr-meta` the right-aligned queue state.
+- `.wr2` — one record row; `.tl2` the record, with an `<i>` inside it for the muted second line; a `.pill` on the right for the state.
+- `.pill.hold` amber (waiting on someone) · `.pill.done` teal outline (finished) · `.pill.appr` solid accent (needs a person now).
+- `.plat` — the full app shell for a cover: `.plat-bar` (dots + `.plat-url`), then `.plat-nav` + `.plat-main`.
+- `.ovcards` › `.ovc` › `.ovh` (dots + `.oht` title) + `.ovb` body — three small windows side by side, for three products at once.
 - `.hitl` — the review-queue window with `.h-top`, `.h-req`, `.h-draft`, `.h-btn`, `.h-conf`.
+- `.ctx` › `.cr2` › `.ck` + `.cv` — a key/value read-out inside a window.
+- `.cb.u` / `.cb.a` — chat bubbles inside a window, the person's and the agent's.
 
 ## Gantt
 
@@ -70,6 +113,8 @@ Three steps, two arrows. `o` makes a step accent.
 - `.money` — the price block; `.vals` › `.val` for a stat row; `.dtiles` › `.dtile` for dashboard tiles with `.dmeter` / `.dbars` / `.dchart` indicators (categories only: Baseline · Target · Measured — never invented performance numbers).
 - `.offer` — the post-delivery option box with an eyebrow.
 - `.faq` — two-column Q&A; answers that are yes start with "Yes."
+- `.opts` › `.opts-h` (the eyebrow) › `.opt-row` › `.opt-v` (the figure, right) — a priced line-item list.
+- `.twocol` — two equal columns with no rule between them. The "what changes / what does not change" pair under a product UI window is this, with a `h3` and a `<ul>` in each half.
 - `.ph` — the amber placeholder for anything unbaselined or unverified.
 - `.apx` — appendix rows with `.apx-tag`.
 

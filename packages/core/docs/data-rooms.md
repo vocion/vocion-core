@@ -27,6 +27,7 @@ data_room (business_object)
 ├── highlights[]  quotes, metrics, wins, challenges — the case study's raw material
 ├── deliverables[]
 ├── domains[] / aliases[]   how material is matched to the room
+├── brand         the CLIENT's logo and mark, as data URIs with the URL each came from
 └── open items    asks grouped under data-room:<id>
     artifacts     decision logs, documents, working files — anchored to the record
 ```
@@ -40,6 +41,7 @@ Every line maps onto a noun core already has (design principle 7):
 | An open item, a ticket | `ask` under `data-room:<id>` | Needs-you is already the work queue |
 | The wiki, rules, timeline, highlights | fields on the record, governed by the object type's JSON schema | The workspace's `objects/data_room/type.yaml` extends them |
 | The proposal | `document` artifact with `spec.playbook = 'proposal'` | The playbook is the subclass — the skill carries the framework |
+| The client's logo | `brand` on the room's metadata, fetched by `fetch_image` | The client's mark is a fact about the client, not about one document — fetched once, reused by every document the room produces, and printed in the room's export so the writer inlines the real one instead of drawing a wordmark |
 
 ## Done for you, with undo
 

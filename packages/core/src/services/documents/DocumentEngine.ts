@@ -21,12 +21,15 @@ import type { DocumentOp } from '@/libs/documents/edit';
 import type { DocumentOutline } from '@/libs/documents/sheets';
 import type { ArtifactRecordScope, ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
 import { evaluateDocument, verificationReceipt } from '@/libs/documents/audit';
+import { undefinedClasses } from '@/libs/documents/classAudit';
 import { applyDocumentOps } from '@/libs/documents/edit';
+import { stripFramework } from '@/libs/documents/framework';
 import { renderAvailable, renderDocument, renderNote } from '@/libs/documents/render';
 import { inspectDocument, outlineText, parseSheets, stripDocumentChrome } from '@/libs/documents/sheets';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { voiceRulesFor } from '@/libs/writing/loadVoiceRules';
 import { ArtifactError, createArtifact, getArtifact, updateArtifact } from '@/services/ArtifactService';
+import { withFramework } from './framework';
 import { lookAtSheets } from './look';
 import { redTeamDocument, redTeamRecord } from './redTeam';
 
@@ -119,7 +122,10 @@ export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOpt
   // Render what will be STORED, so the screenshots, the PDF and the page count
   // are all of the same document the person will read (`stripDocumentChrome`).
   const html = stripDocumentChrome(rawHtml);
-  const outline = inspectDocument(html);
+  // The outline is of what the AUTHOR wrote: the injected framework is 45 KB
+  // the model neither typed nor can edit, and counting it would make every
+  // document look near the size at which a render call truncates.
+  const outline = inspectDocument(stripFramework(html));
   const available = await renderAvailable();
   if (!available.ok) {
     return {
@@ -129,6 +135,7 @@ export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOpt
         footerAligned: false,
         pdfPages: null,
         unresolvedAssets: outline.relativeAssets,
+        undefinedClasses: [],
         issues: [`Renderer unavailable (${available.reason}). The document was saved but not render-verified — install Playwright's Chromium on this host.`],
         ok: false,
       },
@@ -162,7 +169,7 @@ export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOpt
   if (rendered.pdf) {
     pdfUrl = (await saveArtifact({ orgId, data: rendered.pdf, ext: 'pdf', contentType: 'application/pdf' })).url;
   }
-  const verification = evaluateDocument({ sheets, pdfPages: rendered.pdfPages, ...(pdfUrl ? { pdf: pdfUrl } : {}), unresolvedAssets: rendered.unresolvedAssets });
+  const verification = evaluateDocument({ sheets, pdfPages: rendered.pdfPages, ...(pdfUrl ? { pdf: pdfUrl } : {}), unresolvedAssets: rendered.unresolvedAssets, undefinedClasses: undefinedClasses(html) });
   if (opts.look) {
     const withPng = rendered.sheets.filter(s => s.png).map(s => ({ n: s.n, label: s.label, png: s.png! }));
     // The look is ONE model call over every sheet at once, so there is no
@@ -208,8 +215,11 @@ export type CreateDocumentInput = {
  * @param input
  */
 export async function createDocument(input: CreateDocumentInput): Promise<{ artifact: ArtifactRow; version: ArtifactVersionRow; outcome: VerifyOutcome }> {
-  const outcome = await verifyHtml(input.orgId, input.html, input.verify);
-  const spec = documentSpec(input.html, input.title, outcome.verification, input.playbook);
+  // What is verified is what is stored is what is printed — so the framework
+  // goes in HERE, once, ahead of everything that reads the HTML.
+  const html = await withFramework(input.orgId, input.html);
+  const outcome = await verifyHtml(input.orgId, html, input.verify);
+  const spec = documentSpec(html, input.title, outcome.verification, input.playbook);
   const title = input.title?.trim() || spec.title || 'Document';
   const { artifact, version } = await createArtifact({
     orgId: input.orgId,
@@ -255,7 +265,9 @@ export async function reviseDocument(input: ReviseDocumentInput): Promise<{ arti
   if (existing.kind !== 'document') {
     throw new ArtifactError('INVALID_KIND', `artifact #${input.id} is a ${existing.kind}, not a document`);
   }
-  const current = (existing.spec as Partial<DocumentSpec>).html ?? '';
+  // Ops apply to the document as its author wrote it: the injected framework
+  // is not the author's style block, and `replace_style` means theirs.
+  const current = stripFramework((existing.spec as Partial<DocumentSpec>).html ?? '');
   let html = input.html ?? current;
   let applied: string[] = input.html ? ['replaced the whole document'] : [];
   if (input.ops && input.ops.length > 0) {
@@ -263,6 +275,7 @@ export async function reviseDocument(input: ReviseDocumentInput): Promise<{ arti
     html = edited.html;
     applied = [...applied, ...edited.applied];
   }
+  html = await withFramework(input.orgId, html);
   const outcome = await verifyHtml(input.orgId, html, input.verify);
   const prior = existing.spec as Partial<DocumentSpec>;
   const spec = documentSpec(html, input.title ?? prior.title, outcome.verification, prior.playbook);
@@ -297,7 +310,9 @@ export async function verifyDocumentArtifact(input: { orgId: string; id: number;
   if (!existing || existing.kind !== 'document') {
     throw new ArtifactError('NOT_FOUND', `document #${input.id} not found`);
   }
-  const html = (existing.spec as Partial<DocumentSpec>).html ?? '';
+  // Re-injected rather than taken as stored, so a re-verify picks up an
+  // edited `framework.css` — the one move that fixes a whole document's look.
+  const html = await withFramework(input.orgId, (existing.spec as Partial<DocumentSpec>).html ?? '');
   const outcome = await verifyHtml(input.orgId, html, input.verify);
   const prior = existing.spec as Partial<DocumentSpec>;
   // Re-verifying does not touch the words, so the buyer's read still stands.
@@ -340,7 +355,9 @@ export async function redTeamDocumentArtifact(input: { orgId: string; id: number
     throw new ArtifactError('NOT_FOUND', `document #${input.id} not found`);
   }
   const prior = existing.spec as Partial<DocumentSpec>;
-  const html = prior.html ?? '';
+  // The buyer reads the words, and 45 KB of framework in the prompt is 45 KB
+  // of the model's attention spent on CSS.
+  const html = stripFramework(prior.html ?? '');
   // The workspace's own banned constructions ride along, so the pass enforces
   // the voice a person authored rather than a generic one.
   const bannedPhrases = (await voiceRulesFor(input.orgId).catch(() => null))?.never.map(r => (typeof r.pattern === 'string' ? r.pattern : r.pattern.source)) ?? [];
@@ -349,7 +366,7 @@ export async function redTeamDocumentArtifact(input: { orgId: string; id: number
     return { artifact: existing, outcome, record: null };
   }
   const record = redTeamRecord(outcome, existing.currentVersion);
-  const spec = documentSpec(html, prior.title, prior.verification, prior.playbook, record);
+  const spec = documentSpec(prior.html ?? '', prior.title, prior.verification, prior.playbook, record);
   const { artifact } = await updateArtifact({
     orgId: input.orgId,
     id: input.id,

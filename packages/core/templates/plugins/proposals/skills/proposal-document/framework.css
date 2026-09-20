@@ -73,6 +73,13 @@ body {
   letter-spacing: 0.03em;
   margin-bottom: 0.3in;
 }
+.strip .l {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .strip .r {
   display: inline-flex;
   align-items: center;
@@ -328,6 +335,29 @@ tbody tr:last-child td {
   line-height: 1.5;
   color: var(--body);
   margin-top: 4px;
+}
+/* Four and five steps, no arrows — a process strip on a body sheet, where
+   the cover's three-steps-and-two-arrows shape does not fit. Same .jstep. */
+.journey.n4,
+.journey.n5 {
+  column-gap: 15px;
+}
+.journey.n4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+.journey.n5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+.journey.n5 .j-t {
+  font-size: 12px;
+}
+.journey.n5 .j-d {
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+/* the strip mid-sheet rather than under the cover's mission paragraph */
+.journey.mid {
+  margin-top: 12px;
 }
 .jarr {
   align-self: center;
@@ -1128,6 +1158,21 @@ tbody tr:last-child td {
   .actions {
     display: none;
   }
+}
+/* A sheet's `.body` is a flex column, so any block that CAN shrink will —
+   a window squashes to a sliver rather than overflowing, and the overflow
+   audit then measures nothing wrong. Same rule as the pinned footer: these
+   keep their height, and a sheet with too much on it says so. */
+.win2,
+.plat,
+.hitl,
+.ovcards,
+.dtiles,
+.gantt,
+.journey,
+.crew,
+.mag {
+  flex-shrink: 0;
 }
 /* product UI — window chrome */
 .win2 {
