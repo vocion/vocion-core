@@ -70,17 +70,18 @@ describe('plugin pages', () => {
     expect(floor?.rowLink).toBe('/dashboard/objects/{id}');
   });
 
-  it('the software-factory ships six rows in its own section — four object lists, the run log, and a link to the team report', () => {
+  it('the software-factory ships seven rows in its own section — five object lists, the run log, and a link to the team report', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
 
     expect(issues).toEqual([]);
     // The portfolio comes first (order 0) and its section is AppCurious; the
-    // evidence pages sit under Software factory.
-    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'recommendations', 'factory-floor', 'product-board', 'factory-log', 'team-report']);
+    // evidence pages sit under Software factory — intake, the ten in front of a
+    // person, work, what it cost.
+    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report']);
     expect(mine.filter(p => p.nav.section === 'AppCurious').map(p => p.slug)).toEqual(['portfolio', 'releases', 'changelog']);
-    expect(mine.filter(p => p.nav.section === 'Software factory')).toHaveLength(6);
+    expect(mine.filter(p => p.nav.section === 'Software factory')).toHaveLength(7);
     expect(pages.find(p => p.slug === 'backlog')?.source).toEqual({ kind: 'objects', objectType: 'request' });
     expect(pages.find(p => p.slug === 'backlog')?.filters).toEqual([{ field: 'meta.state', op: 'in', value: ['new', 'triaged', 'in_scope'] }]);
     expect(pages.find(p => p.slug === 'product-board')?.source).toEqual({ kind: 'objects', objectType: 'product' });
@@ -135,24 +136,43 @@ describe('plugin pages', () => {
     expect(pages.find(p => p.slug === 'factory-floor')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
   });
 
-  it('the recommendations page is the request noun cut to what the product manager put in front of a person', () => {
+  it('the costs page reads rolled-up cents off the request, groups by tag with totals, and renders money', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
-    const recs = pages.find(p => p.slug === 'recommendations');
+    const costs = pages.find(p => p.slug === 'costs');
+    const fields = Object.fromEntries((costs?.fields ?? []).map(f => [f.key, f]));
 
-    // The page schema sources objects, runs and artifacts — not asks — so the
-    // batch is read from the fields written on the request when each ask is
-    // filed and decided, grouped by batch, newest first.
     expect(issues).toEqual([]);
-    expect(recs?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(recs?.filters).toEqual([{ field: 'meta.recommendedAt', op: 'exists' }]);
-    expect(recs?.groupBy).toBe('meta.recommendationBatch');
-    expect(recs?.sort).toEqual({ field: 'meta.recommendedAt', dir: 'desc' });
-    expect(recs?.stats?.map(s => s.label)).toContain('Awaiting decision');
-    expect(recs?.fields?.find(f => f.key === 'outcome')).toMatchObject({ from: 'meta.recommendedOutcome', format: 'badge' });
-    // The ranking is a column on the backlog too, with the date that says whether it is stale.
-    expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'priority')).toMatchObject({ from: 'meta.priority', format: 'mono' });
-    expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'ranked')).toMatchObject({ from: 'meta.rankedAt', format: 'date' });
+    // Rows are requests; the figures are on the record, put there by the
+    // roll-up, so the page never computes across types itself.
+    expect(costs?.source).toEqual({ kind: 'objects', objectType: 'request' });
+    expect(costs?.groupBy).toBe('meta.tags');
+    expect(fields.estimate).toMatchObject({ from: 'meta.estimateCents', format: 'money', total: true });
+    expect(fields.actual).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
+    expect(fields.variance).toMatchObject({ from: 'meta.varianceCents', format: 'money', total: true });
+    expect(fields.tasks).toMatchObject({ from: 'meta.taskCount' });
+
+    // Every stat that is money says so; the month window is a `since`.
+    const stats = Object.fromEntries((costs?.stats ?? []).map(s => [s.label, s]));
+
+    expect(stats['Total spent']).toMatchObject({ kind: 'sum', field: 'meta.actualCents', format: 'money' });
+    expect(stats['Spent this month']).toMatchObject({ kind: 'sum', where: { field: 'meta.rollupsUpdatedAt', op: 'since', value: 'month' } });
+    expect(stats['Average cost of a feature']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'in', value: ['gap', 'idea'] } });
+    expect(stats['Average cost of a bug']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'eq', value: 'bug' } });
+    expect(readWorkspacePageContent(costs!)).toContain('estimated');
+
+    // The floor carries the historical read: eight weeks, estimated beside actual, by the week the cost landed.
+    const floor = pages.find(p => p.slug === 'factory-floor');
+
+    expect(floor?.series).toEqual([expect.objectContaining({ dateField: 'meta.costUpdatedAt', bucket: 'week', buckets: 8, format: 'money', measures: [expect.objectContaining({ field: 'meta.estimateCents' }), expect.objectContaining({ field: 'meta.actualCents' })] })]);
+
+    // Backlog and releases carry the two money columns with totals.
+    for (const slug of ['backlog', 'releases', 'factory-floor']) {
+      const fs = pages.find(p => p.slug === slug)?.fields ?? [];
+
+      expect(fs.find(f => f.key === 'estimate')).toMatchObject({ from: 'meta.estimateCents', format: 'money', total: true });
+      expect(fs.find(f => f.key === 'actual')).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
+    }
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

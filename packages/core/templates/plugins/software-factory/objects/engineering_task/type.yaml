@@ -97,6 +97,32 @@ schema:
     wallClockBudget:
       type: integer
       description: Minutes the task may take before the run's deadline passes and the worker is told to stop on its next heartbeat. A task that needs longer than its budget is a task that was scoped wrong.
+    estimateCents:
+      type: integer
+      description: >-
+        What the planner expects this task to cost in model spend, in cents,
+        written with the contract from the size class, the risk class and the
+        model policy. The ESTIMATE half of the cost pair — kept when the
+        actual lands so the two can be read side by side. A task dispatched
+        without one takes the run's per-run cap (`capCents`) as its estimate
+        when the run ends, which is the ceiling standing in for a guess and
+        reads as such.
+    actualCents:
+      type: integer
+      description: >-
+        What the task actually cost, in cents — the sum of `cents` over every
+        worker run queued for this record, every attempt included, because a
+        task picked up three times cost three runs. WRITTEN BY CORE when a run
+        for this record ends (`input.record = {type: engineering_task, id}`),
+        never typed. Read `costUpdatedAt` beside it; a task with no actual
+        has not had a run end yet.
+    varianceCents:
+      type: integer
+      description: '`actualCents` minus `estimateCents`, in cents — negative is under the estimate. Written with `actualCents` when both halves exist.'
+    costUpdatedAt:
+      type: string
+      format: date-time
+      description: When `actualCents` was last written — the moment the last run for this task ended. The week the money is counted in on the floor's cost strip.
     attempt:
       type: integer
       description: Which attempt this is, counted from 1. Raised when a run is lost or a fix is dispatched after a failed check — the record shows how many workers it took, which is the honest cost of the task.

@@ -28,9 +28,43 @@ only the definition is authored.
 | `classificationPromptFile` | path | — | Markdown prompt used to classify material into this type, relative to `type.yaml`. |
 | `classificationPrompt` | string | — | The same prompt, inline. |
 | `fewShotExamples` | `{input, output, label?}[]` | `[]` | Worked classification examples. |
+| `rollups` | `{field, from: {type, by? \| ids?}, sum?}[]` | — | Figures on this type computed from another type's rows — see *Rollups*. |
 
 `classificationPromptFile` and `classificationPrompt` are both optional; when
 either is present the loader resolves it into the type's effective prompt.
+
+## Rollups
+
+A rollup is a figure a record carries that is **computed from another type's
+rows** rather than typed: a request's `actualCents` is the sum over its
+tasks, its `taskCount` is how many there are. Each entry names the metadata
+key written on this type (`field`), the child type (`from.type`), the link —
+`by`, the child's key that holds this record's id, or `ids`, this record's
+key that lists child ids — and optionally `sum`, the child's key to add up
+(omitted, the rollup is a count).
+
+```yaml
+# objects/request/type.yaml — the task points at the request
+rollups:
+  - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
+  - {field: taskCount, from: {type: engineering_task, by: requestId}}
+```
+
+```yaml
+# objects/release/type.yaml — the release lists its tasks
+rollups:
+  - {field: actualCents, from: {type: engineering_task, ids: taskIds}, sum: actualCents}
+```
+
+Rollups are **materialised**, not read on demand: when a child's figures
+change, core recomputes every rollup that reaches it over all of each
+parent's children and writes the results onto the parent's metadata, with
+`rollupsUpdatedAt` beside them (`services/objects/rollups.ts`). Today the
+one thing that changes a child this way is a worker run ending for the
+record it was queued for (`input.record`; see [Worker run](./worker-run.md)).
+The declarations are read from the type files of the plugins the org has on
+and the mounted workspace's own `objects/`, the way pages are — nothing about
+a rollup reaches the `business_object_type` table.
 
 ## Example
 

@@ -175,18 +175,21 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   newest first, by product, with the post-deploy health and who owns the
   notes) and the **Changelog** (the announcement line per release, for the
   public's eyes).
-- **Six rows in the "Software factory" section underneath**: the
+- **Seven rows in the "Software factory" section underneath**: the
   **Backlog** (every open request, oldest first, by product, with its
   priority and when it was scored), the **Recommendations** (every request
   the product manager put in front of a person — the proposed outcome, the
-  evidence, what they decided — by batch), the **Factory
-  floor** (every task, what is waiting on a person, what carries evidence),
-  the **Product board** (stage, URLs, our price beside the incumbent's, who is
-  accountable), the **Factory log** (every run — who, what kind, what it cost,
-  what it said it did, its last heartbeat and lease, the PR one tap away), and
-  **Team report** (a link row seating the core spend report beside the log).
-  The floor and the log are live: they re-read themselves every 15 seconds
-  while open, so work in flight is seen as it happens, not as of page load.
+  evidence, what they decided — by batch), the **Factory floor** (every
+  task, what is waiting on a person, what carries evidence, and the cost
+  strip — spent per week, estimated beside actual), the **Product board**
+  (stage, URLs, our price beside the incumbent's, who is accountable),
+  **Costs** (where the money went — every request's estimate, actual and
+  variance, cumulative under each feature tag), the **Factory log** (every
+  run — who, what kind, what it cost, what it said it did, its last heartbeat
+  and lease, the PR one tap away), and **Team report** (a link row seating
+  the core spend report beside the log). The floor and the log are live:
+  they re-read themselves every 15 seconds while open, so work in flight is
+  seen as it happens, not as of page load.
 - The **software-factory** team, graded on tasks a person accepted, requests
   answered inside a week, recommendations a person decided, pull requests
   opened (the worker's own count, shown as the weakest provenance) and worker
@@ -306,6 +309,79 @@ written into the missions' goals and success criteria and into the planner's
 skill as convention the ledger is graded against. A `decisionCost` on the ask
 itself and a mission-level budget are named as core follow-ups below.
 
+## What it costs
+
+Chris's ask, in his words: cost for feature and bug and release, individual
+and cumulative by feature tag, historical and estimated. Every figure is in
+**cents in storage and money on the page**, and every one is one of two
+things.
+
+**Estimated.** The planner writes `estimateCents` on the task with the
+contract — from the size class, the risk class and the model policy. It is a
+guess, kept when the actual lands so the two read side by side. A task
+dispatched without one takes the run's per-run cap (`capCents`) as its
+estimate when the run ends: the ceiling standing in for a guess, and labelled
+as an estimate all the same, so read it as "no more than".
+
+**Measured.** Every worker run reports `cents` on its heartbeats — the
+model's own bill, as the worker read it. When a run **ends** (complete, or
+fail — a failed attempt still cost money), core sums `cents` over every run
+queued for the same record and writes the sum onto that record as
+`actualCents`, with `costUpdatedAt`, and `varianceCents` (actual minus
+estimate) when both halves exist. A task picked up three times is charged
+for three runs, once: the figure is recomputed from the rows, never
+incremented, so a retried call lands the same number.
+
+**The link is `input.record`.** The write-back reaches a task only when the
+run was queued *for* it: whoever creates the run — the launcher, or
+`POST /api/v1/worker-runs` — passes `input: {record: {type: engineering_task,
+id: <task id>}, …}`. A run without a record charges the agent's budget as it
+always did and lands on nothing. This is the one thing the workspace's
+launcher has to do for any of this page to fill; the Factory log shows spend
+per run either way.
+
+**Where the roll-up runs.** A request's cost is the sum over its tasks; a
+release's is the sum over the tasks it shipped. A page's stats compute over
+their own rows, so neither can be a page stat — and a figure a person reads
+on the record itself has to be *on* the record. So the roll-up is
+**materialised**: `objects/request/type.yaml` and `objects/release/type.yaml`
+each declare `rollups:` (which field, summed from which child type, linked
+how — the task's `requestId` pointing at the request; the release's `taskIds`
+listing its tasks), and core recomputes every rollup that reaches a task in
+the same moment it writes that task's actual, from all of the parent's
+children, stamping `rollupsUpdatedAt`. The mechanism is core's
+(`services/objects/rollups.ts`, declared per `RollupSchema`); what rolls up
+to what is this plugin's. Two consequences worth knowing: a release recorded
+*after* its tasks' runs all ended shows no figure until one of those tasks
+changes again — record the release, then let the last task's run end, or
+accept the gap; and a task whose `requestId` is edited leaves the old
+request's figure stale until one of *its* remaining tasks changes.
+
+**Cumulative by feature tag.** `request.tags` is free strings. The **Costs**
+page groups by it, and a request with two tags sits under both — "what has
+search cost" and "what has billing cost" both want the request that touched
+both — with the total under each group the cumulative spend on everything
+that carried the tag. The stats on top count each request once: total spent,
+total estimated, spent this month (requests whose cost last moved this month
+— a long feature is counted in the month its latest run ended), the average
+cost of a feature (`gap` or `idea`) against the average cost of a bug.
+
+**Historical.** The Factory floor carries a cost strip: spent per week for
+the last eight weeks, estimated beside actual, each task counted in the week
+its last run ended. The Backlog and Releases pages carry estimate and actual
+columns with totals under each product.
+
+**What a person can trust it for.** The actual is the worker's own report of
+its bill, summed — the same provenance as the Factory log's cost column and
+the team report's spend, no better. It is complete for runs that ended and
+were queued with a record; a run reaped `lost` and never re-claimed is on the
+log but on no task. The estimate is the planner's, or a cap. Neither is a
+price a customer paid or a person's time; the decision budget on the Backlog
+is the human cost, in minutes, and revenue stays on the portfolio with no
+source until one exists. The right use is comparison — this feature against
+that one, this month against last, a tag's cumulative spend against what it
+earns — and the wrong use is invoicing.
+
 ## Earned speed
 
 A merge is not one action kind — merging a docs change and merging a billing
@@ -341,20 +417,23 @@ makes a fix dangerous is the risk class of the files it touches — and
 
 ## Mechanism, meaning, concretion
 
-**Core ships the mechanism**: the record noun and its list archetype, the
-`workerRuns` page source and the `link` row, `POST /api/v1/objects` (create
-or upsert an object by its external key, so a deploy can record a release),
-the `worker_run` control plane
-(claim, lease, heartbeat, checkpoint, complete, fail, cancel, budgets,
-`counts`), the `external-worker` harness target, artifacts, asks, the review
+**Core ships the mechanism**: the record noun and its list archetype (with
+its `sum` stats, `money` format, column totals, tag grouping and the
+`series` strip), the `workerRuns` page source and the `link` row,
+`POST /api/v1/objects` (create or upsert an object by its external key, so a
+deploy can record a release), the `worker_run` control plane (claim, lease,
+heartbeat, checkpoint, complete, fail, cancel, budgets, `counts`, and the
+cost write-back onto the record a run was queued for), object-type
+`rollups`, the `external-worker` harness target, artifacts, asks, the review
 queue, the trust ladder and the team report.
 
 **This plugin ships the meaning**: the four nouns and what each field is for,
 who tags and ranks and recommends, who triages, who writes a contract, who
 reviews it against the diff and the evidence, the three WIP limits and the
 ten-then-pause rule, what a push costs versus what each class of merge or
-authorization costs, the nine standing responsibilities, and the six rows a
-person watches it from.
+authorization costs, what rolls up onto a request and a release and from
+where, the nine standing responsibilities, and the seven rows a person
+watches it from.
 
 **The workspace ships the concretion**, and it has to:
 
@@ -378,7 +457,9 @@ person watches it from.
 - **The worker itself** — Vocion does not host it. A process holding a tenant
   token claims the run, heartbeats, saves artifacts and reports `counts`
   (`prsOpened`, `centsSpent`, `answeredWithinSevenDays` are the keys the team
-  measures read).
+  measures read). Whatever queues the run for a task passes
+  `input.record: {type: engineering_task, id}` so the run's cost lands on the
+  task when it ends (*What it costs*).
 
 **Customise it** in the workspace, never by editing the plugin: patch an agent
 with `agents/<slug>.yaml` + `extends: core`, replace a skill or playbook
@@ -411,7 +492,16 @@ action to move a bar.
   request to shipped" is authored as the flow count of requests answered
   within seven days; a percentile source is a core change.
 - **A cross-type stat** — open requests per product on the Product board; the
-  Backlog groups by product instead.
+  Backlog groups by product instead. The `rollups` mechanism that sums a
+  request's cost from its tasks could carry that count too (`product` ←
+  `request.product`, no `sum`), which would make `openRequests` observed
+  rather than agent-maintained; it is not wired yet.
+- **An estimate the planner writes.** `estimateCents` is on the task schema
+  and the roll-up reads it, but `write-task-contract` does not yet tell the
+  planner to fill it; until it does, the run's cap stands in and the estimate
+  column reads "no more than".
+- **Cost on a lost run.** A run reaped `lost` and never re-claimed spent
+  money that is on the log and on no task.
 - **A run detail route.** The Factory log's rows open the activity stream
   filtered to workers; a page per run would let the log link straight to it.
 - **A verified revenue source.** `revenueMonthCents` is empty until a Stripe

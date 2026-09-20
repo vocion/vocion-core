@@ -69,6 +69,12 @@ const FieldSchema = z.object({
    * (the floor's `verified` does, with `'false': bad`).
    */
   tones: z.record(z.string(), z.enum(['ok', 'warn', 'bad', 'info', 'muted'])).optional(),
+  /**
+   * Sum this column under the table — under each group's table on a grouped
+   * page, so grouping by a tag gives the cumulative figure per tag. A
+   * `money` column totals as money; anything else as a number.
+   */
+  total: z.boolean().default(false),
 });
 
 /**
@@ -83,21 +89,51 @@ const LiveSchema = z.object({
   every: z.number().int().min(5).max(120),
 });
 
+/**
+ * `since` keeps the rows whose date field is on or after the start of a
+ * window that ends now: `month` (this calendar month), `week` (this week,
+ * Monday first), `today`, or `<n>d` (the last n days). UTC throughout, so a
+ * stat reads the same from every desk.
+ */
+const SinceValueSchema = z.string().regex(/^(month|week|today|\d+d)$/, { message: 'since takes month, week, today or <n>d' });
+
 const FilterSchema = z.object({
   field: z.string(),
-  op: z.enum(['eq', 'neq', 'gte', 'lte', 'in', 'exists']),
+  op: z.enum(['eq', 'neq', 'gte', 'lte', 'in', 'exists', 'since']),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))]).optional(),
-});
+}).refine(f => f.op !== 'since' || SinceValueSchema.safeParse(f.value).success, { message: 'since takes month, week, today or <n>d', path: ['value'] });
 
 const StatSchema = z.object({
   label: z.string(),
-  kind: z.enum(['count', 'avg', 'min', 'max', 'pctGte', 'countWhere']),
+  kind: z.enum(['count', 'avg', 'min', 'max', 'sum', 'pctGte', 'countWhere']),
   /** Field the stat computes over (same accessor grammar as FieldSchema.from). */
   field: z.string().optional(),
   threshold: z.number().optional(),
   where: FilterSchema.optional(),
   /** Optional suffix, e.g. "%" or "applicants". */
   suffix: z.string().optional(),
+  /** `money` reads the figure as cents and shows dollars, the way a `money` field does. */
+  format: z.enum(['number', 'money']).default('number'),
+});
+
+/**
+ * A strip of figures over time — the same measures a stat computes, bucketed
+ * by a date field into the last `buckets` days, weeks or months, oldest
+ * first. "Spent per week, estimated beside actual" is one series with two
+ * measures. Rows with no date, or a date outside the window, are left out.
+ */
+const SeriesSchema = z.object({
+  label: z.string(),
+  /** The date each row is bucketed by (same accessor grammar as FieldSchema.from). */
+  dateField: z.string(),
+  bucket: z.enum(['day', 'week', 'month']).default('week'),
+  buckets: z.number().int().min(2).max(52).default(8),
+  measures: z.array(z.object({
+    label: z.string(),
+    field: z.string(),
+    kind: z.enum(['sum', 'count', 'avg']).default('sum'),
+  })).min(1),
+  format: z.enum(['number', 'money']).default('number'),
 });
 
 const WidgetSchema = z.object({
@@ -176,6 +212,8 @@ export const PageManifestSchema = z.object({
   groupBy: z.string().optional(),
   sort: z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).default('desc') }).optional(),
   stats: z.array(StatSchema).optional(),
+  /** Figures over time, drawn under the stats — see {@link SeriesSchema}. */
+  series: z.array(SeriesSchema).optional(),
   /** Row click-through, e.g. `/dashboard/objects/{id}`. `{id}` interpolates. */
   rowLink: z.string().optional(),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
@@ -215,6 +253,7 @@ export type LoadedPage = PageManifest & {
 export type PageField = z.infer<typeof FieldSchema>;
 export type PageLive = z.infer<typeof LiveSchema>;
 export type PageStat = z.infer<typeof StatSchema>;
+export type PageSeries = z.infer<typeof SeriesSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
 
 function workspaceDir(): string | null {
@@ -434,7 +473,28 @@ export function toDate(raw: unknown): Date | null {
   return null;
 }
 
-export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchema>[] | undefined): PageRow[] {
+/**
+ * Where a `since` window starts, in UTC. `week` starts on Monday.
+ * @param value - `month` | `week` | `today` | `<n>d`.
+ * @param now - The clock.
+ */
+export function sinceStart(value: string, now: Date): Date {
+  const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (value === 'month') {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  }
+  if (value === 'week') {
+    const dow = (now.getUTCDay() + 6) % 7; // Monday = 0
+    return new Date(day - dow * 86_400_000);
+  }
+  if (value === 'today') {
+    return new Date(day);
+  }
+  const days = Number.parseInt(value, 10);
+  return new Date(now.getTime() - (Number.isFinite(days) ? days : 0) * 86_400_000);
+}
+
+export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchema>[] | undefined, now: Date = new Date()): PageRow[] {
   if (!filters?.length) {
     return rows;
   }
@@ -447,30 +507,64 @@ export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchem
       case 'lte': return typeof v === 'number' && typeof f.value === 'number' && v <= f.value;
       case 'in': return Array.isArray(f.value) && (f.value as unknown[]).includes(v as never);
       case 'exists': return v !== undefined && v !== null && v !== '';
+      case 'since': {
+        const d = toDate(v);
+        return d !== null && typeof f.value === 'string' && d.getTime() >= sinceStart(f.value, now).getTime();
+      }
       default: return true;
     }
   }));
 }
 
-export function computeStat(rows: PageRow[], stat: PageStat): string {
-  const pool = stat.where ? applyFilter(rows, [stat.where]) : rows;
-  const nums = stat.field
-    ? pool.map(r => resolveField(r, stat.field!)).filter((v): v is number => typeof v === 'number')
+/**
+ * Cents as dollars — `1234` → `$12.34`, `-50` → `-$0.50`. Storage is always
+ * cents; this is the one place they become money on a page.
+ * @param cents - An integer number of cents (a fraction is rounded).
+ */
+export function formatMoney(cents: number): string {
+  const whole = Math.round(cents);
+  const sign = whole < 0 ? '-' : '';
+  return `${sign}$${(Math.abs(whole) / 100).toFixed(2)}`;
+}
+
+function aggregate(kind: 'count' | 'sum' | 'avg' | 'min' | 'max', pool: PageRow[], nums: number[]): number {
+  switch (kind) {
+    case 'count':
+      return pool.length;
+    case 'sum':
+      return nums.reduce((a, b) => a + b, 0);
+    case 'avg':
+      return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+    case 'min':
+      return nums.length ? Math.min(...nums) : 0;
+    case 'max':
+      return nums.length ? Math.max(...nums) : 0;
+    default:
+      return 0;
+  }
+}
+
+function numbersOf(rows: PageRow[], field: string | undefined): number[] {
+  return field
+    ? rows.map(r => resolveField(r, field)).filter((v): v is number => typeof v === 'number')
     : [];
+}
+
+function renderFigure(value: number, format: 'number' | 'money', suffix = ''): string {
+  if (format === 'money') {
+    return `${formatMoney(value)}${suffix}`;
+  }
+  const rounded = Number.isInteger(value) ? value : Math.round(value * 10) / 10;
+  return `${rounded}${suffix}`;
+}
+
+export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Date()): string {
+  const pool = stat.where ? applyFilter(rows, [stat.where], now) : rows;
+  const nums = numbersOf(pool, stat.field);
   let value: number;
   switch (stat.kind) {
-    case 'count':
     case 'countWhere':
       value = pool.length;
-      break;
-    case 'avg':
-      value = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
-      break;
-    case 'min':
-      value = nums.length ? Math.min(...nums) : 0;
-      break;
-    case 'max':
-      value = nums.length ? Math.max(...nums) : 0;
       break;
     case 'pctGte': {
       const t = stat.threshold ?? 0;
@@ -478,8 +572,119 @@ export function computeStat(rows: PageRow[], stat: PageStat): string {
       break;
     }
     default:
-      value = 0;
+      value = aggregate(stat.kind, pool, nums);
   }
-  const rounded = Number.isInteger(value) ? value : Math.round(value * 10) / 10;
-  return `${rounded}${stat.suffix ?? ''}`;
+  return renderFigure(value, stat.format, stat.suffix);
+}
+
+/**
+ * The columns marked `total`, summed over these rows and rendered the way
+ * the column renders — money for a `money` column, a plain number otherwise.
+ * Empty when no column asks for it.
+ * @param rows - The rows under one table.
+ * @param fields - The page's fields.
+ */
+export function computeTotals(rows: PageRow[], fields: PageField[]): Record<string, string> {
+  const totals: Record<string, string> = {};
+  for (const f of fields) {
+    if (!f.total) {
+      continue;
+    }
+    const sum = numbersOf(rows, f.from ?? f.key).reduce((a, b) => a + b, 0);
+    totals[f.key] = renderFigure(sum, f.format === 'money' ? 'money' : 'number');
+  }
+  return totals;
+}
+
+/**
+ * Rows by the value of `groupBy`, in first-seen order. A row whose value is a
+ * list — a request's tags — sits in every group it names, so a page grouped
+ * by tag reads as "everything under this tag" and a total under each group
+ * is the cumulative figure for that tag. No value, or an empty list, is "—".
+ * @param rows - The page's rows, already filtered and sorted.
+ * @param groupBy - The accessor to group on.
+ */
+export function groupRows(rows: PageRow[], groupBy: string): Array<{ label: string; rows: PageRow[] }> {
+  const groups = new Map<string, PageRow[]>();
+  for (const r of rows) {
+    const v = resolveField(r, groupBy);
+    const keys = Array.isArray(v) ? v.map(String).filter(k => k !== '') : [];
+    for (const k of keys.length > 0 ? keys : [v === undefined || v === null || v === '' || Array.isArray(v) ? '—' : String(v)]) {
+      groups.set(k, [...(groups.get(k) ?? []), r]);
+    }
+  }
+  return [...groups].map(([label, rs]) => ({ label, rows: rs }));
+}
+
+export type ComputedSeries = {
+  label: string;
+  buckets: string[];
+  measures: Array<{ label: string; values: string[] }>;
+};
+
+/**
+ * The UTC start of the bucket a moment falls in.
+ * @param t - The moment.
+ * @param bucket - Day, week (Monday first) or month.
+ */
+function bucketStart(t: Date, bucket: PageSeries['bucket']): number {
+  if (bucket === 'month') {
+    return Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 1);
+  }
+  const day = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate());
+  return bucket === 'week' ? day - ((t.getUTCDay() + 6) % 7) * 86_400_000 : day;
+}
+
+/**
+ * The start of the bucket `n` buckets before the one starting at `start`.
+ * @param start - A bucket start, from {@link bucketStart}.
+ * @param n - How many buckets back.
+ * @param bucket - Day, week or month.
+ */
+function bucketBack(start: number, n: number, bucket: PageSeries['bucket']): number {
+  const d = new Date(start);
+  if (bucket === 'month') {
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 1);
+  }
+  return start - n * (bucket === 'week' ? 7 : 1) * 86_400_000;
+}
+
+function bucketLabel(start: number, bucket: PageSeries['bucket']): string {
+  const d = new Date(start);
+  return bucket === 'month'
+    ? d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * A series over the page's rows: the last `buckets` buckets ending at now,
+ * oldest first, each measure aggregated over the rows whose `dateField`
+ * falls in the bucket.
+ * @param rows - The page's rows, already filtered.
+ * @param series - The series declaration.
+ * @param now - The clock.
+ */
+export function computeSeries(rows: PageRow[], series: PageSeries, now: Date = new Date()): ComputedSeries {
+  const last = bucketStart(now, series.bucket);
+  const starts = Array.from({ length: series.buckets }, (_, i) => bucketBack(last, series.buckets - 1 - i, series.bucket));
+  const pools: PageRow[][] = starts.map(() => []);
+  for (const r of rows) {
+    const d = toDate(resolveField(r, series.dateField));
+    if (!d) {
+      continue;
+    }
+    const b = bucketStart(d, series.bucket);
+    const i = starts.indexOf(b);
+    if (i >= 0) {
+      pools[i]!.push(r);
+    }
+  }
+  return {
+    label: series.label,
+    buckets: starts.map(s => bucketLabel(s, series.bucket)),
+    measures: series.measures.map(m => ({
+      label: m.label,
+      values: pools.map(pool => renderFigure(aggregate(m.kind, pool, numbersOf(pool, m.field)), series.format)),
+    })),
+  };
 }

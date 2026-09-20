@@ -34,6 +34,9 @@ fields:
   - {key: theme, label: Theme, from: meta.theme, format: mono}
   - {key: ranked, label: Ranked, from: meta.rankedAt, format: date}
   - {key: cost, label: Decision min, from: meta.decisionCost, format: mono}
+  # Model spend, rolled up from the request's tasks (see pages/costs.yaml).
+  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true}
+  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
   - {key: asked, label: Asked, from: meta.askedAt, format: date}
 filters:
   - {field: meta.state, op: in, value: [new, triaged, in_scope]}

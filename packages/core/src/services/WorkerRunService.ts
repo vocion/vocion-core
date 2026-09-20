@@ -1,9 +1,11 @@
 import type { TokenUsage } from '@/libs/pricing';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { workerRunSchema } from '@/models/Schema';
+import { logger } from '@/libs/Logger';
+import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
+import { recomputeRollups } from '@/services/objects/rollups';
 
 /**
  * WorkerRunService — the control plane for long-running agent runs that execute
@@ -21,6 +23,12 @@ import { chargeUsage, preflightCheck } from '@/services/BudgetService';
  * Vocion never hosts the worker and never sees its working state. Every write
  * here is scoped by orgId; every worker-side call must also present the
  * workerId that holds the lease.
+ *
+ * A run queued FOR A RECORD — `input.record = {type, id}`, an object of a type
+ * the org has applied — writes its cost onto that record when it ends
+ * ({@link writeBackRunCost}): the record IS the durable thing a person reads,
+ * the run is the lease underneath it, and what the work cost belongs on the
+ * record. Rollups the org's object types declare are recomputed from there.
  */
 
 export type WorkerRunStatus = 'queued' | 'running' | 'paused' | 'awaiting_review' | 'completed' | 'failed' | 'cancelled' | 'lost';
@@ -317,6 +325,7 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
     heartbeatAt: now,
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
+  await writeBackRunCost(updated!, now);
   return updated!;
 }
 
@@ -344,7 +353,94 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
     heartbeatAt: now,
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
+  // A failed attempt still cost money, and the record's actual is the honest
+  // sum over every attempt it took.
+  await writeBackRunCost(updated!, now);
   return updated!;
+}
+
+/**
+ * The record a run was queued for, when the creator named one:
+ * `input.record = {type: '<object type slug>', id: <object id>}`. Null for a
+ * run that was not queued against a record — most are not.
+ * @param run - The run.
+ */
+export function runRecord(run: Pick<WorkerRun, 'input'>): { type: string; id: number } | null {
+  const rec = (run.input as Record<string, unknown> | null)?.record;
+  if (!rec || typeof rec !== 'object') {
+    return null;
+  }
+  const { type, id } = rec as Record<string, unknown>;
+  const n = typeof id === 'number' ? id : Number(id);
+  return typeof type === 'string' && type !== '' && Number.isInteger(n) && n > 0 ? { type, id: n } : null;
+}
+
+/**
+ * What every run queued for this record has cost so far, in cents — summed
+ * over the rows rather than added to the record, so a retried terminal call
+ * lands the same figure and a task picked up three times is charged three
+ * times, once.
+ * @param orgId - Tenant.
+ * @param record - The record.
+ * @param record.type - Its object type slug.
+ * @param record.id - Its object id.
+ */
+async function centsSpentOn(orgId: string, record: { type: string; id: number }): Promise<number> {
+  const [row] = await db.select({ spent: sql<number>`coalesce(sum(${workerRunSchema.cents}), 0)::int` })
+    .from(workerRunSchema)
+    .where(and(
+      eq(workerRunSchema.orgId, orgId),
+      sql`${workerRunSchema.input} -> 'record' ->> 'type' = ${record.type}`,
+      sql`${workerRunSchema.input} -> 'record' ->> 'id' = ${String(record.id)}`,
+    ));
+  return row?.spent ?? 0;
+}
+
+/**
+ * A run ended: put what it cost on the record it ran for, then recompute the
+ * rollups that reach that record.
+ *
+ * Written on the record's metadata: `actualCents` (the sum over every run
+ * queued for it), `costUpdatedAt`, and — when the record carries an
+ * `estimateCents`, or failing that when the run had a per-run cap to stand in
+ * for one — `estimateCents` and `varianceCents` (actual minus estimate, so a
+ * negative number is under budget). Cents throughout; the page renders money.
+ *
+ * Best effort by design: the run's own row is already terminal, and a
+ * write-back that fails must not hand the worker a 500 for work it finished.
+ * The failure is logged with the run and the record.
+ * @param run - The terminal run.
+ * @param now - When it ended.
+ */
+async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
+  const record = runRecord(run);
+  if (!record) {
+    return;
+  }
+  try {
+    const type = await db.query.businessObjectTypeSchema.findFirst({ where: and(eq(businessObjectTypeSchema.orgId, run.orgId), eq(businessObjectTypeSchema.slug, record.type)) });
+    if (!type) {
+      return;
+    }
+    const object = await db.query.businessObjectSchema.findFirst({ where: and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.typeId, type.id), eq(businessObjectSchema.id, record.id)) });
+    if (!object) {
+      return;
+    }
+    const spent = await centsSpentOn(run.orgId, record);
+    const meta = object.metadata ?? {};
+    const estimate = typeof meta.estimateCents === 'number' ? meta.estimateCents : run.capCents ?? undefined;
+    await db.update(businessObjectSchema).set({
+      metadata: {
+        ...meta,
+        actualCents: spent,
+        costUpdatedAt: now.toISOString(),
+        ...(estimate === undefined ? {} : { estimateCents: estimate, varianceCents: spent - estimate }),
+      },
+    }).where(eq(businessObjectSchema.id, object.id));
+    await recomputeRollups({ orgId: run.orgId, childType: record.type, childId: record.id, now });
+  } catch (err) {
+    logger.warn('worker run cost write-back failed', { runId: run.id, record, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /**

@@ -21,8 +21,12 @@ import { Link } from '@/libs/I18nNavigation';
 import { relativeLabel } from '@/libs/timeAgo';
 import {
   applyFilter,
+  computeSeries,
   computeStat,
+  computeTotals,
+  formatMoney,
   formatProgress,
+  groupRows,
   pagePlugin,
   readWorkspacePageContent,
   resolveField,
@@ -285,7 +289,7 @@ function Cell({ row, field, now }: { row: PageRow; field: PageField; now: number
       return <span className="font-mono text-xs">{s}</span>;
     case 'money': {
       const cents = Number(raw);
-      return <span className="font-mono text-sm tabular-nums">{Number.isFinite(cents) ? `$${(cents / 100).toFixed(2)}` : s}</span>;
+      return <span className="font-mono text-sm tabular-nums">{Number.isFinite(cents) ? formatMoney(cents) : s}</span>;
     }
     case 'link':
       return <a href={s} target="_blank" rel="noreferrer" className="font-mono text-xs underline underline-offset-2">{s}</a>;
@@ -306,8 +310,74 @@ function Cell({ row, field, now }: { row: PageRow; field: PageField; now: number
     case 'image':
       return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
     default:
-      return <span className="text-sm">{s}</span>;
+      // A list — a request's tags — reads as its items, not as JSON.
+      return <span className="text-sm">{Array.isArray(raw) ? raw.map(String).join(', ') : s}</span>;
   }
+}
+
+/**
+ * A `series` strip: one column per bucket, oldest first, one row per measure.
+ * A table rather than a chart on purpose — the figures are the point, and a
+ * server component draws it with nothing to load.
+ * @param root0
+ * @param root0.series
+ */
+function SeriesStrip({ series }: { series: ReturnType<typeof computeSeries> }) {
+  return (
+    <section className="mb-6 overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-border bg-muted/40">
+            <th className="px-4 py-2 text-xs font-medium text-muted-foreground">{series.label}</th>
+            {series.buckets.map(b => (
+              <th key={b} className="px-4 py-2 text-right text-xs font-medium text-muted-foreground tabular-nums">{b}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {series.measures.map(m => (
+            <tr key={m.label} className="border-b border-border/60 last:border-0">
+              <td className="px-4 py-2 text-xs text-muted-foreground">{m.label}</td>
+              {m.values.map((v, i) => (
+                <td key={`${m.label}-${series.buckets[i]}`} className="px-4 py-2 text-right font-mono text-sm tabular-nums">{v}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+/**
+ * The total under a table: each `total` column's sum in its own cell, the
+ * word in the first column that is not one, the rest empty. On a grouped
+ * page it sits under every group, so a group is read with its cumulative
+ * figure.
+ * @param root0
+ * @param root0.rows
+ * @param root0.fields
+ * @param root0.extra
+ */
+function TotalsRow({ rows, fields, extra }: { rows: PageRow[]; fields: PageField[]; extra: number }) {
+  const totals = computeTotals(rows, fields);
+  const labelKey = fields.find(f => !f.total)?.key;
+  return (
+    <tfoot>
+      <tr className="border-t border-border bg-muted/40">
+        {fields.map(f => (
+          <td key={f.key} className="px-4 py-2 text-xs">
+            {f.key in totals
+              ? <span className="font-mono text-sm font-semibold tabular-nums">{totals[f.key]}</span>
+              : f.key === labelKey
+                ? <span className="font-medium text-muted-foreground">Total</span>
+                : null}
+          </td>
+        ))}
+        {extra > 0 && <td />}
+      </tr>
+    </tfoot>
+  );
 }
 
 function Widgets({ manifest, position, rows, stats }: {
@@ -382,7 +452,7 @@ export default async function WorkspacePage(props: {
 
   let rows: PageRow[] = [];
   if (manifest.archetype !== 'markdown' && manifest.source) {
-    rows = applyFilter(await loadRows(manifest, orgId), manifest.filters);
+    rows = applyFilter(await loadRows(manifest, orgId), manifest.filters, new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -414,24 +484,22 @@ export default async function WorkspacePage(props: {
 
   const stats: Record<string, string> = {};
   for (const s of manifest.stats ?? []) {
-    stats[s.label] = computeStat(rows, s);
+    stats[s.label] = computeStat(rows, s, new Date(now));
   }
+  const series = (manifest.series ?? []).map(sr => computeSeries(rows, sr, new Date(now)));
 
   const groups: Array<{ label: string | null; rows: PageRow[] }> = manifest.groupBy
-    ? [...rows.reduce((m, r) => {
-        const k = String(resolveField(r, manifest.groupBy!) ?? '—');
-        m.set(k, [...(m.get(k) ?? []), r]);
-        return m;
-      }, new Map<string, PageRow[]>())].map(([label, rs]) => ({ label, rows: rs }))
+    ? groupRows(rows, manifest.groupBy)
     : [{ label: null, rows }];
 
   // Which plugin shipped this page, if any — the panel's slug.
   const ownedBy = pagePlugin(manifest);
 
   const fields = manifest.fields ?? [
-    { key: 'title', label: 'Title', format: 'text' as const },
-    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const },
+    { key: 'title', label: 'Title', format: 'text' as const, total: false },
+    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const, total: false },
   ];
+  const hasTotals = fields.some(f => f.total);
 
   return (
     <>
@@ -467,6 +535,8 @@ export default async function WorkspacePage(props: {
           ))}
         </div>
       )}
+
+      {series.map(sr => <SeriesStrip key={sr.label} series={sr} />)}
 
       <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
 
@@ -517,6 +587,9 @@ export default async function WorkspacePage(props: {
                       );
                 })}
               </tbody>
+              {hasTotals && g.rows.length > 0 && (
+                <TotalsRow rows={g.rows} fields={fields} extra={manifest.rowLink ? 1 : 0} />
+              )}
             </table>
           </div>
         </section>
