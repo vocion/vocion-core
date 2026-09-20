@@ -55,6 +55,15 @@ export type ActionRun = {
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
   /** The action's registered display name ("Enroll MQL in sequence"), when the loader knew it. */
   typeLabel?: string;
+  /** What the run recorded — a hand-off's `handoff` and `executed` blocks — for the lifecycle under Run details. */
+  result?: Record<string, unknown> | null;
+  decidedBy?: string | null;
+  decidedAt?: Date | string | null;
+  executedAt?: Date | string | null;
+  /** Who the queue routed it to, by name, when it did. */
+  assignee?: string | null;
+  /** Display names for the ids the run carries, resolved by the loader. */
+  people?: Record<string, string>;
 };
 
 // Re-exported so existing client importers are untouched; the definition is

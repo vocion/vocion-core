@@ -42,6 +42,13 @@ export type BarAction = {
   /** Ghost by default; `danger` reddens on hover. The primary is always ink. */
   'tone'?: 'ghost' | 'danger';
   /**
+   * Keep the word beside the icon at every width. Secondaries drop to their
+   * icon on a phone by default; a card whose verbs a person meets for the
+   * first time — a hand-off's Reject and Snooze — says them in full there too
+   * (Chris, 2026-09-20, reading one on his phone).
+   */
+  'labelAlways'?: boolean;
+  /**
    * Why the button is dead, when it is. A disabled control takes no pointer
    * events, so the reason rides a wrapper that still hovers, and an
    * `aria-describedby` so it is not hover-only.
@@ -98,7 +105,7 @@ function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
           it out of. The PRIMARY keeps its word at every width — it is the one
           that reaches the outside world, and an unlabelled icon is a poor
           thing to ask someone to press for that. */}
-      <span className={primary ? undefined : 'sr-only sm:not-sr-only'}>{a.label}</span>
+      <span className={primary || a.labelAlways ? undefined : 'sr-only sm:not-sr-only'}>{a.label}</span>
       {a.shortcut && (
         // Decorative, like the icon above it: the letter is a hint at the
         // keyboard shortcut, not part of what the button is called. Without
