@@ -68,6 +68,30 @@ export type ReviewCard = {
    * is never drawn without one.
    */
   confidenceSubject?: string;
+  /**
+   * ONE plain sentence saying what approving does, for the decision header
+   * the shell draws above the tabs — "Register stampsend.com in Route 53 for
+   * the Stamp rename." Setting it is what opts a card into that header: the
+   * sentence, the `badges` beside it, and the recommendation said once as an
+   * inline line under them, so Run details need not repeat who recommended
+   * it, how sure they were, or what they suggest. Chris, 2026-09-20, on the
+   * first hand-off read from a phone: simpler and clearer.
+   */
+  headline?: string;
+  /**
+   * The facts a person checks before reading further, as short chips beside
+   * the headline: the system, whether it can be undone, what it costs, which
+   * account it touches. `warn` is for the one that should stop a thumb —
+   * Irreversible. Rendered only with a `headline`.
+   */
+  badges?: Array<{ label: string; tone?: 'default' | 'warn' }>;
+  /**
+   * Set by the hand-off presenter (`libs/actions/manual.ts`): the run is
+   * approved here and DONE elsewhere, by a person. The shell reads it to draw
+   * the lifecycle — Approve → a person runs the steps → Mark done — and to say
+   * who runs it; the verbs and the states themselves come from the run.
+   */
+  handoff?: { reversible: boolean };
   /** Who/what the item is about, e.g. the lead: name / role / company, deep-linked. */
   subject?: { name: string; role?: string; company?: string; href?: string };
   /** Where the item came from: source, campaign, MQL date. Labeled, no links. */
@@ -163,6 +187,20 @@ export type ReviewContent
     body: string;
     /** Render in a monospace block with whitespace kept — commands, YAML, a diff. */
     preformatted?: boolean;
+  }
+  | {
+    /**
+     * Numbered steps a person performs — the structured recipe of a hand-off.
+     * Each step says what to do in words; the command, when there is one, sits
+     * in its own monospace block with a copy button, and a link opens where
+     * the step happens. Read-only, like `text`: it never joins the walk.
+     */
+    kind: 'steps';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    steps: Array<{ say: string; run?: string; url?: string }>;
   };
 
 /**
@@ -223,7 +261,8 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * kinds; it does not put an Undo button on the run.
    *
    * Build one with `libs/actions/manual.ts`, which owns the shared input
-   * shape (title, summary, recipe, evidence, externalRef) and the card.
+   * shape (title, headline, summary, steps or recipe, cost, target, sources,
+   * evidence, externalRef) and the card.
    */
   manual?: { reversible?: boolean };
   /**
