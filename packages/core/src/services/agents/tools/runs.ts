@@ -29,11 +29,9 @@ const BOOKKEEPING_KINDS = ['compact', 'snapshot'];
 const DEFAULT_LIMIT = 20;
 
 /**
- * The first string under any of `keys` on `source`, or null. Workers name
- * their result fields their own way (`pr_url` on the factory log's page,
- * `prUrl` on the task record), so the tool reads the spellings it has seen.
- * @param source - `result` or `input` as the worker wrote it.
- * @param keys - Spellings to try, in order.
+ * The first string under any of `keys` on `source`, or null.
+ * @param source - `result`, `progress` or `input` as the worker wrote it.
+ * @param keys - Keys to try, in order.
  */
 function firstString(source: Record<string, unknown> | null | undefined, keys: string[]): string | null {
   for (const key of keys) {
@@ -43,6 +41,45 @@ function firstString(source: Record<string, unknown> | null | undefined, keys: s
     }
   }
   return null;
+}
+
+/**
+ * What the worker reported about the change, read from the keys the factory
+ * worker writes (squatch-core `factory/worker/worker.mjs`, verified
+ * 2026-09-20). A completed run's `result` carries `pr_url`, `branch`,
+ * `commit_sha`, `files_changed`, `checks`, `task_id`, `risk_class`. A failed
+ * run has no result: its kept work is on the last heartbeat's `progress` —
+ * `keptBranch`, `prUrl`, `continue` — so the person can pick the branch up.
+ * @param result - `worker_run.result`.
+ * @param progress - `worker_run.progress`.
+ */
+function changeReported(result: Record<string, unknown> | null, progress: Record<string, unknown>): Record<string, unknown> {
+  const checks = Array.isArray(result?.checks)
+    ? (result!.checks as unknown[]).map((c) => {
+        if (!c || typeof c !== 'object') {
+          return { name: String(c), status: null };
+        }
+        const check = c as Record<string, unknown>;
+        return {
+          name: firstString(check, ['name', 'check']),
+          status: typeof check.passed === 'boolean' ? (check.passed ? 'passed' : 'failed') : (firstString(check, ['status']) ?? null),
+        };
+      })
+    : null;
+  const filesChanged = Array.isArray(result?.files_changed) ? (result!.files_changed as unknown[]).length : null;
+  const kept = firstString(progress, ['keptBranch']) || firstString(progress, ['prUrl'])
+    ? { keptBranch: firstString(progress, ['keptBranch']), prUrl: firstString(progress, ['prUrl']), continue: firstString(progress, ['continue']) }
+    : null;
+  return {
+    prUrl: firstString(result, ['pr_url']) ?? kept?.prUrl ?? null,
+    branch: firstString(result, ['branch']) ?? kept?.keptBranch ?? null,
+    commit: firstString(result, ['commit_sha']),
+    filesChanged,
+    checks,
+    taskId: typeof result?.task_id === 'number' ? result.task_id : firstString(result, ['task_id']),
+    riskClass: firstString(result, ['risk_class']),
+    keptWork: kept,
+  };
 }
 
 /**
@@ -194,9 +231,7 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
           record: runRecord(run),
           summary: run.summary,
           error: run.error,
-          prUrl: firstString(result, ['pr_url', 'prUrl', 'pull_request_url', 'pullRequestUrl']),
-          branch: firstString(result, ['branch', 'kept_branch', 'keptBranch', 'branch_name']),
-          commit: firstString(result, ['commit', 'commit_sha', 'commitSha', 'sha']),
+          ...changeReported(result, (run.progress ?? {}) as Record<string, unknown>),
           counts: run.counts,
           tokens: run.tokens,
           cents: run.cents,
@@ -234,7 +269,7 @@ export function listRecentRunsTool(ctx: RuntimeContext) {
     {
       name: 'list_recent_runs',
       description: [
-        'What the workspace\'s agents have run and built. Returns the org\'s worker runs (external workers, the software factory\'s engineer, lead ticks, red-team grades) — every run on record, whether or not a task record exists for it — with the total count, spend, a count per status, and the most recent N newest first: id, kind, status, agent, what it was asked to do, the record it ran for, what it said it did, cost, PR URL, branch and commit when the worker reported them, when it started and ended.',
+        'What the workspace\'s agents have run and built. Returns the org\'s worker runs (external workers, the software factory\'s engineer, lead ticks, red-team grades) — every run on record, whether or not a task record exists for it — with the total count, spend, a count per status, and the most recent N newest first: id, kind, status, agent, what it was asked to do, the record it ran for, what it said it did, cost, and what the worker reported about the change — PR URL, branch, commit, files changed, each check with its status, task id, risk class — plus, on a failed run, the kept branch and PR from its last heartbeat and how to continue; when it started and ended.',
         'When the workspace has a `release` object type, the recent releases ride along (product, version, when it reached people, the PRs and tasks it carried). Use this to answer "what have you built", "what shipped", "what is running", "what did the factory do this week" — before concluding that nothing happened.',
         'Also lists recent workflow runs and action proposals; set `withFeedbackOnly` to see only workflow runs carrying a rating or note (the self-improver\'s use). `kinds`, `status` and `agentSlug` narrow the worker runs; bookkeeping runs (compact, snapshot) are left out unless `includeBookkeeping` is set.',
       ].join(' '),
