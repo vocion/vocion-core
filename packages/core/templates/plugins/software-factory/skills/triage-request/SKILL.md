@@ -59,6 +59,10 @@ one), and stop.
   fix land, and what class does that path demand? This is what the planner
   will start from, and it is what decides whether the eventual merge is a
   minute of someone's day or a real decision.
+- **`sizeClass`** — in release terms, not effort: `major` is a new capability
+  or product and counts against the initiative limit of one in flight;
+  `minor` is a feature within a product; `patch` is a fix. A `major` request
+  in scope while an initiative is open waits on the backlog and is said so.
 - **`decisionCost`** — minutes of a person's attention the decision this will
   ask for will take. A reply to a question, 1. A merge of a docs fix, 1. A
   merge of a logic change, 5. Anything that touches a price, a plan limit, a
@@ -89,7 +93,7 @@ is not. If the reason is a promise the product made elsewhere, quote the
 promise. If the reason is that it does not serve the goal, say what the goal
 is. Short.
 
-**The reply is a gated action.** Propose it (`request.answer`); a person
+**The reply is a gated action.** Propose it (`notify.requester` — the same action that later tells an asker their request shipped); a person
 releases it. It goes back on the channel the request came from — the reviewer
 who wrote a store review reads it in the store, the person who emailed reads
 it in mail. Never say a reply was sent that is still waiting on a person.

@@ -76,8 +76,11 @@ describe('plugin pages', () => {
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
 
     expect(issues).toEqual([]);
-    expect(mine.map(p => p.slug)).toEqual(['backlog', 'factory-floor', 'product-board', 'factory-log', 'team-report']);
-    expect(new Set(mine.map(p => p.nav.section))).toEqual(new Set(['Software factory']));
+    // The portfolio comes first (order 0) and its section is AppCurious; the
+    // evidence pages sit under Software factory.
+    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'factory-floor', 'product-board', 'factory-log', 'team-report']);
+    expect(mine.filter(p => p.nav.section === 'AppCurious').map(p => p.slug)).toEqual(['portfolio', 'releases', 'changelog']);
+    expect(mine.filter(p => p.nav.section === 'Software factory')).toHaveLength(5);
     expect(pages.find(p => p.slug === 'backlog')?.source).toEqual({ kind: 'objects', objectType: 'request' });
     expect(pages.find(p => p.slug === 'backlog')?.filters).toEqual([{ field: 'meta.state', op: 'in', value: ['new', 'triaged', 'in_scope'] }]);
     expect(pages.find(p => p.slug === 'product-board')?.source).toEqual({ kind: 'objects', objectType: 'product' });
@@ -86,6 +89,31 @@ describe('plugin pages', () => {
     expect(pages.find(p => p.slug === 'factory-log')?.fields?.find(f => f.key === 'pr')).toMatchObject({ from: 'meta.result.pr_url', format: 'link' });
     // The report is a row for a core route, not a second report.
     expect(pages.find(p => p.slug === 'team-report')).toMatchObject({ archetype: 'link', href: '/dashboard/team-report' });
+  });
+
+  it('the portfolio reads agent-maintained counters off the product record, and says so', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const portfolio = pages.find(p => p.slug === 'portfolio');
+    const releases = pages.find(p => p.slug === 'releases');
+
+    expect(portfolio?.source).toEqual({ kind: 'objects', objectType: 'product' });
+    expect(portfolio?.nav).toMatchObject({ section: 'AppCurious', order: 0 });
+
+    // Every maintained counter carries its provenance in the label; revenue says it has no source.
+    const labels = portfolio?.fields?.map(f => f.label ?? f.key) ?? [];
+
+    expect(labels.filter(l => l.includes('agent-maintained'))).toHaveLength(4);
+    expect(labels).toContain('Revenue (no source yet)');
+    expect(readWorkspacePageContent(portfolio!)).toContain('agent-maintained');
+    expect(releases?.source).toEqual({ kind: 'objects', objectType: 'release' });
+    expect(releases?.sort).toEqual({ field: 'meta.releasedAt', dir: 'desc' });
+    // The changelog is the same rows for the public's eyes: the announcement line, never the diff.
+    expect(pages.find(p => p.slug === 'changelog')).toMatchObject({ source: { kind: 'objects', objectType: 'release' }, nav: { section: 'AppCurious' } });
+    expect(pages.find(p => p.slug === 'changelog')?.fields?.map(f => f.from)).toContain('meta.announcement');
+    // Size class is on the backlog and the floor as a badge.
+    expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
+    expect(pages.find(p => p.slug === 'factory-floor')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

@@ -72,6 +72,10 @@ schema:
         pricing, plan limits, seats, what the free plan includes — and it
         never earns its way past a person.
       enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra, promise]
+    sizeClass:
+      type: string
+      description: 'Size in release terms, not in effort: `major` — a new capability or product, which counts against the initiative limit of one in flight; `minor` — a feature within a product; `patch` — a fix. Decides which release class it rides in and how it is announced.'
+      enum: [major, minor, patch]
     decisionCost:
       type: integer
       description: >-

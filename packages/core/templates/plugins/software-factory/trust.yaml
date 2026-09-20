@@ -119,13 +119,26 @@ rules:
     rung: execute-with-approval
     risk: high
 
-  # The honest answer back to the person who asked. It leaves the workspace
-  # and lands in a store, an inbox or a chat under the company's name, and a
-  # wrong one cannot be unsent — so it is asked, every time, at the medium
-  # tier: it may earn its way to running within bounds once the ledger shows
-  # people approving replies unchanged, because the words are the agent's and
-  # a person can read fifty of them in an afternoon.
-  - action: request.answer
+  # Telling the person who asked — the honest "no", or that their request
+  # shipped in a release. One action kind for both, because it is one act: a
+  # reply on the channel they used, under the company's name, that cannot be
+  # unsent. Asked, every time, at the medium tier: it may earn its way to
+  # running within bounds once the ledger shows people approving replies
+  # unchanged, because the words are the agent's and a person can read fifty
+  # of them in an afternoon.
+  - action: notify.requester
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+
+  # Announcing a release — the short public text on a store listing, a status
+  # page, a channel. Marketing copy by another name, so it sits where
+  # `git.merge.marketing` sits: approval to start, the medium tier, and the
+  # same road to running within bounds once people stop editing it. The notes
+  # it is written from are a person's before it goes out (`notesSource:
+  # human`); the announcement is the act that closes the loop.
+  - action: release.announce
     autoApproveAbove: 0.95
     enabled: false
     rung: execute-with-approval

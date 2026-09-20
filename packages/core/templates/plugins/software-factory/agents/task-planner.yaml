@@ -20,11 +20,13 @@ team: software-factory
 skills:
   - triage-request
   - write-task-contract
+  - write-release-notes
 objectTypes:
   - request
   - engineering_task
   - repo
   - product
+  - release
 suggestions:
   - label: Plan this request
     prompt: Here is a request. Split it into engineering tasks — one repository each, each with an objective, allowed paths, acceptance criteria and required checks — and write the dependency edges between them.

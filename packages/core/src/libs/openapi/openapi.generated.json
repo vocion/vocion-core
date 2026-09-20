@@ -2846,6 +2846,87 @@
             }
           }
         ]
+      },
+      "post": {
+        "operationId": "post_objects",
+        "summary": "Write one object instance, or upsert it by the external key its owning system knows it by.",
+        "tags": [
+          "objects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Write one object instance, or upsert it by the external key its owning system knows it by.\n\nBody: `{ type, title, status?, metadata?, externalKey?: { system, id } }`.\nThe counterpart to `POST /objects/types`, which registers the shape. With\nan `externalKey` this org has already written,\nthe row is updated in place (`metadata` shallow-merged, `title` and `status`\nreplaced) and the reply is 200; otherwise a new object is 201. The key is\nthe owning system's own handle — a deploy script recording a `release`\nsends `{system: 'deploy', id: '<product>@<tag>'}` and can post the\npost-deploy health result later against the same key without forking the\nrow. The `type` must already be registered for this org (404 otherwise);\nthis endpoint never invents a shape. Same capability as registering a\ntype.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.\n\n**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
+                "properties": {},
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "x-required-capability": [
+          "approve"
+        ]
       }
     },
     "/api/v1/objects/types": {
