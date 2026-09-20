@@ -25,7 +25,8 @@ import { currentCopy, currentHash, seedApprovals, seedEditsFromApprovals } from 
  * asked for in the conversation rides an Enroll taken on the page.
  */
 
-export type ReviewDecision = 'approve' | 'reject';
+/** `done` closes a released hand-off — the person who did the work says so. */
+export type ReviewDecision = 'approve' | 'reject' | 'done';
 export type ReviewOutcome = ReviewDecision | 'snooze' | 'regenerate';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));

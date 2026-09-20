@@ -80,7 +80,7 @@ export type ReviewFocusViewProps = {
   canBack: boolean;
   onBack: () => void;
   onSkip: () => void;
-  onCardDecided: (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => void;
+  onCardDecided: (outcome: 'approve' | 'reject' | 'done' | 'snooze' | 'regenerate') => void;
   onCardRegenerated: () => void;
   /** Generic (presenter-less) items: the editable working copy and the steer field. */
   edited: Record<string, string>;

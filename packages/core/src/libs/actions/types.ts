@@ -148,6 +148,21 @@ export type ReviewContent
     caption?: string;
     /** Short finding lines rendered under the image. */
     findings?: string[];
+  }
+  | {
+    /**
+     * A block of text the reviewer reads as written — a recipe of commands,
+     * a release note, a config excerpt. Read-only: nothing here is copy a
+     * person vouches for line by line, so it never joins the walk.
+     */
+    kind: 'text';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    body: string;
+    /** Render in a monospace block with whitespace kept — commands, YAML, a diff. */
+    preformatted?: boolean;
   };
 
 /** One reviewer edit to a content item, keyed by the item's `id`. */
@@ -181,6 +196,34 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   selfImproving?: boolean;
   /** Which source's vault credentials this action needs (e.g. `gmail`). */
   sourceSlug?: string;
+  /**
+   * A HAND-OFF: the execution is performed by a person or an external system
+   * after approval, never in this process. Approving one does not call
+   * `execute`; the run moves to `awaiting_execution` and stays on the queue
+   * until whoever did the work marks it done (`ActionService.completeAction`)
+   * or says it could not be done (a rejection). The trail — recommendation,
+   * decision, execution — lands on the same `action_run` every other kind
+   * writes, so a merge a person performed reads back beside a CRM update an
+   * agent performed.
+   *
+   * `reversible` is what "can be put back" means for a kind with no `undo`
+   * to declare: a pushed branch is deleted with one command, a deploy is
+   * not. It informs the ladder's default the way `undo` does for in-process
+   * kinds; it does not put an Undo button on the run.
+   *
+   * Build one with `libs/actions/manual.ts`, which owns the shared input
+   * shape (title, summary, recipe, evidence, externalRef) and the card.
+   */
+  manual?: { reversible?: boolean };
+  /**
+   * The id the trust ladder keys on for THIS input, when one action id serves
+   * several ledgers. A merge is one action with a `riskClass`, and merging
+   * docs is not the decision merging a schema is — so the rule, the risk tier
+   * and the evidence live under `git.merge.<riskClass>` while the proposal
+   * still names `git.merge`. Absent, the action id is the key. Must return a
+   * stable string for the same input; `libs/actions/policyKey.ts` applies it.
+   */
+  policyKeyFor?: (input: z.infer<S>) => string;
   /**
    * Canonical dedup key derived from the input. Applied when the proposer
    * passes none, so structurally-identical proposals collapse into one PENDING

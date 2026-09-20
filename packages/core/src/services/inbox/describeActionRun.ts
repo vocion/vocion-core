@@ -11,6 +11,8 @@
  * proposal's rationale, then to the action id spelled out.
  */
 
+import { looksLikeManualInput } from '@/libs/actions/manual';
+
 export type ActionRunLike = {
   id: number;
   actionId: string;
@@ -306,6 +308,32 @@ function describeGmailSend(run: ActionRunLike): ActionDescription {
   };
 }
 
+/**
+ * A hand-off (`libs/actions/manual.ts`): the payload names itself, so the
+ * row reads the title the proposer wrote rather than the first sentence of
+ * its rationale, and the kind is the action spelled out — "Merge a branch".
+ * @param run
+ */
+function describeHandoff(run: ActionRunLike): ActionDescription {
+  const input = rec(run.input);
+  const agentSlug = agentOf(run);
+  const actionKind = humaniseActionId(run.actionId);
+  const riskClass = str(input.riskClass);
+  return {
+    title: str(input.title) || actionKind,
+    subline: [actionKind + (riskClass ? ` · ${riskClass}` : ''), 'by hand', agentSlug ? `recommended by ${agentSlug}` : null].filter(Boolean).join(' › '),
+    actionKind,
+    record: null,
+    changes: [],
+    amount: null,
+    currency: null,
+    confidence: num(run.proposal?.confidence),
+    agentSlug,
+    rationale: str(run.proposal?.rationale) || str(input.summary),
+    evidence: Array.isArray(run.proposal?.evidence) ? run.proposal.evidence.filter((e): e is string => typeof e === 'string') : [],
+  };
+}
+
 function describeFallback(run: ActionRunLike): ActionDescription {
   const rationale = str(run.proposal?.rationale);
   const agentSlug = agentOf(run);
@@ -338,7 +366,7 @@ const DESCRIBERS: Record<string, (run: ActionRunLike, opts?: DescribeOptions) =>
  * @param opts - Names the workspace knows that the payload did not carry.
  */
 export function describeActionRun(run: ActionRunLike, opts?: DescribeOptions): ActionDescription {
-  const describer = DESCRIBERS[run.actionId] ?? describeFallback;
+  const describer = DESCRIBERS[run.actionId] ?? (looksLikeManualInput(run.input) ? describeHandoff : describeFallback);
   try {
     return describer(run, opts);
   } catch {

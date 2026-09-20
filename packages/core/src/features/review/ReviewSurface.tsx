@@ -113,6 +113,7 @@ export type ReviewExtraTab = {
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Ready for review',
   approved: 'Approved',
+  awaiting_execution: 'Released — waiting to be done',
   executing: 'Executing',
   done: 'Done',
   failed: 'Failed',
@@ -452,8 +453,12 @@ export function ReviewSurface(props: {
     extraContentEdits: props.extraContentEdits,
   });
 
-  const approveVerb = card.verbs?.approve ?? 'Approve';
-  const rejectVerb = card.verbs?.reject ?? 'Decline';
+  // A released hand-off has one job left: whoever did the work says so. The
+  // bar's primary becomes Mark done, its secondary the honest failure, and
+  // snooze goes — there is nothing to come back and decide.
+  const awaitingExecution = run.status === 'awaiting_execution';
+  const approveVerb = awaitingExecution ? 'Mark done' : card.verbs?.approve ?? 'Approve';
+  const rejectVerb = awaitingExecution ? 'Could not be done' : card.verbs?.reject ?? 'Decline';
 
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   /** Content ids that moved in the last couple of seconds — the tint fades on its own. */
@@ -527,15 +532,23 @@ export function ReviewSurface(props: {
     return () => clearTimeout(timer);
   }, [justChanged]);
 
-  const decide = async (decision: 'approve' | 'reject') => {
+  const decide = async (decision: 'approve' | 'reject' | 'done') => {
     landed.current = false;
-    const verbLabel = decision === 'approve' ? approveVerb : rejectVerb;
+    const verbLabel = decision === 'reject' ? rejectVerb : approveVerb;
     try {
       await d.decide(decision);
       if (!landed.current) {
         // A failed execution is NOT a completed decision: the surface stays
         // with the error on it and the primary becomes Retry.
         toast.error(`${verbLabel}ed, but it failed to run · ${card.title}`, { description: `${approveVerb} again to retry.` });
+        return;
+      }
+      if (decision === 'done') {
+        toast.success(`Marked done · ${card.title}`, { description: 'The run records who did it and when.' });
+        return;
+      }
+      if (awaitingExecution) {
+        toast.success(`Recorded as not done · ${card.title}`, { description: 'Declined after release; your note says what was found.' });
         return;
       }
       toast.success(`${decision === 'approve' ? `${verbLabel}ed` : `${verbLabel}d`} · ${card.title}`, {
@@ -641,6 +654,10 @@ export function ReviewSurface(props: {
 
   /** What the bar's primary does: the next step of the walk, or the decision. */
   const pressPrimary = () => {
+    if (awaitingExecution) {
+      void decide('done');
+      return;
+    }
     if (!walkStep) {
       void decide('approve');
       return;
@@ -668,7 +685,7 @@ export function ReviewSurface(props: {
       } else if (action === 'decline') {
         e.preventDefault();
         void decide('reject');
-      } else if (action === 'snooze') {
+      } else if (action === 'snooze' && !awaitingExecution) {
         e.preventDefault();
         setSnoozeOpen(o => !o);
       }
@@ -913,7 +930,9 @@ export function ReviewSurface(props: {
               }}
               secondary={[
                 { 'label': rejectVerb, 'onClick': () => void decide('reject'), 'disabled': d.held, 'icon': X, 'shortcut': 'd', 'tone': 'danger', 'data-testid': 'decide-reject' },
-                { 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's', 'data-testid': 'decide-snooze' },
+                ...(awaitingExecution
+                  ? []
+                  : [{ 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'data-testid': 'decide-snooze' }]),
               ]}
               aside={snoozeOpen && (
                 <span className="inline-flex items-center gap-1 text-[13px] text-muted-foreground" role="group" aria-label="Snooze until" data-testid="snooze-picker">
@@ -927,7 +946,9 @@ export function ReviewSurface(props: {
               )}
               field={{
                 label: 'Note',
-                placeholder: 'A note that rides this decision and trains the agent. To rewrite a draft, use the instruction box beside it.',
+                placeholder: awaitingExecution
+                  ? 'What you did, and where the result is — a PR link, a deployment URL. Rides the run as its execution record.'
+                  : 'A note that rides this decision and trains the agent. To rewrite a draft, use the instruction box beside it.',
                 value: d.note,
                 onChange: d.setNote,
                 disabled: d.held,

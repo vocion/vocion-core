@@ -31,11 +31,11 @@
 # a workspace later flips `enabled` without thinking. `risk: high` is what
 # makes "never" true on the ladder itself: the high tier's ceiling is approval.
 #
-# These action ids are the factory's own. Core registers `wiki.write_page` and
-# the connector writes; it does not yet register a git, deploy, reply or
-# credentials action, so until it does these rules set the bar and the
-# autonomy page shows it, and no proposal can be released above it.
-# Registering them is a core change, named as a follow-up in the README.
+# These action ids are the factory's own, registered in core as hand-off
+# actions (`libs/actions/factory.ts`): a proposal lands here with a recipe, a
+# person releases it, and whoever does the work marks it done. `git.merge` is
+# one registered id carrying a `riskClass`; the rules below key on the derived
+# `git.merge.<riskClass>`, which is what the gate and the ledger read.
 rules:
   # Pushing a branch is the cheapest write in the system: it creates nothing a
   # person has to live with, it is deleted with one command, and nothing

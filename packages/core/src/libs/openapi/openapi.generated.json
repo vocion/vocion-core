@@ -3904,7 +3904,7 @@
             }
           }
         },
-        "description": "Approve or reject a queued item. Body:\n\n  { kind, id, action, reason?, learn?, editedInput?, externalRef? }\n\nwhere `kind` is `workflow` | `mission` | `action` and `action` is `approve`\nor `reject`. `editedInput` is the edit-then-approve payload — corrected\nfields for an action, or the input a paused workflow resumes with. It is\nignored on reject.\n\n`learn` defaults to true: a decision carrying a human reason queues that\nreason for the learning classifier, where it becomes a candidate a person\nadopts. An automated caller deciding in bulk with one canned reason passes\n`learn: false` so it trains nothing.\n\n`externalRef` is `{ system, id }` naming the record the caller created in\nits own system before approving — an admin panel publishes the record, then\napproves with its id, and the action links the two in one call. Core never\ncalls that system itself. Ignored on reject.\n\nDeciding requires the `approve` capability. Returns the refreshed queue.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Approve or reject a queued item. Body:\n\n  { kind, id, action, reason?, learn?, editedInput?, externalRef?, resultUrl? }\n\nwhere `kind` is `workflow` | `mission` | `action` and `action` is `approve`,\n`reject` or `done`. `editedInput` is the edit-then-approve payload — corrected\nfields for an action, or the input a paused workflow resumes with. It is\nignored on reject.\n\n`done` is the hand-off's close (`docs/guides/needs-you.md` → *Hand-off\nactions*). A hand-off action — a merge, a deploy, a credential — is\napproved like any other, which releases it to `awaiting_execution`; whoever\nthen performs it posts `action: \"done\"` with a `reason` (the note) and,\nwhen there is one, `resultUrl` (the merged PR, the deployment). The run\nrecords who and when. `done` on a run that was never approved, or on a\nkind that runs in-process, is a 409.\n\n`learn` defaults to true: a decision carrying a human reason queues that\nreason for the learning classifier, where it becomes a candidate a person\nadopts. An automated caller deciding in bulk with one canned reason passes\n`learn: false` so it trains nothing.\n\n`externalRef` is `{ system, id }` naming the record the caller created in\nits own system before approving — an admin panel publishes the record, then\napproves with its id, and the action links the two in one call. Core never\ncalls that system itself. Ignored on reject.\n\nDeciding requires the `approve` capability. Returns the refreshed queue.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3932,6 +3932,9 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "reason": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "resultUrl": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   }
                 },

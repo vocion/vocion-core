@@ -3,6 +3,7 @@ import type { RecordType } from '@/services/chat/pageContext';
 import type { ActionChange } from '@/services/inbox/describeActionRun';
 import type { EmailPreviewModel } from '@/services/inbox/emailPreview';
 import type { ReviewContextModel } from '@/services/inbox/reviewContextModel';
+import { looksLikeManualInput } from '@/libs/actions/manual';
 import { evidenceRef } from '@/libs/preview/evidenceRef';
 import { humaniseField } from '@/services/inbox/describeActionRun';
 
@@ -69,6 +70,9 @@ export function consequenceOf(actionId: string, input: Record<string, unknown>, 
   }
   if (actionId === 'personalization.enroll') {
     return 'Approving enrolls the contact and starts the sequence.';
+  }
+  if (looksLikeManualInput(input)) {
+    return 'Approving releases this to be done by hand. Nothing runs here.';
   }
   return `Approving runs this ${actionKind.toLowerCase()}.`;
 }

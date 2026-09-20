@@ -14,7 +14,8 @@ import { recordKeyOf } from './recordKey';
  * a person by `describeActionRun`.
  *
  * Three tabs, three predicates:
- *   open     — pending or failed, not expired, not snoozed into the future
+ *   open     — pending, failed, or a released hand-off awaiting its doer
+ *              (`awaiting_execution`), not expired, not snoozed into the future
  *   snoozed  — pending, snoozed into the future
  *   decided  — done / rejected / executing / approved, newest decision first
  */
@@ -69,7 +70,9 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       ? and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending'), notExpired, gt(reviewAssignmentSchema.snoozedUntil, now))
       : and(
           eq(actionRunSchema.orgId, orgId),
-          inArray(actionRunSchema.status, ['pending', 'failed']),
+          // A released hand-off is decided but not done: it stays on the open
+          // tab, with Mark done as its verb, until whoever did it says so.
+          inArray(actionRunSchema.status, ['pending', 'failed', 'awaiting_execution']),
           notExpired,
           or(isNull(reviewAssignmentSchema.snoozedUntil), lte(reviewAssignmentSchema.snoozedUntil, now)),
         );

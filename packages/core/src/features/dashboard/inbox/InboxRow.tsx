@@ -39,7 +39,9 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const verbs = tab === 'decided' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
+  // A released hand-off's one verb is Mark done, with a note; the row opens
+  // the detail rather than offering an Approve the service would refuse.
+  const verbs = tab === 'decided' || item.status === 'awaiting_execution' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
   const opensHere = item.href.startsWith('/dashboard/inbox');
   const meta = INBOX_KIND_META[item.kind];
   // What the row would DO, not how it is decided: on a real queue almost every

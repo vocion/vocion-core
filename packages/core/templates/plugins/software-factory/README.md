@@ -289,10 +289,14 @@ action to move a bar.
   that is out of band.
 - **Intake adapters.** Nothing here turns a store review or a mailbox into a
   `request.created` event.
-- **Registered actions.** Core does not yet register `git.push_branch`,
-  `git.merge.<class>`, `notify.requester`, `release.announce`, `deploy.release` or
-  `credentials.write`; the trust rules set the bar and the autonomy page shows
-  it, but a worker cannot propose them until core does.
+- **Registered actions — done, in core.** `git.push_branch`, `git.merge`
+  (one id; `riskClass` in the input picks the `git.merge.<class>` rule and
+  ledger), `deploy.release`, `deploy.provision`, `aws.mutate`,
+  `credentials.write`, `release.announce` and `notify.requester` are
+  registered as hand-off actions (`libs/actions/factory.ts`): a worker
+  proposes them with a recipe, a person releases them, whoever does the work
+  marks them done. What remains is plugin-owned registration, so these
+  descriptors can move into this directory.
 - **Decision cost on the ask, and a budget on the mission.** Convention today
   (see *The throttle*); a `decisionCost` field on asks and a mission-level
   decision budget would let the promoter be enforced rather than described.
