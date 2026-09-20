@@ -150,6 +150,17 @@ export type ReviewContent
     findings?: string[];
   };
 
+/**
+ * What a regenerate pass is scoped to.
+ *
+ * `contentId` is the id of the single `ReviewContent` item the reviewer typed
+ * their instruction beside (`send-3`). Absent on a card with one body, which
+ * is every non-sequence action.
+ */
+export type RegenerateOptions = {
+  contentId?: string;
+};
+
 /** One reviewer edit to a content item, keyed by the item's `id`. */
 export type ReviewContentEdit = { id: string; subject?: string; body?: string };
 
@@ -280,7 +291,7 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * reviewer meets the regenerated version, never a duplicate. Declaring this
    * is what puts the Regenerate button on the card (`ReviewCard.canRegenerate`).
    */
-  regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string) => Promise<void>;
+  regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string, opts?: RegenerateOptions) => Promise<void>;
   /** Do the write. Returns a result object persisted on the action_run. */
   execute: (ctx: ActionContext, input: z.infer<S>) => Promise<Record<string, unknown>>;
   /**
