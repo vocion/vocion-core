@@ -29,7 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
   pending: 'Ready for review',
   open: 'Waiting on you',
   approved: 'Approved',
-  awaiting_execution: 'Released — waiting to be done',
+  awaiting_execution: 'Approved — waiting to be done',
   executing: 'Executing',
   done: 'Done',
   failed: 'Failed',

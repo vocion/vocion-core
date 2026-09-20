@@ -31,7 +31,7 @@ export type MergeRiskClass = typeof MERGE_RISK_CLASSES[number];
 export const gitPushBranchAction = manualAction({
   id: 'git.push_branch',
   name: 'Push a branch',
-  description: 'Push a worker\'s branch to the shared remote so a person can read the diff. Creates nothing anyone has to live with; the branch is deleted with one command. Hand-off: performed by the worker after release, marked done when pushed.',
+  description: 'Push a worker\'s branch to the shared remote so a person can read the diff. Creates nothing anyone has to live with; the branch is deleted with one command. Hand-off: performed by the worker after approval, marked done when pushed.',
   system: 'Git',
   grant: 'factory_write',
   reversible: true,
@@ -54,7 +54,7 @@ export const gitMergeAction = manualAction({
 export const deployReleaseAction = manualAction({
   id: 'deploy.release',
   name: 'Release a deploy',
-  description: 'Ship a built release to an environment people use. Reaches people who did not ask for the change and cannot undo it from where they stand. Hand-off: run by the deploy pipeline or a person after release, marked done with the deployment URL.',
+  description: 'Ship a built release to an environment people use. Reaches people who did not ask for the change and cannot undo it from where they stand. Hand-off: run by the deploy pipeline or a person after approval, marked done with the deployment URL.',
   system: 'Deploy',
   grant: 'factory_write',
 });

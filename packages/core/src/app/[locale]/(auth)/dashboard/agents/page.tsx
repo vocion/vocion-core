@@ -9,6 +9,7 @@ import { combinedPageTitle } from '@/features/navigation/combinedPages';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { listCorePackAgents } from '@/libs/workspace/reader';
+import { readInitiative } from '@/services/agents/initiative';
 import { listAgentHierarchy } from '@/services/AgentService';
 
 /**
@@ -52,6 +53,7 @@ export default async function AgentsPage(props: {
     icon: primary.icon ?? null,
     accent: primary.accent ?? null,
     eyebrow: primary.eyebrow ?? null,
+    initiative: readInitiative(primary.initiative),
     skillCount: (primary.skillSlugs ?? []).length,
     specialists: specialists.map(s => ({ slug: s.slug, name: s.name })),
     activated: true,
@@ -89,6 +91,7 @@ export default async function AgentsPage(props: {
         icon: lead.icon,
         accent: lead.accent,
         eyebrow: lead.eyebrow,
+        initiative: 'normal',
         skillCount: lead.skillCount,
         specialists: specialistsByParent.get(lead.slug) ?? [],
         activated: false,

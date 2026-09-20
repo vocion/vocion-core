@@ -3,6 +3,7 @@ import type { McpConfig } from './config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { agentTools } from './tools/agent-tools';
 import { capabilityTools } from './tools/capability-tools';
+import { chatTools } from './tools/chat-tools';
 import { dataTools } from './tools/data-tools';
 import { missionTools } from './tools/mission-tools';
 import { playbookTools } from './tools/playbook-tools';
@@ -18,6 +19,8 @@ import { workspaceTools } from './tools/workspace-tools';
  *   - context_* : list/get/write/delete/apply/diff/version_history
  *   - objects_* / object_types_* / search_* : read data + hybrid retrieval
  *   - teams_* : the F1 org chart (workspace lead + teams with provenance)
+ *   - list_agents / ask_workspace : the roster, and one routed turn with the
+ *     workspace (`tools/chat-tools.ts`)
  *
  * Writes auto-commit + auto-apply by default; override per-call with
  * `autoApply: false` / `autoCommit: false`.
@@ -48,6 +51,7 @@ export async function buildServer(
     ...pluginTools(config),
     ...workflowTools(config),
     ...playbookTools(config),
+    ...chatTools(config, identity),
     ...(await agentTools(config, identity)),
   ];
 

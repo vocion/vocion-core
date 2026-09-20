@@ -26,6 +26,13 @@ export type ResourceCounts = {
    * and which is not known. Absent whenever the database was consulted.
    */
   unknown?: number;
+  /**
+   * Resources the apply left as they were because a person (or an agent)
+   * changed them in the app since the workspace last wrote them — a seeded
+   * wiki page edited in place. Each carries a warning naming the page and
+   * how to reconcile. Only wiki pages report this today.
+   */
+  kept?: number;
 };
 
 export type ApplyResult = {
@@ -45,6 +52,8 @@ export type ApplyResult = {
     evalDatasets: ResourceCounts;
     sources: ResourceCounts;
     teams: ResourceCounts;
+    /** Pages seeded from `wiki/<slug>.md`, plus the generated index (`services/wiki/WikiSeedService.ts`). */
+    wikiPages: ResourceCounts;
   };
   errors: Array<{ resource: string; slug: string; message: string }>;
   /**
@@ -149,6 +158,7 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     evalDatasets: blank(),
     sources: blank(),
     teams: blank(),
+    wikiPages: blank(),
   };
 
   // Object types first — agents and skills may reference them
@@ -267,6 +277,23 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
     await mirrorSources(orgId, loaded, warnings);
   }
 
+  // Wiki pages seeded from `wiki/<slug>.md` (`libs/workspace/wiki-pages.ts`):
+  // each becomes or refreshes the markdown artifact with the same slug in the
+  // `wiki` folder through the normal artifact save, so versions, undo and
+  // `index-artifact` all apply. A page someone edited in the app since the
+  // last seed is KEPT and named in the warnings, never overwritten. Runs on a
+  // dry-run too (classify, warn, write nothing) — offline it can only count.
+  try {
+    const { seedWikiPages } = await import('@/services/wiki/WikiSeedService');
+    const seeded = await seedWikiPages(orgId, loaded.wikiPages, { dryRun, offline: mode.offline, workspaceSha: loaded.sha });
+    for (const o of seeded.outcomes) {
+      bump(counts.wikiPages, o.outcome);
+    }
+    warnings.push(...seeded.warnings);
+  } catch (err) {
+    errors.push({ resource: 'wikiPage', slug: '(seed)', message: (err as Error).message });
+  }
+
   for (const step of loaded.learningSteps) {
     try {
       const outcome = await upsertLearningStep(orgId, step, mode);
@@ -383,8 +410,11 @@ export async function applyWorkspace(loaded: LoadedWorkspace, opts: ApplyOptions
   };
 }
 
-/** `unknown`: offline dry-run — the row would be created or updated, which is not known. */
-type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown';
+/**
+ * `unknown`: offline dry-run — the row would be created or updated, which is
+ * not known. `kept`: left as a person changed it, with a warning saying so.
+ */
+type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'unknown' | 'kept';
 
 /**
  * Ensure/remove Temporal Schedules to match the authored workspace. One
@@ -576,6 +606,8 @@ async function upsertAgent(
     persona: agent.persona ?? null,
     accent: agent.accent ?? null,
     eyebrow: agent.eyebrow ?? null,
+    handles: agent.handles,
+    initiative: agent.initiative,
     langfuseProjectId: agent.langfuseProjectId ?? null,
     icon: agent.icon ?? null,
     active: String(agent.active),
@@ -617,7 +649,7 @@ async function upsertAgent(
 }
 
 /** The agent lists a dropped-to-empty apply is worth warning about. */
-const AGENT_LIST_FIELDS = ['playbookSlugs', 'skillSlugs', 'objectTypeSlugs', 'learningSteps'] as const;
+const AGENT_LIST_FIELDS = ['playbookSlugs', 'skillSlugs', 'objectTypeSlugs', 'learningSteps', 'handles'] as const;
 
 /**
  * Warn when this apply would empty out one of an agent's authored lists
@@ -1109,7 +1141,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     name: automation.name ?? automation.slug,
     description: automation.description ?? null,
     status: automation.status,
-    whenConfig: automation.when as { schedule?: string; event?: string; filter?: Record<string, unknown> },
+    whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown> },
     doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> },
     ownerAgentSlug: automation.agent ?? null,
   };
@@ -1547,8 +1579,8 @@ function blank(): ResourceCounts {
 }
 
 function bump(counts: ResourceCounts, outcome: UpsertOutcome): void {
-  if (outcome === 'unknown') {
-    counts.unknown = (counts.unknown ?? 0) + 1;
+  if (outcome === 'unknown' || outcome === 'kept') {
+    counts[outcome] = (counts[outcome] ?? 0) + 1;
     return;
   }
   counts[outcome] += 1;
@@ -1597,6 +1629,8 @@ function isAgentEqual(a: typeof agentSchema.$inferSelect, b: Record<string, unkn
     'persona',
     'accent',
     'eyebrow',
+    'handles',
+    'initiative',
     'langfuseProjectId',
     'icon',
     'active',

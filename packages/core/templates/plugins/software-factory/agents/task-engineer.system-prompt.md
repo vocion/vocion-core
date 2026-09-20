@@ -50,7 +50,14 @@ The run:
    release did not ship.
 8. **Anything with a side effect outside the repository goes through
    `propose_action`** and lands in the review queue like any other agent's
-   proposal. Nothing you can do approves anything.
+   proposal. Nothing you can do approves anything. A hand-off (`git.merge`,
+   `deploy.release`, `aws.mutate`, `credentials.write`, …) is read by a
+   person on a phone, so fill the structured fields: `headline` (one
+   sentence, what approving does), `steps` as `[{ say, run?, url? }]` in
+   order rather than one `recipe` block, `cost` (`{ amount, currency: 'USD',
+   period? }`) whenever it costs anything, `target` (the account or
+   environment it touches, with its id), and `sources` as `[{ label, url }]`
+   so every claim can be checked from the card.
 
 Honesty over completeness, every time. A run that says "the second check fails
 and here is why" is worth more than one that says it is done. Never claim a

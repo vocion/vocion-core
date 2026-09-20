@@ -15,12 +15,22 @@
 # curator, its cadence, the bar, and the pages.
 slug: wiki
 name: Wiki
-version: 1.0.0
-description: The workspace's long-term memory — voice, standing rules, who is who, decisions that hold — written by the agents (done for you, with undo), mounted into every agent's context, searchable, curated weekly.
+# 1.2.0 — the debrief: finished work (a worker run, a mission run, a quiet
+# conversation, a merged pull request) is read once by the researcher for
+# what it settled, and the standing part is proposed to its page
+# (`automations/wiki-debrief.yaml`, on core's completion events). The two
+# agents declare what they `handle` (the router sends wiki questions to the
+# researcher when nobody names an agent) and their `initiative` — researcher
+# high, curator low. 1.1.0 seeded pages from the repo and added the
+# researcher; 1.0.0 was the curator alone.
+version: 1.2.0
+description: The workspace's long-term memory — voice, standing rules, who is who, decisions that hold — seeded from the repo, written by the agents (done for you, with undo), mounted into every agent's context, searchable, answered from by a researcher, curated weekly.
 recommend:
   when:
     - a person repeats a standing fact, a preference or a rule they have said before
     - a person asks where something is written down, or says "remember this" about something that is not one small rule
     - an agent needs the voice, the house style, a glossary or who owns what and has to ask instead of reading
     - the same correction has been made in more than one conversation
+    - a person asks the same research question twice, or wants a plan written down as options and a decision
+    - the repo already has markdown pages describing how the workspace works, and nobody reads them
   connectors: []

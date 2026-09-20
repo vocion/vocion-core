@@ -295,6 +295,13 @@ export type AgentEvent
     | { type: 'composing'; tool: string }
     | { type: 'record_created'; record: import('@/services/chat/pageContext').RecordRef }
     | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
+    /**
+     * The workspace chose the agent for this turn because nobody named one
+     * (`services/agents/router.ts`). First frame of such a turn: the client
+     * attributes the reply to the chosen agent ("via Wiki researcher") and
+     * the decision — candidates, pick, reason — is on the message row.
+     */
+    | { type: 'routed'; routing: import('./router').RoutingDecision; agent: { slug: string; name: string } }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
@@ -385,6 +392,8 @@ export type RuntimeContext = {
     model?: string;
     /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
     recommendActionBackstop?: boolean;
+    /** Action kinds this agent earns trust for on its own ledger (`<kind>.<agent-slug>`); see the workspace schema. */
+    ownLedger?: string[];
   };
   /**
    * Side-channel for emitting structured events the LLM stream can't

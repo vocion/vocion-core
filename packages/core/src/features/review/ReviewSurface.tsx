@@ -16,6 +16,7 @@ import {
   StatusDot,
   StickyActionBar,
 } from '@/components/patterns';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/toast';
 import { useDraftRevision } from '@/features/personalization/draftRevision';
@@ -47,6 +48,7 @@ import { useReviewDecision } from './useReviewDecision';
  *   meta    provenance · recommendation · confidence — ONE hairline row
  *   bar     Add feedback · Snooze · Decline · Confirm
  *   children
+ *     decision header            card.headline + badges + the recommendation, said once
  *     notices                    regenerating / stale / execution failed
  *     Tabs variant="line"
  *       Changes                  editable properties, first when there are any
@@ -62,6 +64,14 @@ import { useReviewDecision } from './useReviewDecision';
  * failure; the presenter supplies only text INSIDE those zones. The run is what
  * stops a type dropping its evidence; the shell is what stops it rearranging
  * it.
+ *
+ * A card with a `headline` reads in the shorter register the first hand-off
+ * asked for (Chris, 2026-09-20, on his phone): one sentence and its badges
+ * before the tabs, the recommendation as ONE inline line under them rather
+ * than three rows under Run details, and Why as one section rather than "The
+ * reasoning" beside "Why it suggests that". A card without one renders as it
+ * always did. A card that also says `handoff` gets the lifecycle — Approve →
+ * a person runs the steps → Mark done — under Run details, with who runs it.
  *
  * No outer box, and no box inside one: hairlines, spacing and eyebrows carry
  * the structure (`docs/design/patterns.md` § A bordered surface never contains
@@ -94,6 +104,23 @@ export type ReviewCardRun = {
   error?: string | null;
   /** How often this agent's recommendations of this kind matched the person's decision (server-computed, 30d). */
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
+  /**
+   * What the run recorded on its way through — for a hand-off, `handoff`
+   * (who approved it, when) and `executed` (who marked it done, when, the
+   * note, the result URL). Read by the lifecycle under Run details.
+   */
+  result?: Record<string, unknown> | null;
+  /** Who is expected to do the work, when the queue routed it to someone. */
+  assignee?: string | null;
+  decidedBy?: string | null;
+  decidedAt?: Date | string | null;
+  executedAt?: Date | string | null;
+  /**
+   * Display names for the ids the run carries (`decidedBy`, `result.handoff
+   * .releasedBy`, `result.executed.by`), resolved by the loader. An id with
+   * no name here renders as itself rather than as nothing.
+   */
+  people?: Record<string, string>;
 };
 
 /**
@@ -113,7 +140,7 @@ export type ReviewExtraTab = {
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Ready for review',
   approved: 'Approved',
-  awaiting_execution: 'Released — waiting to be done',
+  awaiting_execution: 'Approved — waiting to be done',
   executing: 'Executing',
   done: 'Done',
   failed: 'Failed',
@@ -127,6 +154,36 @@ const SUGGESTION_LABEL: Record<SuggestedDecision, string> = {
   reject: 'Agent suggests turning down',
   snooze: 'Agent suggests revisiting later',
 };
+
+/** The same advice as one word, for "send-lead suggests approving". */
+const SUGGESTION_VERB: Record<SuggestedDecision, string> = {
+  approve: 'approving',
+  reject: 'turning down',
+  snooze: 'waiting',
+};
+
+/**
+ * "Approve" → "Approved", "Confirm" → "Confirmed", "Reject" → "Rejected". The
+ * toast used to append `ed` to every approve verb and `d` to every reject
+ * verb, which read "Approveed" and "Rejectd" on any card that used the plain
+ * words — the hand-off is the first that does.
+ * @param verb
+ */
+function pastTense(verb: string): string {
+  return verb.endsWith('e') ? `${verb}d` : `${verb}ed`;
+}
+
+/** A moment on the lifecycle — fixed to `en-US` for the same reason as `REVISION_DATE`. */
+const MOMENT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/**
+ * A date the run recorded, or nothing — never "Invalid Date".
+ * @param value - An ISO string, a Date, or whatever the row held.
+ */
+function moment(value: unknown): string | null {
+  const d = typeof value === 'string' || value instanceof Date ? new Date(value) : null;
+  return d && !Number.isNaN(d.getTime()) ? MOMENT.format(d) : null;
+}
 
 const SNOOZES = [
   { label: 'Tomorrow', days: 1 },
@@ -405,6 +462,81 @@ function ItemPane(props: {
   );
 }
 
+/**
+ * The decision header: the one sentence a person reads first, the chips that
+ * settle the questions a thumb asks before scrolling (which system, can it be
+ * undone, what it costs, which account), and the recommendation as ONE line —
+ * who suggests what, how sure. Drawn from `card.headline` and `card.badges`,
+ * composed here so no presenter can put these anywhere else.
+ * @param props
+ * @param props.headline
+ * @param props.badges
+ * @param props.recommendation - "send-lead suggests approving · 90% confident", or nothing.
+ */
+function DecisionHeader(props: { headline: string; badges: NonNullable<ReviewCard['badges']>; recommendation: string | null }) {
+  return (
+    <section data-testid="decision-header" className="border-b border-rule py-4">
+      <p className="max-w-3xl text-[15px] leading-relaxed break-words text-foreground">{props.headline}</p>
+      {props.badges.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="decision-badges">
+          {props.badges.map(b => (
+            <Badge key={b.label} variant={b.tone === 'warn' ? 'destructive' : 'outline'} data-tone={b.tone ?? 'default'}>{b.label}</Badge>
+          ))}
+        </div>
+      )}
+      {props.recommendation && (
+        <p className="mt-2.5 inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="decision-recommendation">
+          <Sparkles className="size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+          {props.recommendation}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** One step of a hand-off's life, with what the run recorded for it. */
+type LifecycleStep = { label: string; state: 'done' | 'current' | 'next'; detail?: ReactNode };
+
+/**
+ * Approve → A person runs the steps → Mark done, with where this run stands.
+ * Horizontal where there is room, stacked on a phone; the current step is
+ * the one in ink, the ones behind it carry a check and what the run recorded
+ * (who, when, the result), the ones ahead are quiet.
+ * @param props
+ * @param props.steps
+ */
+function HandoffLifecycle(props: { steps: LifecycleStep[] }) {
+  return (
+    <ol className="flex flex-col gap-3 sm:flex-row sm:gap-8" data-testid="handoff-lifecycle">
+      {props.steps.map((s, i) => (
+        <li
+          key={s.label}
+          aria-current={s.state === 'current' ? 'step' : undefined}
+          data-state={s.state}
+          data-testid={`lifecycle-step-${i + 1}`}
+          className={cn('flex min-w-0 gap-2.5 text-sm', s.state === 'next' && 'text-muted-foreground')}
+        >
+          <span
+            aria-hidden
+            className={cn(
+              'mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums',
+              s.state === 'done' && 'bg-brand-pass/15 text-brand-pass',
+              s.state === 'current' && 'bg-foreground text-background',
+              s.state === 'next' && 'bg-surface-soft text-muted-foreground',
+            )}
+          >
+            {s.state === 'done' ? <Check className="size-3" /> : i + 1}
+          </span>
+          <span className="min-w-0">
+            <span className={cn('block', s.state === 'current' && 'font-medium text-foreground')}>{s.label}</span>
+            {s.detail && <span className="mt-0.5 block text-[12px] break-words text-muted-foreground">{s.detail}</span>}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function ReviewSurface(props: {
   'run': ReviewCardRun;
   'crumbs': readonly Crumb[];
@@ -462,12 +594,16 @@ export function ReviewSurface(props: {
     extraContentEdits: props.extraContentEdits,
   });
 
-  // A released hand-off has one job left: whoever did the work says so. The
+  // An approved hand-off has one job left: whoever did the work says so. The
   // bar's primary becomes Mark done, its secondary the honest failure, and
   // snooze goes — there is nothing to come back and decide.
   const awaitingExecution = run.status === 'awaiting_execution';
   const approveVerb = awaitingExecution ? 'Mark done' : card.verbs?.approve ?? 'Approve';
   const rejectVerb = awaitingExecution ? 'Could not be done' : card.verbs?.reject ?? 'Decline';
+  // The shorter register (see the file comment): one header, one line for the
+  // recommendation, one Why. Opted into by the presenter naming a headline.
+  const brief = Boolean(card.headline);
+  const handoff = card.handoff;
 
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   /** Content ids that moved in the last couple of seconds — the tint fades on its own. */
@@ -569,10 +705,10 @@ export function ReviewSurface(props: {
         return;
       }
       if (awaitingExecution) {
-        toast.success(`Recorded as not done · ${card.title}`, { description: 'Declined after release; your note says what was found.' });
+        toast.success(`Recorded as not done · ${card.title}`, { description: 'Declined after approval; your note says what was found.' });
         return;
       }
-      toast.success(`${decision === 'approve' ? `${verbLabel}ed` : `${verbLabel}d`} · ${card.title}`, {
+      toast.success(`${pastTense(verbLabel)} · ${card.title}`, {
         description: decision === 'approve' ? (card.nextAction ?? 'Executing now.') : 'Nothing runs; the agent learns from it.',
       });
       showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: d.note.trim().length > 0, undoable: isSelfUpdate(run.actionId) });
@@ -748,6 +884,71 @@ export function ReviewSurface(props: {
   // Changes pane — so "industry" does not read twice.
   const readOnlyFields = d.hasProperties ? (card.fields ?? []).filter(f => !propertyKeys.includes(f.label)) : (card.fields ?? []);
 
+  // The recommendation, said once: "send-lead suggests approving · 90%
+  // confident". The reason joins it under Why, where there is room to read it.
+  const suggested = run.proposal?.suggestedDecision;
+  const confidencePct = run.proposal?.confidence !== undefined ? `${Math.round(run.proposal.confidence * 100)}% confident` : null;
+  const suggests = suggested ? `${agent ?? 'The agent'} suggests ${SUGGESTION_VERB[suggested]}` : agent ? `Recommended by ${agent}` : null;
+  const recommendationLine = [suggests, confidencePct].filter(Boolean).join(' · ') || null;
+  const suggestionReason = suggested && run.proposal?.suggestedDecisionReason ? run.proposal.suggestedDecisionReason : null;
+
+  /**
+   * An id the run recorded, as a name where the loader found one. The ladder
+   * is not a person and says so.
+   * @param id
+   */
+  const who = (id: unknown): string | null => {
+    if (typeof id !== 'string' || !id) {
+      return null;
+    }
+    if (id === 'trust-ladder') {
+      return 'the trust ladder';
+    }
+    return run.people?.[id] ?? id.replace(/^agent:/, '');
+  };
+  const trail = (run.result ?? {}) as { handoff?: { releasedBy?: string; releasedAt?: string }; executed?: { by?: string; at?: string; note?: string; resultUrl?: string; externalRef?: { system: string; id: string } } };
+  /**
+   * "by Rowan Pike · Sep 20, 3:12 PM" — the who and when of one lifecycle step.
+   * @param by
+   * @param at
+   */
+  const stamp = (by: unknown, at: unknown): string | null => {
+    const parts = [who(by) ? `by ${who(by)}` : null, moment(at)].filter(Boolean);
+    return parts.length > 0 ? parts.join(' · ') : null;
+  };
+  const lifecycle: LifecycleStep[] | null = handoff
+    ? (() => {
+        const approved = run.status === 'awaiting_execution' || run.status === 'done' || Boolean(trail.handoff);
+        const done = run.status === 'done';
+        const result = trail.executed;
+        const ref = result?.resultUrl
+          ? <a href={result.resultUrl} target="_blank" rel="noreferrer" className="underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground" data-testid="handoff-result">{result.resultUrl.replace(/^https?:\/\//, '')}</a>
+          : result?.externalRef
+            ? <span data-testid="handoff-result">{`${result.externalRef.system} ${result.externalRef.id}`}</span>
+            : null;
+        const doneDetail = done
+          ? (
+              <>
+                {stamp(result?.by, result?.at ?? run.executedAt)}
+                {ref && (
+                  <>
+                    {' · '}
+                    {ref}
+                  </>
+                )}
+                {result?.note && <span className="block">{`“${result.note}”`}</span>}
+              </>
+            )
+          : undefined;
+        return [
+          { label: 'Approve', state: approved ? 'done' : run.status === 'pending' || run.status === 'failed' ? 'current' : 'next', detail: approved ? stamp(trail.handoff?.releasedBy ?? run.decidedBy, trail.handoff?.releasedAt ?? run.decidedAt) ?? undefined : undefined },
+          { label: 'A person runs the steps', state: done ? 'done' : run.status === 'awaiting_execution' ? 'current' : 'next' },
+          { label: 'Mark done', state: done ? 'done' : 'next', detail: doneDetail },
+        ];
+      })()
+    : null;
+  const whoRunsIt = run.assignee ?? 'Anyone with the account; mark done when finished';
+
   /**
    * This item's slice of the run's history. A run written before the record
    * shipped carries none, and the column simply does not render.
@@ -779,6 +980,29 @@ export function ReviewSurface(props: {
       );
     }
     if (id === 'why') {
+      if (brief) {
+        // One Why. The case for the payload, the case for the recommendation
+        // and the agent's advice are three sentences about one decision, and
+        // a phone reads them best as one section.
+        const whyLine = [suggests, confidencePct, suggestionReason].filter(Boolean).join(' · ') || null;
+        const empty = !rationale && !summary && !detail && !whyLine;
+        return (
+          <div data-testid="why-pane">
+            <Section eyebrow="Why" data-testid="why-merged">
+              {rationale && <p className="max-w-3xl leading-relaxed break-words text-foreground/85">{rationale}</p>}
+              {summary && <p className={cn('max-w-3xl leading-relaxed break-words text-foreground/85', rationale && 'mt-3')}>{summary}</p>}
+              {detail && <p className="mt-3 max-w-3xl leading-relaxed break-words text-foreground/85">{detail}</p>}
+              {whyLine && (
+                <p className="mt-3 inline-flex flex-wrap items-center gap-1.5 text-[13px] text-muted-foreground" data-testid="why-suggestion">
+                  <Sparkles className="size-3.5 shrink-0 text-brand-amber-deep" aria-hidden />
+                  {whyLine}
+                </p>
+              )}
+              {empty && <p className="text-muted-foreground">No rationale recorded for this recommendation.</p>}
+            </Section>
+          </div>
+        );
+      }
       return (
         <div data-testid="why-pane">
           {rationale && (
@@ -834,17 +1058,23 @@ export function ReviewSurface(props: {
           )}
           {props.evidenceExtra}
           <Section eyebrow="Run details" data-testid="run-details">
+            {lifecycle && <HandoffLifecycle steps={lifecycle} />}
             <FactList
+              className={lifecycle ? 'mt-4' : undefined}
               facts={[
                 { label: 'Status', value: <StatusDot tone={RED_STATUSES.has(run.status) ? 'fail' : 'pass'} label={STATUS_LABEL[run.status] ?? run.status} /> },
                 card.system ? { label: 'System', value: card.system } : null,
-                agent ? { label: 'Recommended by', value: agent } : null,
+                // The recommendation is said once, under the decision header,
+                // on a card that has one; these three rows are for the rest.
+                agent && !brief ? { label: 'Recommended by', value: agent } : null,
                 // Confidence lives on the meta row beside the recommendation it
                 // scores; with no recommendation to anchor it, it reads here.
-                !card.recommendation && run.proposal?.confidence !== undefined
+                !brief && !card.recommendation && run.proposal?.confidence !== undefined
                   ? { label: card.confidenceSubject ?? 'Recommendation', value: <ConfidenceMeter value={run.proposal.confidence} label={card.confidenceSubject ?? 'Recommendation'} /> }
                   : null,
-                run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
+                !brief && run.proposal?.suggestedDecision ? { label: 'Agent suggests', value: SUGGESTION_LABEL[run.proposal.suggestedDecision] } : null,
+                { label: 'Run', value: `#${run.id}` },
+                handoff ? { label: 'Who runs it', value: <span data-testid="who-runs-it">{whoRunsIt}</span> } : null,
                 alignmentRate !== null && run.alignment
                   ? {
                       label: 'Aligned',
@@ -859,7 +1089,6 @@ export function ReviewSurface(props: {
                       ),
                     }
                   : null,
-                { label: 'Run', value: `#${run.id}` },
               ]}
             />
           </Section>
@@ -951,10 +1180,13 @@ export function ReviewSurface(props: {
                 'data-testid': 'decide-approve',
               }}
               secondary={[
-                { 'label': rejectVerb, 'onClick': () => void decide('reject'), 'disabled': d.held, 'icon': X, 'shortcut': 'd', 'tone': 'danger', 'data-testid': 'decide-reject' },
+                // A hand-off's verbs keep their words on a phone: Reject and
+                // Snooze as icons alone read as two mystery buttons beside
+                // Approve on the first one Chris met there.
+                { 'label': rejectVerb, 'onClick': () => void decide('reject'), 'disabled': d.held, 'icon': X, 'shortcut': 'd', 'tone': 'danger', 'labelAlways': Boolean(handoff), 'data-testid': 'decide-reject' },
                 ...(awaitingExecution
                   ? []
-                  : [{ 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'data-testid': 'decide-snooze' }]),
+                  : [{ 'label': 'Snooze', 'onClick': () => setSnoozeOpen(o => !o), 'disabled': d.held, 'icon': AlarmClock, 'shortcut': 's' as const, 'labelAlways': Boolean(handoff), 'data-testid': 'decide-snooze' }]),
               ]}
               aside={snoozeOpen && (
                 <span className="inline-flex items-center gap-1 text-[13px] text-muted-foreground" role="group" aria-label="Snooze until" data-testid="snooze-picker">
@@ -979,6 +1211,10 @@ export function ReviewSurface(props: {
           )
         : undefined}
     >
+      {/* First thing on the card: what approving does, the facts that settle
+          it, and the recommendation — before any tab. */}
+      {brief && <DecisionHeader headline={card.headline!} badges={card.badges ?? []} recommendation={recommendationLine} />}
+
       {props.beforeTabs}
 
       {(d.regenerating || d.regenStale || d.execError || props.hold) && (

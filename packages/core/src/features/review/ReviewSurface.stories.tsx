@@ -335,3 +335,58 @@ export const HeldPrimary: Story = {
     hold: { reason: 'The contact is already in “Q3 Outbound”, and the recommendation does not say whether this replaces it.' },
   },
 };
+
+/**
+ * A hand-off — the factory asking a person to buy a domain. The card is what
+ * Chris asked for after reading the first one on his phone (2026-09-20): one
+ * sentence and its badges first, Approve / Reject / Snooze in words, the
+ * steps numbered with a copy button on each command, Why as one section, and
+ * the lifecycle under Run details saying who runs it and where it stands.
+ */
+export const HandOff: Story = {
+  args: {
+    crumbs: [CRUMBS[0]!, CRUMBS[1]!, { label: 'Approvals' }],
+    run: {
+      id: 781,
+      actionId: 'aws.mutate',
+      status: 'pending',
+      invokedBy: 'agent:send-lead',
+      input: {},
+      proposal: {
+        confidence: 0.9,
+        rationale: 'The rename needs the domain before the marketing site can move, and the name is free today.',
+        suggestedDecision: 'approve',
+        suggestedDecisionReason: 'Fourteen dollars a year and nothing depends on it yet.',
+      },
+      card: {
+        title: 'Register kestrel-capital.example in Route 53 for the Kestrel rename',
+        system: 'Deploy',
+        object: { title: 'Register kestrel-capital.example in Route 53 for the Kestrel rename', section: 'Approvals' },
+        headline: 'Buy kestrel-capital.example in the acme-prod account so the marketing site can move.',
+        badges: [
+          { label: 'Deploy' },
+          { label: 'Irreversible', tone: 'warn' },
+          { label: '$14/year' },
+          { label: 'AWS account acme-prod (123456789012)' },
+        ],
+        handoff: { reversible: false },
+        summary: 'Buy kestrel-capital.example in the acme-prod account so the marketing site can move. The registration is a year at a time and cannot be refunded once it goes through.',
+        contentHeading: { label: 'Recipe' },
+        content: [{
+          kind: 'steps',
+          id: 'recipe',
+          label: 'Recipe',
+          steps: [
+            { say: 'Register the domain in the account.', run: 'aws route53domains register-domain --domain-name kestrel-capital.example --duration-in-years 1', url: 'https://console.aws.example/route53' },
+            { say: 'Wait for the registration email and confirm it.' },
+            { say: 'Point the hosted zone at the marketing site.', run: 'aws route53 change-resource-record-sets --hosted-zone-id Z0FIXTURE --change-batch file://records.json' },
+          ],
+        }],
+        fields: [],
+        links: [{ label: 'Route 53 pricing', href: 'https://aws.example/route53/pricing' }],
+        nextAction: 'Approving hands this to a person to do. Nothing runs here; whoever does it marks it done, and the run records who and when.',
+        verbs: { approve: 'Approve', reject: 'Reject' },
+      },
+    },
+  },
+};

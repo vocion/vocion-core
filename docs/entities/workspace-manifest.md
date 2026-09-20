@@ -61,6 +61,89 @@ disable:
   playbooks: [warming-etiquette]
 ```
 
+## Folder layout — `wiki/`, pages seeded from the repo
+
+Beside the manifest, a workspace may carry the first pages of its wiki as
+files, so the wiki starts from what the repo already says rather than from an
+agent imagining it. Each file becomes — or refreshes — the markdown artifact
+with the same slug in the org's `wiki` folder on `workspace:apply`, through
+the normal artifact save: versions, restore and undo work, every agent's
+context mounts it next turn, and the wiki plugin's `index-artifact`
+automation indexes it for search. The wiki plugin gives the pages their
+meaning (`packages/core/templates/plugins/wiki/README.md`); the seeding is
+core (`libs/workspace/wiki-pages.ts`, `services/wiki/WikiSeedService.ts`).
+
+```
+<workspace-dir>/
+└── wiki/
+    ├── voice.md            # → wiki page `voice`
+    ├── who-is-who.md       # → wiki page `who-is-who`
+    └── index.md            # optional — seeded like any page; generated from the others when absent
+```
+
+**The file.** `wiki/<slug>.md`, top level only. The slug is the filename:
+lowercase letters, digits and dashes, starting with a letter (`who-is-who`,
+not `who_is_who` or `Who-Is-Who`). YAML frontmatter, then the page:
+
+```markdown
+---
+title: Who is who            # required
+summary: Agents, teams, the accountable humans and who leads what.   # optional, ≤ 200 chars — the index line; the first paragraph otherwise
+order: 20                    # optional number — sorts the generated index; unordered pages come last, A–Z
+tags: [people, teams]        # optional
+managed: true                # optional, default true — see below
+---
+The page body, as markdown. No `#` title line: the title renders above the body.
+
+## Agents
+…
+```
+
+Unknown frontmatter keys fail the load, so a typo cannot be dropped in
+silence; a missing `title` or an empty body fails it too. Files are read
+**as written** — no `{{env.NAME}}` substitution, because a wiki page may well
+document that syntax. Files other than `*.md`, and subdirectories, are left
+alone.
+
+**What an apply does with each file**
+
+| The page… | The apply… |
+|---|---|
+| does not exist yet | creates it, author `system` (the seed), version 1 |
+| exists and the file is unchanged since the last seed | leaves it (`unchanged`) |
+| exists, the file changed, and nobody has edited the page in the app since the last seed | writes a new version with the file's content (`updated`) — undo is one click, as for any version |
+| exists and **someone edited it in the app** since the last seed | **keeps** it (`kept`) and warns, naming the page: *edit the file to match the page, or set `managed: false` to stop seeding it* |
+| has `managed: false` | is seeded once, if absent, and never touched again |
+
+"Edited since the last seed" is exact: the seed records the artifact version it
+wrote (`spec.seed.version`, beside `sha`, `path` and `appliedAt`), and the page
+is still the seed's only while that version is the head — a person's Save, an
+agent's `write_wiki_page` or a Restore all move it. A page that predates
+seeding (no `seed` block) is the seed's only while its last author is `system`.
+
+**Deleting a file does not delete the page.** Pages are what people read and
+cite, so removing one is a person's call from the Wiki page. The apply warns
+once that the page is orphaned — recorded as a `system` version whose change
+summary names the removal, so the history says why — and then stays quiet. A
+page someone edited in the app is theirs already; its file going away is no
+warning at all.
+
+**The index.** Unless `wiki/index.md` is itself seeded, the apply generates the
+`index` page from every seeded page's `order`, `title` and `summary` and
+refreshes it whenever any of them changes. Agents see it at the top of the
+mounted `/wiki/index.md`, followed by the full listing with freshness and
+author. Edit the generated index in the app and it is kept like any other
+page; seed your own `wiki/index.md` to take it over.
+
+**Dry run** (`workspace:check`, `workspace_diff`, the drift banner) validates
+every file and reports what it would create, update, keep or leave — without
+writing. With no database answering it reports the count as `unknown`, per
+the rest of the dry run.
+
+**The summary line.** `workspace:apply` prints
+`wikiPages  created=… updated=… unchanged=… kept(human-edited)=…`; the same
+counts land on the `workspace_version` row and in `workspace_apply` over MCP.
+
 ## Rules
 
 - `surfaces` entries must be ids this core registers; unknown ids fail `workspace:check` with the list of valid ids.

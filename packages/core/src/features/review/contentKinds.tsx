@@ -2,8 +2,8 @@
 
 import type { ComponentType } from 'react';
 import type { ReviewContent } from '@/libs/actions/types';
-import { ExternalLink, FileText } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Check, Copy, ExternalLink, FileText } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/Helpers';
 import { RichEmailBody } from './RichEmailBody';
 
@@ -269,7 +269,85 @@ function TextContent({ item }: ContentRenderProps) {
       );
 }
 
+/**
+ * One command, in its own block, with the one control a command needs: copy.
+ * The button says what it did for a moment and then goes back to saying what
+ * it does, so a thumb on a phone gets an answer without a toast.
+ * @param props - The command and its step.
+ * @param props.command - The text to copy, shown as written.
+ * @param props.label - Which step it belongs to, for the accessible name.
+ */
+function CommandBlock({ command, label }: { command: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = setTimeout(() => setCopied(false), 1_600);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+    } catch {
+      // A browser that refuses the clipboard leaves the text selectable; the
+      // block itself is the fallback.
+    }
+  };
+  return (
+    <div className="relative mt-2" data-testid="command-block">
+      <pre className="overflow-x-auto rounded-md bg-muted/40 p-3 pr-12 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{command}</pre>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+        title={copied ? 'Copied' : 'Copy'}
+        data-testid="copy-command"
+        className="absolute top-1.5 right-1.5 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
+      >
+        {copied ? <Check className="size-4 text-brand-pass" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The structured recipe: numbered steps, each a sentence, with its command
+ * in a block of its own and its link where the step happens. Read top to
+ * bottom on a phone, copied one command at a time.
+ * @param root0 - The render props.
+ * @param root0.item - The `steps` content item.
+ */
+function StepsContent({ item }: ContentRenderProps) {
+  if (item.kind !== 'steps') {
+    return null;
+  }
+  return (
+    <ol data-testid={`steps-pane-${item.id}`} className="mt-2 flex flex-col gap-4">
+      {item.steps.map((s, i) => (
+        <li key={`${i}-${s.say}`} className="flex gap-3" data-testid={`step-${i + 1}`}>
+          <span className="mt-px inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-soft text-[12px] font-semibold text-muted-foreground tabular-nums" aria-hidden>{i + 1}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-relaxed break-words text-foreground/90">
+              {s.say}
+              {s.url && (
+                <a href={s.url} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-1 text-[13px] underline decoration-border underline-offset-4 transition hover:decoration-foreground">
+                  Open
+                  <ExternalLink className="size-3" aria-hidden />
+                </a>
+              )}
+            </p>
+            {s.run && <CommandBlock command={s.run} label={`step ${i + 1}`} />}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 registerContentKind('email', EmailContent, { editable: true });
 registerContentKind('text', TextContent);
+registerContentKind('steps', StepsContent);
 registerContentKind('document', DocumentContent);
 registerContentKind('image', ImageContent);

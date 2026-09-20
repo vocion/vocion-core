@@ -60,7 +60,9 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 ├── sources/                      # YAML — connector definitions (no credentials!)
 ├── learnings/                    # whitelisted rule-step buckets
 ├── evals/                        # YAML — per-agent test cases (npm run eval:run)
-└── pages/                        # optional tenant dashboard pages (file-only, see below)
+├── pages/                        # optional tenant dashboard pages (file-only, see below)
+└── wiki/                         # markdown + frontmatter — pages that seed the wiki on apply (wiki plugin; docs/entities/workspace-manifest.md)
+    └── <slug>.md                 # title: required; summary, order, tags, managed: true|false
 ```
 
 **Every field of every file type** is documented one page per entity in

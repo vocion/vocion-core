@@ -11,7 +11,9 @@
  */
 
 import type { ScheduleOptions } from '@temporalio/client';
+import type { AutomationCheckResult } from '@/services/automations/checkSummary';
 import type { MirrorFreshness } from '@/services/CrmRecordsService';
+import type { AutomationRunCompletedPayload } from '@/services/EventService';
 import { and, desc, eq, gte, inArray, like, lt, ne, sql } from 'drizzle-orm';
 import { cronIntervalMs, humanizeAge, previousFire } from '@/libs/cron/schedule';
 import { db } from '@/libs/DB';
@@ -185,6 +187,9 @@ export async function completeAutomationFire(
         finishedAt: new Date(),
       })
       .where(eq(automationRunSchema.id, automationRunId));
+    if (dispatched.kind === 'mission_check' && dispatched.result) {
+      await announceCheckCompleted(orgId, slug, automationRunId, invokedBy, dispatched.result as AutomationCheckResult);
+    }
     return { ...dispatched, automationRunId };
   } catch (err) {
     await db
@@ -196,6 +201,50 @@ export async function completeAutomationFire(
       })
       .where(eq(automationRunSchema.id, automationRunId));
     throw err;
+  }
+}
+
+/**
+ * Raise `automation_run.completed` for a mission check that produced a
+ * result — the summary `summarizeMissionCheck` wrote. A workflow do leaves
+ * no result and a job is deterministic code, so neither is a debrief's
+ * business. Deduped on the automation run id.
+ *
+ * The loop this could form — an automation on `automation_run.completed`
+ * whose own check completes and fires it again — is closed here: a fire that
+ * this event type started raises nothing.
+ * @param orgId
+ * @param slug - The automation.
+ * @param automationRunId - Its run row.
+ * @param invokedBy - Who started the fire; `event:automation_run.completed` means a debrief's own check.
+ * @param result - The check summary.
+ */
+async function announceCheckCompleted(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, result: AutomationCheckResult): Promise<void> {
+  const { AUTOMATION_RUN_COMPLETED, emitEvent } = await import('@/services/EventService');
+  if (invokedBy?.startsWith(`event:${AUTOMATION_RUN_COMPLETED}`)) {
+    return;
+  }
+  const payload: AutomationRunCompletedPayload = {
+    automationRunId,
+    slug,
+    kind: 'mission_check',
+    missionRunId: result.missionRunId,
+    missionRunStatus: result.missionRunStatus,
+    tasksOk: result.tasks.ok,
+    tasksFailed: result.tasks.failed,
+    summary: `${slug}: mission run ${result.missionRunId} ${result.missionRunStatus}, ${result.tasks.ok}/${result.tasks.total} tasks ok`,
+    completedAt: new Date().toISOString(),
+  };
+  try {
+    await emitEvent({
+      orgId,
+      type: AUTOMATION_RUN_COMPLETED,
+      payload,
+      dedupeKey: `${AUTOMATION_RUN_COMPLETED}:${automationRunId}`,
+      invokedBy: `automation_run:${automationRunId}`,
+    });
+  } catch (error) {
+    console.warn(`[automation] could not raise ${AUTOMATION_RUN_COMPLETED} for run ${automationRunId}`, error);
   }
 }
 

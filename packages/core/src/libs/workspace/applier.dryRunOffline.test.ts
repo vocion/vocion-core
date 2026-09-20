@@ -96,6 +96,28 @@ describe('a dry-run with no database', () => {
     expect(result.counts.teams.unknown).toBe(1);
   });
 
+  it('validates seeded wiki pages and counts them as unknown — created or refreshed is the database\'s to say', async () => {
+    const dir = writeFixture({
+      'wiki/voice.md': '---\ntitle: Voice\nsummary: How we sound.\n---\nPlain and short.\n',
+      'wiki/who-is-who.md': '---\ntitle: Who is who\n---\nChris owns the workspace.\n',
+    });
+    dirs.push(dir);
+
+    const result = await applyWorkspace(loadWorkspace(dir), { dryRun: true, orgId: ORG });
+
+    expect(result.database.reachable).toBe(false);
+    expect(result.errors).toEqual([]);
+    // Two files and the index the apply would generate from them.
+    expect(result.counts.wikiPages).toEqual({ created: 0, updated: 0, unchanged: 0, unknown: 3 });
+  });
+
+  it('a wiki page that breaks the contract fails the load with the file named', async () => {
+    const dir = writeFixture({ 'wiki/bad.md': '---\nsummary: no title\n---\nBody.\n' });
+    dirs.push(dir);
+
+    expect(() => loadWorkspace(dir)).toThrow(/wiki\/bad\.md[\s\S]*title/);
+  });
+
   it('still fails a real manifest error — an unknown connector kind', async () => {
     const dir = writeFixture({
       'sources/listings.yaml': 'slug: listings\nname: Listings\nkind: no-such-connector\nconfig: {}\n',
