@@ -267,7 +267,7 @@ test('the split stacks rather than cramming when the pane is squeezed', async ({
   await expect(page.getByTestId('decide-approve')).toHaveText(/^Approve/);
 });
 
-test('on a phone the decision bar is one row, not half the screen', async ({ page }) => {
+test('on a phone the decision bar is one row, and it reaches the bottom', async ({ page }) => {
   createBootstrapAdmin();
   const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
 
@@ -308,33 +308,18 @@ test('on a phone the decision bar is one row, not half the screen', async ({ pag
   }
 
   await expect(page.getByTestId('decide-approve')).toHaveText(/Approve/);
-});
 
-test('the decision bar reaches the bottom of the screen, at every scroll position', async ({ page }) => {
-  createBootstrapAdmin();
-  const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill(ADMIN.email);
-  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
-  await page.getByRole('button', { name: /sign in/i }).click();
-  await page.waitForURL(/\/dashboard/);
-
-  await page.goto(`/dashboard/inbox/proposal-${runId}`);
-
-  await expect(page.getByTestId('sticky-action-bar')).toBeVisible();
-
+  // ── And it reaches the bottom, at every scroll position ──────────────────
   /** How far the bar's bottom edge is from the bottom of the window. */
   const gap = () => page.evaluate(() => {
-    const bar = document.querySelector('[data-testid="sticky-action-bar"]')!.getBoundingClientRect();
-    return Math.round(window.innerHeight - bar.bottom);
+    const rect = document.querySelector('[data-testid="sticky-action-bar"]')!.getBoundingClientRect();
+    return Math.round(window.innerHeight - rect.bottom);
   });
 
-  // The defect: a sticky box is constrained to its scroller's CONTENT box, so
-  // the page gutter's 24px of bottom padding was a strip the bar could never
-  // reach — and the content scrolled through it, under the stuck bar, on the
-  // one surface whose job is reading what sits there. Measured at 24px in
+  // The second defect: a sticky box is constrained to its scroller's CONTENT
+  // box, so the page gutter's 24px of bottom padding was a strip the bar could
+  // never reach — and the content scrolled through it, under the stuck bar, on
+  // the one surface whose job is reading what sits there. Measured at 24px in
   // both Chromium and WebKit before the gutter gave that padding up.
   expect(await gap()).toBe(0);
 
