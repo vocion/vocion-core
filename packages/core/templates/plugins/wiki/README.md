@@ -96,6 +96,11 @@ settled nothing writes nothing. `conversation.ended` is raised by the
 minutes (`automations/conversation-sweep.yaml`, thirty quiet minutes ends a
 thread); the other three events core raises on its own. The curator is
 `initiative: low` and sits debriefs out — it consolidates on Friday.
+Core never fires the debrief on its own check's completion — a fire carries
+its chain on the run it starts and the matcher skips it — and holds it to
+`when.maxFiresPer10m` (default 6) event fires in ten minutes, coalescing the
+rest into one run; override the ceiling on the automation's slug if a
+workspace finishes more work than that ([automation](../../../../../docs/entities/automation.md#when)).
 
 **Earned trust.** The researcher's writes key on their own ledger —
 `wiki.write_page.wiki-researcher`, because its `harness.ownLedger` names the
