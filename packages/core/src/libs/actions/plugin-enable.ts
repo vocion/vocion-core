@@ -13,6 +13,12 @@
  * internal, so under the done-for-you default it executes above the
  * confidence bar and shows with Undo one move away; below it, a person
  * decides on the card, which names exactly what turning it on adds.
+ *
+ * Under a shared mount the folder on this host may be ANOTHER project's; then
+ * the write is to `project.enabled_plugins` alone and the result's `note`
+ * tells the person the project is applied from git and which repo file to
+ * change (`pluginWriteTarget`). The mounted project's manifest is never edited
+ * from a different project.
  */
 
 import type { Action, ActionContext } from './types';
@@ -28,13 +34,17 @@ const pluginEnableInput = z.object({
 
 export type PluginEnableInput = z.infer<typeof pluginEnableInput>;
 
-async function workspaceDirFor(ctx: ActionContext): Promise<string> {
-  const { workspacePathForProject } = await import('@/routers/Workspace');
-  const dir = await workspacePathForProject(ctx.orgId);
-  if (!dir) {
-    throw new Error('this project has no workspace directory on this host, so its plugins cannot be changed here — edit workspace.yaml in the workspace repo');
-  }
-  return dir;
+/**
+ * The project, the folder resolved for it, and where a toggle may write.
+ * @param ctx
+ */
+async function targetFor(ctx: ActionContext) {
+  const [{ workspaceFolderForProject }, { loadProject }, { pluginWriteTarget }] = await Promise.all([import('@/routers/Workspace'), import('@/routers/AuthGuards'), import('@/services/PluginService')]);
+  const [project, folder] = await Promise.all([loadProject(ctx.orgId), workspaceFolderForProject(ctx.orgId)]);
+  const projectSlug = project?.slug ?? ctx.orgId;
+  const workspaceDir = folder?.path ?? null;
+  const explicit = folder?.explicit ?? false;
+  return { projectSlug, workspaceDir, explicit, target: await pluginWriteTarget(ctx.orgId, projectSlug, workspaceDir, explicit) };
 }
 
 export const pluginEnableAction: Action<typeof pluginEnableInput> = {
@@ -49,19 +59,16 @@ export const pluginEnableAction: Action<typeof pluginEnableInput> = {
     if (!listPluginSlugs().includes(input.slug)) {
       return `no plugin "${input.slug}" ships with this core; the catalogue is: ${listPluginSlugs().join(', ')}`;
     }
-    // Refuse before a card exists when the write cannot happen here — a
-    // deploy-managed box mounts the workspace read-only (EROFS, 2026-09-18),
-    // and a "Failed" card teaches nobody anything. The person gets the door.
-    const { workspacePathForProject } = await import('@/routers/Workspace');
-    const dir = await workspacePathForProject(ctx.orgId);
-    if (!dir) {
-      return 'this project has no workspace directory on this host, so plugins are changed in the workspace repo: add the slug to `plugins:` in workspace.yaml and deploy';
-    }
-    const { workspaceWriteBlocker } = await import('@/services/PluginService');
-    const blocker = workspaceWriteBlocker(dir);
-    return blocker ? `plugins cannot be changed from here: ${blocker}` : undefined;
+    // Refuse before a card exists when the project's own folder cannot be
+    // written here — a deploy-managed box mounts it read-only (EROFS,
+    // 2026-09-18), and a "Failed" card teaches nobody anything. Another
+    // project's folder is not refused: the write goes to this project's list
+    // alone, and the result says so.
+    const { target } = await targetFor(ctx);
+    return target.mode === 'workspace' && target.blocker ? `plugins cannot be changed from here: ${target.blocker}` : undefined;
   },
-  async reviewCard(_ctx, input) {
+  async reviewCard(ctx, input) {
+    const { target } = await targetFor(ctx);
     const plugin = loadPlugin(input.slug);
     const c = pluginContents(plugin);
     const adds = [
@@ -80,24 +87,29 @@ export const pluginEnableAction: Action<typeof pluginEnableInput> = {
         { label: 'Plugin', value: `${plugin.manifest.name} v${plugin.manifest.version}`, href: `/dashboard/plugins/${plugin.manifest.slug}` },
         { label: input.enabled ? 'Adds' : 'Removes', value: adds.join(' · ') || 'configuration only' },
         ...(plugin.manifest.depends.length > 0 ? [{ label: 'Also turns on', value: plugin.manifest.depends.join(', ') }] : []),
+        ...(target.mode === 'project' ? [{ label: 'Writes', value: `this project's plugin list only — the workspace is applied from git; make it stick in ${target.repoFile}` }] : []),
       ],
-      nextAction: input.enabled
-        ? 'Approving edits workspace.yaml, applies it, and the plugin\'s pages, agents and automations start working.'
-        : 'Approving removes it from workspace.yaml and applies; its pages and nav rows disappear, nothing it wrote is deleted.',
+      nextAction: target.mode === 'project'
+        ? `Approving updates this project's plugins${input.enabled ? ' and the plugin\'s pages start working' : ''}; the mounted workspace folder is another project's and is left alone. Change plugins: in ${target.repoFile} in the workspace repo to make it permanent.`
+        : input.enabled
+          ? 'Approving edits workspace.yaml, applies it, and the plugin\'s pages, agents and automations start working.'
+          : 'Approving removes it from workspace.yaml and applies; its pages and nav rows disappear, nothing it wrote is deleted.',
       verbs: { approve: input.enabled ? 'Turn on' : 'Turn off', reject: 'Leave as is' },
     };
   },
   async execute(ctx, input) {
-    const { setPluginEnabled } = await import('@/services/PluginService');
-    const dir = await workspaceDirFor(ctx);
-    const res = await setPluginEnabled({ orgId: ctx.orgId, workspaceDir: dir, slug: input.slug, enabled: input.enabled, appliedBy: ctx.invokedBy ?? 'plugin.enable' });
-    return { before: res.before, after: res.after, applied: res.applied, workspaceDir: dir };
+    const { togglePluginForProject } = await import('@/services/PluginService');
+    const { projectSlug, workspaceDir, explicit } = await targetFor(ctx);
+    const res = await togglePluginForProject({ orgId: ctx.orgId, projectSlug, workspaceDir, explicit, slug: input.slug, enabled: input.enabled, appliedBy: ctx.invokedBy ?? 'plugin.enable' });
+    // `note` rides the result so whoever ran this — the chat, the card — can
+    // say the folder was left alone and where the permanent change goes.
+    return { before: res.before, after: res.after, applied: res.applied, mode: res.mode, workspaceDir, ...(res.note ? { note: res.note, repoFile: res.repoFile } : {}) };
   },
   async undo(ctx, _input, result) {
-    const { restorePlugins } = await import('@/services/PluginService');
+    const { restorePluginsForProject } = await import('@/services/PluginService');
     const before = Array.isArray(result.before) ? (result.before as string[]) : [];
-    const dir = typeof result.workspaceDir === 'string' ? result.workspaceDir : await workspaceDirFor(ctx);
-    const res = await restorePlugins({ orgId: ctx.orgId, workspaceDir: dir, plugins: before, appliedBy: `${ctx.invokedBy ?? 'plugin.enable'}:undo` });
-    return { restored: before, applied: res.applied };
+    const { projectSlug, workspaceDir, explicit } = await targetFor(ctx);
+    const res = await restorePluginsForProject({ orgId: ctx.orgId, projectSlug, workspaceDir, explicit, plugins: before, appliedBy: `${ctx.invokedBy ?? 'plugin.enable'}:undo` });
+    return { restored: before, applied: res.applied, mode: res.mode };
   },
 };

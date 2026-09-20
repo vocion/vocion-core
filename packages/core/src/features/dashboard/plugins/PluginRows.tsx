@@ -3,8 +3,9 @@ import { Column, ListEmpty, ListRow, ListRows, Subline } from '@/components/patt
 import { StatusPill } from '@/components/ui/status-pill';
 import { PluginToggle } from '@/features/dashboard/plugins/PluginToggle';
 import { listPlugins } from '@/libs/workspace/plugins';
-import { workspacePathForProject } from '@/routers/Workspace';
-import { enabledPluginsForOrg, workspaceWriteBlocker } from '@/services/PluginService';
+import { loadProject } from '@/routers/AuthGuards';
+import { workspaceFolderForProject } from '@/routers/Workspace';
+import { enabledPluginsForOrg, pluginWriteTarget } from '@/services/PluginService';
 
 /**
  * The plugin catalogue's rows — the Plugins section of the Marketplace.
@@ -25,14 +26,19 @@ import { enabledPluginsForOrg, workspaceWriteBlocker } from '@/services/PluginSe
  * @param props.isAdmin - Whether this viewer may flip a switch.
  */
 export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: boolean }) {
-  const [plugins, enabled, dir] = await Promise.all([
+  const [plugins, enabled, project, folder] = await Promise.all([
     Promise.resolve(listPlugins()),
     enabledPluginsForOrg(orgId),
-    workspacePathForProject(orgId),
+    loadProject(orgId),
+    workspaceFolderForProject(orgId),
   ]);
-  // On a deploy-managed host the workspace is a read-only checkout: the switch
-  // shows the state and names the door (the repo) instead of failing on click.
-  const blocker = dir ? workspaceWriteBlocker(dir) : 'this project has no workspace directory on this host';
+  // On a deploy-managed host the project's own workspace is a read-only
+  // checkout: the switch shows the state and names the door (the repo) instead
+  // of failing on click. When the folder is ANOTHER project's, the switch
+  // works on this project's list alone and the tooltip names the repo file.
+  const target = await pluginWriteTarget(orgId, project?.slug ?? orgId, folder?.path ?? null, folder?.explicit ?? false);
+  const blocker = target.blocker;
+  const repoFile = target.mode === 'project' ? target.repoFile : null;
   const dependentsOf = (slug: string) => plugins.filter(p => p.manifest.depends.includes(slug)).map(p => p.manifest.slug);
 
   if (plugins.length === 0) {
@@ -66,7 +72,7 @@ export async function PluginRows({ orgId, isAdmin }: { orgId: string; isAdmin: b
               </>
             )}
             chip={<StatusPill status={on ? 'completed' : 'inactive'} label={on ? 'On' : 'Off'} size="sm" />}
-            actions={<PluginToggle slug={p.manifest.slug} enabled={on} canToggle={isAdmin} blocker={blocker} dependents={dependentsOf(p.manifest.slug)} />}
+            actions={<PluginToggle slug={p.manifest.slug} enabled={on} canToggle={isAdmin} blocker={blocker} repoFile={repoFile} dependents={dependentsOf(p.manifest.slug)} />}
           />
         );
       })}
