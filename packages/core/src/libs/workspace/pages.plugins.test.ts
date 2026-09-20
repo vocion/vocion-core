@@ -115,6 +115,62 @@ describe('plugin pages', () => {
     expect(pagePlugin(pages.find(p => p.slug === 'ours')!)).toBeNull();
   });
 
+  // One mounted folder serves several projects, so the folder's `plugins:`
+  // is only the primary project's word. The project's own list
+  // (`project.enabled_plugins`) joins the same pipeline, same dedupe.
+  describe('a project\'s own plugins', () => {
+    it('contribute their pages when the mounted workspace has none on', () => {
+      workspace('');
+      const { pages, issues } = readWorkspacePages({ enabledPlugins: ['software-factory'] });
+      const floor = pages.find(p => p.slug === 'factory-floor');
+
+      expect(issues).toEqual([]);
+      expect(floor?.origin).toBe('plugin:software-factory');
+      expect(pagePlugin(floor!)).toBe('software-factory');
+      expect(pages.map(p => p.slug)).not.toContain('wiki');
+    });
+
+    it('load beside the mounted workspace\'s plugins, each plugin once', () => {
+      workspace('plugins: [wiki]\n');
+      const { pages, issues } = readWorkspacePages({ enabledPlugins: ['wiki', 'software-factory'] });
+
+      expect(issues).toEqual([]);
+      expect(pages.filter(p => p.slug === 'wiki')).toHaveLength(1);
+      expect(pages.find(p => p.slug === 'wiki')?.origin).toBe('plugin:wiki');
+      expect(pages.find(p => p.slug === 'factory-floor')?.origin).toBe('plugin:software-factory');
+    });
+
+    it('still yield to a same-slug workspace page', () => {
+      workspace('', { 'pages/factory-floor.yaml': 'slug: factory-floor\ntitle: Our floor\narchetype: markdown\n' });
+      const floor = readWorkspacePages({ enabledPlugins: ['software-factory'] }).pages.filter(p => p.slug === 'factory-floor');
+
+      expect(floor).toHaveLength(1);
+      expect(floor[0]?.origin).toBe('workspace');
+      expect(floor[0]?.title).toBe('Our floor');
+    });
+
+    it('are read even with no workspace mounted at all', () => {
+      delete process.env.WORKSPACE_PATH;
+
+      expect(readWorkspacePages({ enabledPlugins: ['software-factory'] }).pages.find(p => p.slug === 'factory-floor')?.origin).toBe('plugin:software-factory');
+    });
+
+    it('report a plugin this core no longer ships instead of throwing', () => {
+      workspace('plugins: [wiki]\n');
+      const { pages, issues } = readWorkspacePages({ enabledPlugins: ['ghost'] });
+
+      expect(issues).toEqual([expect.objectContaining({ file: 'plugin:ghost' })]);
+      expect(pages.find(p => p.slug === 'wiki')?.origin).toBe('plugin:wiki');
+    });
+
+    it('change nothing when no list is given', () => {
+      workspace('plugins: [wiki]\n');
+
+      expect(readWorkspacePages().pages.map(p => p.slug)).toEqual(readWorkspacePages({}).pages.map(p => p.slug));
+      expect(readWorkspacePages().pages.map(p => p.slug)).not.toContain('factory-floor');
+    });
+  });
+
   it('the artifacts source validates its narrowing', () => {
     expect(PageManifestSchema.safeParse({ slug: 'x', title: 'X', archetype: 'list', source: { kind: 'artifacts', folder: 'wiki', artifactKind: 'markdown' } }).success).toBe(true);
     expect(PageManifestSchema.safeParse({ slug: 'x', title: 'X', archetype: 'list', source: { kind: 'artifacts', limit: 0 } }).success).toBe(false);

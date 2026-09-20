@@ -1,9 +1,10 @@
+import type { LoadedPlugin } from '@/libs/workspace/plugins';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { enabledPluginsFromWorkspaceDir } from '@/libs/workspace/plugins';
+import { enabledPluginsFromWorkspaceDir, loadPlugin } from '@/libs/workspace/plugins';
 import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
 
 /**
@@ -25,6 +26,14 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
  *
  * An enabled plugin (`workspace.yaml` `plugins:`) contributes its own
  * `pages/` the same way; a workspace page with the same slug replaces it.
+ *
+ * A deployment hosts several projects on ONE mounted folder, so the mounted
+ * `workspace.yaml` is only the primary project's word on which plugins are
+ * on. The project the request is for has its own list on
+ * `project.enabled_plugins`; a caller with an org passes it in
+ * (`enabledPlugins`) and those plugins' pages join the same list, same
+ * dedupe. This module stays filesystem-only — the DB half is
+ * `services/PluginService.ts` (`readPageForOrg`).
  */
 
 const SlugSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/, {
@@ -197,15 +206,27 @@ export function workspacePagesDir(): string | null {
 
 export type PageLoadIssue = { file: string; message: string };
 
+export type ReadPagesOptions = {
+  /**
+   * Plugins the project has on (`project.enabled_plugins` — dependency-closed,
+   * in load order), read from core's own `templates/plugins/<slug>/pages`.
+   * Their pages join the mounted workspace's and its plugins'; a slug both
+   * lists name loads once. Omitted = the mounted folder alone, as before.
+   */
+  enabledPlugins?: readonly string[];
+};
+
 /**
  * Read + validate every page manifest in the workspace. Invalid files are
  * skipped and reported — a broken page never takes the dashboard down.
+ * @param opts - See {@link ReadPagesOptions}.
  */
-export function readWorkspacePages(): { pages: LoadedPage[]; issues: PageLoadIssue[] } {
+export function readWorkspacePages(opts: ReadPagesOptions = {}): { pages: LoadedPage[]; issues: PageLoadIssue[] } {
   const ws = workspaceDir();
   const pages: LoadedPage[] = [];
   const issues: PageLoadIssue[] = [];
   const seen = new Set<string>();
+  const seenPlugins = new Set<string>();
 
   const readDir = (dir: string, origin: LoadedPage['origin'], tenant: boolean) => {
     if (!existsSync(dir)) {
@@ -232,18 +253,45 @@ export function readWorkspacePages(): { pages: LoadedPage[]; issues: PageLoadIss
     }
   };
 
+  const readPlugin = (plugin: LoadedPlugin) => {
+    if (seenPlugins.has(plugin.manifest.slug)) {
+      return;
+    }
+    seenPlugins.add(plugin.manifest.slug);
+    readDir(join(plugin.sourcePath, 'pages'), `plugin:${plugin.manifest.slug}`, false);
+  };
+
   if (ws) {
     readDir(join(ws, 'pages'), 'workspace', true);
     for (const plugin of enabledPluginsFromWorkspaceDir(ws)) {
-      readDir(join(plugin.sourcePath, 'pages'), `plugin:${plugin.manifest.slug}`, false);
+      readPlugin(plugin);
+    }
+  }
+  // The project's own plugins, after the mounted folder's so the same
+  // "workspace first, plugin yields" rule holds for them. The list is stored
+  // dependency-closed, so each slug loads on its own; one this core no longer
+  // ships is reported the way a bad YAML is, never thrown.
+  for (const slug of opts.enabledPlugins ?? []) {
+    if (seenPlugins.has(slug)) {
+      continue;
+    }
+    try {
+      readPlugin(loadPlugin(slug));
+    } catch (e) {
+      issues.push({ file: `plugin:${slug}`, message: e instanceof Error ? e.message : String(e) });
     }
   }
   pages.sort((a, b) => a.nav.order - b.nav.order || a.title.localeCompare(b.title));
   return { pages, issues };
 }
 
-export function readWorkspacePage(slug: string): LoadedPage | null {
-  return readWorkspacePages().pages.find(p => p.slug === slug) ?? null;
+/**
+ * One page by slug, from the same list {@link readWorkspacePages} builds.
+ * @param slug - The page slug.
+ * @param opts - See {@link ReadPagesOptions}.
+ */
+export function readWorkspacePage(slug: string, opts: ReadPagesOptions = {}): LoadedPage | null {
+  return readWorkspacePages(opts).pages.find(p => p.slug === slug) ?? null;
 }
 
 /**
