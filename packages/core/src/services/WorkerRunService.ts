@@ -1,7 +1,6 @@
 import type { TokenUsage } from '@/libs/pricing';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { logger } from '@/libs/Logger';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
@@ -439,8 +438,24 @@ async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
     }).where(eq(businessObjectSchema.id, object.id));
     await recomputeRollups({ orgId: run.orgId, childType: record.type, childId: record.id, now });
   } catch (err) {
-    logger.warn('worker run cost write-back failed', { runId: run.id, record, error: err instanceof Error ? err.message : String(err) });
+    warn('worker run cost write-back failed', { runId: run.id, record, error: err instanceof Error ? err.message : String(err) });
   }
+}
+
+/**
+ * Warn through a dynamic import. `libs/Logger` has a top-level await, and
+ * this service sits in the Temporal worker's import chain (the reaper
+ * schedule), which tsx compiles as CommonJS — a static import would stop the
+ * worker from starting. Same approach as `libs/Langfuse.ts`;
+ * `scripts/temporal-worker.imports.test.ts` guards it.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function warn(message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.warn(message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
 }
 
 /**
