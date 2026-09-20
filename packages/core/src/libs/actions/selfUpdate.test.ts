@@ -77,18 +77,25 @@ describe('which nouns are in the class', () => {
     expect([...SELF_UPDATE_ON_THE_DIAL].sort()).toEqual(['learning.adopt_rule', 'mission.update_notes', 'playbook.write', 'wiki.write_page']);
   });
 
-  it('keeps an agent revising its own prompt off the dial, and alone at medium', () => {
-    const prompt = selfUpdateKind('agent.revise_prompt')!;
-    const others = SELF_UPDATE_KINDS.filter(k => k.actionId !== prompt.actionId);
+  it('holds the two kinds that change what the system DOES at medium, off the dial', () => {
+    // Everything else in the class only changes what the system KNOWS — a
+    // page, a rule, a note — and is low, reversible and on the dial or beside
+    // it. These two change how it acts from the next turn onward: an agent
+    // rewriting its own instructions, and an agent hiring a teammate that
+    // will take turns and spend an allowance. Medium is what stops the ladder
+    // ever offering either of them autonomy.
+    const medium = SELF_UPDATE_KINDS.filter(k => k.risk === 'medium');
 
-    expect(prompt.risk).toBe('medium');
-    expect(prompt.onTheDial).toBe(false);
-    expect(others.every(k => k.risk === 'low')).toBe(true);
+    expect(medium.map(k => k.actionId).sort()).toEqual(['agent.revise_prompt', 'team.hire_agent']);
+    expect(medium.every(k => !k.onTheDial)).toBe(true);
+    expect(SELF_UPDATE_KINDS.filter(k => k.risk !== 'medium').every(k => k.risk === 'low')).toBe(true);
+    expect(selfUpdateKind('team.hire_agent')!.noun).toBe('teammate');
   });
 
   it('exports a risk table keyed the same way as the class', () => {
     expect(Object.keys(SELF_UPDATE_RISK).sort()).toEqual([...SELF_UPDATE_ACTION_IDS].sort());
     expect(SELF_UPDATE_RISK['agent.revise_prompt']).toBe('medium');
+    expect(SELF_UPDATE_RISK['team.hire_agent']).toBe('medium');
   });
 
   it('gives every noun a verb', () => {

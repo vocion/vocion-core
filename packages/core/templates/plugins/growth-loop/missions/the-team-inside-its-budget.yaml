@@ -1,0 +1,30 @@
+slug: the-team-inside-its-budget
+name: The team grows only where work waited, and only inside the budget
+description: >-
+  The standing responsibility of the Growth lead for the shape of the team
+  itself. A team that can add to itself is a team that can run away; this is the
+  mission that makes each addition evidenced, capped and reversible, and that
+  keeps a rejected hire an open question rather than a closed one.
+goal: >-
+  Capability is added only where named work actually waited, only from the
+  catalog, only with the daily allowance it is hired under, and only by a
+  person's decision on a card that can be undone. Every open gap is reported
+  every week with what it has cost, whether or not a hire is proposed. No hire
+  is proposed that the workspace's own headroom cannot pay for. Nothing about
+  the team's shape changes because it seemed sensible.
+agent: growth-lead
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every hire proposal names the gap before the role, and the gap is evidenced by briefs that waited with no owner for at least two weeks — never by a feeling about capacity or by a growing backlog
+  - Every hire proposal names a catalog slug; where no catalog role fits, the finding is written for a person and nothing is proposed
+  - Every hire proposal carries a daily allowance with the reasoning for the figure, and the allowance is checked against the workspace's unspent headroom before the proposal is filed
+  - No hire is executed by an agent; the proposal is an ask a person decides, and the record shows the person who decided it
+  - A rejected hire is not re-proposed inside thirty days on the same evidence; the gap stays open and its cost is reported each week
+  - Every open gap appears in the weekly report with how long it has waited and what the wait has cost, whether or not it is being proposed
+  - A backlog that is growing is diagnosed as a ranking problem first; a hire is proposed only once ranking, a clearer brief and dropping the work have been considered and named
+desiredArtifacts:
+  - The weekly gap list — briefs with no owner, how long, what it cost
+  - One hire proposal per genuine gap, naming the role, the allowance, the reasoning and the headroom it fits inside
+  - The standing record of rejected hires with the date and the reason, so the same case is not re-made on the same evidence
+schedule: '0 15 * * 1'

@@ -20,6 +20,7 @@ import { personalizationEnrollAction } from './personalization-enroll';
 import { playbookWriteAction } from './playbook-write';
 import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
+import { teamHireAgentAction } from './team-hire-agent';
 import { wikiWritePageAction } from './wiki-write-page';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
 
@@ -54,6 +55,11 @@ registerAction(askFileAction);
 registerAction(askWithdrawAction);
 // Turn a workspace plugin on/off from chat — reversible, internal, done-for-you above the bar.
 registerAction(pluginEnableAction);
+// An agent adds a teammate from the catalog, with the daily allowance it is
+// hired under — reversible (the agent, its budget and the team the hire
+// created all go back), internal, and held at approval until a workspace
+// promotes it (`medium`, so autonomous is never on offer).
+registerAction(teamHireAgentAction);
 // A wiki page write — reversible (restore the previous version), done-for-you above the wiki plugin's bar.
 registerAction(wikiWritePageAction);
 // A correction a person made, adopted as a standing rule — reversible (Undo

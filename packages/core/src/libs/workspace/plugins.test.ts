@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe('the shipped catalogue', () => {
   it('ships wiki, data-rooms, proposals and software-factory, each with a valid manifest', () => {
-    expect(listPluginSlugs()).toEqual(expect.arrayContaining(['data-rooms', 'proposals', 'software-factory', 'wiki']));
+    expect(listPluginSlugs()).toEqual(expect.arrayContaining(['data-rooms', 'growth-loop', 'proposals', 'software-factory', 'wiki']));
 
     for (const p of listPlugins()) {
       expect(p.manifest.slug).toBe(p.sourcePath.split('/').pop());
@@ -64,7 +64,24 @@ describe('the shipped catalogue', () => {
   });
 
   it('refuses an unknown slug and names the catalogue', () => {
-    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, proposals, software-factory, wiki/);
+    expect(() => loadPlugin('nope')).toThrow(/unknown plugin "nope" — this core ships: data-rooms, growth-loop, proposals, software-factory, wiki/);
+  });
+
+  it('counts what the growth loop ships', () => {
+    const growth = pluginContents(loadPlugin('growth-loop'));
+
+    expect(growth.agents).toEqual(['content-producer', 'demand-strategist', 'growth-analyst', 'growth-lead', 'standards-editor']);
+    expect(growth.skills).toEqual(['check-against-the-brief', 'extend-the-team', 'produce-from-a-brief', 'rank-the-demand', 'take-the-reading', 'write-a-growth-brief']);
+    expect(growth.playbooks).toEqual(['measure-before-you-make', 'one-claim-per-piece', 'publish-what-holds']);
+    // ONE new noun. The brief is the whole addition to the object model: no
+    // second intake type, no second scorecard type, no second cost record.
+    expect(growth.objectTypes).toEqual(['growth_brief']);
+    expect(growth.missions).toEqual(['every-brief-measured', 'nothing-public-unchecked', 'the-team-inside-its-budget', 'what-gets-briefed']);
+    // Every way an agent in the loop acts is an automation a person can read
+    // and pause, never a habit in a prompt.
+    expect(growth.automations).toEqual(['growth-capability-review', 'growth-debrief', 'growth-gate', 'growth-readings-due', 'growth-weekly-plan']);
+    expect(growth.pages).toEqual(['growth-briefs', 'growth-cost', 'growth-measure', 'growth-team-report']);
+    expect(growth.hasTrust).toBe(true);
   });
 });
 
@@ -343,6 +360,78 @@ describe('loadWorkspace with the software factory', () => {
     for (const key of ['theme', 'icp', 'source', 'releaseId', 'priority', 'priorityReason', 'rankedAt', 'recommendedAt', 'recommendationBatch', 'recommendedOutcome', 'recommendationState', 'decidedAt', 'decisionReason']) {
       expect(request.properties[key]).toBeDefined();
     }
+  });
+});
+
+describe('loadWorkspace with the growth loop', () => {
+  it('composes the five seats, the one new noun, the missions and the hire bar', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [growth-loop]\naccountableUser: ops@northwind.example\n'));
+
+    expect(ws.enabledPlugins).toEqual(['growth-loop']);
+    expect(ws.agents.map(a => a.slug).sort()).toEqual(['content-producer', 'demand-strategist', 'growth-analyst', 'growth-lead', 'standards-editor']);
+    expect(ws.teams.map(t => t.slug)).toEqual(['growth-loop']);
+    expect(ws.objectTypes.map(o => o.slug)).toEqual(['growth_brief']);
+    expect(ws.missions.map(m => m.slug).sort()).toEqual(['every-brief-measured', 'nothing-public-unchecked', 'the-team-inside-its-budget', 'what-gets-briefed']);
+
+    // The hire is held at approval and tiered `medium`, so the ladder's ceiling
+    // for it is execute-within-bounds — autonomous is never on offer for an
+    // agent adding an agent, on any ledger.
+    const hire = ws.trust?.rules.find(r => r.action === 'team.hire_agent');
+
+    expect(hire).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
+  });
+
+  it('ships ONE new noun and links to the factory\'s intake rather than shipping a second one', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [growth-loop, software-factory]\naccountableUser: ops@northwind.example\n'));
+    const types = ws.objectTypes.map(o => o.slug).sort();
+
+    // `request` comes from the software factory and from nowhere else; the
+    // growth loop adds `growth_brief` and stops. Two plugins shipping one slug
+    // is an error, and a second intake noun would be the duplication this
+    // plugin's design argued against.
+    expect(types).toEqual(['engineering_task', 'growth_brief', 'product', 'release', 'repo', 'request']);
+
+    const brief = ws.objectTypes.find(o => o.slug === 'growth_brief')!;
+    const props = (brief.schema as { properties: Record<string, { description?: string }> }).properties;
+
+    // The contract half is spelled the same as the task contract's, so a person
+    // reads one vocabulary across both and core's cost machinery needs nothing new.
+    expect(Object.keys(props)).toEqual(expect.arrayContaining(['objective', 'acceptanceContract', 'decisionCost', 'estimateCents', 'actualCents', 'varianceCents', 'costUpdatedAt']));
+    // And the half that makes it a different noun: a claim fence instead of a
+    // path fence, and a verdict that arrives after publication.
+    expect(Object.keys(props)).toEqual(expect.arrayContaining(['doNotClaim', 'claimClass', 'measure', 'readAfterDays', 'readings', 'verdict']));
+    expect(props.requestId!.description).toContain('OPTIONAL and cross-plugin');
+    // A brief is a leaf: core writes its actual from the run, so it carries no
+    // rollups and there is no second cost system underneath it.
+    expect(brief.rollups ?? []).toEqual([]);
+  });
+
+  it('grades the team on what moved rather than on what was published', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [growth-loop]\naccountableUser: ops@northwind.example\n'));
+    const team = ws.teams.find(t => t.slug === 'growth-loop')!;
+    const keys = team.measures.map(m => m.key);
+
+    expect(keys).toContain('briefs_that_worked');
+    expect(team.measures.find(m => m.key === 'briefs_that_worked')!.dimension).toBe('outcome');
+    // Velocity sits BESIDE the outcome, never instead of it — deliverables made
+    // that moved nothing is exactly the failure the pair makes visible.
+    expect(team.measures.find(m => m.key === 'deliverables_made')!.dimension).toBe('velocity');
+    // Spend is the one measure that improves by going down.
+    expect(team.measures.find(m => m.key === 'growth_cents')!.direction).toBe('lower');
+  });
+
+  it('composes beside every other shipped plugin without a slug collision', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [growth-loop, software-factory, wiki, proposals]\naccountableUser: ops@northwind.example\n'));
+    const slugs = ws.agents.map(a => a.slug);
+
+    expect(new Set(slugs).size).toBe(slugs.length);
+    expect(ws.enabledPlugins).toEqual(['growth-loop', 'software-factory', 'wiki', 'data-rooms', 'proposals']);
+
+    // One rule per action across the merged ladder: the growth loop deliberately
+    // does not restate a bar another plugin already holds.
+    const actions = (ws.trust?.rules ?? []).map(r => r.action);
+
+    expect(new Set(actions).size).toBe(actions.length);
   });
 });
 

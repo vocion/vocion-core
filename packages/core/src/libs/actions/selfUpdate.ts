@@ -31,7 +31,7 @@
  */
 
 /** The six things the system changes about itself. One word each, because the chip has one line. */
-export const SELF_UPDATE_NOUNS = ['wiki', 'memory', 'playbook', 'mission', 'prompt', 'capability'] as const;
+export const SELF_UPDATE_NOUNS = ['wiki', 'memory', 'playbook', 'mission', 'prompt', 'capability', 'teammate'] as const;
 
 export type SelfUpdateNoun = typeof SELF_UPDATE_NOUNS[number];
 
@@ -112,6 +112,14 @@ export const SELF_UPDATE_KINDS: readonly SelfUpdateKind[] = [
     risk: 'low',
     onTheDial: false,
     why: 'turning a plugin on changes what the system can DO — it adds agents, pages and automations — so it keeps the platform\'s flat bar rather than riding a dial meant for what the system knows',
+  },
+  {
+    actionId: 'team.hire_agent',
+    noun: 'teammate',
+    verb: 'Hired a teammate',
+    risk: 'medium',
+    onTheDial: false,
+    why: 'hiring adds a standing teammate that takes turns, spends its allowance and acts under the workspace\'s name — a wider blast radius than a sentence nobody meant, so it keeps a tier of its own rather than riding the learning dial, and medium means the ladder never offers it autonomy',
   },
   {
     actionId: 'agent.revise_prompt',

@@ -1,0 +1,29 @@
+slug: growth-capability-review
+name: Weekly capability review
+description: >-
+  Wakes the Growth lead once a week to check `the-team-inside-its-budget` — read
+  what waited, diagnose it as a ranking problem before a staffing one, and
+  propose a teammate only where named work has had no owner for two weeks and
+  the workspace's own headroom can pay for it. The hire itself is an ask a
+  person decides, and it is undoable after they do.
+status: active
+agent: growth-lead
+when:
+  schedule: '0 15 * * 1'
+do:
+  checkMission: the-team-inside-its-budget
+  prompt: >-
+    List every brief with no owner and how long it has waited, and what the wait
+    has cost — briefs produced without a decision, rework at the gate, readings
+    not taken. Diagnose first: is this a ranking problem, an unclear brief, or
+    work that should be dropped? Only where a named gap has had no owner for two
+    weeks and none of those three explains it, look for a catalog role that
+    closes it; if none fits, write that finding for a person and propose
+    nothing. Before proposing, read the workspace's budgets as they stand and
+    choose a daily allowance from what the waiting work would have cost, saying
+    where the figure came from; if it is larger than the unspent headroom, ask
+    for less or say the allowance has to rise first. Then propose the hire
+    through team.hire_agent with the gap, the role, the allowance and the
+    reasoning. Never propose a role a person rejected inside the last thirty
+    days on the same evidence. Report in three lines: gaps and how long,
+    proposed or not and why, what the open gaps are costing.

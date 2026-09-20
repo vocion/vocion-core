@@ -1,0 +1,34 @@
+# Cost against return — what each theme has cost and what it returned. Every
+# brief, whatever its state, with the estimate beside the actual, grouped by
+# theme so a theme's total is the cumulative spend on everything under it.
+#
+# The two figures sit side by side and no ratio is computed here on purpose: a
+# cost-per-outcome the page derived across types would be arithmetic nobody can
+# check, and the team report already derives cost per outcome from the team's
+# own measures with its provenance attached.
+slug: growth-cost
+title: Cost and return
+description: What each theme of work cost, what it was expected to cost, and what its readings said — the two figures side by side, never a ratio nobody can re-derive.
+icon: coins
+nav: {section: Growth, order: 3}
+archetype: list
+source: {kind: objects, objectType: growth_brief}
+sort: {field: meta.actualCents, dir: desc}
+groupBy: meta.theme
+stats:
+  - {label: Total spent, kind: sum, field: meta.actualCents, format: money}
+  - {label: Total estimated, kind: sum, field: meta.estimateCents, format: money}
+  - {label: Spent this month, kind: sum, field: meta.actualCents, format: money, where: {field: meta.costUpdatedAt, op: since, value: month}}
+  - {label: Spent on briefs that worked, kind: sum, field: meta.actualCents, format: money, where: {field: meta.verdict, op: eq, value: worked}}
+  - {label: Spent on briefs that did nothing, kind: sum, field: meta.actualCents, format: money, where: {field: meta.verdict, op: eq, value: no_effect}}
+  - {label: Average cost of a brief, kind: avg, field: meta.actualCents, format: money}
+fields:
+  - {key: title, label: Brief}
+  - {key: channel, label: Channel, from: meta.channel, format: badge}
+  - {key: theme, label: Theme, from: meta.theme, format: mono}
+  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true}
+  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
+  - {key: variance, label: Variance, from: meta.varianceCents, format: money, total: true}
+  - {key: verdict, label: Verdict, from: meta.verdict, format: badge, tones: {worked: ok, no_effect: warn, hurt: bad, unmeasurable: muted}}
+  - {key: updated, label: Cost as of, from: meta.costUpdatedAt, format: date}
+rowLink: /dashboard/objects/{id}
