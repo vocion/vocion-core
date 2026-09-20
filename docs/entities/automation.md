@@ -30,10 +30,18 @@ pure procedures, and neither carries its own schedule.
 | Field | Type | What it does |
 |---|---|---|
 | `schedule` | 5-field cron, UTC | Fire on a cadence. |
-| `event` | string, e.g. `prospect.reply` | Fire when this event type is emitted. |
+| `event` | string or string[], e.g. `prospect.reply` or `[worker_run.completed, pr.merged]` | Fire when this event type — any of these types — is emitted. |
 | `filter` | object | For event triggers: every key must equal the payload's value. |
 
 `schedule` and `event` are mutually exclusive — exactly one is required.
+
+**Debriefs.** An automation on a completion event — `worker_run.completed`,
+`worker_run.failed`, `mission_run.completed`, `conversation.ended`,
+`automation_run.completed`, `pr.merged` — is a debrief: work finished, and an
+agent reads it back into the record. An agent authored `initiative: low`
+([agent](./agent.md#behaviour)) sits debriefs out: its automations on these
+events are skipped, not fired and not logged as refused. A schedule or any
+other event is unaffected.
 
 #### Events Vocion emits itself
 
@@ -45,6 +53,10 @@ These are the ones the server raises on its own:
 | `source.sync_completed` | A source finishes a sync without failing. A run that completed with per-document errors still raises it; a run that failed does not. | `sourceId`, `sourceSlug`, `connector`, `incremental`, `created`, `updated`, `unchanged`, `tombstoned`, `errors`, `completedAt` (ISO) |
 | `artifact.saved` | An artifact is created or a new version of it is written — by an agent, a person or a system pass. | `artifactId`, `kind`, `folder`, `title`, `version`, `change` (`created` \| `revised`), `authorKind`, `recordType`, `recordId` |
 | `ask.decided` | A person answers an ask ([ask](./ask.md)) — approve, reject, an option, an "other", mark done. Raised from the one place a decision is written, so a plugin can act on the answer without polling; `filter` on `agentSlug` and `kind` to hear only your own. | `askId`, `kind`, `status`, `decision`, `followUp`, `agentSlug`, `teamSlug`, `groupKey`, `sourceRef`, `objectRefs` (`[{ type, id }]`, the records it was about — read it off the payload; not filterable), `decidedBy`, `decidedAt` (ISO) |
+| `worker_run.completed`, `worker_run.failed` | An external worker's run ([worker run](./worker-run.md)) reaches a terminal status from the worker's own `complete` or `fail` call. `completed` also carries `status: cancelled` for a run that was asked to stop and stopped; a run the reaper marks `lost` raises nothing. | `workerRunId`, `agentSlug`, `kind`, `status`, `summary` (the worker's account, or the error; ≤500 chars), `recordType`, `recordId`, `attempt`, `cents`, `completedAt` (ISO) |
+| `mission_run.completed` | A mission run's tasks all finish without failure and the loop settles it — once, from the one write that settles it. `mode` is `check` for an automation's own mission check and `planned` for a brief a person or the planner decomposed; a debrief filters `mode: planned` so it never fires on a check. | `missionRunId`, `missionId`, `missionSlug`, `title`, `agentSlug` (the team lead), `mode`, `summary` (the last task's output, ≤500 chars), `tasksTotal`, `tasksFailed`, `completedAt` (ISO) |
+| `conversation.ended` | The `sweep-idle-conversations` job finds a conversation with no turn for its window (default 30 minutes) and stamps `ended_at`. The only way a conversation ends today — there is no close button — so a workspace that wants the event schedules the job (`do: { job: sweep-idle-conversations }`). A thread picked up again is open again and ends again later. | `conversationId`, `agentSlug`, `title`, `surface`, `messageCount`, `lastMessageAt` (ISO), `endedBy` (`idle`), `summary` (the title), `endedAt` (ISO) |
+| `automation_run.completed` | A `checkMission` fire finishes and its check produced a result (a workflow or job fire raises nothing). A fire that this event itself started raises nothing, so a debrief on it cannot fire on its own check. | `automationRunId`, `slug`, `kind` (`mission_check`), `missionRunId`, `missionRunStatus`, `tasksOk`, `tasksFailed`, `summary`, `completedAt` (ISO) |
 | `pr.opened`, `pr.synchronized`, `pr.checks_completed`, `pr.review_submitted`, `pr.merged`, `pr.closed`, `run.failed` | The `github` source polls (or its webhook receives) activity on the repositories a workspace lists. | `repo`, `number`, `url`, `headSha`, `branch`, `title`, `author`, plus per-event fields — `conclusion` and `failedChecks` on `pr.checks_completed`, `reviewState` on `pr.review_submitted`, `mergeSha` on `pr.merged`. Shapes in the [GitHub guide](../guides/github.md). |
 
 Every payload field but `objectRefs` is a scalar, so any of them can be used in a `filter`:

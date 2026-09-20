@@ -39,6 +39,37 @@ consults team leads, and team leads consult their specialists.
 The hierarchy is one level deep: an agent named as a `parent` must itself have
 no `parent`.
 
+## Behaviour
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| `handles` | string[] | `[]` | What this agent answers for — short topics, intents or example asks (`[wiki, standing rules, research, plans]`). The router matches a message against these when nobody named an agent. Composable: `{ $append: [...] }` adds to a base's list. |
+| `initiative` | `low` \| `normal` \| `high` | `normal` | How much the agent volunteers. Three effects, each real: it breaks a routing tie; `high` ends a turn that produced something standing (a fact, a decision, a plan) with **one** offer to carry it forward, asked as a question, while `low` never volunteers; and `low` sits out **debriefs** — automations on the completion events (`worker_run.completed`, `worker_run.failed`, `mission_run.completed`, `conversation.ended`, `automation_run.completed`, `pr.merged`) are skipped for a low-initiative agent. Shown on the agent card as a small label when it is not `normal`. |
+
+### Routing — who answers a message nobody addressed
+
+A person who types `@wiki-researcher` has chosen; a channel binding or a
+mailbox has chosen for them. Everywhere else — the chat composer with no tag,
+an MCP client's `ask_workspace` — the workspace chooses, in code a person can
+read (`services/agents/router.ts`), and writes the decision down.
+
+The rule. Every **active** agent is scored against the message: a `handles`
+entry found in the message as a phrase scores 3, one whose every word is
+present scores 2; each word the message shares with the `description` scores 1
+(at most 3); each word shared with the `suggestions` scores ½ (at most 2). The
+best score wins if it reaches 2. An exact tie goes to the higher `initiative`,
+then to the workspace lead, then to the slug that sorts first. Nothing reaches
+2, and the workspace lead answers — `lead:` in `workspace.yaml`, else the first
+active agent. Deliberately lexical, not a model call: cheap enough for every
+turn, deterministic enough to test, and the reason it records is the reason it
+used.
+
+The decision — candidates with their scores and what matched, the chosen slug,
+`defaulted`, one sentence of reason — is stored on the message it was made for
+(`conversation_message.routing_json`), returned in the `ask_workspace` result,
+and shown in chat as "via *Agent*" with the reason on hover. An agent with no
+`handles` is reached by name, by the lead's delegation, or as the default.
+
 ## Prompt
 
 | Field | Type | Default | What it does |
