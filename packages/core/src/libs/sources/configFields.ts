@@ -324,6 +324,48 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
     },
   ],
 
+  'github': [
+    {
+      key: 'repos',
+      label: 'Repositories',
+      type: 'stringArray',
+      required: true,
+      placeholder: 'acme/api, acme/web',
+      help: 'Written owner/name. Pull requests, checks, reviews and merges on these become events. Separate with commas.',
+    },
+    {
+      key: 'branchPrefix',
+      label: 'Only branches starting with',
+      type: 'text',
+      placeholder: 'factory/',
+      help: 'Leave blank to watch every pull request. The factory pushes to branches starting factory/.',
+    },
+    {
+      key: 'deployBranch',
+      label: 'Deploy branch',
+      type: 'text',
+      defaultValue: 'main',
+      help: 'A GitHub Actions run that fails on this branch becomes a run.failed event.',
+    },
+    {
+      key: 'lookbackDays',
+      label: 'First sync looks back (days)',
+      type: 'number',
+      defaultValue: 7,
+      min: 1,
+      max: 90,
+      help: 'After the first sync, each run picks up from where the last one stopped.',
+    },
+    {
+      key: 'baseUrl',
+      label: 'API base URL',
+      type: 'url',
+      advanced: true,
+      defaultValue: 'https://api.github.com',
+      help: 'Change only for GitHub Enterprise Server, e.g. https://github.acme.com/api/v3.',
+    },
+  ],
+
   'granola': [
     {
       key: 'pastDays',

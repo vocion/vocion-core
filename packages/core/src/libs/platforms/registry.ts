@@ -46,6 +46,7 @@ export type CredentialPlatformId
   // Connector platforms. One per API-key connector, so a workspace types its
   // Jira or Strapi key once and every connector install can point at it.
     | 'apollo'
+    | 'github'
     | 'granola'
     | 'hubspot'
     | 'jira'
@@ -367,6 +368,30 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     helpText: 'An Apollo API key, from Settings → Integrations → API. A master key additionally opens per-endpoint usage stats; Test connection reports which you pasted.',
     // Named `token` to match what the client reads out of the credential bag.
     fields: [{ name: 'token', label: 'API key', pattern: null, shapeHint: 'is any non-empty API key', secret: true }],
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    keySource: 'supplied',
+    // `one-live`, for the reason Apollo and Notion are: widening the cap means
+    // rebuilding `api_token_org_platform_live_idx`, and nothing needs two yet.
+    // One token reads every repository it was granted, and a source narrows by
+    // its repository list, so several github sources share the one credential.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['github'],
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    // Fine-grained tokens are `github_pat_…`, classic ones `ghp_…`, and a
+    // GitHub App installation token `ghs_…`; all three work here, so no shape
+    // is enforced. Test connection is what says whether the token reads what
+    // the source needs.
+    keyPattern: null,
+    keyShapeHint: 'any non-empty access token',
+    helpText: 'A GitHub fine-grained personal access token (github.com/settings/personal-access-tokens) or a GitHub App installation token, granted on the repositories the source lists with read-only permissions: pull_requests:read, checks:read, contents:read, metadata:read — plus actions:read for run.failed on the deploy branch. It is used read-only; Vocion never writes to GitHub with it.',
+    // Named `token` because that is the key the connector reads out of
+    // `ctx.credentials`. The field name is the storage contract between the two.
+    fields: [{ name: 'token', label: 'Access token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
   },
   {
     id: 'granola',
