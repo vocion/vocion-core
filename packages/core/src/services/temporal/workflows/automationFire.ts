@@ -37,8 +37,10 @@ const acts = proxyActivities<typeof activities>({
 export type AutomationFireInput = {
   orgId: string;
   slug: string;
+  /** Set by `scheduleCoalescedFire`: this fire covers the event fires the ceiling held. */
+  coalesce?: boolean;
 };
 
 export async function automationFire(input: AutomationFireInput) {
-  return acts.fireAutomationActivity({ orgId: input.orgId, slug: input.slug });
+  return acts.fireAutomationActivity({ orgId: input.orgId, slug: input.slug, coalesce: input.coalesce });
 }

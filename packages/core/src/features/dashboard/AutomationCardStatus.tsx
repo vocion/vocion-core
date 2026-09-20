@@ -1,4 +1,4 @@
-import type { AutomationRunRow, ScheduleHealth } from '@/services/AutomationService';
+import type { AutomationRunRow, RecentSkips, ScheduleHealth } from '@/services/AutomationService';
 import type { MirrorFreshness } from '@/services/CrmRecordsService';
 import { AlertTriangle, Database } from 'lucide-react';
 import { humanizeAge } from '@/libs/cron/schedule';
@@ -18,17 +18,20 @@ import { checkResultOf, formatDuration, summarizeResult, targetRunHref } from '.
  * @param props.health - The verdict on the schedule's silence.
  * @param props.freshness - The mirror this automation's work reads.
  * @param props.slug - The automation, for the fire-history link.
+ * @param props.skips - What the guards refused in the last ten minutes, or null when nothing was.
  */
 export function AutomationCardStatus({
   run,
   health,
   freshness,
   slug,
+  skips = null,
 }: {
   run: AutomationRunRow | null;
   health: ScheduleHealth;
   freshness: MirrorFreshness | null;
   slug: string;
+  skips?: RecentSkips | null;
 }) {
   const check = checkResultOf(run?.result);
   const summary = summarizeResult(run?.result);
@@ -45,6 +48,31 @@ export function AutomationCardStatus({
           overdue —
           {' '}
           {health.reason}
+        </div>
+      )}
+
+      {skips && skips.rateLimited > 0 && (
+        <div className="inline-flex items-center gap-1 font-medium text-amber-600" title={`when.maxFiresPer10m${skips.ceiling ? ` = ${skips.ceiling}` : ''}; the held fires are coalesced into one run after the window`}>
+          <AlertTriangle className="size-3" />
+          rate limited —
+          {' '}
+          {skips.rateLimited}
+          {' '}
+          fire
+          {skips.rateLimited === 1 ? '' : 's'}
+          {' '}
+          held in the last 10 minutes
+          {skips.ceiling ? ` (ceiling ${skips.ceiling})` : ''}
+        </div>
+      )}
+      {skips && skips.selfTrigger > 0 && (
+        <div className="text-muted-foreground/70" title="an automation never fires on an event its own run raised">
+          {skips.selfTrigger}
+          {' '}
+          own-run event
+          {skips.selfTrigger === 1 ? '' : 's'}
+          {' '}
+          not fired on
         </div>
       )}
 

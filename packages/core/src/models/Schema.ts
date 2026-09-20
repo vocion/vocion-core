@@ -955,9 +955,13 @@ export const automationSchema = pgTable(
     description: text('description'),
     /** `active` | `disabled` */
     status: text('status').default('active'),
-    /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
-    /** `{schedule: cron}` | `{event: type | [types], filter?}` — an array fires on any of the named types. */
-    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown> }>().notNull(),
+    /**
+     * `{schedule: cron}` | `{event: type | [types], filter?, maxFiresPer10m?}` —
+     * an array fires on any of the named types. `maxFiresPer10m` is the
+     * event-when's ceiling (default 6, `services/automations/fireGuards.ts`):
+     * fires beyond it in a ten-minute window are held and coalesced into one.
+     */
+    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
     doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
@@ -992,7 +996,7 @@ export const automationRunSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** The automation's slug — not an FK, so a run survives the automation being removed. */
     slug: text('slug').notNull(),
-    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job' — or 'control' for a person's pause/resume, recorded here so the log holds the whole history. */
+    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job' — or 'control' for a person's pause/resume and 'skipped' for a fire the matcher refused (its own run's event, or the rate ceiling), recorded here so the log holds the whole history. */
     kind: text('kind').notNull(),
     /** 'running' | 'ok' | 'error'. */
     status: text('status').default('running').notNull(),
@@ -1213,6 +1217,13 @@ export const missionRunSchema = pgTable('mission_run', {
   /** Workspace SHA active when the run started — stamped for audit. */
   workspaceSha: text('workspace_sha'),
   createdBy: text('created_by'),
+  /**
+   * The automation fires that led to this run, newest first — the check that
+   * started it, then whatever started that. Null for a run a person or the
+   * planner started. Rides every event the run raises, so an automation is
+   * never fired by its own run's residue (`services/automations/fireGuards.ts`).
+   */
+  causedBy: jsonb('caused_by').$type<Array<{ automationSlug: string; automationRunId?: number; missionRunId?: number }>>(),
   rating: text('rating'),
   feedbackNote: text('feedback_note'),
   feedbackBy: text('feedback_by'),
@@ -3398,6 +3409,8 @@ export const eventLogSchema = pgTable(
     /** What this event started — `[{ slug, runId }]`. */
     triggered: jsonb('triggered').$type<Array<{ slug: string; runId: number }>>().default([]).notNull(),
     invokedBy: text('invoked_by'),
+    /** The automation fires whose work raised this event, newest first. Null when no automation was behind it. */
+    causedBy: jsonb('caused_by').$type<Array<{ automationSlug: string; automationRunId?: number; missionRunId?: number }>>(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [

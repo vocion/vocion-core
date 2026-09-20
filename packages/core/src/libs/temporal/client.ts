@@ -156,6 +156,18 @@ export function automationScheduleIdFor(orgId: string, slug: string): string {
 }
 
 /**
+ * Workflow ID of the one coalesced fire an event automation may have
+ * waiting — `automation-coalesced-<orgId>-<slug>`. Per automation and not
+ * per window on purpose: a second held fire while one is waiting must find
+ * this id taken, which is what makes the held fires one run instead of many.
+ * @param orgId
+ * @param slug
+ */
+export function automationCoalescedWorkflowIdFor(orgId: string, slug: string): string {
+  return `automation-coalesced-${orgId}-${slug}`;
+}
+
+/**
  * Schedule ID convention for mission schedules — `mission-schedule-<orgId>-<slug>`.
  * Distinct namespace from workflow + source schedules.
  * @param orgId
