@@ -26,6 +26,7 @@ import { readWorkspacePage } from '@/libs/workspace/pages';
 import { listPluginSlugs, loadPlugin } from '@/libs/workspace/plugins';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
 
 /**
  * The plugins this org's project has on, in load order. Empty for an org with
@@ -51,19 +52,20 @@ export async function pluginEnabled(orgId: string, slug: string): Promise<boolea
 }
 
 /**
- * One dashboard page as THIS project sees it: the mounted workspace's own
- * pages and its plugins' as before, plus the pages of every plugin the
- * project has on (`project.enabled_plugins`). A deployment hosts several
- * projects on one mounted folder, so a plugin only the project turned on
- * (squatch-factory's `software-factory` under a metacto-revenue mount) is
- * invisible to the folder alone. One primary-key read; the shell, which
- * already holds the project row, passes the list to
- * `readWorkspacePages({ enabledPlugins })` itself.
+ * One dashboard page as THIS project sees it: the pages of every plugin the
+ * project has on (`project.enabled_plugins`), plus the mounted workspace's
+ * own pages and its plugins' — but only when that folder is this project's.
+ * A deployment hosts several projects on one mounted folder: a plugin only
+ * the project turned on (squatch-factory's `software-factory` under a
+ * metacto-revenue mount) is invisible to the folder alone, and the folder's
+ * pages (revenue's wiki) are not squatch-factory's to show. The shell, which
+ * already holds the project row, makes the same two calls itself.
  * @param slug - The page slug.
  * @param orgId - The project.
  */
 export async function readPageForOrg(slug: string, orgId: string): Promise<LoadedPage | null> {
-  return readWorkspacePage(slug, { enabledPlugins: await enabledPluginsForOrg(orgId) });
+  const [enabledPlugins, mounted] = await Promise.all([enabledPluginsForOrg(orgId), mountedWorkspaceIsProjects(orgId)]);
+  return readWorkspacePage(slug, { enabledPlugins, mounted });
 }
 
 /**

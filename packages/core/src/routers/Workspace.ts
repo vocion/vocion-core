@@ -8,9 +8,10 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
-import { applyWorkspace, getCurrentWorkspaceSha, getWorkspacePath, invalidateCurrentContextShaCache, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
+import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, getWorkspacePath, invalidateCurrentContextShaCache, isDeployManaged, judgeMountedFolder, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
 import { projectSchema } from '@/models/Schema';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { folderOwner } from '@/services/WorkspaceMountService';
 import { guardAuth, guardRole } from './AuthGuards';
 
 /**
@@ -350,6 +351,17 @@ export const writeFile = os
  * @param projectId
  */
 export async function workspacePathForProject(projectId: string): Promise<string | null> {
+  return (await workspaceFolderForProject(projectId))?.path ?? null;
+}
+
+/**
+ * The same folder, saying how it was found: `explicit` when the map named it
+ * for this project (then it is this project's by declaration), false when it
+ * is the one shared `WORKSPACE_PATH` — which is some project's, not
+ * necessarily this one's; `judgeMountedFolder` settles whose.
+ * @param projectId
+ */
+export async function workspaceFolderForProject(projectId: string): Promise<{ path: string; explicit: boolean } | null> {
   const [proj] = await db
     .select({ slug: projectSchema.slug })
     .from(projectSchema)
@@ -360,36 +372,74 @@ export async function workspacePathForProject(projectId: string): Promise<string
     for (const pair of map.split(',')) {
       const idx = pair.indexOf(':');
       if (idx > 0 && pair.slice(0, idx).trim() === proj.slug) {
-        return pair.slice(idx + 1).trim();
+        return { path: pair.slice(idx + 1).trim(), explicit: true };
       }
     }
     // Map configured but this project isn't in it — no workspace here.
     return null;
   }
-  return getWorkspacePath();
+  const path = getWorkspacePath();
+  return path ? { path, explicit: false } : null;
+}
+
+/** The apply this process is running right now, if any — the cheap "in progress" signal. */
+let applying: Promise<unknown> | null = null;
+
+/**
+ * What the drift banner needs to know before it says anything. Read once
+ * per dashboard load; every branch of the banner is decided here, on the
+ * server, from what the applier recorded — the client only renders.
+ * @param projectId - The project asking.
+ */
+async function driftReading(projectId: string) {
+  const folder = await workspaceFolderForProject(projectId);
+  if (!folder || !existsSync(fromRepoRoot(folder.path))) {
+    return null;
+  }
+  const loaded = loadWorkspace(folder.path);
+  const applied = await getCurrentWorkspaceVersion(projectId);
+  // The folder is compared only against the project it was applied to.
+  // Under a shared mount another project's sha never matches the folder's,
+  // and that is not drift — it is somebody else's workspace.
+  const verdict = judgeMountedFolder({ projectId, folder: { path: loaded.sourcePath, manifestOrgId: loaded.manifest.orgId, explicit: folder.explicit }, applied });
+  const deployManaged = isDeployManaged({ writable: folderWritable(loaded.sourcePath), appliedBy: applied?.appliedBy ?? null });
+  // A deploy applies the database first and the mount catches up: while the
+  // applied version is newer than the folder, nothing here is stale.
+  const inFlight = applying !== null || (applied !== null && applyNewerThanFolder(applied.appliedAt, folderChangedAt(loaded.sourcePath, loaded.sha)));
+  return { folder, loaded, applied, verdict, deployManaged, inFlight };
 }
 
 /**
- * Drift check — compare the workspace FILES' sha against the last APPLIED
- * sha for the caller's active project. Backs the "workspace changed —
- * apply?" banner shown on dashboard load.
+ * Drift check — the facts behind the "workspace files changed" banner, for
+ * the caller's project: whether the mounted folder is this project's at all
+ * (and whose it is when not), whether git applies it (then Apply is never
+ * offered), whether a deploy is mid-flight, and only then whether the files
+ * differ from what was applied.
  */
 export const driftStatus = os.handler(async () => {
-  const { orgId, projectId } = await guardAuth();
-  const path = await workspacePathForProject(projectId!);
-  if (!path || !existsSync(fromRepoRoot(path))) {
-    return { available: false as const };
-  }
+  const { projectId } = await guardAuth();
   try {
-    const loaded = loadWorkspace(path);
-    const appliedSha = await getCurrentWorkspaceSha(orgId!);
+    const reading = await driftReading(projectId!);
+    if (!reading) {
+      return { available: false as const };
+    }
+    const { folder, loaded, applied, verdict, deployManaged, inFlight } = reading;
     return {
       available: true as const,
-      path,
+      projectId: projectId!,
+      path: folder.path,
       currentSha: loaded.sha,
-      appliedSha,
-      drifted: appliedSha !== null && appliedSha !== loaded.sha,
-      neverApplied: appliedSha === null,
+      appliedSha: applied?.sha ?? null,
+      neverApplied: applied === null,
+      /** The mounted folder is this project's workspace. */
+      own: verdict.own,
+      /** Whose it is when it is not this project's — named, so the banner can say so. */
+      owner: verdict.own ? null : await folderOwner(loaded.sourcePath, loaded.manifest.orgId),
+      /** Git applies this project's workspace (read-only mount or a pipeline's apply): no Apply button, ever. */
+      deployManaged,
+      /** An apply is landing right now — say nothing until it has. */
+      inFlight,
+      drifted: verdict.own && applied !== null && applied.sha !== loaded.sha && !inFlight,
     };
   } catch {
     // Unparseable workspace — the check is informational, never fatal.
@@ -398,21 +448,65 @@ export const driftStatus = os.handler(async () => {
 });
 
 /**
- * Apply the active project's workspace directory to the DB — the button on
- * the drift banner. Admin-gated: an apply rewrites agents/skills/missions
- * for the whole project.
+ * What an apply WOULD change — a dry run, per resource kind — so the banner
+ * shows the diff before anyone confirms. Only for a folder that is this
+ * project's: another project's diff is not this project's business.
  */
-export const applyNow = os.handler(async () => {
-  const { orgId, projectId } = await guardRole('org:admin');
-  const path = await workspacePathForProject(projectId!);
-  if (!path || !existsSync(fromRepoRoot(path))) {
+export const driftDiff = os.handler(async () => {
+  const { orgId, projectId } = await guardAuth();
+  const reading = await driftReading(projectId!);
+  if (!reading) {
     throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
   }
-  const loaded = loadWorkspace(path);
-  const result = await applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'ui-drift-banner' });
-  invalidateCurrentContextShaCache();
-  // An apply rewrites the missions/skills chips are synthesized from —
-  // regenerate on the next page load instead of waiting out the TTL.
-  invalidateChipCache(orgId!);
-  return { sha: loaded.sha, counts: result.counts, errors: result.errors };
+  if (!reading.verdict.own) {
+    throw new ORPCError('FORBIDDEN', { message: `The workspace mounted on this host is not this project's — ${reading.verdict.reason}.` });
+  }
+  const result = await applyWorkspace(reading.loaded, { orgId: orgId!, dryRun: true });
+  const changes = Object.values(result.counts).reduce((n, c) => n + c.created + c.updated, 0);
+  return { sha: reading.loaded.sha, counts: result.counts, changes, errors: result.errors };
 });
+
+/**
+ * Apply the project's own workspace folder to the DB — the confirm step of
+ * the drift banner's review dialog. Admin-gated: an apply rewrites agents,
+ * skills and missions for the whole project. Refused, with the reason, when
+ * the folder is another project's, when git manages this project's
+ * workspace, or when the folder changed since the diff was reviewed.
+ */
+export const applyNow = os
+  .input(z.object({
+    /** The folder sha the person reviewed; the apply is refused if the folder has moved on. */
+    sha: z.string().min(1),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, projectId } = await guardRole('org:admin');
+    const reading = await driftReading(projectId!);
+    if (!reading) {
+      throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
+    }
+    const { loaded, verdict, deployManaged, applied } = reading;
+    // Never apply one project's folder to another. Under a shared mount that
+    // would replace this project's agents, skills and missions with the
+    // mounted project's. Refuse with the reason, rather than guess.
+    if (!verdict.own) {
+      throw new ORPCError('FORBIDDEN', { message: `Refusing to apply: the workspace mounted on this host is not this project's — ${verdict.reason}. Apply this project's own workspace from its repo (\`workspace:apply --project <slug>\`).` });
+    }
+    if (deployManaged) {
+      throw new ORPCError('FORBIDDEN', { message: `Refusing to apply: this project's workspace is applied from git${applied?.appliedBy ? ` (last applied by ${applied.appliedBy})` : ''}. Push the change and let the deploy apply it.` });
+    }
+    if (input.sha !== loaded.sha) {
+      throw new ORPCError('CONFLICT', { message: `The workspace folder changed since you reviewed it (${input.sha} → ${loaded.sha}). Review the diff again.` });
+    }
+    const run = applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'ui-drift-banner' });
+    applying = run;
+    try {
+      const result = await run;
+      invalidateCurrentContextShaCache();
+      // An apply rewrites the missions/skills chips are synthesized from —
+      // regenerate on the next page load instead of waiting out the TTL.
+      invalidateChipCache(orgId!);
+      return { sha: loaded.sha, counts: result.counts, errors: result.errors };
+    } finally {
+      applying = null;
+    }
+  });

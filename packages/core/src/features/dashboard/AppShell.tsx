@@ -24,6 +24,7 @@ import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { listAgentBudgets } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
+import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
 
@@ -101,7 +102,11 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // the generic Pages and surface groups skip what a plugin claimed. The
   // project's plugins come from the row read above — no second lookup — so a
   // plugin only this project turned on lists its pages under a shared mount.
-  const pages = readWorkspacePages({ enabledPlugins }).pages;
+  // The mounted folder's own pages (and its plugins') list only for the
+  // project that folder was applied to; another project under the same mount
+  // sees its plugins' pages and nothing of the folder's.
+  const mounted = orgId ? await mountedWorkspaceIsProjects(orgId).catch(() => false) : true;
+  const pages = readWorkspacePages({ enabledPlugins, mounted }).pages;
   const nav = pluginNav({
     plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
     pages,

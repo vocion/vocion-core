@@ -128,7 +128,7 @@ import {
 } from './Review';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
-import { applyNow as applyWorkspaceNow, readPrimitive, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
+import { applyNow as applyWorkspaceNow, readPrimitive, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
 
 export const router = {
   adoption: {
@@ -155,6 +155,7 @@ export const router = {
     readPrimitive,
     writeFile,
     driftStatus: workspaceDriftStatus,
+    driftDiff: workspaceDriftDiff,
     applyNow: applyWorkspaceNow,
   },
   plugins: {
