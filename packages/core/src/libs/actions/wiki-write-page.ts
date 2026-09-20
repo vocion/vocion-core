@@ -28,6 +28,14 @@ const wikiWriteInput = z.object({
   summary: z.string().max(200).optional(),
   /** Why — the version history reads this back. */
   reason: z.string().min(1).max(500),
+  /**
+   * The agent whose ledger this write earns on, when its `harness.ownLedger`
+   * names `wiki.write_page`. Set by the `write_wiki_page` tool from the
+   * agent it runs as — never offered to the model — and read by
+   * `policyKeyFor`, so the wiki plugin can hold one agent's writes at review
+   * while the curator's keep the shared bar.
+   */
+  by: z.string().regex(/^[a-z][a-z0-9_-]*$/).max(120).optional(),
 }).refine(v => Boolean(v.md) !== Boolean(v.append), 'pass exactly one of md (whole page) or append (a dated section)');
 
 export type WikiWriteInput = z.infer<typeof wikiWriteInput>;
@@ -43,6 +51,10 @@ export const wikiWritePageAction: Action<typeof wikiWriteInput> = {
   // learning dial rather than the platform's flat one. The wiki plugin's
   // own `autoApproveAbove: 0.6` still wins where that plugin is on.
   selfImproving: true,
+  // One action, one ledger per agent that asked for its own: the researcher's
+  // writes are gated, tiered and scored under `wiki.write_page.wiki-researcher`
+  // while a write with no `by` stays under the kind itself (`policyKey.ts`).
+  policyKeyFor: input => (input.by ? `wiki.write_page.${input.by}` : 'wiki.write_page'),
   dedupKeyFor: input => `wiki.write_page:${input.slug.toLowerCase()}`,
   async reviewCard(ctx, input) {
     const { getWikiPage, wikiSlug } = await import('@/services/wiki/WikiService');
@@ -56,6 +68,7 @@ export const wikiWritePageAction: Action<typeof wikiWriteInput> = {
         { label: 'Page', value: `${input.title} (${wikiSlug(input.slug)})`, ...(existing ? { href: existing.href } : {}) },
         { label: existing ? 'Change' : 'Content', value: input.append ? `appends a section "${input.append.heading}"` : `${body.length.toLocaleString()} characters${existing ? `, replaces v${existing.version}` : ''}` },
         { label: 'Preview', value: body.slice(0, 600) + (body.length > 600 ? '…' : '') },
+        ...(input.by ? [{ label: 'Proposed by', value: `${input.by} — earns trust on its own ledger (wiki.write_page.${input.by})` }] : []),
       ],
       nextAction: existing ? `Approving writes v${existing.version + 1}; the previous version stays in the history.` : 'Approving creates the page in the wiki folder.',
       verbs: { approve: existing ? 'Revise' : 'Create', reject: 'Leave as is' },

@@ -101,6 +101,7 @@ entry needs `systemPrompt` or `systemPromptFile`.
 | `grantTools` | string[] | `[]` | The inverse: tools too powerful to be default-on, granted only to agents that name them. |
 | `model` | string | — | Model override for the `agentcore` / `runtime` providers. |
 | `recommendActionBackstop` | boolean | — | When a turn ends with zero `recommend_action` calls, run a short follow-up pass to emit the action cards the agent's rules require. |
+| `ownLedger` | string[] | — | Action kinds this agent earns trust for on its **own ledger**. A proposal of a listed kind keys the autonomy ladder on `<kind>.<agent-slug>` — `wiki.write_page.wiki-researcher` — so a rule in `trust.yaml`, the rung and the alignment evidence are this agent's alone while every other agent keeps the kind's shared rule. Honoured by the actions that carry a `by` field (`wiki.write_page` today); the tool fills it from the agent it runs as, never from the model. See [trust](./trust.md#the-agents-own-writes). |
 
 For how the loop, the model vendor, and the AWS account relate — and why two fields both end in "provider" — see [where an agent turn runs](../agent-execution.md).
 

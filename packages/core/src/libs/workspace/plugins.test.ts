@@ -41,8 +41,8 @@ describe('the shipped catalogue', () => {
   it('counts what each plugin ships', () => {
     const wiki = pluginContents(loadPlugin('wiki'));
 
-    expect(wiki.agents).toEqual(['wiki-curator']);
-    expect(wiki.skills).toEqual(['wiki-context', 'wiki-curation']);
+    expect(wiki.agents).toEqual(['wiki-curator', 'wiki-researcher']);
+    expect(wiki.skills).toEqual(['wiki-context', 'wiki-curation', 'wiki-research']);
     expect(wiki.pages).toEqual(['wiki', 'wiki-guide']);
     expect(wiki.automations).toEqual(['wiki-index', 'wiki-weekly-curation']);
     expect(wiki.hasTrust).toBe(true);
@@ -102,7 +102,29 @@ describe('loadWorkspace with plugins', () => {
     expect(ws.automations.map(a => a.slug)).toEqual(expect.arrayContaining(['wiki-index', 'wiki-weekly-curation']));
     expect(ws.teams.map(t => t.slug)).toContain('wiki');
     expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page')?.autoApproveAbove).toBe(0.6);
-    expect(ws.sha).toContain('+wiki@1.0.0');
+    expect(ws.sha).toContain('+wiki@1.1.0');
+  });
+
+  it('the wiki team pairs the researcher (lead, chat-facing, own ledger) with the curator (operational, shared bar)', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [wiki]\n'));
+    const researcher = ws.agents.find(a => a.slug === 'wiki-researcher')!;
+    const curator = ws.agents.find(a => a.slug === 'wiki-curator')!;
+
+    expect(researcher.origin).toBe('core');
+    expect(researcher).toMatchObject({ team: 'wiki', agentType: 'mission', temperature: '0.4', eyebrow: 'Wiki · Researcher' });
+    expect(researcher.skills).toEqual(['wiki-research', 'wiki-context']);
+    expect(researcher.harness.ownLedger).toEqual(['wiki.write_page']);
+    expect(researcher.suggestions.length).toBeGreaterThanOrEqual(3);
+    expect(researcher.resolvedSystemPrompt).toContain('Read the wiki first');
+    expect(curator).toMatchObject({ team: 'wiki', agentType: 'operational', temperature: '0.2' });
+    expect(curator.harness.ownLedger).toBeUndefined();
+    expect(ws.teams.find(t => t.slug === 'wiki')?.lead).toBe('wiki-researcher');
+    expect(ws.skills.find(s => s.slug === 'wiki-research')?.origin).toBe('core');
+    // No new automation: the researcher's eagerness lives in chat, not on a cadence.
+    expect(ws.automations.filter(a => a.agent === 'wiki-researcher')).toEqual([]);
+    // The researcher's writes start at review on their own ledger; the shared rule is untouched.
+    expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page.wiki-researcher')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'low', autoApproveAbove: 0.8 });
+    expect(ws.trust?.rules.find(r => r.action === 'wiki.write_page')).toMatchObject({ enabled: true, rung: 'execute-within-bounds', autoApproveAbove: 0.6 });
   });
 
   it('turns on a dependency and its surfaces with the plugin that needs it', () => {
@@ -172,7 +194,7 @@ describe('loadWorkspace with plugins', () => {
 
   it('disable: reaches a plugin agent — and everything that names it then fails loudly, naming the agent', () => {
     // The team it leads…
-    expect(() => loadWorkspace(makeWorkspace('plugins: [wiki]\ndisable:\n  agents: [wiki-curator]\n'))).toThrow(/team "wiki" has unknown lead "wiki-curator"/);
+    expect(() => loadWorkspace(makeWorkspace('plugins: [wiki]\ndisable:\n  agents: [wiki-researcher]\n'))).toThrow(/team "wiki" has unknown lead "wiki-researcher"/);
     // …then the mission and automations it owns: disabling a plugin's agent
     // means overriding what refers to it, and each error says which.
     expect(() => loadWorkspace(makeWorkspace(

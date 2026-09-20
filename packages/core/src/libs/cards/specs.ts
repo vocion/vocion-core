@@ -37,6 +37,25 @@ export const markdownSpecSchema = z.object({
   md: z.string().min(1).max(60_000),
   /** One line the log and an index show under the title — a wiki page's summary. */
   summary: z.string().max(200).optional(),
+  /**
+   * Where a page came from when a workspace repo seeded it (`wiki/<slug>.md`,
+   * `libs/workspace/wiki-pages.ts`). `sha` is the file's content hash as last
+   * applied and `version` the artifact version that apply wrote, so the next
+   * apply can tell "the file changed" from "someone edited the page in the
+   * app" without a second history. `managed: false` seeds once and never
+   * again; `orphanedAt` is set once when the file is gone and the page kept.
+   */
+  seed: z.object({
+    sha: z.string().min(1),
+    path: z.string().min(1),
+    appliedAt: z.string().min(1),
+    version: z.number().int().positive(),
+    managed: z.boolean(),
+    workspaceSha: z.string().optional(),
+    order: z.number().optional(),
+    tags: z.array(z.string()).optional(),
+    orphanedAt: z.string().optional(),
+  }).optional(),
 });
 export type MarkdownSpec = z.infer<typeof markdownSpecSchema>;
 

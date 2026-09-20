@@ -25,6 +25,8 @@ import { listArtifactsForRecords, upsertRecordArtifact } from '@/services/Artifa
 export const WIKI_FOLDER = 'wiki';
 export const WIKI_RECORD_TYPE = 'wiki';
 export const WIKI_PAGE_ROLE = 'page';
+/** The reserved slug of the index page a repo seed generates (`libs/workspace/wiki-pages.ts`). */
+export const WIKI_INDEX_SLUG = 'index';
 
 /** How much of the wiki rides into an agent's context per turn, in characters. Same order as the memory digest. */
 export const WIKI_MOUNT_BUDGET_CHARS = 24_000;
@@ -97,11 +99,12 @@ function toPage(row: ArtifactRow): WikiPage {
 }
 
 /**
- * Every wiki page, most recently updated first.
+ * Every wiki page's artifact row, most recently updated first — for readers
+ * that need the spec as stored (the repo seed reads `spec.seed`).
  * @param orgId - The project.
  */
-export async function listWikiPages(orgId: string): Promise<WikiPage[]> {
-  const rows = await db
+export async function listWikiPageRows(orgId: string): Promise<ArtifactRow[]> {
+  return db
     .select()
     .from(artifactSchema)
     .where(and(
@@ -112,7 +115,14 @@ export async function listWikiPages(orgId: string): Promise<WikiPage[]> {
     ))
     .orderBy(desc(artifactSchema.updatedAt), desc(artifactSchema.id))
     .limit(500);
-  return rows.map(toPage);
+}
+
+/**
+ * Every wiki page, most recently updated first.
+ * @param orgId - The project.
+ */
+export async function listWikiPages(orgId: string): Promise<WikiPage[]> {
+  return (await listWikiPageRows(orgId)).map(toPage);
 }
 
 /**
@@ -236,11 +246,19 @@ export function renderWikiIndex(pages: WikiPage[], now: Date = new Date()): stri
  */
 export function planWikiMount(pages: WikiPage[], budgetChars: number = WIKI_MOUNT_BUDGET_CHARS): Record<string, string> {
   const files: Record<string, string> = {};
-  const index = renderWikiIndex(pages);
+  // A seeded or hand-written `index` page is a table of contents in reading
+  // order; it leads the mounted index, and the rendered listing (every page,
+  // with freshness and author) follows, so neither replaces the other.
+  const toc = pages.find(p => p.slug === WIKI_INDEX_SLUG);
+  const rendered = renderWikiIndex(pages.filter(p => p.slug !== WIKI_INDEX_SLUG));
+  const index = toc ? `# ${toc.title}\n\n${toc.md.trim()}\n\n---\n\n${rendered}` : rendered;
   files['/wiki/index.md'] = index;
   let used = index.length;
   const omitted: string[] = [];
   for (const p of pages) {
+    if (p.slug === WIKI_INDEX_SLUG) {
+      continue;
+    }
     const body = `# ${p.title}\n\n${p.md}`.trim();
     if (used + body.length > budgetChars) {
       omitted.push(p.slug);

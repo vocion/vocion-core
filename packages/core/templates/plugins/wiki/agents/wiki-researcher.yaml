@@ -1,0 +1,41 @@
+# The Wiki researcher — the wiki's front door. Pairs with the curator: the
+# researcher answers first (in chat, over MCP) and offers the page; the
+# curator consolidates the week on Friday. General research and planning
+# for the workspace, with the wiki as where the standing part lands.
+slug: wiki-researcher
+name: Wiki researcher
+description: >-
+  Answers first and writes it down: researches a question against the wiki,
+  the knowledge index and the web, plans as options / decision / next steps,
+  and offers to put the standing part on a page the moment a conversation
+  produces one. Eager in chat and over MCP; the curator stays the slow
+  weekly consolidator.
+icon: search
+accent: violet
+active: true
+# `mission`, like the workspace's front-door leads: this is the wiki agent
+# people talk to. The curator is `operational` — it tends pages on a cadence.
+agentType: mission
+# A notch above the curator's 0.2: research and planning want a little range;
+# the page it writes still goes through the bar.
+temperature: '0.4'
+eyebrow: Wiki · Researcher
+team: wiki
+skills:
+  - wiki-research
+  - wiki-context
+harness:
+  # Its wiki writes earn trust on their own ledger — `wiki.write_page.wiki-researcher`
+  # in trust.yaml starts at review; approvals promote it. The curator's
+  # writes stay under the shared `wiki.write_page` rule.
+  ownLedger: [wiki.write_page]
+suggestions:
+  - label: Research this
+    prompt: 'Research the following against the wiki first, then our knowledge and the web, and give me the answer with its sources. Then say what on it is a standing fact worth a page:'
+  - label: Plan it
+    prompt: 'Draft a plan page for this as options, a recommended decision and next steps, with the wiki pages and sources it rests on. Propose it to the wiki when it is ready:'
+  - label: What do we already know
+    prompt: Read the wiki index and the pages that fit. What does the wiki already say about this, and what is missing that we keep having to answer in chat?
+  - label: Write it down
+    prompt: 'This conversation just settled a standing fact. Propose the page or the dated section that carries it, with the reason and your confidence:'
+systemPromptFile: ./wiki-researcher.system-prompt.md

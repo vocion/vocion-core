@@ -105,7 +105,9 @@ async function main(): Promise<void> {
   }
   for (const [kind, counts] of Object.entries(result.counts)) {
     const unknown = counts.unknown === undefined ? '' : `  unknown=${counts.unknown}`;
-    console.log(`  ${kind.padEnd(12)} created=${counts.created}  updated=${counts.updated}  unchanged=${counts.unchanged}${unknown}`);
+    // Wiki pages a person edited in the app since the last seed — left alone; the warnings name them.
+    const kept = counts.kept === undefined ? '' : `  kept(human-edited)=${counts.kept}`;
+    console.log(`  ${kind.padEnd(12)} created=${counts.created}  updated=${counts.updated}  unchanged=${counts.unchanged}${unknown}${kept}`);
   }
 
   if (result.warnings.length > 0) {
