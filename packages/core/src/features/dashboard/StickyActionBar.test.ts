@@ -21,10 +21,32 @@ describe('StickyActionBar', () => {
 
     expect(out).toContain('sticky bottom-0');
     expect(out).toContain('safe-area-inset-bottom');
+    // Every verb's word is in the markup at every width. On a phone the
+    // secondaries' words are `sr-only` rather than `hidden`, so they still
+    // reach a screen reader and `getByRole('button', { name })` — the icon is
+    // what a sighted person reads there, not a nameless control.
     expect(out).toContain('<span>Enroll</span>');
-    expect(out).toContain('<span>Decline</span>');
-    expect(out).toContain('<span>Snooze</span>');
+    expect(out).toContain('sr-only sm:not-sr-only">Decline</span>');
+    expect(out).toContain('sr-only sm:not-sr-only">Snooze</span>');
     expect(out).toContain('>a</kbd>');
+  });
+
+  it('keeps the verbs on ONE row at every width, sized to their content', () => {
+    // The defect: `flex-col` plus `w-full` buttons stacked three full-width
+    // verbs and the note toggle down a phone, taking half the viewport on the
+    // one surface whose job is reading what is underneath them.
+    const out = html(createElement(StickyActionBar, {
+      primary,
+      secondary: [{ label: 'Decline', onClick: noop }, { label: 'Snooze', onClick: noop }],
+      field: { label: 'Note', value: '', onChange: noop },
+    }));
+
+    expect(out).not.toContain('flex flex-col gap-2 sm:flex-row');
+    expect(out).toContain('flex flex-row flex-wrap items-center gap-2');
+    // Sized to content, never to the column.
+    expect(out).not.toContain('h-11 w-full');
+    // And the note toggle rides the same row rather than being pushed last.
+    expect(out).not.toContain('order-last');
   });
 
   it('paints the primary in ink from the --action token, falling back to the foreground on main', () => {

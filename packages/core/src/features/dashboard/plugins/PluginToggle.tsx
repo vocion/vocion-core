@@ -18,6 +18,7 @@ import { client } from '@/libs/Orpc';
  * @param props.enabled
  * @param props.canToggle
  * @param props.dependents - Plugins that depend on this one (turning it off turns them off too).
+ * @param props.blocker
  */
 export function PluginToggle(props: { slug: string; enabled: boolean; canToggle: boolean; dependents?: string[]; blocker?: string | null }) {
   const router = useRouter();
