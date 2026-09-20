@@ -91,8 +91,14 @@ function createBootstrapAdmin(): void {
   }
 }
 
-test('a four-send sequence is walked send by send, and only Enroll reaches HubSpot', async ({ page }) => {
+// Once per file, not once per test. It is idempotent and identical every
+// time, and `npm run user:create` is a node process CI pays for each call —
+// three of them bought nothing.
+test.beforeAll(() => {
   createBootstrapAdmin();
+});
+
+test('a four-send sequence is walked send by send, and only Enroll reaches HubSpot', async ({ page }) => {
   const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -220,7 +226,6 @@ test('a four-send sequence is walked send by send, and only Enroll reaches HubSp
 });
 
 test('a regenerate keeps the copy it is about to replace, and the ask with it', async ({ page }) => {
-  createBootstrapAdmin();
   const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -257,7 +262,6 @@ test('a regenerate keeps the copy it is about to replace, and the ask with it', 
 });
 
 test('the split stacks rather than cramming when the pane is squeezed', async ({ page }) => {
-  createBootstrapAdmin();
   const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
 
   // The width the pane gets beside an open conversation. The breakpoint is a
@@ -287,7 +291,6 @@ test('the split stacks rather than cramming when the pane is squeezed', async ({
 });
 
 test('on a phone the decision bar is one row, and it reaches the bottom', async ({ page }) => {
-  createBootstrapAdmin();
   const { runId } = JSON.parse(seed(['--email', ADMIN.email])) as { runId: number };
 
   await page.setViewportSize({ width: 390, height: 844 });
