@@ -1,4 +1,5 @@
 import type { TokenUsage } from '@/libs/pricing';
+import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } from '@/services/EventService';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
@@ -325,6 +326,7 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
   await writeBackRunCost(updated!, now);
+  await announceEnded(updated!, 'worker_run.completed', updated!.summary ?? '');
   return updated!;
 }
 
@@ -355,7 +357,48 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
   // A failed attempt still cost money, and the record's actual is the honest
   // sum over every attempt it took.
   await writeBackRunCost(updated!, now);
+  await announceEnded(updated!, 'worker_run.failed', opts.error);
   return updated!;
+}
+
+/**
+ * Raise the completion event for a run that just reached a terminal status,
+ * so a debrief can read the work while it is fresh. Fire-and-forget in
+ * effect: an event that cannot be recorded never fails the worker's own
+ * write, which already happened. Deduped on the run id (and the attempt for
+ * a failure, since a re-claimed run can fail again).
+ * @param run - The row as written.
+ * @param type - `worker_run.completed` | `worker_run.failed`.
+ * @param summary - The worker's account, or the error.
+ */
+async function announceEnded(run: WorkerRun, type: typeof WORKER_RUN_COMPLETED | typeof WORKER_RUN_FAILED, summary: string): Promise<void> {
+  const record = runRecord(run);
+  const payload: WorkerRunEndedPayload = {
+    workerRunId: run.id,
+    agentSlug: run.agentSlug,
+    kind: run.kind,
+    status: run.status,
+    summary: summary.slice(0, 500),
+    recordType: record?.type ?? null,
+    recordId: record?.id ?? null,
+    attempt: run.attempt,
+    cents: run.cents,
+    completedAt: (run.completedAt ?? new Date()).toISOString(),
+  };
+  try {
+    // Dynamic, like every other emitter: the bus imports the workflow and
+    // automation services, and this service must stay importable from both.
+    const { emitEvent } = await import('@/services/EventService');
+    await emitEvent({
+      orgId: run.orgId,
+      type,
+      payload,
+      dedupeKey: type === 'worker_run.failed' ? `${type}:${run.id}:${run.attempt}` : `${type}:${run.id}`,
+      invokedBy: `worker_run:${run.id}`,
+    });
+  } catch (error) {
+    console.warn(`[worker-run] could not raise ${type} for run ${run.id}`, error);
+  }
 }
 
 /**

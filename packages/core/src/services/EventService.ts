@@ -221,6 +221,129 @@ function matchesFilter(payload: Record<string, unknown>, filter: unknown): boole
 }
 
 /**
+ * Whether an automation's `when.event` — one type or several — names this one.
+ * @param subscribed - `whenConfig.event` as stored.
+ * @param type - The event being emitted.
+ */
+export function subscribesTo(subscribed: string | string[] | undefined, type: string): boolean {
+  return Array.isArray(subscribed) ? subscribed.includes(type) : subscribed === type;
+}
+
+/**
+ * The slugs of this org's agents authored `initiative: low` — the ones that
+ * sit debriefs out.
+ * @param orgId - Tenant.
+ */
+async function lowInitiativeAgents(orgId: string): Promise<Set<string>> {
+  const { agentSchema } = await import('@/models/Schema');
+  const rows = await db
+    .select({ slug: agentSchema.slug })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.initiative, 'low')));
+  return new Set(rows.map(r => r.slug));
+}
+
+/**
+ * Completion events — the moments a piece of work is over and its residue is
+ * worth reading back into the record. A debrief is an automation that
+ * subscribes to one of these: the wiki researcher asking whether a standing
+ * fact changed, the product manager writing what shipped on the request.
+ *
+ * All five payloads are scalar (filterable) and carry the ids a mission needs
+ * to read the work itself, plus a `summary` short enough to sit in a brief.
+ * Each is raised from the one place the terminal status is written, under a
+ * dedupe key on the row id, so a retried write raises nothing twice.
+ */
+export const WORKER_RUN_COMPLETED = 'worker_run.completed';
+export const WORKER_RUN_FAILED = 'worker_run.failed';
+export const MISSION_RUN_COMPLETED = 'mission_run.completed';
+export const CONVERSATION_ENDED = 'conversation.ended';
+export const AUTOMATION_RUN_COMPLETED = 'automation_run.completed';
+
+/**
+ * The event types that mean "work finished" — `pr.merged` from the GitHub
+ * source included. An automation on any of these is a debrief, and an agent
+ * whose `initiative` is `low` sits debriefs out: its automations on these
+ * types are skipped, and the event log's `triggered` list says nothing fired.
+ * A schedule or any other event is unaffected — a low-initiative curator
+ * still runs its Friday pass.
+ */
+export const DEBRIEF_EVENTS: ReadonlySet<string> = new Set([
+  WORKER_RUN_COMPLETED,
+  WORKER_RUN_FAILED,
+  MISSION_RUN_COMPLETED,
+  CONVERSATION_ENDED,
+  AUTOMATION_RUN_COMPLETED,
+  'pr.merged',
+]);
+
+/** Payload of `worker_run.completed` and `worker_run.failed`. */
+export type WorkerRunEndedPayload = {
+  workerRunId: number;
+  agentSlug: string;
+  /** `worker` | `lead` | `board` | `red-team` | `compact` | `snapshot`. */
+  kind: string;
+  /** `completed` | `cancelled` on the completed event; `failed` on the failed one. */
+  status: string;
+  /** The worker's own account of the run, or the error on a failure. Trimmed to 500 characters. */
+  summary: string;
+  /** The record the run was queued against, when the creator named one. */
+  recordType: string | null;
+  recordId: number | null;
+  attempt: number;
+  cents: number;
+  completedAt: string;
+};
+
+/** Payload of `mission_run.completed`. */
+export type MissionRunCompletedPayload = {
+  missionRunId: number;
+  missionId: number | null;
+  missionSlug: string | null;
+  title: string;
+  /** The lead agent of the run's team. */
+  agentSlug: string;
+  /** `planned` for a brief a person or the planner decomposed; `check` for an automation's mission check. */
+  mode: 'planned' | 'check';
+  /** The last task's output, trimmed to 500 characters — the run's answer. */
+  summary: string;
+  tasksTotal: number;
+  tasksFailed: number;
+  completedAt: string;
+};
+
+/** Payload of `conversation.ended`. */
+export type ConversationEndedPayload = {
+  conversationId: number;
+  agentSlug: string;
+  title: string;
+  /** `app` | `slack` | `email` | `mcp`. */
+  surface: string;
+  messageCount: number;
+  /** When the last message landed; the idle window is measured from here. */
+  lastMessageAt: string;
+  /** `idle` — no turn for the sweep's window. The only way a conversation ends today. */
+  endedBy: 'idle';
+  /** The title, which the first message named. */
+  summary: string;
+  endedAt: string;
+};
+
+/** Payload of `automation_run.completed` — only for a `checkMission` fire that produced a result. */
+export type AutomationRunCompletedPayload = {
+  automationRunId: number;
+  /** The automation's slug. */
+  slug: string;
+  kind: 'mission_check';
+  missionRunId: number;
+  missionRunStatus: string;
+  tasksOk: number;
+  tasksFailed: number;
+  summary: string;
+  completedAt: string;
+};
+
+/**
  * Dispatch an event: dedupe, find subscribed workflows, start each match.
  * @param input
  */
@@ -279,12 +402,24 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     .select()
     .from(automationSchema)
     .where(eq(automationSchema.orgId, input.orgId));
+  // Debriefs are gated on the owning agent's initiative; the roster is read
+  // once per event and only when an automation is actually a debrief.
+  let lowInitiative: Set<string> | null = null;
   for (const a of automations) {
     // A paused automation is skipped the way a disabled one is — silently,
     // not as a refused-fire row per event, which would bury the log while a
     // busy event type is held. The pause itself is already on the record.
-    if (a.status !== 'active' || a.pausedAt || a.whenConfig.event !== input.type || !matchesFilter(payload, a.whenConfig.filter)) {
+    if (a.status !== 'active' || a.pausedAt || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
       continue;
+    }
+    // A low-initiative agent does not debrief (`agent.initiative`): its
+    // automations on completion events are skipped, not refused — nothing in
+    // the run log, since the agent was authored not to volunteer.
+    if (DEBRIEF_EVENTS.has(input.type) && a.ownerAgentSlug) {
+      lowInitiative ??= await lowInitiativeAgents(input.orgId);
+      if (lowInitiative.has(a.ownerAgentSlug)) {
+        continue;
+      }
     }
     try {
       if (input.dispatchMode === 'background') {

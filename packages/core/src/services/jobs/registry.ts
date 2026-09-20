@@ -16,6 +16,9 @@
  *   - `index-artifact` — puts one artifact into the knowledge index so
  *     `search_knowledge` finds what was written, not only what was ingested.
  *     Subscribed to `artifact.saved` by the wiki plugin. `services/jobs/indexArtifact.ts`.
+ *   - `sweep-idle-conversations` — ends conversations nobody has spoken in for
+ *     the window and raises `conversation.ended` for each, so a debrief can
+ *     read the thread. Scheduled by the wiki plugin. `services/jobs/sweepIdleConversations.ts`.
  *
  * (Discovery-call detection, the job that used to live here, became
  * agent-driven — an hourly `checkMission` automation.)
@@ -25,6 +28,7 @@ import { DAILY_TEAM_REPORT_JOB, runDailyTeamReportJob } from './dailyTeamReport'
 import { INDEX_ARTIFACT_JOB, runIndexArtifactJob } from './indexArtifact';
 import { NOTIFY_ASKS_JOB, runNotifyAsksJob } from './notifyAsks';
 import { REFRESH_EVALS_JOB, runRefreshEvalsJob } from './refreshEvals';
+import { runSweepIdleConversationsJob, SWEEP_IDLE_CONVERSATIONS_JOB } from './sweepIdleConversations';
 
 type BuiltInJob = (orgId: string, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -33,6 +37,7 @@ const JOBS: Record<string, BuiltInJob> = {
   [NOTIFY_ASKS_JOB]: runNotifyAsksJob,
   [REFRESH_EVALS_JOB]: runRefreshEvalsJob,
   [INDEX_ARTIFACT_JOB]: runIndexArtifactJob,
+  [SWEEP_IDLE_CONVERSATIONS_JOB]: (orgId, input) => runSweepIdleConversationsJob(orgId, input),
 };
 
 export function builtInJobNames(): string[] {

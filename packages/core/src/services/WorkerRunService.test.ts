@@ -11,7 +11,7 @@ vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
 const { eq } = await import('drizzle-orm');
-const { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } = await import('@/models/Schema');
+const { businessObjectSchema, businessObjectTypeSchema, eventLogSchema, workerRunSchema } = await import('@/models/Schema');
 const svc = await import('@/services/WorkerRunService');
 const { verifyClaim } = await import('@/services/agents/claims');
 
@@ -19,6 +19,58 @@ const ORG = 'org_test';
 
 beforeEach(async () => {
   await db.delete(workerRunSchema);
+  await db.delete(eventLogSchema);
+});
+
+describe('WorkerRunService — a finished run is announced', () => {
+  it('raises worker_run.completed once, with the ids and the summary a debrief reads', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { message: 'go', record: { type: 'request', id: 12 } }, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    const done = await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', summary: 'Merged the fix; two tests added.' });
+
+    const events = await db.select().from(eventLogSchema);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      orgId: ORG,
+      type: 'worker_run.completed',
+      dedupeKey: `worker_run.completed:${run.id}`,
+      invokedBy: `worker_run:${run.id}`,
+    });
+    expect(events[0]!.payload).toMatchObject({
+      workerRunId: run.id,
+      agentSlug: 'task-engineer',
+      kind: 'worker',
+      status: 'completed',
+      summary: 'Merged the fix; two tests added.',
+      recordType: 'request',
+      recordId: 12,
+      completedAt: done.completedAt!.toISOString(),
+    });
+  });
+
+  it('raises worker_run.failed with the error, keyed on the attempt', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', error: 'checks red' });
+
+    const [event] = await db.select().from(eventLogSchema);
+
+    expect(event).toMatchObject({ type: 'worker_run.failed', dedupeKey: `worker_run.failed:${run.id}:1` });
+    expect(event!.payload).toMatchObject({ workerRunId: run.id, status: 'failed', summary: 'checks red', attempt: 1, recordType: null, recordId: null });
+  });
+
+  it('says cancelled, not completed, on the completed event for a run that was asked to stop', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.cancelWorkerRun(ORG, run.id);
+    await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+
+    const [event] = await db.select().from(eventLogSchema);
+
+    expect(event).toMatchObject({ type: 'worker_run.completed' });
+    expect(event!.payload).toMatchObject({ status: 'cancelled' });
+  });
 });
 
 describe('WorkerRunService — the lease protocol', () => {
