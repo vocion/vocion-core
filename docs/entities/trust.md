@@ -108,6 +108,19 @@ Where a rung comes from, and which wins:
 - A `reject` or `snooze` recommendation from the agent keeps an item in the
   queue however confident it is — the trust rule reads confidence, not advice,
   and would otherwise run the thing the agent asked us not to.
+- **A rule may name a derived id.** An action that serves several ledgers
+  declares `policyKeyFor` (`libs/actions/policyKey.ts`): `git.merge` with
+  `riskClass: docs` is gated, tiered and scored under `git.merge.docs`, so a
+  rule for `git.merge.docs` and one for `git.merge.schema` bind to the same
+  registered action and earn separately. A rule for the bare `git.merge` id
+  binds to nothing.
+- **A hand-off action** (`Action.manual`, [Needs you → Hand-off actions](../guides/needs-you.md#hand-off-actions))
+  rides the ladder like any other kind, and "execute" means *release*: a
+  promoted `git.push_branch` above its floor goes to `awaiting_execution` on
+  its own, and the worker that proposed it reads that back and pushes. Every
+  other factory hand-off is irreversible, so with no rule it asks, and with
+  the plugin's rule (`execute-with-approval`, `risk: high`) it cannot be
+  released by any confidence, 1.0 included.
 - Approval is an action-level concern. A skill or playbook can never grant itself sending rights — see [skill](./skill.md).
 
 ## Related

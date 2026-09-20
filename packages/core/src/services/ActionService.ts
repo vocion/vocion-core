@@ -20,7 +20,9 @@ import type { Principal } from '@/services/authz';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { decideExecution } from '@/libs/actions/autoAccept';
+import { isManualAction } from '@/libs/actions/manual';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
+import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema, projectSchema } from '@/models/Schema';
@@ -37,10 +39,17 @@ export class ActionError extends Error {
   }
 }
 
-/** The state of a single action_run, as any caller sees it. */
+/**
+ * The state of a single action_run, as any caller sees it.
+ *
+ * `awaiting_execution` is the hand-off state (`libs/actions/manual.ts`): a
+ * person approved the run and the work is now someone's to do outside this
+ * process. It is a decided run that is not yet an executed one, and it stays
+ * on the open queue until `completeAction` or a rejection closes it.
+ */
 export type ActionRunResult = {
   runId: number;
-  status: 'pending' | 'done' | 'failed' | 'rejected' | 'undone';
+  status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone';
   result?: Record<string, unknown> | null;
   /** What went wrong, set only when `status` is `failed`. */
   error?: string;
@@ -466,8 +475,12 @@ export async function proposeAction(input: {
     // low-risk kind runs on its own above its bar; an automating rung runs at
     // its trust rule's floor; everything else — and anything a person has
     // parked or held — waits for a person. The reason is written on the run.
+    // The ladder's key for THIS input — the action id, unless the action
+    // serves several ledgers (`git.merge` → `git.merge.<riskClass>`). The
+    // trust rule, the risk tier and the evidence all live under it.
+    const policyKey = policyKeyForRun(action.id, parsed as Record<string, unknown>);
     const { effectivePolicy } = await import('@/services/autonomy/AutonomyService');
-    const policy = await effectivePolicy(input.orgId, action.id);
+    const policy = await effectivePolicy(input.orgId, policyKey);
     // The workspace's appetite for the system improving itself, read only for
     // a kind that declares it (`libs/actions/eagerness.ts`). A trust rule or a
     // promoted policy still wins — `decideExecution` reads the dial on the
@@ -476,9 +489,12 @@ export async function proposeAction(input: {
       ? await learningEagernessFor(input.orgId)
       : null;
     const verdict = decideExecution({
-      actionId: action.id,
+      actionId: policyKey,
       confidence: input.proposal?.confidence,
-      reversible: action.undo !== undefined,
+      // "Reversible" is `undo` for a kind that runs here, and the hand-off's
+      // own word for one that runs elsewhere (a pushed branch is deleted with
+      // one command; nothing in this process could do it).
+      reversible: action.undo !== undefined || action.manual?.reversible === true,
       neverAuto: false,
       suggestedDecision: input.proposal?.suggestedDecision ?? null,
       rung: policy.rung,
@@ -570,31 +586,52 @@ export async function executeAction(
     throw new ActionError('INVALID_STATE', `action_run ${runId} is ${run.status} — already decided, cannot execute`);
   }
 
+  // Stamped at the decision, not at completion: even a failed execution
+  // was still approved by this person at this moment.
+  const decision = opts?.reviewedBy
+    ? {
+        decidedBy: opts.reviewedBy,
+        decidedAt: new Date(),
+        // The LAST decider owns the row, so a person executing this makes
+        // it a human decision outright — no coalesce.
+        //
+        // The only run this can overwrite is one an agent approved whose
+        // execution then threw and which sits in the queue as `failed`: a
+        // `done` or `rejected` run is never re-decided, because the dedup
+        // refresh matches only open rows and a later proposal opens a new
+        // run instead. So what this reclassifies is precisely the case
+        // where the agent did NOT take the work off anyone's plate — it
+        // broke and a person finished it — and counting that as an
+        // auto-approval overstates what the ladder actually did.
+        approvedByAgent: false,
+      }
+    : {};
+
+  // A hand-off (`libs/actions/manual.ts`) is released, not run: the approval
+  // is the decision, the doing is a person's or an outside system's, and the
+  // run waits for them to say so. Nothing in-process is called — a manual
+  // kind's `execute` exists to refuse, not to be reached.
+  if (isManualAction(action)) {
+    const releasedAt = new Date();
+    const releasedBy = opts?.reviewedBy ?? run.decidedBy ?? 'trust-ladder';
+    const result = {
+      ...(run.result ?? {}),
+      handoff: {
+        releasedAt: releasedAt.toISOString(),
+        releasedBy,
+        ...(opts?.externalRef ? { externalRef: opts.externalRef } : {}),
+      },
+    };
+    await db
+      .update(actionRunSchema)
+      .set({ status: 'awaiting_execution', result, error: null, ...decision })
+      .where(eq(actionRunSchema.id, runId));
+    return { runId, status: 'awaiting_execution', result };
+  }
+
   await db
     .update(actionRunSchema)
-    .set({
-      status: 'executing',
-      // Stamped at the decision, not at completion: even a failed execution
-      // was still approved by this person at this moment.
-      ...(opts?.reviewedBy
-        ? {
-            decidedBy: opts.reviewedBy,
-            decidedAt: new Date(),
-            // The LAST decider owns the row, so a person executing this makes
-            // it a human decision outright — no coalesce.
-            //
-            // The only run this can overwrite is one an agent approved whose
-            // execution then threw and which sits in the queue as `failed`: a
-            // `done` or `rejected` run is never re-decided, because the dedup
-            // refresh matches only open rows and a later proposal opens a new
-            // run instead. So what this reclassifies is precisely the case
-            // where the agent did NOT take the work off anyone's plate — it
-            // broke and a person finished it — and counting that as an
-            // auto-approval overstates what the ladder actually did.
-            approvedByAgent: false,
-          }
-        : {}),
-    })
+    .set({ status: 'executing', ...decision })
     .where(eq(actionRunSchema.id, runId));
   const credentials = action.sourceSlug ? await getCredentialsForSource(orgId, action.sourceSlug) : undefined;
 
@@ -626,6 +663,64 @@ export async function executeAction(
     // the execution failed — a silent failed row cost three days once.
     return { runId, status: 'failed', result: null, error: message };
   }
+}
+
+/**
+ * Close a hand-off: whoever performed the work says it is done, and the run
+ * records who, when, their note and where the result is. Only a run in
+ * `awaiting_execution` can be completed — a pending run has not been
+ * approved, and a done one already was. `by` is the person or API caller
+ * with the `approve` capability who reported it; it need not be the approver.
+ * @param runId
+ * @param orgId
+ * @param opts
+ * @param opts.by - Who marked it done.
+ * @param opts.note - What they did, or what differed from the recipe.
+ * @param opts.resultUrl - Where the outcome lives — the merged PR, the deployment, the post.
+ * @param opts.externalRef - The record in the performing system, when the reporter has one.
+ * @param opts.externalRef.system
+ * @param opts.externalRef.id
+ */
+export async function completeAction(
+  runId: number,
+  orgId: string,
+  opts: { by: string; note?: string; resultUrl?: string; externalRef?: { system: string; id: string } },
+): Promise<ActionRunResult> {
+  const [run] = await db.select().from(actionRunSchema).where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId))).limit(1);
+  if (!run) {
+    throw new ActionError('NOT_FOUND', `action_run ${runId} not found for org ${orgId}`);
+  }
+  const action = getAction(run.actionId);
+  if (!action) {
+    throw new ActionError('UNKNOWN_ACTION', `No registered action: ${run.actionId}`);
+  }
+  if (!isManualAction(action)) {
+    throw new ActionError('INVALID_STATE', `${run.actionId} runs here when approved — there is nothing to mark done by hand`);
+  }
+  if (run.status !== 'awaiting_execution') {
+    throw new ActionError(
+      'INVALID_STATE',
+      run.status === 'pending'
+        ? `action_run ${runId} has not been approved yet — approve it first, then mark it done`
+        : `action_run ${runId} is ${run.status} — only a released hand-off can be marked done`,
+    );
+  }
+  const executedAt = new Date();
+  const result = {
+    ...(run.result ?? {}),
+    executed: {
+      at: executedAt.toISOString(),
+      by: opts.by,
+      ...(opts.note?.trim() ? { note: opts.note.trim() } : {}),
+      ...(opts.resultUrl?.trim() ? { resultUrl: opts.resultUrl.trim() } : {}),
+      ...(opts.externalRef ? { externalRef: opts.externalRef } : {}),
+    },
+  };
+  await db
+    .update(actionRunSchema)
+    .set({ status: 'done', result, error: null, executedAt })
+    .where(eq(actionRunSchema.id, runId));
+  return { runId, status: 'done', result };
 }
 
 /**
@@ -668,7 +763,9 @@ export async function updateActionInput(runId: number, orgId: string, input: Rec
  * Reject a pending action (from the review queue) — never executes. The
  * action's `onRejected` hook runs after the flip so the domain record it
  * back-links can move lanes with the decision (fail-soft: the rejection
- * stands even if the hook fails).
+ * stands even if the hook fails). A released hand-off (`awaiting_execution`)
+ * is rejected the same way when it could not be done — the reason is what
+ * the person who tried found.
  * @param runId
  * @param orgId
  * @param reason

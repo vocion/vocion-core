@@ -7,6 +7,7 @@
 import type { Action } from './types';
 import { agentRevisePromptAction } from './agent-revise-prompt';
 import { discoveryReviewProposalAction } from './discovery-review';
+import { factoryActions } from './factory';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
 import { learningAdoptRuleAction } from './learning-adopt-rule';
@@ -54,4 +55,10 @@ registerAction(agentRevisePromptAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);
+}
+// The software factory's hand-offs — merges, deploys, credentials,
+// announcements. Performed by a person or an outside system after approval;
+// core records the trail (`libs/actions/manual.ts`, `libs/actions/factory.ts`).
+for (const a of factoryActions) {
+  registerAction(a);
 }

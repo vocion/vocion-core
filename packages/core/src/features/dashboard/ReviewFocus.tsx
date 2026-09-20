@@ -175,7 +175,7 @@ export function ReviewFocus(props: {
 
   // The card owns its own decide/snooze; this just moves on. A regenerate is
   // NOT a decision: the card holds its place and the page re-reads the run.
-  const onCardDecided = (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => {
+  const onCardDecided = (outcome: 'approve' | 'reject' | 'done' | 'snooze' | 'regenerate') => {
     if (outcome === 'regenerate') {
       router.refresh();
       return;

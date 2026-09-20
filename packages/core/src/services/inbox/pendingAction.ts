@@ -1,5 +1,6 @@
 import type { ActionRun } from '@/features/review/ReviewFocusView';
 import { and, eq } from 'drizzle-orm';
+import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema } from '@/models/Schema';
@@ -29,8 +30,11 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     return null;
   }
   const agentSlug = row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null;
+  // The ledger's key for this run — the action id, or the derived one when
+  // the kind earns per class (`libs/actions/policyKey.ts`).
+  const subjectKey = policyKeyForRun(row.actionId, row.input);
   const [alignment, card] = await Promise.all([
-    scoreFor({ orgId, subjectKey: row.actionId, agentSlug }).catch(() => null),
+    scoreFor({ orgId, subjectKey, agentSlug }).catch(() => null),
     (async () => {
       const action = getAction(row.actionId);
       const presenter = action?.reviewCard;
@@ -42,7 +46,7 @@ export async function loadPendingAction(orgId: string, id: number): Promise<Acti
     })(),
   ]);
   // The agent-wide score stands in when this agent has no history of its own.
-  const score = alignment && alignment.n === 0 ? await scoreFor({ orgId, subjectKey: row.actionId }).catch(() => alignment) : alignment;
+  const score = alignment && alignment.n === 0 ? await scoreFor({ orgId, subjectKey }).catch(() => alignment) : alignment;
   return {
     id: row.id,
     actionId: row.actionId,

@@ -29,6 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
   pending: 'Ready for review',
   open: 'Waiting on you',
   approved: 'Approved',
+  awaiting_execution: 'Released — waiting to be done',
   executing: 'Executing',
   done: 'Done',
   failed: 'Failed',
@@ -124,10 +125,11 @@ export function ReviewHeader(props: {
   if (props.system) {
     meta.push(<span key="system" className="text-[12px] font-medium tracking-wide text-foreground/70 uppercase">{props.system}</span>);
   }
-  if (!props.compact || RED_STATUSES.has(props.status) || props.status === 'paused' || props.status === 'awaiting_review') {
+  const waiting = props.status === 'paused' || props.status === 'awaiting_review' || props.status === 'awaiting_execution';
+  if (!props.compact || RED_STATUSES.has(props.status) || waiting) {
     meta.push(
       <span key="status" className="inline-flex items-center gap-1.5">
-        <span className={cn('size-1.5 rounded-full', RED_STATUSES.has(props.status) ? 'bg-red-500' : props.status === 'paused' || props.status === 'awaiting_review' ? 'bg-amber-500' : 'bg-emerald-500')} aria-hidden />
+        <span className={cn('size-1.5 rounded-full', RED_STATUSES.has(props.status) ? 'bg-red-500' : waiting ? 'bg-amber-500' : 'bg-emerald-500')} aria-hidden />
         {STATUS_LABEL[props.status] ?? props.status}
       </span>,
     );

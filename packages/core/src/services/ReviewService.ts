@@ -16,12 +16,13 @@ import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { nextRevisionVersion, revisionsFor } from '@/libs/actions/revisions';
 import { parseSuggestedDecision, parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
-import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
+import { completeAction, executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -669,7 +670,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       alignment: await scoreFor({
         orgId,
-        subjectKey: row.actionId,
+        subjectKey: policyKeyForRun(row.actionId, row.input),
         agentSlug: row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null,
       }).catch(() => null),
       record: row as unknown as Record<string, unknown>,
@@ -903,8 +904,24 @@ export async function snooze(
  * and the surface that clicked Approve must say so rather than look done.
  */
 export type DecideResult = {
-  execution?: { status: 'pending' | 'done' | 'failed' | 'rejected' | 'undone'; error: string | null };
+  execution?: { status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone'; error: string | null };
 };
+
+/**
+ * The verbs a queued item takes. `done` is the hand-off's third verb
+ * (`libs/actions/manual.ts`): a released run is marked done by whoever did
+ * the work, with a note and where the result lives. Only an action can take
+ * it, and only one in `awaiting_execution`.
+ */
+export type DecideVerb = 'approve' | 'reject' | 'done';
+
+/** A verb the item cannot take — the caller's mistake, said plainly. */
+class ReviewDecisionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReviewDecisionError';
+  }
+}
 
 /**
  * Approve or reject a queued item — dispatches to the owning service so the
@@ -918,6 +935,7 @@ export type DecideResult = {
  * @param opts.reason
  * @param opts.reviewedBy
  * @param opts.editedInput
+ * @param opts.resultUrl
  * @param opts.note
  * @param opts.learn - `false` from an automated caller; trains nothing.
  * @param opts.externalRef
@@ -926,12 +944,14 @@ export type DecideResult = {
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
-  action: 'approve' | 'reject',
+  action: DecideVerb,
   orgId: string,
   opts?: {
     reason?: string;
     reviewedBy?: string;
     editedInput?: Record<string, unknown>;
+    /** Where the outcome lives, on `done` — the merged PR, the deployment, the post. */
+    resultUrl?: string;
     /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
     note?: string;
     /**
@@ -949,20 +969,39 @@ export async function decide(
   },
 ): Promise<DecideResult> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
+  if (action === 'done' && item.kind !== 'action') {
+    throw new ReviewDecisionError(`a ${item.kind} run is resumed or cancelled, never marked done by hand`);
+  }
   switch (item.kind) {
     case 'workflow':
       action === 'approve'
         ? await resumeWorkflow(item.id, orgId)
         : await cancelWorkflow(item.id, orgId, opts?.reason);
-      trackDecision(item, action, orgId, reviewedBy);
+      trackDecision(item, action as 'approve' | 'reject', orgId, reviewedBy);
       return {};
     case 'mission':
       action === 'approve'
         ? await resumeMission(item.id, orgId)
         : await cancelMission(item.id, orgId, opts?.reason);
-      trackDecision(item, action, orgId, reviewedBy);
+      trackDecision(item, action as 'approve' | 'reject', orgId, reviewedBy);
       return {};
     case 'action': {
+      if (action === 'done') {
+        // The hand-off's close. The decision was recorded at approve — the
+        // alignment row, the learning signal, the adoption event — so this
+        // writes the execution only: who did it, when, and where it is. The
+        // note rides the assignment so it reads on the item.
+        const outcome = await completeAction(item.id, orgId, {
+          by: reviewedBy,
+          note: opts?.note ?? opts?.reason,
+          resultUrl: opts?.resultUrl,
+          externalRef: opts?.externalRef,
+        });
+        if (opts?.note ?? opts?.reason) {
+          await upsertAssignment(orgId, item, { note: (opts.note ?? opts.reason)! }).catch(() => {});
+        }
+        return { execution: { status: outcome.status, error: outcome.error ?? null } };
+      }
       let execution: DecideResult['execution'];
       let labels: Record<string, LabelVerdict> | undefined;
       if (action === 'approve') {

@@ -145,7 +145,9 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     status: r.status,
     at: tab === 'decided' ? (r.decidedAt ?? r.createdAt) : r.createdAt,
     href: inboxHref('proposal', r.id),
-    detail: tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
+    detail: r.status === 'awaiting_execution'
+      ? `Released${r.decidedBy ? ` by ${r.decidedBy.replace(/^agent:/, '')}` : ''} — waiting to be done by hand`
+      : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
     reviewId: r.id,
     actionId: r.actionId,
     confidence: r.described.confidence,

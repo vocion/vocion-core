@@ -19,7 +19,7 @@ screen you decide it on.
 
 | Kind | What it is | Where it comes from | Opens at |
 |---|---|---|---|
-| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
+| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. A **hand-off** proposal (a merge, a deploy, a credential) is approved the same way, but approving *releases* it to be done by hand; see [Hand-off actions](#hand-off-actions). | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
 | **Ruling** | A decision only you can make; the team is blocked on it. | [`ask`](../entities/ask.md) with `kind: ruling` | `/dashboard/inbox/:id`; several under one group: `/dashboard/inbox/g/:groupKey` |
 | **Approval** | Permission for something the team wants to do (nothing executes on answer). | `ask` · `approval` | as above |
 | **Merge** | A pull request ready for a human to merge. | `ask` · `merge` | as above |
@@ -113,6 +113,56 @@ queue: the filters in the URL when you opened the proposal ride along on
 every neighbour's address, so `j`/`k` from a proposal opened from
 "Proposals · deal-desk" move through exactly those. Deciding moves to the
 next proposal; when there is none, back to the list.
+
+## Hand-off actions
+
+Some of the work an agent asks for is done by a person, or by a system this
+app does not host: merge this branch, run this deploy, paste this credential,
+announce this release. Those are **hand-off actions** — registered actions
+like any other (`propose_action` accepts them, `trust.yaml` gates them, the
+autonomy page lists them), whose last step is performed outside this process.
+
+The trail lands on the same `action_run` every other kind writes, so a merge
+a person performed reads back beside a CRM update an agent performed:
+
+| Step | Who | What the run says |
+|---|---|---|
+| Propose | the agent, with a confidence, a rationale and the shared hand-off input | `pending` — on Needs you as a proposal |
+| Approve | a person (or the trust ladder, for a kind that has earned it) | `awaiting_execution` — **released**: decided, not done. `result.handoff` names who released it and when. Nothing runs here. |
+| Mark done | whoever did the work — the approver, or an API caller with the `approve` capability | `done` — `result.executed` carries who, when, their note and the result URL; `executedAt` is stamped |
+| Could not be done | the same | `rejected`, with the reason — the same rejection as before release |
+
+The input is the same for every hand-off, because the person reading the
+card needs the same four things whatever the system: `title` (what it is),
+`summary` (why), `recipe` (the exact commands or steps, shown as written in a
+monospace block), `evidence` (URLs render as links, references as rows), and
+an optional `externalRef` `{ system, id, url }` naming the record in the
+performing system. A specific kind may add a field — a merge carries a
+`riskClass` — and none removes one.
+
+On the detail screen a released hand-off keeps the decision bar: the primary
+reads **Mark done** and the note field is where the result goes (a PR link, a
+deployment URL). The row on the list says *Released — waiting to be done by
+hand* and opens the detail rather than offering a quick Approve.
+
+Over the API, the same three steps are `POST /api/v1/reviews/propose` (any
+registered hand-off id), `POST /api/v1/reviews/decide` with `action:
+"approve"`, and `POST /api/v1/reviews/decide` with `action: "done"`, a
+`reason` (the note) and an optional `resultUrl`. `GET /api/v1/reviews/action/:id`
+returns the run in any state, so a worker can poll for its release. `done` on a
+run that was never approved, or on a kind that runs in-process, is a 409.
+
+**What ships as hand-offs.** The software factory's writes, registered in
+core under one group (`libs/actions/factory.ts`) because a plugin cannot
+register an action yet: `git.push_branch` (the only reversible one),
+`git.merge` (with `riskClass`), `deploy.release`, `deploy.provision`,
+`aws.mutate`, `credentials.write`, `release.announce`, `notify.requester`.
+The factory plugin's `trust.yaml` rules bind to these ids. A merge is one
+action id and ten ledgers: the trust rule, the risk tier and the alignment
+evidence key on `git.merge.<riskClass>` (`Action.policyKeyFor`,
+`libs/actions/policyKey.ts`), so docs can earn its way to running within
+bounds while schema never does. Adding a hand-off is a descriptor passed to
+`manualAction()` in `libs/actions/manual.ts` — nothing there knows about git.
 
 ## How a decision feeds learning and autonomy
 

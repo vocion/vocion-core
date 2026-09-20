@@ -19,6 +19,7 @@ import type { Principal } from '@/services/authz';
 import type { PendingPage, ReviewDetail, ReviewInclude, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
 import { parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { ActionError } from '@/services/ActionService';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
@@ -254,8 +255,11 @@ export async function apiListAutoExecuted(caller: ApiCaller, opts: { limit?: num
 export type DecideInput = {
   kind: ReviewKind;
   id: number;
-  action: 'approve' | 'reject';
+  /** `done` closes a released hand-off (`libs/actions/manual.ts`); actions only. */
+  action: 'approve' | 'reject' | 'done';
   reason?: string;
+  /** Where the outcome lives, with `done` — the merged PR, the deployment, the post. */
+  resultUrl?: string;
   /**
    * Whether this decision may train the proposing agent (default true). An
    * automated caller, a cron rejecting every past-dated proposal with one
@@ -288,23 +292,43 @@ export async function apiDecideReview(
 ): Promise<{ ok: true; reviews: ReviewItem[] }> {
   assertKind(input.kind);
   assertId(input.id);
-  if (input.action !== 'approve' && input.action !== 'reject') {
-    throw new WriteApiError(400, 'VALIDATION_FAILED', 'action must be "approve" or "reject"');
+  if (input.action !== 'approve' && input.action !== 'reject' && input.action !== 'done') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'action must be "approve", "reject" or "done"');
+  }
+  if (input.action === 'done' && input.kind !== 'action') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'only an action can be marked done — a workflow or mission run is approved or rejected');
+  }
+  if (input.resultUrl !== undefined && !/^https?:\/\//i.test(input.resultUrl)) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'resultUrl must be an http(s) URL');
   }
   enforceQueueCapability(caller, 'decide reviews');
 
-  await ReviewService.decide(
-    { kind: input.kind, id: input.id },
-    input.action,
-    caller.orgId,
-    {
-      reason: input.reason,
-      learn: input.learn,
-      reviewedBy: caller.actorId,
-      editedInput: input.action === 'approve' ? input.editedInput : undefined,
-      externalRef: input.action === 'approve' ? input.externalRef : undefined,
-    },
-  );
+  try {
+    await ReviewService.decide(
+      { kind: input.kind, id: input.id },
+      input.action,
+      caller.orgId,
+      {
+        reason: input.reason,
+        learn: input.learn,
+        reviewedBy: caller.actorId,
+        editedInput: input.action === 'approve' ? input.editedInput : undefined,
+        externalRef: input.action !== 'reject' ? input.externalRef : undefined,
+        resultUrl: input.action === 'done' ? input.resultUrl : undefined,
+      },
+    );
+  } catch (error) {
+    // A hand-off marked done before it was released, or an in-process kind
+    // marked done at all, is the caller's mistake: a 409 that says which. A
+    // run this org does not own is a 404, never another tenant's row.
+    if (error instanceof ActionError && error.code === 'INVALID_STATE') {
+      throw new WriteApiError(409, 'INVALID_STATE', error.message);
+    }
+    if (error instanceof ActionError && error.code === 'NOT_FOUND') {
+      throw new WriteApiError(404, 'NOT_FOUND', error.message);
+    }
+    throw error;
+  }
 
   const reviews = await ReviewService.listPending(caller.orgId);
   return { ok: true, reviews };

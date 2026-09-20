@@ -379,12 +379,14 @@ export const undoActionRoute = os
     }
   });
 
-/** Approve or reject a pending action proposal. */
+/** Approve or reject a pending action proposal; mark a released hand-off done. */
 export const decideActionRoute = os
   .input(z.object({
     id: z.number().int().positive(),
-    decision: z.enum(['approve', 'reject']),
+    decision: z.enum(['approve', 'reject', 'done']),
     reason: z.string().optional(),
+    /** Where the outcome lives, with `done` — the merged PR, the deployment, the post. */
+    resultUrl: z.string().url().optional(),
     /** Reviewer's note for the agent — stored with the decision on every verb. */
     note: z.string().max(2000).optional(),
     /** Operator-edited payload (edit-then-approve) — only applied on approve. */
@@ -439,12 +441,24 @@ export const decideActionRoute = os
       }
     }
 
-    const outcome = await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
-      reason: input.reason,
-      note: input.note,
-      reviewedBy: userId,
-      editedInput: input.decision === 'approve' ? editedInput : undefined,
-    });
+    const { ActionError } = await import('@/services/ActionService');
+    let outcome;
+    try {
+      outcome = await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
+        reason: input.reason,
+        note: input.note,
+        reviewedBy: userId,
+        editedInput: input.decision === 'approve' ? editedInput : undefined,
+        resultUrl: input.decision === 'done' ? input.resultUrl : undefined,
+      });
+    } catch (err) {
+      // Marking done what was never released, or approving twice, is a state
+      // the screen can explain; a stack trace is not.
+      if (err instanceof ActionError && err.code === 'INVALID_STATE') {
+        throw ApiError.badRequest(err.message);
+      }
+      throw err;
+    }
     // The execution outcome rides back so the card can SAY a failed execution
     // failed — approve used to return bare `ok` and a HubSpot 400 was silent.
     return { ok: true, execution: outcome?.execution ?? null };

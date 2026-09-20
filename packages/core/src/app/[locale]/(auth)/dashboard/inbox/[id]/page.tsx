@@ -120,7 +120,9 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
       if (!run) {
         notFound();
       }
-      if (run.status !== 'pending' && run.status !== 'failed') {
+      // A released hand-off (`awaiting_execution`) is decided but not done, so
+      // it keeps the decision screen: the bar reads Mark done.
+      if (run.status !== 'pending' && run.status !== 'failed' && run.status !== 'awaiting_execution') {
         // Decided: the receipt, not the decision.
         const desc = describeAction(run);
         return (

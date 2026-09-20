@@ -244,6 +244,27 @@ function ImageContent({ item }: ContentRenderProps) {
   );
 }
 
+/**
+ * A block read as written. `preformatted` keeps whitespace and sets a
+ * monospace face — a recipe of commands, a YAML excerpt — so a person can
+ * copy it and run it; without it, prose with its line breaks kept.
+ * @param root0
+ * @param root0.item
+ */
+function TextContent({ item }: ContentRenderProps) {
+  if (item.kind !== 'text') {
+    return null;
+  }
+  return item.preformatted
+    ? (
+        <pre data-testid={`text-pane-${item.id}`} className="mt-2 overflow-x-auto rounded-md bg-muted/40 p-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{item.body}</pre>
+      )
+    : (
+        <p data-testid={`text-pane-${item.id}`} className="mt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/85">{item.body}</p>
+      );
+}
+
 registerContentKind('email', EmailContent, { editable: true });
+registerContentKind('text', TextContent);
 registerContentKind('document', DocumentContent);
 registerContentKind('image', ImageContent);
