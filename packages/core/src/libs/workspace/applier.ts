@@ -750,6 +750,10 @@ async function applyWorkspaceLeadConfig(
   // gates nothing, and null is a workspace that said nothing at all and gets
   // core's defaults. Collapsing them would make the gate impossible to turn off.
   const clientFacingPlaybooks = loaded.manifest.defaults?.clientFacingPlaybooks ?? null;
+  // How eager this workspace is to improve itself (0–10). Null is "authored
+  // nothing", which reads as the shipped default of 7 — a stored 7 is a
+  // workspace that chose it, and the two must stay tellable apart.
+  const learningEagerness = loaded.manifest.defaults?.learningEagerness ?? null;
   const goal = loaded.manifest.goal ?? null;
   // The workspace's zone, declarative like the rest: omitted clears the column
   // and the runs fall back to the server default (`workspaceTimeZone`).
@@ -770,6 +774,7 @@ async function applyWorkspaceLeadConfig(
       embeddingConfig: projectSchema.embeddingConfig,
       regenerateSkills: projectSchema.regenerateSkills,
       clientFacingPlaybooks: projectSchema.clientFacingPlaybooks,
+      learningEagerness: projectSchema.learningEagerness,
       voiceRules: projectSchema.voiceRules,
       timeZone: projectSchema.timeZone,
       goal: projectSchema.goal,
@@ -802,7 +807,7 @@ async function applyWorkspaceLeadConfig(
   }
 
   if (!project) {
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -835,6 +840,7 @@ async function applyWorkspaceLeadConfig(
     && embeddingUnchanged
     && regenerateUnchanged
     && clientFacingUnchanged
+    && (project.learningEagerness ?? null) === learningEagerness
     && voiceUnchanged
     && (project.goal ?? null) === goal
     && (project.timeZone ?? null) === timeZone
@@ -846,7 +852,7 @@ async function applyWorkspaceLeadConfig(
   if (!dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, clientFacingPlaybooks, voiceRules, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }

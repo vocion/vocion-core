@@ -22,6 +22,7 @@
 
 import type { RiskTier, Rung } from '@/services/autonomy/rungs';
 import { DEFAULT_RUNG, rungAutomates, rungIndex } from '@/services/autonomy/rungs';
+import { eagernessReason, selfImprovementBar } from './eagerness';
 
 /** The confidence a reversible, low-risk kind needs before it runs on its own with nothing else said. */
 export const DEFAULT_AUTO_ACCEPT_CONFIDENCE = 0.8;
@@ -63,6 +64,10 @@ export type ExecutionFacts = {
   explicit: boolean;
   /** The conversation's own rung, when the proposal came from a thread that has one. */
   conversationAutonomy?: 'ask' | 'act';
+  /** The action declares `selfImproving` — its default bar comes from the workspace's learning dial. */
+  selfImproving?: boolean;
+  /** `defaults.learningEagerness`, 0–10. Read only for a self-improving kind with no explicit rule. */
+  learningEagerness?: number | null;
 };
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
@@ -95,10 +100,17 @@ export function decideExecution(f: ExecutionFacts): ExecutionDecision {
   // The default, for a kind nobody has said anything about: reversible and
   // low-risk runs on its own above the bar, with Undo one move away.
   if (!f.explicit && f.reversible && f.riskTier === 'low') {
-    const threshold = DEFAULT_AUTO_ACCEPT[f.actionId] ?? DEFAULT_AUTO_ACCEPT_CONFIDENCE;
+    // A kind that only changes what the system knows about its own work runs
+    // on the workspace's learning dial rather than the platform's flat bar:
+    // eagerness moves the bar, never the confidence (`eagerness.ts`).
+    const selfImproving = f.selfImproving === true;
+    const threshold = selfImproving
+      ? selfImprovementBar(f.learningEagerness)
+      : DEFAULT_AUTO_ACCEPT[f.actionId] ?? DEFAULT_AUTO_ACCEPT_CONFIDENCE;
+    const why = selfImproving ? eagernessReason(f.learningEagerness) : 'reversible, low-risk';
     return f.confidence >= threshold
-      ? { mode: 'execute', reason: `reversible, low-risk, ${pct(f.confidence)} ≥ ${pct(threshold)} — done for you, undo any time`, threshold, source: 'default' }
-      : { mode: 'ask', reason: `${pct(f.confidence)} is under the ${pct(threshold)} bar for a reversible kind`, threshold, source: 'default' };
+      ? { mode: 'execute', reason: `${why}, ${pct(f.confidence)} ≥ ${pct(threshold)} — done for you, undo any time`, threshold, source: 'default' }
+      : { mode: 'ask', reason: `${why}: ${pct(f.confidence)} is under the ${pct(threshold)} bar`, threshold, source: 'default' };
   }
   const why = !f.reversible
     ? 'cannot be undone'

@@ -184,11 +184,13 @@ export async function POST(request: Request): Promise<Response> {
   // this message hands it over. The agent is told to own it, and a learning
   // candidate is drafted in the background (`correctionReflector.ts`).
   let messageForModel = message;
+  let absenceCorrected = false;
   {
     const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
     const lastAssistant = [...conversationHistory].reverse().find(t => t.role === 'assistant')?.content;
     const correction = detectCorrection(lastAssistant, message);
     if (correction) {
+      absenceCorrected = true;
       messageForModel = `${message}\n\n${correctionNote(correction)}`;
       void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
     }
@@ -323,6 +325,28 @@ export async function POST(request: Request): Promise<Response> {
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {
                 await stampArtifactsWithMessage({ orgId, artifactIds: touched, messageId: msg.id });
+              }
+              // The learning loop, fed by the work itself: this turn changed a
+              // document AND the person's message instructed, so the standing
+              // rules in what they said are drafted and put through the trust
+              // ladder — adopted above the workspace's learning bar with Undo,
+              // asked below it (`services/chat/workCorrections.ts`). After the
+              // turn is closed and fire-and-forget, because nothing here may
+              // cost the person their answer. Skipped when the absence
+              // reflector already filed for this message, so one turn never
+              // produces two candidates for the same words.
+              if (!absenceCorrected) {
+                const { correctionInTurn, learnFromWorkCorrection } = await import('@/services/chat/workCorrections');
+                const correction = correctionInTurn({ message, toolNames: runs.filter(r => r.type === 'tool').map(r => r.name) });
+                if (correction) {
+                  void learnFromWorkCorrection({ orgId, agentSlug, userId, correction })
+                    .then(async ({ receipt }) => {
+                      if (receipt) {
+                        await appendMessage({ orgId, conversationId, role: 'assistant', content: receipt });
+                      }
+                    })
+                    .catch(() => {});
+                }
               }
             } catch {
               /* conversation may have been deleted mid-stream */

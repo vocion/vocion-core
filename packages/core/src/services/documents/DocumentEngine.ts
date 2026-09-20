@@ -22,6 +22,7 @@ import type { DocumentOutline } from '@/libs/documents/sheets';
 import type { ArtifactRecordScope, ArtifactRow, ArtifactVersionRow, Author } from '@/services/ArtifactService';
 import { evaluateDocument, verificationReceipt } from '@/libs/documents/audit';
 import { undefinedClasses } from '@/libs/documents/classAudit';
+import { proseSheets } from '@/libs/documents/componentAudit';
 import { applyDocumentOps } from '@/libs/documents/edit';
 import { stripFramework } from '@/libs/documents/framework';
 import { renderAvailable, renderDocument, renderNote } from '@/libs/documents/render';
@@ -136,6 +137,7 @@ export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOpt
         pdfPages: null,
         unresolvedAssets: outline.relativeAssets,
         undefinedClasses: [],
+        proseSheets: [],
         issues: [`Renderer unavailable (${available.reason}). The document was saved but not render-verified — install Playwright's Chromium on this host.`],
         ok: false,
       },
@@ -169,7 +171,7 @@ export async function verifyHtml(orgId: string, rawHtml: string, opts: VerifyOpt
   if (rendered.pdf) {
     pdfUrl = (await saveArtifact({ orgId, data: rendered.pdf, ext: 'pdf', contentType: 'application/pdf' })).url;
   }
-  const verification = evaluateDocument({ sheets, pdfPages: rendered.pdfPages, ...(pdfUrl ? { pdf: pdfUrl } : {}), unresolvedAssets: rendered.unresolvedAssets, undefinedClasses: undefinedClasses(html) });
+  const verification = evaluateDocument({ sheets, pdfPages: rendered.pdfPages, ...(pdfUrl ? { pdf: pdfUrl } : {}), unresolvedAssets: rendered.unresolvedAssets, undefinedClasses: undefinedClasses(html), proseSheets: proseSheets(html) });
   if (opts.look) {
     const withPng = rendered.sheets.filter(s => s.png).map(s => ({ n: s.n, label: s.label, png: s.png! }));
     // The look is ONE model call over every sheet at once, so there is no

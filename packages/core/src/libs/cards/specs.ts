@@ -155,6 +155,13 @@ export const documentVerificationSchema = z.object({
    * (`libs/documents/classAudit.ts`).
    */
   undefinedClasses: z.array(z.string().max(80)).max(40).default([]),
+  /**
+   * Sheets carrying no component from the framework's declared vocabulary —
+   * the walls of text (`libs/documents/componentAudit.ts`). A REPORT, never a
+   * refusal: it is listed in the receipt and deliberately does not flip `ok`,
+   * because the spine allows a sheet to be prose when prose is right.
+   */
+  proseSheets: z.array(z.object({ n: z.number().int(), label: z.string().max(120) })).max(40).default([]),
   issues: z.array(z.string().max(300)).max(40).default([]),
   ok: z.boolean(),
 });

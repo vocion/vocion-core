@@ -10,7 +10,9 @@
  * page count has to equal the sheet count, or a sheet broke across pages.
  */
 
+import type { ProseSheet } from './componentAudit';
 import type { DocumentRedTeam, DocumentSheetAudit, DocumentVerification } from '@/libs/cards/specs';
+import { proseSheetsNote } from './componentAudit';
 
 /** Footer rules within this many CSS px of each other count as aligned (the cover's `.fsplit` note shifts it ~2px). */
 export const FOOTER_TOLERANCE_PX = 3;
@@ -24,6 +26,8 @@ export type AuditInput = {
   unresolvedAssets: string[];
   /** Classes used with no rule in the document's stylesheet (`classAudit.ts`). */
   undefinedClasses?: string[];
+  /** Sheets carrying no component from the framework's vocabulary (`componentAudit.ts`). */
+  proseSheets?: ProseSheet[];
   at?: string;
 };
 
@@ -97,9 +101,17 @@ export function evaluateDocument(input: AuditInput): DocumentVerification {
   if (input.sheets.length === 0) {
     issues.push('No `.sheet` elements were found — the document is not paginated.');
   }
+  // Deliberately NOT an issue, and deliberately not part of `ok`. The house
+  // rule is that a sheet carries a component or says in one line why it does
+  // not (`visuals.md`), and only a person or the red team can tell those
+  // apart — so the audit names the sheets and stops. Adding it to `issues`
+  // would make a legitimate prose sheet fail the verify loop for ever, and
+  // the model would answer by decorating it.
+  const proseSheets = (input.proseSheets ?? []).slice(0, 40);
   return {
     at: input.at ?? new Date().toISOString(),
     sheets: input.sheets.map(s => ({ ...s, clipped: s.clipped.slice(0, 12) })),
+    proseSheets,
     footerAligned,
     pdfPages: input.pdfPages,
     ...(input.pdf ? { pdf: input.pdf } : {}),
@@ -124,10 +136,16 @@ export function verificationReceipt(v: DocumentVerification, opts: { images?: bo
     v.footerAligned ? `footers aligned${baseline === null ? '' : ` at ${baseline}px`}` : 'footers NOT aligned',
     v.pdfPages === null ? (v.pdf ? 'PDF printed · page count unavailable' : 'PDF not printed') : `PDF ${v.pdfPages} ${v.pdfPages === 1 ? 'page' : 'pages'}`,
     v.ok ? 'no issues' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`,
+    // A separate count, after the verdict, because it is not one of them.
+    ...((v.proseSheets ?? []).length > 0 ? [`${v.proseSheets!.length} prose-only`] : []),
   ].join(' · ');
   const lines = [head];
   for (const issue of v.issues) {
     lines.push(`- ${issue}`);
+  }
+  const prose = proseSheetsNote(v.proseSheets ?? [], v.sheets.length);
+  if (prose) {
+    lines.push(`- note: ${prose}`);
   }
   if (opts.images) {
     for (const s of v.sheets) {

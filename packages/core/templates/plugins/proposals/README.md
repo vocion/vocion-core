@@ -33,10 +33,25 @@ render-verify receipt reads clean**.
   blocking finding, and runs the read itself if nobody has. Which playbooks
   count as client-facing is `defaults.clientFacingPlaybooks` in workspace.yaml
   (`proposal`, `scope`, `partnership-update` by default).
-- **It learns from every correction.** The writer declares the
-  `proposal-feedback` learning step: every review decision on a proposal and
-  every correction in chat files a candidate there, and adopted rules mount
-  before the next proposal. A red-team finding that recurs becomes a rule.
+- **It learns from every correction, without being asked to.** The writer
+  declares the `proposal-feedback` learning step. A turn in which a person
+  corrected the writer's work on a document — the turn changed a document AND
+  the message instructed — has the standing rules in what they said drafted by
+  the cheap model and put through the trust ladder
+  (`learning.adopt_rule`): above the workspace's learning bar
+  (`defaults.learningEagerness`, 7/10 → 72% by default) the rule adopts
+  itself and shows in Review › Decided with **Undo**; below it, a person
+  decides on a card carrying their own words. A restatement of a rule already
+  on file raises its occurrence count instead of adding a near-duplicate.
+  Review decisions on a proposal file there the same way, and a red-team
+  finding that recurs becomes a rule. To review every rule instead, set
+  `learningEagerness: 0`, or pin the kind with an `autoApproveAbove` in the
+  workspace's own `trust.yaml`.
+- **No sheet is a wall of text**, and `verify_document` checks it without a
+  model: the framework declares its component vocabulary in `framework.css`
+  (`.vocion-component-vocabulary`), and the receipt names every sheet carrying
+  none of it, by number and label. A report, not a refusal — the spine allows
+  a sheet to be prose when prose is right, and that sheet says so in one line.
 - The **Proposals** app under GTM (`/gtm/proposals`): every room at Proposal
   stage, its latest document and verify state, open items, and Draft.
 - A weekly mission: every Proposal-stage room has a verified current document,

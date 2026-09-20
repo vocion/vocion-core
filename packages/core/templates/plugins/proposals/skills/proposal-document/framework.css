@@ -24,6 +24,28 @@
   --yellow: var(--brand-yellow);
   --sage: var(--brand-sage);
 }
+
+/* ── The component vocabulary ────────────────────────────────────────────
+   The block components that make a sheet more than prose.
+
+   `verify_document` reads this list out of the document's own stylesheet
+   (core never knows a class name — see `libs/documents/componentAudit.ts`)
+   and names every sheet that carries none of them. The house rule it checks
+   is in `visuals.md`: no sheet is a wall of text. It is a REPORT, not a
+   refusal — the spine allows a sheet to be prose when prose is right, and
+   that sheet says so in one line of its own.
+
+   Declared here because this is the file a workspace replaces whole: a
+   different look brings its own vocabulary with it, and nothing in core
+   has to change.
+
+   Inline ornaments are deliberately absent — `.pill`, `.gly`, `.sk`,
+   `.syschip`, `.futtag`, `.ph`, `.lede`. A chip in an eyebrow does not stop
+   a sheet being a wall of text, and counting one would make the audit lie. */
+.vocion-component-vocabulary {
+  --components: journey gantt win2 plat ovcards hitl ctx bdt drow sysrow twocol crew mag dtiles dcharts money vals offer
+    opts faq apx clogo-lockup;
+}
 * {
   box-sizing: border-box;
 }
@@ -1266,6 +1288,50 @@ tbody tr:last-child td {
   background: rgba(252, 190, 69, 0.18);
   color: #8a5a00;
   border: 1px solid rgba(252, 190, 69, 0.55);
+}
+/* The "today" window — the same component with the polish taken off.
+
+   The problem sheet shows the system the client runs NOW: the spreadsheet,
+   the paper log, the shared inbox. Drawn plain on purpose — grey chrome
+   instead of the dark titlebar, a monospace grid, no status pills, no brand
+   colour — so the before-and-after reads off the page and no sentence has
+   to claim it. Never put a seller colour on this one. */
+.win2.plain {
+  border-radius: 3px;
+  border-color: #c9cbc6;
+  box-shadow: none;
+  background: #fdfdfc;
+}
+.win2.plain .wh {
+  background: #e4e5e1;
+  color: #6b7079;
+  border-bottom: 1px solid #c9cbc6;
+}
+.win2.plain .wh .wu b {
+  color: #4a4f57;
+}
+.win2.plain .wh .wr-meta {
+  color: #8a8f96;
+  font-weight: 500;
+}
+.win2.plain .wd {
+  background: #c2c4c0;
+}
+.win2.plain .wr2 {
+  font-family: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: #4a4f57;
+  border-top-color: #e2e3df;
+  padding: 6px 12px;
+}
+.win2.plain .wr2 .tl2 i {
+  color: #9aa0a6;
+}
+/* A spreadsheet's other columns: muted, right of the row, never a pill. */
+.win2.plain .wcell {
+  color: #8a8f96;
+  font-size: 10px;
+  white-space: nowrap;
 }
 .mock-cap {
   font-size: 9.5px;

@@ -13,6 +13,8 @@ import process from 'node:process';
 import sharp from 'sharp';
 import { northwindProposal } from '@/libs/documents/__fixtures__/northwind';
 import { evaluateDocument, verificationReceipt } from '@/libs/documents/audit';
+import { undefinedClasses } from '@/libs/documents/classAudit';
+import { proseSheets } from '@/libs/documents/componentAudit';
 import { closeRenderer, renderDocument } from '@/libs/documents/render';
 
 async function main() {
@@ -35,6 +37,8 @@ async function main() {
     sheets: r.sheets.map(({ png: _p, x: _x, y: _y, width: _w, height: _h, ...s }) => s),
     pdfPages: r.pdfPages,
     unresolvedAssets: r.unresolvedAssets,
+    undefinedClasses: undefinedClasses(html),
+    proseSheets: proseSheets(html),
   });
   console.log(`${name} · ${r.ms}ms\n${verificationReceipt(v)}`);
 

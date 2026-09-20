@@ -8,6 +8,7 @@ import type { Action } from './types';
 import { discoveryReviewProposalAction } from './discovery-review';
 import { gmailSendAction } from './gmail-send';
 import { hubspotUpdateAction } from './hubspot-update';
+import { learningAdoptRuleAction } from './learning-adopt-rule';
 import { objectProposeCandidateAction } from './objects-propose-candidate';
 import { personalizationEnrollAction } from './personalization-enroll';
 import { pluginEnableAction } from './plugin-enable';
@@ -38,6 +39,9 @@ registerAction(objectProposeCandidateAction);
 registerAction(pluginEnableAction);
 // A wiki page write — reversible (restore the previous version), done-for-you above the wiki plugin's bar.
 registerAction(wikiWritePageAction);
+// A correction a person made, adopted as a standing rule — reversible (Undo
+// removes it from the step), done-for-you above the bar in the plugin's trust.yaml.
+registerAction(learningAdoptRuleAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);
