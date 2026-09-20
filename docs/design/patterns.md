@@ -915,6 +915,118 @@ Search (`SearchResults`) and Artifacts (`ArtifactLog`).
 
 ---
 
+# One artifact header, and one scroller per column
+
+Two rules about the surfaces that show ONE artifact — the preview pane beside a
+conversation, the artifact's own page, and the full-screen `/open` wrapper for a
+document. Both arrived on the same day, from the same review.
+
+## The header is one component; a surface omits a verb, it never redraws it
+
+`features/dashboard/artifacts/ArtifactHeader.tsx` owns three things and nothing
+else: **the title and kind/version line**, **the tab strip**, and **the action
+set**. Every surface wears it.
+
+```text
+┌ ArtifactHeader ───────────────────────────────────────────────────────┐
+│ Northwind — Proposal          DOCUMENT  v6 · Proposal writer · Sep 17  │
+│                            ⟨ save · history · chat · pdf · open ·     │
+│                              export · share · close ⟩                 │
+├───────────────────────────────────────────────────────────────────────┤
+│ [▣ Document] [</> HTML] [⛨ Findings ⑨]      Add to a folder · 5 sheets │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+Which verbs appear is a **pure rule**, `actionsFor(surface, artifact)` in
+`headerRules.ts`, and the omissions are the content of it:
+
+| | pane (beside a chat) | page (`/artifacts/<id>`) | `/open` |
+|---|---|---|---|
+| Open in chat | **no** — the pane IS a chat with this open beside it | yes | yes |
+| Close | yes | no — a page has no column to give back | no |
+| History / Save / Export / Share | yes | yes | no — a read of ONE version |
+| PDF / Open full screen | document only | document only | PDF only |
+
+**A surface that cannot support a verb omits it. It never renders a
+different-looking version of it** (design principle 6). The page had no way into
+a chat and the pane had a one-way HTML button precisely because each surface
+assembled its own row; one function answering the question for all three is what
+makes "the same vocabulary everywhere" checkable rather than asserted.
+
+### More than one view of one artifact is a tab strip, never a one-way button
+
+`tabsFor(artifact)` — also pure — gives a **document** three views of itself and
+every other kind none, because one view needs no chrome:
+
+- **Document** — the rendered sheets. The default.
+- **HTML** — the hand-edit view. It is a tab, so you can leave it.
+- **Findings** — the render-verify issues and the sceptical-buyer read, together,
+  with a count. **Amber only when something blocks**; an empty state when there
+  is nothing, because "nothing to answer" is a thing a person wants to check.
+
+`role="tablist"`, arrows and Home/End walk it, icon-led with the label above
+`@md` and a real `Tooltip` below it — never a native `title=`. The choice is
+remembered per artifact in `localStorage`, inside try/catch.
+
+**Where it came from.** Chris, 2026-09-18: *"I don't have any way to switch back
+to View from HTML. Can we turn that into an icon-y tab system"*, and *"11
+findings — i don't like that location. can we hide this in a tab icon like
+HTML."* The findings were two amber `<details>` blocks stacked above the
+document, pushing it down the pane and shouting at somebody who came to read it.
+
+### The meta line carries what you need BEFORE opening the document
+
+The sheet count and the verify verdict. That is all. The red-team state is the
+Findings badge; `PDF N pages` is the PDF action's tooltip. *"This is probably too
+much context to view at once, it's not more important than getting into the
+doc."*
+
+## The window never scrolls; one scroller per column
+
+The shell is exactly the viewport tall (`h-svh`, `AppShell`) and the **page
+gutter** is the scroller (`features/dashboard/PageWidth.tsx`). The sidebar, the
+top bar and every pane header stay put.
+
+A route that is a two-pane working surface declares itself in
+`features/navigation/pageWidth.ts` — `isViewportFitPath` beside `isFullBleedPath`
+— and then the gutter does not scroll either: the page lays itself out to the
+height it was given with `h-full`, and the scrolling happens inside its panes.
+One scroller per column:
+
+```text
+chat + artifact   conversation → MessageList scrolls
+                  document     → the document scrolls INSIDE its own iframe
+artifact page     the pane's body scrolls, or the document does
+every other page  the gutter scrolls. Once.
+```
+
+**A page never guesses at the chrome above it.** `h-[calc(100vh-6rem)]` against
+8rem of real chrome is what put a third scrollbar on the window and carried the
+whole shell with it; `h-full` is the height the shell measured. The guess is now
+impossible because there is nothing to guess.
+
+**Where it came from.** Chris, 2026-09-18: *"I've got ugly scroll in scroll for
+the doc"*, then *"scroll in scroll bug for chat / overall window too"* — three
+scrollbars at once on `/dashboard/chat/<id>?artifact=<id>` at 1920.
+
+## The document is the client's page; the app's chrome belongs to the app
+
+A rendered document may not carry the app's controls. The house framework kept
+emitting `<div class="actions"><a onclick="window.print()">⤓ PDF</a></div>` over
+the client's first sheet however often the skill said not to, and an agent
+eventually hand-patched a malformed variant of it. Asking again is the wrong
+lever: `stripDocumentChrome` (`libs/documents/sheets.ts`) removes it
+deterministically — before the engine verifies, before it stores, and again on
+the way out of `/api/artifacts/<id>/document.html` and into the pane's srcdoc, so
+rows written before the transform came along are clean too. Printing is the
+app's verb, beside the PDF the renderer already made.
+
+This is *structural over prompting* (`CLAUDE.md`) with a UI consequence: a
+required rendering behaviour that the prompt cannot guarantee is enforced in
+code.
+
+---
+
 # Everything stacked above a composer shares its column
 
 Context chips, queued messages, `@` tag chips, anchored-comment chips, the

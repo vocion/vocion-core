@@ -90,3 +90,39 @@ export function isFullBleedPath(pathname: string): boolean {
   const path = normalizePagePath(pathname);
   return FULL_BLEED_PATTERNS.some(re => re.test(path));
 }
+
+/**
+ * The surfaces that own the window's HEIGHT as well as its width.
+ *
+ * The shell now owns the viewport on every route — the sidebar, the top bar
+ * and a pane header never scroll away — and the page area is the scroller.
+ * These routes go one step further: they are laid out to the height they were
+ * given and the scrolling happens INSIDE them, one scroller per column, so the
+ * page area itself never scrolls either.
+ *
+ * Chris, 2026-09-18, on `/dashboard/chat/132?artifact=251` at 1920: three
+ * scrollbars at once — the window, the conversation column and the document
+ * pane — and scrolling the window carried the sidebar, the top bar and the
+ * pane headers with it, stranding a document footer mid-pane. The window's was
+ * the one nobody asked for: the page was `100vh − 6rem` inside a shell whose
+ * chrome and gutter came to 8rem, so it overhung the viewport by 32px on every
+ * one of these routes.
+ */
+const VIEWPORT_FIT_PATTERNS: readonly RegExp[] = [
+  // The chat surface, with an artifact beside it or without one.
+  /^\/dashboard\/chat$/,
+  /^\/dashboard\/chat\/\d+$/,
+  // One artifact on its own page, and the document's full-screen wrapper.
+  /^\/dashboard\/artifacts\/\d+$/,
+  /^\/dashboard\/artifacts\/\d+\/open$/,
+];
+
+/**
+ * Whether this route lays itself out to the height it is given and scrolls
+ * inside its own panes, rather than letting the page area scroll.
+ * @param pathname - `usePathname()`.
+ */
+export function isViewportFitPath(pathname: string): boolean {
+  const path = normalizePagePath(pathname);
+  return VIEWPORT_FIT_PATTERNS.some(re => re.test(path));
+}

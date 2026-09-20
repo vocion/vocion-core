@@ -34,7 +34,7 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
   // Shared with its owner only (`libs/share/audience.ts`): say so, plainly.
   if (!canOpenArtifact({ audience: row.shareAudience, ownerId: row.shareOwnerId ?? null }, { userId: userId ?? null, isMember: true, hasToken: false })) {
     return (
-      <div className="flex h-[calc(100vh-8rem)] flex-col gap-2">
+      <div className="flex h-full min-h-0 flex-col gap-2">
         <p className="text-[12px] text-muted-foreground"><Link href="/dashboard/artifacts" className="hover:text-foreground">Artifacts</Link></p>
         <div className="flex flex-1 items-center justify-center">
           <div className="max-w-sm text-center">
@@ -51,9 +51,10 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
   }
   const conversation = row.conversationId ? await getConversation({ orgId, id: row.conversationId }) : null;
 
-  // One scroll: the pane grows to its content and the page scrolls (`scroll="page"`).
+  // One scroll: the shell gives this page exactly the window's height, the
+  // pane fills it, and the one thing that scrolls is inside the pane.
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <p className="text-[12px] text-muted-foreground">
         <Link href="/dashboard/artifacts" className="hover:text-foreground">Artifacts</Link>
         {conversation && (
@@ -67,7 +68,7 @@ export default async function ArtifactPage(props: { params: Promise<{ locale: st
           </>
         )}
       </p>
-      <StandaloneArtifactView artifact={toPayload(row)} selfId={userId ?? null} />
+      <StandaloneArtifactView artifact={toPayload(row)} selfId={userId ?? null} conversationId={row.conversationId ?? null} />
     </div>
   );
 }

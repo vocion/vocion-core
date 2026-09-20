@@ -9,6 +9,19 @@
  * the house framework was tuned at (850px) and scaled to the pane, so a sheet
  * is a sheet at any rail width.
  *
+ * **One scroll.** The frame used to be sized to the WHOLE document
+ * (`sheets × 1082px`) inside a pane that scrolled, inside a page that also
+ * scrolled — Chris, 2026-09-18: *"I've got ugly scroll in scroll for the
+ * doc."* It fills its host now and the document scrolls inside the iframe, so
+ * the document column has exactly one scroller and it belongs to the document.
+ * The pane above it does not scroll at all while a document is open.
+ *
+ * The app's own chrome is stripped from the HTML before it reaches the srcdoc
+ * (`stripDocumentChrome`) — belt and braces over the engine, which already
+ * strips it on the way in, so a row written before that existed does not draw
+ * a `⤓ PDF` button on top of the client's first sheet. Printing is the app's
+ * verb and it lives in the artifact header.
+ *
  * Select-to-talk works inside the frame the same way it does on every record
  * page. A selection cannot cross the sandbox boundary, so a small script
  * injected into the document posts the selected text out, and the pane shows
@@ -21,11 +34,12 @@
 
 import type { DocumentRedTeam, DocumentVerification } from '@/libs/cards/specs';
 import type { RecordRef } from '@/services/chat/pageContext';
-import { ExternalLink, FileDown, MessageSquareText, Pencil } from 'lucide-react';
+import { MessageSquareText, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
 import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { redTeamChip, verificationChip } from '@/libs/documents/audit';
+import { stripDocumentChrome } from '@/libs/documents/sheets';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
@@ -68,18 +82,20 @@ export function DocumentFrame(props: {
   const pathname = usePathname();
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
-  const [hostWidth, setHostWidth] = useState(400);
-  const [frameHeight, setFrameHeight] = useState<number>(() => Math.max(1100, (props.sheets ?? 1) * 1082 + 40));
+  const [host, setHost] = useState<{ width: number; height: number }>({ width: 400, height: 600 });
   const [hit, setHit] = useState<{ text: string; x: number; y: number } | null>(null);
 
-  // Fit the 850px layout to whatever width the pane has.
+  // Fit the 850px layout to whatever the host has, in BOTH axes: the width
+  // sets the scale, the height is how much document is on screen at once. The
+  // iframe is laid out at `height / scale` so that, once scaled, it covers the
+  // host exactly — which is what makes the document its own single scroller.
   useEffect(() => {
     const el = hostRef.current;
     if (!el) {
       return;
     }
     const measure = () => {
-      setHostWidth(el.clientWidth);
+      setHost({ width: el.clientWidth, height: el.clientHeight });
       setScale(Math.min(1, el.clientWidth / DOCUMENT_FRAME_WIDTH));
     };
     measure();
@@ -104,15 +120,7 @@ export function DocumentFrame(props: {
     return () => window.removeEventListener('message', onMessage);
   }, [frameId, scale]);
 
-  const srcDoc = useMemo(() => withSelectionBridge(props.html, frameId), [props.html, frameId]);
-
-  const onLoad = useCallback((e: React.SyntheticEvent<HTMLIFrameElement>) => {
-    // The frame is sandboxed without same-origin, so its height cannot be
-    // read; the sheet count says how tall the document is (1056px + 26px gap).
-    const sheets = props.verification?.sheets.length ?? props.sheets ?? 1;
-    setFrameHeight(Math.max(1100, sheets * 1082 + 40));
-    void e;
-  }, [props.sheets, props.verification]);
+  const srcDoc = useMemo(() => withSelectionBridge(stripDocumentChrome(props.html), frameId), [props.html, frameId]);
 
   const open = useCallback((mode: 'ask' | 'change') => {
     if (!hit) {
@@ -136,70 +144,32 @@ export function DocumentFrame(props: {
     );
   }, [hit, pathname, props.record, router]);
 
-  const chip = verificationChip(props.verification, props.sheets);
-  const issues = props.verification?.issues ?? [];
-  // Only what a person has to act on: `consider` is a judgement call the
-  // agent already weighed, and listing it here would bury the blocks.
-  const findings = (props.redTeam?.findings ?? []).filter(f => f.severity !== 'consider');
-
   return (
-    <div className={cn('flex min-w-0 flex-col gap-2', props.className)} data-document-frame>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span data-document-state className={cn(props.verification && !props.verification.ok && 'text-brand-amber')}>{chip}</span>
-        <span data-document-red-team className={cn((props.redTeam?.blocks ?? 0) > 0 && 'text-brand-amber')}>{redTeamChip(props.redTeam)}</span>
-        {props.verification?.pdfPages != null && <span>{`PDF ${props.verification.pdfPages} ${props.verification.pdfPages === 1 ? 'page' : 'pages'}`}</span>}
-        <span className="ml-auto flex items-center gap-2">
-          {props.verification?.pdf && (
-            <a href={props.verification.pdf} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground" data-document-pdf>
-              <FileDown className="size-3" aria-hidden />
-              PDF
-            </a>
-          )}
-          {props.openHref && (
-            <a href={props.openHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground" data-document-open>
-              <ExternalLink className="size-3" aria-hidden />
-              Open
-            </a>
-          )}
-        </span>
-      </div>
-      {issues.length > 0 && (
-        <details className="rounded-md border border-brand-amber/40 bg-brand-amber/5 px-3 py-1.5 text-[12px]" data-document-issues>
-          <summary className="cursor-pointer font-medium text-foreground">{`${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} from the last render-verify`}</summary>
-          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-foreground/85">
-            {issues.map(i => <li key={i}>{i}</li>)}
-          </ul>
-        </details>
-      )}
-      {findings.length > 0 && (
-        <details className="rounded-md border border-brand-amber/40 bg-brand-amber/5 px-3 py-1.5 text-[12px]" data-document-findings>
-          <summary className="cursor-pointer font-medium text-foreground">
-            {`${findings.length} ${findings.length === 1 ? 'finding' : 'findings'} a sceptical buyer would stop on`}
-          </summary>
-          <ul className="mt-1.5 list-disc space-y-1 pl-4 text-foreground/85">
-            {findings.map(f => (
-              <li key={`${f.sheet}-${f.rule}`}>
-                {`[${f.severity.toUpperCase()}] sheet ${f.sheet} · ${f.rule}: ${f.finding} → ${f.fix}`}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      <div ref={hostRef} className="relative w-full overflow-hidden" style={{ height: Math.ceil(frameHeight * scale) }}>
+    <div className={cn('flex min-h-0 w-full min-w-0 flex-1 flex-col', props.className)} data-document-frame>
+      {/* The host is the whole pane: the iframe is laid out at `height / scale`
+          and scaled down onto it, so the scaled frame covers the host exactly
+          and the ONLY scroller in this column is the document's own. Nothing
+          sits above the document any more — the verify verdict is one quiet
+          line in the artifact header and the findings are a tab. */}
+      <div ref={hostRef} className="relative min-h-0 w-full flex-1 overflow-hidden rounded-md border border-border/70 bg-[#e9e9e4]">
         <iframe
           title={props.title}
           srcDoc={srcDoc}
           sandbox="allow-scripts allow-modals allow-popups allow-popups-to-escape-sandbox"
-          onLoad={onLoad}
           className="absolute top-0 left-0 border-0 bg-[#e9e9e4]"
-          style={{ width: DOCUMENT_FRAME_WIDTH, height: frameHeight, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+          style={{
+            width: DOCUMENT_FRAME_WIDTH,
+            height: Math.max(1, Math.ceil(host.height / (scale || 1))),
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
           data-document-iframe
         />
         {hit && (
           <SelectionToolbar
             x={hit.x}
             y={hit.y}
-            width={hostWidth}
+            width={host.width}
             actions={[
               { label: 'Ask', icon: MessageSquareText, onClick: () => open('ask') },
               { label: 'Change', icon: Pencil, onClick: () => open('change') },

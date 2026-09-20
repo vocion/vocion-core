@@ -186,3 +186,128 @@ export function outlineText(outline: DocumentOutline): string {
   }
   return lines.join('\n');
 }
+
+/**
+ * The document is the client's page; the app's chrome belongs to the app.
+ *
+ * The house framework told the model not to draw a `⤓ PDF` button, and the
+ * model drew one anyway — `<div class="actions"><a href="#"
+ * onclick="window.print()">⤓ PDF</a></div>`, floating over the first sheet on
+ * every surface that renders the document. On 2026-09-18 an agent then
+ * hand-patched a MALFORMED version of it (an anchor inside an anchor), which
+ * is the tell that asking again is the wrong lever: a required behaviour that
+ * the prompt cannot guarantee is enforced in code (CLAUDE.md, *structural over
+ * prompting*).
+ *
+ * So the print affordance is removed deterministically on the way in and on
+ * the way out: the engine strips it before it verifies and before it stores,
+ * the served `document.html` strips it for rows written before this existed,
+ * and the pane strips it again before the srcdoc. Printing is the app's verb —
+ * it lives in the artifact header beside the PDF the renderer already made.
+ *
+ * Pure string work, like the rest of this module: `article` elements do not
+ * nest and neither does a button bar, so depth-counted slicing is transparent
+ * about what it removes — including the nested-anchor variant, which no
+ * regex-in-one-pass survives.
+ * @param html - The document as authored or stored.
+ */
+/** A wrapper whose whole job is a bar of controls over the document. */
+const CHROME_WRAPPER = /<(div|nav|section|aside|header|footer|p)\s[^>]*class\s*=\s*"[^"]*\b(?:actions|no-print|noprint|print-bar|printbar|toolbar)\b[^"]*"[^>]*>/gi;
+/** A control that prints, wrapped or bare. */
+const PRINT_CONTROL = /<(a|button)\b[^>]*>/gi;
+/** `window.print(` or the house download glyph — either makes it the app's chrome. */
+const PRINT_MARKER = /window\s*\.\s*print\s*\(|⤓/;
+
+export function stripDocumentChrome(html: string): string {
+  let out = removeElements(html, CHROME_WRAPPER, isPrintChrome);
+  out = removeElements(out, PRINT_CONTROL, isPrintControl);
+  // An `onclick` that survived on an element worth keeping (a real link that
+  // also printed): drop the handler, keep the link.
+  out = out.replace(/\son\w+\s*=\s*"[^"]*window\s*\.\s*print\s*\([^"]*"/gi, '');
+  out = out.replace(/\son\w+\s*=\s*'[^']*window\s*\.\s*print\s*\([^']*'/gi, '');
+  return out;
+}
+
+function isPrintChrome(element: string): boolean {
+  return PRINT_MARKER.test(element);
+}
+
+/**
+ * A bare control is the app's chrome when it prints AND it goes nowhere — a
+ * `#` / `javascript:` href, or none — or when it wears the download glyph. A
+ * real link in the client's prose that happens to carry a print handler keeps
+ * its href and loses the handler instead: the words are the client's.
+ * @param element
+ */
+function isPrintControl(element: string): boolean {
+  if (!PRINT_MARKER.test(element)) {
+    return false;
+  }
+  if (element.includes('⤓')) {
+    return true;
+  }
+  const href = /\shref\s*=\s*"([^"]*)"/i.exec(element)?.[1]?.trim() ?? '';
+  return href === '' || href === '#' || /^javascript:/i.test(href);
+}
+
+/**
+ * Index just past the close tag that matches the open tag at `openIndex`,
+ * counting nested opens of the same name; null when it is never closed.
+ * @param html
+ * @param tag
+ * @param openIndex
+ * @param openLength
+ */
+function elementEnd(html: string, tag: string, openIndex: number, openLength: number): number | null {
+  const open = new RegExp(`<${tag}\\b`, 'gi');
+  const close = new RegExp(`</${tag}\\s*>`, 'gi');
+  let depth = 1;
+  let cursor = openIndex + openLength;
+  for (let guard = 0; guard < 10_000; guard++) {
+    close.lastIndex = cursor;
+    const c = close.exec(html);
+    if (!c) {
+      return null;
+    }
+    open.lastIndex = cursor;
+    for (let o = open.exec(html); o && o.index < c.index; o = open.exec(html)) {
+      depth++;
+      open.lastIndex = o.index + 1;
+    }
+    depth--;
+    cursor = c.index + c[0].length;
+    if (depth === 0) {
+      return cursor;
+    }
+  }
+  return null;
+}
+
+/**
+ * Drop every element whose start tag matches `startTag` and whose whole
+ * source satisfies `remove`. An element that is never closed is left alone —
+ * removing to the end of the file would be worse than the button.
+ * @param html
+ * @param startTag
+ * @param remove
+ */
+function removeElements(html: string, startTag: RegExp, remove: (element: string) => boolean): string {
+  const re = new RegExp(startTag.source, startTag.flags.includes('g') ? startTag.flags : `${startTag.flags}g`);
+  let out = '';
+  let cursor = 0;
+  re.lastIndex = 0;
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    if (m.index < cursor) {
+      re.lastIndex = cursor;
+      continue;
+    }
+    const end = elementEnd(html, m[1]!.toLowerCase(), m.index, m[0].length);
+    if (end === null || !remove(html.slice(m.index, end))) {
+      continue;
+    }
+    out += html.slice(cursor, m.index);
+    cursor = end;
+    re.lastIndex = end;
+  }
+  return out + html.slice(cursor);
+}

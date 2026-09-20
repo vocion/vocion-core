@@ -1,9 +1,9 @@
 import type { DocumentVerification } from '@/libs/cards/specs';
-import { ArrowLeft, FileDown } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { ArtifactHeader } from '@/features/dashboard/artifacts/ArtifactHeader';
+import { actionsFor } from '@/features/dashboard/artifacts/headerRules';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { Link } from '@/libs/I18nNavigation';
 import { canOpenArtifact } from '@/libs/share/audience';
 import { getArtifact } from '@/services/ArtifactService';
 
@@ -11,8 +11,19 @@ import { getArtifact } from '@/services/ArtifactService';
  * A document at full width, on its own — the "Open" of the document frame.
  * The sheets render exactly as the client will read them (the raw HTML the
  * artifact route serves, in a frame at 100%), and the controls that used to
- * be drawn INSIDE the document — the PDF button — sit in this wrapper's bar
- * instead, so nothing prints that is not the document (Chris, 2026-09-18).
+ * be drawn INSIDE the document — the PDF button — sit in the shared
+ * `ArtifactHeader` instead, so nothing prints that is not the document (Chris,
+ * 2026-09-18). The served HTML is stripped of that button deterministically on
+ * the way out (`stripDocumentChrome`), so a row written before this existed
+ * does not draw one either.
+ *
+ * Same header as the pane and the page, minus the verbs this surface cannot
+ * support (`actionsFor('open', …)`) — it is a read of ONE version at full
+ * screen, so there is no Save, no history and no folder here, and the way back
+ * to all of that is the title's back arrow.
+ *
+ * One scroll: the wrapper is exactly the height the shell gave it and the
+ * document scrolls inside its own frame.
  * @param props
  * @param props.params
  */
@@ -35,26 +46,27 @@ export default async function OpenDocumentPage(props: { params: Promise<{ locale
   const pages = verification?.pdfPages;
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] flex-col gap-3" data-document-open-page>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
-        <Link href={`/dashboard/artifacts/${row.id}`} className="inline-flex items-center gap-1 hover:text-foreground">
-          <ArrowLeft className="size-3" aria-hidden />
-          {row.title}
-        </Link>
-        <span>{`v${row.currentVersion}`}</span>
-        {pages != null && <span>{`PDF ${pages} ${pages === 1 ? 'page' : 'pages'}`}</span>}
-        {verification?.pdf && (
-          <a href={verification.pdf} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 hover:text-foreground" data-document-pdf>
-            <FileDown className="size-3" aria-hidden />
-            PDF
-          </a>
-        )}
-      </div>
+    <div className="flex h-full min-h-0 flex-col" data-document-open-page>
+      <ArtifactHeader
+        surface="open"
+        artifactId={row.id}
+        kind="document"
+        title={row.title}
+        versionLine={`v${row.currentVersion}`}
+        tabs={[]}
+        tab="document"
+        actions={actionsFor('open', { kind: 'document', hasPdf: Boolean(verification?.pdf) })}
+        backHref={`/dashboard/artifacts/${row.id}`}
+        conversationId={row.conversationId ?? null}
+        pdfHref={verification?.pdf ?? null}
+        pdfPages={pages ?? null}
+        className="rounded-t-xl border border-b-0 border-border/70"
+      />
       <iframe
         title={row.title}
         src={`/api/artifacts/${row.id}/document.html`}
         sandbox="allow-scripts allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-        className="min-h-0 w-full flex-1 rounded-lg border border-border/70 bg-[#e9e9e4]"
+        className="min-h-0 w-full flex-1 rounded-b-xl border border-border/70 bg-[#e9e9e4]"
         data-document-open-frame
       />
     </div>
