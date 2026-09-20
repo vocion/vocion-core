@@ -547,11 +547,17 @@ export const regenerateActionRoute = os
     // and the fallback a whole agent pass; the reviewer's click must not hold
     // the request open for either. A dispatch failure unstamps, so the card
     // re-enables instead of waiting out the staleness window.
+    // Scoped to the item the instruction was typed beside, so the action can
+    // rewrite THAT send and leave the reviewer's other approvals standing.
+    // This argument was missing until 2026-09-20: the record knew which send
+    // the ask was about and the work did not, so a note about send 4 redrafted
+    // all four and cleared three checks a reviewer had earned.
     const dispatch = action.regenerate(
       { orgId, reviewedBy: userId ?? undefined },
       run.input as never,
       input.id,
       input.feedback,
+      input.contentId ? { contentId: input.contentId } : {},
     ).catch(async (err) => {
       logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) });
       await db

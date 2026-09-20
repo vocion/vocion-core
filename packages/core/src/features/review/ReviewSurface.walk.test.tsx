@@ -303,6 +303,24 @@ describe('one primary, and the walk is what it does', () => {
     expect(approveContent.mock.calls[0]![0]).toMatchObject({ contentId: 'send-2' });
   });
 
+  it('says the regenerate is about this send and leaves the others alone', async () => {
+    // The sentence beside the ask described the old card-wide behaviour, and
+    // the reviewer read it as the promise it was: a note typed under send 4
+    // redrafting all four (Chris, 2026-09-20).
+    await render(<ReviewSurface run={enrollment(4)} crumbs={CRUMBS} />);
+
+    const pane = page.getByTestId('regenerate-send-1-open').element();
+
+    expect(pane.textContent).toContain('rewrites Day 0');
+    expect(pane.textContent).toContain('leaves the others as they are');
+  });
+
+  it('says no such thing on a card with one item, where there is no other', async () => {
+    await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
+
+    expect(page.getByTestId('regenerate-send-1-open').element().textContent).not.toContain('leaves the others');
+  });
+
   it('keeps the way back inside the pane, in one word', async () => {
     await render(<ReviewSurface run={enrollment(2)} crumbs={CRUMBS} />);
 

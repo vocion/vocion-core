@@ -288,6 +288,7 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
  * @param props.onRegenerate - Runs the pass with the instruction.
  * @param props.history - This item's revisions, oldest first.
  * @param props.approved - Set once this send carries a check: the way back.
+ * @param props.scoped - True when a regenerate rewrites this item alone.
  */
 function ItemPane(props: {
   item: ReviewContent;
@@ -302,6 +303,8 @@ function ItemPane(props: {
   onRegenerate: (instruction: string) => void;
   history: readonly ActionRevision[];
   approved?: { onUndo: () => void; label: string } | null;
+  /** True when a regenerate here rewrites THIS item and nothing else. */
+  scoped?: boolean;
 }) {
   // The instruction is about THIS send, and the pane is KEYED by content id at
   // the call site, so moving to another send remounts it empty. An ask typed
@@ -361,8 +364,14 @@ function ItemPane(props: {
                   {props.regenerating ? 'Regenerating…' : 'Regenerate'}
                 </button>
               </div>
+              {/* What it will actually do, said where the ask is typed. The
+                  old line ("re-runs the work behind the recommendation") was
+                  written when a regenerate redrafted the whole card, and it
+                  was still there after the ask became per-send. */}
               <p className="mt-1 text-[13px] text-muted-foreground">
-                This re-runs the work behind the recommendation with your instruction. The item holds its place here and re-enables when the new version lands.
+                {props.scoped
+                  ? `This rewrites ${props.label} with your instruction and leaves the others as they are. It holds its place here and re-enables when the new version lands. If the instruction turns out to need new research, the whole card is redrafted and says so.`
+                  : 'This re-runs the work behind the recommendation with your instruction. The item holds its place here and re-enables when the new version lands.'}
               </p>
             </div>
           )}
@@ -873,6 +882,7 @@ export function ReviewSurface(props: {
         approved={walks && checkedIds.has(item.id)
           ? { onUndo: () => void unapproveItem(item.id), label }
           : null}
+        scoped={walks}
       >
         <Renderer
           item={item}

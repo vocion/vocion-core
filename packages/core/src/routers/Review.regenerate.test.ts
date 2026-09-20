@@ -205,6 +205,7 @@ describe('regenerateAction route', () => {
       { contactRef: 'contacts:9412' },
       runId,
       'lead with the compliance angle',
+      {},
     );
     expect(recordActionSignal).toHaveBeenCalledWith({
       orgId: ORG,
@@ -213,6 +214,27 @@ describe('regenerateAction route', () => {
       userId: 'usr-1',
       hint: 'lead with the compliance angle',
     });
+  });
+
+  it('tells the action WHICH item the instruction was about', async () => {
+    // The gap this closes: the record was scoped by contentId from the day it
+    // shipped and the WORK was not, so a note typed beside send 4 redrafted
+    // all four and cleared three checks a reviewer had earned (Chris,
+    // 2026-09-20). The route is the only place that knows both.
+    const regenerate = vi.fn(async () => {});
+    vi.mocked(getAction).mockReturnValue({ regenerate } as unknown as ReturnType<typeof getAction>);
+    const runId = await makeRun();
+
+    await call(regenerateActionRoute, { id: runId, contentId: 'send-4', feedback: 'drop the apology' });
+    await drainAfter();
+
+    expect(regenerate).toHaveBeenCalledWith(
+      { orgId: ORG, reviewedBy: 'usr-1' },
+      { contactRef: 'contacts:9412' },
+      runId,
+      'drop the apology',
+      { contentId: 'send-4' },
+    );
   });
 
   it('refuses a double-fire while the stamp is fresh', async () => {
