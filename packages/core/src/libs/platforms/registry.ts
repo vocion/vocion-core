@@ -50,6 +50,7 @@ export type CredentialPlatformId
     | 'hubspot'
     | 'jira'
     | 'notion'
+    | 'posthog'
     | 'strapi'
   // One credential, several connectors. A Google OAuth client is consented
   // once and its refresh token then serves Gmail, Drive, Calendar, Analytics
@@ -459,6 +460,54 @@ const PLATFORMS: readonly CredentialPlatform[] = [
     // Named `token` because that is the key the connector reads out of
     // `ctx.credentials`. The field name is the storage contract between the two.
     fields: [{ name: 'token', label: 'Integration token', pattern: null, shapeHint: 'is any non-empty token', secret: true }],
+  },
+  {
+    id: 'posthog',
+    label: 'PostHog',
+    keySource: 'supplied',
+    // `one-live`, for the reason Apollo and Notion are: widening the cap means
+    // rebuilding `api_token_org_platform_live_idx`, and nothing needs two yet.
+    // A workspace reports one product line into one PostHog project, and a
+    // second source over the same project (another product filter) shares the
+    // credential rather than needing its own.
+    credentialsPerOrg: 'one-live',
+    connectorSlugs: ['posthog'],
+    // One personal key reads every project its owner can see, so several
+    // posthog sources — one per product filter — type it once.
+    credentialsShareable: true,
+    llmProvider: null,
+    toolProvider: null,
+    keyPattern: null,
+    keyShapeHint: 'a PostHog host, the numeric project id, and a personal API key starting phx_',
+    helpText: 'A PostHog personal API key, from Settings → Personal API keys. It is private to whoever created it and used read-only here: give it query:read and event_definition:read on this project, nothing more. The public project token (phc_…) that ships in your app is NOT what goes here — it can only send events. The host and project id are kept with the key because the key is only ever spent against them.',
+    fields: [
+      {
+        name: 'host',
+        label: 'PostHog host',
+        pattern: /^https?:\/\/\S+$/i,
+        shapeHint: 'starts with http:// or https:// — https://us.posthog.com, https://eu.posthog.com, or your own install',
+        // Where the key is spent. Non-secret, shown in full, and what tells a
+        // US project apart from an EU one in the credential list.
+        secret: false,
+      },
+      {
+        name: 'projectId',
+        label: 'Project ID',
+        pattern: /^\d+$/,
+        shapeHint: 'is the numeric project id from Settings → Project (the number after /project/ in the URL), not the phc_ token',
+        secret: false,
+      },
+      {
+        name: 'apiKey',
+        label: 'Personal API key',
+        // Personal keys carry `phx_`; the public project token carries `phc_`,
+        // and refusing it here is what turns "sync finds nothing" into a
+        // sentence at paste time.
+        pattern: /^phx_[\w-]{8,}$/i,
+        shapeHint: 'starts with "phx_" — a personal API key. A phc_ token is the public project token and cannot read anything',
+        secret: true,
+      },
+    ],
   },
   {
     id: 'strapi',

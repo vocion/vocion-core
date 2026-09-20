@@ -501,6 +501,55 @@ export const CONFIG_FIELDS: Record<string, ConfigField[]> = {
       help: 'The Notion-Version header sent on every request. Bump deliberately — later versions rename parts of the payload this connector reads.',
     },
   ],
+  'posthog': [
+    {
+      key: 'projectName',
+      label: 'Name in document titles',
+      type: 'text',
+      placeholder: 'Send',
+      help: 'How the project reads in "PostHog · Send · 2026-09-19". Leave blank to use the product, then the project id.',
+    },
+    {
+      key: 'events',
+      label: 'Events to count',
+      type: 'stringArray',
+      placeholder: 'Document Sent, Link Opened',
+      help: 'Leave blank to count every event the project defines (up to 50, PostHog\'s own $ events left out). Separate with commas — an event name cannot itself contain one.',
+    },
+    {
+      key: 'product',
+      label: 'Product',
+      type: 'text',
+      placeholder: 'send',
+      help: 'Only count events whose `product` property equals this. Leave blank to count the whole project.',
+    },
+    {
+      key: 'windowDays',
+      label: 'Re-read the last (days)',
+      type: 'number',
+      defaultValue: 7,
+      min: 1,
+      max: 90,
+      help: 'Recent days keep changing as late events arrive, so every sync rewrites them.',
+    },
+    {
+      key: 'historyDays',
+      label: 'Keep (days)',
+      type: 'number',
+      advanced: true,
+      defaultValue: 90,
+      min: 7,
+      max: 400,
+      help: 'How far back a full sync reads. Days older than this are retired from search.',
+    },
+    {
+      key: 'errorTracking',
+      label: 'Count error-tracking issues per day',
+      type: 'boolean',
+      defaultValue: true,
+      help: 'Counts only — never an issue\'s name, message or stack trace. Skipped, and said so, on a PostHog that does not expose the API.',
+    },
+  ],
 };
 
 /**

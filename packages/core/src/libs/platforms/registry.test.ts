@@ -447,6 +447,36 @@ describe('connector platforms', () => {
     expect(getPlatform('hubspot').fields.map(field => field.name)).toEqual(['token']);
     expect(getPlatform('jira').fields.map(field => field.name)).toEqual(['email', 'apiToken']);
     expect(getPlatform('strapi').fields.map(field => field.name)).toEqual(['baseUrl', 'token']);
+    expect(getPlatform('posthog').fields.map(field => field.name)).toEqual(['host', 'projectId', 'apiKey']);
+  });
+
+  it('keeps the PostHog host and project id with the key, shown in full, and refuses the public project token', () => {
+    // The personal key is only ever spent against one host and project, so
+    // the three rotate together; the host and id are identifiers, not secrets.
+    const secrecy = Object.fromEntries(getPlatform('posthog').fields.map(f => [f.name, f.secret]));
+
+    expect(secrecy).toEqual({ host: false, projectId: false, apiKey: true });
+    expect(getPlatform('posthog').connectorSlugs).toEqual(['posthog']);
+    expect(credentialsAreShareable('posthog')).toBe(true);
+    expect(holdsManyCredentials('posthog')).toBe(false);
+    expect(getPlatform('posthog').helpText).toMatch(/read-only/);
+    expect(getPlatform('posthog').helpText).toMatch(/phc_.*NOT what goes here/);
+
+    const stored = validatePlatformCredential('posthog', {
+      host: 'https://eu.posthog.com',
+      projectId: '4242',
+      apiKey: 'phx_fixture_key_0001',
+    });
+
+    expect(stored).toEqual({ host: 'https://eu.posthog.com', projectId: '4242', apiKey: 'phx_fixture_key_0001' });
+    // The `phc_` project token is public and reads nothing: refused at paste
+    // time with the reason, rather than failing on the first sync.
+    expect(() => validatePlatformCredential('posthog', { host: 'https://eu.posthog.com', projectId: '4242', apiKey: 'phc_public_token_0001' }))
+      .toThrow(/starts with "phx_".*phc_ token is the public project token/);
+    expect(() => validatePlatformCredential('posthog', { host: 'eu.posthog.com', projectId: '4242', apiKey: 'phx_fixture_key_0001' }))
+      .toThrow(/starts with http/);
+    expect(() => validatePlatformCredential('posthog', { host: 'https://eu.posthog.com', projectId: 'phc_public', apiKey: 'phx_fixture_key_0001' }))
+      .toThrow(/numeric project id/);
   });
 
   it('hints at the secret half of a two-field connector credential', () => {
