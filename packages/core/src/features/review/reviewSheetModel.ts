@@ -72,7 +72,7 @@ export function consequenceOf(actionId: string, input: Record<string, unknown>, 
     return 'Approving enrolls the contact and starts the sequence.';
   }
   if (looksLikeManualInput(input)) {
-    return 'Approving releases this to be done by hand. Nothing runs here.';
+    return 'Approving hands this to a person to do. Nothing runs here.';
   }
   return `Approving runs this ${actionKind.toLowerCase()}.`;
 }

@@ -481,9 +481,10 @@ action to move a bar.
   ledger), `deploy.release`, `deploy.provision`, `aws.mutate`,
   `credentials.write`, `release.announce` and `notify.requester` are
   registered as hand-off actions (`libs/actions/factory.ts`): a worker
-  proposes them with a recipe, a person releases them, whoever does the work
-  marks them done. What remains is plugin-owned registration, so these
-  descriptors can move into this directory.
+  proposes them with a headline, the steps (`say` / `run` / `url`), the
+  cost, the target account and named sources, a person approves them,
+  whoever does the work marks them done. What remains is plugin-owned
+  registration, so these descriptors can move into this directory.
 - **Decision cost on the ask, and a budget on the mission.** Convention today
   (see *The throttle*); a `decisionCost` field on asks and a mission-level
   decision budget would let the promoter be enforced rather than described.

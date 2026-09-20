@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { factoryActions, gitMergeAction, gitPushBranchAction, MERGE_RISK_CLASSES } from './factory';
-import { isManualAction, looksLikeManualInput, manualAction } from './manual';
+import { awsMutateAction, factoryActions, gitMergeAction, gitPushBranchAction, MERGE_RISK_CLASSES } from './factory';
+import { costLabel, isManualAction, looksLikeManualInput, manualAction, manualInputSchema } from './manual';
 import { policyKeyForRun } from './policyKey';
 import { getAction, listActions } from './registry';
 
@@ -42,9 +42,15 @@ describe('the factory hand-offs are registered', () => {
     expect(gitPushBranchAction.manual).toEqual({ reversible: true });
   });
 
-  it('the shared input needs a title, a summary and a recipe; the merge needs a risk class too', () => {
+  it('the shared input needs a title, a summary and the steps in one form or the other; the merge needs a risk class too', () => {
     expect(getAction('deploy.provision')!.inputSchema.safeParse({ title: 'x', summary: 'y', recipe: 'terraform apply' }).success).toBe(true);
-    expect(getAction('deploy.provision')!.inputSchema.safeParse({ title: 'x', summary: 'y' }).success).toBe(false);
+    expect(getAction('deploy.provision')!.inputSchema.safeParse({ title: 'x', summary: 'y', steps: [{ say: 'Apply the plan', run: 'terraform apply' }] }).success).toBe(true);
+
+    // Neither: refused, and the refusal names what to send.
+    const neither = getAction('deploy.provision')!.inputSchema.safeParse({ title: 'x', summary: 'y' });
+
+    expect(neither.success).toBe(false);
+    expect(JSON.stringify(neither.success ? null : neither.error.issues)).toMatch(/steps.*recipe/);
     expect(getAction('deploy.provision')!.inputSchema.safeParse({ title: 'x', summary: 'y', recipe: 'z', externalRef: { system: 'aws' } }).success).toBe(false);
     expect(gitMergeAction.inputSchema.safeParse(base).success).toBe(false);
     expect(gitMergeAction.inputSchema.safeParse({ ...base, riskClass: 'docs' }).success).toBe(true);
@@ -80,10 +86,102 @@ describe('the factory hand-offs are registered', () => {
       { label: 'Risk class', value: 'schema' },
       { label: 'Record', value: 'github vocion/vocion-core#484', href: 'https://github.com/vocion/vocion-core/pull/484' },
       { label: 'Evidence', value: 'ci:run/9182' },
-      { label: 'Can be put back', value: 'no' },
     ]));
-    expect(card.verbs).toEqual({ approve: 'Release', reject: 'Decline' });
+    // "Can be put back" is a badge now, not a row three tabs away.
+    expect(card.fields.map(f => f.label)).not.toContain('Can be put back');
+    expect(card.verbs).toEqual({ approve: 'Approve', reject: 'Reject' });
     expect(card.nextAction).toMatch(/Nothing runs here/);
+  });
+
+  it('the card leads with one sentence and the badges that settle it: system, Irreversible, cost, target', async () => {
+    const card = await gitMergeAction.reviewCard!({ orgId: 'org_x' }, { ...base, riskClass: 'schema' });
+
+    // No headline written: the first sentence of the summary stands in.
+    expect(card.headline).toBe('Reviewed on the PR; CI green; the plugin trust rules bind to registered ids after this.');
+    expect(card.badges).toEqual([
+      { label: 'Git' },
+      { label: 'Irreversible', tone: 'warn' },
+      { label: 'No cost' },
+    ]);
+    expect(card.handoff).toEqual({ reversible: false });
+    // The middle crumb names the queue for what a person does there.
+    expect(card.object).toEqual({ title: base.title, section: 'Approvals' });
+
+    const push = await gitPushBranchAction.reviewCard!({ orgId: 'org_x' }, { ...base, headline: 'Push the branch so the diff can be read.', cost: { amount: 14, currency: 'USD', period: 'year' }, target: 'AWS account acme-prod (123456789012)' });
+
+    expect(push.headline).toBe('Push the branch so the diff can be read.');
+    expect(push.badges).toEqual([
+      { label: 'Git' },
+      { label: 'Reversible' },
+      { label: '$14/year' },
+      { label: 'AWS account acme-prod (123456789012)' },
+    ]);
+    expect(push.handoff).toEqual({ reversible: true });
+  });
+
+  it('a headline is one sentence: 140 characters, no more', () => {
+    expect(manualInputSchema.safeParse({ ...base, headline: 'x'.repeat(140) }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, headline: 'x'.repeat(141) }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, headline: '' }).success).toBe(false);
+  });
+
+  it('steps are ordered say / run? / url?, at most 30, each command at most 4000 characters', () => {
+    const step = { say: 'Register the domain in the account', run: 'aws route53domains register-domain --domain-name kestrel-capital.example', url: 'https://console.aws.example/route53' };
+
+    expect(manualInputSchema.safeParse({ ...base, steps: [step] }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, steps: [{ say: 'Open the console' }] }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, steps: [] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, steps: [{ run: 'ls' }] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, steps: [{ say: 'x'.repeat(301) }] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, steps: [{ say: 'ok', run: 'x'.repeat(4_001) }] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, steps: [{ say: 'ok', url: 'not a url' }] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, steps: Array.from({ length: 30 }, () => step) }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, steps: Array.from({ length: 31 }, () => step) }).success).toBe(false);
+  });
+
+  it('cost is a non-negative USD amount with an optional period; target is a line; sources are labelled URLs', () => {
+    expect(manualInputSchema.safeParse({ ...base, cost: { amount: 14, currency: 'USD', period: 'year' } }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, cost: { amount: 0, currency: 'USD' } }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, cost: { amount: -1, currency: 'USD' } }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, cost: { amount: 14, currency: 'EUR' } }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, cost: { amount: 14, currency: 'USD', period: 'week' } }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, target: 'AWS account acme-prod (123456789012)' }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, target: '' }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, sources: [{ label: 'Route 53 pricing', url: 'https://aws.example/route53/pricing' }] }).success).toBe(true);
+    expect(manualInputSchema.safeParse({ ...base, sources: [{ label: 'Route 53 pricing' }] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, sources: [{ url: 'https://aws.example/route53/pricing' }] }).success).toBe(false);
+    expect(manualInputSchema.safeParse({ ...base, sources: [{ label: 'x', url: 'nope' }] }).success).toBe(false);
+
+    expect(costLabel(undefined)).toBe('No cost');
+    expect(costLabel({ amount: 14, currency: 'USD' })).toBe('$14');
+    expect(costLabel({ amount: 14, currency: 'USD', period: 'once' })).toBe('$14');
+    expect(costLabel({ amount: 3.5, currency: 'USD', period: 'month' })).toBe('$3.50/month');
+  });
+
+  it('structured steps render as a steps item; the recipe block is the fallback; named sources link first', async () => {
+    const steps = [
+      { say: 'Register the domain in the account.', run: 'aws route53domains register-domain --domain-name kestrel-capital.example --duration-in-years 1', url: 'https://console.aws.example/route53' },
+      { say: 'Wait for the registration email and confirm it.' },
+    ];
+    const card = await awsMutateAction.reviewCard!({ orgId: 'org_x' }, {
+      title: 'Register kestrel-capital.example in Route 53',
+      summary: 'The rename needs the domain before the marketing site can move. Nothing else depends on it yet.',
+      steps,
+      cost: { amount: 14, currency: 'USD', period: 'year' },
+      target: 'AWS account acme-prod (123456789012)',
+      sources: [{ label: 'Route 53 pricing', url: 'https://aws.example/route53/pricing' }],
+      evidence: ['https://aws.example/route53/pricing', 'https://github.com/acme/site/issues/12', 'task:17'],
+    });
+
+    expect(card.content).toEqual([{ kind: 'steps', id: 'recipe', label: 'Recipe', steps }]);
+    expect(card.headline).toBe('The rename needs the domain before the marketing site can move.');
+    // The labelled source first; the evidence URL it already names is not
+    // repeated; the other evidence URL follows; the ref stays a row.
+    expect(card.links).toEqual([
+      { label: 'Route 53 pricing', href: 'https://aws.example/route53/pricing' },
+      { label: 'github.com/acme/site/issues/12', href: 'https://github.com/acme/site/issues/12' },
+    ]);
+    expect(card.fields).toEqual([{ label: 'Evidence', value: 'task:17' }]);
   });
 
   it('a hand-off\'s execute refuses — it is never the path a release takes', async () => {
@@ -92,6 +190,9 @@ describe('the factory hand-offs are registered', () => {
 
   it('the pure describers can recognise the shape without the registry', () => {
     expect(looksLikeManualInput(base)).toBe(true);
+    // Steps alone are the shape too.
+    expect(looksLikeManualInput({ title: 'a', summary: 'b', steps: [{ say: 'c' }] })).toBe(true);
+    expect(looksLikeManualInput({ title: 'a', summary: 'b', steps: [] })).toBe(false);
     expect(looksLikeManualInput({ objectType: 'deals', properties: {} })).toBe(false);
     expect(looksLikeManualInput(null)).toBe(false);
   });

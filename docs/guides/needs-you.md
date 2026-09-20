@@ -19,7 +19,7 @@ screen you decide it on.
 
 | Kind | What it is | Where it comes from | Opens at |
 |---|---|---|---|
-| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. A **hand-off** proposal (a merge, a deploy, a credential) is approved the same way, but approving *releases* it to be done by hand; see [Hand-off actions](#hand-off-actions). | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
+| **Proposal** | An action an agent wants to take with an outside effect — a CRM update, an email, an enrollment. Approving executes it. A **hand-off** proposal (a merge, a deploy, a credential) is approved the same way, but approving hands it to a person to do rather than running it; see [Hand-off actions](#hand-off-actions). | `propose_action` → `action_run` (the former review queue) | `/dashboard/inbox/proposal-:id`; several about one record: `/dashboard/inbox/r/:recordKey` |
 | **Ruling** | A decision only you can make; the team is blocked on it. | [`ask`](../entities/ask.md) with `kind: ruling` — filed by an agent's `file_ask` or over `POST /api/v1/asks` | `/dashboard/inbox/:id`; several under one group: `/dashboard/inbox/g/:groupKey` |
 | **Approval** | Permission for something the team wants to do (nothing executes on answer). | `ask` · `approval` | as above |
 | **Merge** | A pull request ready for a human to merge. | `ask` · `merge` | as above |
@@ -127,29 +127,55 @@ a person performed reads back beside a CRM update an agent performed:
 
 | Step | Who | What the run says |
 |---|---|---|
-| Propose | the agent, with a confidence, a rationale and the shared hand-off input | `pending` — on Needs you as a proposal |
-| Approve | a person (or the trust ladder, for a kind that has earned it) | `awaiting_execution` — **released**: decided, not done. `result.handoff` names who released it and when. Nothing runs here. |
+| Propose | the agent, with a confidence, a rationale and the shared hand-off input | `pending` — on Needs you under **Approvals**, with **Approve** as the verb |
+| Approve | a person (or the trust ladder, for a kind that has earned it) | `awaiting_execution` — **approved, waiting to be done**: decided, not done. `result.handoff` names who approved it and when (the field is still spelled `releasedBy`). Nothing runs here. |
 | Mark done | whoever did the work — the approver, or an API caller with the `approve` capability | `done` — `result.executed` carries who, when, their note and the result URL; `executedAt` is stamped |
-| Could not be done | the same | `rejected`, with the reason — the same rejection as before release |
+| Could not be done | the same | `rejected`, with the reason — the same rejection as before approval |
 
 The input is the same for every hand-off, because the person reading the
-card needs the same four things whatever the system: `title` (what it is),
-`summary` (why), `recipe` (the exact commands or steps, shown as written in a
-monospace block), `evidence` (URLs render as links, references as rows), and
-an optional `externalRef` `{ system, id, url }` naming the record in the
-performing system. A specific kind may add a field — a merge carries a
-`riskClass` — and none removes one.
+card — often on a phone — needs the same things whatever the system:
 
-On the detail screen a released hand-off keeps the decision bar: the primary
+| Field | What it is |
+|---|---|
+| `title` | One line naming the thing. |
+| `headline` | One plain sentence (≤ 140 chars) saying what approving does. Optional; the first sentence of `summary` stands in. |
+| `summary` | Why, in a few sentences a person can check against the sources. |
+| `steps` | The recipe, structured: `[{ say, run?, url? }]`, in order, at most 30. `say` is the step in words, `run` the exact command (its own monospace block with a copy button), `url` where the step happens. |
+| `recipe` | The steps as one text block, whitespace kept — the fallback when `steps` is absent. One of `steps` or `recipe` is required. |
+| `cost` | `{ amount, currency: 'USD', period?: 'once' \| 'month' \| 'year' }` — what approving commits to, when it costs anything. |
+| `target` | Which account or environment it touches — "AWS account acme-prod (123456789012)". |
+| `sources` | `[{ label, url }]` — named sources, rendered first as links. |
+| `evidence` | Bare URLs or record refs, kept for callers that predate `sources`; URLs render as links after the named ones, refs as rows. |
+| `externalRef` | `{ system, id, url? }` naming the record in the performing system. |
+
+A specific kind may add a field — a merge carries a `riskClass` — and none
+removes one.
+
+The card leads with the decision header: the headline, then badges for the
+system (Deploy, Git, AWS), **Irreversible** or Reversible (from the kind's
+`manual.reversible`), the cost, and the target; under them, the
+recommendation said once — *send-lead suggests approving · 90% confident*.
+The **Recipe** tab shows the steps numbered, each command in its own block;
+**Why** is one section, the agent's reasoning with its suggestion inline;
+**Evidence** carries the named sources as links and, under *Run details*,
+**Who runs it** (the assignee, else *Anyone with the account; mark done when
+finished*) and the lifecycle — Approve → A person runs the steps → Mark done —
+with the current step marked. Once done, that strip says who marked it done,
+when, and where the result is.
+
+The decision bar reads **Approve · Reject · Snooze** on a pending hand-off,
+with the words beside the icons on a phone too. After approval the primary
 reads **Mark done** and the note field is where the result goes (a PR link, a
-deployment URL). The row on the list says *Released — waiting to be done by
-hand* and opens the detail rather than offering a quick Approve.
+deployment URL); the secondary is *Could not be done*, and Snooze goes. The
+row on the list says *Approved — waiting to be done by hand* and opens the
+detail rather than offering a quick Approve. A finished hand-off opens as its
+card, read-only, so the trail can be read where the decision was made.
 
 Over the API, the same three steps are `POST /api/v1/reviews/propose` (any
 registered hand-off id), `POST /api/v1/reviews/decide` with `action:
 "approve"`, and `POST /api/v1/reviews/decide` with `action: "done"`, a
 `reason` (the note) and an optional `resultUrl`. `GET /api/v1/reviews/action/:id`
-returns the run in any state, so a worker can poll for its release. `done` on a
+returns the run in any state, so a worker can poll for its approval. `done` on a
 run that was never approved, or on a kind that runs in-process, is a 409.
 
 **What ships as hand-offs.** The software factory's writes, registered in
