@@ -27,6 +27,12 @@ describe('requiresApprovalForMutation (the autonomy gate)', () => {
     expect(requiresApprovalForMutation(5, { external: false, approvalRequired: true })).toBe(true);
     expect(requiresApprovalForMutation(3, { external: true, approvalRequired: true })).toBe(true);
   });
+
+  it('lets an approved external action through at levels 1–2 (approvalRequired false is the approval)', () => {
+    expect(requiresApprovalForMutation(1, { external: true, approvalRequired: false })).toBe(false);
+    expect(requiresApprovalForMutation(2, { external: true, approvalRequired: false })).toBe(false);
+    expect(requiresApprovalForMutation(2, { external: true })).toBe(true);
+  });
 });
 
 describe('scopeAllows (discovery boundary)', () => {

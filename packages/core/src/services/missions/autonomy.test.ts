@@ -18,6 +18,12 @@ describe('mission autonomy', () => {
     expect(taskNeedsApproval({ type: 'analysis', approvalRequired: true }, 5)).toBe(true);
   });
 
+  it('does not gate an approved action again (resumeMission sets approvalRequired false)', () => {
+    expect(taskNeedsApproval({ type: 'action', approvalRequired: false }, 1)).toBe(false);
+    expect(taskNeedsApproval({ type: 'action', approvalRequired: false }, 2)).toBe(false);
+    expect(taskNeedsApproval({ type: 'action' }, 2)).toBe(true);
+  });
+
   it('clamps autonomy levels to 1..5', () => {
     expect(clampAutonomyLevel(undefined)).toBe(1);
     expect(clampAutonomyLevel(0)).toBe(1);

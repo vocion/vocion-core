@@ -80,6 +80,13 @@ export function requiresApprovalForMutation(
   if (opts.approvalRequired) {
     return true;
   }
+  // An explicit `false` is a person's approval already given (resumeMission
+  // writes it when a gated task is approved); without it the level rule below
+  // would gate the same task again the moment it resumed, and at level 1 or 2
+  // no action task could ever run.
+  if (opts.approvalRequired === false) {
+    return false;
+  }
   if (!opts.external) {
     return false;
   }
