@@ -21,9 +21,17 @@ one step (a learning), a client's material (its data room).
 The agents. Any agent that learns a durable fact, or is corrected on a standing
 one, writes the page with a confidence. Above the bar the page is written at
 once and shows in **Review › Decided** with Undo; below it a card carries the
-change and you decide. The **Wiki curator** runs every Friday: it consolidates
-the week's learnings, decisions and corrections, merges pages that say one
-thing, and proposes removing what nobody reads.
+change and you decide. The **Wiki researcher** answers first — ask it anything,
+in chat or over MCP; it reads the wiki, then the knowledge index and the web,
+answers with sources, and offers the page whenever the conversation settles a
+standing fact or a plan. Its pages go through review until it has earned its
+way. The **Wiki curator** runs every Friday: it consolidates the week's
+learnings, decisions and corrections, merges pages that say one thing, and
+proposes removing what nobody reads.
+
+The repo can start it. Pages under `wiki/<slug>.md` in the workspace folder
+are seeded on apply — created if missing, refreshed when the file changes, and
+**kept** when someone has edited the page here since (the apply says which).
 
 You edit any page in place from its row, restore any version from its history,
 and share a page like any artifact.

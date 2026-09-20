@@ -1,9 +1,15 @@
 name: Wiki
 description: >-
-  Keeps the workspace's long-term memory true, small and read. Graded on the
-  wiki being written by the agents and trusted by the people.
+  Keeps the workspace's long-term memory true, small and read — and answered
+  from. Two roles: the Researcher (wiki-researcher) answers first, in chat and
+  over MCP, and offers the page whenever a conversation produces a standing
+  fact or a plan; the Curator (wiki-curator) consolidates the week on Friday,
+  merges duplicates and prunes what nobody reads. Graded on the wiki being
+  written by the agents and trusted by the people.
 goal: Every standing fact the agents act on is on a page, and nothing else is.
-lead: wiki-curator
+# The researcher leads: it is the wiki agent the workspace lead consults and
+# the one people talk to. The curator tends the pages on its cadence.
+lead: wiki-researcher
 # No accountableUser: inherits the workspace default.
 measures:
   - key: pages
@@ -13,8 +19,8 @@ measures:
     unit: pages
     window: quarter
     source: {kind: observed, rows: artifacts, where: {kind: markdown, folder: wiki}}
-  - key: curator_writes
-    label: Pages written by the curator
+  - key: agent_writes
+    label: Pages written by the agents
     dimension: velocity
     target: 2
     unit: writes

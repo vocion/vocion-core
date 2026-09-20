@@ -3,9 +3,24 @@
 # on its own at 0.6 — lower than the platform's 0.8 default for a reversible
 # kind. A workspace that wants every edit reviewed sets `enabled: false` in its
 # own trust.yaml; a rule there for the same action replaces this one.
+#
+# Two ledgers. The curator, and any agent writing through `wiki-context`,
+# writes under the shared `wiki.write_page` rule. The researcher's writes key
+# on their own ledger — `wiki.write_page.wiki-researcher`, because its
+# `harness.ownLedger` names the kind — and START AT REVIEW: it is the eager
+# one, it writes from research and from conversations rather than from a
+# person's own words, so a person sees its pages until the ladder has the
+# evidence to promote it (low tier: n≥20 at 90% with no rejection in 14 days,
+# `services/autonomy/rungs.ts`). Promotion is a person's click on the
+# Autonomy page; nothing here changes the curator.
 rules:
   - action: wiki.write_page
     autoApproveAbove: 0.6
     enabled: true
     rung: execute-within-bounds
+    risk: low
+  - action: wiki.write_page.wiki-researcher
+    autoApproveAbove: 0.8
+    enabled: false
+    rung: execute-with-approval
     risk: low
