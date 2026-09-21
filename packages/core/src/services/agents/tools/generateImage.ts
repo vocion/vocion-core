@@ -32,7 +32,7 @@ export function generateImageTool(ctx: RuntimeContext) {
           feature: FEATURES.TOOL_IMAGE,
         });
         if (!budget.ok) {
-          return `Image generation was refused: this workspace is over its ${budget.reason === 'hard_cents_exceeded' ? 'spend' : 'token'} cap for "${budget.agentSlug}" (${budget.current}/${budget.limit}). An admin can raise it under Budgets, or it resets next period.`;
+          return `Image generation was refused: this workspace is over its ${budget.reason === 'hard_cents_exceeded' ? 'spend' : 'token'} cap for "${budget.agentSlug}" (${budget.reason === 'hard_cents_exceeded' ? budget.current.toFixed(2) : budget.current}/${budget.limit}). An admin can raise it under Budgets, or it resets next period.`;
         }
         const provider = getImageProvider();
         const { png, model, usage } = await provider.generate(prompt, { size, orgId: ctx.orgId });

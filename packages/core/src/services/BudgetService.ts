@@ -93,7 +93,9 @@ export type BudgetCheck
       scope: BudgetScope;
       /** The slug of the row that refused, as stored. */
       agentSlug: string;
+      /** The cap, as it was set: whole cents, or tokens. */
       limit: number;
+      /** Exact spend against that cap, in the same unit. Cents carry a fraction. */
       current: number;
     };
 
@@ -298,9 +300,10 @@ function breachOf(
   // cents, so multiplying it up is exact and the comparison never touches a
   // fraction.
   //
-  // `current` is reported in cents — the unit the person set the cap in and the
-  // one the dashboard shows — so the message reads in the same unit as the
-  // limit beside it.
+  // `current` is reported in cents — the unit the person set the cap in — so a
+  // refusal reads in the same unit as the limit beside it. It is exact, and it
+  // carries a fraction: a caller putting it in front of somebody formats it
+  // there, rather than this rounding the amount on their behalf.
   if (row.hardCentsLimit !== null && row.currentMicroCents >= row.hardCentsLimit * MICRO_CENTS_PER_CENT) {
     return {
       ok: false,
