@@ -29,6 +29,7 @@ import { BedrockAgentCoreClient, EvaluateCommand } from '@aws-sdk/client-bedrock
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { bedrockRegion } from '@/libs/llm/bedrockCredentials';
 import { resolveAwsCredentials } from '@/services/ApiTokenService';
+import { scoreChecks } from '../checks';
 import { evalCaseSessionId } from '../sessionIds';
 import { publishAgentcoreDataset } from './agentcoreDatasets';
 import { resolveAgentcoreEvaluators } from './agentcoreEvaluators';
@@ -308,7 +309,16 @@ async function score(request: ScoreRequest): Promise<ProviderScore[]> {
   }
 
   const scores = await mapWithConcurrency(jobs, 8, evaluateOne);
-  return scores.flat();
+
+  // Deterministic checks run here too, not only under the Vocion grader.
+  // They read the transcript, which is ours whoever grades the case, and they
+  // answer the questions no judge should be asked in the first place — was
+  // the dedup key these three fields in this order, did every proposal carry
+  // a suggested decision. Refusing them on an AgentCore dataset meant a team
+  // had to pick between AWS's evaluators and any assertion about what the
+  // agent actually passed to a tool.
+  const checkScores = request.transcripts.flatMap(transcript => scoreChecks(transcript));
+  return [...scores.flat(), ...checkScores];
 }
 
 export const agentcoreProvider: EvalScoreProvider = {

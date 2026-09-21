@@ -240,11 +240,42 @@ The whole vocabulary, and it is a closed list on purpose:
 |---|---|
 | `toolCalled: x` | The agent called tool `x` |
 | `toolNotCalled: x` | It did not call `x` |
+| `toolCalledWith: {...}` | The arguments of `x`'s calls look the way the case says |
+| `toolCallCount: {...}` | `x` was called exactly, at least or at most that many times |
 | `outputContains: "text"` | The answer contains that text |
 | `outputNotContains: "text"` | It does not |
 | `outputMatches: "regex"` | The answer matches that regular expression |
 | `latencyUnderMs: 8000` | The answer came back in under 8 seconds |
 | `turnsUnder: 4` | The conversation took fewer than 4 turns |
+
+The two that read arguments take a small block rather than a bare value:
+
+```text
+checks:
+  # Every proposal's dedup key is these three fields, in this order, at the
+  # top level of the arguments — not nested inside the payload.
+  - toolCalledWith:
+      tool: propose_action
+      path: dedupOn
+      equals: [title, startDate, venueName]
+  # Every proposal says what it recommends, and why.
+  - toolCalledWith: { tool: propose_action, path: suggested_decision, present: true }
+  # Categories only ever come from the workspace's own list.
+  - toolCalledWith:
+      tool: propose_action
+      path: action_input.categories
+      subsetOf: [Live Music, Community, Kids]
+  # A correction refreshes the existing card instead of opening a second one.
+  - toolCallCount: { tool: propose_action, max: 1 }
+```
+
+`path` walks the arguments with dots and is optional — leave it out to test the
+whole argument object. Give one or more of `equals`, `contains`, `present` and
+`subsetOf`, and all of them have to hold. `calls` says how many of the tool's
+calls must satisfy them: `every`, the default, or `some`. A tool that was never
+called **fails** either way, because a rule about calls that never happened is
+not a rule anything kept — and an agent that silently stopped proposing
+anything is the regression most worth catching.
 
 | Pros | Cons |
 |---|---|
@@ -349,17 +380,20 @@ you write a file.
 
 | Test kind | Vocion grader | AgentCore grader |
 |---|---|---|
-| Deterministic checks (§4.1) | **Yes** | **No** — use §4.4 instead |
+| Deterministic checks (§4.1) | **Yes** | **Yes** — they run over the transcript either way |
 | LLM-as-judge (§4.2) | Yes, one built-in judge | Yes, a catalogue plus custom judges |
 | Trajectory matching (§4.3) | No | **Yes** |
 | Custom code (§4.4) | No | Yes, your Lambda |
 
-> **The system refuses the mismatch rather than ignoring it.** Put `checks` on a
-> dataset graded by AgentCore and the workspace file is **rejected when you apply
-> it**, naming the case. This is deliberate. The alternative — accepting the file
-> and silently never running those checks — means the case reports a pass rate
-> that reads as though the checks had passed. A loud refusal costs you two
-> minutes; a silent skip costs you a false sense of coverage for months.
+> **Checks are not a Vocion-only feature.** They read the transcript, and the
+> transcript is ours whoever grades the case, so a dataset can send its cases
+> to AWS and still assert the things a model should never be asked to judge —
+> whether the dedup key held the right three fields in the right order, whether
+> every proposal carried a reason. They arrive as their own score rows beside
+> the AWS ones, at `TOOL_CALL` level, so it is always clear which opinion came
+> from where. They were refused on an AgentCore dataset until 2026-09-21, which
+> forced a choice between AWS's evaluators and any assertion about a tool's
+> arguments.
 
 ---
 
@@ -448,6 +482,26 @@ debug it later:
 3. **The agent runs every case.** This is the expensive part.
 4. **Transcripts are written down**, before any grading.
 5. **The grader scores them**, and the scores are written.
+
+**Running it as a build gate:**
+
+```bash
+npm run eval:run -- --dataset refund-quality
+```
+
+It exits 0 when the run's pass rate reaches the bar and 1 when it does not, so
+it fails a pipeline like any other test command. The bar is 0.8 unless the
+dataset names its own:
+
+```text
+passThreshold: 0.7
+```
+
+Give a dataset its own bar when the default is the wrong shape for it — a
+handful of deterministic cases can be held to nearly all of them passing, while
+a set spread across a dozen live websites will lose a case whenever one of them
+redesigns a page, and a gate that reddens a build for that is a gate people
+learn to ignore.
 
 ### Step 5.4 — Read the result
 
@@ -1072,10 +1126,11 @@ is not is more useful than pretending the whole thing is finished.
   YAML's fixed list of names to become open, and expect AWS-flavoured vocabulary
   (`TOOL_CALL`/`TRACE`/`SESSION`, `expectedTrajectory`) to grow neutral names,
   with the current ones kept as aliases.
-- **The gap in §4.5 narrowing.** Deterministic checks running only under the
-  Vocion grader is a real limitation, not a principle. The honest fix is for
-  checks to run over the transcript regardless of who else grades it. That is a
-  change with a migration behind it, not a config flag, and it is not done.
+- **The gap in §4.5, closed on 2026-09-21.** Deterministic checks now run over
+  the transcript whichever grader scores the case, and arrive as their own
+  score rows beside that grader's. No migration was needed in the end:
+  `eval_score.provider` is open text, and the table already expected several
+  providers to have an opinion about one case.
 - **The account-match check.** Nothing verifies that the account you provisioned
   and the key you connected are the same one. That is the single highest-value
   small fix in this whole area.

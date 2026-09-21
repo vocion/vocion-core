@@ -19,8 +19,8 @@
  * others can.
  */
 
-import type { CaseTranscript } from './transcripts';
-import type { EvalCheck, ProviderScore } from './types';
+import type { CaseTranscript, ToolCallRecord } from './transcripts';
+import type { EvalCheck, ProviderScore, ToolArgumentCondition, ToolCallCountCondition } from './types';
 
 /** What one operator decided, before it becomes a score row. */
 type CheckOutcome = {
@@ -110,6 +110,207 @@ function checkTurnsUnder(transcript: CaseTranscript, budget: number): CheckOutco
 }
 
 /**
+ * Read a dot path out of a tool call's arguments.
+ *
+ * Says whether the path was there separately from what was at it, because
+ * "the key is missing" and "the key holds null" are different findings, and a
+ * check that conflates them cannot express `present: false`.
+ * @param input - The arguments the agent passed the tool.
+ * @param path - Dot path, e.g. `action_input.dedupOn`. Omit to read the whole object.
+ */
+function resolveArgumentPath(input: Record<string, unknown>, path: string | undefined): { found: boolean; value: unknown } {
+  if (!path) {
+    return { found: true, value: input };
+  }
+  let current: unknown = input;
+  for (const segment of path.split('.')) {
+    if (current === null || typeof current !== 'object') {
+      return { found: false, value: undefined };
+    }
+    const container = current as Record<string, unknown>;
+    if (!(segment in container)) {
+      return { found: false, value: undefined };
+    }
+    current = container[segment];
+  }
+  return { found: true, value: current };
+}
+
+/**
+ * Compare two values the way someone reading the YAML would expect.
+ *
+ * Arrays compare in order, because `[title, startDate, venueName]` is a key
+ * whose order is part of what is being asserted; objects compare by their own
+ * keys, whatever order they arrived in.
+ * @param left - The value found in the call.
+ * @param right - The value the case authored.
+ */
+function deepEquals(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((item, index) => deepEquals(item, right[index]));
+  }
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
+    const leftKeys = Object.keys(left as Record<string, unknown>).sort();
+    const rightKeys = Object.keys(right as Record<string, unknown>).sort();
+    if (leftKeys.length !== rightKeys.length || !leftKeys.every((key, index) => key === rightKeys[index])) {
+      return false;
+    }
+    return leftKeys.every(key => deepEquals((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+  }
+  return false;
+}
+
+/**
+ * One value as a short piece of text, for a substring test and for the
+ * sentence a failed check writes.
+ * @param value - Whatever was at the path.
+ */
+function renderArgumentValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === undefined) {
+    return 'nothing';
+  }
+  return JSON.stringify(value) ?? String(value);
+}
+
+/**
+ * Decide whether one call's arguments satisfy the case's predicates.
+ *
+ * Hands back the reason it failed rather than a bare false, so the score row
+ * can name which predicate went wrong on which call instead of leaving the
+ * reader to guess between four of them.
+ * @param call - One tool call the agent made.
+ * @param condition - What the case said those arguments must look like.
+ */
+function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition): { ok: boolean; reason: string } {
+  const { found, value } = resolveArgumentPath(call.input, condition.path);
+  const where = condition.path ? `${condition.tool}.${condition.path}` : `${condition.tool} arguments`;
+
+  if (condition.present !== undefined) {
+    // A key that is present and holds nothing is not a value anyone can act
+    // on: an argument serialised as `undefined`, an empty string or a null
+    // all mean the agent left it out, whatever the shape of the object says.
+    const isThere = found && value !== null && value !== undefined && value !== '';
+    if (isThere !== condition.present) {
+      return {
+        ok: false,
+        reason: condition.present
+          ? `${where} was missing`
+          : `${where} was set to ${renderArgumentValue(value)}`,
+      };
+    }
+  }
+  if (condition.equals !== undefined && (!found || !deepEquals(value, condition.equals))) {
+    return { ok: false, reason: `${where} was ${renderArgumentValue(value)}, expected ${renderArgumentValue(condition.equals)}` };
+  }
+  if (condition.contains !== undefined && (!found || !renderArgumentValue(value).includes(condition.contains))) {
+    return { ok: false, reason: `${where} was ${renderArgumentValue(value)}, which does not contain "${condition.contains}"` };
+  }
+  if (condition.subsetOf !== undefined) {
+    if (!found) {
+      return { ok: false, reason: `${where} was missing, so nothing could be compared against the allowed values` };
+    }
+    const allowed = new Set(condition.subsetOf);
+    const items = Array.isArray(value) ? value : [value];
+    const strays = items.filter(item => !allowed.has(String(item)));
+    if (strays.length > 0) {
+      return {
+        ok: false,
+        reason: `${where} held ${strays.map(renderArgumentValue).join(', ')}, which ${strays.length === 1 ? 'is' : 'are'} not in the allowed values`,
+      };
+    }
+  }
+  return { ok: true, reason: '' };
+}
+
+/**
+ * A short, stable name for one argument check, used as its evaluator slug.
+ * @param condition - The condition being described.
+ */
+function describeArgumentCondition(condition: ToolArgumentCondition): string {
+  return condition.path ? `${condition.tool}.${condition.path}` : condition.tool;
+}
+
+function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition): CheckOutcome {
+  const slug = `check:toolCalledWith:${describeArgumentCondition(condition)}`;
+  const calls = transcript.toolCalls.filter(call => call.tool === condition.tool);
+
+  // A rule about what the arguments looked like cannot be kept by a call that
+  // never happened. Passing here would turn "the agent stopped proposing
+  // anything at all" into a green check, which is the failure this check
+  // exists to notice.
+  if (calls.length === 0) {
+    return {
+      slug,
+      passed: false,
+      explanation: `Never called ${condition.tool}. Tools used: ${describeTrajectory(transcript)}.`,
+    };
+  }
+
+  const results = calls.map(call => argumentsSatisfy(call, condition));
+  const failures = results.filter(result => !result.ok);
+  const wantsEvery = (condition.calls ?? 'every') === 'every';
+  const passed = wantsEvery ? failures.length === 0 : failures.length < results.length;
+  const plural = calls.length === 1 ? '' : 's';
+
+  if (passed) {
+    return {
+      slug,
+      passed,
+      explanation: wantsEvery
+        ? `All ${calls.length} ${condition.tool} call${plural} matched.`
+        : `${results.length - failures.length} of ${calls.length} ${condition.tool} call${plural} matched.`,
+    };
+  }
+  return {
+    slug,
+    passed,
+    explanation: `${failures.length} of ${calls.length} ${condition.tool} call${plural} did not match: ${failures.map(failure => failure.reason).join('; ')}.`,
+  };
+}
+
+function checkToolCallCount(transcript: CaseTranscript, condition: ToolCallCountCondition): CheckOutcome {
+  const slug = `check:toolCallCount:${condition.tool}`;
+  const count = transcript.trajectory.filter(tool => tool === condition.tool).length;
+  const wanted: string[] = [];
+  let passed = true;
+
+  if (condition.exactly !== undefined) {
+    wanted.push(`exactly ${condition.exactly}`);
+    passed = passed && count === condition.exactly;
+  }
+  if (condition.min !== undefined) {
+    wanted.push(`at least ${condition.min}`);
+    passed = passed && count >= condition.min;
+  }
+  if (condition.max !== undefined) {
+    wanted.push(`at most ${condition.max}`);
+    passed = passed && count <= condition.max;
+  }
+
+  // Nothing to compare against is an authoring mistake rather than agent
+  // behaviour, and it reads as one instead of as a rule the agent broke.
+  if (wanted.length === 0) {
+    return {
+      slug,
+      passed: false,
+      explanation: `The toolCallCount check for ${condition.tool} names no exactly, min or max, so there is nothing to compare against.`,
+    };
+  }
+
+  return {
+    slug,
+    passed,
+    explanation: `Called ${condition.tool} ${count} time${count === 1 ? '' : 's'}, expected ${wanted.join(' and ')}.`,
+  };
+}
+
+/**
  * Readable tool list for a failure message.
  * @param transcript - The case whose tool calls to describe.
  */
@@ -132,6 +333,12 @@ export function runCheck(transcript: CaseTranscript, check: EvalCheck): CheckOut
   }
   if ('toolNotCalled' in check) {
     return checkToolNotCalled(transcript, check.toolNotCalled);
+  }
+  if ('toolCalledWith' in check) {
+    return checkToolCalledWith(transcript, check.toolCalledWith);
+  }
+  if ('toolCallCount' in check) {
+    return checkToolCallCount(transcript, check.toolCallCount);
   }
   if ('outputMatches' in check) {
     return checkOutputMatches(transcript, check.outputMatches);

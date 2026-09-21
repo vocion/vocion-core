@@ -1151,6 +1151,41 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 const EvalCheckSchema = z.union([
   z.object({ toolCalled: z.string() }),
   z.object({ toolNotCalled: z.string() }),
+  z.object({
+    /**
+     * What a tool call's arguments had to look like. The tool name and the
+     * answer text were all a check could read before this, which left the
+     * envelope shape, the dedup key and the suggested decision — all of them
+     * arguments — measurable by nothing we have.
+     */
+    toolCalledWith: z.object({
+      tool: z.string(),
+      path: z.string().optional().describe('dot path into the arguments, e.g. action_input.dedupOn'),
+      equals: z.unknown().optional(),
+      contains: z.string().optional(),
+      present: z.boolean().optional(),
+      subsetOf: z.array(z.string()).optional().describe('every element at the path must be one of these'),
+      calls: z.enum(['every', 'some']).optional().describe('how many of the tool\'s calls must match; every by default'),
+    }).refine(
+      condition => condition.equals !== undefined
+        || condition.contains !== undefined
+        || condition.present !== undefined
+        || condition.subsetOf !== undefined,
+      { message: 'toolCalledWith needs one of equals, contains, present or subsetOf — otherwise it asserts nothing' },
+    ),
+  }),
+  z.object({
+    /** How many times the tool was allowed to be called. */
+    toolCallCount: z.object({
+      tool: z.string(),
+      exactly: z.number().int().nonnegative().optional(),
+      min: z.number().int().nonnegative().optional(),
+      max: z.number().int().nonnegative().optional(),
+    }).refine(
+      condition => condition.exactly !== undefined || condition.min !== undefined || condition.max !== undefined,
+      { message: 'toolCallCount needs one of exactly, min or max — otherwise it asserts nothing' },
+    ),
+  }),
   z.object({ outputMatches: z.string().describe('regular expression the answer must match') }),
   z.object({ outputContains: z.string() }),
   z.object({ outputNotContains: z.string() }),
@@ -1221,6 +1256,16 @@ export const EvalDatasetManifestSchema = z.object({
    */
   provider: z.enum(['vocion', 'agentcore']).default('vocion'),
   /**
+   * The pass rate this dataset has to reach for `eval:run` to exit 0.
+   *
+   * A single number for the whole dataset, not a bar every case has to clear,
+   * because a dataset spread across a dozen live sources will lose a case to
+   * one of them redesigning a page, and a gate that fails the build for that
+   * teaches people to ignore the gate. Omitted, the runner's own floor
+   * applies, so every dataset written before this field keeps its behaviour.
+   */
+  passThreshold: z.number().min(0).max(1).optional().describe('pass rate the run must reach, 0 to 1'),
+  /**
    * The evaluators this dataset's grader should use. Each one names its own
    * provider, which must be the dataset's — a dataset scored by Vocion cannot
    * carry an AgentCore evaluator, because nothing would ever run it.
@@ -1263,22 +1308,12 @@ export const EvalDatasetManifestSchema = z.object({
     }
   }
 
-  // `checks` run inside our own judge and nowhere else, so on a dataset graded
-  // by anyone else they are written, applied, and then silently never run —
-  // and the case still reports a pass rate, which reads as if they had. Refuse
-  // the file instead. A dataset that needs deterministic checks belongs to
-  // Vocion; inside AgentCore the equivalent is a `codeBased` evaluator.
-  if (dataset.provider !== 'vocion') {
-    dataset.items.forEach((item, index) => {
-      if (item.checks?.length) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['items', index, 'checks'],
-          message: `case ${index + 1} has checks, which only run under the vocion grader — this dataset is graded by ${dataset.provider}`,
-        });
-      }
-    });
-  }
+  // `checks` used to be refused on anything but a Vocion dataset, because
+  // only the Vocion grader ran them. They now run over the transcript
+  // whichever grader scores the case — the transcript is ours either way —
+  // so a dataset can send its cases to AWS and still assert the things a
+  // model should never be asked to judge, like whether the dedup key had the
+  // right three fields in it.
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
 export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;

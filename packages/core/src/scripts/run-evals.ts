@@ -131,6 +131,14 @@ const evalCases: EvalCase[] = [
   },
 ];
 
+/**
+ * The pass rate a dataset is held to when it names none of its own.
+ *
+ * Unchanged from the number this script has always compiled in, so a dataset
+ * written before `pass_threshold` existed passes and fails exactly as before.
+ */
+const DEFAULT_PASS_THRESHOLD = 0.8;
+
 async function runAgent(message: string): Promise<{ response: string; toolCalls: any[] }> {
   // Import dynamically to avoid module resolution issues
   const { runAgentDeep: runAgentFn } = await import('../services/AgentService');
@@ -165,7 +173,15 @@ async function main() {
     console.log(`✓ eval_run #${result.runId} complete`);
     console.log(`   metrics: ${JSON.stringify(result.metrics, null, 2)}`);
     const passRate = (result.metrics?.passRate ?? 0) as number;
-    process.exit(passRate >= 0.8 ? 0 : 1);
+    // The dataset's own bar wins, because the right one differs: a small
+    // deterministic set can be held to nearly everything passing, while a set
+    // spread over live websites loses a case whenever one of them redesigns a
+    // page. DEFAULT_PASS_THRESHOLD is what every dataset that names none has
+    // always been held to.
+    const threshold = result.passThreshold ?? DEFAULT_PASS_THRESHOLD;
+    const verdict = passRate >= threshold ? 'PASS' : 'FAIL';
+    console.log(`   ${verdict}: pass rate ${(passRate * 100).toFixed(1)}% against a ${(threshold * 100).toFixed(1)}% bar${result.passThreshold === null ? ' (runner default)' : ' (set by the dataset)'}`);
+    process.exit(passRate >= threshold ? 0 : 1);
   }
 
   let totalChecks = 0;

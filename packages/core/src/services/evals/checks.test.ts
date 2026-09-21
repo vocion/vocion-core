@@ -20,6 +20,37 @@ function transcript(overrides: Partial<CaseTranscript> = {}): CaseTranscript {
   };
 }
 
+/**
+ * A transcript of an ingestion run that proposed events, which is where the
+ * argument checks earn their keep: the rules that got broken in production
+ * were all inside `action_input`, where nothing could see them.
+ * @param calls - The propose_action arguments, one entry per call.
+ */
+function proposalTranscript(calls: Array<Record<string, unknown>>): CaseTranscript {
+  return transcript({
+    toolCalls: [
+      { tool: 'fetch_url', input: { url: 'https://example.org/events' }, output: 'page text' },
+      ...calls.map(input => ({ tool: 'propose_action', input, output: 'proposed' })),
+    ],
+    trajectory: ['fetch_url', ...calls.map(() => 'propose_action')],
+  });
+}
+
+/**
+ * One well-formed proposal, as the playbook says it must look.
+ * @param overrides - What this particular case gets wrong, if anything.
+ */
+function proposal(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    action_id: 'objects.propose_candidate',
+    dedupOn: ['title', 'startDate', 'venueName'],
+    suggested_decision: 'approve',
+    suggested_decision_reason: 'Upcoming, on an approved source, venue already known.',
+    action_input: { title: 'Tuesday Bluegrass', startDate: '2026-10-06', categories: ['Live Music'] },
+    ...overrides,
+  };
+}
+
 describe('runCheck', () => {
   it('passes toolCalled when the tool is in the trajectory and fails when it is not', () => {
     expect(runCheck(transcript(), { toolCalled: 'issue_refund' })?.passed).toBe(true);
@@ -69,6 +100,97 @@ describe('runCheck', () => {
     // Errored and unpriced runs both leave usage null; a check that throws
     // here would take down the whole run over a missing number.
     expect(runCheck(transcript({ usage: null }), { turnsUnder: 2 })?.passed).toBe(true);
+  });
+
+  it('reads the dedup key out of the call arguments and fails when its fields are out of order', () => {
+    // The key is [title, startDate, venueName] in that order — a different
+    // order is a different key, and the run that got this wrong on
+    // 2026-09-08 lost five rows to it.
+    const right = proposalTranscript([proposal()]);
+    const wrong = proposalTranscript([proposal({ dedupOn: ['startDate', 'title', 'venueName'] })]);
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'dedupOn', equals: ['title', 'startDate', 'venueName'] } };
+
+    expect(runCheck(right, check)?.passed).toBe(true);
+    expect(runCheck(wrong, check)?.passed).toBe(false);
+  });
+
+  it('fails when the dedup key is buried inside the payload instead of at the top level', () => {
+    // Exactly the 2026-09-08 mistake: the key was authored, so a check that
+    // only asked "is dedupOn anywhere in the arguments" would have passed it.
+    const buried = proposalTranscript([{
+      action_id: 'objects.propose_candidate',
+      action_input: { title: 'Tuesday Bluegrass', dedupOn: ['title', 'startDate', 'venueName'] },
+    }]);
+
+    const outcome = runCheck(buried, { toolCalledWith: { tool: 'propose_action', path: 'dedupOn', present: true } });
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('dedupOn');
+  });
+
+  it('holds every proposal to carrying a suggested decision, not just the first one', () => {
+    // A run that gets it right once and forgets on the second card is the
+    // failure worth catching; `every` is the default for that reason.
+    const mixed = proposalTranscript([
+      proposal(),
+      proposal({ suggested_decision: undefined, suggested_decision_reason: undefined }),
+    ]);
+
+    const outcome = runCheck(mixed, { toolCalledWith: { tool: 'propose_action', path: 'suggested_decision', present: true } });
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('1 of 2');
+  });
+
+  it('refuses a category the enum does not contain', () => {
+    // A model inventing "Concert" makes a card that fails validation
+    // downstream, where the failure is someone else's to debug.
+    const categories = ['Live Music', 'Arts & Culture', 'Community'];
+    const invented = proposalTranscript([proposal({ action_input: { categories: ['Live Music', 'Concert'] } })]);
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.categories', subsetOf: categories } };
+
+    expect(runCheck(proposalTranscript([proposal()]), check)?.passed).toBe(true);
+
+    const outcome = runCheck(invented, check);
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('Concert');
+  });
+
+  it('accepts one matching call when the case asks for some rather than every', () => {
+    const mixed = proposalTranscript([proposal({ suggested_decision: 'reject' }), proposal()]);
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'suggested_decision', equals: 'reject', calls: 'some' } };
+
+    expect(runCheck(mixed, check)?.passed).toBe(true);
+  });
+
+  it('fails an argument check when the tool was never called at all', () => {
+    // Vacuously passing here would turn "the agent proposed nothing" into a
+    // green check, which is the silence this check exists to break.
+    const nothingProposed = proposalTranscript([]);
+
+    const outcome = runCheck(nothingProposed, { toolCalledWith: { tool: 'propose_action', path: 'dedupOn', present: true } });
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('Never called propose_action');
+  });
+
+  it('counts calls so a correction refreshes one card instead of opening a second', () => {
+    // Why the key uses startDate and not start. A door-time change cost a
+    // duplicate card on 2026-09-05.
+    const once = proposalTranscript([proposal()]);
+    const twice = proposalTranscript([proposal(), proposal({ suggested_decision_reason: 'Door time changed.' })]);
+    const check: EvalCheck = { toolCallCount: { tool: 'propose_action', max: 1 } };
+
+    expect(runCheck(once, check)?.passed).toBe(true);
+    expect(runCheck(twice, check)?.passed).toBe(false);
+  });
+
+  it('reports a count check with no bound as an authoring mistake rather than an agent failure', () => {
+    const outcome = runCheck(proposalTranscript([proposal()]), { toolCallCount: { tool: 'propose_action' } });
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('nothing to compare against');
   });
 
   it('skips an operator it does not recognise instead of failing the run', () => {

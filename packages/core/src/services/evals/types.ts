@@ -44,11 +44,66 @@ export type EvalDatasetItem = {
 export type EvalCheck
   = | { toolCalled: string }
     | { toolNotCalled: string }
+    | { toolCalledWith: ToolArgumentCondition }
+    | { toolCallCount: ToolCallCountCondition }
     | { outputMatches: string }
     | { outputContains: string }
     | { outputNotContains: string }
     | { latencyUnderMs: number }
     | { turnsUnder: number };
+
+/**
+ * What one tool call's arguments have to look like.
+ *
+ * The tool name and the output text were the only things a check could read
+ * until now, which left the arguments — where the envelope shape, the dedup
+ * key and the suggested decision all live — unmeasurable by any grader we
+ * have. A rule the agent breaks inside `action_input` looked exactly like a
+ * rule it kept.
+ *
+ * `path` walks into the arguments with dots, so `action_input.dedupOn` reads
+ * that array out of a `propose_action` call. Omit it to test the whole
+ * argument object.
+ *
+ * Whichever predicates are given must all hold. `calls` says how many of the
+ * tool's calls have to satisfy them: `every` — the default, and what a rule
+ * like "every proposal carries a reason" means — or `some`, for "at least one
+ * call did this". A case where the tool was never called fails either way,
+ * because a rule about calls that never happened is not a rule anyone kept.
+ */
+export type ToolArgumentCondition = {
+  /** Which tool's calls to read. */
+  tool: string;
+  /** Dot path into the call's arguments. Omit for the whole argument object. */
+  path?: string;
+  /** The value at `path` must equal this, compared by value, not identity. */
+  equals?: unknown;
+  /** The value at `path`, rendered as text, must contain this. */
+  contains?: string;
+  /** Whether the value at `path` has to be there at all. */
+  present?: boolean;
+  /** Every element of the value at `path` must be one of these. */
+  subsetOf?: string[];
+  /** How many of the tool's calls must satisfy the predicates. Default `every`. */
+  calls?: 'every' | 'some';
+};
+
+/**
+ * How many times a tool was allowed to be called.
+ *
+ * Counting is its own question. "Refreshed the existing card instead of
+ * opening a second one" is a rule about how many proposals went out, and
+ * `toolCalled` answers only whether any did.
+ *
+ * At least one of `exactly`, `min` or `max` has to be given, or the check has
+ * nothing to decide.
+ */
+export type ToolCallCountCondition = {
+  tool: string;
+  exactly?: number;
+  min?: number;
+  max?: number;
+};
 
 /** The grain an evaluator judges at. Mirrors AgentCore's `EvaluatorLevel`. */
 export type EvalScoreLevel = 'TOOL_CALL' | 'TRACE' | 'SESSION';

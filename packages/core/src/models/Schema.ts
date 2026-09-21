@@ -1735,6 +1735,17 @@ export const evalDatasetSchema = pgTable(
      * up, not the default reading of every page.
      */
     provider: text('provider').default('vocion').notNull(),
+    /**
+     * Pass rate a run of this dataset has to reach before `eval:run` exits 0.
+     *
+     * Null means the runner's own floor decides, which is what every dataset
+     * written before this column had. It belongs to the dataset because the
+     * right bar differs between them: a handful of deterministic cases can be
+     * held to all of them passing, while a set spread across a dozen live
+     * sites will lose one to a page redesign and should not fail a build for
+     * it.
+     */
+    passThreshold: real('pass_threshold'),
     description: text('description'),
     /**
      * Test cases, the same shape `EvalDatasetItem` in
