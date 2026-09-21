@@ -448,7 +448,10 @@ export async function runAgentDeep(opts: {
   // is over its hard cap; otherwise proceed.
   const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
   if (!budgetCheck.ok) {
-    const message = `Budget exceeded for agent "${opts.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap on /dashboard/agents/${opts.agentSlug} or wait for the next period.`;
+    // Names the row that refused, not the agent that asked: since #279 the
+    // check also covers the workspace-wide cap, and "raise the cap on this
+    // agent" would send someone to a page that cannot fix it.
+    const message = `Budget exceeded for "${budgetCheck.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap under Budgets or wait for the next period.`;
     emit({ type: 'error', message });
     throw new Error(message);
   }

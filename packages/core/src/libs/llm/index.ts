@@ -10,6 +10,8 @@ export type {
 export { buildChatModel, buildChatModelForOrg, inferProviderForModel, resolvedModelId, withPromptCache } from './langchain';
 export { openaiClient } from './openai';
 export { getLLMClient, getLLMClientForOrg, resolveOrgProviderKey } from './registry';
+export type { LangChainUsageMetadata } from './usage';
+export { modelIdOf, tokenUsageOf, usageMetadataOf } from './usage';
 export type {
   LLMClient,
   LLMMessage,

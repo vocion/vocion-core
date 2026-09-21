@@ -67,6 +67,32 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   'gpt-5.6-sol': { inputCentsPerMillion: 400, outputCentsPerMillion: 2000, cacheReadCentsPerMillion: 40 },
   'gpt-5.6-terra': { inputCentsPerMillion: 200, outputCentsPerMillion: 1200, cacheReadCentsPerMillion: 20 },
   'gpt-5.6-luna': { inputCentsPerMillion: 20, outputCentsPerMillion: 120, cacheReadCentsPerMillion: 2 },
+
+  // OpenAI embeddings — list prices from developers.openai.com/api/docs/pricing,
+  // read 2026-09-21. Embeddings return no completion, so the output rate is 0
+  // and every cent comes off the input side. `text-embedding-3-small` is the
+  // default an ingest run uses (see DEFAULT_MODELS in
+  // libs/retrieval/embeddingBackend.ts), and ingest is the largest single
+  // source of embedding spend, so an unpriced row here is what let a sync run
+  // up a four-figure bill under a $50 cap (#279).
+  'text-embedding-3-small': { inputCentsPerMillion: 2, outputCentsPerMillion: 0 },
+  'text-embedding-3-large': { inputCentsPerMillion: 13, outputCentsPerMillion: 0 },
+
+  // OpenAI image generation. `gpt-image-1` bills per TOKEN, not per image:
+  // $5/MTok text input, $10/MTok image input, $40/MTok output, same page and
+  // date as above. Only the text-input rate is carried here, because the
+  // generate_image tool sends a text prompt and no reference image; an
+  // image-to-image call would under-charge by the difference and needs its own
+  // row before that path ships.
+  'gpt-image-1': { inputCentsPerMillion: 500, outputCentsPerMillion: 4000 },
+
+  // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock
+  // embedding default. AWS publishes Titan embedding pricing behind a
+  // region-and-model picker we could not read a single figure off on
+  // 2026-09-21, and a guessed rate is worse than none — an unpriced model
+  // charges 0 cents while still charging its tokens, so a token cap keeps
+  // working and a cents cap visibly does not. Add the row, with the page and
+  // the date, once someone has the number in front of them.
 };
 
 export type TokenUsage = {

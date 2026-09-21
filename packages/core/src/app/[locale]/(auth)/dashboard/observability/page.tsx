@@ -6,7 +6,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
-import { listAgentBudgets } from '@/services/BudgetService';
+import { listAgentBudgets, listPlatformBudgets, ORG_SCOPE_SLUG, orgUsageTotals } from '@/services/BudgetService';
 import { countRunsLast24h } from '@/services/ObservabilityService';
 
 /**
@@ -59,15 +59,26 @@ export default async function ObservabilityPage(props: {
     );
   }
 
-  const [budgets, runCounts] = await Promise.all([
+  const [budgets, platformBudgets, orgTotals, runCounts] = await Promise.all([
     listAgentBudgets(orgId).catch(() => []),
+    listPlatformBudgets(orgId).catch(() => []),
+    orgUsageTotals({ orgId }).catch(() => ({ spentCents: 0, tokens: 0, hardCentsLimit: null, hardTokenLimit: null })),
     countRunsLast24h(orgId).catch(() => ({ toolCalls: 0, workflowRuns: 0 })),
   ]);
 
-  const totalCents = budgets.reduce((acc, b) => acc + (b.currentCents ?? 0), 0);
+  // The workspace's whole spend, read off the `platform:all` row rather than
+  // summed over the agent rows. Summing the agents was the number this page
+  // showed before #279, and it left out every embedding, rerank and generated
+  // image — the spend most likely to surprise someone.
+  const totalCents = orgTotals.spentCents;
   const topAgents = [...budgets]
     .sort((a, b) => (b.currentCents ?? 0) - (a.currentCents ?? 0))
     .slice(0, 5);
+  // The non-agent surfaces, biggest first. `platform:all` is the total above,
+  // not a line in its own breakdown.
+  const platformSurfaces = platformBudgets
+    .filter(b => b.agentSlug !== ORG_SCOPE_SLUG && (b.currentCents ?? 0) > 0)
+    .sort((a, b) => (b.currentCents ?? 0) - (a.currentCents ?? 0));
 
   /**
    * Build one filtered Langfuse deep link, or null when tracing is off.
@@ -136,7 +147,7 @@ export default async function ObservabilityPage(props: {
           <StatCard
             label="Spend this period"
             value={`$${(totalCents / 100).toFixed(2)}`}
-            hint={budgets.length === 0 ? 'No budgets configured yet.' : `Sum across ${budgets.length} agent budget${budgets.length === 1 ? '' : 's'}.`}
+            hint={totalCents === 0 ? 'Nothing recorded this period.' : 'Everything this workspace spent: agent turns, embeddings, rerank, images.'}
           />
           <StatCard
             label="Runs (last 24h)"
@@ -149,6 +160,39 @@ export default async function ObservabilityPage(props: {
             hint={topAgents.length === 0 ? 'No usage in this period.' : 'Agents with non-zero spend.'}
           />
         </div>
+
+        {platformSurfaces.length > 0 && (
+          <div>
+            <div className="mb-1 px-2 text-[15px] font-semibold">Spend outside an agent turn</div>
+            <div className="divide-y divide-border/70 text-sm">
+              {platformSurfaces.map(surface => (
+                <div key={`${surface.agentSlug}-${surface.period}`} className="flex items-center justify-between rounded-lg px-2 py-3 transition-colors hover:bg-surface-hover">
+                  <div className="flex items-center gap-3">
+                    <LineChart className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-mono">{surface.feature ?? surface.agentSlug}</span>
+                    <span className="text-xs text-muted-foreground">{surface.period}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span>
+                      $
+                      {((surface.currentCents ?? 0) / 100).toFixed(2)}
+                    </span>
+                    {surface.feature && traceLink({ tags: `feature:${surface.feature}` }) && (
+                      <Link
+                        href={traceLink({ tags: `feature:${surface.feature}` }) as string}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary hover:underline"
+                      >
+                        View traces ↗
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {topAgents.length > 0 && (
           <div>

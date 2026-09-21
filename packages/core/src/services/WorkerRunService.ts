@@ -201,11 +201,11 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   if (!budget.ok) {
     await db.update(workerRunSchema).set({
       status: 'failed',
-      error: `Budget exceeded for agent "${run.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
+      error: `Budget exceeded for "${budget.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
       completedAt: now,
       updatedAt: now,
     }).where(eq(workerRunSchema.id, run.id));
-    throw new WorkerRunError('BUDGET_EXCEEDED', `Agent "${run.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
+    throw new WorkerRunError('BUDGET_EXCEEDED', `"${budget.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
   }
   const [updated] = await db.update(workerRunSchema).set({
     status: 'running',

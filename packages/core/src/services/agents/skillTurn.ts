@@ -25,9 +25,11 @@ import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg } from '@/libs/llm';
+import { usageMetadataOf } from '@/libs/llm/usage';
 import { logger } from '@/libs/Logger';
 import { agentSchema } from '@/models/Schema';
 import { buildDomainTools } from '@/services/agents/tools/registry';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { mountSkills } from '@/services/playbooks/mount';
 
 export class SkillTurnError extends Error {
@@ -230,10 +232,19 @@ export async function runSkillTurn<T>(opts: SkillTurnOptions<T>): Promise<SkillT
     const generation = trace.generation({ name: `skill-turn-${turn}`, model: 'skillTurn', input: turn === 0 ? user : undefined });
     const res = await model.invoke(messages as never, { signal });
     const raw = contentText(res.content);
-    const usage = (res as unknown as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+    const usage = usageMetadataOf(res);
     generation.end({
       output: raw || `(tool calls: ${(res.tool_calls ?? []).map(c => c.name).join(', ')})`,
       usageDetails: usage ? cleanUsageDetails({ input: usage.input_tokens, output: usage.output_tokens }) : undefined,
+    });
+    // Every turn of the loop, not just the last: a skill turn that spends ten
+    // model calls on tool calls costs ten calls' worth.
+    await chargeModelCall({
+      orgId: opts.orgId,
+      agentSlug: agent.slug,
+      feature: FEATURES.SKILL_TURN,
+      role: 'skillTurn',
+      response: res,
     });
 
     const calls = res.tool_calls ?? [];

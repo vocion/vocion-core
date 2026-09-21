@@ -47,12 +47,14 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/libs/DB';
+import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel, resolvedModelId } from '@/libs/llm';
 import {
   discoveryCandidateSchema,
   knowledgeChunkSchema,
   knowledgeDocumentSchema,
 } from '@/models/Schema';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import {
   DISCOVERY_CLASSES,
   normaliseReasonCode,
@@ -520,11 +522,18 @@ function textOf(content: unknown): string {
 
 /**
  * Read is done by the caller via the gate; this only scores the text.
+ *
+ * `meta.orgId` is what puts this call on the workspace's ledger. A transcript
+ * can be tens of thousands of tokens, which makes this one of the larger single
+ * calls in the product, and until #279 it spent without the budget seeing it.
+ * It is charged and never refused: the detector runs on a schedule, and a
+ * transcript it declines to score is one nobody ever looks at again.
  * @param transcript
  * @param meta
  * @param meta.title
+ * @param meta.orgId - Tenant to charge. Omitted only by a caller with no org, which charges nothing.
  */
-export async function classifyTranscript(transcript: string, meta: { title?: string | null }): Promise<Classification> {
+export async function classifyTranscript(transcript: string, meta: { title?: string | null; orgId?: string }): Promise<Classification> {
   const model = buildChatModel('classifier', { temperature: 0, streaming: false });
   const user = `Meeting title: ${meta.title ?? '(untitled)'}\n\nTranscript:\n${transcript}`;
   let raw = '';
@@ -534,7 +543,22 @@ export async function classifyTranscript(transcript: string, meta: { title?: str
       { signal: AbortSignal.timeout(30_000) },
     );
     raw = textOf(res.content);
-  } catch {
+    await chargeModelCall({
+      orgId: meta.orgId,
+      feature: FEATURES.DISCOVERY_CLASSIFY,
+      role: 'classifier',
+      response: res,
+    });
+  } catch (error) {
+    // The model call failed, or the charge did. Either way the caller's fail
+    // safe below turns an unreadable answer into `uncertain`, which routes to a
+    // person — but logged, because a detector that silently scores nothing
+    // looks exactly like a detector that found nothing.
+    console.error('[discovery] transcript classification failed', {
+      orgId: meta.orgId,
+      title: meta.title,
+      error: error instanceof Error ? error.message : String(error),
+    });
     raw = '';
   }
   const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
@@ -1081,7 +1105,7 @@ export async function classifyCall(
         .limit(1);
 
   // The fixed call — one prompt, one schema, versioned. Never agent-steered.
-  const classification = await classifyTranscript(transcript, { title: candidate.meetingTitle });
+  const classification = await classifyTranscript(transcript, { title: candidate.meetingTitle, orgId });
   const route = routeClassification(classification, {
     discoveryThreshold: thresholds.discovery,
     readyThreshold: thresholds.ready,

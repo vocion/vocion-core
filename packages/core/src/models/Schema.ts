@@ -2085,13 +2085,44 @@ export const agentBudgetSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /**
+     * What the row budgets. Either an agent's slug, or one of the reserved
+     * platform scopes `platform:all` (everything this org spent) and
+     * `platform:<feature>` (one non-agent surface, e.g.
+     * `platform:retrieval.embed`). `BudgetService` owns the spelling — see
+     * `ORG_SCOPE_SLUG` and `featureScopeSlug` there.
+     *
+     * The scope rides in this column rather than in a column of its own
+     * because the unique index below is what makes a charge atomic, and
+     * widening a unique index on a populated table is an expand-and-contract
+     * migration (migrations/CONVENTIONS.md §2) rather than a one-line change.
+     */
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * The Langfuse feature dimension this row rolls up, for a
+     * `platform:<feature>` row — null on an agent row and on `platform:all`.
+     * A typed label to group by, so a report never has to parse the slug.
+     */
+    feature: text('feature'),
     /** daily | monthly */
     period: text('period').default('daily').notNull(),
     /** Tokens consumed in the current period (sum of input + output). */
     currentTokens: bigint('current_tokens', { mode: 'number' }).default(0).notNull(),
-    /** Dollars (in USD cents to keep math integer-safe). */
+    /**
+     * Dollars (in USD cents to keep math integer-safe), floored from
+     * `currentMicroCents`. This is the number the caps compare against and the
+     * dashboard shows.
+     */
     currentCents: bigint('current_cents', { mode: 'number' }).default(0).notNull(),
+    /**
+     * The same spend at a millionth of a cent, and the column that is actually
+     * accumulated. Charging moved from one call per agent turn to one call per
+     * embedding batch, and a batch of chunks costs a fraction of a cent: with
+     * cents alone, rounding a tenth of a cent up to one cent on every batch
+     * billed a $1 sync as $10. Each charge adds its exact cost here and floors
+     * the result into `currentCents`.
+     */
+    currentMicroCents: bigint('current_micro_cents', { mode: 'number' }).default(0).notNull(),
     /** Soft cap — warn but don't refuse. */
     softTokenLimit: bigint('soft_token_limit', { mode: 'number' }),
     softCentsLimit: bigint('soft_cents_limit', { mode: 'number' }),

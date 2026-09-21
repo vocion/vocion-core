@@ -46,6 +46,7 @@ import {
 } from '@/models/Schema';
 import { briefingHref } from '@/services/briefings/links';
 import { parseStoredDocument } from '@/services/briefings/store';
+import { agentScopedOnly } from '@/services/BudgetService';
 import { teamReport } from '@/services/TeamReportService';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 
@@ -252,7 +253,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     db.select({ slug: teamSchema.slug, name: teamSchema.name, leadAgentSlug: teamSchema.leadAgentSlug }).from(teamSchema).where(eq(teamSchema.orgId, orgId)),
     db.select({ agentSlug: agentBudgetSchema.agentSlug, period: agentBudgetSchema.period, currentCents: agentBudgetSchema.currentCents, currentTokens: agentBudgetSchema.currentTokens, hardCentsLimit: agentBudgetSchema.hardCentsLimit })
       .from(agentBudgetSchema)
-      .where(eq(agentBudgetSchema.orgId, orgId)),
+      .where(and(eq(agentBudgetSchema.orgId, orgId), agentScopedOnly())),
     fetchWorkerRuns(orgId, w),
     fetchNeedsYou(orgId),
     fetchBriefing(orgId, until, opts.briefing),

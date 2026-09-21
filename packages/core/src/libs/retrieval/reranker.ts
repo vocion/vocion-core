@@ -20,9 +20,10 @@
 import type { SearchHit } from '@/services/RetrievalService';
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { traceFor } from '@/libs/Langfuse';
+import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
+import { tokenUsageOf } from '@/libs/llm/usage';
 
 const RERANK_MODEL = process.env.VOCION_RERANK_MODEL ?? 'claude-haiku-4-5-20251001';
 const RERANK_MAX_CANDIDATES = 20;
@@ -75,6 +76,20 @@ export async function rerank(
   if (candidates.length <= 1) {
     return candidates;
   }
+  // Over a hard cap, skip the rerank instead of refusing the search. This is a
+  // quality pass over a list that is already ranked, so dropping it costs the
+  // person a slightly worse ordering — the same thing that happens when the
+  // rerank call fails, handled the same way below. Refusing the search outright
+  // over a few hundred tokens would be the wrong trade.
+  // Imported here rather than at the top of the file: `BudgetService` reaches
+  // the database handle, which validates the whole environment at import, and
+  // this module is loaded by retrieval code that runs in tests and CLI scripts
+  // with no database configured.
+  const { chargeUsage, preflightCheck } = await import('@/services/BudgetService');
+  const budget = await preflightCheck({ orgId: opts.orgId, feature: FEATURES.RETRIEVAL_RERANK });
+  if (!budget.ok) {
+    return candidates.slice(0, keep);
+  }
   const items = candidates.slice(0, RERANK_MAX_CANDIDATES);
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_RERANK,
@@ -124,10 +139,25 @@ export async function rerank(
         }
       }
     }
+    // The provider's own count when it gave one; the old character estimate
+    // only as a fallback, since it is what the trace already showed. Charged
+    // from the same numbers, so what the budget says and what the trace says
+    // cannot drift.
+    const usage = tokenUsageOf(res);
     gen.end({
       output: { reranked: kept.length },
-      usageDetails: { input: prompt.length / 4 },
+      usageDetails: usage
+        ? cleanUsageDetails({ input: usage.inputTokens, output: usage.outputTokens })
+        : { input: prompt.length / 4 },
     });
+    if (usage) {
+      await chargeUsage({
+        orgId: opts.orgId,
+        feature: FEATURES.RETRIEVAL_RERANK,
+        model: RERANK_MODEL,
+        usage,
+      });
+    }
     trace.update({ output: { reranked: kept.length } });
   } catch (err) {
     gen.end({
