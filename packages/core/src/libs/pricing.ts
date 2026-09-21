@@ -136,11 +136,34 @@ export function modelMatchPattern(modelName: string): string {
 }
 
 /**
- * Cost (in USD cents) for one model turn. Returns 0 if pricing is unknown.
- * @param model
- * @param usage
+ * Cost for one model turn, in MICRO-CENTS — a millionth of a cent. Returns 0
+ * if pricing is unknown.
+ *
+ * This is the exact one, and the one anything that accumulates should use.
+ * There is no division in it, by construction: a rate is cents per 1,000,000
+ * tokens and a micro-cent is a cent divided by 1,000,000, so the cost of
+ * `n` tokens is `n * rate` and nothing else. Every value involved is a whole
+ * number, so every step is exact.
+ *
+ * That matters because the alternative — computing cents by dividing by a
+ * million — is a floating-point division whose result usually is not
+ * representable, and a budget counter adds one of those up per embedding batch
+ * for the life of a period. The error per call is tiny; the reason not to
+ * accept it is that nothing here needs to.
+ *
+ * `Math.round` guards a rate somebody later writes as a fraction. Every rate in
+ * the table above is a whole number today, which makes the round a no-op; if
+ * one stops being whole, the cost rounds to the nearest micro-cent instead of
+ * silently carrying a fraction into an integer column.
+ *
+ * Ceiling: a turn of 1e9 tokens at the dearest rate here is 7.5e12 micro-cents,
+ * comfortably inside the range a JavaScript number holds exactly (9e15). A
+ * model priced above roughly 9,000,000 cents per million tokens would need a
+ * bigger type — say so here if that ever happens.
+ * @param model - Model id as the provider reports it.
+ * @param usage - Tokens the provider billed.
  */
-export function tokenCostCents(model: string, usage: TokenUsage): number {
+export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
   // Exact id first, so a table entry for a full provider id always wins
   // over the alias it would canonicalise to.
   const tier = PRICING[model] ?? PRICING[canonicalModelId(model)];
@@ -149,10 +172,24 @@ export function tokenCostCents(model: string, usage: TokenUsage): number {
   }
   const cacheRead = usage.cacheReadTokens ?? 0;
   const inputBilledAtFullRate = Math.max(0, (usage.inputTokens ?? 0) - cacheRead);
-  const input = (inputBilledAtFullRate * tier.inputCentsPerMillion) / 1_000_000;
-  const cache = (cacheRead * (tier.cacheReadCentsPerMillion ?? tier.inputCentsPerMillion)) / 1_000_000;
-  const output = ((usage.outputTokens ?? 0) * tier.outputCentsPerMillion) / 1_000_000;
-  return input + cache + output;
+  const input = inputBilledAtFullRate * tier.inputCentsPerMillion;
+  const cache = cacheRead * (tier.cacheReadCentsPerMillion ?? tier.inputCentsPerMillion);
+  const output = (usage.outputTokens ?? 0) * tier.outputCentsPerMillion;
+  return Math.round(input + cache + output);
+}
+
+/**
+ * Cost (in USD cents) for one model turn. Returns 0 if pricing is unknown.
+ *
+ * A fractional number of cents, for reading and for reporting one run's total.
+ * The division to get here is the only floating-point step in pricing, and it
+ * is deliberately at the edge: anything that ADDS costs up over time should
+ * take {@link tokenCostMicroCents} and stay in whole numbers.
+ * @param model - Model id as the provider reports it.
+ * @param usage - Tokens the provider billed.
+ */
+export function tokenCostCents(model: string, usage: TokenUsage): number {
+  return tokenCostMicroCents(model, usage) / 1_000_000;
 }
 
 /**

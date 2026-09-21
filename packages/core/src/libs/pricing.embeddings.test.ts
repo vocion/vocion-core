@@ -12,7 +12,7 @@
  * plausible either way and only the bill disagrees.
  */
 import { describe, expect, it } from 'vitest';
-import { knownModels, tokenCostCents } from './pricing';
+import { knownModels, tokenCostCents, tokenCostMicroCents } from './pricing';
 
 const ONE_M_INPUT = { inputTokens: 1_000_000 };
 const ONE_M_OUTPUT = { outputTokens: 1_000_000 };
@@ -54,6 +54,37 @@ describe('image pricing', () => {
     const haiku = tokenCostCents('claude-haiku-4-5-20251001', ONE_M_OUTPUT);
 
     expect(image).toBeGreaterThan(haiku * 5);
+  });
+});
+
+describe('exact arithmetic', () => {
+  it('costs a batch in whole micro-cents, with no floating-point residue', () => {
+    // A rate is cents per 1M tokens and a micro-cent is a cent over 1M, so the
+    // cost of n tokens is n * rate exactly. The budget adds one of these up per
+    // embedding batch for a whole period, and a float division by 1e6 would put
+    // an unrepresentable value into every one of them.
+    const microCents = tokenCostMicroCents('text-embedding-3-small', { inputTokens: 50_000 });
+
+    expect(microCents).toBe(100_000);
+    expect(Number.isInteger(microCents)).toBe(true);
+  });
+
+  it('is exact for a token count that has no exact answer in cents', () => {
+    // 3 tokens at 2 cents/1M is 0.000006 cents — a number float64 cannot hold.
+    // In micro-cents it is the integer 6.
+    expect(tokenCostMicroCents('text-embedding-3-small', { inputTokens: 3 })).toBe(6);
+  });
+
+  it('agrees with the cents reading it is derived from', () => {
+    const usage = { inputTokens: 1_234_567, outputTokens: 7_654, cacheReadTokens: 200_000 };
+
+    expect(tokenCostCents('claude-haiku-4-5-20251001', usage))
+      .toBe(tokenCostMicroCents('claude-haiku-4-5-20251001', usage) / 1_000_000);
+  });
+
+  it('costs an unpriced model nothing in either unit', () => {
+    expect(tokenCostMicroCents('amazon.titan-embed-text-v1', ONE_M_INPUT)).toBe(0);
+    expect(tokenCostCents('amazon.titan-embed-text-v1', ONE_M_INPUT)).toBe(0);
   });
 });
 

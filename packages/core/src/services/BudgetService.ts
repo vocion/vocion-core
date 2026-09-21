@@ -57,13 +57,23 @@
  *
  * Period boundaries roll inside the charge statement itself rather than on a
  * cron tick, so two concurrent charges across a rollover cannot both reset.
+ *
+ * ## Which column is the money
+ *
+ * `currentMicroCents` is. It is what a charge accumulates and what a cap is
+ * compared against, because an embedding batch costs a fraction of a cent and
+ * a counter kept in whole cents is always up to one behind the truth.
+ * `currentCents` is floored from it for display and for the callers that read
+ * the table directly; nothing decides anything on it. Dropping it would be the
+ * cleaner shape and is an expand-and-contract migration away — the dashboard,
+ * `/api/v1/budgets` and both team reports read it today.
  */
 
 import type { FeatureName } from '@/libs/Langfuse/features';
 import type { TokenUsage } from '@/libs/pricing';
 import { and, eq, inArray, notLike, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { tokenCostCents, totalTokens } from '@/libs/pricing';
+import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
 import { agentBudgetSchema } from '@/models/Schema';
 
 export type BudgetPeriod = 'daily' | 'monthly';
@@ -255,7 +265,20 @@ function breachOf(
       current: row.currentTokens,
     };
   }
-  if (row.hardCentsLimit !== null && row.currentCents >= row.hardCentsLimit) {
+  // Compared in micro-cents rather than against the floored `currentCents`.
+  //
+  // The two agree today: `floor(m / 1e6) >= L` and `m >= L * 1e6` are the same
+  // condition for any whole-number L, and `hardCentsLimit` is a bigint. This is
+  // not a behaviour fix — it is so the cap stops depending on a column that is
+  // derived from the one that holds the money. `currentCents` is floored for
+  // display; if it ever drifts, or if a limit ever gains a fractional part,
+  // whoever made that change should not also have quietly changed what a cap
+  // refuses.
+  //
+  // `current` is still reported in cents — it is the unit the person set the
+  // cap in and the one the dashboard shows — so the message reads in the same
+  // unit as the limit beside it.
+  if (row.hardCentsLimit !== null && row.currentMicroCents >= row.hardCentsLimit * MICRO_CENTS_PER_CENT) {
     return {
       ok: false,
       reason: 'hard_cents_exceeded',
@@ -358,7 +381,11 @@ export async function chargeUsage(opts: {
   period?: BudgetPeriod;
 }): Promise<void> {
   const period: BudgetPeriod = opts.period ?? 'daily';
-  const microCents = Math.round(tokenCostCents(opts.model, opts.usage) * MICRO_CENTS_PER_CENT);
+  // Micro-cents straight from the price table, not cents multiplied back up:
+  // `tokenCostMicroCents` is whole-number arithmetic end to end, so a charge
+  // carries no floating-point residue into a counter that adds one of these per
+  // embedding batch all period.
+  const microCents = tokenCostMicroCents(opts.model, opts.usage);
   const tokens = totalTokens(opts.usage);
   if (microCents === 0 && tokens === 0) {
     return;

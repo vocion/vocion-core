@@ -226,6 +226,39 @@ describe('what a cap refuses', () => {
     expect(check.agentSlug).toBe(AGENT);
   });
 
+  it('refuses once fifty tenth-of-a-cent batches have used the whole five-cent cap', async () => {
+    await setLimits({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG, hardCentsLimit: 5 });
+    // 50 batches at a tenth of a cent each: exactly 5 cents, which is the cap.
+    for (let batch = 0; batch < 50; batch++) {
+      await chargeUsage({
+        orgId: ORG,
+        feature: 'retrieval.embed',
+        model: EMBEDDING_MODEL,
+        usage: { inputTokens: 50_000 },
+      });
+    }
+
+    expect((await preflightCheck({ orgId: ORG })).ok).toBe(false);
+  });
+
+  it('lets a workspace a tenth of a cent short of its cap keep going', async () => {
+    await setLimits({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG, hardCentsLimit: 5 });
+    // One batch short of the cap — 4.9 cents.
+    for (let batch = 0; batch < 49; batch++) {
+      await chargeUsage({
+        orgId: ORG,
+        feature: 'retrieval.embed',
+        model: EMBEDDING_MODEL,
+        usage: { inputTokens: 50_000 },
+      });
+    }
+
+    expect((await preflightCheck({ orgId: ORG })).ok).toBe(true);
+    // And the displayed number is the floor of it, which is what the dashboard
+    // shows and what the refusal message quotes.
+    expect((await orgUsageTotals({ orgId: ORG })).spentCents).toBe(4);
+  });
+
   it('lets an org with no cap through however much it has spent', async () => {
     await chargeUsage({
       orgId: ORG,
