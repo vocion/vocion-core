@@ -74,6 +74,25 @@ export type EvalCheck
 export type ToolArgumentCondition = {
   /** Which tool's calls to read. */
   tool: string;
+  /**
+   * Narrows those calls to the ones this describes.
+   *
+   * One tool often files several different things: `propose_action` proposes
+   * an event and a venue with the same name and different payloads, and a
+   * rule about one is false of the other — an event's dedup key is
+   * `[title, startDate, venueName]`, a venue's is `[name, city]`. Without a
+   * way to say which calls a rule is about, the rule fails on every call it
+   * was never meant to describe.
+   */
+  where?: { path: string; equals: unknown };
+  /**
+   * What it means when no call matched: `fail`, the default, because a rule
+   * about calls that never happened is not a rule anything kept and an agent
+   * that silently stopped doing the thing is the regression most worth
+   * catching. `pass` is for a rule shaped "if it did this, it did it right" —
+   * a venue proposal the run only makes when the venue is new.
+   */
+  noCalls?: 'fail' | 'pass';
   /** Dot path into the call's arguments. Omit for the whole argument object. */
   path?: string;
   /** The value at `path` must equal this, compared by value, not identity. */

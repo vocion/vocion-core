@@ -1160,6 +1160,11 @@ const EvalCheckSchema = z.union([
      */
     toolCalledWith: z.object({
       tool: z.string(),
+      where: z.object({
+        path: z.string(),
+        equals: z.unknown(),
+      }).optional().describe('only the calls whose value at this path equals this — one tool often files several kinds of thing'),
+      noCalls: z.enum(['fail', 'pass']).optional().describe('what no matching call means; fail by default'),
       path: z.string().optional().describe('dot path into the arguments, e.g. action_input.dedupOn'),
       equals: z.unknown().optional(),
       contains: z.string().optional(),

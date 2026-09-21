@@ -43,13 +43,41 @@ function proposalTranscript(calls: Array<Record<string, unknown>>): CaseTranscri
 function proposal(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     action_id: 'objects.propose_candidate',
-    dedupOn: ['title', 'startDate', 'venueName'],
     suggested_decision: 'approve',
     suggested_decision_reason: 'Upcoming, on an approved source, venue already known.',
-    action_input: { title: 'Tuesday Bluegrass', startDate: '2026-10-06', categories: ['Live Music'] },
+    action_input: {
+      objectType: 'event-candidate',
+      title: 'Tuesday Bluegrass',
+      dedupOn: ['title', 'startDate', 'venueName'],
+      fields: { startDate: '2026-10-06', categories: ['Live Music'] },
+    },
     ...overrides,
   };
 }
+
+/**
+ * A venue proposal, which rides the same tool with a different payload —
+ * different dedup key, no categories. Any rule about events has to survive
+ * one of these sitting beside it in the same run.
+ * @param overrides - What this particular case gets wrong, if anything.
+ */
+function venueProposal(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    action_id: 'objects.propose_candidate',
+    suggested_decision: 'approve',
+    suggested_decision_reason: 'New venue, address read from its own site.',
+    action_input: {
+      objectType: 'venue-candidate',
+      title: 'Nectar\'s, Burlington',
+      dedupOn: ['name', 'city'],
+      fields: { name: 'Nectar\'s', city: 'Burlington', addressLine1: '188 Main St' },
+    },
+    ...overrides,
+  };
+}
+
+/** Only the event proposals, which is what most rules here are about. */
+const EVENT_PROPOSALS = { path: 'action_input.objectType', equals: 'event-candidate' };
 
 describe('runCheck', () => {
   it('passes toolCalled when the tool is in the trajectory and fails when it is not', () => {
@@ -107,8 +135,8 @@ describe('runCheck', () => {
     // order is a different key, and the run that got this wrong on
     // 2026-09-08 lost five rows to it.
     const right = proposalTranscript([proposal()]);
-    const wrong = proposalTranscript([proposal({ dedupOn: ['startDate', 'title', 'venueName'] })]);
-    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'dedupOn', equals: ['title', 'startDate', 'venueName'] } };
+    const wrong = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', dedupOn: ['startDate', 'title', 'venueName'] } })]);
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.dedupOn', equals: ['title', 'startDate', 'venueName'] } };
 
     expect(runCheck(right, check)?.passed).toBe(true);
     expect(runCheck(wrong, check)?.passed).toBe(false);
@@ -119,10 +147,10 @@ describe('runCheck', () => {
     // only asked "is dedupOn anywhere in the arguments" would have passed it.
     const buried = proposalTranscript([{
       action_id: 'objects.propose_candidate',
-      action_input: { title: 'Tuesday Bluegrass', dedupOn: ['title', 'startDate', 'venueName'] },
+      action_input: { title: 'Tuesday Bluegrass', fields: { dedupOn: ['title', 'startDate', 'venueName'] } },
     }]);
 
-    const outcome = runCheck(buried, { toolCalledWith: { tool: 'propose_action', path: 'dedupOn', present: true } });
+    const outcome = runCheck(buried, { toolCalledWith: { tool: 'propose_action', path: 'action_input.dedupOn', present: true } });
 
     expect(outcome?.passed).toBe(false);
     expect(outcome?.explanation).toContain('dedupOn');
@@ -146,8 +174,8 @@ describe('runCheck', () => {
     // A model inventing "Concert" makes a card that fails validation
     // downstream, where the failure is someone else's to debug.
     const categories = ['Live Music', 'Arts & Culture', 'Community'];
-    const invented = proposalTranscript([proposal({ action_input: { categories: ['Live Music', 'Concert'] } })]);
-    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.categories', subsetOf: categories } };
+    const invented = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { categories: ['Live Music', 'Concert'] } } })]);
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.categories', subsetOf: categories } };
 
     expect(runCheck(proposalTranscript([proposal()]), check)?.passed).toBe(true);
 
@@ -169,7 +197,7 @@ describe('runCheck', () => {
     // green check, which is the silence this check exists to break.
     const nothingProposed = proposalTranscript([]);
 
-    const outcome = runCheck(nothingProposed, { toolCalledWith: { tool: 'propose_action', path: 'dedupOn', present: true } });
+    const outcome = runCheck(nothingProposed, { toolCalledWith: { tool: 'propose_action', path: 'action_input.dedupOn', present: true } });
 
     expect(outcome?.passed).toBe(false);
     expect(outcome?.explanation).toContain('Never called propose_action');
@@ -197,10 +225,10 @@ describe('runCheck', () => {
     // Object.keys(['a']) is ['0'], so a loose comparison would call
     // { 0: 'title' } equal to ['title'] and report a rule kept that nobody
     // checked — the worst thing a check can do.
-    const called = proposalTranscript([proposal({ dedupOn: ['title', 'startDate'] })]);
+    const called = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', dedupOn: ['title', 'startDate'] } })]);
 
     const outcome = runCheck(called, {
-      toolCalledWith: { tool: 'propose_action', path: 'dedupOn', equals: { 0: 'title', 1: 'startDate' } },
+      toolCalledWith: { tool: 'propose_action', path: 'action_input.dedupOn', equals: { 0: 'title', 1: 'startDate' } },
     });
 
     expect(outcome?.passed).toBe(false);
@@ -209,14 +237,68 @@ describe('runCheck', () => {
   it('says so when subsetOf is pointed at something that is not a list', () => {
     // Comparing "Live Music, Community" as one long value, or an object as
     // "[object Object]", answers a question nobody asked.
-    const joined = proposalTranscript([proposal({ action_input: { categories: 'Live Music, Community' } })]);
+    const joined = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { categories: 'Live Music, Community' } } })]);
 
     const outcome = runCheck(joined, {
-      toolCalledWith: { tool: 'propose_action', path: 'action_input.categories', subsetOf: ['Live Music', 'Community'] },
+      toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.categories', subsetOf: ['Live Music', 'Community'] },
     });
 
     expect(outcome?.passed).toBe(false);
     expect(outcome?.explanation).toContain('not a list');
+  });
+
+  it('holds a rule about events without failing on the venue proposal beside it', () => {
+    // propose_action files both. An event's dedup key is
+    // [title, startDate, venueName]; a venue's is [name, city]. Without
+    // `where`, the event rule fails on every run that proposed a venue —
+    // which is most real runs, and would read as the agent being broken.
+    const run = proposalTranscript([venueProposal(), proposal()]);
+
+    const outcome = runCheck(run, {
+      toolCalledWith: { tool: 'propose_action', where: EVENT_PROPOSALS, path: 'action_input.dedupOn', equals: ['title', 'startDate', 'venueName'] },
+    });
+
+    expect(outcome?.passed).toBe(true);
+  });
+
+  it('still catches a wrong key on one event when another event is right', () => {
+    // `where` narrows which calls a rule is about; it must not weaken the
+    // rule to "one of them was fine".
+    const run = proposalTranscript([
+      proposal(),
+      proposal({ action_input: { objectType: 'event-candidate', dedupOn: ['title', 'start', 'venueName'] } }),
+    ]);
+
+    const outcome = runCheck(run, {
+      toolCalledWith: { tool: 'propose_action', where: EVENT_PROPOSALS, path: 'action_input.dedupOn', equals: ['title', 'startDate', 'venueName'] },
+    });
+
+    expect(outcome?.passed).toBe(false);
+  });
+
+  it('lets a rule about something that does not always happen pass when it did not', () => {
+    // A venue is proposed only when it is new. "If you proposed one, its key
+    // was [name, city]" is true of a run that proposed none.
+    const eventsOnly = proposalTranscript([proposal()]);
+    const check: EvalCheck = {
+      toolCalledWith: {
+        tool: 'propose_action',
+        where: { path: 'action_input.objectType', equals: 'venue-candidate' },
+        noCalls: 'pass',
+        path: 'action_input.dedupOn',
+        equals: ['name', 'city'],
+      },
+    };
+
+    expect(runCheck(eventsOnly, check)?.passed).toBe(true);
+
+    const withBadVenue = proposalTranscript([
+      venueProposal({ action_input: { objectType: 'venue-candidate', dedupOn: ['name'] } }),
+      proposal(),
+    ]);
+
+    // And it still bites when the thing did happen, wrongly.
+    expect(runCheck(withBadVenue, check)?.passed).toBe(false);
   });
 
   it('skips an operator it does not recognise instead of failing the run', () => {

@@ -252,18 +252,19 @@ The two that read arguments take a small block rather than a bare value:
 
 ```text
 checks:
-  # Every proposal's dedup key is these three fields, in this order, at the
-  # top level of the arguments — not nested inside the payload.
+  # Every event proposal's dedup key is these three fields, in this order.
   - toolCalledWith:
       tool: propose_action
-      path: dedupOn
+      where: { path: action_input.objectType, equals: event-candidate }
+      path: action_input.dedupOn
       equals: [title, startDate, venueName]
   # Every proposal says what it recommends, and why.
   - toolCalledWith: { tool: propose_action, path: suggested_decision, present: true }
   # Categories only ever come from the workspace's own list.
   - toolCalledWith:
       tool: propose_action
-      path: action_input.categories
+      where: { path: action_input.objectType, equals: event-candidate }
+      path: action_input.fields.categories
       subsetOf: [Live Music, Community, Kids]
   # A correction refreshes the existing card instead of opening a second one.
   - toolCallCount: { tool: propose_action, max: 1 }
@@ -272,10 +273,21 @@ checks:
 `path` walks the arguments with dots and is optional — leave it out to test the
 whole argument object. Give one or more of `equals`, `contains`, `present` and
 `subsetOf`, and all of them have to hold. `calls` says how many of the tool's
-calls must satisfy them: `every`, the default, or `some`. A tool that was never
-called **fails** either way, because a rule about calls that never happened is
-not a rule anything kept — and an agent that silently stopped proposing
-anything is the regression most worth catching.
+calls must satisfy them: `every`, the default, or `some`.
+
+`where` narrows which calls the rule is about, and you will want it more often
+than it looks. One tool frequently files several kinds of thing — the example
+above proposes events and venues through the same `propose_action` — and a
+rule about one is simply false of the other. Without `where`, the event rule
+fails on every run that also proposed a venue, which reads as the agent being
+broken when it was doing exactly what it should.
+
+A tool that was never called, or never called in a way `where` matched,
+**fails** by default: a rule about calls that never happened is not a rule
+anything kept, and an agent that silently stopped proposing anything is the
+regression most worth catching. Set `noCalls: pass` for the other shape of
+rule — "if it did this, it did it right" — such as a venue proposal a run only
+makes when the venue is new.
 
 | Pros | Cons |
 |---|---|

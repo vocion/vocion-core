@@ -247,22 +247,50 @@ function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition
  * @param condition - The condition being described.
  */
 function describeArgumentCondition(condition: ToolArgumentCondition): string {
-  return condition.path ? `${condition.tool}.${condition.path}` : condition.tool;
+  const subject = condition.where ? `${condition.tool}[${condition.where.path}=${renderArgumentValue(condition.where.equals)}]` : condition.tool;
+  return condition.path ? `${subject}.${condition.path}` : subject;
+}
+
+/**
+ * The calls this condition is about.
+ *
+ * `where` is what makes a rule addressable when one tool files more than one
+ * kind of thing: `propose_action` proposes an event and a venue, and an
+ * event's dedup key is not a venue's.
+ * @param transcript - The case's tool calls.
+ * @param condition - The condition naming the tool and, optionally, the subset.
+ */
+function callsUnderTest(transcript: CaseTranscript, condition: ToolArgumentCondition): ToolCallRecord[] {
+  const byName = transcript.toolCalls.filter(call => call.tool === condition.tool);
+  if (!condition.where) {
+    return byName;
+  }
+  const { path, equals } = condition.where;
+  return byName.filter((call) => {
+    const { found, value } = resolveArgumentPath(call.input, path);
+    return found && deepEquals(value, equals);
+  });
 }
 
 function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition): CheckOutcome {
   const slug = `check:toolCalledWith:${describeArgumentCondition(condition)}`;
-  const calls = transcript.toolCalls.filter(call => call.tool === condition.tool);
+  const calls = callsUnderTest(transcript, condition);
 
   // A rule about what the arguments looked like cannot be kept by a call that
-  // never happened. Passing here would turn "the agent stopped proposing
-  // anything at all" into a green check, which is the failure this check
-  // exists to notice.
+  // never happened, so this fails by default: passing would turn "the agent
+  // stopped proposing anything at all" into a green check, which is the
+  // failure this check exists to notice. `noCalls: pass` is for the other
+  // shape of rule — "if it did this, it did it right" — where the thing
+  // legitimately does not happen on every run.
   if (calls.length === 0) {
+    const passed = condition.noCalls === 'pass';
+    const subject = condition.where ? `${condition.tool} matching ${condition.where.path} = ${renderArgumentValue(condition.where.equals)}` : condition.tool;
     return {
       slug,
-      passed: false,
-      explanation: `Never called ${condition.tool}. Tools used: ${describeTrajectory(transcript)}.`,
+      passed,
+      explanation: passed
+        ? `No call to ${subject}, which this case allows.`
+        : `Never called ${subject}. Tools used: ${describeTrajectory(transcript)}.`,
     };
   }
 
