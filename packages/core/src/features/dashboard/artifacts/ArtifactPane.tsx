@@ -307,7 +307,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
   const isSource = SOURCE.has(artifact.kind);
 
   return (
-    <section className={cn('flex h-full min-h-0 flex-col rounded-xl border border-border/70 bg-background', props.className)} aria-label={`Artifact: ${artifact.title}`} data-artifact-pane={artifact.id}>
+    <section className={cn('flex h-full min-h-0 min-w-0 flex-col rounded-xl border border-border/70 bg-background', props.className)} aria-label={`Artifact: ${artifact.title}`} data-artifact-pane={artifact.id}>
       <ArtifactHeader
         surface={surface}
         artifactId={artifact.id}

@@ -105,10 +105,18 @@ export function ConversationSplit(props: ConversationSplitProps) {
       ref={container}
       data-conversation-split="open"
       data-split={split.toFixed(3)}
-      className="grid min-h-0 flex-1 gap-4 lg:grid-cols-(--conversation-split) lg:gap-2"
+      // Stacked (below `lg`) the grid has ONE column, and it is
+      // `minmax(0, 1fr)` rather than the implicit `auto`. An `auto` track's
+      // floor is the widest item's min-content, and the transcript's
+      // min-content is its own `max-w-3xl` measure plus its gutters — 800px.
+      // So a 390px phone laid both panes out 800px wide and cut every line at
+      // both edges (the owner's screenshot, 2026-09-19). `minmax(0, 1fr)`
+      // gives the column the container's width and makes the panes shrink into
+      // it, which is what `min-w-0` on each of them below allows.
+      className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-(--conversation-split) lg:gap-2"
       style={{ '--conversation-split': `minmax(0, ${split}fr) ${DIVIDER_WIDTH}px minmax(0, ${1 - split}fr)` } as React.CSSProperties}
     >
-      <div className="flex min-h-0 flex-col" data-conversation-column>{props.conversation}</div>
+      <div className="flex min-h-0 min-w-0 flex-col" data-conversation-column>{props.conversation}</div>
       {/* Stacked panes have no split to drag, so below `lg` the divider is not
           in the page at all — `hidden` keeps it out of the accessibility tree
           too, rather than offering a control that moves nothing. */}

@@ -35,7 +35,12 @@ export function ArtifactChips({ artifacts, onOpen }: {
         const Icon = ARTIFACT_KIND_ICON[a.kind];
         const label = `v${a.version} ${a.version > 1 ? 'updated' : 'created'}`;
         return (
-          <li key={`${a.id}-${a.version}`}>
+          // `min-w-0` twice, and both are load-bearing: the chip's `truncate`
+          // span is `white-space: nowrap`, so its min-content is the whole
+          // title — which the `li` then reported to the wrapping row and the
+          // row reported to the transcript. A document title is long by
+          // nature, so the chip has to be the thing that gives.
+          <li key={`${a.id}-${a.version}`} className="max-w-full min-w-0">
             <button
               type="button"
               onClick={ev => (onOpen
@@ -46,7 +51,7 @@ export function ArtifactChips({ artifacts, onOpen }: {
               title={`${ARTIFACT_KIND_LABEL[a.kind]} · ${label}`}
             >
               <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="truncate">{a.title}</span>
+              <span className="min-w-0 truncate">{a.title}</span>
               <span className="shrink-0 text-[11px] font-normal text-muted-foreground">
                 ·
                 {' '}

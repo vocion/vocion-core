@@ -251,9 +251,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
       <ConversationSplit
         conversation={(
           <>
+            {/* The title is the flexible half of this row: `truncate` without
+                `min-w-0` cannot shrink inside a flex row, so a long
+                conversation title pushed the agent's name off the right edge. */}
             <div className="mb-2 flex items-baseline gap-2 px-1">
-              <h1 className="truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
-              <span className="text-xs text-muted-foreground">{session.agent.name}</span>
+              <h1 className="min-w-0 truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
+              <span className="shrink-0 text-xs text-muted-foreground">{session.agent.name}</span>
             </div>
             <div className="flex min-h-0 flex-1 flex-col">
               {session.messages.length === 0 && !session.resuming
