@@ -20,9 +20,10 @@
 import type { SearchHit } from '@/services/RetrievalService';
 import process from 'node:process';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { traceFor } from '@/libs/Langfuse';
+import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { resolveOrgProviderKey } from '@/libs/llm/orgKey';
+import { tokenUsageOf } from '@/libs/llm/usage';
 
 const RERANK_MODEL = process.env.VOCION_RERANK_MODEL ?? 'claude-haiku-4-5-20251001';
 const RERANK_MAX_CANDIDATES = 20;
@@ -75,6 +76,20 @@ export async function rerank(
   if (candidates.length <= 1) {
     return candidates;
   }
+  // Over a hard cap, skip the rerank instead of refusing the search. This is a
+  // quality pass over a list that is already ranked, so dropping it costs the
+  // person a slightly worse ordering — the same thing that happens when the
+  // rerank call fails, handled the same way below. Refusing the search outright
+  // over a few hundred tokens would be the wrong trade.
+  // Imported here rather than at the top of the file: `BudgetService` reaches
+  // the database handle, which validates the whole environment at import, and
+  // this module is loaded by retrieval code that runs in tests and CLI scripts
+  // with no database configured.
+  const { chargeUsage, preflightCheck } = await import('@/services/BudgetService');
+  const budget = await preflightCheck({ orgId: opts.orgId, feature: FEATURES.RETRIEVAL_RERANK });
+  if (!budget.ok) {
+    return candidates.slice(0, keep);
+  }
   const items = candidates.slice(0, RERANK_MAX_CANDIDATES);
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_RERANK,
@@ -124,10 +139,34 @@ export async function rerank(
         }
       }
     }
+    // The provider's own count, or nothing.
+    //
+    // This used to fall back to `prompt.length / 4` — the rule of thumb that
+    // English runs about four characters to a token. It was wrong for this
+    // prompt in particular (chunked document text with punctuation and ids
+    // tokenises denser than prose), it never counted the output at all, and
+    // there is no way to make it exact: Anthropic publishes no tokenizer for
+    // current Claude models, and their `count_tokens` endpoint is documented
+    // as an estimate too. The only exact number is the one the response
+    // reports.
+    //
+    // So a missing count now shows as missing. A successful non-streaming
+    // `invoke` always carries `usage_metadata`, which makes an empty trace here
+    // a real signal rather than a gap to paper over. The budget is charged from
+    // these same numbers, so what it says and what the trace says cannot drift.
+    const usage = tokenUsageOf(res);
     gen.end({
       output: { reranked: kept.length },
-      usageDetails: { input: prompt.length / 4 },
+      usageDetails: usage ? cleanUsageDetails({ input: usage.inputTokens, output: usage.outputTokens }) : undefined,
     });
+    if (usage) {
+      await chargeUsage({
+        orgId: opts.orgId,
+        feature: FEATURES.RETRIEVAL_RERANK,
+        model: RERANK_MODEL,
+        usage,
+      });
+    }
     trace.update({ output: { reranked: kept.length } });
   } catch (err) {
     gen.end({

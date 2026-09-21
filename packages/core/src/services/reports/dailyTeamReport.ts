@@ -46,6 +46,7 @@ import {
 } from '@/models/Schema';
 import { briefingHref } from '@/services/briefings/links';
 import { parseStoredDocument } from '@/services/briefings/store';
+import { agentScopedOnly } from '@/services/BudgetService';
 import { teamReport } from '@/services/TeamReportService';
 import { DAILY_TEAM_REPORT_PUBLISHER, shapeDailyTeamReport } from './dailyTeamReportShape';
 
@@ -250,9 +251,9 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
   const [agents, teams, budgets, runs, needsYou, rollupRows, performance] = await Promise.all([
     db.select({ slug: agentSchema.slug, name: agentSchema.name, teamSlug: agentSchema.teamSlug, active: agentSchema.active }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
     db.select({ slug: teamSchema.slug, name: teamSchema.name, leadAgentSlug: teamSchema.leadAgentSlug }).from(teamSchema).where(eq(teamSchema.orgId, orgId)),
-    db.select({ agentSlug: agentBudgetSchema.agentSlug, period: agentBudgetSchema.period, currentCents: agentBudgetSchema.currentCents, currentTokens: agentBudgetSchema.currentTokens, hardCentsLimit: agentBudgetSchema.hardCentsLimit })
+    db.select({ agentSlug: agentBudgetSchema.agentSlug, period: agentBudgetSchema.period, currentMicroCents: agentBudgetSchema.currentMicroCents, currentTokens: agentBudgetSchema.currentTokens, hardCentsLimit: agentBudgetSchema.hardCentsLimit })
       .from(agentBudgetSchema)
-      .where(eq(agentBudgetSchema.orgId, orgId)),
+      .where(and(eq(agentBudgetSchema.orgId, orgId), agentScopedOnly())),
     fetchWorkerRuns(orgId, w),
     fetchNeedsYou(orgId),
     fetchBriefing(orgId, until, opts.briefing),
@@ -264,7 +265,7 @@ export async function collectDailyTeamReport(orgId: string, window?: Partial<Rep
     runs,
     agents: agents.map(a => ({ slug: a.slug, name: a.name, teamSlug: a.teamSlug ?? null, active: String(a.active ?? 'true') !== 'false' })),
     teams: teams.map(t => ({ slug: t.slug, name: t.name, leadAgentSlug: t.leadAgentSlug ?? null })),
-    budgets: budgets.map(b => ({ agentSlug: b.agentSlug, period: b.period, currentCents: Number(b.currentCents ?? 0), currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit) })),
+    budgets: budgets.map(b => ({ agentSlug: b.agentSlug, period: b.period, currentCents: Number(b.currentMicroCents ?? 0) / 1_000_000, currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit) })),
   });
 
   // Workspace-aware links (libs/links.ts): the mail is about THIS project, so

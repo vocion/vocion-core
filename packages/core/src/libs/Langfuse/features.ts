@@ -1,10 +1,13 @@
 /**
- * Closed enum of "feature" dimensions stamped on every Langfuse trace.
+ * Closed enum of "feature" dimensions stamped on every Langfuse trace, and the
+ * same dimension `BudgetService` charges non-agent model spend against.
  *
  * Adding a new feature MUST mean editing this file, not passing a free
  * string at the call site. That's what keeps the Langfuse UI's
  * `tags = feature:<name>` filter useful for slicing cost / volume by
- * surface (chat vs. operation vs. eval).
+ * surface (chat vs. operation vs. eval) — and, since #279, what gives a paid
+ * call that belongs to no agent a budget row to land on
+ * (`platform:<feature>`).
  */
 
 export const FEATURES = {
@@ -38,6 +41,12 @@ export const FEATURES = {
   SKILL_TURN: 'skill.turn',
   /** Per-document candidate extraction inside a source sync's processor stage. */
   PROCESSOR_EXTRACT: 'processor.extract',
+  /** Rewrite-with-AI on a pending action's draft, from the review queue. */
+  REVIEW_REWRITE: 'review.rewrite',
+  /** Sales-call transcript classification in the discovery detector. */
+  DISCOVERY_CLASSIFY: 'discovery.classify',
+  /** The `generate_image` agent tool — the priciest single call an agent makes. */
+  TOOL_IMAGE: 'tool.image',
 } as const;
 
 export type FeatureName = (typeof FEATURES)[keyof typeof FEATURES];

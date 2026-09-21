@@ -61,7 +61,7 @@ describe('what the hire refuses before a person is ever asked', () => {
 
   it('refuses while the workspace has already spent its committed allowance', async () => {
     await setLimits({ orgId: ORG, agentSlug: 'growth-lead', softCentsLimit: 1000, hardCentsLimit: 5000 });
-    await db.update(agentBudgetSchema).set({ currentCents: 1000 }).where(eq(agentBudgetSchema.orgId, ORG));
+    await db.update(agentBudgetSchema).set({ currentMicroCents: 1_000_000_000 }).where(eq(agentBudgetSchema.orgId, ORG));
 
     const refusal = await hireAction.precheck!(ctx, { slug: ROLE, dailyCentsLimit: 200, reason: 'we need search' });
 
@@ -71,7 +71,7 @@ describe('what the hire refuses before a person is ever asked', () => {
 
   it('refuses an allowance bigger than what is left of the workspace\'s own', async () => {
     await setLimits({ orgId: ORG, agentSlug: 'growth-lead', softCentsLimit: 1000, hardCentsLimit: 5000 });
-    await db.update(agentBudgetSchema).set({ currentCents: 800 }).where(eq(agentBudgetSchema.orgId, ORG));
+    await db.update(agentBudgetSchema).set({ currentMicroCents: 800_000_000 }).where(eq(agentBudgetSchema.orgId, ORG));
 
     const refusal = await hireAction.precheck!(ctx, { slug: ROLE, dailyCentsLimit: 500, reason: 'we need search' });
 

@@ -24,7 +24,7 @@ import { readWorkspacePages } from '@/libs/workspace/pages';
 import { listPlugins } from '@/libs/workspace/plugins';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
-import { listAgentBudgets } from '@/services/BudgetService';
+import { listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
 import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
 import { readWorkspacePauseWithName } from '@/services/workspacePause';
@@ -126,13 +126,21 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   });
   // This workspace's spend vs cap this period — the header avatar's ring and
   // the menu's usage row. Hidden entirely when no budget exists.
+  //
+  // Spend is read off the workspace-wide row rather than summed over the
+  // agents: before #279 the ring showed agent turns only, so a workspace could
+  // sit at a comfortable fraction of its cap while most of the bill — every
+  // embedding, rerank and generated image — was not in the number at all. The
+  // cap is the workspace's own when an admin set one, and the sum of the agent
+  // caps otherwise, which is what the ring meant before.
   const usage = orgId
-    ? await listAgentBudgets(orgId)
-        .then((rows) => {
-          const spentCents = rows.reduce((acc, b) => acc + (b.currentCents ?? 0), 0);
-          const caps = rows.map(b => b.hardCentsLimit).filter((c): c is number => typeof c === 'number');
-          const capCents = caps.length > 0 ? caps.reduce((a, c) => a + c, 0) : null;
-          return rows.length > 0 ? { spentCents, capCents } : null;
+    ? await Promise.all([orgUsageTotals({ orgId }), listAgentBudgets(orgId)])
+        .then(([totals, rows]) => {
+          const agentCaps = rows.map(b => b.hardCentsLimit).filter((c): c is number => typeof c === 'number');
+          const capCents = totals.hardCentsLimit
+            ?? (agentCaps.length > 0 ? agentCaps.reduce((a, c) => a + c, 0) : null);
+          const anythingToShow = totals.spentCents > 0 || rows.length > 0 || capCents !== null;
+          return anythingToShow ? { spentCents: totals.spentCents, capCents } : null;
         })
         .catch(() => null)
     : null;

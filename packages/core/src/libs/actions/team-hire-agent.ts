@@ -63,7 +63,8 @@ export type HireAgentInput = z.infer<typeof hireAgentInput>;
 
 /**
  * cents → `$12.34`, for the card and the refusals.
- * @param cents - A whole number of cents.
+ * @param cents - Cents, which may carry a fraction since spend is counted in
+ * micro-cents; the two decimal places round it for reading.
  */
 function money(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;

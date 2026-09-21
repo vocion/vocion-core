@@ -146,7 +146,7 @@ async function seed() {
     { orgId: ORG, slug: 'board', name: 'Board', systemPrompt: 'x', teamSlug: 'board' },
   ]);
   await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'hubspot.update', threshold: 0.9, enabled: 'true' });
-  await db.insert(agentBudgetSchema).values({ orgId: ORG, agentSlug: 'deal-lead', period: 'daily', currentCents: 1234, currentTokens: 9000, hardCentsLimit: 5000 });
+  await db.insert(agentBudgetSchema).values({ orgId: ORG, agentSlug: 'deal-lead', period: 'daily', currentMicroCents: 1_234_000_000, currentTokens: 9000, hardCentsLimit: 5000 });
 
   // --- HubSpot mirror: one hourly source, synced 30 minutes ago -----------
   const [src] = await db.insert(knowledgeSourceSchema).values({ orgId: ORG, slug: 'hubspot', kind: 'plugin', configJson: { _connector: 'hubspot', schedule: '0 * * * *' }, lastSyncedAt: SYNCED_AT }).returning({ id: knowledgeSourceSchema.id });

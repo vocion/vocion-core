@@ -20,10 +20,12 @@ import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { nextRevisionVersion, revisionsFor } from '@/libs/actions/revisions';
 import { parseSuggestedDecision, parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
+import { FEATURES } from '@/libs/Langfuse/features';
 import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
 import { completeAction, executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
 
@@ -1436,6 +1438,16 @@ export async function rewriteDraft(opts: {
   const ask = async (messages: Array<InstanceType<typeof SystemMessage> | InstanceType<typeof HumanMessage>>): Promise<string | null> => {
     try {
       const res = await model.invoke(messages, { signal: AbortSignal.timeout(20_000) });
+      // Charged, never refused. A person has already pressed "Add change" and
+      // is watching the draft; refusing the rewrite over a cap would leave them
+      // with a button that does nothing. Both attempts charge, because both
+      // were paid for.
+      await chargeModelCall({
+        orgId: opts.orgId,
+        feature: FEATURES.REVIEW_REWRITE,
+        role: 'main',
+        response: res,
+      });
       const out = typeof res.content === 'string'
         ? res.content
         : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');

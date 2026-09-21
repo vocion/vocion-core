@@ -1853,7 +1853,7 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
   latencyMs: integer('latency_ms'),
   /**
    * What this one case cost: the agent run's token usage priced by
-   * `tokenCostCents`, plus how many model turns and tool calls it took.
+   * `tokenCostMicroCents`, plus how many model turns and tool calls it took.
    * NULL on rows written before the column existed and on errored cases.
    */
   usage: jsonb('usage').$type<{
@@ -2206,13 +2206,48 @@ export const agentBudgetSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /**
+     * What the row budgets. Either an agent's slug, or one of the reserved
+     * platform scopes `platform:all` (everything this org spent) and
+     * `platform:<feature>` (one non-agent surface, e.g.
+     * `platform:retrieval.embed`). `BudgetService` owns the spelling — see
+     * `ORG_SCOPE_SLUG` and `featureScopeSlug` there.
+     *
+     * The scope rides in this column rather than in a column of its own
+     * because the unique index below is what makes a charge atomic, and
+     * widening a unique index on a populated table is an expand-and-contract
+     * migration (migrations/CONVENTIONS.md §2) rather than a one-line change.
+     */
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * The Langfuse feature dimension this row rolls up, for a
+     * `platform:<feature>` row — null on an agent row and on `platform:all`.
+     * A typed label to group by, so a report never has to parse the slug.
+     */
+    feature: text('feature'),
     /** daily | monthly */
     period: text('period').default('daily').notNull(),
     /** Tokens consumed in the current period (sum of input + output). */
     currentTokens: bigint('current_tokens', { mode: 'number' }).default(0).notNull(),
-    /** Dollars (in USD cents to keep math integer-safe). */
-    currentCents: bigint('current_cents', { mode: 'number' }).default(0).notNull(),
+    /**
+     * Spend in the current period, in micro-cents — a millionth of a cent.
+     *
+     * The only money column, and a whole number, so a charge is exact and so
+     * is every sum of charges. Charging moved from one call per agent turn to
+     * one call per embedding batch, and a batch of chunks costs a fraction of
+     * a cent: counting in whole cents rounded a tenth of a cent up to one on
+     * every batch and billed a $1 sync as $10.
+     *
+     * Cents for reading are divided out of this at the point of display.
+     * There used to be a `current_cents` column holding that division, and it
+     * was removed: it was a second copy of the same money that could disagree
+     * with this one, and because it was floored per row, the agents' cents
+     * never added up to the workspace's. The database column outlives this
+     * line by one release — nothing reads or writes it now, and a later
+     * migration drops it (see `migrations/CONVENTIONS.md`, expand and
+     * contract).
+     */
+    currentMicroCents: bigint('current_micro_cents', { mode: 'number' }).default(0).notNull(),
     /** Soft cap — warn but don't refuse. */
     softTokenLimit: bigint('soft_token_limit', { mode: 'number' }),
     softCentsLimit: bigint('soft_cents_limit', { mode: 'number' }),

@@ -97,6 +97,21 @@ vi.mock('@/libs/DB', () => {
   return { db: { select: () => noRows } };
 });
 
+/**
+ * Budgets are somebody else's tests.
+ *
+ * `embed()` pre-flights the org's spend cap on an ingest and charges each batch
+ * against it. That is real behaviour with its own coverage in
+ * `BudgetService.pglite.test.ts`; here it would only mean teaching the
+ * hand-written database stub above to answer budget queries, for tests that are
+ * about which key and which model the embedder picked.
+ */
+vi.mock('@/services/BudgetService', () => ({
+  preflightCheck: async () => ({ ok: true }),
+  chargeUsage: async () => {},
+  BudgetExceededError: class BudgetExceededError extends Error {},
+}));
+
 const EMBED_OPTIONS = { orgId: 'org_embed_config_test', purpose: 'ingest' as const };
 
 const EMBEDDING_DIMENSIONS = 1536;

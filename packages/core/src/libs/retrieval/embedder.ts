@@ -217,6 +217,43 @@ export type EmbedOptions = {
 };
 
 /**
+ * Charge one batch's embedding tokens against the org's budget.
+ *
+ * Separate from the loop so the loop reads as what it is, and lazily imported
+ * because this file sits in the import chain of CLI scripts that tsx compiles
+ * as CommonJS — the same reason `logWarning` above loads the logger that way.
+ *
+ * Never throws: an embedding that already happened has already been paid for,
+ * and losing the vectors because the accounting failed would be the more
+ * expensive mistake. A failure is logged, because a budget that silently stops
+ * counting is the defect this whole change exists to fix.
+ * @param orgId - Tenant.
+ * @param model - The embedding model the backend called.
+ * @param inputTokens - Tokens the provider billed for this batch.
+ */
+async function chargeEmbeddingBatch(orgId: string, model: string, inputTokens: number): Promise<void> {
+  if (inputTokens <= 0) {
+    return;
+  }
+  try {
+    const { chargeUsage } = await import('@/services/BudgetService');
+    await chargeUsage({
+      orgId,
+      feature: FEATURES.RETRIEVAL_EMBED,
+      model,
+      usage: { inputTokens },
+    });
+  } catch (error) {
+    logWarning('could not charge an embedding batch to the budget', {
+      orgId,
+      model,
+      inputTokens,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Embed a batch of strings. Returns vectors in the same order as the
  * input. Splits into the backend's batch size under the hood.
  * @param texts
@@ -247,6 +284,24 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
   // Resolved once for the whole call: every batch below belongs to the same
   // org, so one credential lookup covers them all.
   const backend = await embeddingBackendForOrg(opts.orgId);
+
+  // Ingest is the one embedding path a hard cap may refuse. It is the largest
+  // spender by far — a sync embeds every chunk of every document — and it is
+  // restartable, so stopping costs a re-run rather than a person's answer. A
+  // query-time embedding is charged just the same but never refused: refusing
+  // it would break search for a fraction of a cent.
+  //
+  // Checked here, before the first batch, so a refused document writes nothing.
+  // `ingestDocument` embeds one document's chunks per call and stores them
+  // afterwards in one transaction, so a throw leaves no half-written document
+  // behind.
+  if (opts.purpose === 'ingest') {
+    const { BudgetExceededError, preflightCheck } = await import('@/services/BudgetService');
+    const budget = await preflightCheck({ orgId: opts.orgId, feature: FEATURES.RETRIEVAL_EMBED });
+    if (!budget.ok) {
+      throw new BudgetExceededError(budget);
+    }
+  }
   const trace = traceFor({
     feature: FEATURES.RETRIEVAL_EMBED,
     slug: opts.sourceSlug ?? opts.purpose,
@@ -295,6 +350,14 @@ export async function embed(texts: string[], opts: EmbedOptions): Promise<number
           throw error;
         }
       });
+      // Charged per batch rather than once at the end, so a sync that dies
+      // partway has still paid for what it used, and outside the retry callback
+      // so a retried batch is charged once for the attempt that succeeded.
+      // `chargeUsage` accumulates fractions of a cent, which is what makes
+      // per-batch charging safe: a batch of chunks costs well under a cent, and
+      // rounding each one up to a whole cent would bill a $1 sync as $10.
+      await chargeEmbeddingBatch(opts.orgId, backend.model, result.inputTokens);
+
       // Placed by position within the batch, which the backend guarantees
       // matches the order the texts went in. A backend that leaves a hole is
       // caught by the gap check below.
