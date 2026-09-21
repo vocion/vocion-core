@@ -241,3 +241,78 @@ describe('supersedeAsk and notifications', () => {
     expect((await svc.pendingNotifications({ orgId: ORG, now: new Date('2026-09-17T00:00:00Z') })).map(a => a.id)).toEqual([later]);
   });
 });
+
+describe('fileAsk — one decision, one durable object', () => {
+  const contract = {
+    decision: 'Decide whether to ship the board with four requests unanswered.',
+    recommendation: 'Hold the release until the four are answered.',
+    impactOfDelay: 'Four requests stay blocked and their askers hear nothing.',
+    actions: [{ id: 'hold', label: 'Hold the release', recommended: true }, { id: 'ship', label: 'Ship anyway' }],
+  };
+
+  it('files one ask, then escalates the same group key instead of filing a sibling', async () => {
+    const first = await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'CHECK 7: the board cannot be made true', groupKey: 'board:appcurious', agentSlug: 'task-planner', ...contract } });
+
+    expect(first).toMatchObject({ created: true, escalated: false });
+
+    const second = await svc.fileAsk({
+      orgId: ORG,
+      ask: { kind: 'ruling', title: 'CHECK 10: the board still cannot be made true', groupKey: 'board:appcurious', agentSlug: 'task-planner', ...contract },
+      recheck: { note: 'three requests blocked' },
+    });
+
+    expect(second).toMatchObject({ created: false, escalated: true });
+    expect(second.ask.id).toBe(first.ask.id);
+
+    const all = await svc.listAsks(ORG, { status: 'all' });
+
+    expect(all.total).toBe(1);
+    expect(all.items[0]!.history.map(h => h.note)).toEqual(['three requests blocked']);
+  });
+
+  it('raises the urgency one step per re-check and never past high', async () => {
+    const { ask } = await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
+
+    expect(ask.urgency).toBeNull();
+
+    const notes = ['first request blocked', 'three blocked', 'four blocked', 'five blocked'];
+    let urgency: string | null = null;
+    for (const note of notes) {
+      const again = await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract }, recheck: { note } });
+      urgency = again.ask.urgency;
+    }
+
+    expect(urgency).toBe('high');
+
+    const [row] = (await svc.listAsks(ORG, { status: 'all' })).items;
+
+    expect(row!.history.map(h => h.note)).toEqual(notes);
+  });
+
+  it('does not append the same finding twice — a scheduler running twice is not an escalation', async () => {
+    await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
+    await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract }, recheck: { note: 'four blocked' } });
+    await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract }, recheck: { note: 'four blocked' } });
+
+    const [row] = (await svc.listAsks(ORG, { status: 'all' })).items;
+
+    expect(row!.history).toHaveLength(1);
+  });
+
+  it('files a fresh ask once the decision has been answered — a closed decision is not escalated', async () => {
+    const { ask } = await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
+    await svc.decideAsk({ orgId: ORG, id: ask.id, decision: 'approve', decidedBy: 'u' });
+
+    const again = await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
+
+    expect(again.created).toBe(true);
+    expect(again.ask.id).not.toBe(ask.id);
+  });
+
+  it('keeps two orgs apart on the same group key', async () => {
+    await svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
+    const other = await svc.fileAsk({ orgId: OTHER_ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
+
+    expect(other.created).toBe(true);
+  });
+});

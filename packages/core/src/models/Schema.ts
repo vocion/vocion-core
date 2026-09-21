@@ -3893,6 +3893,40 @@ export const ASK_RISKS = ['low', 'medium', 'high'] as const;
 export type AskRisk = typeof ASK_RISKS[number];
 
 /**
+ * How soon this needs answering, and how much rides on the answer — the two
+ * axes that used to be conflated into `risk` alone. Risk stays what it always
+ * was: how bad a WRONG answer is. Urgency is how bad a LATE one is, and
+ * impact is how much is riding on it either way (migration 0133).
+ */
+export const ASK_URGENCIES = ['low', 'medium', 'high'] as const;
+export type AskUrgency = typeof ASK_URGENCIES[number];
+export const ASK_IMPACTS = ['low', 'medium', 'high'] as const;
+export type AskImpact = typeof ASK_IMPACTS[number];
+
+/**
+ * One line of an ask's escalation history — what a re-check found, and when.
+ *
+ * A mission that re-checks an unresolved decision UPDATES the open ask: it
+ * raises the urgency and appends a line here. It never files a sibling. The
+ * strip on the card reads "2h: first request blocked · 6h: three blocked ·
+ * 13h: four blocked", which is the escalation told once on one object rather
+ * than as CHECK 7, CHECK 10, CRITICAL and SYSTEM FAILURE on four rows
+ * (Chris, 2026-09-21).
+ */
+export type AskHistoryEntry = {
+  /** ISO timestamp. */
+  at: string;
+  /** Hours since the ask was filed, as the strip prints it — "13h". */
+  age?: string;
+  /** What the re-check found, short. */
+  note: string;
+  /** The urgency this entry raised it to, when it raised one. */
+  urgency?: AskUrgency;
+  /** Who or what appended it — an agent slug, a mission slug. */
+  by?: string;
+};
+
+/**
  * One QUESTION waiting on a PERSON: an approval, a ruling, an input or
  * credential, a merge, a recommendation, a gate. Unlike `action_run` nothing
  * executes when it is answered — the answer IS the outcome, and whoever filed
@@ -3921,8 +3955,17 @@ export const askSchema = pgTable(
     sourceRef: text('source_ref'),
     agentSlug: text('agent_slug'),
     teamSlug: text('team_slug'),
-    /** `low` | `medium` | `high` */
+    /** How bad a WRONG answer is: `low` | `medium` | `high`. */
     risk: text('risk'),
+    /** How bad a LATE answer is: `low` | `medium` | `high` (migration 0133). */
+    urgency: text('urgency'),
+    /** How much rides on the answer either way: `low` | `medium` | `high` (migration 0133). */
+    impact: text('impact'),
+    /**
+     * What a re-check found, appended in order — never a second ask
+     * (migration 0133). One decision is one durable object.
+     */
+    history: jsonb('history').$type<AskHistoryEntry[]>().default([]).notNull(),
     /** Named answers. The free-text "other" answer is always available on top. */
     options: jsonb('options').$type<AskOption[]>().default([]).notNull(),
     /**

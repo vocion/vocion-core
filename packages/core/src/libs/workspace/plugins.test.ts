@@ -289,7 +289,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.7.0');
+    expect(ws.sha).toContain('+software-factory@1.8.0');
   });
 
   it('seats a product manager who recommends and never authorizes, and says how, when and why it acts', () => {

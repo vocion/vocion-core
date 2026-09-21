@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAskKind, isAskRisk, isAskStatusFilter, listAsks, normaliseObjectRefs, normaliseOptions, upsertAsk } from '@/services/AskService';
+import { fileAsk, isAskImpact, isAskKind, isAskRisk, isAskStatusFilter, isAskUrgency, listAsks, normaliseObjectRefs, normaliseOptions } from '@/services/AskService';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination } from '../_shared';
 import { askErrorResponse, optDate, optStr, withAskUrl, withAskUrls } from './_lib';
 
@@ -69,6 +69,11 @@ export async function GET(req: Request) {
  * the row is updated in place and the reply is 200 — only the fields present
  * in the request change (send `null` to clear one); status and decision are
  * never touched by a re-file. A new ask is 201.
+ *
+ * A filing whose `groupKey` already has an OPEN ask never creates a sibling:
+ * that ask is escalated — urgency raised a step, `recheck.note` appended to
+ * its history — and the reply is 200 with `escalated: true`. One decision is
+ * one durable object.
  * Auth: tenant API token or dashboard session.
  * @param req - Request.
  */
@@ -100,12 +105,25 @@ export async function POST(req: Request) {
   if (isErrorResponse(notifyAt)) {
     return notifyAt;
   }
+  const rawUrgency = optStr(body, 'urgency');
+  if (rawUrgency && !isAskUrgency(rawUrgency)) {
+    return jsonError('VALIDATION_FAILED', 'urgency must be low, medium or high', 400);
+  }
+  const rawImpact = optStr(body, 'impact');
+  if (rawImpact && !isAskImpact(rawImpact)) {
+    return jsonError('VALIDATION_FAILED', 'impact must be low, medium or high', 400);
+  }
+  // A re-check names a STANDING question: the open ask under the same group
+  // key is escalated rather than doubled.
+  const recheckNote = body.recheck && typeof body.recheck === 'object' && !Array.isArray(body.recheck) ? optStr(body.recheck as Record<string, unknown>, 'note') : undefined;
+  const recheck = recheckNote ? { note: recheckNote, by: optStr(body, 'agentSlug') ?? null } : undefined;
   const decisionCost = 'decisionCost' in body ? body.decisionCost : undefined;
   if (decisionCost !== undefined && decisionCost !== null && (typeof decisionCost !== 'number' || !Number.isInteger(decisionCost) || decisionCost < 0)) {
     return jsonError('VALIDATION_FAILED', 'decisionCost must be a whole number of minutes, 0 or more', 400);
   }
   try {
-    const { ask, created } = await upsertAsk({
+    const { ask, created, escalated } = await fileAsk({
+      ...(recheck ? { recheck } : {}),
       orgId: caller.orgId,
       createdBy: caller.actorId,
       ask: {
@@ -117,6 +135,8 @@ export async function POST(req: Request) {
         agentSlug: optStr(body, 'agentSlug'),
         teamSlug: optStr(body, 'teamSlug'),
         risk: rawRisk === undefined ? undefined : isAskRisk(rawRisk) ? rawRisk : null,
+        urgency: rawUrgency === undefined ? undefined : isAskUrgency(rawUrgency) ? rawUrgency : null,
+        impact: rawImpact === undefined ? undefined : isAskImpact(rawImpact) ? rawImpact : null,
         options: 'options' in body ? normaliseOptions(body.options) : undefined,
         objectRefs: 'objectRefs' in body ? normaliseObjectRefs(body.objectRefs) : undefined,
         decisionCost: decisionCost === undefined ? undefined : (decisionCost as number | null),
@@ -129,7 +149,7 @@ export async function POST(req: Request) {
         projectId: optStr(body, 'projectId'),
       },
     });
-    return NextResponse.json({ ask: await withAskUrl(caller.orgId, ask), created }, { status: created ? 201 : 200 });
+    return NextResponse.json({ ask: await withAskUrl(caller.orgId, ask), created, escalated }, { status: created ? 201 : 200 });
   } catch (error) {
     return askErrorResponse(error);
   }

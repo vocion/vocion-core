@@ -17,6 +17,18 @@ autonomyPolicy:
   level: 2
 successCriteria:
   - Every product in dogfood or live has countersUpdatedAt within the last twenty-four hours
+  - >-
+    A number that cannot be computed, or a board that cannot be made to read
+    true without a person, raises ONE ask under the group key
+    `board:<product>` — and every later morning that finds it still open
+    UPDATES that ask (`recheck.note` saying what is true now) rather than
+    filing another. One decision is one durable object; four rows about one
+    unanswered question is the defect, not the escalation.
+  - >-
+    Every ask this mission files carries its decision contract — what must be
+    decided in one sentence, the recommendation (or why none can be formed),
+    the one or two strongest reasons, what happens if it waits, and the
+    labelled choices. An ask without them is refused on write.
   - openRequests and p1Open equal the count of that product's request records in an open state, and the check can name them
   - shippedThisMonth and lastReleaseAt are read from that product's release records; a merged task with no release does not count as shipped
   - medianDaysToShip is computed from askedAt to the closing release's releasedAt over the last ninety days, or left empty with the reason when fewer than three requests closed

@@ -1,16 +1,16 @@
-import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+import type { AskHistoryEntry, AskImpact, AskKind, AskObjectRef, AskOption, AskRisk, AskUrgency } from '@/models/Schema';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { db } from '@/libs/DB';
 import { workspaceUrl } from '@/libs/links';
-import { ASK_KINDS, ASK_RISKS, askSchema } from '@/models/Schema';
+import { ASK_IMPACTS, ASK_KINDS, ASK_RISKS, ASK_URGENCIES, askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
 
-export type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+export type { AskHistoryEntry, AskImpact, AskKind, AskObjectRef, AskOption, AskRisk, AskUrgency } from '@/models/Schema';
 // The vocabulary lives beside the row (see `models/Schema.ts`); this is its home for readers.
-export { ASK_KINDS, ASK_RISKS };
+export { ASK_IMPACTS, ASK_KINDS, ASK_RISKS, ASK_URGENCIES };
 
 /**
  * AskService — the record of every QUESTION waiting on a HUMAN, and the one
@@ -73,6 +73,14 @@ export function isAskKind(value: unknown): value is AskKind {
 
 export function isAskRisk(value: unknown): value is AskRisk {
   return typeof value === 'string' && (ASK_RISKS as readonly string[]).includes(value);
+}
+
+export function isAskUrgency(value: unknown): value is AskUrgency {
+  return typeof value === 'string' && (ASK_URGENCIES as readonly string[]).includes(value);
+}
+
+export function isAskImpact(value: unknown): value is AskImpact {
+  return typeof value === 'string' && (ASK_IMPACTS as readonly string[]).includes(value);
 }
 
 export function isAskStatus(value: unknown): value is AskStatus {
@@ -214,6 +222,10 @@ export type AskInput = {
   agentSlug?: string | null;
   teamSlug?: string | null;
   risk?: AskRisk | null;
+  /** How bad a LATE answer is — the axis `risk` was wrongly carrying. */
+  urgency?: AskUrgency | null;
+  /** How much rides on the answer either way. */
+  impact?: AskImpact | null;
   /** Already normalised — see `normaliseOptions`. */
   options?: AskOption[];
   /** Already normalised — see `normaliseObjectRefs`. The records the question is about. */
@@ -258,6 +270,8 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       agentSlug: ask.agentSlug,
       teamSlug: ask.teamSlug,
       risk: ask.risk,
+      urgency: ask.urgency,
+      impact: ask.impact,
       options: ask.options,
       objectRefs: ask.objectRefs,
       decisionCost: ask.decisionCost,
@@ -269,7 +283,7 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       notifyAt: ask.notifyAt,
       projectId: ask.projectId,
     }).filter(([, v]) => v !== undefined),
-  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'urgency' | 'impact' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {
@@ -293,6 +307,143 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
     .values({ ...mutable, orgId, sourceRef, createdBy: opts.createdBy ?? null })
     .returning();
   return { ask: row!, created: true };
+}
+
+/**
+ * Raise an urgency by one step. An unsaid urgency starts at `low`, so the
+ * first re-check reads `medium` — a re-check is evidence that waiting is
+ * costing something, and that is exactly what urgency means.
+ * @param current - The urgency the open ask holds, or null.
+ */
+export function raiseUrgency(current: string | null | undefined): AskUrgency {
+  const i = (ASK_URGENCIES as readonly string[]).indexOf(current ?? 'low');
+  return ASK_URGENCIES[Math.min((i < 0 ? 0 : i) + 1, ASK_URGENCIES.length - 1)]!;
+}
+
+/**
+ * "13h", "2d" — how long the decision had been open when a re-check found it still open.
+ * @param from
+ * @param now
+ */
+function ageLabel(from: Date, now: Date): string {
+  const minutes = Math.max(0, Math.round((now.getTime() - from.getTime()) / 60_000));
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+/** At most this many history lines ride an ask. The strip is one line; the oldest fall off it. */
+const MAX_HISTORY = 20;
+
+/** What a re-check found. Passing one is what turns a re-file into an escalation. */
+export type AskRecheck = {
+  /** What is true now, short — "four requests blocked". */
+  note: string;
+  /** Who found it: an agent slug, a mission slug. */
+  by?: string | null;
+  /** Leave unset to raise by one step; pass a value to set it outright. */
+  urgency?: AskUrgency | null;
+  now?: Date;
+};
+
+/**
+ * FILE an ask — the one entry point an agent, a mission or an outside caller
+ * uses, and the only one that can refuse.
+ *
+ * Two guards the low-level `upsertAsk` does not have:
+ *
+ * 1. ONE DECISION, ONE OBJECT. An ask is identified by its `groupKey`. A
+ *    filing whose group key already has an OPEN ask never creates a sibling:
+ *    the open one is updated, its urgency raised, and a line appended to its
+ *    history. This is what stops a mission's scheduled re-check turning one
+ *    unresolved decision into CHECK 7, CHECK 10, CRITICAL and SYSTEM FAILURE
+ *    (Chris, 2026-09-21) — four rows about one thing, none of them obviously
+ *    the live one.
+ * 2. THE DECISION CONTRACT, on every new ask (see `fileAsk`'s caller-facing
+ *    validation in `services/inbox/decisionContract.ts`).
+ *
+ * A `sourceRef` the org has already filed still wins over the group key: it
+ * is the caller's own idempotency key and names an exact row.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.ask - The ask, as `upsertAsk` takes it.
+ * @param opts.createdBy
+ * @param opts.recheck - Set when this filing is a re-check of a standing question rather than a new one.
+ */
+export async function fileAsk(opts: { orgId: string; ask: AskInput; createdBy?: string | null; recheck?: AskRecheck }): Promise<{ ask: Ask; created: boolean; escalated: boolean }> {
+  const groupKey = opts.ask.groupKey?.trim() || null;
+  const sourceRef = opts.ask.sourceRef?.trim() || null;
+  if (groupKey) {
+    const [existing] = await db
+      .select()
+      .from(askSchema)
+      .where(and(
+        eq(askSchema.orgId, opts.orgId),
+        eq(askSchema.groupKey, groupKey),
+        eq(askSchema.status, 'open'),
+        // The caller's own key names an exact row; `upsertAsk` handles that
+        // case and must not be short-circuited into someone else's ask.
+        sourceRef ? or(isNull(askSchema.sourceRef), eq(askSchema.sourceRef, sourceRef)) : undefined,
+      ))
+      .orderBy(asc(askSchema.id))
+      .limit(1);
+    if (existing) {
+      return { ask: await escalate(existing, opts), created: false, escalated: true };
+    }
+  }
+  const { ask, created } = await upsertAsk(opts);
+  return { ask, created, escalated: false };
+}
+
+/**
+ * Update the open ask a re-filing landed on: whatever the filer said that it
+ * may change, one step more urgent, and one more line of history. Nothing
+ * here can decide, reopen or duplicate it.
+ * @param existing - The open ask that owns this decision.
+ * @param opts - The filing that arrived.
+ * @param opts.ask
+ * @param opts.orgId
+ * @param opts.recheck
+ */
+async function escalate(existing: Ask, opts: { orgId: string; ask: AskInput; recheck?: AskRecheck }): Promise<Ask> {
+  const now = opts.recheck?.now ?? new Date();
+  const note = opts.recheck?.note?.trim() || opts.ask.title.trim();
+  const urgency = opts.recheck?.urgency ?? raiseUrgency(existing.urgency);
+  const entry: AskHistoryEntry = {
+    at: now.toISOString(),
+    age: ageLabel(existing.createdAt, now),
+    note,
+    urgency,
+    ...(opts.recheck?.by ? { by: opts.recheck.by } : opts.ask.agentSlug ? { by: opts.ask.agentSlug } : {}),
+  };
+  // A re-check that says nothing new says nothing: the same note at the same
+  // age is the scheduler running twice, not an escalation.
+  const history = existing.history ?? [];
+  const last = history.at(-1);
+  const next = last && last.note === entry.note && last.age === entry.age ? history : [...history, entry].slice(-MAX_HISTORY);
+  const [row] = await db
+    .update(askSchema)
+    .set({
+      // Everything a filer may refresh — the body, the options, the context —
+      // but never the status, the decision or who filed it first.
+      ...(opts.ask.body !== undefined ? { body: opts.ask.body } : {}),
+      ...(opts.ask.options !== undefined ? { options: opts.ask.options } : {}),
+      ...(opts.ask.contextUrl !== undefined ? { contextUrl: opts.ask.contextUrl } : {}),
+      ...(opts.ask.contextMd !== undefined ? { contextMd: opts.ask.contextMd } : {}),
+      ...(opts.ask.objectRefs !== undefined ? { objectRefs: opts.ask.objectRefs } : {}),
+      ...(opts.ask.dueAt !== undefined ? { dueAt: opts.ask.dueAt } : {}),
+      ...(opts.ask.impact !== undefined && opts.ask.impact !== null ? { impact: opts.ask.impact } : {}),
+      urgency,
+      history: next,
+      // An escalation is news: whoever was told before is told again.
+      ...(next === history ? {} : { notified: false }),
+      updatedAt: now,
+    })
+    .where(and(eq(askSchema.orgId, opts.orgId), eq(askSchema.id, existing.id), eq(askSchema.status, 'open')))
+    .returning();
+  return row ?? existing;
 }
 
 /**

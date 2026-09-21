@@ -22,6 +22,19 @@ successCriteria:
   - Every proposed reply is written for the asker in their own terms, states what changed or was decided and why, and names nothing that is still waiting on a person as done
   - No request moves to `shipped` or `answered` before its reply was released; `answeredAt` is when they heard, not when we decided; the release's announcedTo.requestIds is written when the reply is released, and announcedAt when the announcement is
   - Duplicates are told where the request they duplicate stands, once
+  - >-
+    A reply that cannot be proposed without a person — a blocked request, a
+    channel with no address, a "no" nobody has authorised — raises ONE ask
+    under the group key `reply:<requestId>`. Every two-hourly pass that finds
+    it still open UPDATES that ask with what is true now ("2h: first request
+    blocked. 6h: three blocked. 13h: four blocked") and never files a
+    sibling. The urgency rises on the one object; the history strip on the
+    card is the escalation.
+  - >-
+    Every ask this mission files carries its decision contract — the decision
+    in one sentence, the recommendation (or why none can be formed), the
+    strongest reasons, what delay costs, and the labelled choices — because
+    an ask without them is refused on write.
 desiredArtifacts:
   - Release notes drafted per release that has none, for a person to own
   - An announcement proposed per release with owned notes and no announcement

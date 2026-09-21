@@ -20,5 +20,6 @@ export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment']): SheetAs
     agentSlug: ask.agentSlug,
     teamSlug: ask.teamSlug,
     risk: ask.risk,
+    history: ask.history,
   };
 }

@@ -406,7 +406,7 @@
             }
           }
         },
-        "description": "{ kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?,\n    options?: (string | { id, label, description?, recommended? })[],\n    objectRefs?: { type, id }[], decisionCost?,\n    groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }\n\nFile a question for a person. `options` may be bare strings (id = slug of\nthe label) or objects; at most one may be `recommended`. `objectRefs` names\nthe records the question is about (an object type slug and the object's\nid); they ride the `ask.decided` event so the answer can be written back\nonto them. `decisionCost` is the minutes of attention the decision is\nestimated to take. `url` is accepted\nas an alias of `contextUrl`. The reply's `ask.url` is the workspace-aware\nlink to decide it (`/w/<workspace>/dashboard/inbox/<id>`) — paste that, not a\nbare `/dashboard/inbox` path. With a `sourceRef` this org has already filed,\nthe row is updated in place and the reply is 200 — only the fields present\nin the request change (send `null` to clear one); status and decision are\nnever touched by a re-file. A new ask is 201.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?,\n    options?: (string | { id, label, description?, recommended? })[],\n    objectRefs?: { type, id }[], decisionCost?,\n    groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }\n\nFile a question for a person. `options` may be bare strings (id = slug of\nthe label) or objects; at most one may be `recommended`. `objectRefs` names\nthe records the question is about (an object type slug and the object's\nid); they ride the `ask.decided` event so the answer can be written back\nonto them. `decisionCost` is the minutes of attention the decision is\nestimated to take. `url` is accepted\nas an alias of `contextUrl`. The reply's `ask.url` is the workspace-aware\nlink to decide it (`/w/<workspace>/dashboard/inbox/<id>`) — paste that, not a\nbare `/dashboard/inbox` path. With a `sourceRef` this org has already filed,\nthe row is updated in place and the reply is 200 — only the fields present\nin the request change (send `null` to clear one); status and decision are\nnever touched by a re-file. A new ask is 201.\n\nA filing whose `groupKey` already has an OPEN ask never creates a sibling:\nthat ask is escalated — urgency raised a step, `recheck.note` appended to\nits history — and the reply is 200 with `escalated: true`. One decision is\none durable object.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
           "required": true,
           "content": {
@@ -425,6 +425,9 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "options": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "recheck": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   }
                 },

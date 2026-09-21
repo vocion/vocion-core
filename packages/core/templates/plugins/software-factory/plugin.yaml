@@ -23,6 +23,12 @@
 # person accountable for the merge.
 slug: software-factory
 name: Software factory
+# 1.8.0 — Review holds decisions, not events. The missions that re-check a
+# standing question now UPDATE the one open ask (raising its urgency and
+# appending what they found) instead of filing CHECK 7, CHECK 10, CRITICAL
+# and SYSTEM FAILURE about one unanswered decision, and every ask a mission
+# files carries its decision contract: what must be decided, what the system
+# recommends, why, what delay costs, and the labelled choices.
 # 1.5.0 — the debrief: a finished worker run or a merged pull request is
 # written back on the request by the Product manager (state, what answered
 # it, actual cost beside the estimate, the recommendation refreshed, draft
@@ -53,7 +59,7 @@ name: Software factory
 # that did not happen says so; a run that says failed whose pull request
 # merged shows both facts and is flagged. Reached by the "Report" action on
 # the Backlog and the Factory floor.
-version: 1.7.0
+version: 1.8.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

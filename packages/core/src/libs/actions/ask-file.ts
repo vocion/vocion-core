@@ -29,7 +29,7 @@ import type { Action, ActionContext, ReviewCard } from './types';
 import { z } from 'zod';
 // From the schema leaf, not the service: the registry loads this module, and
 // the service's import graph reaches back into the registry (`policyKey`).
-import { ASK_KINDS, ASK_RISKS } from '@/models/Schema';
+import { ASK_IMPACTS, ASK_KINDS, ASK_RISKS, ASK_URGENCIES } from '@/models/Schema';
 
 /** One record the ask is about. `id` is kept as a string; a number is accepted and stringified. */
 const objectRef = z.object({
@@ -60,8 +60,16 @@ const askFileInput = z.object({
   kind: z.enum(ASK_KINDS).default('approval'),
   /** Named answers. Bare strings get `id = slug(label)`. At most one `recommended`. */
   options: z.array(option).max(8).optional(),
+  /** How bad a WRONG answer is. */
   risk: z.enum(ASK_RISKS).optional(),
-  /** Several asks under one key are decided as one sheet. */
+  /** How bad a LATE answer is. Raised a step on every re-check, so the filer rarely sets it. */
+  urgency: z.enum(ASK_URGENCIES).optional(),
+  /** How much rides on the answer either way. */
+  impact: z.enum(ASK_IMPACTS).optional(),
+  /**
+   * The decision's IDENTITY. A filing whose group key already has an open ask
+   * updates that ask — it never files a sibling.
+   */
   groupKey: z.string().min(1).max(200).optional(),
   groupTitle: z.string().min(1).max(200).optional(),
   /** The mission this question serves. Recorded on the ask's context link when no `contextUrl` is given. */
@@ -83,6 +91,17 @@ const askFileInput = z.object({
    */
   agentSlug: z.string().min(1).max(120).optional(),
   teamSlug: z.string().min(1).max(120).optional(),
+  /**
+   * Set when this filing is a scheduled RE-CHECK of a standing question rather
+   * than a new one: the open ask under the same group key is raised a step and
+   * this note is appended to its history. Filing a second ask instead is the
+   * defect this replaces.
+   */
+  recheck: z.object({
+    /** What is true now, short — "four requests blocked". */
+    note: z.string().min(1).max(200),
+    urgency: z.enum(ASK_URGENCIES).optional(),
+  }).optional(),
   /** Where the question came up — stamped by the tool, never by the model. */
   origin: z.object({
     missionRunId: z.number().int().positive().optional(),
@@ -193,15 +212,16 @@ export const askFileAction: Action<typeof askFileInput> = {
     };
   },
   async execute(ctx: ActionContext, input) {
-    const { askUrlFor, normaliseOptions, upsertAsk } = await import('@/services/AskService');
+    const { askUrlFor, fileAsk, normaliseOptions } = await import('@/services/AskService');
     const { projectSlugById } = await import('@/services/ProjectService');
     const agentSlug = agentSlugFromInvoker(ctx.invokedBy) ?? input.agentSlug ?? null;
     // The run that asked is the idempotency key, so a retried execution
     // updates the ask it already filed instead of asking twice.
     const sourceRef = input.sourceRef?.trim() || (ctx.runId ? `action_run:${ctx.runId}` : null);
-    const { ask, created } = await upsertAsk({
+    const { ask, created, escalated } = await fileAsk({
       orgId: ctx.orgId,
       createdBy: ctx.invokedBy ?? null,
+      ...(input.recheck ? { recheck: { note: input.recheck.note, urgency: input.recheck.urgency, by: agentSlug } } : {}),
       ask: {
         kind: input.kind,
         title: input.title,
@@ -210,6 +230,8 @@ export const askFileAction: Action<typeof askFileInput> = {
         agentSlug,
         teamSlug: input.teamSlug,
         risk: input.risk,
+        urgency: input.urgency,
+        impact: input.impact,
         options: normaliseOptions(input.options),
         objectRefs: input.objectRefs ?? [],
         decisionCost: input.decisionCost,
@@ -225,6 +247,10 @@ export const askFileAction: Action<typeof askFileInput> = {
       askId: ask.id,
       url: slug ? askUrlFor(slug, ask.id) : null,
       created,
+      // The open decision this filing landed on rather than doubling.
+      escalated,
+      urgency: ask.urgency,
+      history: ask.history.length,
       kind: ask.kind,
       status: ask.status,
       agentSlug,
@@ -245,7 +271,7 @@ export const askFileAction: Action<typeof askFileInput> = {
       throw new Error('This run recorded no ask id, so there is nothing to withdraw.');
     }
     if (result.created === false) {
-      return { askId, withdrawn: false, reason: 'this run refreshed an ask another filing created; withdraw that one instead' };
+      return { askId, withdrawn: false, reason: result.escalated === true ? 'this run escalated an open decision another filing created; it is still waiting on a person' : 'this run refreshed an ask another filing created; withdraw that one instead' };
     }
     const { supersedeAsk } = await import('@/services/AskService');
     const ask = await supersedeAsk(ctx.orgId, askId, `Withdrawn: the filing was undone by ${ctx.reviewedBy ?? 'a person'}.`);

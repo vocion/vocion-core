@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { AskOption } from '@/models/Schema';
+import type { AskHistoryEntry, AskOption } from '@/models/Schema';
 import type { InboxKind } from '@/services/InboxService';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CornerUpLeft, ExternalLink, RotateCcw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm';
 import { toast } from '@/components/ui/toast';
 import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
+import { HistoryStrip } from '@/features/review/DecisionBlock';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { decisionLegend, planDecision } from '@/features/review/reviewSheetModel';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
@@ -37,6 +38,12 @@ export type SheetAsk = {
   agentSlug: string | null;
   teamSlug: string | null;
   risk: string | null;
+  /**
+   * The escalation so far — what each re-check found, in order. One decision
+   * is one object, so a mission's repeated check appends here rather than
+   * filing a sibling ask (`AskService.fileAsk`).
+   */
+  history?: AskHistoryEntry[] | null;
   /** How often this asker's recommended option was the one chosen (server-computed, 30d). */
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
   /** What the header's eyebrow calls this — the action's own kind ("Email", "CRM update"). */
@@ -595,6 +602,10 @@ export function AskSheet({ asks, title, endpoint = 'ask', allowOther = true, kin
       />
       <div className={sideNode ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-10' : undefined}>
         <div className="min-w-0">
+          {/* How this decision got more urgent, on one line. Above the work
+              because it is the reason this is in front of you today rather
+              than yesterday. */}
+          <HistoryStrip history={current.history} />
           {/* The work, first and framed — the thing being judged, before
               anything that talks about it. */}
           {workNode && <div className="mt-4" data-testid="ask-work">{workNode}</div>}
