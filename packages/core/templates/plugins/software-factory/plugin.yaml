@@ -104,7 +104,30 @@ name: Software factory
 # that chooses or ranks work. The budget advises; it does not stop a run.
 # One ruling asked about four releases is also now one decision sheet: the
 # reply pass files the release-notes ownership asks under one `group_key`.
-version: 1.11.0
+#
+# 1.12.0 - Products is a portfolio board, and the simplest page in the factory.
+# The test it is built to pass: could a person understand the state of every
+# product while walking from their desk to the kitchen? So the page starts with
+# the products, and a row is six facts drawn as one block, not fourteen columns
+# behind a horizontal scrollbar: the product and who answers for it, its stage,
+# its health, our price beside the incumbent's as ONE fact, what last shipped
+# and when, and what is still owed with how much of it is moving and whether
+# any of it is urgent. The seven summary cards wait until there are eight
+# products to summarise, the methodology essay moves behind "About this data",
+# and provenance leaves the labels for the type schema. A product nothing
+# watches has no health and no `healthSource`, so the board says "monitoring
+# not connected", about us and fixable, rather than `unknown`, which sounds
+# like doubt about the product; `unknown` is gone from the health enum. There
+# is no revenue column, because no verified revenue source exists and core now
+# drops a field no row can fill. `medianDaysToShip` leaves the board entirely
+# and is left empty on the record below three closed requests that each name
+# the release that closed them, and whenever it would round to 0 days: over
+# the live records on 2026-09-21 the three-request floor was cleared and the
+# figure was still 0, because every measurable request closed within fifteen
+# hours of being asked. A confident 0 is worse than no figure at all. The
+# lead's `keep-the-board-honest` tick maintains the new counters: `lastShipped`
+# and `lastReleaseAt`, `inFlight`, `healthSource` and `healthCheckedAt`.
+version: 1.12.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []
