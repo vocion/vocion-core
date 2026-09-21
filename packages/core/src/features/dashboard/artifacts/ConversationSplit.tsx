@@ -27,8 +27,30 @@
  * - **No artifact open.** The transcript alone is prose, and prose gets the
  *   same reading column every other page gets. A conversation does not become
  *   a working surface because it could be one.
- * - **Below `lg`.** The panes stack, exactly as they did before, and the
- *   divider is not rendered at all — there is no split to drag on a phone.
+ * - **Below `lg`.** There is no split at all: the surface shows ONE pane, the
+ *   artifact when one is open and the conversation otherwise. The divider is
+ *   not rendered either — there is nothing to drag.
+ *
+ * ## Why one pane and not two short ones
+ *
+ * Stacking was the shipped answer and it was wrong on a phone: the transcript
+ * took the height it wanted and the artifact pane got the remainder, so
+ * "open the document" showed a header, a tab strip and a sliver of paper
+ * (measured at 390×844: the document frame was 0px tall). Halving it instead
+ * serves neither — a 400px transcript above a 400px document is two things
+ * you cannot use rather than one you can.
+ *
+ * This is the rule the sibling surface already holds, not a new one:
+ * `RailColumn` shows one pane below `RAIL_SHEET_BREAKPOINT` and turns the
+ * preview's close control into *Back to chat* (`PreviewPane`'s `back`), and
+ * `docs/design/patterns.md` states it as *"halving a phone helps nobody"*.
+ * The artifact pane does the same thing here, with the same affordance
+ * (`ArtifactHeader`'s `back`), so a person learns it once — design
+ * principle 6.
+ *
+ * The switch is **CSS**, not a measured boolean, so the first paint is already
+ * right and there is no stacked flash to hydrate out of.
+ * `SPLIT_STACK_BREAKPOINT` is the same number for whatever has to ask in JS.
  */
 
 import type { ReactNode } from 'react';
@@ -116,7 +138,12 @@ export function ConversationSplit(props: ConversationSplitProps) {
       className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-(--conversation-split) lg:gap-2"
       style={{ '--conversation-split': `minmax(0, ${split}fr) ${DIVIDER_WIDTH}px minmax(0, ${1 - split}fr)` } as React.CSSProperties}
     >
-      <div className="flex min-h-0 min-w-0 flex-col" data-conversation-column>{props.conversation}</div>
+      {/* `hidden lg:flex`: below `lg` the pane is the column's ONLY row, so it
+          gets the whole height — which is the difference between reading the
+          document and reading its title. `hidden` also takes the transcript
+          out of the accessibility tree, so a screen reader is on one pane too,
+          and the way back is the pane's own back control. */}
+      <div className="hidden min-h-0 min-w-0 flex-col lg:flex" data-conversation-column>{props.conversation}</div>
       {/* Stacked panes have no split to drag, so below `lg` the divider is not
           in the page at all — `hidden` keeps it out of the accessibility tree
           too, rather than offering a control that moves nothing. */}

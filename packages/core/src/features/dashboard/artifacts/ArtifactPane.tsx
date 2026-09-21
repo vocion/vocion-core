@@ -104,6 +104,12 @@ export type ArtifactPaneProps = {
    * it came out of none and the verb starts a fresh chat carrying it.
    */
   conversationId?: number | null;
+  /**
+   * This pane is the only one on screen, so its close control is the way back
+   * (`ArtifactHeader.back`). True below `SPLIT_STACK_BREAKPOINT` on the
+   * conversation route; false everywhere there is a second pane to close to.
+   */
+  back?: boolean;
 };
 
 export function ArtifactPane(props: ArtifactPaneProps) {
@@ -310,6 +316,7 @@ export function ArtifactPane(props: ArtifactPaneProps) {
     <section className={cn('flex h-full min-h-0 min-w-0 flex-col rounded-xl border border-border/70 bg-background', props.className)} aria-label={`Artifact: ${artifact.title}`} data-artifact-pane={artifact.id}>
       <ArtifactHeader
         surface={surface}
+        back={props.back}
         artifactId={artifact.id}
         kind={artifact.kind}
         title={titleDraft ?? shown.title}

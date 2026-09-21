@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useViewportBelow } from '@/components/ui/useMobile';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
 import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
@@ -133,18 +134,12 @@ const EMPTY_RUN = {
 /**
  * Whether the viewport is too narrow for a side-by-side rail — below the
  * breakpoint the rail covers the page as a sheet instead of narrowing it.
+ *
+ * One hook (`components/ui/useMobile`) answers this for every surface that
+ * asks; this names the rail's own breakpoint and nothing else.
  */
 function useNarrowViewport(): boolean {
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${RAIL_SHEET_BREAKPOINT - 1}px)`);
-    const onChange = () => setNarrow(mql.matches);
-    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-    setNarrow(mql.matches);
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
+  return useViewportBelow(RAIL_SHEET_BREAKPOINT);
 }
 
 /**

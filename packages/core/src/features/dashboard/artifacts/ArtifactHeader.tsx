@@ -82,6 +82,15 @@ export type ArtifactHeaderProps = {
   pdfPages?: number | null;
   openHref?: string | null;
   onClose?: () => void;
+  /**
+   * The surface has no room for two panes, so closing this one is how you get
+   * BACK to what it opened from — a phone, where the artifact is the only pane
+   * on screen. The `close` verb then reads "Back to the conversation" behind a
+   * left arrow instead of an X. It is the same control and the same handler,
+   * not a second verb (design principle 6) — exactly what `PreviewPane`'s
+   * `back` does for the rail's sheet.
+   */
+  back?: boolean;
   /** `/open` only — the way back to the artifact's page. */
   backHref?: string | null;
   className?: string;
@@ -341,16 +350,21 @@ function HeaderAction({ id, ...props }: { id: ArtifactActionId } & ArtifactHeade
             </IconAction>
           )
         : null;
-    case 'close':
-      return props.onClose
-        ? (
-            <IconAction label="Close the artifact">
-              <button type="button" onClick={props.onClose} className={ICON_BUTTON} aria-label="Close the artifact">
-                <X className="size-3.5" aria-hidden />
-              </button>
-            </IconAction>
-          )
-        : null;
+    case 'close': {
+      if (!props.onClose) {
+        return null;
+      }
+      const label = props.back ? 'Back to the conversation' : 'Close the artifact';
+      return (
+        <IconAction label={label}>
+          <button type="button" onClick={props.onClose} className={ICON_BUTTON} aria-label={label} data-artifact-close={props.back ? 'back' : 'close'}>
+            {props.back
+              ? <ArrowLeft className="size-3.5" aria-hidden />
+              : <X className="size-3.5" aria-hidden />}
+          </button>
+        </IconAction>
+      );
+    }
   }
 }
 

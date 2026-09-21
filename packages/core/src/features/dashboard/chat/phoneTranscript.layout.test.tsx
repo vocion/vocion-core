@@ -37,6 +37,18 @@ import '@/styles/global.css';
  *
  * `overflow-x: hidden` is deliberately NOT the fix anywhere in this change —
  * it would make this assertion pass while the lines stayed cut.
+ *
+ * ## And then: the pane had the width but not the height
+ *
+ * With the width fixed, the two panes still STACKED on a phone — the
+ * transcript took the height it wanted and the artifact got the remainder, so
+ * on the live surface at 390×844 the pane was 141px tall, its body 34px and
+ * the document frame **2px**: "open the document" showed a title. So below
+ * `lg` the surface shows ONE pane, the way `RailColumn` already does below
+ * `RAIL_SHEET_BREAKPOINT`, and the pane's close control becomes *Back to the
+ * conversation*. The height assertions here are real floors — most of the
+ * screen — not "greater than zero", and one test holds the desktop split so
+ * the phone rule cannot leak upward.
  */
 
 vi.mock('@/libs/I18nNavigation', () => ({
@@ -144,19 +156,41 @@ describe('the transcript on a phone', () => {
       await page.viewport(w, h);
       await renderSurface(true);
 
-      await expect.element(page.getByTestId('message-feedback')).toBeInTheDocument();
+      await expect.element(page.getByLabelText(/^Artifact: /)).toBeInTheDocument();
 
       const { scrollWidth, clientWidth } = overflow();
 
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
 
-      // The two panes stack into ONE column, and the column is the viewport.
-      for (const sel of ['[data-conversation-column]', '[data-artifact-pane]']) {
-        const el = document.querySelector(sel)!;
+      // ONE pane, and it is the artifact: the transcript is not on screen
+      // beside it, and the pane fits the column rather than setting it.
+      const conversation = document.querySelector('[data-conversation-column]')!;
+      const pane = document.querySelector('[data-artifact-pane]')!;
 
-        expect(el, sel).not.toBeNull();
-        expect(Math.round(el.getBoundingClientRect().width), sel).toBeLessThanOrEqual(clientWidth);
-      }
+      expect(getComputedStyle(conversation).display).toBe('none');
+      expect(Math.round(pane.getBoundingClientRect().width)).toBeLessThanOrEqual(clientWidth);
+    });
+
+    it(`shows the document, not just its header, at ${w}×${h}`, async () => {
+      await page.viewport(w, h);
+      await renderSurface(true);
+
+      await expect.element(page.getByLabelText(/^Artifact: /)).toBeInTheDocument();
+
+      // Stacking gave the pane whatever height the transcript left: measured
+      // on the live surface at 390×844 before this change, the pane was 141px
+      // tall, its body 34px and the document frame **2px** — "open the
+      // document" showed a title. The numbers below are real floors, not
+      // "greater than zero": the frame has to be most of the screen for the
+      // document to be readable at all.
+      const pane = document.querySelector('[data-artifact-pane]')!;
+      const frame = document.querySelector('[data-document-frame]')!;
+      const paneH = Math.round(pane.getBoundingClientRect().height);
+      const frameH = Math.round(frame.getBoundingClientRect().height);
+
+      expect(paneH).toBeGreaterThanOrEqual(Math.round(h * 0.8));
+      expect(frameH).toBeGreaterThanOrEqual(400);
+      expect(frameH).toBeGreaterThanOrEqual(Math.round(h * 0.55));
     });
 
     it(`does not scroll the page sideways at ${w}×${h} with the artifact closed`, async () => {
@@ -216,9 +250,29 @@ describe('the transcript on a phone', () => {
     expect(Math.round(box.getBoundingClientRect().width)).toBeLessThanOrEqual(overflow().clientWidth);
   });
 
+  it('still puts the two panes side by side on a desktop', async () => {
+    await page.viewport(1440, 900);
+    await renderSurface(true);
+
+    await expect.element(page.getByLabelText(/^Artifact: /)).toBeInTheDocument();
+
+    // The phone rule is a phone rule: above `lg` the split is still a split,
+    // and the pane's control still says "close" because there is something to
+    // close back to.
+    const conversation = document.querySelector('[data-conversation-column]')!;
+    const pane = document.querySelector('[data-artifact-pane]')!;
+
+    expect(getComputedStyle(conversation).display).not.toBe('none');
+    expect(Math.round(conversation.getBoundingClientRect().width)).toBeGreaterThan(300);
+    expect(Math.round(pane.getBoundingClientRect().width)).toBeGreaterThan(300);
+    expect(overflow().scrollWidth).toBeLessThanOrEqual(overflow().clientWidth);
+  });
+
   it('keeps the per-turn feedback controls fully on screen', async () => {
     await page.viewport(360, 800);
-    await renderSurface(true);
+    // The transcript pane, which is the one the thumbs live on; with an
+    // artifact open the phone shows the artifact instead (one pane at a time).
+    await renderSurface(false);
     const feedback = page.getByTestId('message-feedback');
 
     await expect.element(feedback).toBeInTheDocument();
