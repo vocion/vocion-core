@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
 import { OverviewView } from '@/features/dashboard/factory/OverviewView';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
+import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
@@ -473,8 +474,8 @@ export default async function WorkspacePage(props: {
   const ownedBy = pagePlugin(manifest);
 
   const fields: PageField[] = manifest.fields ?? [
-    { key: 'title', label: 'Title', format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false },
-    { key: 'status', label: 'Status', from: 'status', format: 'badge', total: false, priority: 1, hideWhenConstant: false, detail: false },
+    { key: 'title', label: 'Title', format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true },
+    { key: 'status', label: 'Status', from: 'status', format: 'badge', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true },
   ];
 
   // Every `link` column that names a target type, resolved to that record's
@@ -490,6 +491,38 @@ export default async function WorkspacePage(props: {
       })),
   );
 
+  // A page with rows IS its rows. The plugin's outcome panel and the prose
+  // explaining how the figures are computed are both true and both worth
+  // keeping, and both used to sit between the reader and the thing they
+  // opened the page for: five measures, four agents, twelve skills and an
+  // essay above two products. So on a page whose whole point is a list,
+  // they move underneath it, and the prose goes behind "About this data":
+  // the method is evidence about the rows, and evidence is level three.
+  const rowsLead = manifest.archetype === 'list' || manifest.archetype === 'queue';
+  const pluginPanel = ownedBy ? <PluginPanel orgId={orgId} slug={ownedBy} /> : null;
+  const about = content && manifest.archetype !== 'markdown'
+    ? (
+        rowsLead
+          ? (
+              <details className="mt-8 border-t border-border/70 pt-4">
+                <summary className="cursor-pointer list-none text-sm font-medium text-muted-foreground hover:text-foreground">About this data</summary>
+                <div className="mt-3 max-w-3xl text-sm text-muted-foreground">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                </div>
+              </details>
+            )
+          : (
+              <div className="mb-6 max-w-3xl text-sm text-muted-foreground">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              </div>
+            )
+      )
+    : null;
+
+  // A summary is drawn once it is summarising enough rows to save the reader
+  // reading them. See `statsMinRows`.
+  const showStats = rows.length >= manifest.statsMinRows;
+
   return (
     <>
       <TitleBar
@@ -501,23 +534,19 @@ export default async function WorkspacePage(props: {
       {/* A page a plugin shipped carries that plugin's outcome panel — the
           same one the Proposals and Data rooms surfaces carry, decided by
           where the YAML came from rather than by the page's slug. */}
-      {ownedBy && <PluginPanel orgId={orgId} slug={ownedBy} />}
+      {!rowsLead && pluginPanel}
 
       {content && manifest.archetype === 'markdown' && (
         <article className="prose prose-sm max-w-3xl dark:prose-invert">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </article>
       )}
-      {content && manifest.archetype !== 'markdown' && (
-        <div className="mb-6 max-w-3xl text-sm text-muted-foreground">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-        </div>
-      )}
+      {!rowsLead && about}
 
       {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
       {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
 
-      {Object.keys(stats).length > 0 && (
+      {showStats && Object.keys(stats).length > 0 && (
         <div id="wsx-stats" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
           {Object.entries(stats).map(([label, value]) => (
             <div key={label} className="bg-background p-4">
@@ -551,20 +580,23 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && groups.map((g, gi) => (
-        <PageTable
-          key={g.label ?? '__all'}
-          id={gi === 0 ? 'wsx-table' : undefined}
-          rows={g.rows}
-          fields={fields}
-          primary={manifest.primary}
-          rowLink={manifest.rowLink}
-          rowActions={manifest.rowActions}
-          groupLabel={g.label}
-          now={now}
-          links={links}
-        />
-      ))}
+      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && groups.map((g, gi) => {
+        const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
+        return (
+          <Rows
+            key={g.label ?? '__all'}
+            id={gi === 0 ? 'wsx-table' : undefined}
+            rows={g.rows}
+            fields={fields}
+            primary={manifest.primary}
+            rowLink={manifest.rowLink}
+            rowActions={manifest.rowActions}
+            groupLabel={g.label}
+            now={now}
+            links={links}
+          />
+        );
+      })}
 
       {reviewCfg && (
         <section id="wsx-review" className="mt-8">
@@ -596,6 +628,9 @@ export default async function WorkspacePage(props: {
       )}
 
       <Widgets manifest={manifest} position="below" rows={rows} stats={stats} />
+
+      {rowsLead && pluginPanel}
+      {rowsLead && about}
     </>
   );
 }
