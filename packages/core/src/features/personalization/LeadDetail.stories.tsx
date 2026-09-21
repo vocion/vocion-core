@@ -7,11 +7,12 @@ import { LeadView } from './LeadDetail';
 /**
  * The lead workspace, rebuilt to `docs/specs/personalization-v2.md`.
  *
- * One layout in every state: header, ONE recommendation block carrying the
- * sequence-state reconciliation, then Brief · Sequence · Evidence. The
- * permanent metadata column is gone. The stories are ordered by the review's
- * own priorities — the ambiguous sequence state first, because it is the one
- * that holds the button.
+ * One layout in every state, and it is the SAME shell the review queue mounts
+ * (`features/review/ReviewSurface`): header, one meta row, the sends as tabs
+ * with Sequence, Brief, Why and Evidence beside them, the decision in a
+ * sticky bar. The permanent metadata column is gone. The stories are ordered
+ * by the review's own priorities — the ambiguous sequence state first,
+ * because it is the one that holds the button.
  */
 const meta: Meta<typeof LeadView> = {
   title: 'Personalization/LeadPage',

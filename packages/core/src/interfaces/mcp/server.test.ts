@@ -78,6 +78,8 @@ describe('MCP server (end-to-end)', () => {
 
         expect(names).toContain('workspace_list');
         expect(names).toContain('workspace_write_skill');
+        expect(names).toContain('workspace_write_playbook');
+        expect(names).toContain('workspace_write_mission');
         expect(names).toContain('search_query');
         expect(names).toContain('teams_list');
       } finally {
@@ -205,6 +207,84 @@ describe('MCP server (end-to-end)', () => {
         );
 
         expect(afterDelete.skills).toEqual([]);
+      } finally {
+        await server.close();
+      }
+    } finally {
+      scratch.cleanup();
+    }
+  });
+
+  it('write_mission and write_playbook: the same loop, and the mission mirrors into an artifact', async () => {
+    const scratch = scratchContext();
+    try {
+      const { client, server } = await setupClientServer(scratch.contextDir);
+      try {
+        const mission = parseToolResult<{
+          written: { kind: string; slug: string; files: string[] };
+          apply: { counts: { missions: { created: number } }; versionId: number | null } | { error: string };
+        }>(await client.callTool({
+          name: 'workspace_write_mission',
+          arguments: {
+            manifest: { slug: 'keep-main-releasable', name: 'Keep main releasable', goal: 'Every merge to main ships.', agent: 'release-lead' },
+            autoCommit: true,
+          },
+        }) as ToolResult);
+
+        expect(mission.written.kind).toBe('mission');
+        expect(mission.written.files[0]).toMatch(/missions\/keep-main-releasable\.yaml$/);
+        expect('counts' in mission.apply && mission.apply.counts.missions.created).toBe(1);
+
+        const playbook = parseToolResult<{
+          written: { kind: string; slug: string };
+          apply: { counts: { playbooks: { created: number } } } | { error: string };
+        }>(await client.callTool({
+          name: 'workspace_write_playbook',
+          arguments: {
+            manifest: { slug: 'house-style', name: 'House style', description: 'How we write.' },
+            prompt_md: 'Short sentences.',
+          },
+        }) as ToolResult);
+
+        expect(playbook.written.kind).toBe('playbook');
+        expect('counts' in playbook.apply && playbook.apply.counts.playbooks.created).toBe(1);
+
+        const list = parseToolResult<{ missions: Array<{ slug: string; goal: string }>; playbooks: Array<{ slug: string }> }>(
+          await client.callTool({ name: 'workspace_list', arguments: {} }) as ToolResult,
+        );
+
+        expect(list.missions).toEqual([expect.objectContaining({ slug: 'keep-main-releasable', goal: 'Every merge to main ships.' })]);
+        expect(list.playbooks.map(p => p.slug)).toEqual(['house-style']);
+
+        const got = parseToolResult<{ slug: string; goal: string; autonomyPolicy: { level: number } }>(
+          await client.callTool({ name: 'workspace_get', arguments: { kind: 'mission', slug: 'keep-main-releasable' } }) as ToolResult,
+        );
+
+        expect(got.autonomyPolicy.level).toBe(1);
+
+        // The apply mirrored the file into its artifact (libs/workspace/source.ts).
+        const { getSourceArtifact } = await import('@/services/workspace/WorkspaceSourceService');
+        const mirror = await getSourceArtifact('test_org_mcp', 'mission', 'keep-main-releasable');
+
+        expect(mirror).toMatchObject({ kind: 'mission', title: 'Keep main releasable', currentVersion: 1 });
+        expect(String((mirror!.spec as { yaml: string }).yaml)).toContain('goal: Every merge to main ships.');
+
+        const badMission = (await client.callTool({
+          name: 'workspace_write_mission',
+          arguments: { manifest: { slug: 'no-goal', name: 'No goal', agent: 'release-lead' } },
+        })) as ToolResult;
+
+        expect(badMission.isError).toBe(true);
+        expect(badMission.content?.[0]?.text).toMatch(/goal/);
+
+        const del = parseToolResult<{ removed: string[]; dbRowsDeleted: number }>(
+          await client.callTool({ name: 'workspace_delete', arguments: { kind: 'mission', slug: 'keep-main-releasable' } }) as ToolResult,
+        );
+
+        expect(del.removed).toHaveLength(1);
+        expect(del.dbRowsDeleted).toBe(1);
+        // …and the mirror went with the row: no editable copy of a deleted file.
+        expect(await getSourceArtifact('test_org_mcp', 'mission', 'keep-main-releasable')).toBeNull();
       } finally {
         await server.close();
       }

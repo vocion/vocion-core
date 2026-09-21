@@ -1,16 +1,16 @@
 import { Buffer } from 'node:buffer';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import process from 'node:process';
 import { ORPCError, os } from '@orpc/server';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot, getRepoRoot } from '@/libs/repo-root';
-import { applyWorkspace, getCurrentWorkspaceSha, getWorkspacePath, invalidateCurrentContextShaCache, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
-import { projectSchema } from '@/models/Schema';
+import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, getCurrentWorkspaceVersion, getWorkspacePath, invalidateCurrentContextShaCache, isDeployManaged, judgeMountedFolder, loadWorkspace, WORKSPACE_SLUG_PATTERN } from '@/libs/workspace';
+import { workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
 import { invalidateChipCache } from '@/services/chat/synthesis';
+import { folderOwner } from '@/services/WorkspaceMountService';
+import { pauseWorkspace, readWorkspacePauseWithName, resumeWorkspace, WorkspaceNotFoundError, WorkspacePauseStateError } from '@/services/workspacePause';
+import { ORG_ROLE } from '@/types/Auth';
 import { guardAuth, guardRole } from './AuthGuards';
 
 /**
@@ -340,56 +340,69 @@ export const writeFile = os
     };
   });
 
+// Which workspace directory a project reads on this host — shared with the
+// services that write to it (`libs/workspace/project-path.ts`); re-exported so
+// existing callers keep their import.
+export { workspaceFolderForProject, workspacePathForProject };
+
+/** The apply this process is running right now, if any — the cheap "in progress" signal. */
+let applying: Promise<unknown> | null = null;
+
 /**
- * Resolve the workspace directory for a project. Multi-workspace installs
- * map project slugs to folders via VOCION_WORKSPACE_MAP
- * ("<projectSlug>:<path>,<projectSlug>:<path>"); single-workspace installs
- * fall back to WORKSPACE_PATH. Returns null when the project has no
- * workspace folder on this box (drift check silently skips), or when
- * neither the map nor WORKSPACE_PATH is configured.
- * @param projectId
+ * What the drift banner needs to know before it says anything. Read once
+ * per dashboard load; every branch of the banner is decided here, on the
+ * server, from what the applier recorded — the client only renders.
+ * @param projectId - The project asking.
  */
-export async function workspacePathForProject(projectId: string): Promise<string | null> {
-  const [proj] = await db
-    .select({ slug: projectSchema.slug })
-    .from(projectSchema)
-    .where(eq(projectSchema.id, projectId))
-    .limit(1);
-  const map = process.env.VOCION_WORKSPACE_MAP ?? '';
-  if (proj && map) {
-    for (const pair of map.split(',')) {
-      const idx = pair.indexOf(':');
-      if (idx > 0 && pair.slice(0, idx).trim() === proj.slug) {
-        return pair.slice(idx + 1).trim();
-      }
-    }
-    // Map configured but this project isn't in it — no workspace here.
+async function driftReading(projectId: string) {
+  const folder = await workspaceFolderForProject(projectId);
+  if (!folder || !existsSync(fromRepoRoot(folder.path))) {
     return null;
   }
-  return getWorkspacePath();
+  const loaded = loadWorkspace(folder.path);
+  const applied = await getCurrentWorkspaceVersion(projectId);
+  // The folder is compared only against the project it was applied to.
+  // Under a shared mount another project's sha never matches the folder's,
+  // and that is not drift — it is somebody else's workspace.
+  const verdict = judgeMountedFolder({ projectId, folder: { path: loaded.sourcePath, manifestOrgId: loaded.manifest.orgId, explicit: folder.explicit }, applied });
+  const deployManaged = isDeployManaged({ writable: folderWritable(loaded.sourcePath), appliedBy: applied?.appliedBy ?? null });
+  // A deploy applies the database first and the mount catches up: while the
+  // applied version is newer than the folder, nothing here is stale.
+  const inFlight = applying !== null || (applied !== null && applyNewerThanFolder(applied.appliedAt, folderChangedAt(loaded.sourcePath, loaded.sha)));
+  return { folder, loaded, applied, verdict, deployManaged, inFlight };
 }
 
 /**
- * Drift check — compare the workspace FILES' sha against the last APPLIED
- * sha for the caller's active project. Backs the "workspace changed —
- * apply?" banner shown on dashboard load.
+ * Drift check — the facts behind the "workspace files changed" banner, for
+ * the caller's project: whether the mounted folder is this project's at all
+ * (and whose it is when not), whether git applies it (then Apply is never
+ * offered), whether a deploy is mid-flight, and only then whether the files
+ * differ from what was applied.
  */
 export const driftStatus = os.handler(async () => {
-  const { orgId, projectId } = await guardAuth();
-  const path = await workspacePathForProject(projectId!);
-  if (!path || !existsSync(fromRepoRoot(path))) {
-    return { available: false as const };
-  }
+  const { projectId } = await guardAuth();
   try {
-    const loaded = loadWorkspace(path);
-    const appliedSha = await getCurrentWorkspaceSha(orgId!);
+    const reading = await driftReading(projectId!);
+    if (!reading) {
+      return { available: false as const };
+    }
+    const { folder, loaded, applied, verdict, deployManaged, inFlight } = reading;
     return {
       available: true as const,
-      path,
+      projectId: projectId!,
+      path: folder.path,
       currentSha: loaded.sha,
-      appliedSha,
-      drifted: appliedSha !== null && appliedSha !== loaded.sha,
-      neverApplied: appliedSha === null,
+      appliedSha: applied?.sha ?? null,
+      neverApplied: applied === null,
+      /** The mounted folder is this project's workspace. */
+      own: verdict.own,
+      /** Whose it is when it is not this project's — named, so the banner can say so. */
+      owner: verdict.own ? null : await folderOwner(loaded.sourcePath, loaded.manifest.orgId),
+      /** Git applies this project's workspace (read-only mount or a pipeline's apply): no Apply button, ever. */
+      deployManaged,
+      /** An apply is landing right now — say nothing until it has. */
+      inFlight,
+      drifted: verdict.own && applied !== null && applied.sha !== loaded.sha && !inFlight,
     };
   } catch {
     // Unparseable workspace — the check is informational, never fatal.
@@ -398,21 +411,155 @@ export const driftStatus = os.handler(async () => {
 });
 
 /**
- * Apply the active project's workspace directory to the DB — the button on
- * the drift banner. Admin-gated: an apply rewrites agents/skills/missions
- * for the whole project.
+ * What an apply WOULD change — a dry run, per resource kind — so the banner
+ * shows the diff before anyone confirms. Only for a folder that is this
+ * project's: another project's diff is not this project's business.
  */
-export const applyNow = os.handler(async () => {
-  const { orgId, projectId } = await guardRole('org:admin');
-  const path = await workspacePathForProject(projectId!);
-  if (!path || !existsSync(fromRepoRoot(path))) {
+export const driftDiff = os.handler(async () => {
+  const { orgId, projectId } = await guardAuth();
+  const reading = await driftReading(projectId!);
+  if (!reading) {
     throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
   }
-  const loaded = loadWorkspace(path);
-  const result = await applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'ui-drift-banner' });
-  invalidateCurrentContextShaCache();
-  // An apply rewrites the missions/skills chips are synthesized from —
-  // regenerate on the next page load instead of waiting out the TTL.
-  invalidateChipCache(orgId!);
-  return { sha: loaded.sha, counts: result.counts, errors: result.errors };
+  if (!reading.verdict.own) {
+    throw new ORPCError('FORBIDDEN', { message: `The workspace mounted on this host is not this project's — ${reading.verdict.reason}.` });
+  }
+  const result = await applyWorkspace(reading.loaded, { orgId: orgId!, dryRun: true });
+  const changes = Object.values(result.counts).reduce((n, c) => n + c.created + c.updated, 0);
+  return { sha: reading.loaded.sha, counts: result.counts, changes, errors: result.errors };
 });
+
+/**
+ * Apply the project's own workspace folder to the DB — the confirm step of
+ * the drift banner's review dialog. Admin-gated: an apply rewrites agents,
+ * skills and missions for the whole project. Refused, with the reason, when
+ * the folder is another project's, when git manages this project's
+ * workspace, or when the folder changed since the diff was reviewed.
+ */
+export const applyNow = os
+  .input(z.object({
+    /** The folder sha the person reviewed; the apply is refused if the folder has moved on. */
+    sha: z.string().min(1),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, projectId } = await guardRole('org:admin');
+    const reading = await driftReading(projectId!);
+    if (!reading) {
+      throw new ORPCError('NOT_FOUND', { message: 'no workspace directory for this project on this host' });
+    }
+    const { loaded, verdict, deployManaged, applied } = reading;
+    // Never apply one project's folder to another. Under a shared mount that
+    // would replace this project's agents, skills and missions with the
+    // mounted project's. Refuse with the reason, rather than guess.
+    if (!verdict.own) {
+      throw new ORPCError('FORBIDDEN', { message: `Refusing to apply: the workspace mounted on this host is not this project's — ${verdict.reason}. Apply this project's own workspace from its repo (\`workspace:apply --project <slug>\`).` });
+    }
+    if (deployManaged) {
+      throw new ORPCError('FORBIDDEN', { message: `Refusing to apply: this project's workspace is applied from git${applied?.appliedBy ? ` (last applied by ${applied.appliedBy})` : ''}. Push the change and let the deploy apply it.` });
+    }
+    if (input.sha !== loaded.sha) {
+      throw new ORPCError('CONFLICT', { message: `The workspace folder changed since you reviewed it (${input.sha} → ${loaded.sha}). Review the diff again.` });
+    }
+    const run = applyWorkspace(loaded, { orgId: orgId!, appliedBy: 'ui-drift-banner' });
+    applying = run;
+    try {
+      const result = await run;
+      invalidateCurrentContextShaCache();
+      // An apply rewrites the missions/skills chips are synthesized from —
+      // regenerate on the next page load instead of waiting out the TTL.
+      invalidateChipCache(orgId!);
+      return { sha: loaded.sha, counts: result.counts, errors: result.errors };
+    } finally {
+      applying = null;
+    }
+  });
+
+/* ------------------------------------------------------------------ */
+/* The off switch — one control over everything the factory does       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The workspace's pause, as every page's banner reads it: who, when, the note,
+ * and the date already formatted. The server formats it because a locale that
+ * differs between server and browser hydrates to a mismatch — the same reason
+ * `AutomationPauseControl` takes a formatted string rather than a `Date`.
+ *
+ * `canPause` says whether the person reading may pull or lift the switch.
+ * Everyone sees the banner; only an admin gets the button, and the banner
+ * names who placed the hold so everyone else knows who to ask.
+ */
+export const pauseState = os.handler(async () => {
+  const { orgId, has } = await guardAuth();
+  const pause = await readWorkspacePauseWithName(orgId);
+  return {
+    paused: pause && {
+      byName: pause.by.name ?? pause.by.id,
+      when: formatPauseTime(pause.at),
+      note: pause.note,
+    },
+    canPause: has({ role: ORG_ROLE.ADMIN }),
+  };
+});
+
+/**
+ * Pull the switch. Admin-gated, matching the API's owner-or-PM rule: holding
+ * the whole workspace is a heavier act than holding one automation, which any
+ * member may do.
+ */
+export const pause = os
+  .input(z.object({
+    /** Why. Required — it is what every page says until someone lifts it. */
+    note: z.string().trim().min(1).max(500),
+  }))
+  .handler(async ({ input }) => {
+    const by = await adminActor();
+    const held = await pauseWorkspace(by.orgId, { by, note: input.note }).catch(translateWorkspacePause);
+    return { paused: { byName: held.by.name ?? held.by.id, when: formatPauseTime(held.at), note: held.note } };
+  });
+
+/** Lift it. Everything underneath comes back exactly as it was left. */
+export const resume = os.handler(async () => {
+  const by = await adminActor();
+  await resumeWorkspace(by.orgId, { by }).catch(translateWorkspacePause);
+  return { paused: null };
+});
+
+/**
+ * The signed-in admin, as `paused_by` will name them. The name is left to
+ * `workspacePause` to resolve — one owner for it, and one fewer module
+ * reaching for the profile service.
+ */
+async function adminActor(): Promise<{ orgId: string; id: string }> {
+  const { orgId, userId } = await guardAuth();
+  await guardRole(ORG_ROLE.ADMIN);
+  return { orgId, id: userId };
+}
+
+/**
+ * "Sep 21, 3:14 PM UTC" — formatted here so the server and the browser agree.
+ * @param at
+ */
+function formatPauseTime(at: Date): string {
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(at)} UTC`;
+}
+
+/**
+ * A pause on a paused workspace (or a resume on a running one) is a CONFLICT
+ * — a second tab, most likely, or a second operator who got there first.
+ * @param err - Whatever the service threw.
+ */
+function translateWorkspacePause(err: unknown): never {
+  if (err instanceof WorkspacePauseStateError) {
+    throw new ORPCError('CONFLICT', { message: err.message });
+  }
+  if (err instanceof WorkspaceNotFoundError) {
+    throw new ORPCError('NOT_FOUND', { message: err.message });
+  }
+  throw err;
+}

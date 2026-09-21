@@ -5,20 +5,21 @@ import type { AgentOption } from './types';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState as PageEmptyState } from '@/components/ui/empty-state';
 import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
-import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
-import { AutonomyControl } from './AutonomyControl';
+import { AboutRecordChip } from './AboutRecordChip';
+import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer, takeChatAbout } from './agentSurface';
+import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
-import { ChatMenu } from './ChatMenu';
+import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { EmptyState, NoAgentsState } from './EmptyState';
-import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { ModelControl } from './ModelControl';
 import { QuotedPassage } from './QuotedPassage';
 import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
@@ -168,7 +169,20 @@ function ChatShellInner({
   useEffect(() => {
     sessionRef.current = session;
   });
-  const onCommand = useChatCommands(session.handleNewChat);
+  // Starting over always lands the caret in the box — ⌘⇧O, `/new`, the ⋯ menu,
+  // the history popover — so the next words go straight in (Chris, 2026-09-18).
+  const startNewChat = useCallback(() => {
+    sessionRef.current.handleNewChat();
+    focusAgentComposer(null);
+  }, []);
+  const onCommand = useChatCommands(startNewChat);
+  // Arriving on the page (⌘⇧L, the sidebar, a link) focuses the composer once
+  // the saved thread has settled; keyboard-only never has to click the box.
+  useEffect(() => {
+    if (session.booted) {
+      focusAgentComposer(null);
+    }
+  }, [session.booted]);
   // A turn went out: the quoted passage has been consumed.
   const turnCount = session.messages.length;
   useEffect(() => {
@@ -183,8 +197,20 @@ function ChatShellInner({
     }
     startedNew.current = true;
     sessionRef.current.handleNewChat();
-    router.replace('/dashboard/chat');
-  }, [startNew, session.booted, router]);
+    // A record carried in without a question ("Chat about this" from a page
+    // with no rail) becomes the About chip; the person writes the first line.
+    const about = takeChatAbout();
+    if (about) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect -- the URL said "new": one deliberate reset, not a cascade
+      setIntent({ context: { path: window.location.pathname, title: document.title, record: about, openedFrom: true } });
+    }
+    // Drop only `new`: a `preview=` opened beside the fresh thread stays.
+    const params = new URLSearchParams(window.location.search);
+    params.delete('new');
+    const qs = params.toString();
+    focusAgentComposer(null);
+    router.replace(`${pathname}${qs ? `?${qs}` : ''}`);
+  }, [startNew, session.booted, router, pathname]);
   const queueProps = useComposerQueueProps(session);
   // `@` and `(+)` offer the same list: the artifact contract, then the records
   // this surface knows. The full page is not on a record, so there is no page
@@ -227,26 +253,17 @@ function ChatShellInner({
       {/* The single small chat menu — portaled into the shell top bar beside
           the account menu, so the conversation canvas stays clean. */}
       <ShellBarActionsPortal>
-        <div className="flex items-center gap-1">
-          {/* One identity (§9.10): the surface speaks as the workspace. */}
-          <span data-testid="speaker-chip" className="truncate text-sm font-medium text-foreground/80">{session.workspaceName}</span>
-          <HistoryPopover
-            recent={session.recentChats}
-            currentId={session.conversationId}
-            onPick={id => void session.handlePickConversation(id)}
-            onNewChat={session.handleNewChat}
-            search={session.searchConversations}
-          />
-          {/* The conversation's rung rides with the conversation's identity on
-              every surface, not inside the composer (§9.7). */}
-          <AutonomyControl
-            value={session.autonomy}
-            onChange={session.setAutonomy}
-            copy={autonomyCopy}
-            label={t('autonomy')}
-          />
-          <ChatMenu onNewChat={session.handleNewChat} />
-        </div>
+        {/* New chat + the conversations dropdown as icons; the ⋯ menu only on a
+            phone. No workspace name here — the sidebar says it (2026-09-18). */}
+        <ChatHeaderActions
+          onNewChat={startNewChat}
+          history={{
+            recent: session.recentChats,
+            currentId: session.conversationId,
+            onPick: id => void session.handlePickConversation(id),
+            search: session.searchConversations,
+          }}
+        />
       </ShellBarActionsPortal>
 
       <div className="flex flex-1 overflow-hidden">
@@ -301,8 +318,25 @@ function ChatShellInner({
           )}
 
           <ChatComposer
-            above={intent?.context?.selection ? <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(null)} /> : undefined}
+            above={intent?.context?.selection || intent?.context?.record
+              ? (
+                  <>
+                    {intent.context.record && <AboutRecordChip record={intent.context.record} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, record: undefined } } : i))} />}
+                    {intent.context.selection && <QuotedPassage text={intent.context.selection.text} onDrop={() => setIntent(i => (i?.context ? { ...i, context: { ...i.context, selection: undefined } } : i))} />}
+                  </>
+                )
+              : undefined}
             onCommand={onCommand}
+            // The thread's settings, in the bar: its rung (done for you / ask
+            // first) and its model — one cluster, every surface (2026-09-18).
+            controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+            settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, t('autonomy_thread'))]}
+            onSetting={(id, opt) => {
+              const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
+              if (rung) {
+                session.setAutonomy(rung);
+              }
+            }}
             value={session.composerValue}
             onChange={session.setComposerValue}
             onSubmit={() => void session.sendMessage(session.composerValue)}

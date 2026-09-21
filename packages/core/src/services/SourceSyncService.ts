@@ -1172,6 +1172,32 @@ export async function runSync(opts: {
       const { watchForHandoffTriggers } = await import('@/services/HandoffTriggerService');
       await watchForHandoffTriggers(opts.orgId, log);
     }
+    // The data rooms grow from what just landed: a recording or thread that
+    // clearly belongs to a room is filed with its score (undoable on the
+    // room), a deal that reached Proposal stage gets its room. Same
+    // never-fail-the-sync rule; `VOCION_DATA_ROOM_AUTOFILE=0` switches it off.
+    // …and only for a workspace that turned the data-rooms plugin on: with it
+    // off there is no room to grow and no page to show the filing.
+    const { pluginEnabled } = await import('@/services/PluginService');
+    if (process.env.VOCION_DATA_ROOM_AUTOFILE !== '0' && await pluginEnabled(opts.orgId, 'data-rooms').catch(() => false)) {
+      try {
+        const { collectAfterSync } = await import('@/services/dataRooms/collector');
+        await collectAfterSync(opts.orgId, {
+          sourceId: opts.sourceId,
+          sourceSlug: row.slug,
+          connector: connectorSlug,
+          incremental: !!opts.incremental,
+          created: result.created,
+          updated: result.updated,
+          unchanged: result.unchanged,
+          tombstoned: result.tombstoned,
+          errors: result.errors,
+          completedAt: cutoff.toISOString(),
+        });
+      } catch (err) {
+        log('error', 'data room collection failed after the sync', { sourceId: opts.sourceId, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     return result;
   } catch (err) {
     // Wait here too, for the same reason.
@@ -1381,6 +1407,25 @@ export async function documentCountsForOrg(orgId: string): Promise<Record<number
   const rows = await db
     .select({ sourceId: knowledgeDocumentSchema.sourceId, count: sql<number>`count(*)::int` })
     .from(knowledgeDocumentSchema)
+    .where(eq(knowledgeDocumentSchema.orgId, orgId))
+    .groupBy(knowledgeDocumentSchema.sourceId);
+  const map: Record<number, number> = {};
+  for (const r of rows) {
+    map[r.sourceId] = Number(r.count);
+  }
+  return map;
+}
+
+/**
+ * Chunks per source — the size a connector actually occupies in retrieval,
+ * which a document count alone does not say (one PDF can be 400 chunks).
+ * @param orgId - Org whose sources to count for.
+ */
+export async function chunkCountsForOrg(orgId: string): Promise<Record<number, number>> {
+  const rows = await db
+    .select({ sourceId: knowledgeDocumentSchema.sourceId, count: sql<number>`count(${knowledgeChunkSchema.id})::int` })
+    .from(knowledgeChunkSchema)
+    .innerJoin(knowledgeDocumentSchema, eq(knowledgeChunkSchema.documentId, knowledgeDocumentSchema.id))
     .where(eq(knowledgeDocumentSchema.orgId, orgId))
     .groupBy(knowledgeDocumentSchema.sourceId);
   const map: Record<number, number> = {};

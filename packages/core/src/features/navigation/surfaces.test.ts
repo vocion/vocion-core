@@ -8,10 +8,17 @@ describe('surface registry', () => {
         label: 'GTM',
         items: [
           { id: 'personalization', label: 'Personalization', url: '/gtm/personalization', icon: 'sparkles' },
-          { id: 'discovery', label: 'Discovery ledger', url: '/gtm/discovery', icon: 'radar' },
+          { id: 'discovery', label: 'Discovery calls', url: '/gtm/discovery', icon: 'radar' },
         ],
       },
     ]);
+  });
+
+  it('registers Proposals as a GTM surface a workspace switches on — never a hardcoded row', () => {
+    expect(groupEnabledSurfaces(['proposals'])).toEqual([
+      { label: 'GTM', items: [{ id: 'proposals', label: 'Proposals', url: '/gtm/proposals', icon: 'file-text' }] },
+    ]);
+    expect(isSurfaceId('proposals')).toBe(true);
   });
 
   it('skips ids this core does not register instead of rendering a dead link', () => {

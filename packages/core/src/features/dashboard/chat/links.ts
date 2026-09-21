@@ -6,7 +6,7 @@
  */
 
 export type DashboardLinkKind
-  = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'review' | 'learning'
+  = 'agent' | 'team' | 'mission' | 'mission-run' | 'ask' | 'briefing' | 'object' | 'room' | 'review' | 'learning'
     | 'eval' | 'connector' | 'workflow' | 'team-report' | 'chat' | 'page';
 
 export type DashboardLink = {
@@ -27,6 +27,7 @@ const RULES: Array<[RegExp, DashboardLinkKind]> = [
   [/^\/dashboard\/inbox\/(?:g\/)?([^/?#]+)/, 'ask'],
   [/^\/dashboard\/briefings(?:\/([^/?#]+))?/, 'briefing'],
   [/^\/dashboard\/objects\/(?!type(?:\/|$))([^/?#]+)/, 'object'],
+  [/^\/dashboard\/rooms\/(\d+)/, 'room'],
   [/^\/dashboard\/review/, 'review'],
   [/^\/dashboard\/learnings\/([^/?#]+)/, 'learning'],
   [/^\/dashboard\/evals\/([^/?#]+)/, 'eval'],
@@ -66,4 +67,15 @@ export function classifyDashboardLink(href: string | undefined, origin?: string)
     }
   }
   return null;
+}
+
+/**
+ * The record a chip can PEEK instead of navigating to — a data room opens in
+ * the preview pane on a plain click (⌘-click still navigates), because the
+ * conversation is where the person is reading. Only kinds with a preview
+ * resolver; everything else navigates as before.
+ * @param link - A classified dashboard link.
+ */
+export function previewRefFor(link: DashboardLink): { type: 'object'; id: string } | null {
+  return link.kind === 'room' && link.id ? { type: 'object', id: link.id } : null;
 }

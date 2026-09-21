@@ -1,0 +1,19 @@
+slug: rooms-daily-check
+name: Weekday room check
+description: >-
+  Wakes the Room keeper every weekday morning to check the standing mission.
+  The collector already files the clear matches after every sync; this pass
+  does what needs judgement.
+status: active
+agent: room-keeper
+when:
+  schedule: '0 14 * * 1-5'
+do:
+  checkMission: rooms-current
+  prompt: >-
+    Read every active room. File what landed since yesterday that the
+    collector did not, with a weight and a decision log; confirm or dismiss
+    what it asked about. Refresh each status paragraph that is older than
+    seven days from the newest sources, dated today. Add milestones for what
+    actually happened. Put what only a person can decide on the queue, with
+    the evidence. Report per room in one line: filed, asked, status refreshed.

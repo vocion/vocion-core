@@ -1,0 +1,165 @@
+---
+slug: write-task-contract
+name: Writing a task contract
+description: >-
+  How to turn a brief or a named request into an engineering task contract a
+  headless worker can execute in isolation and a machine can check when it is
+  done: what one task is, what the objective, allowed paths, acceptance
+  criteria and required checks have to say, how risk class and budgets are
+  chosen, why every task carries the id of the request that asked for it and
+  the slug of the repository it lands in, how the repository's risk floor
+  overrides the planner's guess, and the three WIP limits that decide whether
+  a task is dispatched at all. Read before writing or dispatching any task,
+  and when a returned task shows assumptions the contract should have carried.
+playbooks: [the-twenty-percent, written-promises]
+version: 2
+---
+
+# Writing a task contract
+
+A **task contract** is the whole interface between what somebody asked for and
+what a worker does. The worker cannot see the conversation, cannot ask a
+question, and will finish something whether or not the contract was clear —
+so everything the contract leaves out comes back as an assumption, an attempt,
+or a change nobody wanted.
+
+The contract is an `engineering_task` record. It is also the durable thing a
+person reads: the run underneath it is a lease that may be claimed three times,
+but the task is one task the whole way through.
+
+## Every task carries its request and its repository
+
+`requestId` is the id of the **`request`** record that asked for this — one
+noun, whatever door it came through: a bug report, a store review, a support
+email, a dogfood note — and `requestSummary` is that request in the asker's
+own words. **Required.** A task with no request is a task to close, not to
+dispatch. This is not bookkeeping: it is the one rule that stops the factory
+building things nobody asked for, and it is the thing the reviewer reads last,
+to check that a change which satisfies every criterion actually serves what
+was asked.
+
+`repoSlug` is the slug of the **`repo`** record the change lands in.
+**Required.** The contract cites that record's `checks` by name — never a
+command you wrote yourself — and takes its risk floor from that record's
+`riskDefaults`. A repository with no record is one the factory does not touch;
+say so and stop rather than writing a task against a URL.
+
+`productSlug` names the product served, so the reviewer can read its written
+promises before approving.
+
+## What one task is
+
+One repository, one objective, no questions. Split when:
+
+- the change spans two repositories — two tasks, with a dependency edge;
+- part of it has to be accepted before the rest can start — write the edge in
+  `dependencies`, by task id, so nothing is discovered at run time;
+- two parts have different risk classes — a docs change riding along with a
+  schema change is reviewed at the schema bar, which is how cheap work gets
+  expensive.
+
+## The five fields that do the work
+
+**`objective`** — the outcome, in one or two sentences. Not steps. If you
+cannot state it without naming the files to edit, you do not understand the
+task well enough to dispatch it, and neither will the worker.
+
+**`allowedPaths`** — the blast radius, agreed before the work starts. Narrow
+enough that a diff outside them is obviously wrong, wide enough that the task
+is possible. This is the cheapest check in the whole system: it is decided
+without reading the diff.
+
+**`acceptanceContract`** — what has to be true, one line each, each line
+standing on its own and checkable by a person or a command. "Works correctly"
+is not a criterion. "The endpoint returns 404 for an unknown id, with a test
+that fails without the change" is.
+
+**`requiredChecks`** — the exact commands, in the order they run. Deterministic
+and repeatable: a check nobody can run again is not a check, and nothing is
+accepted on a worker's assurance that it tested it. Include the check that
+fails *before* the change wherever the work is a fix — a test that passes
+against both trees proves nothing.
+
+**`riskClass`** — `docs`, `marketing`, `deps`, `ui`, `logic`, `auth`,
+`billing`, `schema`, `infra`. Choose it by what breaks if the change is wrong,
+never by how large the diff is. It is what decides how much evidence the merge
+takes, so overstating it is as expensive as understating it is dangerous.
+
+**The repository's floor wins.** Before you settle on a class, match every
+glob in `allowedPaths` against the repository's `riskDefaults`. Where a path
+you allow falls under a guarded glob, the task's class is **at least** what
+that glob says: a "docs" task whose paths include `policy/**` is `logic`, and
+a "ui" fix that reaches into `billing/**` is `billing`. Say in the contract
+which path raised it. The reviewer checks this before reading the diff and
+rejects a contract that sits below its floor — so a class you understate is
+not a faster merge, it is a rejected one. This is also why a bug fix can be
+fast: the danger is in the files a fix touches, not in the word "bug", and
+the floor is what says which files.
+
+**`sizeClass`** — `major`, `minor` or `patch`, carried from the request. It
+is what the release it rides in inherits (the largest class aboard), and a
+`major` task is the one the initiative limit counts.
+
+**`decisionCost`** — the minutes of a person's attention the merge ask will
+take: 1 for docs or deps, 5 for ui or logic, 60 for anything that changes an
+architecture, a price, a plan limit or a promise. The promoter sums this over
+open asks before dispatching another task, so estimate it honestly rather than
+low.
+
+## Budgets, model policy, attempts
+
+`tokenBudget` and `wallClockBudget` are sized for the work, not for comfort: a
+task that needs more than its budget was scoped wrong, and the run stopping is
+the signal that says so. `modelPolicy` says which tier to run on in the
+workspace's own words. `attempt` starts at 1 and rises only when the next
+attempt carries **something the previous contract did not say** — a failing
+check, an assumption made explicit, a path added. Raising the attempt with the
+same contract is paying twice for the same misunderstanding.
+
+## Before you dispatch: the three WIP limits
+
+The backlog is unbounded and cheap — a request costs nothing to hold. The
+queue in front of a person is bounded and expensive. Three limits keep the
+second from filling up with the first:
+
+1. **Decision WIP — a budget of human minutes, not a count.** Sum the
+   `decisionCost` of every open ask (merge asks, honest-answer asks, questions
+   for a person). While the sum is under the day's budget — start at **60
+   minutes** — promote the next task; when it is over, stop dispatching and
+   say so. Ten docs merges is a coffee; ten architecture asks is a week, and
+   the count would have called them the same.
+2. **Execution WIP** — how many workers run at once and what each may spend.
+   Core already holds this: the agent's period budget (`agent_budget`) and the
+   per-run cap. Name it in the plan; do not rebuild it in the contract.
+3. **Initiative WIP — at most one big thing in flight.** A new product, a
+   major feature, a shared platform change. While one initiative is open, **do
+   not decompose a second** — however good the request. Say so as an ask: name
+   the open initiative, the one that is waiting, and let a person decide which
+   comes first. Two initiatives in flight is how neither ships.
+
+What promotes a request from the backlog to the queue is the lead's mission
+tick, ranking open requests by value against the standing goals and the
+product's promises, then dispatching in that order until a limit is hit.
+
+## Read it back as the worker
+
+Before dispatching, read the contract as the thing that will execute it:
+
+1. What does it not say that the worker would have to assume?
+2. Which acceptance criterion cannot be checked by a command or by a reviewer
+   reading the diff?
+3. What would a reasonable worker do outside `allowedPaths`, and should that be
+   in them or in a second task?
+
+Every assumption you can see now is one you write into the contract instead of
+reading in the result. Where you cannot make a criterion checkable, **do not
+dispatch**: write the question that would make it checkable and put it on the
+review queue for a person. An unanswerable contract is the only thing worse
+than no task at all.
+
+## The receipt
+
+Report each planning pass in five lines: tasks written (each with its request
+id and repository), dependency edges, decision minutes open against the budget,
+what you did not turn into a task and why, what a person has to decide before
+anything is dispatched.

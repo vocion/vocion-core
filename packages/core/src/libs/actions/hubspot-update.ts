@@ -55,6 +55,18 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
       throw new Error('hubspot.update requires connected HubSpot credentials (credentials.token)');
     }
     const client = createHubspotClient({ token, baseUrl: input.baseUrl });
+    const keys = Object.keys(input.properties);
+    // What the record said BEFORE, so the run can be undone. Best-effort: a
+    // read that fails must not block the write a person or the ladder just
+    // approved — the run then records that it has nothing to restore.
+    let previous: Record<string, string | null> | null = null;
+    const before = await client.get<{ properties?: Record<string, string | null> }>(
+      `/crm/v3/objects/${input.objectType}/${input.objectId}`,
+      { properties: keys.join(',') },
+    );
+    if (before.ok) {
+      previous = Object.fromEntries(keys.map(k => [k, before.data.properties?.[k] ?? null]));
+    }
     const res = await client.patch<{ id?: string; updatedAt?: string }>(
       `/crm/v3/objects/${input.objectType}/${input.objectId}`,
       { properties: input.properties },
@@ -67,8 +79,33 @@ export const hubspotUpdateAction: Action<typeof hubspotUpdateInput> = {
     return {
       objectType: input.objectType,
       objectId: body.id ?? input.objectId,
-      updated: Object.keys(input.properties),
+      updated: keys,
       updatedAt: body.updatedAt ?? null,
+      previous,
     };
+  },
+  // Reversible: the previous values go back. This is what lets a confident
+  // update run on its own (`libs/actions/autoAccept.ts`) — done for you, and
+  // one click puts it back.
+  async undo(ctx, input, result) {
+    const token = tokenFromCredentials(ctx.credentials as Record<string, unknown> | undefined);
+    if (!token) {
+      throw new Error('hubspot.update undo requires connected HubSpot credentials (credentials.token)');
+    }
+    const previous = result.previous as Record<string, string | null> | null | undefined;
+    if (!previous) {
+      throw new Error('This update recorded no previous values, so there is nothing to restore — set the fields by hand in HubSpot.');
+    }
+    const client = createHubspotClient({ token, baseUrl: input.baseUrl });
+    // HubSpot clears a property with an empty string; null is rejected.
+    const properties = Object.fromEntries(Object.entries(previous).map(([k, v]) => [k, v ?? '']));
+    const res = await client.patch<{ id?: string; updatedAt?: string }>(
+      `/crm/v3/objects/${input.objectType}/${input.objectId}`,
+      { properties },
+    );
+    if (!res.ok) {
+      throw new Error(`HubSpot undo failed: ${res.message}`);
+    }
+    return { restored: Object.keys(properties), restoredAt: res.data.updatedAt ?? null };
   },
 };

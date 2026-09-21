@@ -1,0 +1,27 @@
+slug: keep-the-board-honest
+name: The portfolio reads true this morning
+description: >-
+  The standing responsibility for the numbers on the AppCurious board — not a
+  one-off run. Every morning the lead recomputes each product's counters from
+  the records and dates them, so an outcome view never shows yesterday's
+  figure as today's.
+goal: >-
+  Every product's agent-maintained counters — open requests, P1s open,
+  shipped this month, median days from request to release, last release,
+  health — are recomputed from the request and release records each morning,
+  each one traceable to the rows it was computed from, and stamped with when.
+  A number that cannot be computed is left empty and said so; a health that
+  cannot be read from last night's check is `unknown`, never `ok`.
+agent: task-planner
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every product in dogfood or live has countersUpdatedAt within the last twenty-four hours
+  - openRequests and p1Open equal the count of that product's request records in an open state, and the check can name them
+  - shippedThisMonth and lastReleaseAt are read from that product's release records; a merged task with no release does not count as shipped
+  - medianDaysToShip is computed from askedAt to the closing release's releasedAt over the last ninety days, or left empty with the reason when fewer than three requests closed
+  - health is read from last night's black-box e2e and the newest release's healthAfter; unknown when neither exists, never assumed ok
+  - Revenue is not written by this mission until a verified revenue source exists
+desiredArtifacts:
+  - The morning board line per product — the six counters and what they were computed from
+schedule: '0 11 * * *'

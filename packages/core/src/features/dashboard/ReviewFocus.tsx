@@ -8,6 +8,8 @@ import { toast } from '@/components/ui/toast';
 import { describeAction, ReviewFocusView } from '@/features/review/ReviewFocusView';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
 import { shortcutFor } from '@/features/review/reviewShortcuts';
+import { showLearnedToast } from '@/features/review/showLearnedToast';
+import { isSelfUpdate } from '@/libs/actions/selfUpdate';
 import { Link } from '@/libs/I18nNavigation';
 import { client } from '@/libs/Orpc';
 import { inboxHref } from '@/services/inbox/inboxRef';
@@ -96,7 +98,7 @@ export function ReviewFocus(props: {
     }
   }, [run.id]);
 
-  const signal = (s: 'skip' | 'save') => {
+  const signal = (s: 'skip') => {
     void client.review.recordSignal({ runId: run.id, signal: s }).catch(() => {});
   };
 
@@ -115,13 +117,6 @@ export function ReviewFocus(props: {
     signal('skip');
     setSkipped(s => [...s, run.id]);
     goTo(next.id);
-  };
-
-  const onSave = () => {
-    signal('save');
-    setDecided(d => d + 1);
-    toast.info(`Saved for later · ${describeAction(run).title}`, { description: 'Still pending; it stays on the review queue.' });
-    leave();
   };
 
   const buildEditedInput = (): Record<string, unknown> | undefined => {
@@ -149,6 +144,10 @@ export function ReviewFocus(props: {
       toast.success(`${decision === 'approve' ? 'Approved' : 'Declined'} · ${title}`, {
         description: decision === 'approve' ? (editedInput ? 'Your edited version is executing now.' : 'Executing now.') : 'Nothing runs; the agent learns from it.',
       });
+      // The same second line the card's own surface says (principle 6: one
+      // shape) — what the decision TAUGHT, with Undo where there is something
+      // to put back. This page has no note field, so nothing is queued as a rule.
+      showLearnedToast({ decision, actionId: run.actionId, runId: run.id, hasNote: false, undoable: isSelfUpdate(run.actionId) });
       leave();
     } catch (err) {
       toast.error(`Could not ${decision === 'approve' ? 'approve' : 'decline'} · ${title}`, { description: err instanceof Error ? err.message : String(err) });
@@ -176,7 +175,7 @@ export function ReviewFocus(props: {
 
   // The card owns its own decide/snooze; this just moves on. A regenerate is
   // NOT a decision: the card holds its place and the page re-reads the run.
-  const onCardDecided = (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => {
+  const onCardDecided = (outcome: 'approve' | 'reject' | 'done' | 'snooze' | 'regenerate') => {
     if (outcome === 'regenerate') {
       router.refresh();
       return;
@@ -239,7 +238,7 @@ export function ReviewFocus(props: {
   if (cleared) {
     return (
       <div className="mx-auto w-full max-w-3xl" data-testid="review-cleared">
-        <ReviewHeader crumbs={decisionCrumbs('proposal', record)} title="Queue clear" system="Proposals" status="done" position={`${decided} decided this visit`} />
+        <ReviewHeader crumbs={decisionCrumbs('proposal', record)} title="Queue clear" system="Recommendations" status="done" position={`${decided} decided this visit`} />
         <p className="mt-3 text-sm text-muted-foreground">Nothing else in this queue is waiting on you.</p>
         <p className="mt-4">
           <Link href={listHref} className="text-sm text-primary underline-offset-2 hover:underline" data-testid="review-cleared-back">Back to the review queue</Link>
@@ -260,7 +259,6 @@ export function ReviewFocus(props: {
       canBack={Boolean(prev)}
       onBack={onBack}
       onSkip={onSkip}
-      onSave={onSave}
       onCardDecided={onCardDecided}
       onCardRegenerated={() => router.refresh()}
       edited={edited}

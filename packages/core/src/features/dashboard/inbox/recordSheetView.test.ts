@@ -36,12 +36,12 @@ describe('recordSheetView', () => {
     const view = recordSheetView('email:someone@example.com', { open: [], decided: [row(1, 'someone@example.com')] });
 
     expect(view.state).toBe('sheet');
-    expect(view).toMatchObject({ name: 'someone@example.com', title: 'someone@example.com — 0 proposals' });
+    expect(view).toMatchObject({ name: 'someone@example.com', title: 'someone@example.com — 0 recommendations' });
   });
 
   it('counts the open rows in the title', () => {
     const view = recordSheetView('email:someone@example.com', { open: [row(1, 'someone@example.com'), row(2, 'someone@example.com')], decided: [] });
 
-    expect(view).toMatchObject({ state: 'sheet', title: 'someone@example.com — 2 proposals' });
+    expect(view).toMatchObject({ state: 'sheet', title: 'someone@example.com — 2 recommendations' });
   });
 });

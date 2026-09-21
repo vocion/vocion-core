@@ -1,0 +1,13 @@
+slug: tell-the-requester-check
+name: Two-hourly reply pass
+description: >-
+  Wakes the Task planner on the cadence of the `tell-the-requester` mission to check the
+  standing charter and do only what needs doing now.
+status: active
+agent: task-planner
+when:
+  schedule: '0 */2 * * *'
+do:
+  checkMission: tell-the-requester
+  prompt: >-
+    First: any release with notes and no announcedAt — if its notes are the agent's draft, ask a person to own them; if they are a person's, propose the announcement (release.announce) from them. Any release with no notes gets them drafted (write-release-notes) before anything else about it. Then read every release since the last pass: each request id in its requestIds and not in its announcedTo.requestIds is a person to tell (notify.requester), unless the release's healthAfter is down — then wait and say so. Add every request whose answer was decided since the last pass and has no reply yet. For each, propose the reply on the channel the request came from — the store, the mailbox, the issue, the chat — written for the asker in their terms, saying what changed or was decided and why. A reply about a release names its version. Say nothing is done that is still waiting on a person. When a reply is released, add the request id to the release's announcedTo.requestIds; when an announcement is, set announcedAt and its channels. Report: proposed, released since last pass, still waiting.

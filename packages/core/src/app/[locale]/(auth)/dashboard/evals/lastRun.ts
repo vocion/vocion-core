@@ -18,6 +18,8 @@
  *   in progress never blanks out the number someone had yesterday.
  */
 
+import { timeAgo } from '@/libs/timeAgo';
+
 /** What the database already worked out about a dataset's runs. */
 export type RunFactsForCard = {
   runCount: number;
@@ -36,34 +38,6 @@ export type LastRunSummary = {
   /** From the newest finished run, not the newest run. */
   passRate: number | null;
 };
-
-/**
- * "just now", "3 hours ago", "2 days ago", then a plain date.
- *
- * Coarser than the artifact version indicator on purpose: eval runs are a
- * daily-to-weekly thing, and minute precision on a card is noise.
- * @param at - When the run started.
- * @param now - The clock, injectable so tests do not depend on the real one.
- */
-export function timeAgo(at: Date, now: number): string {
-  const seconds = Math.max(0, Math.round((now - at.getTime()) / 1000));
-  if (seconds < 60) {
-    return 'just now';
-  }
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) {
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) {
-    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  }
-  const days = Math.round(hours / 24);
-  if (days <= 14) {
-    return `${days} day${days === 1 ? '' : 's'} ago`;
-  }
-  return `on ${at.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
-}
 
 /**
  * Sum up a dataset's runs for its card.

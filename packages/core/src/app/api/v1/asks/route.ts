@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isAskKind, isAskRisk, isAskStatusFilter, listAsks, normaliseOptions, upsertAsk } from '@/services/AskService';
+import { isAskKind, isAskRisk, isAskStatusFilter, listAsks, normaliseObjectRefs, normaliseOptions, upsertAsk } from '@/services/AskService';
 import { authApi, isErrorResponse, jsonError, readJsonBody, readPagination } from '../_shared';
 import { askErrorResponse, optDate, optStr, withAskUrl, withAskUrls } from './_lib';
 
@@ -54,10 +54,15 @@ export async function GET(req: Request) {
  * POST /api/v1/asks
  *   { kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?,
  *     options?: (string | { id, label, description?, recommended? })[],
+ *     objectRefs?: { type, id }[], decisionCost?,
  *     groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }
  *
  * File a question for a person. `options` may be bare strings (id = slug of
- * the label) or objects; at most one may be `recommended`. `url` is accepted
+ * the label) or objects; at most one may be `recommended`. `objectRefs` names
+ * the records the question is about (an object type slug and the object's
+ * id); they ride the `ask.decided` event so the answer can be written back
+ * onto them. `decisionCost` is the minutes of attention the decision is
+ * estimated to take. `url` is accepted
  * as an alias of `contextUrl`. The reply's `ask.url` is the workspace-aware
  * link to decide it (`/w/<workspace>/dashboard/inbox/<id>`) — paste that, not a
  * bare `/dashboard/inbox` path. With a `sourceRef` this org has already filed,
@@ -95,6 +100,10 @@ export async function POST(req: Request) {
   if (isErrorResponse(notifyAt)) {
     return notifyAt;
   }
+  const decisionCost = 'decisionCost' in body ? body.decisionCost : undefined;
+  if (decisionCost !== undefined && decisionCost !== null && (typeof decisionCost !== 'number' || !Number.isInteger(decisionCost) || decisionCost < 0)) {
+    return jsonError('VALIDATION_FAILED', 'decisionCost must be a whole number of minutes, 0 or more', 400);
+  }
   try {
     const { ask, created } = await upsertAsk({
       orgId: caller.orgId,
@@ -109,6 +118,8 @@ export async function POST(req: Request) {
         teamSlug: optStr(body, 'teamSlug'),
         risk: rawRisk === undefined ? undefined : isAskRisk(rawRisk) ? rawRisk : null,
         options: 'options' in body ? normaliseOptions(body.options) : undefined,
+        objectRefs: 'objectRefs' in body ? normaliseObjectRefs(body.objectRefs) : undefined,
+        decisionCost: decisionCost === undefined ? undefined : (decisionCost as number | null),
         groupKey: optStr(body, 'groupKey'),
         groupTitle: optStr(body, 'groupTitle'),
         contextUrl: 'contextUrl' in body ? optStr(body, 'contextUrl') : optStr(body, 'url'),

@@ -30,7 +30,11 @@ export function UserMessage({ content, attachments = [] }: UserMessageProps) {
   const long = content.length > CLAMP_THRESHOLD;
   return (
     <div className="flex justify-end">
-      <div className="max-w-2xl rounded-2xl border border-border bg-muted/40 px-4 py-2 text-left text-sm whitespace-pre-wrap">
+      {/* `break-words`: a message carries whatever was pasted into it, and a
+          200-character URL with no space in it is a single unbreakable word.
+          `whitespace-pre-wrap` alone keeps the person's line breaks but will
+          not break that word, so the bubble grew past the transcript. */}
+      <div className="max-w-2xl rounded-2xl border border-border bg-muted/40 px-4 py-2 text-left text-sm break-words whitespace-pre-wrap">
         {/* What was attached is part of what was said: an image shows itself,
             a document shows its name. Each opens the artifact (authenticated). */}
         {attachments.length > 0 && (

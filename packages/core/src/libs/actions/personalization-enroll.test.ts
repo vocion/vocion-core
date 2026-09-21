@@ -514,8 +514,143 @@ describe('Regenerate, tiered (the fast path)', () => {
     expect(runs[0]!.regeneratingSince).toBeNull();
     expect((runs[0]!.input as { sends: Array<{ subject: string }> }).sends.map(s => s.subject)).toEqual(['Your platform hires', 'A softer step']);
 
-    // The fast path never touches the research pipeline: no reset, no event.
-    expect(await db.select().from(eventLogSchema)).toHaveLength(0);
+    // The fast path never touches the research pipeline: no reset, no
+    // personalization event. (An `artifact.saved` announcement for the brief
+    // artifact is not the pipeline — it is the artifact log's own signal.)
+    expect((await db.select().from(eventLogSchema)).filter(e => !e.type.startsWith('artifact.'))).toHaveLength(0);
+  });
+
+  it('a scoped regenerate rewrites the named send and leaves the others byte-identical', async () => {
+    // The live defect (Chris, 2026-09-20): "I approved emails 1-3 and then
+    // regenerated the 4th one and it regenerated all emails." A check is a
+    // hash of the copy it was given for, so rewriting a send a reviewer
+    // already approved silently takes that approval back.
+    await seedLead();
+    mapped();
+    const four = enrollInput({
+      sends: [
+        { step: 1, day: 0, subject: 'Your platform hires', body: 'Dana, saw the hires.' },
+        { step: 2, day: 4, subject: 'One level deeper', body: 'The switching-costs section.' },
+        { step: 3, day: 8, subject: 'A short note', body: 'Apologies for the nudge.' },
+        { step: 4, day: 12, subject: 'Closing the loop', body: 'Last one from me.' },
+      ],
+    });
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: four,
+    });
+    // The scoped turn can only answer with ONE send — the shape carries no
+    // room for the others, which is what makes this structural.
+    vi.mocked(runSkillTurn).mockResolvedValue({
+      output: { needsResearch: false, reason: 'dropped the apology', send: { subject: 'Closing the loop', body: 'Worth twenty minutes next week?' } },
+      toolCalls: 0,
+      durationMs: 700,
+    });
+
+    await personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      four as never,
+      proposed.runId!,
+      'drop the apology and ask for the meeting',
+      { contentId: 'send-4' },
+    );
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const sends = (runs[0]!.input as { sends: Array<{ step: number; day?: number; subject: string; body: string }> }).sends;
+
+    // Send 4 carries the redraft.
+    expect(sends[3]).toMatchObject({ step: 4, day: 12, subject: 'Closing the loop', body: 'Worth twenty minutes next week?' });
+    // And 1 through 3 are exactly what they were — the same objects a
+    // reviewer's checks were computed over, so the checks still stand.
+    expect(sends.slice(0, 3)).toEqual(four.sends.slice(0, 3));
+
+    // Said the way the screen says it, because "byte-identical" is only the
+    // mechanism: a check is a hash of the copy it was given for, so this is
+    // the assertion that the three approvals a reviewer earned survived the
+    // fourth send being redrafted.
+    const { contentHash } = await import('@/libs/actions/contentHash');
+    const stillChecked = four.sends.slice(0, 3).every(
+      before => sends.some(after => contentHash(after.subject, after.body) === contentHash(before.subject, before.body)),
+    );
+
+    expect(stillChecked).toBe(true);
+    // And send 4's check is gone, which is correct: its copy changed.
+    expect(contentHash(sends[3]!.subject, sends[3]!.body)).not.toBe(contentHash(four.sends[3]!.subject, four.sends[3]!.body));
+  });
+
+  it('a scoped regenerate is never offered the sequence library, because it cannot change the sequence', async () => {
+    await seedLead();
+    mapped();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput(),
+    });
+    vi.mocked(runSkillTurn).mockResolvedValue({
+      output: { needsResearch: false, send: { subject: 'One level deeper', body: 'Shorter.' } },
+      toolCalls: 0,
+      durationMs: 400,
+    });
+
+    await personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      proposed.runId!,
+      'shorter',
+      { contentId: 'send-2' },
+    );
+
+    // A tool whose answer has nowhere to land is a HubSpot round trip for
+    // nothing, and an invitation to change something this turn must not.
+    expect(vi.mocked(runSkillTurn).mock.calls[0]![0].toolAllowlist).toEqual(['get_lead_brief']);
+
+    // The recommendation and sender ride through from the input untouched.
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(runs[0]!.input).toMatchObject({ sequenceId: 'seq-311', sequenceName: 'AI-Readiness Nurture', senderEmail: 'chris@metacto.com' });
+  });
+
+  it('a contentId naming no send falls back to the whole draft rather than doing nothing', async () => {
+    // A stale card, an unknown id: redrafting everything is the old behaviour
+    // and it is safe. Silently skipping the regeneration would not be.
+    await seedLead();
+    mapped();
+    const proposed = await proposeAction({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      principal: agent(),
+      input: enrollInput(),
+    });
+    vi.mocked(runSkillTurn).mockResolvedValue({
+      output: {
+        needsResearch: false,
+        reason: 'redrafted',
+        sends: [
+          { day: 0, subject: 'Rewritten one', body: 'One.' },
+          { day: 4, subject: 'Rewritten two', body: 'Two.' },
+        ],
+        recommendedSequence: { id: 'seq-311', name: 'AI-Readiness Nurture' },
+        senderEmail: 'chris@metacto.com',
+        hubspotUserId: '77',
+      },
+      toolCalls: 0,
+      durationMs: 800,
+    });
+
+    await personalizationEnrollAction.regenerate!(
+      { orgId: ORG, reviewedBy: 'user_jamie' },
+      enrollInput() as never,
+      proposed.runId!,
+      'redo it',
+      { contentId: 'send-99' },
+    );
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect((runs[0]!.input as { sends: Array<{ subject: string }> }).sends.map(s => s.subject)).toEqual(['Rewritten one', 'Rewritten two']);
   });
 
   it('research feedback: needsResearch falls back to the reset + event path, keeping the back-link', async () => {
@@ -551,7 +686,12 @@ describe('Regenerate, tiered (the fast path)', () => {
     expect(lead?.regenerateNote).toContain('contradicts the brief');
     expect(lead?.reviewActionRunId).toBe(proposed.runId);
 
-    const events = await db.select().from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
+    // `artifact.*` is filtered out the way the draft test above already
+    // does it: an artifact save from an earlier case emits without being
+    // awaited, so whether it has landed by now is a matter of scheduling and
+    // not of this behaviour.
+    const events = (await db.select().from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG)))
+      .filter(e => !e.type.startsWith('artifact.'));
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('personalization.brief_regenerate_requested');

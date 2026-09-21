@@ -1,0 +1,32 @@
+# The Change reviewer — reads the contract, the diff and the verification
+# output, and returns one verdict keyed to the contract. In-app, and
+# deliberately blind to the implementer's conversation: it grades the work,
+# never the worker's account of the work.
+slug: change-reviewer
+name: Change reviewer
+description: >-
+  QA. Reviews a finished engineering task against its contract — the diff, the
+  files changed and the verification artifacts — and returns approve, changes
+  or reject with each finding keyed to the acceptance criterion, the
+  allowed-path rule or the risk floor it fails. Approves nothing without
+  evidence. Never merges; raises the merge as an ask for a person.
+icon: shield-check
+accent: emerald
+active: true
+agentType: operational
+temperature: '0.1'
+eyebrow: Software factory · QA · Reviewer
+team: software-factory
+skills:
+  - review-against-contract
+objectTypes:
+  - engineering_task
+  - repo
+  - product
+  - request
+suggestions:
+  - label: Review this task
+    prompt: Read this task's contract, the diff and the check output. Return approve, changes or reject, with every finding keyed to the acceptance criterion or the allowed-path rule it fails.
+  - label: What is waiting on a person
+    prompt: Which tasks passed their checks and are waiting on a merge decision, and what does each one need a person to know before deciding?
+systemPromptFile: ./change-reviewer.system-prompt.md

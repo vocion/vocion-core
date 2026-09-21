@@ -90,6 +90,17 @@ Per run: `tokens` and `cents` accumulate from what the worker reports. Per agent
 is also charged to the agent's period budget (`agent_budget`), so the caps a workspace already sets
 apply to external work too. `capCents` on the run is a second, per-run ceiling.
 
+**Per record.** A run queued *for* an object — `input: {record: {type: '<object type slug>', id:
+<object id>}, …}` on create — writes its cost onto that object when it ends (`complete` or `fail`;
+a failed attempt still cost money). Core sums `cents` over every run queued for the same record and
+writes the sum as `metadata.actualCents`, with `costUpdatedAt`, and when the record carries an
+`estimateCents` (or, failing that, the run had a `capCents` to stand in for one) writes
+`estimateCents` and `varianceCents` (actual minus estimate) beside it. The figure is recomputed from
+the rows, never incremented, so a task picked up three times is charged for three runs, once. Any
+`rollups` the org's object types declare over that record's type are recomputed in the same moment
+([Object type](./object-type.md)). Best effort: a write-back that fails is logged and never hands
+the worker an error for work it finished. A run without a record lands on nothing.
+
 ## What it deliberately does not do
 
 It does not make missions long-running, does not host the worker, and does not add a checkpointer
@@ -102,6 +113,15 @@ to the in-process loop. Vocion stores checkpoints and progress, not the worker's
   member with tokens, and per-member run lists with the worker's `summary`. Board and red-team runs
   are badged wherever runs are counted.
 - **Activity** (`/dashboard/activity?kind=worker`) — every run in the org's one stream, badged by kind.
+- **Feature report** (`/dashboard/p/feature/<requestId>`, the `report` archetype —
+  [`docs/workspace-pages.md`](../workspace-pages.md)) — every run queued for one request's tasks,
+  in order, with its agent, attempt, duration, cost and checks, and on a failure the kept branch
+  and draft pull request from its last heartbeat's `progress`. A run whose `status` is `failed`
+  and whose pull request merged is shown as both facts and flagged rather than reconciled: a
+  worker's completion call can time out after its pull request is already open, and the two
+  records then disagree honestly. A run is found for a request through
+  `input.record = {type: 'engineering_task', id}` — a run queued with no record appears on no
+  report.
 
 ## Operations
 

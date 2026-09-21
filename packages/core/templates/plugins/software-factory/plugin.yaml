@@ -1,0 +1,68 @@
+# The software-factory plugin — a named request becomes a task contract, a
+# headless worker in its own checkout executes it, deterministic checks decide
+# whether it worked, and a person merges.
+#
+# Learned from running it by hand: the part that made it safe was never the
+# model, it was the contract — an objective, the paths the worker may touch,
+# the checks that have to pass, and the id of the request that asked for it.
+# Everything that went wrong went wrong where the contract was vague. So the
+# contract is the object here, and the worker is the cheap, replaceable part.
+#
+# 1.3.0 seats a Product manager beside the planner, the engineer and the
+# reviewer — five disciplines, one team, the Design seat declared empty — and
+# makes HOW, WHEN and WHY it acts four automations a person can read and pause
+# on /dashboard/automation, never a habit in a prompt.
+#
+# Core ships the MECHANISM (the `engineering_task` object noun's storage, the
+# `worker_run` control plane — claim, lease, heartbeat, checkpoint, budget,
+# `counts` — the `external-worker` harness target, the review queue, the trust
+# ladder, the list archetype); this plugin ships the MEANING: what a task
+# contract holds, who writes one, who reviews it against the diff, the bar for
+# a push versus a merge, and the floor a person watches it from. The workspace
+# ships the CONCRETION: its repositories, its products, its budgets and the
+# person accountable for the merge.
+slug: software-factory
+name: Software factory
+# 1.5.0 — the debrief: a finished worker run or a merged pull request is
+# written back on the request by the Product manager (state, what answered
+# it, actual cost beside the estimate, the recommendation refreshed, draft
+# release notes) through `automations/product-debrief.yaml`, on core's
+# completion events. The product manager and the planner declare what they
+# `handle` for the router and their `initiative` — high and normal.
+#
+# 1.5.1 — the log, in chat: "what have you built" and "what shipped" are
+# answered from the worker runs themselves through core's `list_recent_runs`,
+# whether or not a task record exists; the product manager handles them.
+#
+# 1.6.0 — the pages made readable. Every list here leads with a wide
+# primary column and a muted subtitle line instead of fourteen narrow
+# columns: a fact that is the same on every visible row (one repository,
+# one product) is said once above the table, figures sit against a right
+# edge, a column carries a `priority` so a phone drops the least important
+# first, and `Asked by` resolves the request id to the request's own
+# title. The object types now annotate their fields (`x-display`), so a
+# record at /dashboard/objects/<id> renders from its own type — the
+# contract, the checks, the evidence, the pull request and the cost —
+# through the same formatting layer the lists use.
+#
+# 1.7.0 — the feature report: `pages/feature.yaml` puts one request's whole
+# story on one page (`/dashboard/p/feature/<requestId>`) — the ask in the
+# asker's words, triage, the contract, every approval, every run with its
+# checks and its cost, the pull request, QA evidence, the release, and
+# estimate against actual — as a timeline with the newest entry last. A stage
+# that did not happen says so; a run that says failed whose pull request
+# merged shows both facts and is flagged. Reached by the "Report" action on
+# the Backlog and the Factory floor.
+version: 1.7.0
+description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
+depends: []
+surfaces: []
+recommend:
+  when:
+    - a deployment has repositories and wants changes proposed, verified and merged by a person
+    - bug reports or feature requests arrive faster than anyone is working them
+    - the same small change is made by hand in several repositories
+    - a person asks what is in flight, what is stuck, and what nobody has answered for a week
+    - bug reports, store reviews and support emails about the same product are tracked in different places, or nowhere
+    - nobody can say which ten requests are most worth building next, or why, and the person who could decide is handed two hundred
+  connectors: []

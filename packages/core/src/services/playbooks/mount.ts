@@ -15,7 +15,8 @@
  * depends on the row's origin:
  *   - workspace: the workspace directory (skills/ or playbooks/).
  *   - core: the base pack shipped inside vocion-core
- *     (packages/core/templates/base/...).
+ *     (packages/core/templates/base/...) or an enabled plugin
+ *     (packages/core/templates/plugins/<slug>/...).
  *   - override: SKILL.md from the workspace; each sibling from the
  *     workspace when present, else from the base pack (merged by path).
  *
@@ -35,6 +36,7 @@ import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { fromRepoRoot } from '@/libs/repo-root';
 import { withSpecCompliantName } from '@/libs/skills/name';
+import { pluginRoots } from '@/libs/workspace/plugins';
 import { getWorkspacePath } from '@/libs/workspace/reader';
 import { substituteEnvTokens } from '@/libs/workspace/template-vars';
 import { playbookSchema } from '@/models/Schema';
@@ -229,18 +231,27 @@ export function readByOrigin(row: Pick<CatalogRow, 'kind' | 'origin' | 'slug'>, 
     const base = fromRepoRoot(workspace, kindFolder, row.slug);
     return { base, path: resolve(base, resourcePath), isTenantFile: true };
   };
-  const basePackCandidate = (): PlaybookFileCandidate => {
-    const base = fromRepoRoot(PACK_ROOT, kindFolder, row.slug);
-    return { base, path: resolve(base, resourcePath), isTenantFile: false };
-  };
+  // An inherited (`core`) row came from the base pack OR from an enabled
+  // plugin (`libs/workspace/plugins.ts`); both ship the same bytes to every
+  // tenant. Plugins are tried first because a plugin may shadow a base slug.
+  const inheritedCandidates = (): PlaybookFileCandidate[] => [
+    ...pluginRoots().map((root) => {
+      const base = resolve(root, kindFolder, row.slug);
+      return { base, path: resolve(base, resourcePath), isTenantFile: false };
+    }),
+    (() => {
+      const base = fromRepoRoot(PACK_ROOT, kindFolder, row.slug);
+      return { base, path: resolve(base, resourcePath), isTenantFile: false };
+    })(),
+  ];
 
   // Only the tenant's own files carry {{env.NAME}} tokens, hence the flag —
   // substituting the shared base pack would let one shipped example break
   // everyone's apply.
   const candidates: Array<PlaybookFileCandidate | null> = row.origin === 'core'
-    ? [basePackCandidate()]
+    ? inheritedCandidates()
     : row.origin === 'override'
-      ? [tenantCandidate(), basePackCandidate()]
+      ? [tenantCandidate(), ...inheritedCandidates()]
       : [tenantCandidate()];
 
   for (const candidate of candidates) {

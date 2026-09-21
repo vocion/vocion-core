@@ -16,11 +16,13 @@ import type { LabelVerdict } from '@/libs/actions/labelVerdict';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { policyKeyForRun } from '@/libs/actions/policyKey';
+import { nextRevisionVersion, revisionsFor } from '@/libs/actions/revisions';
 import { parseSuggestedDecision, parseSuggestedDecisionReason } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { logger } from '@/libs/Logger';
 import { accountMembershipSchema, actionRunSchema, missionRunSchema, projectSchema, reviewAssignmentSchema, workflowRunSchema } from '@/models/Schema';
-import { executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
+import { completeAction, executeAction, rejectAction, updateActionInput } from '@/services/ActionService';
 import { recordActionAlignment, scoreFor } from '@/services/alignment/AlignmentService';
 import { cancelMission, resumeMission } from '@/services/MissionService';
 import { cancelWorkflow, resumeWorkflow } from '@/services/WorkflowService';
@@ -683,7 +685,7 @@ export async function getReviewDetail(orgId: string, kind: ReviewKind, id: numbe
       card: await renderActionCard(orgId, row.actionId, row.input ?? {}),
       alignment: await scoreFor({
         orgId,
-        subjectKey: row.actionId,
+        subjectKey: policyKeyForRun(row.actionId, row.input),
         agentSlug: row.invokedBy?.startsWith('agent:') ? row.invokedBy.slice('agent:'.length) : row.proposal?.agentSlug ?? null,
       }).catch(() => null),
       record: row as unknown as Record<string, unknown>,
@@ -917,8 +919,24 @@ export async function snooze(
  * and the surface that clicked Approve must say so rather than look done.
  */
 export type DecideResult = {
-  execution?: { status: 'pending' | 'done' | 'failed' | 'rejected'; error: string | null };
+  execution?: { status: 'pending' | 'awaiting_execution' | 'done' | 'failed' | 'rejected' | 'undone'; error: string | null };
 };
+
+/**
+ * The verbs a queued item takes. `done` is the hand-off's third verb
+ * (`libs/actions/manual.ts`): a released run is marked done by whoever did
+ * the work, with a note and where the result lives. Only an action can take
+ * it, and only one in `awaiting_execution`.
+ */
+export type DecideVerb = 'approve' | 'reject' | 'done';
+
+/** A verb the item cannot take — the caller's mistake, said plainly. */
+class ReviewDecisionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReviewDecisionError';
+  }
+}
 
 /**
  * Approve or reject a queued item — dispatches to the owning service so the
@@ -932,6 +950,7 @@ export type DecideResult = {
  * @param opts.reason
  * @param opts.reviewedBy
  * @param opts.editedInput
+ * @param opts.resultUrl
  * @param opts.note
  * @param opts.learn - `false` from an automated caller; trains nothing.
  * @param opts.externalRef
@@ -940,12 +959,14 @@ export type DecideResult = {
  */
 export async function decide(
   item: { kind: ReviewKind; id: number },
-  action: 'approve' | 'reject',
+  action: DecideVerb,
   orgId: string,
   opts?: {
     reason?: string;
     reviewedBy?: string;
     editedInput?: Record<string, unknown>;
+    /** Where the outcome lives, on `done` — the merged PR, the deployment, the post. */
+    resultUrl?: string;
     /** Reviewer's note for the agent — stored on the assignment, the triage signal, and the learning capture. */
     note?: string;
     /**
@@ -963,20 +984,39 @@ export async function decide(
   },
 ): Promise<DecideResult> {
   const reviewedBy = opts?.reviewedBy ?? 'review-service';
+  if (action === 'done' && item.kind !== 'action') {
+    throw new ReviewDecisionError(`a ${item.kind} run is resumed or cancelled, never marked done by hand`);
+  }
   switch (item.kind) {
     case 'workflow':
       action === 'approve'
         ? await resumeWorkflow(item.id, orgId)
         : await cancelWorkflow(item.id, orgId, opts?.reason);
-      trackDecision(item, action, orgId, reviewedBy);
+      trackDecision(item, action as 'approve' | 'reject', orgId, reviewedBy);
       return {};
     case 'mission':
       action === 'approve'
         ? await resumeMission(item.id, orgId)
         : await cancelMission(item.id, orgId, opts?.reason);
-      trackDecision(item, action, orgId, reviewedBy);
+      trackDecision(item, action as 'approve' | 'reject', orgId, reviewedBy);
       return {};
     case 'action': {
+      if (action === 'done') {
+        // The hand-off's close. The decision was recorded at approve — the
+        // alignment row, the learning signal, the adoption event — so this
+        // writes the execution only: who did it, when, and where it is. The
+        // note rides the assignment so it reads on the item.
+        const outcome = await completeAction(item.id, orgId, {
+          by: reviewedBy,
+          note: opts?.note ?? opts?.reason,
+          resultUrl: opts?.resultUrl,
+          externalRef: opts?.externalRef,
+        });
+        if (opts?.note ?? opts?.reason) {
+          await upsertAssignment(orgId, item, { note: (opts.note ?? opts.reason)! }).catch(() => {});
+        }
+        return { execution: { status: outcome.status, error: outcome.error ?? null } };
+      }
       let execution: DecideResult['execution'];
       let labels: Record<string, LabelVerdict> | undefined;
       if (action === 'approve') {
@@ -994,6 +1034,14 @@ export async function decide(
         await (await import('@/services/personalization/artifacts'))
           .pinLeadArtifactsForRun(orgId, item.id)
           .catch(() => []);
+        // The approved copy, filed before the payload it describes is replaced.
+        // Same window as `labelVerdicts` above and for the same reason: after
+        // `updateActionInput` the input is the approved one and the question
+        // "what did this run actually send" has no column that answers it.
+        // A reviewer who walked every send finds their own approvals already
+        // there; one who clicked straight through gets the record made for
+        // them. Best effort — a decision never fails on its audit trail.
+        await recordApprovedCopy(item.id, orgId, opts?.editedInput, reviewedBy);
         // Edit-then-approve: if the operator edited the draft in the queue,
         // persist the edited payload FIRST (re-validated in ActionService),
         // so executeAction — which re-reads the row — sends what they see.
@@ -1451,7 +1499,7 @@ export async function rewriteDraft(opts: {
   let discardedEdit: string | undefined;
   if (rewritten.trim() !== original.trim()) {
     const existing = run.revisions ?? [];
-    const priorForContent = existing.filter(r => (opts.contentId ? r.contentId === opts.contentId : r.contentId === undefined));
+    const priorForContent = revisionsFor(existing, opts.contentId);
     discardedEdit = priorForContent.length > 0 ? priorForContent[priorForContent.length - 1]!.body : undefined;
     await db
       .update(actionRunSchema)
@@ -1459,12 +1507,13 @@ export async function rewriteDraft(opts: {
         revisions: [...existing, {
           ...(opts.contentId ? { contentId: opts.contentId } : {}),
           ...(targetStep !== null ? { step: targetStep } : {}),
-          version: priorForContent.length + 2,
+          version: nextRevisionVersion(existing, opts.contentId, 'regenerated'),
           body: rewritten,
           ...(opts.hint ? { ask: opts.hint } : {}),
           ...(discardedEdit !== undefined ? { discardedEdit } : {}),
           at: new Date().toISOString(),
           ...(opts.userId ? { by: opts.userId } : {}),
+          kind: 'regenerated' as const,
         }],
       })
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)));
@@ -1490,6 +1539,46 @@ export async function rewriteDraft(opts: {
   }
   const key = input.body !== undefined ? 'body' : 'notes';
   return { input: { ...input, [key]: rewritten }, body: rewritten, prior: original, ...(discardedEdit !== undefined ? { discardedEdit } : {}), ...(voiceError !== undefined ? { voiceError } : {}) };
+}
+
+/**
+ * File the copy each content item carried at the moment it was approved.
+ *
+ * Split out of `decide` the same way `recordVoiceEditDiff` is, and for the
+ * same reason: the window it depends on — before `updateActionInput` replaces
+ * `input` wholesale — is stated once, and a failure here is swallowed without
+ * swallowing anything else. A decision must never fail on its audit trail.
+ * @param runId - The action run being approved.
+ * @param orgId - The project id.
+ * @param editedInput - What the reviewer approved, when they edited it.
+ * @param reviewedBy - Who approved it.
+ */
+async function recordApprovedCopy(
+  runId: number,
+  orgId: string,
+  editedInput: Record<string, unknown> | undefined,
+  reviewedBy?: string,
+): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input })
+      .from(actionRunSchema)
+      .where(and(eq(actionRunSchema.id, runId), eq(actionRunSchema.orgId, orgId)))
+      .limit(1);
+    if (!row) {
+      return;
+    }
+    const { recordApprovedRevisions } = await import('@/services/review/contentRecord');
+    await recordApprovedRevisions({
+      orgId,
+      runId,
+      actionId: row.actionId,
+      approvedInput: editedInput ?? row.input,
+      ...(reviewedBy ? { by: reviewedBy } : {}),
+    });
+  } catch (err) {
+    logger.warn('could not record the approved revisions', { runId, orgId, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /**

@@ -2,12 +2,13 @@
 
 import type { ReactNode } from 'react';
 import { MessageSquare } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { SplitDivider } from '@/components/ui/split-divider';
 import { PreviewPane } from '@/features/preview/PreviewPane';
 import { useOpenPreviewRef } from '@/features/preview/previewState';
 import { cn } from '@/utils/Helpers';
 import { claimColumn, columnOwner, openChatPane, publishDockOpen, RAIL_INSET_VAR, subscribeColumnOwner } from './dockState';
-import { clampRailSplit, RAIL_MAX_FRACTION, RAIL_MIN_WIDTH, RAIL_SPLIT_DEFAULT, RAIL_SPLIT_MIN, readStoredRailSplit, writeStoredRailSplit } from './railState';
+import { clampRailSplit, RAIL_MAX_FRACTION, RAIL_MIN_WIDTH, RAIL_SPLIT_DEFAULT, readStoredRailSplit, writeStoredRailSplit } from './railState';
 
 /**
  * THE right column. One width, one resize handle, two stacked panes.
@@ -74,7 +75,6 @@ export function RailColumn(props: RailColumnProps) {
   const previewRef = useOpenPreviewRef();
   const column = useRef<HTMLDivElement>(null);
   const [split, setSplit] = useState(RAIL_SPLIT_DEFAULT);
-  const dragging = useRef<{ top: number; height: number } | null>(null);
 
   // The server renders the default split and the browser adopts its own
   // remembered one after mount — localStorage does not exist during the
@@ -111,46 +111,6 @@ export function RailColumn(props: RailColumnProps) {
     return () => publishDockOpen(false);
   }, [owns, open, props.frame, props.width]);
 
-  const onDividerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const rect = column.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-    dragging.current = { top: rect.top, height: rect.height };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-
-  const onDividerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const d = dragging.current;
-    if (!d || d.height === 0) {
-      return;
-    }
-    setSplit(clampRailSplit((e.clientY - d.top) / d.height));
-  }, []);
-
-  const onDividerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (dragging.current) {
-      dragging.current = null;
-      e.currentTarget.releasePointerCapture?.(e.pointerId);
-      setSplit((s) => {
-        writeStoredRailSplit(s);
-        return s;
-      });
-    }
-  }, []);
-
-  const onDividerKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') {
-      return;
-    }
-    e.preventDefault();
-    setSplit((s) => {
-      const next = clampRailSplit(s + (e.key === 'ArrowDown' ? 0.05 : -0.05));
-      writeStoredRailSplit(next);
-      return next;
-    });
-  }, []);
-
   if (!owns) {
     return null;
   }
@@ -174,21 +134,21 @@ export function RailColumn(props: RailColumnProps) {
               <div className="flex min-h-0 flex-col overflow-hidden" style={{ flexGrow: split, flexBasis: 0 }}>
                 {preview}
               </div>
-              <div
-                role="slider"
-                aria-label="Resize the preview"
-                aria-orientation="vertical"
-                aria-valuemin={Math.round(RAIL_SPLIT_MIN * 100)}
-                aria-valuemax={Math.round((1 - RAIL_SPLIT_MIN) * 100)}
-                aria-valuenow={Math.round(split * 100)}
-                tabIndex={0}
-                data-testid="rail-divider"
-                onPointerDown={onDividerDown}
-                onPointerMove={onDividerMove}
-                onPointerUp={onDividerUp}
-                onPointerCancel={onDividerUp}
-                onKeyDown={onDividerKey}
-                className="h-2 shrink-0 cursor-row-resize touch-none border-y border-border bg-surface-soft transition select-none hover:bg-brand-amber/30 focus-visible:bg-brand-amber/40 focus-visible:outline-none"
+              {/* THE divider — the same component the conversation surface
+                  uses on its own split, turned ninety degrees. */}
+              <SplitDivider
+                layout="rows"
+                containerRef={column}
+                value={split}
+                clamp={clampRailSplit}
+                label="Resize the preview"
+                testId="rail-divider"
+                onChange={setSplit}
+                onCommit={writeStoredRailSplit}
+                onReset={() => {
+                  setSplit(RAIL_SPLIT_DEFAULT);
+                  writeStoredRailSplit(RAIL_SPLIT_DEFAULT);
+                }}
               />
               <div className="flex min-h-0 flex-col" style={{ flexGrow: 1 - split, flexBasis: 0 }}>{props.chat}</div>
             </>

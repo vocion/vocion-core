@@ -16,7 +16,7 @@
 import type { ChatHotkeyAction } from './chatHotkeys';
 import { chatHotkeyLabel } from './chatHotkeys';
 
-export type SlashCommandAction = ChatHotkeyAction | 'search';
+export type SlashCommandAction = ChatHotkeyAction | 'search' | 'help';
 
 export type SlashCommand = {
   /** The word after the slash. */
@@ -36,6 +36,8 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'new', aliases: ['clear', 'reset'], label: 'New chat', hint: 'Start over in a fresh thread', action: 'new-chat', shortcut: chatHotkeyLabel('new-chat') },
   { name: 'history', aliases: ['chats', 'conversations', 'list'], label: 'All conversations', hint: 'Every thread, searchable', action: 'all-conversations', shortcut: chatHotkeyLabel('all-conversations') },
   { name: 'search', aliases: [], label: 'Search only', hint: 'Retrieval, no model in the loop', action: 'search', takesArgument: true },
+  // Handled by the composer itself: opens the shortcut reference in the same panel.
+  { name: 'help', aliases: ['shortcuts', '?'], label: 'Shortcuts', hint: 'Keys and commands', action: 'help' },
 ];
 
 /** `/` plus a word, alone in the box — the moment the menu is open. */

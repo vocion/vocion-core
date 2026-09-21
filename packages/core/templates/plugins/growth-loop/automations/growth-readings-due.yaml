@@ -1,0 +1,27 @@
+slug: growth-readings-due
+name: Readings due today
+description: >-
+  Wakes the Growth analyst every weekday to check the `every-brief-measured`
+  mission. Publication is where most teams stop; this is the automation that
+  makes the second half happen on a cadence rather than when somebody
+  remembers, and it reports the overdue ones whether or not it could read them.
+status: active
+agent: growth-analyst
+when:
+  schedule: '0 13 * * 1-5'
+do:
+  checkMission: every-brief-measured
+  prompt: >-
+    Find every published brief whose readAfterDays has passed since
+    publishedAt and that has no reading for this window. For each, take the
+    reading from the source the brief named, under the attribution model the
+    brief named, against its own baseline, and append it to readings with the
+    source and the date. Establish what the number does when nothing happens
+    before calling any movement a change; a movement inside that range is
+    no_effect. Do not report a rate below the volume at which it means
+    anything — report the counts. Where the brief's measure has no source, or
+    the volume is too small for any reading to mean anything, write the verdict
+    unmeasurable and name the instrument that is missing and what it would cost.
+    Write the verdict and the reason naming the reading, the baseline, the
+    window and the model. Report in three lines: readings taken, briefs still
+    overdue with how many days and why, instruments still missing.

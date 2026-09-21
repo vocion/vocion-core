@@ -16,26 +16,33 @@ const TRACE: TraceNode[] = [
 /** After the turn the trace is one folded line; every test that reads the claims opens it first (§9). */
 async function renderUnfolded() {
   await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
-  await userEvent.click(page.getByRole('button', { name: /Worked it out/ }));
+  await userEvent.click(page.getByTestId('work-group').getByRole('button').first());
 }
 
+/**
+ * A level-1 claim row, by its label — inside the steps list, never the headline that quotes the same words.
+ * @param name
+ */
+const claim = (name: RegExp) => page.getByTestId('work-steps').getByRole('button', { name });
+
 describe('WorkTimeline three-level transcript', () => {
-  it('folds a finished turn to one line — "Worked it out · N steps" — and opens on tap', async () => {
+  it('folds a finished turn to one line that says what the work was, and opens on tap', async () => {
     await render(<WorkTimeline runs={[]} streaming={false} trace={TRACE} />);
 
-    await expect.element(page.getByRole('button', { name: /Worked it out · 3 steps/ })).toBeInTheDocument();
-    await expect.element(page.getByText('Searched the data room')).not.toBeInTheDocument();
+    // The headline is composed from the steps' own finished labels; the count rides in the accessible name.
+    await expect.element(page.getByRole('button', { name: /Searched the data room and edited proposal.md · 3 steps/ })).toBeInTheDocument();
+    await expect.element(page.getByTestId('work-steps')).not.toBeInTheDocument();
 
-    await userEvent.click(page.getByRole('button', { name: /Worked it out/ }));
+    await userEvent.click(page.getByTestId('work-group').getByRole('button').first());
 
-    await expect.element(page.getByText('Searched the data room')).toBeInTheDocument();
+    await expect.element(claim(/Searched the data room/)).toBeInTheDocument();
   });
 
   it('renders one collapsed claim line per action, with the blast radius on the line', async () => {
     await renderUnfolded();
 
-    await expect.element(page.getByText('Searched the data room')).toBeInTheDocument();
-    await expect.element(page.getByText('Edited proposal.md')).toBeInTheDocument();
+    await expect.element(claim(/Searched the data room/)).toBeInTheDocument();
+    await expect.element(claim(/Edited proposal.md/)).toBeInTheDocument();
     await expect.element(page.getByText('+38 −12')).toBeInTheDocument();
     // Level 2 stays hidden until asked.
     await expect.element(page.getByText('Found the precedent table')).not.toBeInTheDocument();
@@ -44,11 +51,11 @@ describe('WorkTimeline three-level transcript', () => {
   it('expands a claim to its steps, and a stepless claim to its payload', async () => {
     await renderUnfolded();
 
-    await userEvent.click(page.getByRole('button', { name: /Searched the data room/ }));
+    await userEvent.click(claim(/Searched the data room/));
 
     await expect.element(page.getByText('Found the precedent table')).toBeInTheDocument();
 
-    await userEvent.click(page.getByRole('button', { name: /Edited proposal.md/ }));
+    await userEvent.click(claim(/Edited proposal.md/));
 
     await expect.element(page.getByText('section 4 rewritten')).toBeInTheDocument();
   });
@@ -65,7 +72,7 @@ describe('WorkTimeline three-level transcript', () => {
 
   it('one control recollapses everything', async () => {
     await renderUnfolded();
-    await userEvent.click(page.getByRole('button', { name: /Searched the data room/ }));
+    await userEvent.click(claim(/Searched the data room/));
     await userEvent.click(page.getByRole('button', { name: /Thought it through/ }));
 
     await userEvent.click(page.getByRole('button', { name: 'Collapse all' }));
@@ -96,5 +103,36 @@ describe('WorkTimeline three-level transcript', () => {
     await render(<WorkTimeline runs={[]} streaming trace={errored} activity={null} />);
 
     await expect.element(page.getByText('HubSpot 429')).toBeInTheDocument();
+  });
+});
+
+describe('the running step says where the call has got to', () => {
+  /**
+   * "'working…' isn't much info" (Chris, twice, 2026-09-18). A twelve-sheet
+   * render holds one step line for a minute; the note rides that line.
+   */
+  const building: TraceNode[] = [
+    { id: 'd1', actor, kind: 'tool', status: 'progress', label: 'Rendering the document…', tool: 'render_document', progress: 'sheet 7 of 12', labels: { running: 'Rendering the document…', done: 'Rendered the document' } },
+  ];
+
+  it('shows the note on the headline and on the step, not on a surface of its own', async () => {
+    const { container } = await render(<WorkTimeline runs={[]} streaming trace={building} activity={null} />);
+
+    const headline = container.querySelector('[data-testid="work-timeline-live"] > div > .work-shimmer');
+    const step = container.querySelector('[data-testid="work-steps-live"] li');
+
+    expect(headline?.textContent).toBe('Rendering the document… sheet 7 of 12');
+    expect(step?.textContent).toContain('Rendering the document… sheet 7 of 12');
+    // One timeline, one step row: the note added information, not a component.
+    expect(container.querySelectorAll('[data-testid="work-timeline-live"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="work-steps-live"] > li')).toHaveLength(1);
+  });
+
+  it('reads plainly again the moment the step lands', async () => {
+    const landed: TraceNode[] = [{ ...building[0]!, status: 'done', label: 'Rendered the document', progress: undefined }];
+    const { container } = await render(<WorkTimeline runs={[]} streaming trace={landed} activity={null} />);
+
+    expect(container.textContent).toContain('Rendered the document');
+    expect(container.textContent).not.toContain('sheet 7 of 12');
   });
 });

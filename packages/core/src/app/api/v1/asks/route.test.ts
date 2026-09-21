@@ -69,6 +69,10 @@ describe('POST /api/v1/asks', () => {
     expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', risk: 'extreme' }))).status).toBe(400);
     expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', options: [{ label: 'a', recommended: true }, { label: 'b', recommended: true }] }))).status).toBe(400);
     expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', dueAt: 'yesterday-ish' }))).status).toBe(400);
+    expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', objectRefs: [{ type: 'request' }] }))).status).toBe(400);
+    expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', objectRefs: 'request:12' }))).status).toBe(400);
+    expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', decisionCost: 'five' }))).status).toBe(400);
+    expect((await POST(post('/api/v1/asks', { kind: 'ruling', title: 'x', decisionCost: 2.5 }))).status).toBe(400);
   });
 
   it('files a new ask as 201, normalises options, and re-files the same sourceRef as 200 without touching status', async () => {
@@ -85,6 +89,8 @@ describe('POST /api/v1/asks', () => {
       url: 'https://github.com/vocion/vocion-workforce/blob/main/company/approvals/pending/032.md',
       contextMd: '## Details\nlong form',
       options: ['One app per workspace', { id: 'per-agent', label: 'One app per agent', description: 'd', recommended: true }],
+      objectRefs: [{ type: 'request', id: 12 }, { type: 'release', id: 'r-4' }],
+      decisionCost: 5,
       notifyAt: '2026-09-15T12:00:00Z',
     }));
 
@@ -104,6 +110,9 @@ describe('POST /api/v1/asks', () => {
         { id: 'one-app-per-workspace', label: 'One app per workspace' },
         { id: 'per-agent', label: 'One app per agent', description: 'd', recommended: true },
       ],
+      // Ids are kept as strings whatever the caller sent.
+      objectRefs: [{ type: 'request', id: '12' }, { type: 'release', id: 'r-4' }],
+      decisionCost: 5,
     });
     expect(new Date(ask.notifyAt).toISOString()).toBe('2026-09-15T12:00:00.000Z');
 

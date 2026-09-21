@@ -1,0 +1,35 @@
+# The feature report — one request, its whole story, in order.
+#
+# Chris, backlog #89: "I want to be able to observe that whole loop in the SF,
+# proposal, estimate, approval, run, PR, QA (screenshots), Release
+# Announcement, etc. Like a full end to end feature report?"
+#
+# The records were always there and always linked — request, engineering_task,
+# worker_run, ask, action_run, artifact, release — and nothing stitched them.
+# This is the `report` archetype over the `request` noun: given a request id it
+# assembles the ask in the asker's own words, triage, the contract, every
+# approval, every run with its checks and its cost, the pull request, QA
+# evidence, the release, and a money line of estimate against actual. It reads
+# as a vertical timeline, newest last, each entry stamped with time and cost.
+#
+# It takes a record id in the path, so it lives at
+# /dashboard/p/feature/<requestId> and is reached from the "Report" action on
+# the Backlog and the Factory floor rather than from the nav. The bare
+# /dashboard/p/feature says so and points at the Backlog.
+#
+# Three rules the assembly holds to, and they are the point of the page:
+#   1. A stage that did not happen SAYS SO. "No release carries this task",
+#      "No QA evidence was captured for this task". The absence is the finding.
+#   2. No stage is inferred from another. A merged pull request does not make a
+#      run successful; a passing check is not QA evidence.
+#   3. A contradiction is shown, not resolved. A run recorded `failed` whose
+#      pull request merged shows both facts and is flagged, because the
+#      worker's completion call can time out after the PR is already open.
+slug: feature
+title: Feature report
+description: One request end to end — the ask, triage, the contract, approvals, the runs, the change, QA evidence, the release, and what it cost against the estimate.
+icon: file-clock
+nav: {section: Software factory, order: 2, hidden: true}
+archetype: report
+report:
+  subject: request

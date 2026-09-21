@@ -1,0 +1,26 @@
+slug: factory-ci-failure
+name: A failed check reopens the task
+description: >-
+  The intake shape, as the smallest useful case: an event says a check failed
+  on a branch the factory pushed, and the planner turns that into the next
+  attempt rather than waiting for a person to notice.
+  The event name is whatever the deployment's intake emits — core ships no CI
+  adapter, so a workspace overrides this file by slug to name its own event and
+  filter. The planner still decides; the event only wakes it.
+status: active
+agent: task-planner
+when:
+  event: ci.check_failed
+  filter:
+    conclusion: failure
+do:
+  checkMission: close-the-gap
+  prompt: >-
+    A required check failed. Find the engineering task whose branch or pull
+    request carries it, read the check's output, and decide: dispatch the next
+    attempt with the failing check named in the contract and what you now know
+    written into it, or — if this is the third attempt, or the failure says the
+    contract was wrong rather than the work — stop dispatching and write the
+    honest answer for the person who asked, with the contract line that turned
+    out to be wrong. Never raise the attempt without adding something the
+    previous contract did not say.

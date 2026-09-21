@@ -111,7 +111,12 @@ export type ActivationSelector = 'all' | { agents?: string[]; skills?: string[];
  * A base-pack SKILL.md folder, reduced to what activation needs: its slug
  * and the playbook slugs its frontmatter attaches.
  */
-export type FolderEntry = { slug: string; playbooks: string[] };
+export type FolderEntry = {
+  slug: string;
+  playbooks: string[];
+  /** Absolute folder the SKILL.md lives in — the base pack's or a plugin's. */
+  dir?: string;
+};
 
 /** The raw base pack, one map per kind (keyed by slug), plus the full slug sets. */
 export type PackRaw = {

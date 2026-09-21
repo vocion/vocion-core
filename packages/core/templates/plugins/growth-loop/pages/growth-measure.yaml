@@ -1,0 +1,35 @@
+# Measure — the half of the loop that happens after the work. Every brief that
+# is live, with the number it was supposed to move, what it stood at when the
+# brief was written, when the reading is due, and the verdict once it is in.
+#
+# This page is the plugin's whole argument in one screen: a task list ends at
+# accepted, and this list starts there. Sorted by the publication date so the
+# oldest unread piece is at the top, which is the one the loop is failing.
+slug: growth-measure
+title: Measure
+description: Every published brief, the number it was meant to move, and what the reading said — oldest first, so the longest-unread piece is on top.
+icon: line-chart
+nav: {section: Growth, order: 2}
+archetype: list
+source: {kind: objects, objectType: growth_brief}
+sort: {field: meta.publishedAt, dir: asc}
+groupBy: meta.channel
+stats:
+  - {label: Live, kind: count}
+  - {label: Worked, kind: countWhere, where: {field: meta.verdict, op: eq, value: worked}}
+  - {label: No effect, kind: countWhere, where: {field: meta.verdict, op: eq, value: no_effect}}
+  - {label: Hurt, kind: countWhere, where: {field: meta.verdict, op: eq, value: hurt}}
+  - {label: Unmeasurable, kind: countWhere, where: {field: meta.verdict, op: eq, value: unmeasurable}}
+  - {label: No verdict yet, kind: countWhere, where: {field: meta.verdict, op: exists, value: false}}
+fields:
+  - {key: title, label: Brief}
+  - {key: channel, label: Channel, from: meta.channel, format: badge}
+  - {key: published, label: Published, from: meta.publishedAt, format: date}
+  - {key: due, label: Read after (days), from: meta.readAfterDays, format: mono}
+  - {key: verdict, label: Verdict, from: meta.verdict, format: badge, tones: {worked: ok, no_effect: warn, hurt: bad, unmeasurable: muted}}
+  - {key: verdictAt, label: Judged, from: meta.verdictAt, format: date}
+  - {key: actual, label: Cost, from: meta.actualCents, format: money, total: true}
+  - {key: theme, label: Theme, from: meta.theme, format: mono}
+filters:
+  - {field: meta.state, op: in, value: [published, measuring, closed]}
+rowLink: /dashboard/objects/{id}

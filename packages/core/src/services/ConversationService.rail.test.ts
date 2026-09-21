@@ -115,10 +115,10 @@ describe('setMessageFeedback', () => {
 });
 
 describe('autonomy + tail', () => {
-  it('defaults to ask, flips per thread, and tail returns the last rows oldest-first', async () => {
+  it('defaults to done-for-you, flips per thread, and tail returns the last rows oldest-first', async () => {
     const { conv, ids } = await seedThread('Autonomy', [['user', 'q'], ['assistant', 'a'], ['user', 'q2'], ['assistant', 'a2']]);
 
-    expect(conv.autonomy).toBe('ask');
+    expect(conv.autonomy).toBe('act-within-bounds');
 
     const flipped = await svc.setConversationAutonomy({ orgId: ORG, id: conv.id, autonomy: 'act-within-bounds' });
 

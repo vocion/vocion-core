@@ -52,6 +52,18 @@ export type CatalogEntry = {
   optional: string[];
 };
 
+/**
+ * What a hire did. `teamCreated` names the team row this hire brought into
+ * existence — an entry's team comes with it, and an undo that left the team
+ * behind would leave an empty strip on the org chart nobody asked for.
+ */
+export type HireResult = {
+  status: 'hired' | 'already' | 'unknown';
+  entry: CatalogEntry | null;
+  /** The team slug created by THIS hire, or null when the team already existed. */
+  teamCreated: string | null;
+};
+
 /** One catalog team — the group a role belongs to, and what the card labels it. */
 export type CatalogTeam = {
   slug: string;
@@ -195,10 +207,10 @@ export async function hire(
   orgId: string,
   slug: string,
   root: string = catalogRoot(),
-): Promise<{ status: 'hired' | 'already' | 'unknown'; entry: CatalogEntry | null }> {
+): Promise<HireResult> {
   const entry = getCatalogEntry(slug, root);
   if (!entry) {
-    return { status: 'unknown', entry: null };
+    return { status: 'unknown', entry: null, teamCreated: null };
   }
 
   const already = (await db
@@ -207,7 +219,7 @@ export async function hire(
     .where(eq(agentSchema.orgId, orgId)))
     .some(a => a.slug === slug);
   if (already) {
-    return { status: 'already', entry };
+    return { status: 'already', entry, teamCreated: null };
   }
 
   const manifest = AgentManifestSchema.parse(
@@ -219,6 +231,7 @@ export async function hire(
   // orphan strip rather than a team — so create the team row first when
   // this org does not have it yet. The lead is only claimed if the leading
   // agent is the one being hired; otherwise the team waits for its lead.
+  let teamCreated: string | null = null;
   if (entry.team) {
     const team = listCatalogTeams(root).get(entry.team);
     const existing = await db
@@ -226,6 +239,7 @@ export async function hire(
       .from(teamSchema)
       .where(eq(teamSchema.orgId, orgId));
     if (team && !existing.some(t => t.slug === team.slug)) {
+      teamCreated = team.slug;
       await db.insert(teamSchema).values({
         orgId,
         projectId: orgId,
@@ -257,5 +271,5 @@ export async function hire(
     teamSlug: entry.team,
   });
 
-  return { status: 'hired', entry };
+  return { status: 'hired', entry, teamCreated };
 }

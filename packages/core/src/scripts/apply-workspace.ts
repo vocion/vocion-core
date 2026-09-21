@@ -96,9 +96,18 @@ async function main(): Promise<void> {
     appliedBy: values['applied-by'] ?? process.env.USER ?? 'cli',
   });
 
-  console.log(`\n${result.dryRun ? '[dry-run] ' : ''}applied to org ${result.orgId}:`);
+  console.log(`\n${result.dryRun ? '[dry-run] would apply' : 'applied'} to org ${result.orgId}:`);
+  if (!result.database.reachable) {
+    // Not a failure: a dry-run validates and reports without a database. The
+    // summary says what it could not learn, and the exit code stays 0.
+    console.log(`  (no database answered at DATABASE_URL — ${result.database.reason}.`);
+    console.log('   manifests validated; created/updated/unchanged are unknown and accountableUser emails were not resolved.)');
+  }
   for (const [kind, counts] of Object.entries(result.counts)) {
-    console.log(`  ${kind.padEnd(12)} created=${counts.created}  updated=${counts.updated}  unchanged=${counts.unchanged}`);
+    const unknown = counts.unknown === undefined ? '' : `  unknown=${counts.unknown}`;
+    // Wiki pages a person edited in the app since the last seed — left alone; the warnings name them.
+    const kept = counts.kept === undefined ? '' : `  kept(human-edited)=${counts.kept}`;
+    console.log(`  ${kind.padEnd(12)} created=${counts.created}  updated=${counts.updated}  unchanged=${counts.unchanged}${unknown}${kept}`);
   }
 
   if (result.warnings.length > 0) {
@@ -133,7 +142,9 @@ positional:
                          scaffold one with \`npm run workspace:scaffold -- <name>\`)
 
 options:
-  --dry-run              validate and diff without writing
+  --dry-run              validate and diff without writing. Needs no database: with none
+                         reachable it still validates and reports what it would apply,
+                         with created/updated left unknown.
   --project <id|slug>    apply under this project's id (recommended — no re-key).
                          Defaults to the sole project when exactly one exists.
   --org <id>             raw orgId override (advanced / back-compat)
@@ -141,7 +152,7 @@ options:
   -h, --help             show this help
 
 exit codes:
-  0  success
+  0  success — warnings only, or a dry-run with no database, still exit 0
   1  apply completed with errors
   2  validation failed (nothing applied)
 `.trim());

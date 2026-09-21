@@ -19,7 +19,7 @@ import { inboxHref } from '@/services/inbox/inboxRef';
 import { cn } from '@/utils/Helpers';
 
 /**
- * The Discovery Ledger — the operational record of every call the detection
+ * Discovery calls (the Discovery Ledger, renamed 2026-09-18) — the operational record of every call the detection
  * agent assessed, rebuilt to `docs/specs/discovery-ledger-v2.md`.
  *
  * Every row answers four questions in about two seconds: **what meeting was

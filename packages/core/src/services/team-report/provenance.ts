@@ -34,7 +34,7 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { resolveWebAnalyticsCredentials } from '@/libs/analytics/credentials';
 import { GA4_WINDOW_NOTE, runWebAnalyticsReport, WEB_ANALYTICS_SOURCE_LABEL } from '@/libs/analytics/ga4';
 import { db } from '@/libs/DB';
-import { accountMembershipSchema, actionRunSchema, askSchema, decisionAlignmentSchema, projectSchema, workerRunSchema } from '@/models/Schema';
+import { accountMembershipSchema, actionRunSchema, artifactSchema, askSchema, businessObjectSchema, businessObjectTypeSchema, decisionAlignmentSchema, objectDocumentLinkSchema, projectSchema, workerRunSchema } from '@/models/Schema';
 import { queryCrmRecords } from '@/services/CrmRecordsService';
 import { deriveReading } from './derive';
 import { actionAgentSlug } from './humanLoad';
@@ -292,6 +292,73 @@ async function countWorkspaceMembers(orgId: string, range: Range): Promise<numbe
 }
 
 /**
+ * Artifacts created in the window, narrowed by kind / folder / playbook /
+ * verified. Every artifact is a row Vocion wrote, so this is `observed`.
+ * @param orgId - Tenant.
+ * @param where - The narrowing, all ANDed.
+ * @param range - The window.
+ */
+async function countArtifacts(orgId: string, where: { kind?: string; folder?: string; playbook?: string; verified?: boolean } | undefined, range: Range): Promise<number> {
+  const conds = [
+    eq(artifactSchema.orgId, orgId),
+    gte(artifactSchema.createdAt, range.since),
+    lt(artifactSchema.createdAt, range.until),
+  ];
+  if (where?.kind) {
+    conds.push(eq(artifactSchema.kind, where.kind));
+  }
+  if (where?.folder) {
+    conds.push(sql`(${artifactSchema.folder} = ${where.folder} or ${artifactSchema.folder} like ${`${where.folder}/%`})`);
+  }
+  if (where?.playbook) {
+    conds.push(sql`${artifactSchema.spec} ->> 'playbook' = ${where.playbook}`);
+  }
+  if (where?.verified !== undefined) {
+    conds.push(sql`coalesce((${artifactSchema.spec} -> 'verification' ->> 'ok')::boolean, false) = ${where.verified}`);
+  }
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(artifactSchema).where(and(...conds));
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Data rooms opened in the window — `business_object` rows of the `data_room` type.
+ * @param orgId - Tenant.
+ * @param range - The window.
+ */
+async function countDataRooms(orgId: string, range: Range): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)::int` })
+    .from(businessObjectSchema)
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectTypeSchema.slug, 'data_room'),
+      gte(businessObjectSchema.createdAt, range.since),
+      lt(businessObjectSchema.createdAt, range.until),
+    ));
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Sources filed into data rooms in the window — `object_document_link` rows on
+ * `data_room` objects.
+ * @param orgId - Tenant.
+ * @param range - The window.
+ */
+async function countDataRoomSources(orgId: string, range: Range): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)::int` })
+    .from(objectDocumentLinkSchema)
+    .innerJoin(businessObjectSchema, eq(businessObjectSchema.id, objectDocumentLinkSchema.objectId))
+    .innerJoin(businessObjectTypeSchema, eq(businessObjectTypeSchema.id, businessObjectSchema.typeId))
+    .where(and(
+      eq(businessObjectSchema.orgId, orgId),
+      eq(businessObjectTypeSchema.slug, 'data_room'),
+      gte(objectDocumentLinkSchema.createdAt, range.since),
+      lt(objectDocumentLinkSchema.createdAt, range.until),
+    ));
+  return Number(row?.n ?? 0);
+}
+
+/**
  * Dispatch a `verified` source to the connector it names.
  * @param orgId - Tenant.
  * @param source - The declared verified source.
@@ -334,6 +401,15 @@ export async function readRaw(orgId: string, measure: TeamMeasure, scope: Measur
         }
         if (s.rows === 'workspace-members') {
           return { value: await countWorkspaceMembers(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'workspace members', unavailableReason: null, unavailableKind: null };
+        }
+        if (s.rows === 'artifacts') {
+          return { value: await countArtifacts(orgId, s.where, range), asOf: now, freshness: live(now), sourceLabel: 'artifacts written', unavailableReason: null, unavailableKind: null };
+        }
+        if (s.rows === 'data-rooms') {
+          return { value: await countDataRooms(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'data rooms opened', unavailableReason: null, unavailableKind: null };
+        }
+        if (s.rows === 'data-room-sources') {
+          return { value: await countDataRoomSources(orgId, range), asOf: now, freshness: live(now), sourceLabel: 'sources filed', unavailableReason: null, unavailableKind: null };
         }
         return unavailable('unsupported', 'The observed source names neither actions, a counts key nor rows.', 'Vocion');
       case 'human-confirmed': {

@@ -12,12 +12,13 @@ import { ChatHotkeyListener } from './ChatHotkeyListener';
  * (agent-chat-surface.md §6); the palette's Ask row calls the same function.
  * @param props
  * @param props.isAdmin - Whether admin-only routes appear in the palette.
+ * @param props.enabledPlugins - Plugins the workspace turned on; plugin-owned rows hide otherwise.
  * @param props.agents - The workspace's chat agents, already loaded for the dock.
  */
-export function AgentSurfaceHotkey({ isAdmin = false, agents = [] }: { isAdmin?: boolean; agents?: PaletteEntity[] }) {
+export function AgentSurfaceHotkey({ isAdmin = false, enabledPlugins, agents = [] }: { isAdmin?: boolean; enabledPlugins?: readonly string[]; agents?: PaletteEntity[] }) {
   return (
     <>
-      <CommandPalette isAdmin={isAdmin} agents={agents} />
+      <CommandPalette isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents} />
       {/* ⌘⇧O new chat · ⌘⇧L go to chat · ⌘⇧H all conversations (`chatHotkeys.ts`). */}
       <ChatHotkeyListener />
     </>

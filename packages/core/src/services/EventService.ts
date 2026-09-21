@@ -12,10 +12,13 @@
  * workflow engine's job (Temporal); this is the fan-out.
  */
 
+import type { CausalChain, SkipReason } from '@/services/automations/fireGuards';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { eventLogSchema, workflowSchema } from '@/models/Schema';
+import { eventFireCeiling, selfTriggerReason } from '@/services/automations/fireGuards';
 import { startWorkflow } from '@/services/WorkflowService';
+import { readWorkspacePauseWithName, refusalMessage } from '@/services/workspacePause';
 
 export type EmitEventInput = {
   orgId: string;
@@ -34,6 +37,14 @@ export type EmitEventInput = {
    * held open for minutes. Only a caller in a request scope may pass it.
    */
   dispatchMode?: 'inline' | 'background';
+  /**
+   * The automation fires whose work raised this event, newest first. A
+   * mission run started by a check carries the check's automation; the
+   * matcher skips every automation on the chain, so nothing is ever fired by
+   * its own run's residue (`services/automations/fireGuards.ts`). Recorded on
+   * the event row. Omit when no automation is behind the event.
+   */
+  causedBy?: CausalChain | null;
 };
 
 /**
@@ -82,6 +93,72 @@ export type SourceSyncCompletedPayload = {
  * reply or meeting timestamp past what the watcher had seen, and past the
  * enrollment decision. One event per new timestamp, deduped on it.
  */
+/**
+ * An artifact was created or a new version of it was written — by an agent, a
+ * person or a system pass. Emitted fire-and-forget from `ArtifactService` so a
+ * save never waits on its subscribers. The wiki plugin subscribes with
+ * `filter: { folder: wiki }` to index pages for search (`index-artifact`).
+ */
+export const ARTIFACT_SAVED = 'artifact.saved';
+
+/** Payload of `artifact.saved`. Scalars only — `when.filter` compares with `===`. */
+export type ArtifactSavedPayload = {
+  artifactId: number;
+  kind: string;
+  /** Top-level folder (`wiki`), or null. */
+  folder: string | null;
+  title: string;
+  version: number;
+  /** `created` for v1, `revised` after. */
+  change: 'created' | 'revised';
+  /** `agent` | `human` | `system`. */
+  authorKind: string;
+  recordType: string | null;
+  recordId: string | null;
+};
+
+/**
+ * A person answered an ask (docs/entities/ask.md) — approved it, rejected it,
+ * chose an option, wrote an "other", or marked it done. Emitted fire-and-forget
+ * from `AskService.decideAsk`, the one place a human's answer is written, so a
+ * plugin can act on the decision without polling: the software factory's
+ * product manager subscribes with `filter: { agentSlug: product-manager, kind:
+ * recommendation }` to write the decision back on the request and assemble the
+ * next batch only once the last one is decided. Distinct from the adoption
+ * stream's `ask.decided` row, which is a metric, not a trigger.
+ */
+export const ASK_DECIDED = 'ask.decided';
+
+/** Payload of `ask.decided`. Scalars, which `when.filter` compares with `===`, plus the records it was about. */
+export type AskDecidedPayload = {
+  askId: number;
+  /** The ask's kind — `approval`, `merge`, `recommendation`, … */
+  kind: string;
+  /** The resulting status: `approved`, `rejected` or `done`. */
+  status: string;
+  /** `approve`, `reject`, `done`, `other`, or the option id chosen. */
+  decision: string;
+  /** Whether the asker owes a read of the note (an "other" on a ruling, approval or recommendation). */
+  followUp: boolean;
+  /** Who filed it, when an agent did; null for a service or an outside caller. */
+  agentSlug: string | null;
+  teamSlug: string | null;
+  /** The decision sheet it belonged to, so a subscriber can tell when a whole batch is decided. */
+  groupKey: string | null;
+  /** The filer's idempotency key, when it was filed from outside. */
+  sourceRef: string | null;
+  /**
+   * The records the ask was about — `[{ type, id }]`, an object type slug
+   * and the object's id — so a subscriber can write the answer back onto
+   * them. The one non-scalar here: `when.filter` cannot match on it, so
+   * filter on `agentSlug` and `kind` and read the refs off the payload.
+   */
+  objectRefs: Array<{ type: string; id: string }>;
+  decidedBy: string;
+  /** ISO timestamp of the decision. */
+  decidedAt: string;
+};
+
 export const LEAD_REPLIED = 'lead.replied';
 export const LEAD_MEETING_BOOKED = 'lead.meeting_booked';
 
@@ -128,10 +205,20 @@ export const PERSONALIZATION_BRIEF_REGENERATE_REQUESTED = 'personalization.brief
  */
 export const PERSONALIZATION_ARTIFACT_REGENERATE_REQUESTED = 'personalization.artifact_regenerate_requested';
 
+/**
+ * The GitHub source's events — `pr.opened`, `pr.synchronized`,
+ * `pr.checks_completed`, `pr.review_submitted`, `pr.merged`, `pr.closed` and
+ * `run.failed` — live in `libs/github/events.ts` with their payload types,
+ * beside the pure mapping both the poller and the webhook receiver share.
+ * Same contract as the constants above: renaming one breaks subscribers.
+ */
+
 export type EmitEventResult = {
   eventId: number | null;
   deduped: boolean;
   triggered: Array<{ slug: string; runId: number }>;
+  /** Automations that matched and were refused by a guard, with the `skipped` run row that says why. */
+  skipped: Array<{ slug: string; automationRunId: number; reason: SkipReason }>;
 };
 
 /**
@@ -145,6 +232,129 @@ function matchesFilter(payload: Record<string, unknown>, filter: unknown): boole
   }
   return Object.entries(filter as Record<string, unknown>).every(([k, v]) => payload[k] === v);
 }
+
+/**
+ * Whether an automation's `when.event` — one type or several — names this one.
+ * @param subscribed - `whenConfig.event` as stored.
+ * @param type - The event being emitted.
+ */
+export function subscribesTo(subscribed: string | string[] | undefined, type: string): boolean {
+  return Array.isArray(subscribed) ? subscribed.includes(type) : subscribed === type;
+}
+
+/**
+ * The slugs of this org's agents authored `initiative: low` — the ones that
+ * sit debriefs out.
+ * @param orgId - Tenant.
+ */
+async function lowInitiativeAgents(orgId: string): Promise<Set<string>> {
+  const { agentSchema } = await import('@/models/Schema');
+  const rows = await db
+    .select({ slug: agentSchema.slug })
+    .from(agentSchema)
+    .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.initiative, 'low')));
+  return new Set(rows.map(r => r.slug));
+}
+
+/**
+ * Completion events — the moments a piece of work is over and its residue is
+ * worth reading back into the record. A debrief is an automation that
+ * subscribes to one of these: the wiki researcher asking whether a standing
+ * fact changed, the product manager writing what shipped on the request.
+ *
+ * All five payloads are scalar (filterable) and carry the ids a mission needs
+ * to read the work itself, plus a `summary` short enough to sit in a brief.
+ * Each is raised from the one place the terminal status is written, under a
+ * dedupe key on the row id, so a retried write raises nothing twice.
+ */
+export const WORKER_RUN_COMPLETED = 'worker_run.completed';
+export const WORKER_RUN_FAILED = 'worker_run.failed';
+export const MISSION_RUN_COMPLETED = 'mission_run.completed';
+export const CONVERSATION_ENDED = 'conversation.ended';
+export const AUTOMATION_RUN_COMPLETED = 'automation_run.completed';
+
+/**
+ * The event types that mean "work finished" — `pr.merged` from the GitHub
+ * source included. An automation on any of these is a debrief, and an agent
+ * whose `initiative` is `low` sits debriefs out: its automations on these
+ * types are skipped, and the event log's `triggered` list says nothing fired.
+ * A schedule or any other event is unaffected — a low-initiative curator
+ * still runs its Friday pass.
+ */
+export const DEBRIEF_EVENTS: ReadonlySet<string> = new Set([
+  WORKER_RUN_COMPLETED,
+  WORKER_RUN_FAILED,
+  MISSION_RUN_COMPLETED,
+  CONVERSATION_ENDED,
+  AUTOMATION_RUN_COMPLETED,
+  'pr.merged',
+]);
+
+/** Payload of `worker_run.completed` and `worker_run.failed`. */
+export type WorkerRunEndedPayload = {
+  workerRunId: number;
+  agentSlug: string;
+  /** `worker` | `lead` | `board` | `red-team` | `compact` | `snapshot`. */
+  kind: string;
+  /** `completed` | `cancelled` on the completed event; `failed` on the failed one. */
+  status: string;
+  /** The worker's own account of the run, or the error on a failure. Trimmed to 500 characters. */
+  summary: string;
+  /** The record the run was queued against, when the creator named one. */
+  recordType: string | null;
+  recordId: number | null;
+  attempt: number;
+  cents: number;
+  completedAt: string;
+};
+
+/** Payload of `mission_run.completed`. */
+export type MissionRunCompletedPayload = {
+  missionRunId: number;
+  missionId: number | null;
+  missionSlug: string | null;
+  title: string;
+  /** The lead agent of the run's team. */
+  agentSlug: string;
+  /** `planned` for a brief a person or the planner decomposed; `check` for an automation's mission check. */
+  mode: 'planned' | 'check';
+  /** The last task's output, trimmed to 500 characters — the run's answer. */
+  summary: string;
+  tasksTotal: number;
+  tasksFailed: number;
+  completedAt: string;
+};
+
+/** Payload of `conversation.ended`. */
+export type ConversationEndedPayload = {
+  conversationId: number;
+  agentSlug: string;
+  title: string;
+  /** `app` | `slack` | `email` | `mcp`. */
+  surface: string;
+  messageCount: number;
+  /** When the last message landed; the idle window is measured from here. */
+  lastMessageAt: string;
+  /** `idle` — no turn for the sweep's window. The only way a conversation ends today. */
+  endedBy: 'idle';
+  /** The title, which the first message named. */
+  summary: string;
+  endedAt: string;
+};
+
+/** Payload of `automation_run.completed` — only for a `checkMission` fire that produced a result. */
+export type AutomationRunCompletedPayload = {
+  automationRunId: number;
+  /** The automation's slug. */
+  slug: string;
+  kind: 'mission_check';
+  missionRunId: number;
+  missionRunStatus: string;
+  tasksOk: number;
+  tasksFailed: number;
+  summary: string;
+  completedAt: string;
+};
 
 /**
  * Dispatch an event: dedupe, find subscribed workflows, start each match.
@@ -161,7 +371,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
       .where(and(eq(eventLogSchema.orgId, input.orgId), eq(eventLogSchema.dedupeKey, input.dedupeKey)))
       .limit(1);
     if (existing) {
-      return { eventId: existing.id, deduped: true, triggered: [] };
+      return { eventId: existing.id, deduped: true, triggered: [], skipped: [] };
     }
   }
 
@@ -180,7 +390,13 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   });
 
   const triggered: Array<{ slug: string; runId: number }> = [];
-  for (const w of matches) {
+  const skipped: EmitEventResult['skipped'] = [];
+  // The workspace's off switch, read once per event rather than once per
+  // subscriber. While it is held, the event is still RECORDED — a worker that
+  // was already running finishes and reports, and its completion belongs in
+  // the log — but it raises nothing: the fire is what a pause refuses.
+  const workspacePause = await readWorkspacePauseWithName(input.orgId);
+  for (const w of workspacePause ? [] : matches) {
     try {
       const run = await startWorkflow({
         orgId: input.orgId,
@@ -200,16 +416,90 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
   // {do: workflow | checkMission}). The workflow-embedded triggers above
   // remain as a deprecated legacy path.
   const { automationSchema } = await import('@/models/Schema');
-  const { beginAutomationFire, completeAutomationFire, fireAutomation } = await import('@/services/AutomationService');
+  const {
+    beginAutomationFire,
+    completeAutomationFire,
+    countRecentEventFires,
+    fireAutomation,
+    recordSkippedFire,
+    scheduleCoalescedFire,
+  } = await import('@/services/AutomationService');
+  const causedBy = input.causedBy && input.causedBy.length > 0 ? input.causedBy : null;
   const automations = await db
     .select()
     .from(automationSchema)
     .where(eq(automationSchema.orgId, input.orgId));
+  // Debriefs are gated on the owning agent's initiative; the roster is read
+  // once per event and only when an automation is actually a debrief.
+  let lowInitiative: Set<string> | null = null;
   for (const a of automations) {
-    if (a.status !== 'active' || a.whenConfig.event !== input.type || !matchesFilter(payload, a.whenConfig.filter)) {
+    // A paused automation is skipped the way a disabled one is — silently,
+    // not as a refused-fire row per event, which would bury the log while a
+    // busy event type is held. The pause itself is already on the record.
+    if (a.status !== 'active' || a.pausedAt || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
       continue;
     }
+    if (workspacePause) {
+      // A refused match, written down. Unlike the per-automation pause above
+      // — which is skipped silently, because the pause is already on that
+      // automation's record — a workspace pause leaves no row on any
+      // automation at all, so without this the log for the whole afternoon
+      // would simply be empty and nobody could tell a stop from an outage.
+      const detail = refusalMessage(workspacePause, 'automation_fire');
+      const skipId = await recordSkippedFire(input.orgId, a.slug, {
+        event: input.type,
+        payload,
+        result: { kind: 'skipped', reason: 'workspace_paused', detail, event: input.type, causedBy },
+      });
+      skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'workspace_paused' });
+      continue;
+    }
+    // A low-initiative agent does not debrief (`agent.initiative`): its
+    // automations on completion events are skipped, not refused — nothing in
+    // the run log, since the agent was authored not to volunteer.
+    if (DEBRIEF_EVENTS.has(input.type) && a.ownerAgentSlug) {
+      lowInitiative ??= await lowInitiativeAgents(input.orgId);
+      if (lowInitiative.has(a.ownerAgentSlug)) {
+        continue;
+      }
+    }
     try {
+      // An automation never fires on its own run's event. The chain on the
+      // event names the fires behind it; a candidate on that chain, or one
+      // whose own mission just completed, is refused and the refusal logged.
+      // Sixty `wiki-debrief` runs in minutes on 20 September is why.
+      const selfTrigger = selfTriggerReason(a, { type: input.type, payload, causedBy });
+      if (selfTrigger) {
+        const skipId = await recordSkippedFire(input.orgId, a.slug, {
+          event: input.type,
+          payload,
+          result: { kind: 'skipped', reason: 'self_trigger', detail: selfTrigger, event: input.type, causedBy },
+        });
+        skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'self_trigger' });
+        continue;
+      }
+      // The ceiling: past `when.maxFiresPer10m` event fires in the window,
+      // the fire is held and one coalesced fire is arranged for after it.
+      const ceiling = eventFireCeiling(a.whenConfig);
+      if (ceiling !== null && await countRecentEventFires(input.orgId, a.slug) >= ceiling) {
+        const coalesce = await scheduleCoalescedFire(input.orgId, a.slug);
+        const skipId = await recordSkippedFire(input.orgId, a.slug, {
+          event: input.type,
+          payload,
+          result: {
+            kind: 'skipped',
+            reason: 'rate_limited',
+            detail: `over ${ceiling} event fire${ceiling === 1 ? '' : 's'} in ten minutes (when.maxFiresPer10m); ${coalesce === 'unreachable' ? 'Temporal was unreachable, so this fire will not be replayed' : 'held for one coalesced fire after the window'}`,
+            event: input.type,
+            causedBy,
+            ceiling,
+            coalesce,
+            coalescedInto: null,
+          },
+        });
+        skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'rate_limited' });
+        continue;
+      }
       if (input.dispatchMode === 'background') {
         // The fire's row exists before we answer; the pass itself runs after
         // the response. A mission check holds an agent loop for minutes, and
@@ -217,6 +507,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         const pending = await beginAutomationFire(input.orgId, a.slug, {
           input: payload,
           invokedBy: input.invokedBy ?? `event:${input.type}`,
+          causedBy,
         });
         const { after } = await import('next/server');
         after(async () => {
@@ -229,6 +520,7 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
         const res = await fireAutomation(input.orgId, a.slug, {
           input: payload,
           invokedBy: input.invokedBy ?? `event:${input.type}`,
+          causedBy,
         });
         triggered.push({ slug: `automation:${a.slug}`, runId: res.runId });
       }
@@ -239,8 +531,8 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
 
   const [row] = await db
     .insert(eventLogSchema)
-    .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null })
+    .values({ orgId: input.orgId, type: input.type, payload, dedupeKey: input.dedupeKey ?? null, triggered, invokedBy: input.invokedBy ?? null, causedBy })
     .returning({ id: eventLogSchema.id });
 
-  return { eventId: row!.id, deduped: false, triggered };
+  return { eventId: row!.id, deduped: false, triggered, skipped };
 }

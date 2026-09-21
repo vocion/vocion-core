@@ -21,8 +21,9 @@ function CommandDialog({
   description = 'Search for a page or run a command',
   children,
   className,
+  commandProps,
   ...props
-}: React.ComponentProps<typeof Dialog> & { title?: string; description?: string; className?: string }) {
+}: React.ComponentProps<typeof Dialog> & { title?: string; description?: string; className?: string; commandProps?: Omit<React.ComponentProps<typeof Command>, 'children' | 'className'> }) {
   return (
     <Dialog {...props}>
       <DialogHeader className="sr-only">
@@ -30,7 +31,7 @@ function CommandDialog({
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <DialogContent className={cn('top-[18%] translate-y-0 overflow-hidden p-0 sm:max-w-xl', className)} showCloseButton={false}>
-        <Command className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[12px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-1.5 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:size-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:size-4">
+        <Command {...commandProps} className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[12px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-1.5 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:size-5 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:size-4">
           {children}
         </Command>
       </DialogContent>

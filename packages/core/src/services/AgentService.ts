@@ -3,15 +3,22 @@ import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
+import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
+import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { appendRecordLinks } from '@/libs/chat/recordLinks';
+import { stripScratch } from '@/libs/chat/scratch';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
+import { modelForStrength } from '@/libs/llm/modelPrefs';
 import { tokenCostCents } from '@/libs/pricing';
+import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
+import { labelStep } from './agents/stepLabeler';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 
@@ -258,6 +265,10 @@ async function runOutOfProcess(
 ): Promise<{ response: string; traceId: string; toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>; usage?: RunUsage }> {
   const failures: TurnFailure[] = [];
   let held: Extract<AgentEvent, { type: 'done' }> | null = null;
+  // The other loops stream their answer as-is; a <scratch> block the model
+  // opened there is set aside at this seam, the same way the in-process loop
+  // does it, so no harness can put the model's thinking into the transcript.
+  const streamer = new AnswerStreamer();
   const gated = (event: AgentEvent): void => {
     if (event.type === 'tool_error') {
       failures.push({ tool: event.tool, message: event.message });
@@ -266,10 +277,27 @@ async function runOutOfProcess(
       held = event;
       return;
     }
+    if (event.type === 'response_delta') {
+      const { answer, thinking } = streamer.push(event.delta);
+      if (thinking) {
+        emit({ type: 'thinking_delta', delta: thinking });
+      }
+      if (answer) {
+        emit({ type: 'response_delta', delta: answer });
+      }
+      return;
+    }
     emit(event);
   };
 
   const result = await run(gated);
+  const tail = streamer.flush();
+  if (tail.thinking) {
+    emit({ type: 'thinking_delta', delta: tail.thinking });
+  }
+  if (tail.answer) {
+    emit({ type: 'response_delta', delta: tail.answer });
+  }
   const response = await applyTurnGuarantees({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -277,7 +305,7 @@ async function runOutOfProcess(
     conversationId: opts.conversationId,
     deliverable: opts.deliverable,
     request: opts.message,
-    response: result.response,
+    response: stripScratch(result.response),
     toolCalls: result.toolCalls,
     failures,
     // Delegation nesting is not visible across the transport (the other
@@ -362,6 +390,8 @@ export async function runAgentDeep(opts: {
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Where the person is in the app for this turn — exposed to the `page_context` tool. */
   pageContext?: import('./chat/pageContext').PageContext;
+  /** The person's IANA time zone for this turn (from the browser); the workspace's when absent. */
+  timeZone?: string;
   /**
    * What this turn OWES (`libs/chat/deliverable.ts`). `artifact` means the
    * turn must end with an artifact beside the conversation; if the loop does
@@ -390,6 +420,13 @@ export async function runAgentDeep(opts: {
    * an honest single path. Never cached — see `getCompiledAgent`.
    */
   modelOverride?: import('./agents/harness').ModelOverride;
+  /**
+   * The conversation's model preferences (`libs/llm/modelPrefs.ts`): how
+   * strong a model, how much it thinks. Applied only on the in-process loop
+   * — never moving a turn off the harness the agent runs on — and only when
+   * they ask for something beyond the agent's own defaults.
+   */
+  modelPrefs?: import('@/libs/llm/modelPrefs').ModelPrefs;
 }): Promise<{
   response: string;
   traceId: string;
@@ -418,6 +455,9 @@ export async function runAgentDeep(opts: {
   // window in which it emits its `documents` event via ctx.emit).
   let activeSpecialist: string | null = null;
   const emittedCards: string[] = [];
+  // Records the turn made (a data room, a proposal) — linked at the end of the
+  // answer if the model forgot to (`appendRecordLinks`).
+  const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -428,6 +468,9 @@ export async function runAgentDeep(opts: {
     }
     if (event.type === 'recommended_action') {
       emittedCards.push(event.recommendation.label);
+    }
+    if (event.type === 'record_created') {
+      createdRecords.push(event.record);
     }
     recordedEvents.push(event);
     rawEmit(event);
@@ -495,8 +538,15 @@ export async function runAgentDeep(opts: {
     return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
   }
 
-  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext);
+  // The person's per-thread choice of model and thinking, mapped onto the
+  // agent's own vendor. Nothing to do when they left both at the default.
+  // Dynamic imports, like the harness itself: the Temporal worker reaches
+  // this file and must never statically load the LLM module.
+  const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
+  const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
+  const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, opts.modelPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
+  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride });
+  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext, opts.timeZone);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
@@ -549,6 +599,13 @@ export async function runAgentDeep(opts: {
   boundCtx.traceId = trace.id;
 
   emit({ type: 'thinking' });
+  {
+    // Say which model answers, so the turn can show it (principle 10).
+    const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
+    const provider = chosen.provider ?? resolveProvider('main');
+    // The abstract levels are what the person sees; the concrete id is a detail they can expand.
+    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: opts.modelPrefs?.strength ?? 'balanced', thinking: opts.modelPrefs?.effort ?? 'off' });
+  }
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
 
@@ -570,7 +627,10 @@ export async function runAgentDeep(opts: {
   // With attachments the user turn is content blocks — the message and each
   // document's text, then the images; without, the plain string it always was.
   const { composeUserContent } = await import('./chat/attachments');
-  const userContent = await composeUserContent(opts.message, opts.attachments ?? []);
+  // NOW rides on the turn, not in the (cached) system prompt — see the CLOCK
+  // note in `harness.ts`. The person's zone, UTC beside it, the day named.
+  const clock = clockLine(new Date(), boundCtx.timeZone ?? DEFAULT_TIME_ZONE);
+  const userContent = await composeUserContent(`${clock}\n\n${opts.message}`, opts.attachments ?? []);
   const input = {
     messages: [
       ...history,
@@ -603,11 +663,32 @@ export async function runAgentDeep(opts: {
   };
 
   // True streaming: the LEAD's answer streams live token-by-token via the
-  // AnswerStreamer, which strips a leading <scratch>…</scratch> block (routed
-  // to chain-of-thought) so raw data never dumps into the answer. No post-run
-  // buffering.
+  // AnswerStreamer, which strips every <scratch>…</scratch> block — leading
+  // or, since 2026-09-20, opened mid-reply after a tool call — and routes it
+  // to the trace as reasoning, so raw data never dumps into the answer. No
+  // post-run buffering.
   const answerStreamer = new AnswerStreamer();
   let answering = false;
+  // The lead's most recent model-turn namespace, so a scratch tail released
+  // at flush lands on the reasoning node of the turn that wrote it.
+  let leadNs = '';
+  const routeScratch = (scratch: string, closed: boolean): void => {
+    if (scratch) {
+      emit({ type: 'thinking_delta', delta: scratch });
+      for (const node of tracer.reasonDelta(leadNs, scratch)) {
+        emit(node);
+      }
+    }
+    if (closed) {
+      for (const node of tracer.closeReasoning()) {
+        emit(node);
+      }
+    }
+  };
+  // Step names from a cheap model (`stepLabeler.ts`), one job per tool
+  // start; each lands as a `trace_node` patch when it resolves. Awaited
+  // briefly at the end so the persisted trace carries the names too.
+  const labelJobs: Promise<void>[] = [];
 
   try {
     const stream = await compiled.graph.streamEvents(input as never, {
@@ -622,6 +703,24 @@ export async function runAgentDeep(opts: {
       const nodes = tracer.handle(ev);
       for (const node of nodes) {
         emit(node);
+      }
+      // "Composing render_document…" while a long tool call is still streaming.
+      for (const side of tracer.takeSideEvents()) {
+        emit(side);
+      }
+      if (ev.event === 'on_tool_start') {
+        for (const node of nodes) {
+          if (node.status === 'start' && tracer.wantsLabels(node.id)) {
+            const tool = ev.name ?? 'tool';
+            const args = parseJsonArgs(ev.data?.input);
+            labelJobs.push(labelStep({ orgId: opts.orgId, tool, args }).then((labels) => {
+              const patch = tracer.applyLabels(node.id, labels);
+              if (patch) {
+                emit(patch);
+              }
+            }).catch(() => {}));
+          }
+        }
       }
       // Track a delegate's active search so its emitted documents get attributed.
       if (ev.event === 'on_tool_start') {
@@ -669,10 +768,9 @@ export async function runAgentDeep(opts: {
             emit({ type: 'thinking_delta', delta: thinking });
           }
           if (isLead && text) {
-            const { answer, thinking: scratch } = answerStreamer.push(text);
-            if (scratch) {
-              emit({ type: 'thinking_delta', delta: scratch });
-            }
+            leadNs = nsFor(ev);
+            const { answer, thinking: scratch, closed } = answerStreamer.push(text);
+            routeScratch(scratch, closed);
             if (answer) {
               if (!answering) {
                 answering = true;
@@ -747,6 +845,12 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
+
+    // Give late step names a moment to land before the turn closes, so the
+    // persisted trace reads like the live one did. Never more than a beat.
+    if (labelJobs.length > 0) {
+      await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
+    }
   } catch (err) {
     const message = (err as Error).message ?? 'agent run failed';
     // The run died. Close anything still open as a FAILURE first, so the
@@ -774,16 +878,23 @@ export async function runAgentDeep(opts: {
     throw err;
   }
 
-  // Release any held-back tail (partial-tag boundary) from the streamer.
+  // Release any held-back tail (partial-tag boundary) from the streamer. A
+  // block still open here was cut off by the end of the stream: it is
+  // thinking to its last character, and its reasoning node closes with it.
   const tail = answerStreamer.flush();
-  if (tail.thinking) {
-    emit({ type: 'thinking_delta', delta: tail.thinking });
-  }
+  routeScratch(tail.thinking, true);
   if (tail.answer) {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
   }
-  finalText = finalText.trim();
+  finalText = normalizeAnswerHtml(finalText).trim();
+  if (createdRecords.length > 0) {
+    const linked = appendRecordLinks(finalText, createdRecords);
+    if (linked !== finalText) {
+      emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
+      finalText = linked;
+    }
+  }
 
   // Card backstop (structural, workspace-opt-in): prompt compliance for
   // recommend_action proved unreliable — a long tool output (the daily brief)
@@ -882,3 +993,34 @@ export type RunUsage = {
   /** Model turns — one per LLM call, so retries and tool loops count. */
   turns: number;
 };
+
+/**
+ * The model override a conversation's preferences ask for, on the agent's
+ * own vendor — or undefined when they ask for nothing beyond its defaults.
+ * @param harness - The agent's harness block.
+ * @param prefs - The person's per-thread choice.
+ * @param env - The env's main provider, the agent's own model options, and the per-provider default lookup.
+ * @param env.provider
+ * @param env.defaults
+ * @param env.defaults.provider
+ * @param env.defaults.model
+ * @param env.modelFor
+ */
+function modelOverrideForPrefs(
+  harness: import('./agents/harness').HarnessModelConfig,
+  prefs: import('@/libs/llm/modelPrefs').ModelPrefs | undefined,
+  env: { provider: import('@/libs/llm/langchain').LangChainProvider; defaults: { provider?: import('@/libs/llm/langchain').LangChainProvider; model?: string }; modelFor: (role: 'main', provider: import('@/libs/llm/langchain').LangChainProvider) => string },
+): import('./agents/harness').ModelOverride | undefined {
+  void harness;
+  if (!prefs || (prefs.strength === 'balanced' && prefs.effort === 'off')) {
+    return undefined;
+  }
+  const provider = env.defaults.provider ?? env.provider;
+  // One server-side table maps a level to a model (`libs/llm/modelPrefs.ts`);
+  // a deployment can point a level elsewhere with VOCION_MODEL_<LEVEL>_<PROVIDER>
+  // (e.g. VOCION_MODEL_DEEP_ANTHROPIC) without touching the table or the UI,
+  // which never names a vendor.
+  const envModel = prefs.strength === 'balanced' ? undefined : process.env[`VOCION_MODEL_${prefs.strength.toUpperCase()}_${provider.toUpperCase()}`]?.trim();
+  const model = envModel || modelForStrength(provider, prefs.strength) || env.defaults.model || env.modelFor('main', provider);
+  return { model, provider, thinking: prefs.effort };
+}

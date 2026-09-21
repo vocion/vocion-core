@@ -1,5 +1,6 @@
 import type { ActionDescription } from './describeActionRun';
 import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { getAction } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { actionRunSchema, reviewAssignmentSchema } from '@/models/Schema';
 import { resolveRecordLabels } from '@/services/records/recordLabel';
@@ -13,7 +14,8 @@ import { recordKeyOf } from './recordKey';
  * a person by `describeActionRun`.
  *
  * Three tabs, three predicates:
- *   open     — pending or failed, not expired, not snoozed into the future
+ *   open     — pending, failed, or a released hand-off awaiting its doer
+ *              (`awaiting_execution`), not expired, not snoozed into the future
  *   snoozed  — pending, snoozed into the future
  *   decided  — done / rejected / executing / approved, newest decision first
  */
@@ -29,6 +31,10 @@ export type ReviewRow = {
   /** When a person answered (decided tab). */
   decidedAt: Date | null;
   decidedBy: string | null;
+  /** The ladder released it without a person — "done for you". */
+  approvedByAgent?: boolean;
+  /** A done run of a kind that declares `undo`: one click puts it back. */
+  undoable?: boolean;
   snoozedUntil: Date | null;
   note: string | null;
   assignedTo: string | null;
@@ -37,7 +43,7 @@ export type ReviewRow = {
   described: ActionDescription;
 };
 
-const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved'];
+const DECIDED_STATUSES = ['done', 'rejected', 'executing', 'approved', 'undone'];
 
 /**
  * Action-plane rows for one tab. `limit` bounds the decided tab, which is
@@ -64,7 +70,9 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       ? and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending'), notExpired, gt(reviewAssignmentSchema.snoozedUntil, now))
       : and(
           eq(actionRunSchema.orgId, orgId),
-          inArray(actionRunSchema.status, ['pending', 'failed']),
+          // A released hand-off is decided but not done: it stays on the open
+          // tab, with Mark done as its verb, until whoever did it says so.
+          inArray(actionRunSchema.status, ['pending', 'failed', 'awaiting_execution']),
           notExpired,
           or(isNull(reviewAssignmentSchema.snoozedUntil), lte(reviewAssignmentSchema.snoozedUntil, now)),
         );
@@ -81,6 +89,7 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
       executedAt: actionRunSchema.executedAt,
       decidedAt: actionRunSchema.decidedAt,
       decidedBy: actionRunSchema.decidedBy,
+      approvedByAgent: actionRunSchema.approvedByAgent,
       snoozedUntil: reviewAssignmentSchema.snoozedUntil,
       note: reviewAssignmentSchema.note,
       assignedTo: reviewAssignmentSchema.assignedTo,
@@ -98,6 +107,8 @@ export async function listReviewRows(orgId: string, tab: ReviewTab, opts: { limi
     createdAt: row.createdAt,
     decidedAt: row.decidedAt ?? row.executedAt ?? null,
     decidedBy: row.decidedBy ?? null,
+    approvedByAgent: row.approvedByAgent === true,
+    undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
     snoozedUntil: row.snoozedUntil ?? null,
     note: row.note ?? null,
     assignedTo: row.assignedTo ?? null,
@@ -175,4 +186,47 @@ export async function listReviewRowsForRecord(orgId: string, recordKey: string):
   const [open, decided] = await Promise.all([listReviewRows(orgId, 'open'), listReviewRows(orgId, 'decided', { limit: 500 })]);
   const match = (r: ReviewRow) => recordKeyOf(r) === recordKey;
   return { open: open.filter(match), decided: decided.filter(match) };
+}
+
+/**
+ * One action-plane row by id, described — for a surface that holds a run id
+ * and needs the row's context.
+ * @param orgId
+ * @param id
+ */
+export async function reviewRowById(orgId: string, id: number): Promise<ReviewRow | null> {
+  const [row] = await db
+    .select({
+      id: actionRunSchema.id,
+      actionId: actionRunSchema.actionId,
+      status: actionRunSchema.status,
+      input: actionRunSchema.input,
+      proposal: actionRunSchema.proposal,
+      invokedBy: actionRunSchema.invokedBy,
+      createdAt: actionRunSchema.createdAt,
+      executedAt: actionRunSchema.executedAt,
+      decidedAt: actionRunSchema.decidedAt,
+      decidedBy: actionRunSchema.decidedBy,
+    })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.id, id)))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  const [described] = await withRecordNames(orgId, [{
+    id: row.id,
+    actionId: row.actionId,
+    status: row.status,
+    createdAt: row.createdAt,
+    decidedAt: row.decidedAt ?? row.executedAt ?? null,
+    decidedBy: row.decidedBy ?? null,
+    snoozedUntil: null,
+    note: null,
+    assignedTo: null,
+    input: row.input ?? {},
+    proposal: (row.proposal as Record<string, unknown> | null) ?? null,
+    invokedBy: row.invokedBy,
+  }]);
+  return described ?? null;
 }

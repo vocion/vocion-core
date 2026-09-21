@@ -1,0 +1,17 @@
+slug: wiki-index
+name: Index wiki pages for search
+description: >-
+  Every save of a wiki page (an artifact in the `wiki` folder) puts it into the
+  knowledge index under the `wiki` source, so search_knowledge finds a wiki
+  page like any connected document. Deterministic — a built-in job, not an
+  agent — and idempotent through the content hash.
+status: active
+agent: wiki-curator
+when:
+  event: artifact.saved
+  filter:
+    folder: wiki
+do:
+  job: index-artifact
+  input:
+    source: wiki

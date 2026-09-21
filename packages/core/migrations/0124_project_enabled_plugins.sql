@@ -1,0 +1,11 @@
+-- 0124 — which plugins a workspace turned on.
+--
+-- A plugin (`packages/core/templates/plugins/<slug>/`) is a bundle of agents,
+-- skills, object types, missions, automations, teams, pages and trust rules
+-- that a workspace switches on with one line in workspace.yaml (`plugins:`).
+-- The applier writes the resolved, dependency-closed list here so the shell
+-- (plugin-owned nav rows), the agent runtime (plugin-owned tools, the
+-- capabilities note in chat) and the sync collectors can read it without the
+-- workspace directory. Same declarative rule as enabled_surfaces: replaced
+-- wholesale on every apply.
+ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "enabled_plugins" jsonb DEFAULT '[]'::jsonb NOT NULL;

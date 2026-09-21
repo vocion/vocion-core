@@ -1,0 +1,55 @@
+# The growth-loop plugin — evidence that somebody wanted something becomes a
+# brief, the brief becomes a deliverable, the deliverable is checked against the
+# brief before it is public, and then A READING TAKEN AFTER THE FACT decides
+# whether making it was worth doing. What gets briefed next is decided by those
+# readings.
+#
+# Learned from running a small growth team as agents for a quarter. Two things
+# turned out to carry the weight, and neither is the writing. The first is the
+# list of what a piece may NOT say: a task contract bounds a worker by the file
+# paths it may touch, and marketing work has no file paths — its blast radius is
+# claims, and everything that went publicly wrong went wrong on a sentence
+# nobody had forbidden. The second is that publication is where teams stop.
+# Everything up to it looks finished, so the reading that would say whether any
+# of it worked is the step that quietly never happens, and without it a growth
+# team is a content queue with a budget.
+#
+# WHY A BRIEF IS ITS OWN NOUN, and not an `engineering_task` with different
+# fields — the question this plugin was made to answer honestly. The contract
+# half is the same and is spelled the same on purpose: objective,
+# acceptanceContract, decisionCost, and the estimate/actual/variance triple core
+# writes from the worker runs. What differs is the verdict. A task contract's
+# required checks are commands that run at acceptance and decide; a brief's
+# verdict is a reading taken days later against a baseline, and it can come back
+# flat on work whose gate was clean. Two verdicts at two times, of which only
+# the second says whether the work was worth doing. `accepted` ends a task and
+# is a brief's halfway point. So: one contract grammar, two nouns — and
+# deliberately NO second intake noun, no second worker control plane, no second
+# cost pair and no second trust ladder. `request` stays the software factory's;
+# a brief links to one by id when a request asked for it, and the field is empty
+# when the demand map did.
+#
+# Core ships the MECHANISM (the object noun's storage and rollups, the artifact,
+# the ask, the measure sources, the trust ladder, `agent_budget`, the list
+# archetype, and `team.hire_agent` — the one seam this plugin needed that core
+# did not have); this plugin ships the MEANING: what a brief holds, who writes
+# one, what checks it, what "measured" means and when, and the bar for adding a
+# teammate. The workspace ships the CONCRETION: its product, its demand map, its
+# voice, its thresholds and the person accountable for what it says in public.
+slug: growth-loop
+name: Growth loop
+version: 1.0.0
+description: Evidence that somebody wanted something becomes a brief with one claim, a list of what it may not say and the number it will be judged on; a producer makes it, an editor decides whether it is fit to publish against that brief and nothing else, a person releases it, and a reading taken weeks later says whether it was worth doing — with what gets briefed next decided by those readings, and the team able to add a teammate only where work actually waited and only inside a budget.
+depends: []
+surfaces: []
+nav: {section: Growth}
+recommend:
+  when:
+    - things get published and nobody ever says whether they worked
+    - somebody asks what the last quarter of marketing actually moved and the answer is a list of what was made
+    - a claim went out that nobody could back up, or had to be corrected afterwards
+    - the same piece is rewritten three times because the brief did not say what it could not say
+    - work is picked because somebody asked most recently rather than because anything returned
+    - a person wants to know what a channel or a theme has cost against what it returned
+    - the team keeps needing a role nobody has, and adding one is a conversation rather than a decision with a budget
+  connectors: []

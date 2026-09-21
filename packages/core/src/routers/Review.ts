@@ -210,24 +210,35 @@ export const proposeFromRecommendationRoute = os
     const { orgId, userId } = await guardAuth();
     const { proposeAction } = await import('@/services/ActionService');
     const agentId = input.agentSlug ? `agent:${input.agentSlug}` : 'agent:unknown';
-    const res = await proposeAction({
-      orgId,
-      actionId: input.actionId,
-      input: input.input,
-      principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
-      invokedBy: userId ?? agentId,
-      proposal: {
-        confidence: input.confidence,
-        rationale: input.rationale,
-        suggestedDecision: input.suggestedDecision,
-        suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
-        suggestedSnoozeUntil: input.suggestedSnoozeUntil,
-      },
-      // Explicit key wins; otherwise derive a stable one from the action + its
-      // primary target so the same owed action doesn't duplicate in the queue.
-      dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
-      expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : undefined,
-    });
+    let res: Awaited<ReturnType<typeof proposeAction>>;
+    try {
+      res = await proposeAction({
+        orgId,
+        actionId: input.actionId,
+        input: input.input,
+        principal: { kind: 'agent', id: agentId, scope: { orgId }, grants: ['*'], autonomy: 2 },
+        invokedBy: userId ?? agentId,
+        proposal: {
+          confidence: input.confidence,
+          rationale: input.rationale,
+          suggestedDecision: input.suggestedDecision,
+          suggestedDecisionReason: input.suggestedDecisionReason?.trim() ?? null,
+          suggestedSnoozeUntil: input.suggestedSnoozeUntil,
+        },
+        // Explicit key wins; otherwise derive a stable one from the action + its
+        // primary target so the same owed action doesn't duplicate in the queue.
+        dedupKey: input.dedupKey ?? deriveDedupKey(input.actionId, input.input),
+        expiresAt: input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : undefined,
+      });
+    } catch (err) {
+      // A payload the action refuses is the caller's problem to read, not a 500:
+      // the card shows this sentence under its buttons.
+      const code = (err as { code?: unknown }).code;
+      if (code === 'VALIDATION_FAILED' || code === 'UNKNOWN_ACTION') {
+        throw new ORPCError('BAD_REQUEST', { message: (err as Error).message });
+      }
+      throw err;
+    }
     return res;
   });
 
@@ -265,6 +276,9 @@ export const actionStatusRoute = os
         decidedAt: actionRunSchema.decidedAt,
         regeneratingSince: actionRunSchema.regeneratingSince,
         regenerateNote: actionRunSchema.regenerateNote,
+        approvedByAgent: actionRunSchema.approvedByAgent,
+        actionId: actionRunSchema.actionId,
+        proposal: actionRunSchema.proposal,
         name: userSchema.name,
         email: userSchema.email,
       })
@@ -275,15 +289,39 @@ export const actionStatusRoute = os
     if (!row) {
       throw ApiError.notFound(`no action ${input.id}`);
     }
+    const { getAction } = await import('@/libs/actions/registry');
     return {
       status: row.status,
       decidedBy: row.name ?? row.email ?? row.decidedBy,
       decidedAt: row.decidedAt?.toISOString() ?? null,
+      // Done for you: the ladder released it, and the kind can be put back.
+      approvedByAgent: row.approvedByAgent === true,
+      undoable: row.status === 'done' && getAction(row.actionId)?.undo !== undefined,
+      reason: (row.proposal as { autoApprovedReason?: string } | null)?.autoApprovedReason ?? null,
       // The in-flight regeneration stamp, so the card can hold itself
       // disabled on server truth rather than on the click that started it.
       regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
       regenerateNote: row.regenerateNote,
     };
+  });
+
+/**
+ * The context beside one proposal — the contact, the exchange so far, the
+ * sequence — for a surface that decides a run outside the record sheet (the
+ * dock's card, a domain console). The record sheet reads the same service
+ * server-side.
+ */
+export const contextRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const { reviewRowById } = await import('@/services/inbox/reviewRows');
+    const { loadReviewContext } = await import('@/services/inbox/reviewContext');
+    const row = await reviewRowById(orgId, input.id);
+    if (!row) {
+      throw ApiError.notFound(`no action ${input.id}`);
+    }
+    return loadReviewContext(orgId, row);
   });
 
 /** Rewrite-with-AI on a pending draft — returns the rewrite (unsaved) + records a `rewrite` signal. */
@@ -317,12 +355,38 @@ function deriveDedupKey(actionId: string, input: Record<string, unknown>): strin
   return objId ? `${actionId}:${objId}` : undefined;
 }
 
-/** Approve or reject a pending action proposal. */
+/**
+ * Put a done run back — the other half of "done for you" (Chris, 2026-09-18).
+ * Only a kind that declares `undo` gets here; the button is drawn from the
+ * same fact (`actionStatus.undoable`), so the screen never offers what the
+ * service would refuse.
+ */
+export const undoActionRoute = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const { undoAction, ActionError } = await import('@/services/ActionService');
+    const { recordActionSignal } = await import('@/services/ReviewService');
+    try {
+      const res = await undoAction(input.id, orgId, { by: userId ?? 'unknown' });
+      await recordActionSignal({ orgId, runId: input.id, signal: 'reject', userId: userId ?? undefined, hint: 'undone' });
+      return { ok: true, status: res.status };
+    } catch (err) {
+      if (err instanceof ActionError) {
+        throw ApiError.badRequest(err.message);
+      }
+      throw err;
+    }
+  });
+
+/** Approve or reject a pending action proposal; mark a released hand-off done. */
 export const decideActionRoute = os
   .input(z.object({
     id: z.number().int().positive(),
-    decision: z.enum(['approve', 'reject']),
+    decision: z.enum(['approve', 'reject', 'done']),
     reason: z.string().optional(),
+    /** Where the outcome lives, with `done` — the merged PR, the deployment, the post. */
+    resultUrl: z.string().url().optional(),
     /** Reviewer's note for the agent — stored with the decision on every verb. */
     note: z.string().max(2000).optional(),
     /** Operator-edited payload (edit-then-approve) — only applied on approve. */
@@ -373,16 +437,35 @@ export const decideActionRoute = os
         .limit(1);
       const apply = run ? getAction(run.actionId)?.applyContentEdits : undefined;
       if (run && apply) {
-        editedInput = apply({ ...run.input, ...(editedInput ?? {}) }, input.contentEdits) as Record<string, unknown>;
+        // A body may now be HTML a reviewer composed, and it arrived over RPC.
+        // Sanitized HERE, before it is mapped into the input and stored, so
+        // what the action persists is already inside the allowlist and no
+        // later reader has to wonder (`libs/writing/emailBody.ts`). The
+        // editor's schema agrees with this list, so for a real client it is
+        // the identity.
+        const { safeContentEdits } = await import('@/services/review/safeEdits');
+        editedInput = apply({ ...run.input, ...(editedInput ?? {}) }, safeContentEdits(input.contentEdits)) as Record<string, unknown>;
       }
     }
 
-    const outcome = await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
-      reason: input.reason,
-      note: input.note,
-      reviewedBy: userId,
-      editedInput: input.decision === 'approve' ? editedInput : undefined,
-    });
+    const { ActionError } = await import('@/services/ActionService');
+    let outcome;
+    try {
+      outcome = await decide({ kind: 'action', id: input.id }, input.decision, orgId, {
+        reason: input.reason,
+        note: input.note,
+        reviewedBy: userId,
+        editedInput: input.decision === 'approve' ? editedInput : undefined,
+        resultUrl: input.decision === 'done' ? input.resultUrl : undefined,
+      });
+    } catch (err) {
+      // Marking done what was never released, or approving twice, is a state
+      // the screen can explain; a stack trace is not.
+      if (err instanceof ActionError && err.code === 'INVALID_STATE') {
+        throw ApiError.badRequest(err.message);
+      }
+      throw err;
+    }
     // The execution outcome rides back so the card can SAY a failed execution
     // failed — approve used to return bare `ok` and a HubSpot 400 was silent.
     return { ok: true, execution: outcome?.execution ?? null };
@@ -403,6 +486,12 @@ export const regenerateActionRoute = os
     id: z.number().int().positive(),
     /** What should change. Required: a regeneration without instructions is a coin flip. */
     feedback: z.string().trim().min(1).max(2000),
+    /**
+     * Which content item the instruction is about (`send-3`), so the record
+     * lands on the send a reviewer was reading. Absent on a run with a single
+     * body, which is every non-sequence action.
+     */
+    contentId: z.string().min(1).max(200).optional(),
   }))
   .handler(async ({ input }) => {
     const { orgId, userId } = await guardAuth();
@@ -436,6 +525,24 @@ export const regenerateActionRoute = os
       throw ApiError.badRequest('This card is already regenerating — it re-enables when the new version lands.');
     }
 
+    // The record, BEFORE anything replaces the copy it is about. This is the
+    // last moment `input` still holds what the reviewer is looking at: the
+    // redraft's dedup refresh replaces `input` wholesale and clears the stamp
+    // and the note with it, so a body not filed here is gone for good. Filed
+    // with the ask it is about to answer, which is what makes the history
+    // read as a conversation rather than as a list of bodies. Best effort: a
+    // regeneration must never fail on its audit trail.
+    const { recordPreRegenerationCopy } = await import('@/services/review/contentRecord');
+    await recordPreRegenerationCopy({
+      orgId,
+      runId: input.id,
+      actionId: run.actionId,
+      runInput: run.input,
+      ...(input.contentId ? { contentId: input.contentId } : {}),
+      ask: input.feedback,
+      ...(userId ? { by: userId } : {}),
+    }).catch(err => logger.warn('could not record the pre-regeneration copy', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) }));
+
     // Server truth first: every surface reads the stamp, so the card is
     // disabled everywhere before any work runs.
     await db
@@ -447,11 +554,17 @@ export const regenerateActionRoute = os
     // and the fallback a whole agent pass; the reviewer's click must not hold
     // the request open for either. A dispatch failure unstamps, so the card
     // re-enables instead of waiting out the staleness window.
+    // Scoped to the item the instruction was typed beside, so the action can
+    // rewrite THAT send and leave the reviewer's other approvals standing.
+    // This argument was missing until 2026-09-20: the record knew which send
+    // the ask was about and the work did not, so a note about send 4 redrafted
+    // all four and cleared three checks a reviewer had earned.
     const dispatch = action.regenerate(
       { orgId, reviewedBy: userId ?? undefined },
       run.input as never,
       input.id,
       input.feedback,
+      input.contentId ? { contentId: input.contentId } : {},
     ).catch(async (err) => {
       logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) });
       await db
@@ -469,6 +582,83 @@ export const regenerateActionRoute = os
     // it: feedback job, classifier, duplicate detection, learning candidate.
     const { recordActionSignal } = await import('@/services/ReviewService');
     await recordActionSignal({ orgId, runId: input.id, signal: 'regenerate', userId: userId ?? undefined, hint: input.feedback });
+    return { ok: true };
+  });
+
+/**
+ * A run a per-send approval may be recorded against: still open, and not
+ * mid-regeneration. Shared by both checkpoint routes so "which runs take a
+ * check" is answered once.
+ * @param id - The action run.
+ * @param orgId - The project that owns it.
+ */
+async function guardCheckpointable(id: number, orgId: string): Promise<void> {
+  const { db } = await import('@/libs/DB');
+  const { actionRunSchema } = await import('@/models/Schema');
+  const { and, eq } = await import('drizzle-orm');
+  const { isRegeneratingFresh } = await import('@/libs/actions/regenerating');
+  const [run] = await db
+    .select({ status: actionRunSchema.status, regeneratingSince: actionRunSchema.regeneratingSince })
+    .from(actionRunSchema)
+    .where(and(eq(actionRunSchema.id, id), eq(actionRunSchema.orgId, orgId)))
+    .limit(1);
+  // A decided run is history. Checking a send on it would put a reviewer's
+  // name against copy that already ran, or against a card nobody can change.
+  if (!run || (run.status !== 'pending' && run.status !== 'failed')) {
+    throw ApiError.notFound(`no open action ${id}`);
+  }
+  if (isRegeneratingFresh(run.regeneratingSince)) {
+    throw ApiError.badRequest('This card is being regenerated — it re-enables when the new version lands.');
+  }
+}
+
+/**
+ * Approve ONE content item — a checkpoint, not an execution.
+ *
+ * Nothing leaves the building here: the run stays pending, `input` is
+ * untouched, and Enroll remains the single act that reaches the outside
+ * world, so the autonomy gate keeps one door. What this records is that a
+ * person read this send and vouched for exactly this copy — a hash of it, so
+ * the check clears itself the moment the copy changes underneath.
+ */
+export const approveContentRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    contentId: z.string().min(1).max(200),
+    subject: z.string().max(10_000).optional(),
+    body: z.string().max(100_000),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    await guardCheckpointable(input.id, orgId);
+    const { recordApprovedContent } = await import('@/services/review/contentRecord');
+    // Sanitized before it is hashed AND before it is filed, so the check
+    // refers to the copy that would actually go out rather than to whatever
+    // was posted. A client whose HTML survives the allowlist unchanged — which
+    // is every real one, the editor shares the list — computes the same hash.
+    const { safeBody } = await import('@/services/review/safeEdits');
+    const hash = await recordApprovedContent({
+      orgId,
+      runId: input.id,
+      contentId: input.contentId,
+      ...(input.subject !== undefined ? { subject: input.subject } : {}),
+      body: safeBody(input.body),
+      ...(userId ? { by: userId } : {}),
+    });
+    return { ok: true, hash };
+  });
+
+/** Take one content item's check back off. The history it wrote stands. */
+export const unapproveContentRoute = os
+  .input(z.object({
+    id: z.number().int().positive(),
+    contentId: z.string().min(1).max(200),
+  }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    await guardCheckpointable(input.id, orgId);
+    const { clearApprovedContent } = await import('@/services/review/contentRecord');
+    await clearApprovedContent({ orgId, runId: input.id, contentId: input.contentId });
     return { ok: true };
   });
 

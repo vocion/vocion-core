@@ -27,7 +27,7 @@ type DocumentCardData = z.infer<typeof documentCardSchema>;
 export function DocumentCardView({ data, surface }: { data: DocumentCardData; surface: string }) {
   const title = data.title ?? 'Document';
   if (surface !== 'artifact') {
-    return <DocumentSummary title={title} sheets={data.sheets} verification={data.verification} />;
+    return <DocumentSummary title={title} sheets={data.sheets} verification={data.verification} redTeam={data.redTeam} />;
   }
   const id = data.__artifactId;
   return (
@@ -36,7 +36,8 @@ export function DocumentCardView({ data, surface }: { data: DocumentCardData; su
       title={title}
       sheets={data.sheets}
       verification={data.verification}
-      {...(id ? { record: { type: 'artifact', id: String(id), label: title, href: `/dashboard/artifacts/${id}` }, openHref: `/api/artifacts/${id}/document.html` } : {})}
+      redTeam={data.redTeam}
+      {...(id ? { record: { type: 'artifact', id: String(id), label: title, href: `/dashboard/artifacts/${id}` }, openHref: `/dashboard/artifacts/${id}/open` } : {})}
     />
   );
 }

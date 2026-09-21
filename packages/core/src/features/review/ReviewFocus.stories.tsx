@@ -148,7 +148,6 @@ const base: Omit<ReviewFocusViewProps, 'current' | 'edited'> = {
   canBack: true,
   onBack: () => {},
   onSkip: () => {},
-  onSave: () => {},
   onCardDecided: () => {},
   onCardRegenerated: () => {},
   onEditField: () => {},

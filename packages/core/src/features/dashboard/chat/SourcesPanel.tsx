@@ -1,8 +1,9 @@
 'use client';
 
 import type { IndexedDocument } from './types';
-import { ArrowLeft, ExternalLink, FileText, X } from 'lucide-react';
+import { ArrowLeft, ExternalLink, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { PanelCloseButton } from '@/components/ui/panel-close-button';
 import { sourceColors, sourceLabels } from './helpers';
 
 /**
@@ -149,14 +150,7 @@ export function SourcesPanel({ documents, open, onClose, focusCitation, citedInd
               {documents.length === 1 ? '' : 's'}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            aria-label="Close sources panel"
-          >
-            <X className="size-4" />
-          </button>
+          <PanelCloseButton onClick={onClose} label="Close sources panel" />
         </header>
 
         {showTabs && !selected && (

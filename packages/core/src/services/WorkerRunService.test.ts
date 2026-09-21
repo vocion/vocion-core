@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import process from 'node:process';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 process.env.VOCION_TOOL_SIGNING_SECRET ??= 'test-signing-secret';
 process.env.VOCION_EXTERNAL_WORKERS = '1';
@@ -6,7 +10,8 @@ process.env.VOCION_EXTERNAL_WORKERS = '1';
 vi.mock('@/libs/DB');
 
 const { db } = await import('@/libs/DB');
-const { workerRunSchema } = await import('@/models/Schema');
+const { eq } = await import('drizzle-orm');
+const { businessObjectSchema, businessObjectTypeSchema, eventLogSchema, workerRunSchema } = await import('@/models/Schema');
 const svc = await import('@/services/WorkerRunService');
 const { verifyClaim } = await import('@/services/agents/claims');
 
@@ -14,6 +19,58 @@ const ORG = 'org_test';
 
 beforeEach(async () => {
   await db.delete(workerRunSchema);
+  await db.delete(eventLogSchema);
+});
+
+describe('WorkerRunService — a finished run is announced', () => {
+  it('raises worker_run.completed once, with the ids and the summary a debrief reads', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: { message: 'go', record: { type: 'request', id: 12 } }, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    const done = await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', summary: 'Merged the fix; two tests added.' });
+
+    const events = await db.select().from(eventLogSchema);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      orgId: ORG,
+      type: 'worker_run.completed',
+      dedupeKey: `worker_run.completed:${run.id}`,
+      invokedBy: `worker_run:${run.id}`,
+    });
+    expect(events[0]!.payload).toMatchObject({
+      workerRunId: run.id,
+      agentSlug: 'task-engineer',
+      kind: 'worker',
+      status: 'completed',
+      summary: 'Merged the fix; two tests added.',
+      recordType: 'request',
+      recordId: 12,
+      completedAt: done.completedAt!.toISOString(),
+    });
+  });
+
+  it('raises worker_run.failed with the error, keyed on the attempt', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', error: 'checks red' });
+
+    const [event] = await db.select().from(eventLogSchema);
+
+    expect(event).toMatchObject({ type: 'worker_run.failed', dedupeKey: `worker_run.failed:${run.id}:1` });
+    expect(event!.payload).toMatchObject({ workerRunId: run.id, status: 'failed', summary: 'checks red', attempt: 1, recordType: null, recordId: null });
+  });
+
+  it('says cancelled, not completed, on the completed event for a run that was asked to stop', async () => {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', input: {}, createdBy: 'user:1' });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.cancelWorkerRun(ORG, run.id);
+    await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+
+    const [event] = await db.select().from(eventLogSchema);
+
+    expect(event).toMatchObject({ type: 'worker_run.completed' });
+    expect(event!.payload).toMatchObject({ status: 'cancelled' });
+  });
 });
 
 describe('WorkerRunService — the lease protocol', () => {
@@ -139,5 +196,110 @@ describe('WorkerRunService — the lease protocol', () => {
     await expect(svc.claimWorkerRun({ orgId: 'other_org', id: run.id, workerId: 'x' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(await svc.listWorkerRuns('other_org')).toEqual([]);
     expect((await svc.listWorkerRuns(ORG)).map(r => r.id)).toEqual([run.id]);
+  });
+});
+
+// A run queued FOR A RECORD writes what it cost onto that record when it
+// ends, and the rollups the org's object types declare follow. The record is
+// the durable thing a person reads; the run is the lease underneath it.
+describe('WorkerRunService — what a run cost lands on the record it ran for', () => {
+  const typeIds: Record<string, number> = {};
+  let dir: string;
+  let prevPath: string | undefined;
+
+  async function seedObject(type: string, title: string, metadata: Record<string, unknown>): Promise<number> {
+    const [row] = await db.insert(businessObjectSchema).values({ orgId: ORG, typeId: typeIds[type]!, title, metadata }).returning({ id: businessObjectSchema.id });
+    return row!.id;
+  }
+
+  async function metaOf(id: number): Promise<Record<string, unknown>> {
+    const [row] = await db.select({ metadata: businessObjectSchema.metadata }).from(businessObjectSchema).where(eq(businessObjectSchema.id, id));
+    return row!.metadata ?? {};
+  }
+
+  async function runFor(taskId: number, cents: number, opts: { capCents?: number; end?: 'complete' | 'fail' } = {}): Promise<void> {
+    const run = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'task-engineer', capCents: opts.capCents, input: { message: 'do it', record: { type: 'engineering_task', id: taskId } } });
+    await svc.claimWorkerRun({ orgId: ORG, id: run.id, workerId: 'w' });
+    await svc.heartbeatWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', usage: { model: 'm', inputTokens: 10, outputTokens: 5, cents } });
+    if (opts.end === 'fail') {
+      await svc.failWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', error: 'checks failed' });
+    } else {
+      await svc.completeWorkerRun({ orgId: ORG, id: run.id, workerId: 'w', result: { pr_url: 'https://example.test/pr/1' } });
+    }
+  }
+
+  beforeEach(async () => {
+    prevPath = process.env.WORKSPACE_PATH;
+    // The declarations come from the real plugin's type files, so this also
+    // proves objects/request/type.yaml and objects/release/type.yaml say
+    // what the README says they say.
+    dir = mkdtempSync(join(tmpdir(), 'worker-run-cost-'));
+    writeFileSync(join(dir, 'workspace.yaml'), 'version: 1\norgId: t\nname: t\nplugins: [software-factory]\n');
+    process.env.WORKSPACE_PATH = dir;
+    await db.delete(businessObjectSchema);
+    await db.delete(businessObjectTypeSchema);
+    for (const slug of ['request', 'engineering_task', 'release']) {
+      const [row] = await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug, label: slug }).returning({ id: businessObjectTypeSchema.id });
+      typeIds[slug] = row!.id;
+    }
+  });
+
+  afterEach(() => {
+    if (prevPath === undefined) {
+      delete process.env.WORKSPACE_PATH;
+    } else {
+      process.env.WORKSPACE_PATH = prevPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('writes actual, keeps the estimate, computes the variance, and rolls up onto the request and the release', async () => {
+    const request = await seedObject('request', 'Search is slow', { kind: 'bug', tags: ['search'] });
+    const task = await seedObject('engineering_task', 'Index the table', { requestId: request, estimateCents: 500 });
+    const sibling = await seedObject('engineering_task', 'Warm the cache', { requestId: request, estimateCents: 300, actualCents: 100, varianceCents: -200 });
+    const release = await seedObject('release', 'v1.2.0', { taskIds: [task, sibling] });
+
+    await runFor(task, 420);
+
+    const taskMeta = await metaOf(task);
+
+    expect(taskMeta).toMatchObject({ requestId: request, estimateCents: 500, actualCents: 420, varianceCents: -80 });
+    expect(typeof taskMeta.costUpdatedAt).toBe('string');
+    // The request is the sum over both tasks; the release too, through taskIds.
+    expect(await metaOf(request)).toMatchObject({ kind: 'bug', tags: ['search'], estimateCents: 800, actualCents: 520, varianceCents: -280, taskCount: 2 });
+    expect(await metaOf(release)).toMatchObject({ taskIds: [task, sibling], estimateCents: 800, actualCents: 520, varianceCents: -280 });
+  });
+
+  it('charges every attempt once — a failed run counts, a second run adds, and the figure is a sum over rows', async () => {
+    const request = await seedObject('request', 'r', {});
+    const task = await seedObject('engineering_task', 't', { requestId: request });
+
+    await runFor(task, 150, { end: 'fail', capCents: 1000 });
+
+    // No estimate on the task: the cap stands in, and says so by being there.
+    expect(await metaOf(task)).toMatchObject({ actualCents: 150, estimateCents: 1000, varianceCents: -850 });
+
+    await runFor(task, 200);
+
+    expect(await metaOf(task)).toMatchObject({ actualCents: 350, estimateCents: 1000, varianceCents: -650 });
+    expect(await metaOf(request)).toMatchObject({ actualCents: 350, estimateCents: 1000, taskCount: 1 });
+  });
+
+  it('a run with no record, or a record that is not there, lands on nothing and still completes', async () => {
+    const task = await seedObject('engineering_task', 't', {});
+    const plain = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'ceo', input: { message: 'go' } });
+    await svc.claimWorkerRun({ orgId: ORG, id: plain.id, workerId: 'w' });
+    await svc.heartbeatWorkerRun({ orgId: ORG, id: plain.id, workerId: 'w', usage: { model: 'm', cents: 50 } });
+
+    expect((await svc.completeWorkerRun({ orgId: ORG, id: plain.id, workerId: 'w' })).status).toBe('completed');
+    expect(await metaOf(task)).toEqual({});
+
+    const ghost = await svc.createWorkerRun({ orgId: ORG, agentSlug: 'ceo', input: { record: { type: 'engineering_task', id: 999_999 } } });
+    await svc.claimWorkerRun({ orgId: ORG, id: ghost.id, workerId: 'w' });
+
+    expect((await svc.completeWorkerRun({ orgId: ORG, id: ghost.id, workerId: 'w' })).status).toBe('completed');
+    expect(svc.runRecord({ input: { record: { type: 'engineering_task', id: '12' } } })).toEqual({ type: 'engineering_task', id: 12 });
+    expect(svc.runRecord({ input: { record: { type: '', id: 12 } } })).toBeNull();
+    expect(svc.runRecord({ input: { task: { task_id: 9 } } })).toBeNull();
   });
 });

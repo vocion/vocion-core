@@ -1,13 +1,16 @@
-import type { AskOption } from '@/models/Schema';
+import type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { db } from '@/libs/DB';
-import { askSchema } from '@/models/Schema';
+import { workspaceUrl } from '@/libs/links';
+import { ASK_KINDS, ASK_RISKS, askSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
 
-export type { AskOption } from '@/models/Schema';
+export type { AskKind, AskObjectRef, AskOption, AskRisk } from '@/models/Schema';
+// The vocabulary lives beside the row (see `models/Schema.ts`); this is its home for readers.
+export { ASK_KINDS, ASK_RISKS };
 
 /**
  * AskService — the record of every QUESTION waiting on a HUMAN, and the one
@@ -24,8 +27,11 @@ export type { AskOption } from '@/models/Schema';
  * at most one recommended, and always a free-text "other" answer. Several
  * asks can share a `groupKey` and be answered as one decision sheet.
  *
- * Asks are filed from two directions, and both land on the same row:
- *   - in-process, by a service or an agent tool, with no `sourceRef`
+ * Asks are filed from three directions, and all land on the same row:
+ *   - in-process, by a service, with no `sourceRef`
+ *   - by an agent, through the `ask.file` action (`libs/actions/ask-file.ts`)
+ *     — proposed, gated by the trust ladder like any other write, and keyed
+ *     by `sourceRef` to the action run that filed it
  *   - from outside, over `/api/v1/asks`, keyed by `sourceRef` so re-filing the
  *     same item (a file in an external approval queue, a PR) updates the open
  *     row rather than doubling it. A decided row is never reopened by a re-file.
@@ -33,18 +39,12 @@ export type { AskOption } from '@/models/Schema';
  * Every read and write here is scoped by orgId.
  */
 
-export const ASK_KINDS = ['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate'] as const;
-export type AskKind = typeof ASK_KINDS[number];
-
 export const ASK_STATUSES = ['open', 'approved', 'rejected', 'done', 'superseded'] as const;
 export type AskStatus = typeof ASK_STATUSES[number];
 
 /** The statuses a decided ask can hold — everything but `open`. */
 export const DECIDED_STATUSES = ['approved', 'rejected', 'done', 'superseded'] as const satisfies readonly AskStatus[];
 export type DecidedStatus = typeof DECIDED_STATUSES[number];
-
-export const ASK_RISKS = ['low', 'medium', 'high'] as const;
-export type AskRisk = typeof ASK_RISKS[number];
 
 /** The answers every ask accepts on top of its own options. */
 export const FIXED_DECISIONS = ['approve', 'reject', 'done', 'other'] as const;
@@ -146,6 +146,59 @@ export function normaliseOptions(raw: unknown): AskOption[] {
   return out;
 }
 
+/** How many records one ask may be about. A question about more than this is a report, not an ask. */
+const MAX_OBJECT_REFS = 20;
+
+/**
+ * Normalise what a caller sent as `objectRefs` — `[{ type, id }]` with the id
+ * as a string or a number — into `AskObjectRef[]`. Throws a 400 `AskError` on
+ * anything else, on a duplicate ref, or on more than {@link MAX_OBJECT_REFS}.
+ * @param raw
+ */
+export function normaliseObjectRefs(raw: unknown): AskObjectRef[] {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    throw new AskError('VALIDATION_FAILED', 'objectRefs must be an array of { type, id } records', 400);
+  }
+  if (raw.length > MAX_OBJECT_REFS) {
+    throw new AskError('VALIDATION_FAILED', `objectRefs may name at most ${MAX_OBJECT_REFS} records`, 400);
+  }
+  const out: AskObjectRef[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new AskError('VALIDATION_FAILED', 'each objectRef must be a { type, id } record', 400);
+    }
+    const o = item as Record<string, unknown>;
+    const type = typeof o.type === 'string' ? o.type.trim() : '';
+    const id = typeof o.id === 'string' ? o.id.trim() : typeof o.id === 'number' && Number.isFinite(o.id) ? String(o.id) : '';
+    if (!type || !id) {
+      throw new AskError('VALIDATION_FAILED', 'each objectRef needs a type (an object type slug) and an id', 400);
+    }
+    const key = `${type}:${id}`;
+    if (seen.has(key)) {
+      throw new AskError('VALIDATION_FAILED', `duplicate objectRef "${key}"`, 400);
+    }
+    seen.add(key);
+    out.push({ type, id });
+  }
+  return out;
+}
+
+/**
+ * Where a person decides one ask — `/w/<workspace>/dashboard/inbox/<id>`,
+ * absolute when `NEXT_PUBLIC_APP_URL` is set. The one definition of that
+ * link: the API's `url` field and an agent's `file_ask` receipt both read it,
+ * so a link pasted into Slack from either opens the same screen.
+ * @param projectSlug - The workspace slug (`projectSlugById`).
+ * @param askId
+ */
+export function askUrlFor(projectSlug: string, askId: number): string {
+  return workspaceUrl(projectSlug, `/dashboard/inbox/${askId}`, { absolute: true });
+}
+
 /**
  * The fields a filer may set, and may change on a re-file. Status is never
  * among them. On a re-file, a field left `undefined` is left as it was and a
@@ -163,6 +216,10 @@ export type AskInput = {
   risk?: AskRisk | null;
   /** Already normalised — see `normaliseOptions`. */
   options?: AskOption[];
+  /** Already normalised — see `normaliseObjectRefs`. The records the question is about. */
+  objectRefs?: AskObjectRef[];
+  /** Minutes of a person's attention the decision is estimated to take. */
+  decisionCost?: number | null;
   groupKey?: string | null;
   groupTitle?: string | null;
   contextUrl?: string | null;
@@ -202,6 +259,8 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       teamSlug: ask.teamSlug,
       risk: ask.risk,
       options: ask.options,
+      objectRefs: ask.objectRefs,
+      decisionCost: ask.decisionCost,
       groupKey: ask.groupKey,
       groupTitle: ask.groupTitle,
       contextUrl: ask.contextUrl,
@@ -210,7 +269,7 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       notifyAt: ask.notifyAt,
       projectId: ask.projectId,
     }).filter(([, v]) => v !== undefined),
-  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {
@@ -255,6 +314,31 @@ export async function getAsk(orgId: string, id: number): Promise<Ask | null> {
  */
 export async function listAskGroup(orgId: string, groupKey: string): Promise<Ask[]> {
   return db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.groupKey, groupKey))).orderBy(asc(askSchema.id));
+}
+
+/**
+ * How many asks are still open in each of several groups — the open-items
+ * count a board shows per room, in one query. Groups with nothing open are
+ * absent from the map.
+ * @param orgId
+ * @param groupKeys
+ */
+export async function countOpenAsksByGroup(orgId: string, groupKeys: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (groupKeys.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({ groupKey: askSchema.groupKey, n: sql<number>`count(*)::int` })
+    .from(askSchema)
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'), inArray(askSchema.groupKey, groupKeys)))
+    .groupBy(askSchema.groupKey);
+  for (const r of rows) {
+    if (r.groupKey) {
+      out.set(r.groupKey, Number(r.n));
+    }
+  }
+  return out;
 }
 
 /**
@@ -412,10 +496,13 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     throw new AskError('CONFLICT', `Ask ${opts.id} was already decided`, 409);
   }
   await Promise.all([
+    // The kind, the asker and the records it was about ride the event, so a
+    // subscriber can act on "this agent's recommendations about that request"
+    // without reading the row back.
     track(
       { orgId: opts.orgId, userId: opts.decidedBy },
       'ask.decided',
-      { agentSlug: ask.agentSlug, resource: ['ask', ask.id], meta: { kind: ask.kind as AskKind, status } },
+      { agentSlug: ask.agentSlug, resource: ['ask', ask.id], meta: { kind: ask.kind as AskKind, status, objectRefs: ask.objectRefs ?? [] } },
     ),
     // A correction with a reason is a rule waiting to be written.
     proposeLearningFromDecision({ ask, decision, note, decidedBy: opts.decidedBy }),
@@ -423,7 +510,48 @@ export async function decideAsk(opts: { orgId: string; id: number; decision: str
     // option the team recommended? Read back on the sheet and by the ladder.
     recordAskAlignment({ ask, decision, note, decidedBy: opts.decidedBy }),
   ]);
+  announceDecided(row);
   return row;
+}
+
+/**
+ * Tell the rest of the system an ask was decided — the `ask.decided` event an
+ * automation can subscribe to (`when.event`, docs/entities/automation.md).
+ * Fire-and-forget, the way `ArtifactService` announces a save: the person's
+ * decision is already written and returned, a subscriber that fails is logged
+ * and never surfaces to the decider, and the dynamic import keeps this module
+ * out of the event bus's dependency graph.
+ * @param row - The decided ask, as written.
+ */
+function announceDecided(row: Ask): void {
+  void (async () => {
+    try {
+      const { ASK_DECIDED, emitEvent } = await import('@/services/EventService');
+      await emitEvent({
+        orgId: row.orgId,
+        type: ASK_DECIDED,
+        payload: {
+          askId: row.id,
+          kind: row.kind,
+          status: row.status,
+          decision: row.decision ?? '',
+          followUp: row.followUp,
+          agentSlug: row.agentSlug ?? null,
+          teamSlug: row.teamSlug ?? null,
+          groupKey: row.groupKey ?? null,
+          sourceRef: row.sourceRef ?? null,
+          objectRefs: row.objectRefs ?? [],
+          decidedBy: row.decidedBy ?? '',
+          decidedAt: (row.decidedAt ?? new Date()).toISOString(),
+        },
+        dedupeKey: `ask.decided:${row.id}`,
+        invokedBy: row.decidedBy ?? `ask:${row.id}`,
+      });
+    } catch (err) {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('ask.decided announcement failed', { askId: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  })();
 }
 
 /**
@@ -449,6 +577,30 @@ export async function supersedeAsk(orgId: string, id: number, note?: string | nu
     .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id)))
     .returning();
   return row!;
+}
+
+/**
+ * Put a superseded ask back in front of people — the undo of a withdrawal
+ * (`ask.withdraw`). Only a `superseded` row reopens: a person's own answer is
+ * never unwritten by this, so an ask someone approved or rejected is left as
+ * it is and returned. Idempotent on an already-open row.
+ * @param orgId
+ * @param id
+ */
+export async function reopenAsk(orgId: string, id: number): Promise<Ask> {
+  const ask = await getAsk(orgId, id);
+  if (!ask) {
+    throw new AskError('NOT_FOUND', `No ask ${id}`, 404);
+  }
+  if (ask.status !== 'superseded') {
+    return ask;
+  }
+  const [row] = await db
+    .update(askSchema)
+    .set({ status: 'open', decisionNote: null, decidedAt: null, updatedAt: new Date() })
+    .where(and(eq(askSchema.orgId, orgId), eq(askSchema.id, id), eq(askSchema.status, 'superseded')))
+    .returning();
+  return row ?? ask;
 }
 
 /**

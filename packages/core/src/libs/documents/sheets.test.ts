@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assemble, inspectDocument, outlineText, parseSheets, renumber, sheetLabel } from './sheets';
+import { assemble, inspectDocument, outlineText, parseSheets, renumber, sheetLabel, stripDocumentChrome } from './sheets';
 
 const doc = `<!doctype html><html><head><title>Acme - Proposal (Metacto) v1.0</title><style>.sheet{}</style></head><body>
 <div class="actions"><a href="#" onclick="window.print()">⤓ PDF</a></div>
@@ -67,5 +67,62 @@ describe('inspectDocument', () => {
     expect(text).toContain('3 sheets');
     expect(text).toContain('2. How it works');
     expect(text).toContain('unresolved assets');
+  });
+});
+
+describe('stripDocumentChrome', () => {
+  it('removes the ⤓ PDF button the house framework keeps emitting, and nothing else', () => {
+    const clean = stripDocumentChrome(doc);
+
+    expect(clean).not.toContain('window.print');
+    expect(clean).not.toContain('⤓ PDF');
+    expect(clean).not.toContain('class="actions"');
+
+    // The document itself is untouched: same sheets, same labels, same footers.
+    const parsed = parseSheets(clean);
+
+    expect(parsed.sheets.map(s => s.label)).toEqual(['Cover', 'How it works', 'Investment & next steps']);
+    expect(parsed.title).toBe('Acme - Proposal (Metacto) v1.0');
+    expect(clean).toContain('<div class="pnum">3 / 3</div>');
+    expect(clean).toContain('<script>console.log(1)</script>');
+  });
+
+  it('removes the malformed nested-anchor variant an agent hand-patched in', () => {
+    const malformed = doc.replace(
+      '<div class="actions"><a href="#" onclick="window.print()">⤓ PDF</a></div>',
+      '<div class="actions"><a href="#" onclick="window.print();return false;"><a href="#" class="btn">⤓ PDF</a></a></div>',
+    );
+
+    const clean = stripDocumentChrome(malformed);
+
+    expect(clean).not.toContain('window.print');
+    expect(clean).not.toContain('⤓');
+    expect(clean).not.toContain('<a href');
+    expect(parseSheets(clean).sheets).toHaveLength(3);
+  });
+
+  it('removes a bare print control with no wrapper around it', () => {
+    const clean = stripDocumentChrome('<body><button onclick="window.print()">Print</button><p>Keep me</p></body>');
+
+    expect(clean).toBe('<body><p>Keep me</p></body>');
+  });
+
+  it('keeps a real link that also printed, minus the handler', () => {
+    const clean = stripDocumentChrome('<p>See <a href="https://example.com/terms" onclick="window.print()">the terms</a>.</p>');
+
+    expect(clean).toContain('href="https://example.com/terms"');
+    expect(clean).not.toContain('window.print');
+  });
+
+  it('leaves an unclosed chrome wrapper alone rather than eating the document', () => {
+    const html = '<div class="actions"><p>first sheet</p>';
+
+    expect(stripDocumentChrome(html)).toBe(html);
+  });
+
+  it('is idempotent — stripping a stripped document changes nothing', () => {
+    const once = stripDocumentChrome(doc);
+
+    expect(stripDocumentChrome(once)).toBe(once);
   });
 });

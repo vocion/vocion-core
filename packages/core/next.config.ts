@@ -63,8 +63,13 @@ const baseConfig: NextConfig = {
     // Keyed broadly: the DB (and thus the seed copy) boots in every function.
     // The pglite wasm bundle + extensions load via computed fs paths the
     // tracer cannot see; include them explicitly (hoisted at the repo root).
-    '/': ['./migrations/**/*', './demo/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
-    '/**': ['./migrations/**/*', './demo/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
+    // templates/**: the base pack and the plugins are read from disk at
+    // request time by directory walk (plugin.yaml, pages/, teams/, trust.yaml,
+    // README.md), which the tracer cannot follow — on 2026-09-18 the image
+    // shipped each plugin's agents/ and skills/ only, so the Plugins page and
+    // the chat saw an empty catalogue in production.
+    '/': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
+    '/**': ['./migrations/**/*', './demo/**/*', './templates/**/*', '../../node_modules/@electric-sql/pglite/dist/**/*'],
   },
 };
 

@@ -28,6 +28,8 @@ export const RECORD_TYPES = [
   'team',
   'mission',
   'mission_run',
+  /** A SKILL.md folder — a playbook or a skill — on its catalog page (`/dashboard/skills/<slug>`). */
+  'playbook',
   'object',
   'deal',
   'worker_run',

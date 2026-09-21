@@ -44,10 +44,17 @@ export const SURFACES = {
   },
   discovery: {
     url: '/gtm/discovery',
-    label: 'Discovery ledger',
+    label: 'Discovery calls',
     section: 'GTM',
     icon: 'radar',
     description: 'Every call the discovery-detection sweep assessed, with scores, thresholds and the human decision.',
+  },
+  proposals: {
+    url: '/gtm/proposals',
+    label: 'Proposals',
+    section: 'GTM',
+    icon: 'file-text',
+    description: 'Every engagement at Proposal stage — its data room, the latest document and its verify state, open items, and a Draft action for the Proposal Writer.',
   },
 } as const satisfies Record<string, Surface>;
 

@@ -24,7 +24,8 @@ import type { TrustManifest } from '@/libs/workspace/schemas';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, eq } from 'drizzle-orm';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
-import { getAction, listActions } from '@/libs/actions/registry';
+import { actionForPolicyKey } from '@/libs/actions/policyKey';
+import { listActions } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { autonomyPolicySchema, trustRuleSchema } from '@/models/Schema';
 import { evidenceFor, scoresByKey } from '@/services/alignment/AlignmentService';
@@ -79,8 +80,11 @@ export type EffectivePolicy = {
 };
 
 function resolve(actionId: string, policy: PolicyRow | null, trustRule: TrustRow | null): EffectivePolicy {
-  const action = getAction(actionId);
-  const riskTier = policy && isRiskTier(policy.riskTier) ? policy.riskTier : defaultRiskTier(actionId, action?.external);
+  // The key may be derived (`objects.update_meta.request`); the action behind
+  // it supplies the default tier, so a type nobody wrote a rule for is judged
+  // as its action rather than as an unknown, high-risk kind.
+  const action = actionForPolicyKey(actionId);
+  const riskTier = policy && isRiskTier(policy.riskTier) ? policy.riskTier : defaultRiskTier(actionId, action?.external, action?.id);
   const rung = policy && isRung(policy.rung) ? policy.rung : rungFromTrustRule(trustRule);
   const minConfidence = policy?.minConfidence ?? trustRule?.threshold ?? TIER_RULES[riskTier].minConfidence;
   return { actionId, rung, riskTier, minConfidence, policy, trustRule };
@@ -130,7 +134,7 @@ export async function effectivePolicies(orgId: string): Promise<Map<string, Effe
 export async function eligibility(orgId: string, actionId: string, now: Date = new Date()): Promise<Eligibility & { evidence: AlignmentEvidence; effective: EffectivePolicy }> {
   const effective = await effectivePolicy(orgId, actionId);
   const evidence = await evidenceFor({ orgId, actionId, tier: effective.riskTier, minConfidence: effective.minConfidence, now });
-  const action = getAction(actionId);
+  const action = actionForPolicyKey(actionId);
   const result = evaluateEligibility({ rung: effective.rung, tier: effective.riskTier, evidence, neverAuto: action ? isNeverAuto(action) : false });
   return { ...result, evidence, effective };
 }
@@ -153,7 +157,7 @@ export async function listPolicies(orgId: string, now: Date = new Date()): Promi
   const ids = new Set<string>([...listActions().map(a => a.id), ...policyBy.keys(), ...trustBy.keys()]);
 
   const views = await Promise.all([...ids].map(async (actionId) => {
-    const action = getAction(actionId);
+    const action = actionForPolicyKey(actionId);
     const effective = resolve(actionId, policyBy.get(actionId) ?? null, trustBy.get(actionId) ?? null);
     const evidence = await evidenceFor({ orgId, actionId, tier: effective.riskTier, minConfidence: effective.minConfidence, now });
     const neverAuto = action ? isNeverAuto(action) : false;
@@ -379,6 +383,41 @@ export async function noteRejection(opts: { orgId: string; actionId: string; aut
 }
 
 /**
+ * A person undid a run the ladder released on its own — the strongest "no"
+ * the ladder can hear. A promoted kind demotes the way a rejected auto-run
+ * does; a kind running on the platform DEFAULT (reversible, low-risk, above
+ * the bar — `libs/actions/autoAccept.ts`) is written down at Execute with
+ * approval, flagged, so the default steps aside for it until a person
+ * promotes it again. Without this row the very next proposal would run again.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.actionId
+ * @param opts.confidence - The undone run's confidence, for the reason.
+ * @param opts.by - Who undid it.
+ */
+export async function holdAfterUndo(opts: { orgId: string; actionId: string; confidence: number | null; by: string }): Promise<{ held: boolean; demoted: boolean }> {
+  const effective = await effectivePolicy(opts.orgId, opts.actionId);
+  if (rungIndex(effective.rung) > rungIndex(DEFAULT_RUNG)) {
+    const { demoted } = await noteRejection({ orgId: opts.orgId, actionId: opts.actionId, autoExecuted: true, confidence: opts.confidence });
+    return { held: false, demoted };
+  }
+  const reason = `A person undid a ${opts.actionId} that ran on its own${opts.confidence !== null ? ` at ${Math.round(opts.confidence * 100)}% confidence` : ''}. Held at Execute with approval until someone promotes it.`;
+  await writeRung({
+    orgId: opts.orgId,
+    actionId: opts.actionId,
+    rung: DEFAULT_RUNG,
+    riskTier: effective.riskTier,
+    minConfidence: effective.minConfidence,
+    by: opts.by,
+    source: 'system',
+    evidence: { heldAfterUndo: true, reason, at: new Date().toISOString() },
+    flagged: true,
+    flagReason: reason,
+  });
+  return { held: true, demoted: false };
+}
+
+/**
  * Mirror `trust.yaml` into `autonomy_policy` on apply. The applier has already
  * replaced the org's `trust_rule` rows from the same file; this keeps the
  * policy rows for the kinds the file names in step (rung, risk, floor, source
@@ -405,7 +444,8 @@ export async function syncPoliciesFromManifest(orgId: string, manifest: TrustMan
       errors.push({ action: rule.action, message: `rung "${rung}" ${rungAutomates(rung) ? 'automates' : 'does not automate'} but enabled is ${rule.enabled} — they must agree` });
       continue;
     }
-    const riskTier = rule.risk ?? riskMap[rule.action] ?? defaultRiskTier(rule.action, getAction(rule.action)?.external);
+    const ruleAction = actionForPolicyKey(rule.action);
+    const riskTier = rule.risk ?? riskMap[rule.action] ?? defaultRiskTier(rule.action, ruleAction?.external, ruleAction?.id);
     await db
       .insert(autonomyPolicySchema)
       .values({ orgId, actionId: rule.action, rung, riskTier, minConfidence: rule.autoApproveAbove, promotedAt: now, promotedBy: 'trust.yaml', source: 'trust.yaml', flagged: false, flagReason: null })

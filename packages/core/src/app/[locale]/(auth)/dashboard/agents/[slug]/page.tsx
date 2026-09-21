@@ -141,6 +141,11 @@ export default async function AgentDetailPage(props: {
               <span className="font-mono text-[11px] tracking-wide text-muted-foreground">{agent.eyebrow}</span>
             )}
             <span className="font-mono text-[11px] text-muted-foreground/70">{agent.slug}</span>
+            {agent.initiative && agent.initiative !== 'normal' && (
+              <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground" title="How much this agent volunteers — set as `initiative` in its manifest.">
+                {agent.initiative === 'high' ? 'High initiative' : 'Low initiative'}
+              </span>
+            )}
             {parent && (
               <Link
                 href={`/dashboard/agents/${parent.slug}`}

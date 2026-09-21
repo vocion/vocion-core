@@ -81,7 +81,7 @@ describe('PageDock', () => {
     await open.click();
 
     await expect.element(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
-    await expect.element(page.getByText('Everything')).toBeVisible();
+    await expect.element(page.getByText('Chat', { exact: true })).toBeVisible();
   });
 
   it('is collapsed on a single record too — the record page is full width on arrival (2026-09-16)', async () => {

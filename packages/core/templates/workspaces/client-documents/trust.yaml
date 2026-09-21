@@ -1,0 +1,34 @@
+# The one rule this workspace has to author for itself.
+#
+# Almost nothing about the self-improvement class belongs in a file. The class
+# (`packages/core/src/libs/actions/selfUpdate.ts`) is the set of kinds that
+# change what the system KNOWS rather than the world, and the bar for every
+# member of it that rides the dial comes from ONE number —
+# `defaults.learningEagerness` in workspace.yaml, 7 out of 10 by default,
+# which puts the bar at 72% (`libs/actions/eagerness.ts`). Writing a wiki
+# page, rewriting a mission's working notes, adopting a rule from a
+# correction, revising a playbook: all of those follow the dial, so turning
+# this workspace up or down is one number rather than a list of thresholds.
+#
+# `agent.revise_prompt` is the exception, and it is the only rule here.
+rules:
+  # An agent revising its own instructions is the sharpest member of the
+  # class: it changes every turn that agent takes afterwards, and a prompt
+  # that drifts does so silently. So it is the class's only `medium` tier —
+  # and a medium-tier kind never reaches the platform's default branch, which
+  # means CORE'S DEFAULT IS "a person decides", at any eagerness, including
+  # 10. The dial cannot release it; only a rule like this one can.
+  #
+  # This line is therefore a workspace saying, in git, that it wants the
+  # revision to run once the agent is 95% sure — and every such run shows the
+  # diff: on the review card, on the chat chip (which agent, how many lines
+  # moved), and on the Activity row.
+  #
+  # Set `enabled: false` to go back to deciding every one. The ladder will not
+  # promote this kind past `execute-within-bounds` on evidence alone (the
+  # medium tier's ceiling), so it can never become autonomous by itself.
+  - action: agent.revise_prompt
+    autoApproveAbove: 0.95
+    enabled: true
+    rung: execute-within-bounds
+    risk: medium

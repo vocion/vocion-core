@@ -91,6 +91,17 @@ beforeEach(async () => {
       // One list write granted, one not: the second gate is per tool.
       harnessConfig: { grantTools: ['apollo_add_to_list'] },
     },
+    {
+      orgId: ORG,
+      slug: 'product-agent',
+      name: 'Product',
+      systemPrompt: 'You rank requests.',
+      skillSlugs: [],
+      connectorSources: [],
+      // Works with one object type: the write tool is present, and scoped to it.
+      objectTypeSlugs: ['request'],
+      harnessConfig: {},
+    },
   ]);
 });
 
@@ -113,6 +124,11 @@ describe('agent-tools bridge — tool surface', () => {
       expect(names).toContain('lookup_objects');
       expect(names).toContain('freshen_source');
       expect(names).toContain('propose_action');
+      // A question for a person, and its withdrawal, are on for every agent.
+      expect(names).toContain('file_ask');
+      expect(names).toContain('withdraw_ask');
+      // The record write is present only for an agent with object types.
+      expect(names).not.toContain('update_object');
       // Source-gated: lead-agent has gmail, not hubspot/zoom/apollo.
       expect(names).toContain('get_gmail_thread');
       expect(names).not.toContain('hubspot_count_deals');
@@ -161,6 +177,31 @@ describe('agent-tools bridge — tool surface', () => {
       // crm-agent's sources gate the surface: hubspot in, gmail out.
       expect(names).toContain('hubspot_count_deals');
       expect(names).not.toContain('get_gmail_thread');
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('agent-tools bridge — the object write', () => {
+  it('serves update_object to an agent with object types, scoped to them', async () => {
+    const { client, server } = await setupClientServer(configFor('product-agent'));
+    try {
+      const names = await listToolNames(client);
+
+      expect(names).toContain('update_object');
+
+      // A type outside the agent's list is refused by the tool itself, before
+      // anything reaches the rail — the MCP credential never widens it.
+      const result = (await client.callTool({
+        name: 'update_object',
+        arguments: { object_type: 'product', id: 1, set: { promises: [] }, reason: 'test', confidence: 0.9 },
+      })) as ToolResult;
+
+      // A refusal is a plain sentence, JSON-encoded by the server like any
+      // other string result; no events, because nothing was proposed.
+      expect(JSON.parse(resultText(result))).toMatch(/does not work with "product" records\. It may write: request/);
+      expect(await db.select().from(actionRunSchema)).toHaveLength(0);
     } finally {
       await server.close();
     }

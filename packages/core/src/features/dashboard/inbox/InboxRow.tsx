@@ -2,13 +2,14 @@
 
 import type { DecisionVerb } from './decisionVerbs';
 import type { InboxItem, InboxTab } from '@/services/InboxService';
-import { ArrowUpRight, Check, ChevronRight, Loader2, X } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronRight, Loader2, RotateCcw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Column, ListRow, Subline } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
+import { client } from '@/libs/Orpc';
 import { amountLabel } from '@/services/inbox/describeActionRun';
 import { actionIcon } from './actionIcon';
 import { rowVerbs } from './decisionVerbs';
@@ -38,7 +39,9 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const verbs = tab === 'decided' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
+  // A released hand-off's one verb is Mark done, with a note; the row opens
+  // the detail rather than offering an Approve the service would refuse.
+  const verbs = tab === 'decided' || item.status === 'awaiting_execution' || !canQuickDecide(item) ? [] : rowVerbs(item.kind, item.shape);
   const opensHere = item.href.startsWith('/dashboard/inbox');
   const meta = INBOX_KIND_META[item.kind];
   // What the row would DO, not how it is decided: on a real queue almost every
@@ -65,6 +68,26 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
     }
   }
 
+  // Done for you → put it back. The other half of a run that executed
+  // without a person (`libs/actions/autoAccept.ts`): one click, from the row
+  // where the claim is read.
+  const undoable = tab === 'decided' && item.undoable === true && item.reviewId !== undefined;
+  async function undo() {
+    setBusy('undo');
+    setError(null);
+    try {
+      await withMinimumPending(client.review.undoAction({ id: item.reviewId! }));
+      toast.success(`Undone · ${item.title}`, { description: 'The previous values are back. The agent learns from it.' });
+      router.refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error(`Could not undo “${item.title}”`, { description: message });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const age = tab === 'decided' ? agoLabel(item.at) : waitingFor(item.at);
 
   return (
@@ -80,7 +103,7 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
               // grey, beside the name, never in place of it.
               <span
                 className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[11px] font-normal text-muted-foreground tabular-nums"
-                title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'proposal' : 'proposals') : (item.count === 1 ? 'question' : 'questions')} waiting`}
+                title={`${item.count} ${item.kind === 'proposal' ? (item.count === 1 ? 'recommendation' : 'recommendations') : (item.count === 1 ? 'question' : 'questions')} waiting`}
               >
                 {item.count}
               </span>
@@ -134,6 +157,19 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
           // A fixed width so the numeric columns land in the same place on
           // every row and under the list's own header labels.
           <span className="flex w-[76px] items-center justify-end gap-0.5">
+            {undoable && (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void undo()}
+                aria-label={`Undo: ${item.title}`}
+                title="Undo"
+                data-testid="inbox-undo"
+                className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+              >
+                {busy === 'undo' ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RotateCcw className="size-4" aria-hidden />}
+              </button>
+            )}
             {verbs.map(verb => (
               <button
                 key={verb.id}

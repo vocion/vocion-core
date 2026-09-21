@@ -1,5 +1,4 @@
-import type React from 'react';
-import type { PageField, PageManifest, PageRow } from '@/libs/workspace/pages';
+import type { PageManifest, PageRow } from '@/libs/workspace/pages';
 // Aliased at build time: the workspace's own pages/components/registry.tsx
 // when it ships one, the in-repo empty stub otherwise (see next.config.ts).
 import { components as wsxComponents } from '@wsx/registry';
@@ -8,9 +7,10 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
-import { LinkRow } from '@/features/dashboard/LinkRow';
+import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
+import { PageTable } from '@/features/dashboard/pages/PageTable';
+import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
@@ -18,8 +18,10 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import {
   applyFilter,
+  computeSeries,
   computeStat,
-  readWorkspacePage,
+  groupRows,
+  pagePlugin,
   readWorkspacePageContent,
   resolveField,
 } from '@/libs/workspace/pages';
@@ -32,7 +34,10 @@ import {
   toolCallSchema,
 } from '@/models/Schema';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { resolveRecordLinks } from '@/services/objects/recordLinks';
+import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
+import { firstParagraph } from '@/services/wiki/WikiService';
 import { listWorkflowRuns } from '@/services/WorkflowService';
 
 /**
@@ -41,8 +46,10 @@ import { listWorkflowRuns } from '@/services/WorkflowService';
  * Renders tenant-defined pages (see libs/workspace/pages.ts) as derivatives
  * of core page archetypes. The page never gets its own tables or services:
  * `list`/`queue` query data core already owns (business objects, tool calls,
- * knowledge documents), `markdown` renders prose, and custom widgets come
- * from the workspace's own component registry via the `@wsx/registry` alias.
+ * knowledge documents), `markdown` renders prose, `report` tells one
+ * record's whole story (at `/dashboard/p/<slug>/<id>` — this route is its
+ * index), and custom widgets come from the workspace's own component
+ * registry via the `@wsx/registry` alias.
  */
 
 async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[]> {
@@ -126,6 +133,76 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
       }));
   }
 
+  if (src.kind === 'workerRuns') {
+    // What external workers DID — worker_run rows, newest first. A single
+    // value for a filter goes to the service; several are applied here, so
+    // the page never invents a query the service does not have.
+    const { listWorkerRuns } = await import('@/services/WorkerRunService');
+    const one = (xs?: string[]) => (xs?.length === 1 ? xs[0] : undefined);
+    const runs = await listWorkerRuns(orgId, { agentSlug: one(src.agentSlugs), status: one(src.status), kind: one(src.kinds), limit: src.limit });
+    return runs
+      .filter(r => (!src.agentSlugs?.length || src.agentSlugs.includes(r.agentSlug))
+        && (!src.status?.length || src.status.includes(r.status))
+        && (!src.kinds?.length || src.kinds.includes(r.kind)))
+      .map(r => ({
+        id: r.id,
+        title: r.summary?.split('\n')[0] ?? `${r.kind} run #${r.id}`,
+        status: r.status,
+        createdAt: r.createdAt,
+        meta: {
+          agentSlug: r.agentSlug,
+          kind: r.kind,
+          status: r.status,
+          model: r.model,
+          attempt: r.attempt,
+          cents: r.cents,
+          tokens: r.tokens,
+          summary: r.summary,
+          error: r.error,
+          createdAt: r.createdAt,
+          claimedAt: r.claimedAt,
+          completedAt: r.completedAt,
+          // The live signal (docs/entities/worker-run.md): every heartbeat
+          // moves these, so a live page can show a run breathing.
+          heartbeatAt: r.heartbeatAt,
+          leaseExpiresAt: r.leaseExpiresAt,
+          endsAt: r.endsAt,
+          progress: r.progress,
+          stopRequested: r.stopRequested,
+          capCents: r.capCents,
+          counts: r.counts,
+          result: r.result ?? {},
+          input: r.input,
+        },
+      }));
+  }
+
+  if (src.kind === 'artifacts') {
+    // What agents and people MADE — the artifact log, by folder and/or kind.
+    // A wiki page is a markdown artifact in the `wiki` folder; `meta` carries
+    // the columns a page's fields read (version, author kind, updated, playbook).
+    const { listArtifacts } = await import('@/services/ArtifactService');
+    const items = await listArtifacts({ orgId, folder: src.folder ?? null, kinds: src.artifactKind ? [src.artifactKind] : null, limit: src.limit, visibility: 'all' });
+    return items.map(a => ({
+      id: a.id,
+      title: a.title,
+      status: a.kind,
+      createdAt: new Date(a.createdAt),
+      meta: {
+        kind: a.kind,
+        folder: a.folder,
+        version: a.version,
+        lastAuthorKind: a.authorKind,
+        updatedAt: new Date(a.updatedAt),
+        summary: (a.spec as { summary?: string }).summary ?? firstParagraph(String((a.spec as { md?: string }).md ?? '')),
+        playbook: (a.spec as { playbook?: string }).playbook,
+        recordType: a.recordType,
+        recordId: a.recordId,
+        versions: a.versions,
+      },
+    }));
+  }
+
   // documents
   const source = await db.query.knowledgeSourceSchema.findFirst({
     where: and(eq(knowledgeSourceSchema.slug, src.source), eq(knowledgeSourceSchema.orgId, orgId)),
@@ -147,8 +224,6 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
   }));
 }
 
-type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
-
 async function loadPendingActions(orgId: string, actionIds?: string[]) {
   // Agent-proposed actions awaiting a person — the same rows /dashboard/inbox?kind=proposal
   // decides. `skills` on the review config scopes to action ids (gmail.send…).
@@ -156,48 +231,47 @@ async function loadPendingActions(orgId: string, actionIds?: string[]) {
   return items.filter(i => !actionIds?.length || actionIds.some(a => i.title.includes(a) || String(i.id) === a));
 }
 
-function toneToStatus(tone: string): PillStatus {
-  switch (tone) {
-    case 'ok':
-      return 'completed';
-    case 'warn':
-      return 'pending';
-    case 'bad':
-      return 'failed';
-    case 'info':
-      return 'running';
-    default:
-      return 'inactive';
-  }
+/**
+ * Now, read once per render — `Date.now()` counts as impure inside a render
+ * (the automation page does the same), and one instant keeps every
+ * `relative` cell on the page agreeing with the others.
+ */
+async function currentTime(): Promise<number> {
+  return Date.now();
 }
 
-function Cell({ row, field }: { row: PageRow; field: PageField }) {
-  const raw = resolveField(row, field.from ?? field.key);
-  if (raw === undefined || raw === null || raw === '') {
-    return <span className="text-muted-foreground">—</span>;
-  }
-  const s = String(raw);
-  switch (field.format) {
-    case 'badge': {
-      const tone = field.tones?.[s];
-      return tone
-        ? <StatusPill status={toneToStatus(tone)} label={s} size="sm" />
-        : <Badge variant="outline">{s}</Badge>;
-    }
-    case 'score': {
-      const n = Number(raw);
-      const cls = n >= 85 ? 'text-emerald-600' : n >= 70 ? 'text-foreground' : n >= 60 ? 'text-amber-600' : 'text-muted-foreground';
-      return <span className={`font-mono text-sm font-semibold tabular-nums ${cls}`}>{Number.isFinite(n) ? n : s}</span>;
-    }
-    case 'date':
-      return <span className="text-sm text-muted-foreground">{raw instanceof Date ? raw.toLocaleDateString() : s}</span>;
-    case 'mono':
-      return <span className="font-mono text-xs">{s}</span>;
-    case 'image':
-      return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
-    default:
-      return <span className="text-sm">{s}</span>;
-  }
+/**
+ * A `series` strip: one column per bucket, oldest first, one row per measure.
+ * A table rather than a chart on purpose — the figures are the point, and a
+ * server component draws it with nothing to load.
+ * @param root0
+ * @param root0.series
+ */
+function SeriesStrip({ series }: { series: ReturnType<typeof computeSeries> }) {
+  return (
+    <section className="mb-6 overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-border bg-muted/40">
+            <th className="px-4 py-2 text-xs font-medium text-muted-foreground">{series.label}</th>
+            {series.buckets.map(b => (
+              <th key={b} className="px-4 py-2 text-right text-xs font-medium text-muted-foreground tabular-nums">{b}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {series.measures.map(m => (
+            <tr key={m.label} className="border-b border-border/60 last:border-0">
+              <td className="px-4 py-2 text-xs text-muted-foreground">{m.label}</td>
+              {m.values.map((v, i) => (
+                <td key={`${m.label}-${series.buckets[i]}`} className="px-4 py-2 text-right font-mono text-sm tabular-nums">{v}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
 }
 
 function Widgets({ manifest, position, rows, stats }: {
@@ -256,16 +330,23 @@ export default async function WorkspacePage(props: {
     redirect('/api/auth/signout?callbackUrl=/sign-in');
   }
 
-  const manifest = readWorkspacePage(slug);
+  // Scoped by the project like the rows below it: a plugin this project turned
+  // on shows its pages here even when the mounted workspace never named it.
+  const manifest = await readPageForOrg(slug, orgId);
   if (!manifest) {
     return notFound();
   }
+  // A link page is a nav row for a core route; the route is the page.
+  if (manifest.archetype === 'link' && manifest.href) {
+    redirect(manifest.href);
+  }
 
   const content = readWorkspacePageContent(manifest);
+  const now = await currentTime();
 
   let rows: PageRow[] = [];
-  if (manifest.archetype !== 'markdown' && manifest.source) {
-    rows = applyFilter(await loadRows(manifest, orgId), manifest.filters);
+  if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.source) {
+    rows = applyFilter(await loadRows(manifest, orgId), manifest.filters, new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -297,25 +378,47 @@ export default async function WorkspacePage(props: {
 
   const stats: Record<string, string> = {};
   for (const s of manifest.stats ?? []) {
-    stats[s.label] = computeStat(rows, s);
+    stats[s.label] = computeStat(rows, s, new Date(now));
   }
+  const series = (manifest.series ?? []).map(sr => computeSeries(rows, sr, new Date(now)));
 
   const groups: Array<{ label: string | null; rows: PageRow[] }> = manifest.groupBy
-    ? [...rows.reduce((m, r) => {
-        const k = String(resolveField(r, manifest.groupBy!) ?? '—');
-        m.set(k, [...(m.get(k) ?? []), r]);
-        return m;
-      }, new Map<string, PageRow[]>())].map(([label, rs]) => ({ label, rows: rs }))
+    ? groupRows(rows, manifest.groupBy)
     : [{ label: null, rows }];
 
+  // Which plugin shipped this page, if any — the panel's slug.
+  const ownedBy = pagePlugin(manifest);
+
   const fields = manifest.fields ?? [
-    { key: 'title', label: 'Title', format: 'text' as const },
-    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const },
+    { key: 'title', label: 'Title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false },
+    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const, total: false, priority: 1, hideWhenConstant: false },
   ];
+
+  // Every `link` column that names a target type, resolved to that record's
+  // own title in one query per type, so a row carries the request it came
+  // from rather than the request's id.
+  const links = await resolveRecordLinks(
+    orgId,
+    rows.flatMap(r => fields
+      .filter(f => f.format === 'link' && f.to)
+      .flatMap((f) => {
+        const v = resolveField(r, f.from ?? f.key);
+        return (Array.isArray(v) ? v : [v]).map(one => ({ to: f.to!, value: one }));
+      })),
+  );
 
   return (
     <>
-      <TitleBar title={manifest.title} description={manifest.description} />
+      <TitleBar
+        title={manifest.title}
+        description={manifest.description}
+        actions={manifest.live ? <LiveRefresh everyMs={manifest.live.every * 1000} /> : undefined}
+      />
+
+      {/* A page a plugin shipped carries that plugin's outcome panel — the
+          same one the Proposals and Data rooms surfaces carry, decided by
+          where the YAML came from rather than by the page's slug. */}
+      {ownedBy && <PluginPanel orgId={orgId} slug={ownedBy} />}
 
       {content && manifest.archetype === 'markdown' && (
         <article className="prose prose-sm max-w-3xl dark:prose-invert">
@@ -339,58 +442,40 @@ export default async function WorkspacePage(props: {
         </div>
       )}
 
+      {series.map(sr => <SeriesStrip key={sr.label} series={sr} />)}
+
       <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
 
-      {manifest.archetype !== 'markdown' && groups.map((g, gi) => (
-        <section key={g.label ?? '__all'} id={gi === 0 ? 'wsx-table' : undefined} className="mb-8">
-          {g.label && (
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-              {g.label}
-              <Badge variant="outline">{g.rows.length}</Badge>
-            </h2>
-          )}
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  {fields.map(f => (
-                    <th key={f.key} className="px-4 py-2 text-xs font-medium text-muted-foreground">
-                      {f.label ?? f.key}
-                    </th>
-                  ))}
-                  {manifest.rowLink && <th className="w-8 px-2 py-2" aria-label="Open" />}
-                </tr>
-              </thead>
-              <tbody>
-                {g.rows.length === 0 && (
-                  <tr>
-                    <td colSpan={fields.length + (manifest.rowLink ? 1 : 0)} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      Nothing here yet.
-                    </td>
-                  </tr>
-                )}
-                {g.rows.map((row) => {
-                  const cells = fields.map(f => (
-                    <td key={f.key} className="px-4 py-2.5">
-                      <Cell row={row} field={f} />
-                    </td>
-                  ));
-                  return manifest.rowLink
-                    ? (
-                        <LinkRow key={row.id} href={manifest.rowLink.replace('{id}', String(row.id))}>
-                          {cells}
-                        </LinkRow>
-                      )
-                    : (
-                        <tr key={row.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
-                          {cells}
-                        </tr>
-                      );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+      {manifest.archetype === 'report' && (
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          A report is about one record. Open it from a row on
+          {' '}
+          <Link href="/dashboard/p/backlog" className="underline">the Backlog</Link>
+          {' '}
+          — or go straight to
+          {' '}
+          <code className="font-mono">
+            /dashboard/p/
+            {manifest.slug}
+            /&lt;id&gt;
+          </code>
+          .
+        </p>
+      )}
+
+      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && groups.map((g, gi) => (
+        <PageTable
+          key={g.label ?? '__all'}
+          id={gi === 0 ? 'wsx-table' : undefined}
+          rows={g.rows}
+          fields={fields}
+          primary={manifest.primary}
+          rowLink={manifest.rowLink}
+          rowActions={manifest.rowActions}
+          groupLabel={g.label}
+          now={now}
+          links={links}
+        />
       ))}
 
       {reviewCfg && (

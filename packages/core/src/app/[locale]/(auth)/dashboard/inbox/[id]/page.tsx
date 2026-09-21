@@ -15,6 +15,7 @@ import { toSheetAsk } from '@/features/dashboard/inbox/toSheetAsk';
 import { ReviewFocus } from '@/features/dashboard/ReviewFocus';
 import { describeAction } from '@/features/review/describeAction';
 import { ReviewHeader } from '@/features/review/ReviewHeader';
+import { ReviewSurface } from '@/features/review/ReviewSurface';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
 import { scoreFor } from '@/services/alignment/AlignmentService';
@@ -120,7 +121,25 @@ export default async function InboxDetailPage(props: { params: Promise<{ locale:
       if (!run) {
         notFound();
       }
-      if (run.status !== 'pending' && run.status !== 'failed') {
+      // A released hand-off (`awaiting_execution`) is decided but not done, so
+      // it keeps the decision screen: the bar reads Mark done.
+      if (run.status !== 'pending' && run.status !== 'failed' && run.status !== 'awaiting_execution') {
+        // A finished hand-off keeps its card, read-only: the lifecycle under
+        // Run details says who approved it, who marked it done and where the
+        // result is, which a one-line receipt cannot.
+        if (run.card?.handoff) {
+          const object = run.card.object;
+          return (
+            <div className="min-w-0 flex-1">
+              <ReviewSurface
+                run={{ ...run, card: run.card }}
+                crumbs={decisionCrumbs('proposal', object?.title ?? run.card.title, object?.section)}
+                decidable={false}
+                defaultTab="evidence"
+              />
+            </div>
+          );
+        }
         // Decided: the receipt, not the decision.
         const desc = describeAction(run);
         return (

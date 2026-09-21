@@ -71,7 +71,11 @@ describe('renderCalendar', () => {
   });
 
   it('states the time it was read, so the split can be checked', () => {
-    expect(renderCalendar([ev('X', '2026-09-17T21:00:00Z')], NOW, 'today')).toContain('NOW: 2026-09-17T19:51:00.000Z');
+    const out = renderCalendar([ev('X', '2026-09-17T21:00:00Z')], NOW, 'today', 'America/Los_Angeles');
+
+    // The person's zone first, the instant beside it — never a bare UTC time the model relabels.
+    expect(out).toContain('NOW: Thu, Sep 17, 2026, 12:51 PM PDT (America/Los_Angeles) · 2026-09-17T19:51:00.000Z UTC');
+    expect(out).toContain('Thu, Sep 17, 2026, 2:00 PM PDT · in 1h 9m');
   });
 
   it('carries attendees, so a meeting can be recognised', () => {

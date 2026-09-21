@@ -53,6 +53,11 @@ export async function POST(request: Request): Promise<Response> {
   // Structured (R4): page + record + highlighted passage + @-mentions. A
   // scoped dock's `scope_ref` folds in as a ref instead of excluding it.
   const pageContext = mergeScopeRef(readPageContext(body.page_context), typeof body.scope_ref === 'string' ? body.scope_ref : null);
+  // The person's zone, from the browser — the day boundary for this turn's
+  // dates. Invalid or missing falls back to the workspace's.
+  const { isValidTimeZone } = await import('@/libs/time/zone');
+  const { workspaceTimeZone } = await import('@/libs/time/workspaceTimeZone');
+  const timeZone: string = isValidTimeZone(body.time_zone) ? body.time_zone : await workspaceTimeZone(orgId);
   // `@` tags (§9.10): besides routing the turn's `agent_slug`, the tagged
   // records reach the model as a note under the message.
   const contextRefs = readContextRefs(body.context_refs);
@@ -73,8 +78,17 @@ export async function POST(request: Request): Promise<Response> {
   // turn); otherwise the WORKSPACE AGENT answers — the project's lead
   // (agent-chat-surface.md §9.10), falling back to the first agent when no
   // lead is configured. 404 when zero agents authored.
+  //
+  // `route: true` asks the workspace to choose: the router matches the message
+  // against what each agent `handles`, its description and its suggestions,
+  // and defaults to the lead when nothing convinces it
+  // (`services/agents/router.ts`). The decision is the turn's first frame and
+  // is written on the person's message, so "why did this agent answer" has an
+  // answer a person can read. Sent by the composer when the person picked no
+  // agent; absent, the lead answers as before.
   let agentSlug = body.agent_slug as string | undefined;
-  if (!agentSlug) {
+  let routing: import('@/services/agents/router').RoutingDecision | null = null;
+  if (!agentSlug || body.route === true) {
     const agents = await listAgents(orgId);
     if (agents.length === 0) {
       return new Response(
@@ -84,8 +98,14 @@ export async function POST(request: Request): Promise<Response> {
     }
     const { getWorkspaceLead } = await import('@/services/TeamService');
     const lead = await getWorkspaceLead(orgId);
-    agentSlug = (lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug;
+    if (body.route === true && typeof message === 'string' && message.trim()) {
+      const { chooseAgent, routableFromRow } = await import('@/services/agents/router');
+      routing = chooseAgent({ agents: agents.map(routableFromRow), message, leadSlug: lead.leadAgentSlug, surface: 'chat' });
+    }
+    agentSlug = routing?.chosen
+      ?? ((lead.leadAgentSlug && agents.some(a => a.slug === lead.leadAgentSlug)) ? lead.leadAgentSlug : agents[0]!.slug);
   }
+  const routedAgent = routing ? (await listAgents(orgId)).find(a => a.slug === routing!.chosen) ?? null : null;
   const clientHistory = (body.conversation_history as Array<{ role: 'user' | 'assistant'; content: string }>) ?? [];
   // Optional persistence — when the client supplies a conversation_id
   // we replay server-side history (authoritative) and persist the new
@@ -97,11 +117,18 @@ export async function POST(request: Request): Promise<Response> {
   // it per turn). `act-within-bounds` files recommendations into the review
   // queue as they are emitted — still pending, still a person's decision.
   let autonomy = readAutonomy(body.autonomy);
+  // How strong a model, how much it thinks — the thread's own setting wins
+  // over what the client sent, exactly as autonomy does.
+  const { readModelPrefs } = await import('@/libs/llm/modelPrefs');
+  let modelPrefs = readModelPrefs(body);
   if (typeof conversationIdRaw === 'number') {
     const existing = await getConversation({ orgId, id: conversationIdRaw });
     conversationId = existing ? existing.id : null;
     if (existing && 'autonomy' in existing) {
       autonomy = readAutonomy((existing as { autonomy?: unknown }).autonomy);
+    }
+    if (existing && ((existing as { modelStrength?: unknown }).modelStrength || (existing as { thinkingEffort?: unknown }).thinkingEffort)) {
+      modelPrefs = readModelPrefs(existing);
     }
     if (existing && pageContext && !existing.contextJson) {
       await setConversationContextIfEmpty({ orgId, id: existing.id, context: pageContext });
@@ -153,16 +180,35 @@ export async function POST(request: Request): Promise<Response> {
     ]);
     // A past message that carried files says so in the replay — the names,
     // not the contents — so the agent asks rather than guesses.
-    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })));
+    // Stamped with when each turn was sent, so the model can tell yesterday's
+    // question from one asked a minute ago (`toHistoryTurns`).
+    conversationHistory = toHistoryTurns(msgs.map(m => ({ ...m, content: `${m.content}${historyMarker(uploads.get(m.id) ?? [])}` })), { timeZone });
     const userMsg = await appendMessage({
       orgId,
       conversationId,
       role: 'user',
       content: message,
       userId,
+      ...(routing ? { routing } : {}),
     });
     if (attachments.length > 0) {
       await claimAttachments({ orgId, artifactIds: attachments.map(a => a.id), conversationId, messageId: userMsg.id });
+    }
+  }
+
+  // A correction: last turn the agent said something could not be found, and
+  // this message hands it over. The agent is told to own it, and a learning
+  // candidate is drafted in the background (`correctionReflector.ts`).
+  let messageForModel = message;
+  let absenceCorrected = false;
+  {
+    const { correctionNote, detectCorrection, reflectOnCorrection } = await import('@/services/chat/correctionReflector');
+    const lastAssistant = [...conversationHistory].reverse().find(t => t.role === 'assistant')?.content;
+    const correction = detectCorrection(lastAssistant, message);
+    if (correction) {
+      absenceCorrected = true;
+      messageForModel = `${message}\n\n${correctionNote(correction)}`;
+      void reflectOnCorrection({ orgId, agentSlug, userId, correction }).catch(() => {});
     }
   }
 
@@ -237,19 +283,26 @@ export async function POST(request: Request): Promise<Response> {
       // First frame: the resume handle (not part of the AgentEvent union —
       // the client stashes it and never reduces it into the transcript).
       safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'stream_meta', streamId })}\n\n`));
+      // Then who answers, when the workspace decided: the client renders the
+      // turn under that agent's name, and the reason rides with it.
+      if (routing && routedAgent) {
+        writeEvent({ type: 'routed', routing, agent: { slug: routedAgent.slug, name: routedAgent.name } });
+      }
 
       try {
         await runAgentDeep({
           allowedSourceSlugs,
           orgId,
           agentSlug,
-          message: withPageContext(message, pageContext, contextRefs, grounding.text),
+          message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
           userId,
           conversationId: conversationId ?? undefined,
           conversationHistory,
           pageContext: pageContext ?? undefined,
+          timeZone,
           ...(deliverable ? { deliverable } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
+          modelPrefs,
           onEvent: sendEvent,
         });
       } catch (err) {
@@ -293,6 +346,28 @@ export async function POST(request: Request): Promise<Response> {
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {
                 await stampArtifactsWithMessage({ orgId, artifactIds: touched, messageId: msg.id });
+              }
+              // The learning loop, fed by the work itself: this turn changed a
+              // document AND the person's message instructed, so the standing
+              // rules in what they said are drafted and put through the trust
+              // ladder — adopted above the workspace's learning bar with Undo,
+              // asked below it (`services/chat/workCorrections.ts`). After the
+              // turn is closed and fire-and-forget, because nothing here may
+              // cost the person their answer. Skipped when the absence
+              // reflector already filed for this message, so one turn never
+              // produces two candidates for the same words.
+              if (!absenceCorrected) {
+                const { correctionInTurn, learnFromWorkCorrection } = await import('@/services/chat/workCorrections');
+                const correction = correctionInTurn({ message, toolNames: runs.filter(r => r.type === 'tool').map(r => r.name) });
+                if (correction) {
+                  void learnFromWorkCorrection({ orgId, agentSlug, userId, correction })
+                    .then(async ({ receipt }) => {
+                      if (receipt) {
+                        await appendMessage({ orgId, conversationId, role: 'assistant', content: receipt });
+                      }
+                    })
+                    .catch(() => {});
+                }
               }
             } catch {
               /* conversation may have been deleted mid-stream */

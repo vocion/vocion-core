@@ -51,6 +51,34 @@ export type RenderResult = {
   ms: number;
 };
 
+/**
+ * Where a render has got to. Only the stages that REALLY happen: Chromium
+ * lays the whole document out in one pass, so there is no per-sheet progress
+ * to report before `measured`; the screenshots after it are a real loop, one
+ * call per sheet, and the PDF print is one more pass at the end.
+ */
+export type RenderProgress
+  = | { phase: 'measured'; sheets: number }
+    | { phase: 'screenshot'; sheet: number; sheets: number }
+    | { phase: 'pdf'; sheets: number };
+
+/**
+ * A render stage as a phrase for the person watching — `sheet 7 of 12`. It
+ * rides the running step line in the chat (`stepProgressLabel`), so a
+ * twelve-sheet render stops reading "Working…" for a minute. Pure.
+ * @param progress - What the renderer reported.
+ */
+export function renderNote(progress: RenderProgress): string {
+  switch (progress.phase) {
+    case 'measured':
+      return `measuring ${progress.sheets} ${progress.sheets === 1 ? 'sheet' : 'sheets'}`;
+    case 'screenshot':
+      return `sheet ${progress.sheet} of ${progress.sheets}`;
+    case 'pdf':
+      return 'printing the PDF';
+  }
+}
+
 export type RenderOptions = {
   screenshots?: boolean;
   pdf?: boolean;
@@ -58,6 +86,12 @@ export type RenderOptions = {
   timeoutMs?: number;
   /** Which sheets to screenshot (1-based). Default all. */
   onlySheets?: number[];
+  /**
+   * Called as the render moves through its stages, so a caller can tell the
+   * person watching. Synchronous and best-effort: a throwing callback must
+   * not fail a render, so it is called inside a try.
+   */
+  onProgress?: (progress: RenderProgress) => void;
 };
 
 const ALLOWED_HOSTS = /(?:^|\.)(?:fonts\.googleapis\.com|fonts\.gstatic\.com|cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|rsms\.me)$/;
@@ -200,6 +234,14 @@ export async function renderDocument(html: string, opts: RenderOptions = {}): Pr
     // One frame so layout settles after fonts swap in.
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => r(null))));
     const measured = await page.evaluate(MEASURE) as MeasuredSheetDom[];
+    const report = (progress: RenderProgress) => {
+      try {
+        opts.onProgress?.(progress);
+      } catch {
+        // Telling someone what is happening may never break the thing happening.
+      }
+    };
+    report({ phase: 'measured', sheets: measured.length });
     const brokenImages = await page.evaluate(BROKEN_IMAGES) as string[];
     const title = await page.title().then(t => t.trim() || null).catch(() => null);
 
@@ -211,6 +253,7 @@ export async function renderDocument(html: string, opts: RenderOptions = {}): Pr
       let png: Buffer | undefined;
       const handle = handles[i];
       if (handle && (!want || want.has(m.n))) {
+        report({ phase: 'screenshot', sheet: m.n, sheets: measured.length });
         try {
           png = Buffer.from(await handle.screenshot({ type: 'png', timeout: timeoutMs }));
         } catch (err) {
@@ -223,6 +266,7 @@ export async function renderDocument(html: string, opts: RenderOptions = {}): Pr
     let pdf: Buffer | undefined;
     let pdfPages: number | null = null;
     if (opts.pdf !== false) {
+      report({ phase: 'pdf', sheets: measured.length });
       try {
         pdf = Buffer.from(await page.pdf({ preferCSSPageSize: true, printBackground: true }));
         pdfPages = await countPdfPages(pdf);

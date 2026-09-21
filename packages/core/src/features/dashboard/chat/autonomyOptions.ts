@@ -1,3 +1,4 @@
+import type { ComposerMenuSetting } from './composerMenu';
 import type { ConversationAutonomy } from './types';
 
 /**
@@ -27,14 +28,16 @@ export type AutonomyOption = {
 };
 
 /**
- * The rungs, lowest first. "Ask before acting" is the default, so it leads;
- * a person reading top-to-bottom sees where they are before what is next
- * (Manifesto §8 — automation is earned one rung at a time).
+ * The rungs, default first. "Done for you" leads since 2026-09-18 (Chris:
+ * "the default behavior should be DONE FOR YOU with visibility and ability to
+ * edit or undo"): confident, reversible actions run and show as done with
+ * Undo (`libs/actions/autoAccept.ts`); anything risky still asks. Autonomy is
+ * still earned per action kind — the rung is the ceiling, the policy decides.
  */
-export const AUTONOMY_MODES: readonly ConversationAutonomy[] = ['ask', 'act-within-bounds'] as const;
+export const AUTONOMY_MODES: readonly ConversationAutonomy[] = ['act-within-bounds', 'ask'] as const;
 
 /** The default rung — what a conversation has before anyone chooses. */
-export const DEFAULT_AUTONOMY: ConversationAutonomy = 'ask';
+export const DEFAULT_AUTONOMY: ConversationAutonomy = 'act-within-bounds';
 
 /**
  * Both options with the caller's copy attached.
@@ -43,8 +46,8 @@ export const DEFAULT_AUTONOMY: ConversationAutonomy = 'ask';
  */
 export function autonomyOptions(copy: AutonomyCopy): AutonomyOption[] {
   return [
-    { value: 'ask', label: copy.ask, hint: copy.askHint },
     { value: 'act-within-bounds', label: copy.act, hint: copy.actHint },
+    { value: 'ask', label: copy.ask, hint: copy.askHint },
   ];
 }
 
@@ -76,4 +79,43 @@ export function autonomyHint(mode: ConversationAutonomy | undefined, copy: Auton
  */
 export function isRaisedAutonomy(mode: ConversationAutonomy | undefined): boolean {
   return mode === 'act-within-bounds';
+}
+
+/**
+ * Whether a person pulled this thread below the default — ask first. The
+ * composer's icon wears the accent then, so "this thread waits for me" is
+ * visible without reading.
+ * @param mode - The conversation's rung.
+ * @returns True for `ask`.
+ */
+export function isRestrictedAutonomy(mode: ConversationAutonomy | undefined): boolean {
+  return mode === 'ask';
+}
+
+/** The (+) menu's id for the autonomy rows; `onSetting` matches on it. */
+export const AUTONOMY_SETTING_ID = 'autonomy';
+
+/**
+ * The rung as a (+) menu section — the composer bar lost its dedicated icon
+ * on 2026-09-18 ("this bar is getting too busy"), and the choice lives with
+ * everything else the turn can carry.
+ * @param value - The conversation's rung.
+ * @param copy - Translated strings.
+ * @param title - The section title ("This thread").
+ */
+export function autonomyMenuSetting(value: ConversationAutonomy | undefined, copy: AutonomyCopy, title: string): ComposerMenuSetting {
+  return {
+    id: AUTONOMY_SETTING_ID,
+    title,
+    selected: value ?? DEFAULT_AUTONOMY,
+    options: autonomyOptions(copy).map(o => ({ id: o.value, label: o.label, hint: o.hint })),
+  };
+}
+
+/**
+ * Read a picked option id back into a rung; anything else is ignored.
+ * @param optionId
+ */
+export function autonomyFromOption(optionId: string): ConversationAutonomy | null {
+  return optionId === 'ask' || optionId === 'act-within-bounds' ? optionId : null;
 }
