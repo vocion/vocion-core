@@ -128,6 +128,8 @@ type PersistedMessageRow = {
   documentsJson: unknown;
   traceJson?: unknown;
   confidence: ChatMessage['confidence'];
+  /** `incomplete` when the turn died part-way; null on a turn that finished. */
+  status?: string | null;
   feedbackRating?: string | null;
   feedbackNote?: string | null;
   /** Files attached to a user turn, as the conversations router resolves them. */
@@ -166,6 +168,9 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
+      // A turn that failed mid-stream must still read as failed after a
+      // reload — the fragment it left behind looks like an answer otherwise.
+      ...(row.status === 'incomplete' ? { status: 'incomplete' as const } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
       ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
     };

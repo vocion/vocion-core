@@ -1532,6 +1532,17 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    */
   langfuseTraceId: text('langfuse_trace_id'),
   /**
+   * Set to `incomplete` when the turn it belongs to failed part-way through —
+   * the model threw, the tool loop died — and the text collected so far was
+   * persisted anyway so the person can see what they got. NULL means the turn
+   * finished, which is every legacy row and every healthy turn.
+   *
+   * A row marked this way is left out of the history replayed to the model
+   * (`toHistoryTurns`), because a sentence that stops mid-thought is not a
+   * thing the agent said and should not be treated as one on the next turn.
+   */
+  status: text('status'),
+  /**
    * Agent's self-assessment of confidence for this turn — same enum as
    * skill_run.confidence. Nullable when the runtime doesn't expose a
    * signal (most current paths). Powers the <ConfidenceIndicator /> in

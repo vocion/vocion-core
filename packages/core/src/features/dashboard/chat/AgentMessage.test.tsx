@@ -393,3 +393,38 @@ describe('a <scratch> block in a stored text run folds to "Thinking"', () => {
     expect(page.getByTestId('scratch-fold').query()).toBeNull();
   });
 });
+
+describe('AgentMessage — a turn that died part-way (#114)', () => {
+  it('says the answer is unfinished when the row is marked incomplete', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Four deals closed last month, worth',
+          status: 'incomplete',
+          runs: [{ type: 'text', text: 'Four deals closed last month, worth' }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('incomplete-turn-notice')).toBeInTheDocument();
+    await expect.element(page.getByText(/stopped part-way/)).toBeInTheDocument();
+  });
+
+  it('says nothing on a turn that finished, so a healthy answer carries no warning', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Four deals closed last month.',
+          runs: [{ type: 'text', text: 'Four deals closed last month.' }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText(/Four deals closed/)).toBeInTheDocument();
+    expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
+});

@@ -24,6 +24,28 @@ describe('toHistoryTurns', () => {
     expect(turns.map(t => t.role)).toEqual(['user', 'assistant', 'user', 'user']);
   });
 
+  it('drops a turn that died part-way, so a cut-off sentence is never replayed as something the agent said', () => {
+    const turns = toHistoryTurns([
+      { role: 'user', content: 'how many deals closed?' },
+      { role: 'assistant', content: 'Four closed last month, worth', status: 'incomplete' },
+      { role: 'user', content: 'well?' },
+    ]);
+
+    expect(turns).toEqual([
+      { role: 'user', content: 'how many deals closed?' },
+      { role: 'user', content: 'well?' },
+    ]);
+  });
+
+  it('keeps an assistant turn that finished, whether it says so or says nothing', () => {
+    const turns = toHistoryTurns([
+      { role: 'assistant', content: 'Four closed last month.', status: null },
+      { role: 'assistant', content: 'Three are in proposal.' },
+    ]);
+
+    expect(turns.map(t => t.content)).toEqual(['Four closed last month.', 'Three are in proposal.']);
+  });
+
   it('is the bare role and content it always was when no zone is given, and drops tool rows and blanks', () => {
     expect(toHistoryTurns([...messages, { role: 'user', content: '   ' }])).toEqual([
       { role: 'user', content: 'what is on today?' },

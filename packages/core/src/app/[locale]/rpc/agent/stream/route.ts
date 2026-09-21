@@ -227,6 +227,9 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
+      // Set when the run throws, so the persisted assistant row can be marked
+      // as a turn that never finished rather than passing as a whole answer.
+      let failed = false;
       const safeEnqueue = (chunk: Uint8Array) => {
         if (!closed) {
           try {
@@ -307,6 +310,9 @@ export async function POST(request: Request): Promise<Response> {
         });
       } catch (err) {
         const m = (err as Error).message ?? 'agent error';
+        // The turn died here. Whatever text the collector holds is a fragment,
+        // and the row written below says so — `status: 'incomplete'` (#114).
+        failed = true;
         sendEvent({ type: 'error', message: m });
       } finally {
         clearInterval(keepaliveTimer);
@@ -342,6 +348,7 @@ export async function POST(request: Request): Promise<Response> {
                 runs,
                 documents,
                 trace,
+                ...(failed ? { status: 'incomplete' as const } : {}),
               });
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {

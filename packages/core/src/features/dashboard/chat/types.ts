@@ -228,6 +228,13 @@ export type ChatMessage = {
   thinkingText?: string;
   /** Agent's self-assessment of this turn's confidence (N.2). Null when the runtime didn't expose a signal. */
   confidence?: 'confident' | 'uncertain' | 'speculative' | null;
+  /**
+   * `incomplete` when the turn failed part-way through and what is shown is
+   * only the text that arrived before it died (#114). Absent on a turn that
+   * finished. The transcript marks it so a fragment is never read as the
+   * whole answer, and the server leaves it out of the model's history.
+   */
+  status?: 'incomplete' | null;
 };
 
 export type AgentOption = {

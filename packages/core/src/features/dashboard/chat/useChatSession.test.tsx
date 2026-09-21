@@ -89,6 +89,30 @@ describe('useChatSession', () => {
     expect(result.current.autonomy).toBe('act-within-bounds');
   });
 
+  it('carries the incomplete mark over on reload, so a turn that failed part-way still reads as failed (#114)', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue({ agentSlug: 'orchestrator', conversationId: 7, updatedAt: new Date(), railWidth: null, railOpen: null });
+    sessionStorage.setItem('vocion:chat:session:orchestrator', '7');
+    vi.mocked(client.conversations.get).mockResolvedValue({
+      id: 7,
+      orgId: 'org_1',
+      agentSlug: 'orchestrator',
+      title: 'Cut off',
+      messageCount: 3,
+      messages: [
+        { id: 1, conversationId: 7, role: 'user', content: 'how many deals closed?', runsJson: null, createdAt: new Date() },
+        { id: 2, conversationId: 7, role: 'assistant', content: 'Four closed last month, worth', runsJson: null, createdAt: new Date(), status: 'incomplete' },
+        { id: 3, conversationId: 7, role: 'assistant', content: 'Four closed last month, worth $216K.', runsJson: null, createdAt: new Date(), status: null },
+      ],
+    } as never);
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+
+    await vi.waitFor(() => expect(result.current.messages).toHaveLength(3));
+
+    expect(result.current.messages[1]).toMatchObject({ id: 2, status: 'incomplete' });
+    expect(result.current.messages[2]!.status).toBeUndefined();
+  });
+
   it('resumes the thread the URL names (`?conversation=<id>`) even on a fresh session', async () => {
     vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
     vi.mocked(client.conversations.get).mockResolvedValue({

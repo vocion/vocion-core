@@ -217,6 +217,12 @@ export async function appendMessage(opts: {
   trace?: ConversationTraceNode[] | null;
   /** How the workspace chose this message's agent, when nobody named one (`services/agents/router.ts`). */
   routing?: import('@/services/agents/router').RoutingDecision | null;
+  /**
+   * `incomplete` when the turn failed part-way and this is the text collected
+   * before it died; omitted (NULL) for a turn that finished. An incomplete row
+   * is shown as a failed turn and kept out of the model's history.
+   */
+  status?: 'incomplete' | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -238,6 +244,7 @@ export async function appendMessage(opts: {
       documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
       traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
       routingJson: opts.routing ?? null,
+      status: opts.status ?? null,
     })
     .returning();
 
@@ -268,6 +275,7 @@ const HISTORY_STAMP_GAP_MS = 6 * 60 * 60 * 1000;
  * Render persisted messages as the {role, content} list the agent
  * expects in its history. Tool runs are intentionally dropped —
  * they're UI ornaments only. (See rev-ai's to_history_turns.)
+ * Messages marked `incomplete` — turns that failed part-way — are dropped too.
  * @param messages - Persisted rows, oldest first; `createdAt` enables the sent-time stamp.
  * @param opts - Options.
  * @param opts.timeZone - The person's zone for the stamps; absent, no stamps.
@@ -276,6 +284,7 @@ export function toHistoryTurns(messages: Array<{
   role: string;
   content: string;
   createdAt?: Date | string | null;
+  status?: string | null;
 }>, opts: { timeZone?: string } = {}): Array<{ role: 'user' | 'assistant'; content: string }> {
   const out: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   // When a zone is given, a person's turn is stamped with when it was sent —
@@ -285,6 +294,14 @@ export function toHistoryTurns(messages: Array<{
   let previous: Date | null = null;
   for (const m of messages) {
     if (!m.content.trim()) {
+      continue;
+    }
+    // A turn that died part-way is dropped, not replayed. Its text stops
+    // mid-thought — sometimes mid-word — and handing that back as something
+    // the agent said lets a half-formed statement harden into fact over the
+    // rest of the thread (issue #114). The person still sees the row, marked
+    // as failed; the model starts the next turn without it.
+    if (m.status === 'incomplete') {
       continue;
     }
     if (m.role !== 'user' && m.role !== 'assistant') {

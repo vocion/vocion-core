@@ -397,6 +397,21 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <SelfUpdateChips updates={message.selfUpdates!} />
           )}
         </div>
+        {/* The turn died before it finished, and this is the text that made it
+            out. Saying so under the fragment is the whole point of #114: a
+            half-answer rendered like a whole one is worse than no answer. */}
+        {message.status === 'incomplete' && (
+          <div
+            data-testid="incomplete-turn-notice"
+            className="mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
+          >
+            <AlertCircle className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
+            <span>
+              This answer stopped part-way — something went wrong mid-reply, so what
+              you see above is unfinished. Ask again for a complete one.
+            </span>
+          </div>
+        )}
         {message.confidence && (
           <div className="mt-2 flex justify-end">
             <ConfidenceIndicator level={message.confidence} />
