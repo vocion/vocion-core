@@ -142,7 +142,23 @@ name: Software factory
 # is the first page rebuilt to it: `pages/work.yaml` declares
 # `derive: workQueue` and reads as four lanes with ordered Next, derived
 # Waiting, capped Done and probes dropped.
-version: 1.13.0
+#
+# 1.14.0 - Performance answers whether this team is getting faster, cheaper,
+# better and less demanding of a person, in four numbers: shipped outcomes,
+# median ask to ship, cost per shipped outcome, and decision minutes. The cost
+# figure is a ratio over the same pool the count beside it reports, so a
+# reader who divides the two gets the third; it used to be an average over
+# the rows that carried a figure, and nothing reconciled. Waste is gone,
+# because a request investigated and honestly answered no is a delivered
+# outcome, not money burnt. What replaced it is REWORK: spend that produced
+# no accepted outcome and had to be discarded or repeated, rolled up on the
+# request from the tasks that ended `rejected` or `abandoned`, which is the
+# same definition the Factory page already used. A request also rolls up
+# `shippedAt` from the earliest release that names it, which is what makes a
+# cycle time measurable at all. The eighteen per-tag tables are gone: a
+# request carries several tags and its money landed under each, so they never
+# added up. The evidence groups by outcome, where every request sits once.
+version: 1.14.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

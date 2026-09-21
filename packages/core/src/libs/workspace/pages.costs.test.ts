@@ -41,6 +41,81 @@ describe('money', () => {
   });
 });
 
+describe('a ratio names both halves', () => {
+  const rows = [
+    row(1, { state: 'shipped', actualCents: 600, rework: 0 }),
+    row(2, { state: 'shipped', actualCents: 400, rework: 250 }),
+    row(3, { state: 'shipped' }),
+    row(4, { state: 'building', actualCents: 2000 }),
+  ];
+
+  it('divides by the size of the pool, not by how many of its rows carried a figure', () => {
+    const where = { field: 'meta.state', op: 'eq' as const, value: 'shipped' };
+
+    // Three shipped rows, $10.00 between them: $3.33 each. `avg` would say
+    // $5.00, because it drops the row with no figure out of its denominator
+    // while the count printed beside it keeps that row.
+    expect(computeStat(rows, { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', where, format: 'money', hideWhenZero: false })).toBe('$3.33');
+    expect(computeStat(rows, { label: 'Per outcome', kind: 'avg', field: 'meta.actualCents', where, format: 'money', hideWhenZero: false })).toBe('$5.00');
+    expect(computeStat(rows, { label: 'Outcomes', kind: 'countWhere', where, format: 'number', hideWhenZero: false })).toBe('3');
+  });
+
+  it('counts one pool against another when `of` names the denominator', () => {
+    expect(computeStat(rows, {
+      label: 'Clean',
+      kind: 'ratio',
+      where: [{ field: 'meta.state', op: 'eq', value: 'shipped' }, { field: 'meta.rework', op: 'lte', value: 0 }],
+      of: { field: 'meta.state', op: 'eq', value: 'shipped' },
+      format: 'percent',
+      hideWhenZero: false,
+    })).toBe('33.3%');
+  });
+
+  it('sums one field over another when `overField` names the denominator', () => {
+    expect(computeStat(rows, { label: 'Rework share', kind: 'ratio', field: 'meta.rework', overField: 'meta.actualCents', format: 'percent', hideWhenZero: false })).toBe('8.3%');
+  });
+
+  it('is zero, not NaN, when the denominator is empty', () => {
+    expect(computeStat([], { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$0.00');
+    expect(computeStat([], { label: 'Clean', kind: 'ratio', format: 'percent', hideWhenZero: false })).toBe('0%');
+  });
+});
+
+describe('medianHours and missing', () => {
+  it('measures a row\'s two dates and ignores a row that lacks either', () => {
+    const rows = [
+      row(1, { from: '2026-09-20T00:00:00Z', to: '2026-09-20T01:00:00Z' }),
+      row(2, { from: '2026-09-20T00:00:00Z', to: '2026-09-20T05:00:00Z' }),
+      row(3, { from: '2026-09-20T00:00:00Z', to: '2026-09-20T09:00:00Z' }),
+      row(4, { from: '2026-09-20T00:00:00Z' }),
+      row(5, {}),
+    ];
+
+    expect(computeStat(rows, { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', suffix: ' h', format: 'number', hideWhenZero: false })).toBe('5 h');
+    // An even count averages the middle pair rather than picking a side.
+    expect(computeStat(rows.slice(0, 2), { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', format: 'number', hideWhenZero: false })).toBe('3');
+  });
+
+  it('counts the rows a field is absent from, which `exists` cannot', () => {
+    const rows = [row(1, { decidedAt: '2026-09-20T00:00:00Z' }), row(2, {}), row(3, { decidedAt: '' })];
+
+    expect(computeStat(rows, { label: 'Decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'exists' }, format: 'number', hideWhenZero: false })).toBe('1');
+    expect(computeStat(rows, { label: 'Nobody decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'missing' }, format: 'number', hideWhenZero: false })).toBe('2');
+  });
+
+  it('takes several filters on one stat, every one of which a row must pass', () => {
+    const rows = [row(1, { state: 'shipped', tasks: 2 }), row(2, { state: 'shipped' }), row(3, { state: 'answered', tasks: 2 })];
+
+    expect(computeStat(rows, {
+      label: 'Shipped with work',
+      kind: 'countWhere',
+      where: [{ field: 'meta.state', op: 'eq', value: 'shipped' }, { field: 'meta.tasks', op: 'gte', value: 1 }],
+      format: 'number',
+      hideWhenZero: false,
+    })).toBe('1');
+  });
+});
+
 describe('since', () => {
   it('knows where the month, the week (Monday), today and n days back start, in UTC', () => {
     expect(sinceStart('month', NOW).toISOString()).toBe('2026-09-01T00:00:00.000Z');

@@ -132,6 +132,34 @@ schema:
       x-display: {label: Tasks, group: Cost}
       type: integer
       description: ROLLED UP — how many tasks carry this request's id, whatever their status.
+    reworkCents:
+      x-display: {label: Rework, format: money, group: Cost}
+      type: integer
+      description: >-
+        ROLLED UP: the spend on this request's tasks that were `rejected` or
+        `abandoned`: money that produced no accepted outcome and had to be
+        discarded or repeated. A failed attempt that contributed nothing, an
+        implementation replaced by a later one, a retry that was not needed.
+        This is the honest measure of waste. Money spent investigating a
+        request that was then answered honestly is NOT rework, because holding the
+        line is a valid outcome, and the factory is not charged for good
+        judgement.
+    reworkTaskCount:
+      x-display: {label: Discarded attempts, group: Cost}
+      type: integer
+      description: ROLLED UP, how many of this request's tasks were `rejected` or `abandoned`. Zero on a request that has tasks means it was accepted first pass.
+    shippedAt:
+      x-display: {label: Shipped}
+      type: string
+      format: date-time
+      description: >-
+        ROLLED UP: the `releasedAt` of the EARLIEST release whose
+        `requestIds` names this request. There is no record of when a request
+        entered `shipped` (business objects keep no state history), so the
+        deploy that carried it is the honest ship moment. `askedAt` to here is
+        the cycle time the Performance page takes a median of; a request with
+        no release has no ship date and is left out of that median rather than
+        counted as instant.
     rollupsUpdatedAt:
       x-display: {label: Cost as of}
       type: string
@@ -242,6 +270,13 @@ rollups:
   - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
   - {field: varianceCents, from: {type: engineering_task, by: requestId}, sum: varianceCents}
   - {field: taskCount, from: {type: engineering_task, by: requestId}}
+  # Rework: the same tasks, narrowed to the ones that were thrown away. Money
+  # spent and then answered rather than shipped is NOT here, on purpose.
+  - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}
+  - {field: reworkTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [rejected, abandoned]}}
+  # When it shipped: the earliest release that names this request. The link
+  # runs the other way from the two above, because the release lists its requests.
+  - {field: shippedAt, from: {type: release, inList: requestIds}, min: releasedAt}
 classificationPrompt: >-
   Given a message from any channel — a form on a product site, a store
   review, an email, a chat message, a GitHub issue, a note from someone on the

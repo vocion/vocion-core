@@ -1,4 +1,4 @@
-import type { PageField, PageManifest, PageRow, PageView } from '@/libs/workspace/pages';
+import type { PageField, PageManifest, PageRow, PageView, PageWindow } from '@/libs/workspace/pages';
 // Aliased at build time: the workspace's own pages/components/registry.tsx
 // when it ships one, the in-repo empty stub otherwise (see next.config.ts).
 import { components as wsxComponents } from '@wsx/registry';
@@ -20,12 +20,15 @@ import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
 import {
   applyFilter,
+  applyWindow,
+  chosenWindow,
   computeSeries,
   computeStat,
   groupRows,
   isZeroFigure,
   pagePlugin,
   readWorkspacePageContent,
+  readWorkspacePageMethodology,
   resolveField,
 } from '@/libs/workspace/pages';
 import { deriveWorkQueue } from '@/libs/workspace/workQueue';
@@ -381,6 +384,42 @@ function Widgets({ manifest, position, rows, stats }: {
   );
 }
 
+/**
+ * The page's one time window, as links rather than a control: a server
+ * component renders the chosen span, and every other span is a URL someone
+ * can bookmark, send, or open in a second tab beside the first.
+ * @param props - The picker.
+ * @param props.slug - The page, for the links it renders.
+ * @param props.window - The declared field, choices and default.
+ * @param props.chosen - The span in force, in days, or `all`.
+ */
+function WindowPicker({ slug, window, chosen }: { slug: string; window: PageWindow; chosen: number | 'all' }) {
+  const choices: Array<{ value: number | 'all'; label: string }> = [
+    ...window.options.map(d => ({ value: d as number | 'all', label: `${d} days` })),
+    { value: 'all' as const, label: 'All time' },
+  ];
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-muted-foreground">
+        {window.label ?? 'Window'}
+        :
+      </span>
+      {choices.map(c => (
+        <Link
+          key={String(c.value)}
+          href={`/dashboard/p/${slug}?days=${c.value}`}
+          aria-current={c.value === chosen ? 'true' : undefined}
+          className={c.value === chosen
+            ? 'rounded-full border border-foreground px-2 py-0.5 font-medium'
+            : 'rounded-full border border-border px-2 py-0.5 text-muted-foreground hover:text-foreground'}
+        >
+          {c.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export default async function WorkspacePage(props: {
   params: Promise<{ locale: string; slug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -408,7 +447,9 @@ export default async function WorkspacePage(props: {
   }
 
   const content = readWorkspacePageContent(manifest);
+  const methodology = readWorkspacePageMethodology(manifest);
   const now = await currentTime();
+  const days = chosenWindow(manifest.window, typeof searchParams.days === 'string' ? searchParams.days : undefined);
 
   // The view in force. A `?view=` naming a view that links elsewhere, or no
   // view at all, falls back to the first one declared, which is the default
@@ -430,9 +471,18 @@ export default async function WorkspacePage(props: {
       rows.sort((a, b) => {
         const av = resolveField(a, field);
         const bv = resolveField(b, field);
+        // A row the field is missing from sorts last whichever way the page
+        // sorts. Comparing it as the string "undefined" put the rows with no
+        // figure at the top of a page sorted by cost, which is the opposite
+        // of naming the most expensive work.
+        const ae = av === undefined || av === null || av === '';
+        const be = bv === undefined || bv === null || bv === '';
+        if (ae || be) {
+          return ae && be ? 0 : ae ? 1 : -1;
+        }
         const cmp = typeof av === 'number' && typeof bv === 'number'
           ? av - bv
-          : String(av ?? '').localeCompare(String(bv ?? ''));
+          : String(av).localeCompare(String(bv));
         return dir === 'asc' ? cmp : -cmp;
       });
     }
@@ -462,19 +512,36 @@ export default async function WorkspacePage(props: {
     ? await loadFactoryOverview({ orgId, userId: userId ?? null, slug: manifest.slug, panels: manifest.panels, now: new Date(now) })
     : null;
 
+  // One window, obeyed by the rows and by every stat that has not marked
+  // itself lifetime. A page whose figures run on different periods cannot be
+  // compared with itself, which is the whole point of showing them together.
+  const windowed = applyWindow(rows, manifest.window, days, new Date(now));
+
   const stats: Record<string, string> = {};
-  for (const s of manifest.stats ?? []) {
-    const figure = computeStat(rows, s, new Date(now));
-    if (s.hideWhenZero && isZeroFigure(figure)) {
-      continue;
-    }
-    stats[s.label] = figure;
+  // `windowed` for a stat that obeys the page's window, `rows` for one that
+  // declared itself `lifetime`; either way, `hideWhenZero` still drops a
+  // figure that came out to nothing.
+  const statCards = (manifest.stats ?? [])
+    .map(s => ({ stat: s, value: computeStat(s.lifetime ? rows : windowed, s, new Date(now)) }))
+    .filter(({ stat, value }) => !(stat.hideWhenZero && isZeroFigure(value)));
+  for (const card of statCards) {
+    stats[card.stat.label] = card.value;
   }
-  const series = (manifest.series ?? []).map(sr => computeSeries(rows, sr, new Date(now)));
+  const statGroups: Array<{ label: string | null; cards: typeof statCards }> = [];
+  for (const card of statCards) {
+    const label = card.stat.group ?? null;
+    const existing = statGroups.find(g => g.label === label);
+    if (existing) {
+      existing.cards.push(card);
+    } else {
+      statGroups.push({ label, cards: [card] });
+    }
+  }
+  const series = (manifest.series ?? []).map(sr => computeSeries(windowed, sr, new Date(now)));
 
   const groups: Array<{ label: string | null; rows: PageRow[] }> = manifest.groupBy
-    ? groupRows(rows, manifest.groupBy)
-    : [{ label: null, rows }];
+    ? groupRows(windowed, manifest.groupBy)
+    : [{ label: null, rows: windowed }];
 
   // Which plugin shipped this page, if any — the panel's slug.
   const ownedBy = pagePlugin(manifest);
@@ -489,7 +556,7 @@ export default async function WorkspacePage(props: {
   // from rather than the request's id.
   const links = await resolveRecordLinks(
     orgId,
-    rows.flatMap(r => fields
+    windowed.flatMap(r => fields
       .filter(f => f.format === 'link' && f.to)
       .flatMap((f) => {
         const v = resolveField(r, f.from ?? f.key);
@@ -552,20 +619,47 @@ export default async function WorkspacePage(props: {
       {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
       {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
 
-      {showStats && Object.keys(stats).length > 0 && (
-        <div id="wsx-stats" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">
-          {Object.entries(stats).map(([label, value]) => (
-            <div key={label} className="bg-background p-4">
-              <div className="font-mono text-2xl font-semibold tabular-nums">{value}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{label}</div>
-            </div>
-          ))}
-        </div>
+      {manifest.window && (
+        <WindowPicker slug={manifest.slug} window={manifest.window} chosen={days} />
       )}
+
+      {showStats && statGroups.map((g, gi) => (
+        <div key={g.label ?? '__headline'} className="mb-6">
+          {g.label && <h2 className="mb-2 text-sm font-semibold">{g.label}</h2>}
+          <div
+            id={gi === 0 ? 'wsx-stats' : undefined}
+            className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4"
+          >
+            {g.cards.map(({ stat: s, value }) => (
+              <div key={s.label} className="bg-background p-4">
+                <div className="font-mono text-2xl font-semibold tabular-nums">{value}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{s.label}</div>
+                {s.note && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-[11px] text-muted-foreground/70 hover:text-foreground">
+                      What this counts
+                    </summary>
+                    <p className="mt-1 text-xs text-muted-foreground">{s.note}</p>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
 
       {series.map(sr => <SeriesStrip key={sr.label} series={sr} />)}
 
-      <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
+      {methodology && (
+        <details className="mb-6 max-w-3xl rounded-lg border border-border p-4">
+          <summary className="cursor-pointer text-sm font-medium">How these numbers are computed</summary>
+          <div className="prose prose-sm mt-3 max-w-none dark:prose-invert">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{methodology}</ReactMarkdown>
+          </div>
+        </details>
+      )}
+
+      <Widgets manifest={manifest} position="above" rows={windowed} stats={stats} />
 
       {overview && <OverviewView overview={overview} />}
 
@@ -633,7 +727,7 @@ export default async function WorkspacePage(props: {
         </section>
       )}
 
-      <Widgets manifest={manifest} position="below" rows={rows} stats={stats} />
+      <Widgets manifest={manifest} position="below" rows={windowed} stats={stats} />
 
       {rowsLead && pluginPanel}
       {rowsLead && about}

@@ -246,21 +246,50 @@ const SinceValueSchema = z.string().regex(/^(month|week|today|\d+d)$/, { message
 
 const FilterSchema = z.object({
   field: z.string(),
-  op: z.enum(['eq', 'neq', 'gte', 'lte', 'in', 'exists', 'since']),
+  op: z.enum(['eq', 'neq', 'gte', 'lte', 'in', 'exists', 'missing', 'since']),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))]).optional(),
 }).refine(f => f.op !== 'since' || SinceValueSchema.safeParse(f.value).success, { message: 'since takes month, week, today or <n>d', path: ['value'] });
 
+/** One filter, or every one of several that a row must pass. */
+const WhereSchema = z.union([FilterSchema, z.array(FilterSchema).min(1)]);
+
+/**
+ * `where: {…}` and `where: [{…}, {…}]` both read as a list of filters.
+ * @param where - One filter, several, or none.
+ */
+export function filtersOf(where: z.infer<typeof WhereSchema> | undefined): z.infer<typeof FilterSchema>[] {
+  return where === undefined ? [] : Array.isArray(where) ? where : [where];
+}
+
 const StatSchema = z.object({
   label: z.string(),
-  kind: z.enum(['count', 'avg', 'min', 'max', 'sum', 'pctGte', 'countWhere']),
+  kind: z.enum(['count', 'avg', 'min', 'max', 'sum', 'pctGte', 'countWhere', 'ratio', 'medianHours']),
   /** Field the stat computes over (same accessor grammar as FieldSchema.from). */
   field: z.string().optional(),
   threshold: z.number().optional(),
-  where: FilterSchema.optional(),
+  where: WhereSchema.optional(),
+  /**
+   * `ratio` only: the DENOMINATOR's rows. Left out, the denominator counts
+   * the same rows the numerator does, which is what makes "cost per shipped
+   * outcome" reconcile against "shipped outcomes" beside it: one pool, one
+   * count, and a reader who divides the two headline figures gets the third.
+   */
+  of: WhereSchema.optional(),
+  /**
+   * `ratio` only: the field summed over the denominator's rows. Left out,
+   * the denominator is a count of them. `field` over `overField` is how a
+   * share of spend is stated (rework cents over all cents).
+   */
+  overField: z.string().optional(),
+  /** `medianHours` only: the accessor holding the START date; `field` holds the end. */
+  from: z.string().optional(),
   /** Optional suffix, e.g. "%" or "applicants". */
   suffix: z.string().optional(),
-  /** `money` reads the figure as cents and shows dollars, the way a `money` field does. */
-  format: z.enum(['number', 'money']).default('number'),
+  /**
+   * `money` reads the figure as cents and shows dollars, the way a `money`
+   * field does; `percent` reads a `ratio` as a share and shows it as one.
+   */
+  format: z.enum(['number', 'money', 'percent']).default('number'),
   /**
    * Leave the figure out entirely when it is zero. "0 lost" is a tile spent
    * telling a person that a thing which did not happen did not happen, and
@@ -268,6 +297,42 @@ const StatSchema = z.object({
    * the page when the exception happened and nowhere else.
    */
   hideWhenZero: z.boolean().default(false),
+  /**
+   * The section this figure belongs under. Stats with no group are the
+   * headline row, in the order they are written; every other group follows
+   * under its own heading, groups in first-seen order. A page that promises
+   * four numbers can then show four, and put quality beside them rather than
+   * in the same undifferentiated grid.
+   */
+  group: z.string().optional(),
+  /**
+   * What the figure measures, exactly: the sentence that would otherwise be
+   * a methodology paragraph on the page. Rendered behind an information
+   * affordance next to the number, never beside it.
+   */
+  note: z.string().optional(),
+  /** Ignore the page's time window: this figure is cumulative on purpose. */
+  lifetime: z.boolean().optional(),
+});
+
+/**
+ * One time window the whole page obeys.
+ *
+ * Without it a page mixes "this month", "cumulative" and figures that never
+ * said, and no two of them can be compared. `field` is the date every row is
+ * judged by, `options` are the choices in days, and `all` is offered last so
+ * a lifetime view stays one click away. The chosen window filters the rows
+ * AND every stat that has not marked itself `lifetime`.
+ */
+const PageWindowSchema = z.object({
+  /** The row's date the window is measured against. */
+  field: z.string().min(1),
+  /** The choices, in days, smallest first. */
+  options: z.array(z.number().int().positive().max(3650)).min(1).default([7, 30, 90]),
+  /** Which choice a first visit gets: a number of days, or `all`. */
+  default: z.union([z.number().int().positive().max(3650), z.literal('all')]).default(30),
+  /** What the date means, in a person's words, such as "cost last moved". */
+  label: z.string().optional(),
 });
 
 /**
@@ -280,6 +345,8 @@ const SeriesSchema = z.object({
   label: z.string(),
   /** The date each row is bucketed by (same accessor grammar as FieldSchema.from). */
   dateField: z.string(),
+  /** Which rows the series is over: shipped outcomes per week, not rows per week. */
+  where: WhereSchema.optional(),
   bucket: z.enum(['day', 'week', 'month']).default('week'),
   buckets: z.number().int().min(2).max(52).default(8),
   measures: z.array(z.object({
@@ -774,6 +841,16 @@ export const PageManifestSchema = z.object({
    * that never says otherwise keeps today's behaviour.
    */
   statsMinRows: z.number().int().min(0).default(0),
+  /** One time window every stat and row obeys; see {@link PageWindowSchema}. */
+  window: PageWindowSchema.optional(),
+  /**
+   * Prose that explains HOW the figures are computed, rendered collapsed
+   * behind "How these numbers are computed" rather than above them. Defaults
+   * to `<slug>.methodology.md` next to the yaml, and is simply absent when
+   * no such file ships. An index communicates results; the method is one
+   * click away, not a paragraph a reader must step over.
+   */
+  methodologyFile: z.string().optional(),
   /** Figures over time, drawn under the stats — see {@link SeriesSchema}. */
   series: z.array(SeriesSchema).optional(),
   /** Row click-through, e.g. `/dashboard/objects/{id}`. `{id}` interpolates. */
@@ -833,6 +910,7 @@ export type PageView = z.infer<typeof ViewSchema>;
 export type PagePrimary = NonNullable<z.infer<typeof PageManifestSchema>['primary']>;
 export type PageLive = z.infer<typeof LiveSchema>;
 export type PageStat = z.infer<typeof StatSchema>;
+export type PageWindow = z.infer<typeof PageWindowSchema>;
 export type PageSeries = z.infer<typeof SeriesSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
 export type PageRowAction = z.infer<typeof RowActionSchema>;
@@ -977,6 +1055,10 @@ export function applyFilter(rows: PageRow[], filters: z.infer<typeof FilterSchem
       case 'lte': return typeof v === 'number' && typeof f.value === 'number' && v <= f.value;
       case 'in': return Array.isArray(f.value) && (f.value as unknown[]).includes(v as never);
       case 'exists': return v !== undefined && v !== null && v !== '';
+      // The inverse, because "reached an outcome with nobody deciding it" is
+      // a count of rows a field is ABSENT from, and a page could only ask
+      // for the rows it was present on.
+      case 'missing': return v === undefined || v === null || v === '';
       case 'since': {
         const d = toDate(v);
         return d !== null && typeof f.value === 'string' && d.getTime() >= sinceStart(f.value, now).getTime();
@@ -1020,16 +1102,68 @@ function numbersOf(rows: PageRow[], field: string | undefined): number[] {
     : [];
 }
 
-function renderFigure(value: number, format: 'number' | 'money', suffix = ''): string {
+function renderFigure(value: number, format: 'number' | 'money' | 'percent', suffix = ''): string {
   if (format === 'money') {
     return `${formatMoney(value)}${suffix}`;
+  }
+  if (format === 'percent') {
+    return `${Math.round(value * 1000) / 10}%${suffix}`;
   }
   const rounded = Number.isInteger(value) ? value : Math.round(value * 10) / 10;
   return `${rounded}${suffix}`;
 }
 
+/**
+ * The median of these numbers, the even case averaged. Empty is 0, the same
+ * answer every other aggregate gives an empty pool.
+ * @param nums - The numbers, in any order.
+ */
+function median(nums: number[]): number {
+  if (nums.length === 0) {
+    return 0;
+  }
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * Hours from `from` to `field` on every row that carries both dates in that
+ * order. A row missing either end is left out rather than counted as zero:
+ * an outcome with no ship date has no cycle time, and inventing one would be
+ * the kind of number this page exists to stop.
+ * @param rows - The pool.
+ * @param stat - The stat, whose `from` is the start and `field` the end.
+ */
+function elapsedHours(rows: PageRow[], stat: PageStat): number[] {
+  const out: number[] = [];
+  for (const r of rows) {
+    const start = toDate(resolveField(r, stat.from ?? ''));
+    const end = toDate(resolveField(r, stat.field ?? ''));
+    if (start === null || end === null || end.getTime() < start.getTime()) {
+      continue;
+    }
+    out.push((end.getTime() - start.getTime()) / 3_600_000);
+  }
+  return out;
+}
+
+/**
+ * A stat's figure, rendered.
+ *
+ * `ratio` is the one worth reading twice. Its numerator is `field` summed
+ * over the rows `where` keeps, or a count of them when no field is named;
+ * its denominator is `overField` summed over the rows `of` keeps, or a count
+ * of THOSE, and `of` defaults to the same rows as `where`. So a cost per
+ * outcome divides the spend on a pool by the SIZE of that pool, not by how
+ * many of its rows happened to carry a figure, which is what let a page show
+ * an average nobody could reproduce by dividing the two numbers beside it.
+ * @param rows - The page's rows, already narrowed to the page's time window.
+ * @param stat - The declaration.
+ * @param now - The clock, for `since` filters.
+ */
 export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Date()): string {
-  const pool = stat.where ? applyFilter(rows, [stat.where], now) : rows;
+  const pool = applyFilter(rows, filtersOf(stat.where), now);
   const nums = numbersOf(pool, stat.field);
   let value: number;
   switch (stat.kind) {
@@ -1039,6 +1173,18 @@ export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Dat
     case 'pctGte': {
       const t = stat.threshold ?? 0;
       value = nums.length ? (nums.filter(n => n >= t).length / nums.length) * 100 : 0;
+      break;
+    }
+    case 'medianHours':
+      value = median(elapsedHours(pool, stat));
+      break;
+    case 'ratio': {
+      const over = stat.of === undefined ? pool : applyFilter(rows, filtersOf(stat.of), now);
+      const numerator = stat.field === undefined ? pool.length : nums.reduce((a, b) => a + b, 0);
+      const denominator = stat.overField === undefined
+        ? over.length
+        : numbersOf(over, stat.overField).reduce((a, b) => a + b, 0);
+      value = denominator === 0 ? 0 : numerator / denominator;
       break;
     }
     default:
@@ -1056,6 +1202,46 @@ export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Dat
  */
 export function isZeroFigure(rendered: string): boolean {
   return /^-?\$?0(?:\.0+)?\D*$/.test(rendered.trim());
+}
+
+/**
+ * The rows a chosen time window keeps: those whose `window.field` is on or
+ * after the cutoff. `all` keeps everything. A row with no readable date is
+ * dropped from every finite window and appears only under `all`: it did not
+ * happen in the last thirty days, and keeping it there would put work of
+ * unknown age inside a figure that claims a period.
+ * @param rows - Every row the page loaded.
+ * @param window - The page's window declaration, or undefined for no window.
+ * @param days - The chosen span in days, or `all`.
+ * @param now - The clock.
+ */
+export function applyWindow(rows: PageRow[], window: PageWindow | undefined, days: number | 'all', now: Date = new Date()): PageRow[] {
+  if (!window || days === 'all') {
+    return rows;
+  }
+  const cutoff = now.getTime() - days * 86_400_000;
+  return rows.filter((r) => {
+    const d = toDate(resolveField(r, window.field));
+    return d !== null && d.getTime() >= cutoff;
+  });
+}
+
+/**
+ * The window a request asked for, kept inside the page's own choices so a
+ * hand-typed `?days=9999` cannot quietly widen a figure past what the page
+ * says it is showing.
+ * @param window - The page's window declaration.
+ * @param raw - The `days` search parameter, if any.
+ */
+export function chosenWindow(window: PageWindow | undefined, raw: string | undefined): number | 'all' {
+  if (!window) {
+    return 'all';
+  }
+  if (raw === 'all') {
+    return 'all';
+  }
+  const n = Number.parseInt(raw ?? '', 10);
+  return window.options.includes(n) ? n : window.default;
 }
 
 /**
@@ -1149,7 +1335,7 @@ export function computeSeries(rows: PageRow[], series: PageSeries, now: Date = n
   const last = bucketStart(now, series.bucket);
   const starts = Array.from({ length: series.buckets }, (_, i) => bucketBack(last, series.buckets - 1 - i, series.bucket));
   const pools: PageRow[][] = starts.map(() => []);
-  for (const r of rows) {
+  for (const r of applyFilter(rows, filtersOf(series.where), now)) {
     const d = toDate(resolveField(r, series.dateField));
     if (!d) {
       continue;

@@ -39,7 +39,8 @@ export type RollupDeclaration = {
 export type RollupWrite = {
   type: string;
   id: number;
-  fields: Record<string, number>;
+  /** A sum or a count is a number; a `min` over a date key is an ISO string. */
+  fields: Record<string, number | string>;
 };
 
 /** Only the two keys the roll-up needs; a type file that fails its full schema still declares. */
@@ -146,6 +147,13 @@ async function parentsOf(orgId: string, parentTypeId: number, child: ObjectRow, 
     }
     return db.select().from(businessObjectSchema).where(and(...scope, eq(businessObjectSchema.id, parentId)));
   }
+  if (rollup.from.inList) {
+    const ids = idsOf((child.metadata ?? {})[rollup.from.inList]);
+    if (ids.length === 0) {
+      return [];
+    }
+    return db.select().from(businessObjectSchema).where(and(...scope, inArray(businessObjectSchema.id, ids)));
+  }
   return db.select().from(businessObjectSchema).where(and(...scope, sql`${businessObjectSchema.metadata} -> ${sql.raw(`'${rollup.from.ids}'`)} @> ${JSON.stringify([child.id])}::jsonb`));
 }
 
@@ -161,11 +169,54 @@ async function childrenOf(orgId: string, childTypeId: number, parent: ObjectRow,
   if (rollup.from.by) {
     return db.select().from(businessObjectSchema).where(and(...scope, eq(metaText(rollup.from.by), String(parent.id))));
   }
+  if (rollup.from.inList) {
+    return db.select().from(businessObjectSchema).where(and(...scope, sql`${businessObjectSchema.metadata} -> ${sql.raw(`'${rollup.from.inList}'`)} @> ${JSON.stringify([parent.id])}::jsonb`));
+  }
   const ids = idsOf((parent.metadata ?? {})[rollup.from.ids!]);
   if (ids.length === 0) {
     return [];
   }
   return db.select().from(businessObjectSchema).where(and(...scope, inArray(businessObjectSchema.id, ids)));
+}
+
+/**
+ * The children one rollup counts. `status` reads the object's own column
+ * (a task's `accepted` or `rejected` is a status, not metadata), and anything
+ * else reads the metadata key of that name.
+ * @param children - Every child through the link.
+ * @param where - The declaration's filter, or undefined for all of them.
+ */
+function qualifying(children: ObjectRow[], where: Rollup['where']): ObjectRow[] {
+  if (!where) {
+    return children;
+  }
+  return children.filter((c) => {
+    const v = where.field === 'status' ? c.status : (c.metadata ?? {})[where.field];
+    return typeof v === 'string' && where.in.includes(v);
+  });
+}
+
+/**
+ * The earliest of a date key over these children, as an ISO string, or
+ * undefined when not one of them carries a readable date. Undefined is left
+ * unwritten rather than written as null: a request that has not shipped has
+ * no ship date, and an empty field says that more honestly than a null does.
+ * @param children - The qualifying children.
+ * @param key - The child's date metadata key.
+ */
+function earliestOf(children: ObjectRow[], key: string): string | undefined {
+  let best: number | null = null;
+  for (const c of children) {
+    const raw = (c.metadata ?? {})[key];
+    if (typeof raw !== 'string' && typeof raw !== 'number') {
+      continue;
+    }
+    const t = new Date(raw).getTime();
+    if (Number.isFinite(t) && (best === null || t < best)) {
+      best = t;
+    }
+  }
+  return best === null ? undefined : new Date(best).toISOString();
 }
 
 /**
@@ -217,9 +268,16 @@ export async function recomputeRollups(opts: { orgId: string; childType: string;
       }
     }
     for (const parent of parents.values()) {
-      const fields: Record<string, number> = {};
+      const fields: Record<string, number | string> = {};
       for (const rollup of rollups) {
-        const children = await childrenOf(opts.orgId, childTypeId, parent, rollup);
+        const children = qualifying(await childrenOf(opts.orgId, childTypeId, parent, rollup), rollup.where);
+        if (rollup.min) {
+          const earliest = earliestOf(children, rollup.min);
+          if (earliest !== undefined) {
+            fields[rollup.field] = earliest;
+          }
+          continue;
+        }
         fields[rollup.field] = rollup.sum
           ? children.reduce((acc, c) => acc + numberOf((c.metadata ?? {})[rollup.sum!]), 0)
           : children.length;
@@ -231,4 +289,37 @@ export async function recomputeRollups(opts: { orgId: string; childType: string;
     }
   }
   return written;
+}
+
+/**
+ * A record was written through the objects API: recompute every rollup that
+ * reaches it, as if its cost had moved.
+ *
+ * A worker run ending is not the only thing that changes a parent's figures.
+ * A release record written when a deploy lands is what tells a request WHEN
+ * it shipped, and a task moving to `rejected` is what tells a request how
+ * much of its spend was rework, and neither goes through the run cost path. So
+ * every write on an object is treated as a change to a possible child.
+ *
+ * Best effort by design, and silent when the record's type declares nothing:
+ * a rollup that cannot be recomputed must not fail the write that a person
+ * or an agent just made.
+ * @param orgId - Tenant.
+ * @param objectId - The record that was written.
+ * @param now - The clock, injectable for tests.
+ * @returns What was written on the parents, empty when nothing reached one.
+ */
+export async function recomputeRollupsForObject(orgId: string, objectId: number, now?: Date): Promise<RollupWrite[]> {
+  try {
+    const row = await db.select({ slug: businessObjectTypeSchema.slug })
+      .from(businessObjectSchema)
+      .innerJoin(businessObjectTypeSchema, eq(businessObjectSchema.typeId, businessObjectTypeSchema.id))
+      .where(and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.id, objectId)))
+      .limit(1);
+    const slug = row[0]?.slug;
+    return slug === undefined ? [] : await recomputeRollups({ orgId, childType: slug, childId: objectId, now });
+  } catch {
+    // The write stands whatever the rollup did; the next write recomputes.
+    return [];
+  }
 }

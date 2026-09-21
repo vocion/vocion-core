@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PageManifestSchema, pagePlugin, readWorkspacePageContent, readWorkspacePages } from './pages';
+import { PageManifestSchema, pagePlugin, readWorkspacePageContent, readWorkspacePageMethodology, readWorkspacePages } from './pages';
 
 // Plugin pages ride the same loader as workspace pages: an enabled plugin's
 // pages/ dir joins the list, a same-slug workspace page wins, and prose is
@@ -243,43 +243,72 @@ describe('plugin pages', () => {
     expect(releases?.nav.hidden).toBe(true);
   });
 
-  it('Performance leads with four numbers and never blends the two autonomy measures', () => {
+  it('Performance leads with four numbers, and its cost figure reconciles against the count beside it', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const perf = pages.find(p => p.slug === 'performance');
     const fields = Object.fromEntries((perf?.fields ?? []).map(f => [f.key, f]));
-    const labels = (perf?.stats ?? []).map(s => s.label);
+    const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
+    const headline = (perf?.stats ?? []).filter(s => s.group === undefined).map(s => s.label);
 
     expect(issues).toEqual([]);
     // Rows are requests; the figures are rolled up onto the record when a
     // task's cost is written, so the page never computes across types.
     expect(perf?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(perf?.groupBy).toBe('meta.tags');
-    expect(fields.estimate).toMatchObject({ from: 'meta.estimateCents', format: 'money', total: true });
     expect(fields.actual).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
-    expect(fields.variance).toMatchObject({ from: 'meta.varianceCents', format: 'money', total: true });
+    expect(fields.rework).toMatchObject({ from: 'meta.reworkCents', format: 'money', total: true });
 
-    // The four headline numbers come first, in order, before the evidence.
-    expect(labels.slice(0, 4)).toEqual([
-      'Spent this month',
-      'Accepted changes (requests shipped)',
-      'Cost per accepted change',
-      'Waste: spent, then answered instead of shipped',
+    // FOUR headline numbers, in order, and nothing else ungrouped: output,
+    // speed, economics, human load.
+    expect(headline).toEqual([
+      'Shipped outcomes',
+      'Ask to ship, median',
+      'Cost per shipped outcome',
+      'Decision minutes asked of a person',
     ]);
 
-    // Work autonomy and human attention are named separately. "94%
-    // auto-completed" beside "32 need attention" creates questions, not
-    // confidence, so neither is averaged into the other.
-    expect(labels.filter(l => l.startsWith('Work autonomy:'))).toHaveLength(2);
-    expect(labels.filter(l => l.startsWith('Human attention:'))).toHaveLength(2);
-    expect(labels.some(l => /^Autonomy$/.test(l))).toBe(false);
+    // The cost figure and the count above it are over the SAME pool, which is
+    // what makes the page survive a reader dividing one by the other. `avg`
+    // would divide by however many rows carried a figure instead.
+    expect(stats['Cost per shipped outcome']).toMatchObject({
+      kind: 'ratio',
+      field: 'meta.actualCents',
+      format: 'money',
+      where: { field: 'meta.state', op: 'eq', value: 'shipped' },
+    });
+    expect(stats['Cost per shipped outcome']?.of).toBeUndefined();
+    expect(stats['Shipped outcomes']).toMatchObject({
+      kind: 'countWhere',
+      where: { field: 'meta.state', op: 'eq', value: 'shipped' },
+    });
 
-    const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
+    // An honest answer is not waste. Nothing on this page charges spend for
+    // reaching the `answered` outcome, and rework is the figure that replaced
+    // it.
+    expect(Object.keys(stats).some(l => /waste/i.test(l))).toBe(false);
+    expect(stats['Rework spend']).toMatchObject({ kind: 'sum', field: 'meta.reworkCents', format: 'money' });
+    expect(JSON.stringify(perf?.stats)).not.toContain('"value":"answered"');
 
-    expect(stats['Spent this month']).toMatchObject({ kind: 'sum', where: { field: 'meta.rollupsUpdatedAt', op: 'since', value: 'month' } });
-    expect(stats['Average cost of a feature']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'in', value: ['gap', 'idea'] } });
-    expect(stats['Average cost of a bug']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'eq', value: 'bug' } });
-    expect(readWorkspacePageContent(perf!)).toContain('estimated');
+    // Quality is its own section of three, and autonomy is stated as counts
+    // of outcomes rather than blended into a percentage.
+    expect((perf?.stats ?? []).filter(s => s.group === 'Quality').map(s => s.label)).toEqual([
+      'Accepted first pass',
+      'Rework spend',
+      'Defects reported',
+    ]);
+    expect((perf?.stats ?? []).filter(s => s.group === 'What autonomy saved')).toHaveLength(3);
+    expect(Object.keys(stats).some(l => /^Autonomy$/.test(l))).toBe(false);
+
+    // Tags are a filter, not a section: grouping by them double counts, since
+    // one request carries several and its money lands under each.
+    expect(perf?.groupBy).toBe('meta.state');
+    expect(fields.tags).toMatchObject({ from: 'meta.tags' });
+
+    // One window the whole page obeys, and the methodology is behind an
+    // affordance rather than above the numbers.
+    expect(perf?.window).toMatchObject({ field: 'createdAt', options: [7, 30, 90], default: 30 });
+    expect(readWorkspacePageMethodology(perf!)).toContain('Rework, not waste');
+    expect(readWorkspacePageContent(perf!)).not.toContain('estimated');
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

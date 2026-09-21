@@ -1165,17 +1165,35 @@ const MetaKeySchema = z.string().regex(/^[a-z_]\w*$/i, {
 });
 
 /**
- * One figure this type carries that is COMPUTED from another type's rows —
- * the sum of a child field, or the count of children — rather than typed.
+ * Which of a parent's children one rollup counts. `field` is either `status`
+ * (the object's own column, which is where a task's `accepted`, `rejected`
+ * and `abandoned` live) or a metadata key. `in` lists the values that
+ * qualify. Omitted, every child counts, which is what the cost rollups want.
  *
- * The link runs one of two ways: `by` names the child's field that holds
+ * This is what lets one type carry two figures over the same children: a
+ * request's `actualCents` is every task it took, and its `reworkCents` is
+ * only the tasks that were thrown away.
+ */
+export const RollupWhereSchema = z.object({
+  field: MetaKeySchema,
+  in: z.array(z.string()).min(1),
+});
+
+/**
+ * One figure this type carries that is COMPUTED from another type's rows:
+ * the sum of a child field, the earliest of a child date, or the count of
+ * children, rather than typed.
+ *
+ * The link runs one of three ways: `by` names the child's field that holds
  * this record's id (`engineering_task.requestId` → `request`), `ids` names
- * this record's field that lists child ids (`release.taskIds`). Core
- * recomputes every rollup that reaches a child when that child's cost is
- * written back from a worker run (`services/objects/rollups.ts`), and stamps
- * `rollupsUpdatedAt` beside the figures; a page reads them like any other
- * metadata. Nothing here reaches the database schema — the declaration is
- * read from the type file at the moment it is needed, the way pages are.
+ * this record's field that lists child ids (`release.taskIds`), and `inList`
+ * names the child's field that LISTS this record's id (`release.requestIds`
+ * → `request`, which is how a request learns when it shipped). Core
+ * recomputes every rollup that reaches a child when that child is written,
+ * and stamps `rollupsUpdatedAt` beside the figures; a page reads them like
+ * any other metadata. Nothing here reaches the database schema; the
+ * declaration is read from the type file at the moment it is needed, the way
+ * pages are.
  */
 export const RollupSchema = z.object({
   /** The metadata key written on THIS type. */
@@ -1187,10 +1205,16 @@ export const RollupSchema = z.object({
     by: MetaKeySchema.optional(),
     /** This record's metadata key listing child ids. */
     ids: MetaKeySchema.optional(),
-  }).refine(l => (l.by !== undefined) !== (l.ids !== undefined), { message: 'a rollup link names exactly one of `by` (the child points here) or `ids` (this record lists its children)' }),
-  /** The child's metadata key to sum. Omitted, the rollup is a count of children. */
+    /** The child's metadata key whose list of ids contains this record's. */
+    inList: MetaKeySchema.optional(),
+  }).refine(l => [l.by, l.ids, l.inList].filter(v => v !== undefined).length === 1, { message: 'a rollup link names exactly one of `by` (the child points here), `ids` (this record lists its children) or `inList` (the child lists this record)' }),
+  /** The child's metadata key to sum. Omitted with no `min`, the rollup is a count of children. */
   sum: MetaKeySchema.optional(),
-});
+  /** The child's date key whose EARLIEST value is written, as an ISO string. */
+  min: MetaKeySchema.optional(),
+  /** Which children count; see {@link RollupWhereSchema}. */
+  where: RollupWhereSchema.optional(),
+}).refine(r => !(r.sum !== undefined && r.min !== undefined), { message: 'a rollup is a sum, a min or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
 
 export const ObjectTypeManifestSchema = z.object({

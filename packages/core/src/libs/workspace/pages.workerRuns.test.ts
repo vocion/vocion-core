@@ -105,7 +105,7 @@ describe('a field that is evidence rather than a column', () => {
 
   it('is kept out of the table and handed to the row', () => {
     const fields = [f({ key: 'headline' }), f({ key: 'cost', format: 'money' }), f({ key: 'tokens', detail: true }), f({ key: 'lease', detail: true })];
-    const rows: PageRow[] = [{ id: 1, title: 't', status: null, createdAt: null, meta: {} }];
+    const rows: PageRow[] = [{ id: 1, title: 't', status: null, createdAt: null, meta: { cost: 100 } }];
     const layout = tableLayout(rows, fields, { field: 'headline', subtitle: [] });
 
     expect(layout.columns.map(c => c.key)).toEqual(['cost']);
