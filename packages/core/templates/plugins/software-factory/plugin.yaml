@@ -53,7 +53,20 @@ name: Software factory
 # that did not happen says so; a run that says failed whose pull request
 # merged shows both facts and is flagged. Reached by the "Report" action on
 # the Backlog and the Factory floor.
-version: 1.7.0
+#
+# 1.8.0 - naming the work: one playbook, `playbooks/naming-the-work`, that
+# separates the five names a piece of work carries and gives each one its
+# job. The request title is the ask in the asker's words and is never
+# rewritten. The task title is the change, literally, in the imperative,
+# naming the user-visible outcome and where it happens, and it fails review
+# when it describes the situation instead ("Ship the email wordmark the
+# invite email already points at"). The commit subject is Conventional
+# Commits; the pull request title is the task title with the prefix; the
+# release note is what a customer can now do. `write-task-contract` requires
+# the form and lists what fails review, the planner names the task before it
+# writes the contract, and the engineer builds the commit subject and the
+# pull request title from the title rather than truncating the objective.
+version: 1.8.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

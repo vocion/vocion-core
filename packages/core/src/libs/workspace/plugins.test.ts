@@ -54,7 +54,7 @@ describe('the shipped catalogue', () => {
 
     expect(factory.agents).toEqual(['change-reviewer', 'product-manager', 'task-engineer', 'task-planner']);
     expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'triage-request', 'write-release-notes', 'write-task-contract']);
-    expect(factory.playbooks).toEqual(['house-voice', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
+    expect(factory.playbooks).toEqual(['house-voice', 'naming-the-work', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
     expect(factory.objectTypes).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
     expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-debrief', 'product-review', 'stand-up-product', 'tell-the-requester']);
     // Every way the product manager acts is an automation — visible, pausable, named after the mission it serves.
@@ -268,9 +268,9 @@ describe('loadWorkspace with the software factory', () => {
     // Playbooks a plugin ships are active and attached: through a skill's
     // frontmatter for the planner and reviewer, through `playbooks:` on the
     // engineer, which has no skill of its own.
-    expect(ws.playbooks.map(p => p.slug).sort()).toEqual(['house-voice', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
+    expect(ws.playbooks.map(p => p.slug).sort()).toEqual(['house-voice', 'naming-the-work', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
     expect(ws.skills.find(s => s.slug === 'triage-request')?.playbooks).toEqual(['the-twenty-percent', 'written-promises']);
-    expect(ws.agents.find(a => a.slug === 'task-engineer')?.playbooks).toEqual(['verify-against-reality', 'house-voice']);
+    expect(ws.agents.find(a => a.slug === 'task-engineer')?.playbooks).toEqual(['verify-against-reality', 'house-voice', 'naming-the-work']);
     // The engineer runs outside the app (ADR 0004); the planner and reviewer
     // leave `runsOn` unset, which is how the in-process default stays
     // reachable.
@@ -287,9 +287,44 @@ describe('loadWorkspace with the software factory', () => {
     // Telling an asker and announcing a release are gated, medium-tier: they may earn their way, never start there.
     expect(ws.trust?.rules.find(r => r.action === 'notify.requester')).toMatchObject({ enabled: false, risk: 'medium' });
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
-    expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises']);
+    expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises', 'naming-the-work']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.7.0');
+    expect(ws.sha).toContain('+software-factory@1.8.0');
+  });
+
+  it('names the work: one playbook the planner, the engineer and the reviewer all read', () => {
+    const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
+    const naming = ws.playbooks.find(p => p.slug === 'naming-the-work');
+
+    // Five names, five jobs. The playbook is the one place they are told apart.
+    expect(naming?.name).toBe('Naming the work');
+    expect(naming?.body).toContain('request title');
+    expect(naming?.body).toContain('task title');
+    expect(naming?.body).toContain('commit subject');
+    expect(naming?.body).toContain('pull request title');
+    expect(naming?.body).toContain('release note');
+    // Researched, not invented: the sources are cited by name and url.
+    expect(naming?.body).toContain('https://www.conventionalcommits.org/en/v1.0.0/');
+    expect(naming?.body).toContain('https://chris.beams.io/posts/git-commit/');
+    expect(naming?.body).toContain('https://www.kernel.org/doc/html/latest/process/submitting-patches.html');
+    expect(naming?.body).toContain('https://www.atlassian.com/agile/project-management/user-stories');
+
+    // Reaches every seat that writes a name: the planner and the reviewer
+    // through their skills, the engineer through `playbooks:` on the agent.
+    expect(ws.skills.find(s => s.slug === 'write-task-contract')?.playbooks).toEqual(['the-twenty-percent', 'written-promises', 'naming-the-work']);
+    expect(ws.skills.find(s => s.slug === 'review-against-contract')?.playbooks).toEqual(['written-promises', 'verify-against-reality', 'naming-the-work']);
+    expect(ws.agents.find(a => a.slug === 'task-engineer')?.playbooks).toContain('naming-the-work');
+
+    // The contract skill requires the form and says what a reviewer returns.
+    const contractSkill = ws.skills.find(s => s.slug === 'write-task-contract');
+
+    expect(contractSkill?.body).toContain('The title names the change, literally');
+    expect(contractSkill?.body).toContain('What fails review');
+    expect(contractSkill?.body).toContain('Smoke test:');
+
+    // Both prompts point at it by name, so neither seat invents its own house style.
+    expect(ws.agents.find(a => a.slug === 'task-planner')?.resolvedSystemPrompt).toContain('naming-the-work');
+    expect(ws.agents.find(a => a.slug === 'task-engineer')?.resolvedSystemPrompt).toContain('naming-the-work');
   });
 
   it('seats a product manager who recommends and never authorizes, and says how, when and why it acts', () => {
