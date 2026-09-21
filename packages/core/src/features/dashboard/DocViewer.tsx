@@ -1,10 +1,10 @@
 import { dirname, join, normalize } from 'node:path';
-import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import rehypeSlug from 'rehype-slug';
 import remarkDirective from 'remark-directive';
 import remarkGfm from 'remark-gfm';
 import { remarkCallouts } from '@/libs/docs/remark-callouts';
+import { Link } from '@/libs/I18nNavigation';
 
 // NOTE: `rehype-pretty-code` (Shiki) is async-only; `react-markdown@10`
 // runs `unified.runSync()` which can't process async plugins. Syntax

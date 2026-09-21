@@ -1,9 +1,9 @@
 import { ExternalLink, LineChart } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
+import { Link } from '@/libs/I18nNavigation';
 import { langfuseConfig } from '@/libs/Langfuse';
 import { browserProjectId } from '@/libs/Langfuse/config';
 import { listAgentBudgets, listPlatformBudgets, ORG_SCOPE_SLUG, orgUsageTotals } from '@/services/BudgetService';
