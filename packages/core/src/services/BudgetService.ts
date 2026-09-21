@@ -518,8 +518,10 @@ async function writeChargeWithRetry(
 function logUnrecordedSpend(properties: Record<string, unknown>): void {
   import('@/libs/Logger')
     .then(({ logger }) => logger.error('budget charge failed and the spend is unrecorded', properties))
-    // Nothing useful left to do if logging itself is broken.
-    .catch(() => {});
+    // The logger itself is unavailable — in a test harness, or because its own
+    // environment is unset. Fall back to the console rather than swallowing it:
+    // this line is the only remaining record of money the product spent.
+    .catch(loggerError => console.error('budget charge failed and the spend is unrecorded, and the logger was unavailable', { ...properties, loggerError }));
 }
 
 /**

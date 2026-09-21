@@ -91,6 +91,9 @@ export async function chargeModelCall(opts: {
 function logChargeFailure(properties: Record<string, unknown>): void {
   import('@/libs/Logger')
     .then(({ logger }) => logger.warn('could not charge a model call to the budget', properties))
-    // Nothing useful left to do if logging itself is broken.
-    .catch(() => {});
+    // The logger itself is unavailable — in a test harness, or because its own
+    // environment is unset. Fall back to the console rather than swallowing it:
+    // an uncharged call that says nothing anywhere is the defect this exists to
+    // report.
+    .catch(loggerError => console.error('could not charge a model call to the budget, and the logger was unavailable', { ...properties, loggerError }));
 }
