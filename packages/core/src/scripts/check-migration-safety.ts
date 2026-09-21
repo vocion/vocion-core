@@ -66,6 +66,7 @@ const CONVENTIONS_DOC = `${MIGRATIONS_RELATIVE_DIR}/CONVENTIONS.md`;
 
 export type MigrationProblemRule
   = | 'blocking-index'
+    | 'concurrent-build-ahead-of-its-columns'
     | 'concurrent-build-in-transactional-migration'
     | 'non-concurrent-index-in-concurrent-dir'
     | 'blocking-constraint'
@@ -321,6 +322,153 @@ export function findIndexBuilds(blankedSql: string): IndexBuild[] {
   return builds;
 }
 
+const ADD_COLUMN_PATTERN = new RegExp(
+  String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?(${IDENTIFIER})\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(${IDENTIFIER})`,
+  'gi',
+);
+
+/** Words that open a table constraint rather than name a column. */
+const TABLE_CONSTRAINT_KEYWORDS = new Set(['constraint', 'primary', 'unique', 'foreign', 'check', 'exclude']);
+
+/**
+ * Key a column by the table it belongs to, so two tables can hold a column of
+ * the same name without one standing in for the other.
+ * @param table - Table name, already normalised.
+ * @param column - Column name, already normalised.
+ */
+function columnKey(table: string, column: string): string {
+  return `${table}.${column}`;
+}
+
+/**
+ * Read the column names out of a `CREATE TABLE` body, starting at the opening
+ * parenthesis that follows the table name.
+ *
+ * Only the first identifier of each top-level item counts as a column, which
+ * skips the table constraints written the same way (`CONSTRAINT ... UNIQUE
+ * ("a")`) and the identifiers inside a nested parenthesis.
+ * @param blankedSql - SQL with comments already blanked out.
+ * @param searchFrom - Offset just past the table name.
+ */
+function readCreateTableColumns(blankedSql: string, searchFrom: number): string[] {
+  const open = blankedSql.indexOf('(', searchFrom);
+  if (open === -1) {
+    return [];
+  }
+
+  const columns: string[] = [];
+  let depth = 0;
+  let itemStart = open + 1;
+
+  for (let index = open; index < blankedSql.length; index += 1) {
+    const character = blankedSql[index]!;
+    if (character === '(') {
+      depth += 1;
+      continue;
+    }
+    if (character === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        columns.push(blankedSql.slice(itemStart, index));
+        break;
+      }
+      continue;
+    }
+    if (character === ',' && depth === 1) {
+      columns.push(blankedSql.slice(itemStart, index));
+      itemStart = index + 1;
+    }
+  }
+
+  const named: string[] = [];
+  for (const item of columns) {
+    const leading = new RegExp(String.raw`^\s*(${IDENTIFIER})`, 'i').exec(item);
+    if (!leading) {
+      continue;
+    }
+    const name = normaliseIdentifier(leading[1]!);
+    if (!TABLE_CONSTRAINT_KEYWORDS.has(name)) {
+      named.push(name);
+    }
+  }
+  return named;
+}
+
+/**
+ * Every `table.column` a migration introduces, whether by creating the table
+ * or by adding the column to one that already exists.
+ * @param blankedSql - SQL with comments already blanked out.
+ */
+export function findIntroducedColumns(blankedSql: string): Set<string> {
+  const introduced = new Set<string>();
+
+  for (const match of blankedSql.matchAll(CREATE_TABLE_PATTERN)) {
+    const table = normaliseIdentifier(match[1]!);
+    for (const column of readCreateTableColumns(blankedSql, match.index + match[0].length)) {
+      introduced.add(columnKey(table, column));
+    }
+  }
+
+  for (const match of blankedSql.matchAll(ADD_COLUMN_PATTERN)) {
+    introduced.add(columnKey(normaliseIdentifier(match[1]!), normaliseIdentifier(match[2]!)));
+  }
+
+  return introduced;
+}
+
+/**
+ * The lowest migration number at which each `table.column` exists.
+ *
+ * A column missing from the map is one no numbered migration in this set
+ * introduces — it predates the files being checked, or arrives through SQL
+ * this parser does not read — and the ordering check stays quiet about it
+ * rather than guessing.
+ * @param files - Migration files to inspect; concurrent builds are skipped.
+ */
+export function buildColumnArrivalNumbers(files: MigrationFile[]): Map<string, number> {
+  const arrival = new Map<string, number>();
+
+  for (const file of files) {
+    const number = migrationNumberOf(file.file);
+    if (file.isConcurrentBuild || number === null) {
+      continue;
+    }
+    for (const key of findIntroducedColumns(blankSqlComments(file.sql))) {
+      const seen = arrival.get(key);
+      if (seen === undefined || number < seen) {
+        arrival.set(key, number);
+      }
+    }
+  }
+
+  return arrival;
+}
+
+/**
+ * The columns one index build names, both in the key and in a partial index's
+ * `WHERE` clause — every one of them has to exist when the build runs.
+ *
+ * Columns are read from the quoted identifiers after the table name, which is
+ * how this repo writes them; an unquoted column would be missed, leaving the
+ * check too quiet rather than wrong.
+ * @param blankedSql - SQL with comments already blanked out.
+ * @param build - The index build to read, as found by findIndexBuilds.
+ */
+export function findIndexedColumns(blankedSql: string, build: IndexBuild): string[] {
+  const statementEnd = blankedSql.indexOf(';', build.offset);
+  const statement = blankedSql.slice(build.offset, statementEnd === -1 ? undefined : statementEnd);
+  const onClause = new RegExp(String.raw`\bON\s+(?:ONLY\s+)?${IDENTIFIER}`, 'i').exec(statement);
+  if (!onClause) {
+    return [];
+  }
+
+  const columns: string[] = [];
+  for (const match of statement.slice(onClause.index + onClause[0].length).matchAll(/"([^"]+)"/g)) {
+    columns.push(normaliseIdentifier(match[1]!));
+  }
+  return columns;
+}
+
 /**
  * Split the file into statements on `;`, keeping each one's offset so a
  * problem can be reported against the right line.
@@ -377,13 +525,25 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
       .map(file => migrationNumberOf(file.file)),
   );
 
+  // Placement is only half the ordering problem: a build placed after 0108
+  // that indexes a column 0113 adds stops the deploy with `column ... does not
+  // exist`, and dev never sees it because dev skips this directory entirely.
+  const columnArrivalNumbers = buildColumnArrivalNumbers(files);
+
   for (const file of files) {
     const blanked = blankSqlComments(file.sql);
     const indexBuilds = findIndexBuilds(blanked);
     const number = migrationNumberOf(file.file);
 
     if (file.isConcurrentBuild) {
-      problems.push(...findConcurrentDirectoryProblems(file, blanked, indexBuilds, number, numberedMigrations));
+      problems.push(...findConcurrentDirectoryProblems(
+        file,
+        blanked,
+        indexBuilds,
+        number,
+        numberedMigrations,
+        columnArrivalNumbers,
+      ));
       continue;
     }
 
@@ -437,6 +597,7 @@ export function findMigrationSafetyProblems(files: MigrationFile[]): MigrationPr
  * @param indexBuilds - Index builds already parsed out of it.
  * @param number - Its migration number, or null when the name has no digits.
  * @param numberedMigrations - Numbers of the migrations in the same set.
+ * @param columnArrivalNumbers - Lowest migration number at which each column exists.
  */
 function findConcurrentDirectoryProblems(
   file: MigrationFile,
@@ -444,6 +605,7 @@ function findConcurrentDirectoryProblems(
   indexBuilds: IndexBuild[],
   number: number | null,
   numberedMigrations: Set<number | null>,
+  columnArrivalNumbers: Map<string, number>,
 ): MigrationProblem[] {
   const problems: MigrationProblem[] = [];
   const filename = basename(file.file);
@@ -487,6 +649,19 @@ function findConcurrentDirectoryProblems(
         rule: 'non-concurrent-index-in-concurrent-dir',
         message: `index on "${build.table}" needs IF NOT EXISTS. A concurrent build can be re-applied against a database that already has the index — a baselined one records only the numbered migrations — and without IF NOT EXISTS that run fails on "relation already exists" and aborts the deploy. See ${CONVENTIONS_DOC}.`,
       });
+    }
+    if (number !== null) {
+      for (const column of findIndexedColumns(blanked, build)) {
+        const arrivesAt = columnArrivalNumbers.get(`${build.table}.${column}`);
+        if (arrivesAt !== undefined && arrivesAt > number) {
+          problems.push({
+            file: file.file,
+            line: lineNumberAt(blanked, build.offset),
+            rule: 'concurrent-build-ahead-of-its-columns',
+            message: `"${build.table}"."${column}" is added by migration ${String(arrivesAt).padStart(4, '0')}, but this build runs straight after ${String(number).padStart(4, '0')}, so Postgres answers \`column "${column}" does not exist\` and the deploy stops there. Dev and the unit tests never run this directory, so nothing catches it before the box does. Rename the file to ${CONCURRENT_SUBDIR}/${String(arrivesAt).padStart(4, '0')}_<name>.sql or later. See ${CONVENTIONS_DOC}.`,
+          });
+        }
+      }
     }
     if (build.isUnique) {
       problems.push({

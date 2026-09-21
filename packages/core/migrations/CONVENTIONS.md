@@ -34,6 +34,15 @@ against production straight after the numbered migration that shares its number,
 outside any transaction. The match is on the filename's first four characters,
 so the number needs exactly four digits and an underscore.
 
+Pick that number from the migration that adds the last of the columns being
+indexed, not from the one that made the table. A build placed before a column
+exists stops the deploy with `column "..." does not exist`, and dev never sees
+it because dev skips this directory — on 2026-09-21 that stopped a parent
+project's deploy partway through. `npm run check:migrations` now fails on it
+(`concurrent-build-ahead-of-its-columns`), naming the number to rename the file
+to; a column no numbered migration introduces is left alone rather than
+guessed at.
+
 This only works if whatever applies migrations in a given environment knows to
 look in `concurrent/`. A deploy that globs `packages/core/migrations/*.sql`
 skips the directory in silence, and the index is simply never built there.
