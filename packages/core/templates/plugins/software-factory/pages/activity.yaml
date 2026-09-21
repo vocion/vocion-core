@@ -156,7 +156,13 @@ fields:
   - {key: summary, label: Worker's own report, from: meta.summary, detail: true}
 
 # Both directions with the outcome page: from a run, back to the work it
-# served. An action whose href the row cannot fill is not drawn, so a run with
-# no request simply has no link rather than a link to a 404.
+# served. `meta.requestId` is the real request record's id (resolved off the
+# run's engineering_task, not the free-text `request_id` label a contract's
+# author wrote for their own bookkeeping (that string is not a request id,
+# and following it 404s). A run's task can also exist with no request of its
+# own (a probe, a smoke test), so the second candidate lands on the task
+# record itself rather than the report. An action whose href the row cannot
+# fill is not drawn, so a run with neither simply has no link rather than a
+# link to a 404.
 rowActions:
-  - {label: Outcome, href: '/dashboard/p/feature/{meta.requestId}'}
+  - {label: Outcome, href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}']}

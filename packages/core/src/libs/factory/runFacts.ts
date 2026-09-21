@@ -149,11 +149,32 @@ export function taskRecordId(run: RunLike): string | null {
 }
 
 /**
- * The request the run's contract serves, for the link back to the outcome.
- * @param run
+ * The request a run's task actually serves, resolved from the
+ * engineering_task the run names (`input.record`), never from the
+ * free-text `request_id` label a contract's author wrote into `input.task`
+ * for their own bookkeeping. That label can read like a request
+ * ("send-0009-share-link") or like an incident ("stamp-rename-2026-09-20"),
+ * and it is neither a `request` business object nor its id: treating it as
+ * one is how the Outcome link on Activity used to 404 on a run that had
+ * done nothing wrong.
+ *
+ * The only documented path from a run to its request is `input.record =
+ * {type: 'engineering_task', id}` (docs/entities/worker-run.md) to that
+ * task's own `metadata.requestId`. Resolving `id` to `metadata.requestId`
+ * is a lookup this module cannot do itself, being pure and DB-free by
+ * design, so the caller resolves every task this batch of runs names in one
+ * query and hands the result in as `requestIdByTask`. Null when the run
+ * names no task, or the task it names exists but serves no request of its
+ * own (a probe, a smoke test): either way, honestly, rather than a guess.
+ * @param run - The run.
+ * @param requestIdByTask - Engineering task id -> that task's `metadata.requestId`, or null when the task names no request.
  */
-export function requestId(run: RunLike): string | null {
-  return str(obj(obj(run.input).task).request_id);
+export function resolveRunRequestId(run: RunLike, requestIdByTask: Map<number, number | null>): number | null {
+  const taskId = taskRecordId(run);
+  if (taskId === null) {
+    return null;
+  }
+  return requestIdByTask.get(Number(taskId)) ?? null;
 }
 
 function checkTally(run: RunLike): { passed: number; total: number } {

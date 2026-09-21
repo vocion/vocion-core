@@ -264,6 +264,54 @@ describe('row actions', () => {
 
     expect([...document.querySelectorAll('tbody a')].some(a => a.getAttribute('href')?.includes('/p/feature/'))).toBe(false);
   });
+
+  it('falls back to the task record when the row named a task but no request of its own', async () => {
+    await page.viewport(1440, 900);
+    // A probe or a smoke test: the run has an engineering_task, but that
+    // task serves no request. The Outcome action lands on the task record
+    // instead of drawing no link at all.
+    const probe: PageRow = { ...ROWS[1]!, id: 100, meta: { ...ROWS[1]!.meta, requestId: undefined, taskRecordId: 100 } };
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable
+          rows={[probe]}
+          fields={FIELDS}
+          primary={PRIMARY}
+          rowActions={[{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]}
+          now={Date.parse('2026-09-14T00:00:00Z')}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    const hrefs = [...document.querySelectorAll('tbody a')].map(a => a.getAttribute('href'));
+
+    expect(hrefs).toContain('/dashboard/objects/100');
+    expect(hrefs.some(h => h?.includes('/p/feature/'))).toBe(false);
+  });
+
+  it('draws nothing when neither the request nor the task can be named, the way run 349 could not', async () => {
+    await page.viewport(1440, 900);
+    // The exact shape that reached production: no requestId, no
+    // taskRecordId (the run named no `input.record` at all).
+    const unresolvable: PageRow = { ...ROWS[1]!, id: 101, meta: { ...ROWS[1]!.meta, requestId: undefined, taskRecordId: undefined } };
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable
+          rows={[unresolvable]}
+          fields={FIELDS}
+          primary={PRIMARY}
+          rowActions={[{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]}
+          now={Date.parse('2026-09-14T00:00:00Z')}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    expect([...document.querySelectorAll('tbody a')].length).toBe(0);
+  });
 });
 
 /**

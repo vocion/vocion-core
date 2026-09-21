@@ -6,9 +6,11 @@ import {
   headlineOf,
   outputOf,
   recoveryLabel,
+  resolveRunRequestId,
   runFacts,
   summarizeRuns,
   taskKey,
+  taskRecordId,
   verificationOf,
   withRunRecovery,
 } from './runFacts';
@@ -130,6 +132,20 @@ const stoppedByVocion = run({
   input: { task: { task_id: 'send-0003-posthog' } },
 });
 
+/**
+ * Run 349, read off agents.metacto.com on 2026-09-21: the exact contract
+ * that sent Activity's Outcome link to `/dashboard/p/feature/stamp-rename-
+ * 2026-09-20`, a 404, an hour after it shipped. `request_id` reads like a
+ * request but is the lead's own free-text label, and this run names no
+ * `input.record` at all, so it has no engineering_task to resolve one
+ * through either.
+ */
+const stampRenameAttempt5 = run({
+  id: 349,
+  status: 'failed',
+  input: { task: { task_id: 'send-0005-rename-stamp', request_id: 'stamp-rename-2026-09-20' } },
+});
+
 describe('the four concepts one status column was carrying', () => {
   it('reads the contradictory row as four facts that agree', () => {
     const facts = runFacts(completionCallLost);
@@ -242,6 +258,32 @@ describe('grouping attempts under the task', () => {
     expect(taskKey(run({ id: 5, input: { record: { type: 'engineering_task', id: 82 } } }))).toBe('engineering_task:82');
     expect(taskKey(run({ id: 5, input: {} }))).toBe('run-5');
     expect(taskKey(run({ id: 5, input: { task: {} }, result: {} }))).toBe('run-5');
+  });
+});
+
+describe('resolving the request a run\'s task serves', () => {
+  it('reads the engineering task\'s own requestId, never the contract\'s request_id label', () => {
+    // completionCallLost's own contract labels itself "req-7", which is not
+    // a request id; the engineering task it names (82) is what says its
+    // real request is 40.
+    expect(taskRecordId(completionCallLost)).toBe('82');
+    expect(resolveRunRequestId(completionCallLost, new Map([[82, 40]]))).toBe(40);
+  });
+
+  it('is null when the task itself names no request, the way a probe or a smoke test does not', () => {
+    expect(resolveRunRequestId(completionCallLost, new Map([[82, null]]))).toBeNull();
+  });
+
+  it('reproduces the live 404: a request_id label that reads like an id resolves to nothing, not to itself', () => {
+    // Run 349 never named an engineering_task (`input.record` is absent), so
+    // there is nothing to resolve through: not even the ids the caller
+    // already knows about should make this run guess.
+    expect(taskRecordId(stampRenameAttempt5)).toBeNull();
+    expect(resolveRunRequestId(stampRenameAttempt5, new Map([[57, 40]]))).toBeNull();
+  });
+
+  it('is null when the run names no task at all', () => {
+    expect(resolveRunRequestId(contractRefused, new Map([[82, 40]]))).toBeNull();
   });
 });
 

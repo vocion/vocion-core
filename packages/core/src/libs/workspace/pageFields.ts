@@ -413,10 +413,18 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
  * so the Factory floor and the Backlog reach the same report from rows of
  * different nouns. An action whose href has a token the row cannot fill is
  * not drawn for that row — a dead link is worse than no link.
+ *
+ * `href` can also be an ordered list of candidate templates for a row that
+ * can name one of several targets depending what it has: the run that named
+ * its request lands on the feature report, the run that only named its task
+ * lands on the task record, and the run that named neither draws no link at
+ * all. Each candidate is tried in order and the first one every token of
+ * which resolves wins; this is a fallback chain, never a choice of which is
+ * "better", since the row itself has already decided that by what it can fill.
  */
 const RowActionSchema = z.object({
   label: z.string().min(1),
-  href: z.string().min(1),
+  href: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
 });
 
 /**
@@ -976,6 +984,25 @@ export function interpolateHref(row: PageRow, template: string): string | null {
     return encodeURIComponent(String(v));
   });
   return missing ? null : out;
+}
+
+/**
+ * A row action's href, which is either one template or an ordered list of
+ * fallback templates. Each is tried in turn through {@link interpolateHref};
+ * the first one every token of which the row can fill wins. Null when none
+ * of them can: the row draws no link rather than a link to a 404.
+ * @param row - The row.
+ * @param hrefOrHrefs - The action's `href`, a template or a fallback list.
+ */
+export function resolveRowActionHref(row: PageRow, hrefOrHrefs: string | string[]): string | null {
+  const templates = Array.isArray(hrefOrHrefs) ? hrefOrHrefs : [hrefOrHrefs];
+  for (const template of templates) {
+    const href = interpolateHref(row, template);
+    if (href !== null) {
+      return href;
+    }
+  }
+  return null;
 }
 
 /**
