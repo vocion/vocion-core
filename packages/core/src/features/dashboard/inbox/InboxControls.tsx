@@ -4,12 +4,12 @@ import type { Chip } from '@/components/patterns';
 import type { TokenOption } from '@/components/ui/token-select';
 import type { InboxFacets, InboxKind, InboxSort, InboxTab } from '@/services/InboxService';
 import { useTranslations } from 'next-intl';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { ChipRow, FilterBar } from '@/components/patterns';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
-
 import { INBOX_KIND_META } from './inboxMeta';
 import { mergeSearch } from './searchParams';
 

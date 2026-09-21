@@ -1,8 +1,9 @@
 'use client';
 
 import type { TourStep } from '@/libs/workspace/tour';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter } from '@/libs/I18nNavigation';
 
 /**
  * WorkspaceTour — a driver.js-style guided walkthrough, dependency-free.

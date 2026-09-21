@@ -26,6 +26,14 @@ describe('workspace switcher', () => {
     expect(countHiddenEmpty(projects, 'p-default')).toBe(0);
   });
 
+  it('re-points a canonical path at the workspace being switched to, rather than nesting a second one', () => {
+    // The switcher reads `usePathname()`, which now gives the app path — but a
+    // caller handing it the canonical one must not produce `/w/a/w/b/…`, which
+    // is the shape that used to 404 after a switch-and-refresh.
+    expect(workspaceSwitchHref({ slug: 'delivery-stack', pathname: '/w/revenue/dashboard/objects/88201', locale: 'en', defaultLocale: 'en' }))
+      .toBe('/w/delivery-stack/dashboard/objects/88201');
+  });
+
   it('opens Find on a bare F only when nothing is being typed', () => {
     expect(shouldTriggerFindHotkey({ key: 'f', target: { tagName: 'BODY' } })).toBe(true);
     expect(shouldTriggerFindHotkey({ key: 'F', target: null })).toBe(true);
