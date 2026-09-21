@@ -25,23 +25,26 @@ stats:
   - {label: Completed, kind: countWhere, where: {field: status, op: eq, value: completed}}
   - {label: Lost, kind: countWhere, where: {field: status, op: eq, value: lost}}
   - {label: Running, kind: countWhere, where: {field: status, op: eq, value: running}}
+primary:
+  field: summary
+  subtitle: [agent, kind, attempt]
 fields:
-  - {key: agent, label: Agent, from: meta.agentSlug, format: mono}
-  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {worker: info, lead: muted, red-team: warn}}
+  - {key: agent, label: Agent, from: meta.agentSlug, format: mono, hideWhenConstant: true}
+  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {worker: info, lead: muted, red-team: warn}, hideWhenConstant: true}
   - {key: status, label: Status, from: status, format: badge, tones: {queued: muted, running: info, paused: muted, awaiting_review: warn, completed: ok, failed: bad, cancelled: muted, lost: bad}}
   - {key: attempt, label: Attempt, from: meta.attempt, format: mono}
   # What the worker said on its last heartbeat, and whether it is still breathing.
   - {key: progress, label: Progress, from: meta.progress, format: progress}
   - {key: heartbeat, label: Heartbeat, from: meta.heartbeatAt, format: relative}
-  - {key: lease, label: Lease, from: meta.leaseExpiresAt, format: relative}
+  - {key: lease, label: Lease, from: meta.leaseExpiresAt, format: relative, priority: 3}
   # Shows only on a run a person asked to stop; an off flag is not a badge.
   - {key: stop, label: Stop asked, from: meta.stopRequested, format: badge, tones: {'true': warn}}
   - {key: cents, label: Cost, from: meta.cents, format: money}
-  - {key: tokens, label: Tokens, from: meta.tokens, format: mono}
+  - {key: tokens, label: Tokens, from: meta.tokens, format: mono, align: right, priority: 3}
   - {key: summary, label: Said it did, from: meta.summary}
-  - {key: pr, label: PR, from: meta.result.pr_url, format: link}
-  - {key: started, label: Started, from: createdAt, format: date}
-  - {key: finished, label: Finished, from: meta.completedAt, format: date}
+  - {key: pr, label: PR, from: meta.result.pr_url, format: link, priority: 2}
+  - {key: started, label: Started, from: createdAt, format: date, priority: 3}
+  - {key: finished, label: Finished, from: meta.completedAt, format: date, priority: 2}
 # No run detail route exists yet; the activity stream filtered to workers is
 # the nearest place a run can be read whole.
 rowLink: /dashboard/activity?kind=worker

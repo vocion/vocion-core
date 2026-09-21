@@ -15,6 +15,7 @@ schema:
   type: object
   properties:
     repoSlug:
+      x-display: {label: Repository, format: link, to: repo, group: Where}
       type: string
       description: >-
         Slug of the `repo` record this change lands in. The contract cites that
@@ -23,18 +24,23 @@ schema:
         factory has been told about. One task, one repository — a change that
         spans two is two tasks with a dependency between them.
     repo:
+      x-display: {hidden: true}
       type: string
       description: Older shape — the repository as owner/name before the registry existed. Read as the `repo` record whose `url` ends in it; new tasks carry `repoSlug`.
     productSlug:
+      x-display: {label: Product, format: link, to: product, group: Where}
       type: string
       description: Slug of the `product` this task serves. Read by the reviewer for the product's written promises, which no change may quietly touch.
     baseSha:
+      x-display: {label: Base commit, format: mono, group: The change}
       type: string
       description: The commit the work starts from. Written down because a check that passed against a different base proves nothing, and a reviewer reading the diff needs to know what it is a diff against.
     objective:
+      x-display: {role: prose, order: 1}
       type: string
       description: What to accomplish, in one or two sentences, stated as an outcome rather than a set of steps. If it cannot be stated without naming files to edit, the task is not understood well enough to dispatch.
     requestId:
+      x-display: {label: Asked by, format: link, to: request, order: 2}
       type: integer
       description: >-
         The id of the `request` record that asked for this. Required by
@@ -43,9 +49,11 @@ schema:
         dispatch. One noun, whatever the channel — a bug report, a store review
         and a dogfood note are all a `request`.
     requestSummary:
+      x-display: {label: In their words, role: prose, order: 3}
       type: string
       description: The request in the requester's own words, one or two lines, so the reviewer can judge the change against what was actually asked rather than against the objective the planner wrote.
     acceptanceContract:
+      x-display: {label: Acceptance contract, role: prose, format: steps, order: 4}
       type: array
       description: >-
         What has to be true for this to be accepted, one line each, each one
@@ -53,6 +61,7 @@ schema:
         The reviewer decides against THIS list and nothing else.
       items: {type: string}
     allowedPaths:
+      x-display: {label: Paths it may touch, role: prose, format: steps, order: 12}
       type: array
       description: >-
         Globs the worker may create or modify. The blast radius, written before
@@ -60,6 +69,7 @@ schema:
         contract violation and is rejected without being read on its merits.
       items: {type: string}
     riskClass:
+      x-display: {label: Risk, format: badge, group: Contract, tones: {docs: muted, marketing: muted, deps: info, ui: info, logic: warn, auth: bad, billing: bad, schema: bad, infra: bad, promise: bad}}
       type: string
       description: >-
         What the change can break if it is wrong, which is what decides how
@@ -73,10 +83,12 @@ schema:
         never earns its way past a person.
       enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra, promise]
     sizeClass:
+      x-display: {label: Size, format: badge, group: Contract, tones: {major: warn, minor: info, patch: muted}}
       type: string
       description: 'Size in release terms, not in effort: `major` — a new capability or product, which counts against the initiative limit of one in flight; `minor` — a feature within a product; `patch` — a fix. Decides which release class it rides in and how it is announced.'
       enum: [major, minor, patch]
     decisionCost:
+      x-display: {label: Decision minutes, group: Contract}
       type: integer
       description: >-
         Minutes of a person's attention the merge ask for this task is expected
@@ -85,19 +97,24 @@ schema:
         the risk class and the size of the contract; the promoter sums it over
         open asks against the daily decision budget before dispatching another.
     dependencies:
+      x-display: {label: Waits on, format: link, to: engineering_task}
       type: array
       description: Ids of engineering tasks that must be accepted before this one is dispatched. The planner writes the edges; a worker never discovers them at run time.
       items: {type: string}
     modelPolicy:
+      x-display: {label: Model policy, group: Budget}
       type: string
       description: Which model tier the worker should run on for this task, in the workspace's own words (for example "cheap model, escalate on the second attempt"). The deployment decides what the words mean.
     tokenBudget:
+      x-display: {label: Token budget, group: Budget}
       type: integer
       description: Token ceiling for the whole task across attempts. Charged against the agent's period budget by the run's reported usage, so this is the task's share of it rather than a second budget system.
     wallClockBudget:
+      x-display: {label: Wall-clock budget (min), group: Budget}
       type: integer
       description: Minutes the task may take before the run's deadline passes and the worker is told to stop on its next heartbeat. A task that needs longer than its budget is a task that was scoped wrong.
     estimateCents:
+      x-display: {label: Estimated, format: money, group: Cost}
       type: integer
       description: >-
         What the planner expects this task to cost in model spend, in cents,
@@ -108,6 +125,7 @@ schema:
         when the run ends, which is the ceiling standing in for a guess and
         reads as such.
     actualCents:
+      x-display: {label: Actual, format: money, group: Cost}
       type: integer
       description: >-
         What the task actually cost, in cents — the sum of `cents` over every
@@ -117,16 +135,20 @@ schema:
         never typed. Read `costUpdatedAt` beside it; a task with no actual
         has not had a run end yet.
     varianceCents:
+      x-display: {label: Variance, format: money, group: Cost}
       type: integer
       description: '`actualCents` minus `estimateCents`, in cents — negative is under the estimate. Written with `actualCents` when both halves exist.'
     costUpdatedAt:
+      x-display: {label: Cost as of}
       type: string
       format: date-time
       description: When `actualCents` was last written — the moment the last run for this task ended. The week the money is counted in on the floor's cost strip.
     attempt:
+      x-display: {label: Attempt, group: Contract}
       type: integer
       description: Which attempt this is, counted from 1. Raised when a run is lost or a fix is dispatched after a failed check — the record shows how many workers it took, which is the honest cost of the task.
     requiredChecks:
+      x-display: {label: Required checks, role: prose, format: steps, order: 5}
       type: array
       description: >-
         The commands that decide whether the work is done, in the order they
@@ -134,23 +156,29 @@ schema:
         a check. Nothing is accepted on a worker's assurance that it tested it.
       items: {type: string}
     status:
+      x-display: {label: Status, format: badge, group: Contract, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
       type: string
       description: Where the task stands. Plain text rather than an enum because a deployment's stages are its own; these are the ones the plugin's own page filters on.
       enum: [drafted, ready, dispatched, running, awaiting_review, changes_requested, accepted, rejected, abandoned]
     branch:
+      x-display: {label: Branch, format: mono, group: The change}
       type: string
       description: The branch the worker pushed. Comes back from the run.
     commitSha:
+      x-display: {label: Commit, format: mono, group: The change}
       type: string
       description: The commit the checks actually ran against, which is what the reviewer reads and what a person merges.
     prUrl:
+      x-display: {label: Pull request, format: link}
       type: string
       description: The pull request. The one link that takes a person from this record to the change itself, in one move.
     filesChanged:
+      x-display: {label: Files changed, role: prose, format: steps, order: 11}
       type: array
       description: Every path the diff touches, so a contract violation is visible without opening the pull request.
       items: {type: string}
     checks:
+      x-display: {label: Checks, role: prose, format: steps, order: 7}
       type: array
       description: The result of each required check, as run. A check with no exit code was not run, and a task whose checks were not run is not reviewable.
       items:
@@ -161,6 +189,7 @@ schema:
           exitCode: {type: integer, description: What the command returned. Kept beside `passed` because a non-zero exit a worker decided was fine is exactly the thing to look at.}
           artifact: {type: string, description: 'Where the full output is — a log artifact or a URL. The receipt behind the verdict, one move away.'}
     verification:
+      x-display: {label: Evidence, role: prose, format: steps, order: 8}
       type: array
       description: >-
         The evidence a merge is decided on — one entry per check that ran,
@@ -179,10 +208,12 @@ schema:
           summary: {type: string, description: 'One line — what the check proved or where it failed, in words a person deciding the merge can read without opening the artifact.'}
           artifactIds: {type: array, items: {type: integer}, description: 'The artifacts that carry the proof. At least one, or the entry proves nothing.'}
     knownFailures:
+      x-display: {label: Known failures, role: prose, format: steps, order: 9}
       type: array
       description: What the worker knows is still broken and is telling you about rather than hiding. A task that ships with a known failure is a decision a person makes, not one a worker makes quietly.
       items: {type: string}
     assumptions:
+      x-display: {label: Assumptions it made, role: prose, format: steps, order: 10}
       type: array
       description: >-
         What the worker had to assume because the contract did not say. Read
@@ -190,6 +221,7 @@ schema:
         contract next time or the reason this attempt went wrong.
       items: {type: string}
     summary:
+      x-display: {label: What the worker said it did, role: prose, order: 6}
       type: string
       description: The worker's own one-paragraph account of what it did and what it did not do. Its own words, kept as its own words, never rewritten into the record as fact.
 classificationPrompt: >-

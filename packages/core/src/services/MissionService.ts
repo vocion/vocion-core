@@ -16,6 +16,7 @@ import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
 import { executeMissionRun } from './missions/runtime';
+import { assertWorkspaceRunning } from './workspacePause';
 
 export type MissionRunSummary = typeof missionRunSchema.$inferSelect;
 
@@ -301,6 +302,11 @@ export async function startMission(opts: {
    */
   causedBy?: CausalChain | null;
 }): Promise<MissionRunSummary> {
+  // The workspace off switch, before the planner and before any model call:
+  // a mission run IS the factory working, whoever asked for it — the API, MCP
+  // `mission_start`, an automation's check, or a chat turn that reached for
+  // one. The refusal carries the pause note, so the person asking reads why.
+  await assertWorkspaceRunning(opts.orgId, 'mission_run');
   let team = opts.team;
   let goal: string | undefined;
   let missionId: number | undefined;

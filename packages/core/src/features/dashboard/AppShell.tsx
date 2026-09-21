@@ -1,3 +1,4 @@
+import type { WorkspacePauseView } from '@/features/dashboard/WorkspaceOffSwitch';
 import type { SurfaceId } from '@/features/navigation/surfaces';
 import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
@@ -12,6 +13,7 @@ import { PageContextProvider } from '@/features/dashboard/context/PageContextPro
 import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
+import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
 import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
 import { pluginNav } from '@/features/navigation/pluginNav';
@@ -25,6 +27,7 @@ import { projectSchema } from '@/models/Schema';
 import { listAgentBudgets } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
 import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
+import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
 
@@ -54,9 +57,14 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // The workspace the shell is showing — named in the top bar so "where am I"
   // is answered without opening the switcher (design principle 8).
   let workspace: { slug: string; name: string } | null = null;
+  // The off switch, read on the server with the project row the stale-session
+  // guard already fetches. Server-rendered on purpose: a banner that arrives
+  // after a client fetch shows every page as running for a moment first, and
+  // the one state this must never misreport is "stopped".
+  let pause: WorkspacePauseView | null = null;
   if (orgId) {
     const [project] = await db
-      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces, enabledPlugins: projectSchema.enabledPlugins })
+      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces, enabledPlugins: projectSchema.enabledPlugins, pausedAt: projectSchema.pausedAt })
       .from(projectSchema)
       .where(eq(projectSchema.id, orgId))
       .limit(1);
@@ -65,6 +73,10 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     enabledSurfaces = (project?.enabledSurfaces ?? []).filter(isSurfaceId);
     enabledPlugins = project?.enabledPlugins ?? [];
     workspace = project ? { slug: project.slug, name: project.name } : null;
+    if (project?.pausedAt) {
+      const held = await readWorkspacePauseWithName(orgId);
+      pause = held && { byName: held.by.name ?? held.by.id, when: formatPauseTime(held.at), note: held.note };
+    }
     if (!project) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
@@ -142,7 +154,12 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       />
       <SidebarInset className="min-h-0 overflow-hidden">
         <ShellBarActionsProvider>
-          <AppSidebarHeader workspace={workspace} usage={usage} />
+          <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={Boolean(orgId) && isAdmin && pause === null} />
+
+          {/* The workspace's state, above every page in it until someone
+              lifts it. Inside the inset rather than fixed, so it pushes the
+              page down instead of covering the first line of it. */}
+          {pause && <WorkspacePausedBanner pause={pause} canResume={isAdmin} />}
 
           {/* The page, full width, and the one conversation surface (058) as
               an overlay on its right edge — collapsed to an edge tab until
@@ -176,6 +193,15 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+/**
+ * "Sep 21, 3:14 PM UTC". Formatted on the server so the banner's timestamp
+ * cannot hydrate to a mismatch against a browser in another locale.
+ * @param at - When the switch was pulled.
+ */
+function formatPauseTime(at: Date): string {
+  return `${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(at)} UTC`;
 }
 
 /** The plugin catalogue, or nothing — a broken plugin.yaml must never take the shell down. */

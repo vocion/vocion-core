@@ -18,6 +18,7 @@ import {
   writeSkill,
 } from '@/libs/workspace';
 import { agentSchema, businessObjectTypeSchema, missionSchema, playbookSchema, workspaceVersionSchema } from '@/models/Schema';
+import { PAUSED_CAPABILITIES, pauseWorkspace, resumeWorkspace } from '@/services/workspacePause';
 
 /**
  * Context-as-code tools for the MCP server.
@@ -35,7 +36,7 @@ type ToolModule = {
   handler: (input: Record<string, unknown>) => Promise<unknown>;
 };
 
-export function workspaceTools(config: McpConfig): ToolModule[] {
+export function workspaceTools(config: McpConfig, identity?: { userId: string }): ToolModule[] {
   return [
     listTool(config),
     getTool(config),
@@ -48,6 +49,45 @@ export function workspaceTools(config: McpConfig): ToolModule[] {
     applyTool(config),
     diffTool(config),
     versionHistoryTool(config),
+    ...offSwitchTools(config, identity),
+  ];
+}
+
+/**
+ * The workspace off switch over MCP — one call from wherever the operator is.
+ *
+ * The same service path as the dashboard's switch and the REST twins
+ * (`/api/v1/workspace/pause`), so the hold reads the same whichever door was
+ * used: the banner on every page names the MCP identity as the person who
+ * pulled it.
+ * @param config - The tenant.
+ * @param identity - Who the tools act as, for the record.
+ * @param identity.userId
+ */
+function offSwitchTools(config: McpConfig, identity?: { userId: string }): ToolModule[] {
+  const by = { id: identity?.userId ?? 'mcp', name: identity?.userId ? null : 'MCP' };
+  return [
+    {
+      name: 'workspace_pause',
+      title: 'Pause the whole workspace',
+      description: 'Stop everything this workspace does by itself, in one call: every automation fire (scheduled and event), every mission run, every worker run queued or claimed, and every gated action that is not a hand-off a person performs. Chat with an agent stays available — but a turn that tries to start a mission, queue a worker run or execute a gated action is refused with this note. A worker already mid-run is not killed: it finishes and reports. Per-automation pauses are NOT touched, so resuming restores exactly what was there before. The note is required — it is what everyone sees on every page until the switch is lifted. Lift it with workspace_resume.',
+      inputSchema: { note: z.string().trim().min(1).max(500) },
+      handler: async (input) => {
+        const { note } = input as { note: string };
+        const pause = await pauseWorkspace(config.orgId, { by, note });
+        return { paused: { by: pause.by, at: pause.at.toISOString(), note: pause.note }, refuses: Object.values(PAUSED_CAPABILITIES) };
+      },
+    },
+    {
+      name: 'workspace_resume',
+      title: 'Resume the whole workspace',
+      description: 'Lift a workspace pause placed with workspace_pause (or from the dashboard, or the API). Schedules fire on their next tick and everything else may start again. Automations a person paused individually stay paused — the workspace pause never touched them. Answers whose hold it lifted and what their note said.',
+      inputSchema: {},
+      handler: async () => {
+        const { lifted } = await resumeWorkspace(config.orgId, { by });
+        return { paused: null, lifted: { by: lifted.by, at: lifted.at.toISOString(), note: lifted.note } };
+      },
+    },
   ];
 }
 

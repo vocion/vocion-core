@@ -1,5 +1,4 @@
-import type React from 'react';
-import type { PageField, PageManifest, PageRow } from '@/libs/workspace/pages';
+import type { PageManifest, PageRow } from '@/libs/workspace/pages';
 // Aliased at build time: the workspace's own pages/components/registry.tsx
 // when it ships one, the in-repo empty stub otherwise (see next.config.ts).
 import { components as wsxComponents } from '@wsx/registry';
@@ -8,29 +7,23 @@ import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
-import { LinkRow } from '@/features/dashboard/LinkRow';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
+import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { relativeLabel } from '@/libs/timeAgo';
 import {
   applyFilter,
   computeSeries,
   computeStat,
-  computeTotals,
-  formatMoney,
-  formatProgress,
   groupRows,
   pagePlugin,
   readWorkspacePageContent,
   resolveField,
-  toDate,
 } from '@/libs/workspace/pages';
 import {
   agentSchema,
@@ -41,6 +34,7 @@ import {
   toolCallSchema,
 } from '@/models/Schema';
 import { inboxHref } from '@/services/inbox/inboxRef';
+import { resolveRecordLinks } from '@/services/objects/recordLinks';
 import { readPageForOrg } from '@/services/PluginService';
 import { listPending } from '@/services/ReviewService';
 import { firstParagraph } from '@/services/wiki/WikiService';
@@ -228,28 +222,11 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
   }));
 }
 
-type PillStatus = React.ComponentProps<typeof StatusPill>['status'];
-
 async function loadPendingActions(orgId: string, actionIds?: string[]) {
   // Agent-proposed actions awaiting a person — the same rows /dashboard/inbox?kind=proposal
   // decides. `skills` on the review config scopes to action ids (gmail.send…).
   const items = await listPending(orgId, { kind: 'action' });
   return items.filter(i => !actionIds?.length || actionIds.some(a => i.title.includes(a) || String(i.id) === a));
-}
-
-function toneToStatus(tone: string): PillStatus {
-  switch (tone) {
-    case 'ok':
-      return 'completed';
-    case 'warn':
-      return 'pending';
-    case 'bad':
-      return 'failed';
-    case 'info':
-      return 'running';
-    default:
-      return 'inactive';
-  }
 }
 
 /**
@@ -259,60 +236,6 @@ function toneToStatus(tone: string): PillStatus {
  */
 async function currentTime(): Promise<number> {
   return Date.now();
-}
-
-function Cell({ row, field, now }: { row: PageRow; field: PageField; now: number }) {
-  const raw = resolveField(row, field.from ?? field.key);
-  if (raw === undefined || raw === null || raw === '') {
-    return <span className="text-muted-foreground">—</span>;
-  }
-  const s = String(raw);
-  switch (field.format) {
-    case 'badge': {
-      const tone = field.tones?.[s];
-      // A flag that is off is nothing to badge unless the page maps it.
-      if (raw === false && !tone) {
-        return <span className="text-muted-foreground">—</span>;
-      }
-      return tone
-        ? <StatusPill status={toneToStatus(tone)} label={s} size="sm" />
-        : <Badge variant="outline">{s}</Badge>;
-    }
-    case 'score': {
-      const n = Number(raw);
-      const cls = n >= 85 ? 'text-emerald-600' : n >= 70 ? 'text-foreground' : n >= 60 ? 'text-amber-600' : 'text-muted-foreground';
-      return <span className={`font-mono text-sm font-semibold tabular-nums ${cls}`}>{Number.isFinite(n) ? n : s}</span>;
-    }
-    case 'date':
-      return <span className="text-sm text-muted-foreground">{raw instanceof Date ? raw.toLocaleDateString() : s}</span>;
-    case 'mono':
-      return <span className="font-mono text-xs">{s}</span>;
-    case 'money': {
-      const cents = Number(raw);
-      return <span className="font-mono text-sm tabular-nums">{Number.isFinite(cents) ? formatMoney(cents) : s}</span>;
-    }
-    case 'link':
-      return <a href={s} target="_blank" rel="noreferrer" className="font-mono text-xs underline underline-offset-2">{s}</a>;
-    case 'relative': {
-      // Rendered on the server at request time, so on a live page it is
-      // re-read with the rows; the exact moment is one hover away.
-      const d = toDate(raw);
-      return d
-        ? <time dateTime={d.toISOString()} title={d.toLocaleString()} className="font-mono text-xs text-muted-foreground tabular-nums">{relativeLabel(d, now)}</time>
-        : <span className="text-sm">{s}</span>;
-    }
-    case 'progress': {
-      const line = formatProgress(raw);
-      return line
-        ? <span className="text-sm">{line}</span>
-        : <span className="text-muted-foreground">—</span>;
-    }
-    case 'image':
-      return <img src={s} alt={field.label ?? field.key} loading="lazy" className="h-14 w-24 rounded border border-border object-cover" />;
-    default:
-      // A list — a request's tags — reads as its items, not as JSON.
-      return <span className="text-sm">{Array.isArray(raw) ? raw.map(String).join(', ') : s}</span>;
-  }
 }
 
 /**
@@ -346,37 +269,6 @@ function SeriesStrip({ series }: { series: ReturnType<typeof computeSeries> }) {
         </tbody>
       </table>
     </section>
-  );
-}
-
-/**
- * The total under a table: each `total` column's sum in its own cell, the
- * word in the first column that is not one, the rest empty. On a grouped
- * page it sits under every group, so a group is read with its cumulative
- * figure.
- * @param root0
- * @param root0.rows
- * @param root0.fields
- * @param root0.extra
- */
-function TotalsRow({ rows, fields, extra }: { rows: PageRow[]; fields: PageField[]; extra: number }) {
-  const totals = computeTotals(rows, fields);
-  const labelKey = fields.find(f => !f.total)?.key;
-  return (
-    <tfoot>
-      <tr className="border-t border-border bg-muted/40">
-        {fields.map(f => (
-          <td key={f.key} className="px-4 py-2 text-xs">
-            {f.key in totals
-              ? <span className="font-mono text-sm font-semibold tabular-nums">{totals[f.key]}</span>
-              : f.key === labelKey
-                ? <span className="font-medium text-muted-foreground">Total</span>
-                : null}
-          </td>
-        ))}
-        {extra > 0 && <td />}
-      </tr>
-    </tfoot>
   );
 }
 
@@ -496,10 +388,22 @@ export default async function WorkspacePage(props: {
   const ownedBy = pagePlugin(manifest);
 
   const fields = manifest.fields ?? [
-    { key: 'title', label: 'Title', format: 'text' as const, total: false },
-    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const, total: false },
+    { key: 'title', label: 'Title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false },
+    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const, total: false, priority: 1, hideWhenConstant: false },
   ];
-  const hasTotals = fields.some(f => f.total);
+
+  // Every `link` column that names a target type, resolved to that record's
+  // own title in one query per type, so a row carries the request it came
+  // from rather than the request's id.
+  const links = await resolveRecordLinks(
+    orgId,
+    rows.flatMap(r => fields
+      .filter(f => f.format === 'link' && f.to)
+      .flatMap((f) => {
+        const v = resolveField(r, f.from ?? f.key);
+        return (Array.isArray(v) ? v : [v]).map(one => ({ to: f.to!, value: one }));
+      })),
+  );
 
   return (
     <>
@@ -541,58 +445,17 @@ export default async function WorkspacePage(props: {
       <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
 
       {manifest.archetype !== 'markdown' && groups.map((g, gi) => (
-        <section key={g.label ?? '__all'} id={gi === 0 ? 'wsx-table' : undefined} className="mb-8">
-          {g.label && (
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-              {g.label}
-              <Badge variant="outline">{g.rows.length}</Badge>
-            </h2>
-          )}
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  {fields.map(f => (
-                    <th key={f.key} className="px-4 py-2 text-xs font-medium text-muted-foreground">
-                      {f.label ?? f.key}
-                    </th>
-                  ))}
-                  {manifest.rowLink && <th className="w-8 px-2 py-2" aria-label="Open" />}
-                </tr>
-              </thead>
-              <tbody>
-                {g.rows.length === 0 && (
-                  <tr>
-                    <td colSpan={fields.length + (manifest.rowLink ? 1 : 0)} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                      Nothing here yet.
-                    </td>
-                  </tr>
-                )}
-                {g.rows.map((row) => {
-                  const cells = fields.map(f => (
-                    <td key={f.key} className="px-4 py-2.5">
-                      <Cell row={row} field={f} now={now} />
-                    </td>
-                  ));
-                  return manifest.rowLink
-                    ? (
-                        <LinkRow key={row.id} href={manifest.rowLink.replace('{id}', String(row.id))}>
-                          {cells}
-                        </LinkRow>
-                      )
-                    : (
-                        <tr key={row.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
-                          {cells}
-                        </tr>
-                      );
-                })}
-              </tbody>
-              {hasTotals && g.rows.length > 0 && (
-                <TotalsRow rows={g.rows} fields={fields} extra={manifest.rowLink ? 1 : 0} />
-              )}
-            </table>
-          </div>
-        </section>
+        <PageTable
+          key={g.label ?? '__all'}
+          id={gi === 0 ? 'wsx-table' : undefined}
+          rows={g.rows}
+          fields={fields}
+          primary={manifest.primary}
+          rowLink={manifest.rowLink}
+          groupLabel={g.label}
+          now={now}
+          links={links}
+        />
       ))}
 
       {reviewCfg && (
