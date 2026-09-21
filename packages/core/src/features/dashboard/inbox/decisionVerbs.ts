@@ -50,6 +50,8 @@ const SUBMIT: DecisionVerb = { id: 'submit', label: 'Submit' };
 const RESUME: DecisionVerb = { id: 'resume', label: 'Resume', shortcut: 'a' };
 const CANCEL: DecisionVerb = { id: 'cancel', label: 'Cancel run', shortcut: 'd', tone: 'danger' };
 const ADOPT: DecisionVerb = { id: 'approve', label: 'Adopt as rule', shortcut: 'a', onRow: true };
+const RETRY: DecisionVerb = { id: 'resume', label: 'Retry the task', shortcut: 'a' };
+const STOP: DecisionVerb = { id: 'cancel', label: 'Stop trying', shortcut: 'd', tone: 'danger' };
 
 const ASK: KindVerbs = { primary: SUBMIT, secondary: [], row: [APPROVE, REJECT] };
 
@@ -69,6 +71,9 @@ export const DECISION_VERBS: Record<InboxKind, KindVerbs> = {
   recommendation: ASK,
   run: { primary: RESUME, secondary: [CANCEL], row: [] },
   learning: { primary: ADOPT, secondary: [REJECT], row: [ADOPT, REJECT] },
+  // An exception is answered on its run, retry it, or stop trying, so the
+  // row carries no quick verb it could not honour from the list.
+  exception: { primary: RETRY, secondary: [STOP], row: [] },
 };
 
 /**
