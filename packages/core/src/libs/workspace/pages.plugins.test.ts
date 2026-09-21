@@ -222,8 +222,9 @@ describe('plugin pages', () => {
     expect(activity?.views?.[0]?.filters).toBeUndefined();
     expect(activity?.views?.find(v => v.key === 'releases')).toMatchObject({ href: '/dashboard/p/releases' });
 
-    // Back to the outcome the run served.
-    expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: '/dashboard/p/feature/{meta.requestId}' }]);
+    // Back to the outcome the run served: the report when the run named a
+    // request, the task record when it only named a task.
+    expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]);
   });
 
   it('Products is the one product page, and says where its counters came from', () => {

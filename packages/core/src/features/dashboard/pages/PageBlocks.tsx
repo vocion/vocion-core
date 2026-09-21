@@ -2,7 +2,7 @@ import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
 import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
 import { Badge } from '@/components/ui/badge';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
-import { fieldIsEmptyOn, interpolateHref, tableLayout } from '@/libs/workspace/pageFields';
+import { fieldIsEmptyOn, interpolateHref, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
 
 /**
  * A list page's rows drawn as BLOCKS rather than as a grid: `layout: block`.
@@ -113,7 +113,7 @@ function Block({ row, layout, now, links, href, rowActions }: {
       {rowActions.length > 0 && (
         <p className="mt-3 flex flex-wrap gap-x-4 text-xs">
           {rowActions.map((a) => {
-            const to = interpolateHref(row, a.href);
+            const to = resolveRowActionHref(row, a.href);
             return to
               ? <a key={a.label} href={to} className="underline underline-offset-2">{a.label}</a>
               : null;

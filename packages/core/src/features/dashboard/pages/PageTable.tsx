@@ -3,7 +3,7 @@ import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from
 import { Badge } from '@/components/ui/badge';
 import { LinkRow } from '@/features/dashboard/LinkRow';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
-import { computeTotals, fieldAlign, interpolateHref, isEmptyValue, priorityClass, resolveField, tableLayout } from '@/libs/workspace/pageFields';
+import { computeTotals, fieldAlign, interpolateHref, isEmptyValue, priorityClass, resolveField, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
 
 /**
  * One table of a list page's rows.
@@ -221,7 +221,7 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
                 // a click-through still reaches a second place; the anchor
                 // stops the row's own navigation (see LinkRow).
                 ...rowActions.map((a) => {
-                  const href = interpolateHref(row, a.href);
+                  const href = resolveRowActionHref(row, a.href);
                   return (
                     <td key={`__action-${a.label}`} className="px-2 py-2.5">
                       {href

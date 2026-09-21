@@ -158,7 +158,17 @@ name: Software factory
 # cycle time measurable at all. The eighteen per-tag tables are gone: a
 # request carries several tags and its money landed under each, so they never
 # added up. The evidence groups by outcome, where every request sits once.
-version: 1.14.0
+#
+# 1.14.1 - Activity's Outcome action followed `meta.requestId` to
+# `/dashboard/p/feature/<requestId>`, and that field was read off the
+# contract's own free-text `request_id` label, a lead's bookkeeping, not the
+# request record's id, so it 404'd on live traffic within the hour. The link
+# now resolves the run's actual engineering_task (`input.record`) to that
+# task's own `metadata.requestId`, falls back to the task record itself when
+# the task names no request of its own (a probe, a smoke test), and draws
+# nothing when neither can be named. `rowActions.href` takes this ordered
+# fallback chain wherever a page needs it.
+version: 1.14.1
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

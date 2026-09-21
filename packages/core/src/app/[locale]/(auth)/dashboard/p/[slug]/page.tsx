@@ -147,68 +147,95 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
     // value for a filter goes to the service; several are applied here, so
     // the page never invents a query the service does not have.
     const { listWorkerRuns } = await import('@/services/WorkerRunService');
-    const { recoveryLabel, requestId, taskRecordId, withRunRecovery } = await import('@/libs/factory/runFacts');
+    const { recoveryLabel, resolveRunRequestId, taskRecordId, withRunRecovery } = await import('@/libs/factory/runFacts');
     const one = (xs?: string[]) => (xs?.length === 1 ? xs[0] : undefined);
     const runs = await listWorkerRuns(orgId, { agentSlug: one(src.agentSlugs), status: one(src.status), kind: one(src.kinds), limit: src.limit });
     const kept = runs
       .filter(r => (!src.agentSlugs?.length || src.agentSlugs.includes(r.agentSlug))
         && (!src.status?.length || src.status.includes(r.status))
         && (!src.kinds?.length || src.kinds.includes(r.kind)));
+    // The request a run's task serves is its engineering_task's own
+    // `metadata.requestId`, never the free-text `request_id` a contract's
+    // author wrote into `input.task` for their own bookkeeping (it can read
+    // like a request or like an incident, and it is neither an id nor
+    // reliable: this is what sent Activity's Outcome link to a 404).
+    // Batched once for every task this page's runs name, rather than once
+    // per row.
+    const taskIds = [...new Set(kept.map(r => taskRecordId(r)).filter((tid): tid is string => tid !== null).map(Number))];
+    const requestIdByTask = new Map<number, number | null>();
+    if (taskIds.length > 0) {
+      const taskType = await db.query.businessObjectTypeSchema.findFirst({
+        where: and(eq(businessObjectTypeSchema.slug, 'engineering_task'), eq(businessObjectTypeSchema.orgId, orgId)),
+      });
+      if (taskType) {
+        const taskRows = await db.query.businessObjectSchema.findMany({
+          where: and(eq(businessObjectSchema.typeId, taskType.id), inArray(businessObjectSchema.id, taskIds)),
+        });
+        for (const taskRow of taskRows) {
+          const taskMeta = (taskRow.metadata ?? {}) as Record<string, unknown>;
+          const n = Number(taskMeta.requestId);
+          requestIdByTask.set(taskRow.id, Number.isInteger(n) && n > 0 ? n : null);
+        }
+      }
+    }
     // The four concepts `status` was carrying, read once here so every field,
     // stat and group on every page sees the same answer (libs/factory/runFacts.ts).
     return withRunRecovery(kept)
-      .map(r => ({
-        id: r.id,
-        title: r.facts.headline,
-        status: r.status,
-        createdAt: r.createdAt ?? null,
-        meta: {
+      .map((r) => {
+        const taskId = taskRecordId(r);
+        return {
+          id: r.id,
+          title: r.facts.headline,
+          status: r.status,
+          createdAt: r.createdAt ?? null,
+          meta: {
           // The honest reading: four independent facts, none contradicting
           // the one beside it, plus why it went wrong and whether the factory
           // fixed it without anyone asking.
-          execution: r.facts.execution,
-          verification: r.facts.verification,
-          output: r.facts.output,
-          outputUrl: r.facts.outputUrl,
-          disposition: r.disposition,
-          failureClass: r.facts.failureClass,
-          successful: r.facts.successful,
-          recovery: r.recovery.kind,
-          recoveryNote: recoveryLabel(r.recovery),
-          headline: r.facts.headline,
-          checks: r.facts.checksTotal > 0 ? `${r.facts.checksPassed}/${r.facts.checksTotal}` : null,
-          filesChanged: r.facts.filesChanged,
-          taskKey: r.taskKey,
-          taskRecordId: taskRecordId(r),
-          requestId: requestId(r),
-          durationSeconds: r.claimedAt && r.completedAt
-            ? Math.max(0, Math.round((r.completedAt.getTime() - r.claimedAt.getTime()) / 1000))
-            : null,
-          agentSlug: r.agentSlug,
-          kind: r.kind,
-          status: r.status,
-          model: r.model,
-          attempt: r.attempt,
-          cents: r.cents,
-          tokens: r.tokens,
-          summary: r.summary,
-          error: r.error,
-          createdAt: r.createdAt,
-          claimedAt: r.claimedAt,
-          completedAt: r.completedAt,
-          // The live signal (docs/entities/worker-run.md): every heartbeat
-          // moves these, so a live page can show a run breathing.
-          heartbeatAt: r.heartbeatAt,
-          leaseExpiresAt: r.leaseExpiresAt,
-          endsAt: r.endsAt,
-          progress: r.progress,
-          stopRequested: r.stopRequested,
-          capCents: r.capCents,
-          counts: r.counts,
-          result: r.result ?? {},
-          input: r.input,
-        },
-      }));
+            execution: r.facts.execution,
+            verification: r.facts.verification,
+            output: r.facts.output,
+            outputUrl: r.facts.outputUrl,
+            disposition: r.disposition,
+            failureClass: r.facts.failureClass,
+            successful: r.facts.successful,
+            recovery: r.recovery.kind,
+            recoveryNote: recoveryLabel(r.recovery),
+            headline: r.facts.headline,
+            checks: r.facts.checksTotal > 0 ? `${r.facts.checksPassed}/${r.facts.checksTotal}` : null,
+            filesChanged: r.facts.filesChanged,
+            taskKey: r.taskKey,
+            taskRecordId: taskId,
+            requestId: resolveRunRequestId(r, requestIdByTask),
+            durationSeconds: r.claimedAt && r.completedAt
+              ? Math.max(0, Math.round((r.completedAt.getTime() - r.claimedAt.getTime()) / 1000))
+              : null,
+            agentSlug: r.agentSlug,
+            kind: r.kind,
+            status: r.status,
+            model: r.model,
+            attempt: r.attempt,
+            cents: r.cents,
+            tokens: r.tokens,
+            summary: r.summary,
+            error: r.error,
+            createdAt: r.createdAt,
+            claimedAt: r.claimedAt,
+            completedAt: r.completedAt,
+            // The live signal (docs/entities/worker-run.md): every heartbeat
+            // moves these, so a live page can show a run breathing.
+            heartbeatAt: r.heartbeatAt,
+            leaseExpiresAt: r.leaseExpiresAt,
+            endsAt: r.endsAt,
+            progress: r.progress,
+            stopRequested: r.stopRequested,
+            capCents: r.capCents,
+            counts: r.counts,
+            result: r.result ?? {},
+            input: r.input,
+          },
+        };
+      });
   }
 
   if (src.kind === 'artifacts') {
