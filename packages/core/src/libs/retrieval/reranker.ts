@@ -139,16 +139,25 @@ export async function rerank(
         }
       }
     }
-    // The provider's own count when it gave one; the old character estimate
-    // only as a fallback, since it is what the trace already showed. Charged
-    // from the same numbers, so what the budget says and what the trace says
-    // cannot drift.
+    // The provider's own count, or nothing.
+    //
+    // This used to fall back to `prompt.length / 4` — the rule of thumb that
+    // English runs about four characters to a token. It was wrong for this
+    // prompt in particular (chunked document text with punctuation and ids
+    // tokenises denser than prose), it never counted the output at all, and
+    // there is no way to make it exact: Anthropic publishes no tokenizer for
+    // current Claude models, and their `count_tokens` endpoint is documented
+    // as an estimate too. The only exact number is the one the response
+    // reports.
+    //
+    // So a missing count now shows as missing. A successful non-streaming
+    // `invoke` always carries `usage_metadata`, which makes an empty trace here
+    // a real signal rather than a gap to paper over. The budget is charged from
+    // these same numbers, so what it says and what the trace says cannot drift.
     const usage = tokenUsageOf(res);
     gen.end({
       output: { reranked: kept.length },
-      usageDetails: usage
-        ? cleanUsageDetails({ input: usage.inputTokens, output: usage.outputTokens })
-        : { input: prompt.length / 4 },
+      usageDetails: usage ? cleanUsageDetails({ input: usage.inputTokens, output: usage.outputTokens }) : undefined,
     });
     if (usage) {
       await chargeUsage({
