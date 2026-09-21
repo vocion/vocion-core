@@ -1,0 +1,23 @@
+packages/core/src/libs/writing/voiceRules.ts
+  s_57146da98e2611::t_7a188b2c704abf 26
+packages/core/src/libs/writing/emailBodyShape.ts
+  s_57146da98e2611::t_51681f173c7a3f 63-106
+packages/core/src/libs/writing/emailBody.ts
+  s_57146da98e2611::t_bc7d7a00a3acbd 35-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5feb13fec5c1c779e4ce5a524133b8c07aa6cdfd",
+  "prompts": {},
+  "sessions": {
+    "s_57146da98e2611": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5670997a-cc59-480f-9eac-13893c1c9756",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jamie Schiesel <schiesel.jamie@gmail.com>"
+    }
+  }
+}
