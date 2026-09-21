@@ -194,6 +194,58 @@ function contentText(content: unknown): string {
 }
 
 /**
+ * Where the object opened at `start` closes, or -1 when it never does.
+ * @param text - The answer, already stripped of fences.
+ * @param start - Index of the opening brace.
+ */
+function objectEnd(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * The JSON object an answer carries, whichever reasoning a model wrote first.
+ *
+ * Only an object that ENDS the answer is taken, so one quoted mid sentence is
+ * still refused.
+ * @param raw - The answer as the provider returned it.
+ */
+function jsonAnswer(raw: string): string {
+  const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
+  for (let start = stripped.indexOf('{'); start !== -1; start = stripped.indexOf('{', start + 1)) {
+    if (objectEnd(stripped, start) === stripped.length - 1) {
+      return stripped.slice(start);
+    }
+  }
+  return stripped;
+}
+
+/**
  * Whether a thrown error is the deadline rather than a bad answer.
  * @param error - Whatever `.invoke` threw.
  */
@@ -330,8 +382,7 @@ export async function extractRecords(opts: {
         });
       }
 
-      const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
-      const parsed = schema.parse(JSON.parse(stripped));
+      const parsed = schema.parse(JSON.parse(jsonAnswer(raw)));
       trace.update({ output: { records: parsed.records.length, calls } });
       return { status: 'ok', records: parsed.records as ExtractedRecord[], calls, traceId: trace.id };
     } catch (error) {
