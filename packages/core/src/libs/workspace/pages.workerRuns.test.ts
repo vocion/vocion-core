@@ -101,7 +101,10 @@ describe('a stat that is only worth a tile when it happened', () => {
 });
 
 describe('a field that is evidence rather than a column', () => {
-  const f = (over: Partial<PageField> & Pick<PageField, 'key'>): PageField => ({ label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true, ...over });
+  // `hideWhenEmpty` off on purpose: this suite is about detail-vs-column, and
+  // its rows carry no meta, so the empty rule (#555) drops every field before
+  // the assertion can see where it landed.
+  const f = (over: Partial<PageField> & Pick<PageField, 'key'>): PageField => ({ label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: false, ...over });
 
   it('is kept out of the table and handed to the row', () => {
     const fields = [f({ key: 'headline' }), f({ key: 'cost', format: 'money' }), f({ key: 'tokens', detail: true }), f({ key: 'lease', detail: true })];
