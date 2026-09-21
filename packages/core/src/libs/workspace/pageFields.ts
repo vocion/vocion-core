@@ -361,6 +361,13 @@ const PanelBaseFields = {
   title: z.string().min(1),
   /** One line under the panel title, in the page's own words. */
   note: z.string().optional(),
+  /**
+   * How the panel's figures are computed, in a person's words. This is the
+   * ONLY home for methodology prose. It is never drawn beside the numbers; it
+   * lives behind a "How this is measured" affordance, because the page states
+   * conclusions and the method is one click away.
+   */
+  method: z.string().optional(),
 };
 
 /**
@@ -372,6 +379,19 @@ const PanelBaseFields = {
 const DigestFallbackHoursSchema = z.number().int().min(1).max(720).default(24);
 
 const OverviewPanelSchema = z.discriminatedUnion('kind', [
+  /**
+   * The one synthesised sentence under the page title.
+   *
+   * It carries no configuration on purpose. The line is derived from the
+   * panels below it, after they are assembled, so it cannot drift from them
+   * or describe data they do not show. When the records cannot support a
+   * confident reading, it says something true and narrow instead of
+   * reaching for a cheerful one.
+   */
+  z.object({
+    kind: z.literal('judgment'),
+    ...PanelBaseFields,
+  }),
   /** One row per record of a type: a headline and up to four inline facts. */
   z.object({
     kind: z.literal('status'),
@@ -379,6 +399,15 @@ const OverviewPanelSchema = z.discriminatedUnion('kind', [
     objectType: SlugSchema,
     headline: z.string().min(1).default('title'),
     facts: z.array(PanelFactSchema).max(4).default([]),
+    /**
+     * The accessor holding the record's health, when it has one. A health of
+     * `unknown` on a record that no related work points at is not merely
+     * unknown: nothing is connected to it, and the row says so. A grey label
+     * a person cannot act on becomes a sentence they can.
+     */
+    healthField: z.string().optional(),
+    /** Health values that mean "nothing has reported", lower-cased. */
+    unknownHealth: z.array(z.string()).default(['unknown', 'unrecorded', '']),
     /** Row click-through, e.g. `/dashboard/objects/{id}`. */
     rowLink: z.string().optional(),
   }),
@@ -447,13 +476,22 @@ const OverviewPanelSchema = z.discriminatedUnion('kind', [
     stateField: z.string().optional(),
     stateIn: z.array(z.string()).optional(),
     limit: z.number().int().min(1).max(25).default(7),
-    /** The work underneath an outcome, for the "4/5 tasks complete" line. */
+    /**
+     * The work underneath an outcome. This is what decides membership, not
+     * the outcome's own status: a heading that promises work in flight must
+     * list only outcomes where work is literally occurring. An outcome with
+     * no contracted task is approved or queued, not in flight, and an
+     * outcome whose every task has stopped is waiting, not building. Both
+     * are accounted for in the panel's empty line and live on Work.
+     */
     tasks: z.object({
       objectType: SlugSchema,
       /** Accessor on the task holding the outcome's id. */
       joinField: z.string().min(1),
       completeStatus: z.array(z.string()).min(1),
-      /** Task statuses that mean the outcome is waiting on a person. */
+      /** Task statuses that mean a worker is on it RIGHT NOW. */
+      workingStatus: z.array(z.string()).min(1).default(['claimed', 'running']),
+      /** Task statuses that mean the work stopped and a person must look. */
       waitingStatus: z.array(z.string()).default([]),
     }).optional(),
     rowLink: z.string().optional(),
@@ -473,16 +511,35 @@ const OverviewPanelSchema = z.discriminatedUnion('kind', [
     stateField: z.string().optional(),
     stateIn: z.array(z.string()).optional(),
     orderBy: z.string().min(1).default('meta.priority'),
-    limit: z.number().int().min(1).max(25).default(7),
+    limit: z.number().int().min(1).max(25).default(3),
     /** Metadata keys tried, in order, for the prose note beside the codes. */
     noteFields: z.array(z.string().min(1)).min(1).default(['whyNote']),
     rowLink: z.string().optional(),
   }),
-  /** Open decisions: how many, how many minutes, how many hold work up. */
+  /**
+   * The decisions themselves - never an inbox count.
+   *
+   * One open record is not one decision. A factory that re-files the same
+   * unanswered question every time a mission check runs produces a queue
+   * depth, and a queue depth read as "interruptions a person caused" is an
+   * indictment printed as a statistic. So the panel counts SUBJECTS: open
+   * decisions sharing a subject collapse into one, and everything that does
+   * not require a person's judgment - a routine approval an agent has
+   * already answered for itself - is accounted for in one line rather than
+   * padding the number.
+   */
   z.object({
     kind: z.literal('needsYou'),
     ...PanelBaseFields,
     href: z.string().min(1).default('/dashboard/inbox'),
+    limit: z.number().int().min(1).max(10).default(3),
+    /**
+     * A `sourceRef` reads `<subject>:<detail>`, so two open decisions filed
+     * under the same subject are one decision asked twice. These prefixes
+     * name a single RECORD rather than a subject, so decisions under them
+     * are never merged with each other.
+     */
+    perRecordSources: z.array(z.string().min(1)).default([]),
   }),
   /** Spend, accepted changes, cost per accepted change, waste. */
   z.object({
@@ -494,8 +551,14 @@ const OverviewPanelSchema = z.discriminatedUnion('kind', [
     costField: z.string().min(1).default('meta.actualCents'),
     /** Statuses that mean the change was accepted. */
     acceptedStatus: z.array(z.string()).min(1),
-    /** Statuses that mean the money bought nothing - the waste line. */
-    wasteStatus: z.array(z.string()).min(1),
+    /**
+     * Statuses that mean the attempt did not land. This is REWORK, not
+     * waste: a failed attempt can leave diagnostics, a preserved branch and
+     * a better next attempt, so calling all of it waste overstates what was
+     * measured. Waste is spend later shown to be genuinely pointless, and
+     * nothing records that yet.
+     */
+    reworkStatus: z.array(z.string()).min(1),
   }),
   /**
    * Two measures that must not be blended. Work autonomy is "how much got
