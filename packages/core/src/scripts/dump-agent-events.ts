@@ -8,7 +8,7 @@
  */
 import process from 'node:process';
 import { parseArgs } from 'node:util';
-import { bindRequestEmit, buildInitialFiles, getCompiledAgent } from '@/services/agents/harness';
+import { buildInitialFiles, compileAgentForRequest } from '@/services/agents/harness';
 
 type RawEvent = { event?: string; name?: string; metadata?: Record<string, unknown>; data?: Record<string, unknown> };
 
@@ -18,8 +18,7 @@ async function main(): Promise<void> {
   const agentSlug = values.agent ?? 'founder-gtm-lead';
   const message = values.msg ?? 'Draft the email follow-ups I owe Erin Blakely and Kyle Marsh.';
 
-  const compiled = await getCompiledAgent(orgId, agentSlug);
-  bindRequestEmit(compiled, () => {}, 'dump', undefined, undefined);
+  const compiled = await compileAgentForRequest(orgId, agentSlug, { emit: () => {}, userId: 'dump' });
   const initialFiles = await buildInitialFiles(orgId, agentSlug);
   const input = { messages: [{ role: 'user', content: message }], files: initialFiles };
 

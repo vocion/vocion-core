@@ -28,9 +28,8 @@ vi.mock('@/services/agents/providers/agentcore', () => ({ runAgentOnAgentCoreHar
 // The in-process loop is the "neither provider ran" signal. Stubbing the
 // harness keeps the test off deepagents and off a live model.
 vi.mock('@/services/agents/harness', () => ({
-  bindRequestEmit: vi.fn(),
   buildInitialFiles: vi.fn(async () => ({})),
-  getCompiledAgent: vi.fn(async () => {
+  compileAgentForRequest: vi.fn(async () => {
     throw new Error('in-process loop reached');
   }),
 }));

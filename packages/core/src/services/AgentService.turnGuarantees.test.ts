@@ -24,12 +24,11 @@ vi.mock('@/libs/DB');
 const streamEvents = vi.fn();
 
 vi.mock('@/services/agents/harness', () => ({
-  bindRequestEmit: vi.fn(),
   buildInitialFiles: vi.fn(async () => ({})),
-  getCompiledAgent: vi.fn(async () => ({
+  compileAgentForRequest: vi.fn(async () => ({
     graph: { streamEvents },
     agentRow: { id: 1, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} },
-    __ctx: { delegations: new Map() },
+    ctx: { delegations: new Map() },
   })),
 }));
 

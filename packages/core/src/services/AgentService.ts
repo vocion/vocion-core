@@ -390,7 +390,7 @@ export async function runAgentDeep(opts: {
    * model-upgrade test (`services/evals/modelUpgradeTest.ts`) is the caller.
    * Forces the in-process loop: the other harness targets build their model
    * from the agent row, and a payload field they would ignore is worse than
-   * an honest single path. Never cached — see `getCompiledAgent`.
+   * an honest single path. Never cached — see `compileAgentForRequest`.
    */
   modelOverride?: import('./agents/harness').ModelOverride;
 }): Promise<{
@@ -408,7 +408,7 @@ export async function runAgentDeep(opts: {
   // Local import keeps the legacy `runAgent` path from pulling
   // deepagents/LangChain modules at module-load time. (Cuts cold-start
   // for callers that never use the new runtime.)
-  const { bindRequestEmit, buildInitialFiles, getCompiledAgent } = await import('./agents/harness');
+  const { buildInitialFiles, compileAgentForRequest } = await import('./agents/harness');
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
 
@@ -498,9 +498,25 @@ export async function runAgentDeep(opts: {
     return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
   }
 
-  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride: opts.modelOverride });
-  bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext, opts.timeZone);
-  const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
+  // The graph and its tools are compiled for THIS turn, on this person's
+  // context. Nothing here is shared with a turn running beside it — which is
+  // what a shared, overwritten context cost us (harness.ts, issue #109).
+  const compiled = await compileAgentForRequest(
+    opts.orgId,
+    opts.agentSlug,
+    {
+      emit,
+      userId: opts.userId,
+      allowedSourceSlugs: opts.allowedSourceSlugs,
+      missionSlug: opts.missionSlug,
+      missionRunId: opts.missionRunId,
+      conversationId: opts.conversationId,
+      pageContext: opts.pageContext,
+      timeZone: opts.timeZone,
+    },
+    { modelOverride: opts.modelOverride },
+  );
+  const boundCtx = compiled.ctx;
 
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
   // Full (untruncated) tool outputs — the sanitizer needs the whole thing to
@@ -805,8 +821,7 @@ export async function runAgentDeep(opts: {
   if (backstopOn && emittedCards.length < 3 && finalText.length > 300) {
     try {
       const { recommendActionTool } = await import('./agents/tools/recommendAction');
-      const internalCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
-      const recTool = recommendActionTool(internalCtx);
+      const recTool = recommendActionTool(compiled.ctx);
       const { buildChatModelForOrg } = await import('@/libs/llm');
       const { HumanMessage, SystemMessage } = await import('@langchain/core/messages');
       const base = await buildChatModelForOrg('main', opts.orgId, { temperature: 0, streaming: false, maxTokens: 4000 });
