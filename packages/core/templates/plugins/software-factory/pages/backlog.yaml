@@ -44,3 +44,7 @@ fields:
 filters:
   - {field: meta.state, op: in, value: [new, triaged, in_scope]}
 rowLink: /dashboard/objects/{id}
+# The whole story for this request — the ask, the contract, the approvals,
+# the runs, the change, the release and the money — on one page.
+rowActions:
+  - {label: Report, href: '/dashboard/p/feature/{id}'}

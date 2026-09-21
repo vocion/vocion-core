@@ -77,3 +77,7 @@ fields:
 filters:
   - {field: status, op: neq, value: abandoned}
 rowLink: /dashboard/objects/{id}
+# The request's whole story, reached from the task that serves it. A task
+# whose `requestId` is missing shows no link rather than a dead one.
+rowActions:
+  - {label: Report, href: '/dashboard/p/feature/{meta.requestId}'}

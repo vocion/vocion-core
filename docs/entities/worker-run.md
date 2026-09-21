@@ -113,6 +113,15 @@ to the in-process loop. Vocion stores checkpoints and progress, not the worker's
   member with tokens, and per-member run lists with the worker's `summary`. Board and red-team runs
   are badged wherever runs are counted.
 - **Activity** (`/dashboard/activity?kind=worker`) — every run in the org's one stream, badged by kind.
+- **Feature report** (`/dashboard/p/feature/<requestId>`, the `report` archetype —
+  [`docs/workspace-pages.md`](../workspace-pages.md)) — every run queued for one request's tasks,
+  in order, with its agent, attempt, duration, cost and checks, and on a failure the kept branch
+  and draft pull request from its last heartbeat's `progress`. A run whose `status` is `failed`
+  and whose pull request merged is shown as both facts and flagged rather than reconciled: a
+  worker's completion call can time out after its pull request is already open, and the two
+  records then disagree honestly. A run is found for a request through
+  `input.record = {type: 'engineering_task', id}` — a run queued with no record appears on no
+  report.
 
 ## Operations
 

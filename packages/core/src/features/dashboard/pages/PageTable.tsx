@@ -1,9 +1,9 @@
 import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
-import type { PageField, PagePrimary, PageRow, TableLayout } from '@/libs/workspace/pageFields';
+import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from '@/libs/workspace/pageFields';
 import { Badge } from '@/components/ui/badge';
 import { LinkRow } from '@/features/dashboard/LinkRow';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
-import { computeTotals, fieldAlign, isEmptyValue, priorityClass, resolveField, tableLayout } from '@/libs/workspace/pageFields';
+import { computeTotals, fieldAlign, interpolateHref, isEmptyValue, priorityClass, resolveField, tableLayout } from '@/libs/workspace/pageFields';
 
 /**
  * One table of a list page's rows.
@@ -87,23 +87,25 @@ function TotalsRow({ rows, fields, layout, extra }: { rows: PageRow[]; fields: P
  * @param root0.fields - The page's declared fields.
  * @param root0.primary - The page's `primary` block, if it declared one.
  * @param root0.rowLink - Where a row opens, with `{id}` interpolated.
+ * @param root0.rowActions - Trailing links on each row, interpolated the same way.
  * @param root0.now - The instant a `relative` value is measured against.
  * @param root0.links - Resolved record references, by key.
  * @param root0.groupLabel - The group heading, on a grouped page.
  * @param root0.id - DOM id for the section.
  */
-export function PageTable({ rows, fields, primary, rowLink, now, links, groupLabel, id }: {
+export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now, links, groupLabel, id }: {
   rows: PageRow[];
   fields: PageField[];
   primary?: PagePrimary;
   rowLink?: string;
+  rowActions?: PageRowAction[];
   now: number;
   links?: LinkMap;
   groupLabel?: string | null;
   id?: string;
 }) {
   const layout = tableLayout(rows, fields, primary);
-  const span = layout.columns.length + (layout.primary ? 1 : 0) + (rowLink ? 1 : 0);
+  const span = layout.columns.length + (layout.primary ? 1 : 0) + rowActions.length + (rowLink ? 1 : 0);
   const hasTotals = fields.some(f => f.total);
 
   return (
@@ -132,6 +134,9 @@ export function PageTable({ rows, fields, primary, rowLink, now, links, groupLab
                 >
                   {f.label ?? f.key}
                 </th>
+              ))}
+              {rowActions.map(a => (
+                <th key={a.label} scope="col" className="px-2 py-2 text-xs font-medium whitespace-nowrap text-muted-foreground">{a.label}</th>
               ))}
               {rowLink && <th className="w-8 px-2 py-2" aria-label="Open" />}
             </tr>
@@ -172,10 +177,27 @@ export function PageTable({ rows, fields, primary, rowLink, now, links, groupLab
                     <FieldValue row={row} field={f} now={now} links={links} />
                   </td>
                 )),
+                // Row actions sit inside the row link's cells, so a row with
+                // a click-through still reaches a second place; the anchor
+                // stops the row's own navigation (see LinkRow).
+                ...rowActions.map((a) => {
+                  const href = interpolateHref(row, a.href);
+                  return (
+                    <td key={`__action-${a.label}`} className="px-2 py-2.5">
+                      {href
+                        // A plain anchor, the way a `link` field renders one:
+                        // next-intl's Link would make every table a client
+                        // component for a href the middleware already localises.
+                        ? <a href={href} className="text-xs whitespace-nowrap underline underline-offset-2">{a.label}</a>
+                        : <span className="text-xs text-muted-foreground">—</span>}
+                    </td>
+                  );
+                }),
               ].filter(c => c !== null);
-              return rowLink
+              const href = rowLink ? interpolateHref(row, rowLink) : null;
+              return href
                 ? (
-                    <LinkRow key={row.id} href={rowLink.replace('{id}', String(row.id))}>
+                    <LinkRow key={row.id} href={href}>
                       {cells}
                     </LinkRow>
                   )
@@ -187,7 +209,7 @@ export function PageTable({ rows, fields, primary, rowLink, now, links, groupLab
             })}
           </tbody>
           {hasTotals && rows.length > 0 && (
-            <TotalsRow rows={rows} fields={fields} layout={layout} extra={rowLink ? 1 : 0} />
+            <TotalsRow rows={rows} fields={fields} layout={layout} extra={rowActions.length + (rowLink ? 1 : 0)} />
           )}
         </table>
       </div>

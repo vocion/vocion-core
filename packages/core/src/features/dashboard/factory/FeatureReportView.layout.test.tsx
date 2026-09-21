@@ -1,0 +1,173 @@
+import type { FeatureReportInput } from '@/services/factory/featureReport';
+import { describe, expect, it } from 'vitest';
+import { render } from 'vitest-browser-react';
+import { page } from 'vitest/browser';
+import { assembleFeatureReport } from '@/services/factory/featureReport';
+import { FeatureReportView } from './FeatureReportView';
+import '@/styles/global.css';
+
+/**
+ * The feature report, drawn — at a desk and on a phone.
+ *
+ * A report is read where the question is asked, which is often on a phone
+ * between other things, and the values on it are the widest strings in the
+ * product: a pull request URL, a branch, a file path, a commit. The page has
+ * to hold them without pushing the document sideways, so this measures
+ * geometry rather than class names — the next person to restyle this should
+ * find out here whether they reintroduced a horizontal scroll.
+ */
+
+const T = (iso: string) => new Date(iso);
+
+const LONG_PR = 'https://github.com/example/northwind-portal/pull/1284';
+
+function fixture(over: Partial<FeatureReportInput> = {}) {
+  const input: FeatureReportInput = {
+    request: {
+      id: 41,
+      title: 'Export a room as a PDF',
+      status: 'shipped',
+      createdAt: T('2026-09-01T09:00:00Z'),
+      meta: {
+        kind: 'gap',
+        channel: 'dogfood',
+        product: 'northwind-portal',
+        body: 'I can read the room on screen but I cannot hand it to my board. Give me a PDF.',
+        askedBy: { name: 'Dana Okafor' },
+        askedAt: '2026-09-01T09:00:00Z',
+        state: 'shipped',
+        severity: 'p2',
+        decisionCost: 5,
+        recommendedOutcome: 'build',
+        recommendationState: 'approved',
+        rankedAt: '2026-09-02T08:00:00Z',
+      },
+    },
+    tasks: [{
+      id: 77,
+      title: 'Room PDF export',
+      status: 'accepted',
+      createdAt: T('2026-09-03T09:00:00Z'),
+      meta: {
+        requestId: 41,
+        objective: 'Add a PDF export to the room share menu.',
+        allowedPaths: ['packages/core/src/features/rooms/**/*.{ts,tsx}', 'packages/core/src/services/export/**'],
+        acceptanceContract: ['The share menu offers PDF'],
+        requiredChecks: ['npm run lint', 'npm run check:types'],
+        riskClass: 'ui',
+        estimateCents: 900,
+        actualCents: 1450,
+        prUrl: LONG_PR,
+        commitSha: '9f2c1ab7d4e5f60918273645aabbccddeeff0011',
+        branch: 'feat/room-pdf-export-with-a-deliberately-long-branch-name',
+        filesChanged: ['packages/core/src/services/export/pdf.ts'],
+        checks: [{ name: 'npm run lint', passed: true, exitCode: 0 }],
+      },
+    }],
+    workerRuns: [{
+      id: 502,
+      agentSlug: 'task-engineer',
+      kind: 'worker',
+      status: 'failed',
+      attempt: 2,
+      cents: 830,
+      model: 'claude-sonnet-4-6',
+      summary: null,
+      error: 'completion call timed out',
+      createdAt: T('2026-09-04T10:00:00Z'),
+      claimedAt: T('2026-09-04T10:05:00Z'),
+      completedAt: T('2026-09-04T12:00:00Z'),
+      input: { record: { type: 'engineering_task', id: 77 } },
+      result: null,
+      progress: { keptBranch: 'feat/room-pdf-export-with-a-deliberately-long-branch-name', prUrl: LONG_PR },
+    }],
+    asks: [],
+    actionRuns: [],
+    releases: [],
+    artifacts: [],
+    now: T('2026-09-21T12:00:00Z'),
+    ...over,
+  };
+  return assembleFeatureReport(input);
+}
+
+/**
+ * Render the report inside the dashboard's own page padding, which is the
+ * only thing between it and the viewport edge.
+ * @param report - The assembled report.
+ */
+async function draw(report: ReturnType<typeof fixture>) {
+  await render(
+    <div className="px-6 py-4">
+      <FeatureReportView report={report} />
+    </div>,
+  );
+}
+
+describe('the feature report, drawn', () => {
+  it('reads top to bottom in the nine sections, in order', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    const keys = [...document.querySelectorAll('[data-section]')].map(el => el.getAttribute('data-section'));
+
+    expect(keys).toEqual(['ask', 'triage', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+  });
+
+  it('puts the newest timeline entry last', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    const entries = [...document.querySelectorAll('[data-timeline-entry]')].map(el => el.getAttribute('data-timeline-entry'));
+
+    expect(entries[0]).toBe('asked');
+    expect(entries.at(-1)).toBe('run-502-pr');
+  });
+
+  it('shows the six summary figures and the money line', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    const strip = document.querySelector('#report-summary')!;
+
+    expect(strip.textContent).toContain('Asked');
+    expect(strip.textContent).toContain('nothing has shipped');
+    expect(strip.textContent).toContain('Attempts');
+    expect(document.querySelector('#report-money')?.textContent ?? document.querySelector('[data-section="money"]')!.textContent).toContain('+$5.50');
+  });
+
+  it('says what did not happen instead of hiding it', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    const absences = [...document.querySelectorAll('[data-absence]')].map(el => el.textContent);
+
+    expect(absences).toContain('No QA evidence was captured for this task.');
+    expect(absences).toContain('No release carries this task.');
+  });
+
+  it('flags the failed run whose pull request merged, in red, above the fold', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    const banner = document.querySelector('#report-contradictions')!;
+
+    expect(banner.textContent).toContain('Run 502 is recorded as failed');
+    expect(banner.textContent).toContain('Nothing here was resolved for you.');
+  });
+
+  it('does not scroll sideways at 390px, with a pull request URL and a commit on it', async () => {
+    await page.viewport(390, 844);
+    await draw(fixture());
+
+    expect(document.body.textContent).toContain('9f2c1ab7d4e5f60918273645aabbccddeeff0011');
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
+
+  it('does not scroll sideways at a desk either', async () => {
+    await page.viewport(1440, 900);
+    await draw(fixture());
+
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
+  });
+});

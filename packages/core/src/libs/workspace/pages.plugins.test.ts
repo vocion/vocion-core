@@ -79,9 +79,12 @@ describe('plugin pages', () => {
     // The portfolio comes first (order 0) and its section is AppCurious; the
     // evidence pages sit under Software factory — intake, the ten in front of a
     // person, work, what it cost.
-    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report']);
+    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'feature', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report']);
     expect(mine.filter(p => p.nav.section === 'AppCurious').map(p => p.slug)).toEqual(['portfolio', 'releases', 'changelog']);
-    expect(mine.filter(p => p.nav.section === 'Software factory')).toHaveLength(7);
+    // The feature report is about ONE request, so it is reached from a row on
+    // the Backlog or the Factory floor and is not a row of its own.
+    expect(mine.filter(p => p.nav.section === 'Software factory' && !p.nav.hidden)).toHaveLength(7);
+    expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
     expect(pages.find(p => p.slug === 'backlog')?.source).toEqual({ kind: 'objects', objectType: 'request' });
     expect(pages.find(p => p.slug === 'backlog')?.filters).toEqual([{ field: 'meta.state', op: 'in', value: ['new', 'triaged', 'in_scope'] }]);
     expect(pages.find(p => p.slug === 'product-board')?.source).toEqual({ kind: 'objects', objectType: 'product' });
