@@ -361,6 +361,10 @@ export async function preflightCheck(opts: {
  *
  * Idempotent only by caller discipline — call it once per completed call.
  *
+ * A failed write is retried a bounded number of times before it gives up; see
+ * {@link writeChargeWithRetry} for why that cannot double-charge and what
+ * happens when every attempt fails.
+ *
  * A call with neither `agentSlug` nor `feature` still charges the org row; it
  * is the caller saying "this was ours and we could not attribute it further",
  * which is better than losing it.
@@ -400,10 +404,119 @@ export async function chargeUsage(opts: {
   }
   rows.push({ orgId: opts.orgId, agentSlug: ORG_SCOPE_SLUG, period, currentTokens: tokens, currentMicroCents: microCents, currentCents: Math.floor(microCents / MICRO_CENTS_PER_CENT) });
 
-  // One statement, so the three rows move together and a concurrent charge
-  // cannot interleave a read with a write. `stale` is the period rollover: when
-  // the row's period began before the current one, the incoming numbers replace
-  // the counters instead of adding to them, and the period restarts.
+  await writeChargeWithRetry(rows, period, tokens, microCents);
+}
+
+/** Attempts a charge gets before the spend is given up on. */
+const CHARGE_ATTEMPTS = 3;
+
+/** First backoff step between charge attempts; doubles each time. */
+const CHARGE_RETRY_DELAY_MS = 100;
+
+/**
+ * Wait, so a retry does not land on the same bad moment as the attempt before.
+ * @param milliseconds - How long to wait.
+ */
+async function pause(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+/**
+ * Write one charge, retrying a failed attempt a bounded number of times.
+ *
+ * The model call already happened and the provider will already bill us for
+ * it, so a charge that fails is money the product spent and can no longer see.
+ * A single failed attempt is usually a moment of database trouble rather than
+ * anything wrong with the charge, and giving up on the first one was the
+ * difference between a budget that is a spend control and one that is a
+ * decent guess.
+ *
+ * **Why retrying cannot double-charge.** The write is one
+ * `INSERT … ON CONFLICT DO UPDATE`, and Postgres commits a single statement
+ * whole or not at all. An attempt that raises added nothing, so the next
+ * attempt starts from the same counters.
+ *
+ * The exception is a lost acknowledgement — the statement committed but the
+ * connection died before we heard so — where a retry charges twice. We take
+ * that trade deliberately: for a spend control, counting one call twice is the
+ * safe direction to be wrong in, and losing it is not. Making it exact would
+ * need a recorded id per call to write against, which is a ledger table and a
+ * larger change than this one.
+ *
+ * When every attempt fails it logs the whole charge at error level before
+ * rethrowing, so the spend can be reconstructed by hand from the log line —
+ * callers mostly swallow what comes out of here, on purpose, because failing
+ * somebody's request over the accounting would be the more expensive mistake.
+ * @param rows - The scope rows this charge lands on.
+ * @param period - Which period is being charged.
+ * @param tokens - Tokens to add.
+ * @param microCents - Money to add, in micro-cents.
+ */
+async function writeChargeWithRetry(
+  rows: Array<typeof agentBudgetSchema.$inferInsert>,
+  period: BudgetPeriod,
+  tokens: number,
+  microCents: number,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= CHARGE_ATTEMPTS; attempt++) {
+    try {
+      await writeCharge(rows, period, tokens, microCents);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < CHARGE_ATTEMPTS) {
+        await pause(CHARGE_RETRY_DELAY_MS * 2 ** (attempt - 1));
+      }
+    }
+  }
+  logUnrecordedSpend({
+    orgId: rows[0]?.orgId,
+    scopes: rows.map(row => row.agentSlug),
+    period,
+    tokens,
+    microCents,
+    attempts: CHARGE_ATTEMPTS,
+    error: lastError instanceof Error ? lastError.message : String(lastError),
+  });
+  throw lastError;
+}
+
+/**
+ * Log spend that could not be recorded, loading the logger only when there is
+ * something to say.
+ *
+ * `libs/Logger` validates the whole environment at import, and this module is
+ * loaded by tests that run against a database fixture with nothing else
+ * configured. Same approach, and same reason, as `logWarning` in
+ * `libs/retrieval/embedder.ts`.
+ * @param properties - The charge that was lost, in enough detail to replay it.
+ */
+function logUnrecordedSpend(properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.error('budget charge failed and the spend is unrecorded', properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
+}
+
+/**
+ * The charge itself: one statement, so the rows move together and a concurrent
+ * charge cannot interleave a read with a write.
+ *
+ * `stale` is the period rollover — when the row's period began before the
+ * current one, the incoming numbers replace the counters instead of adding to
+ * them, and the period restarts.
+ * @param rows - The scope rows this charge lands on.
+ * @param period - Which period is being charged.
+ * @param tokens - Tokens to add.
+ * @param microCents - Money to add, in micro-cents.
+ */
+async function writeCharge(
+  rows: Array<typeof agentBudgetSchema.$inferInsert>,
+  period: BudgetPeriod,
+  tokens: number,
+  microCents: number,
+): Promise<void> {
   const periodStart = periodStartExpression(period);
   const stale = sql`${agentBudgetSchema.periodStartedAt} < ${periodStart}`;
   const nextMicroCents = sql`CASE WHEN ${stale} THEN ${microCents} ELSE ${agentBudgetSchema.currentMicroCents} + ${microCents} END`;

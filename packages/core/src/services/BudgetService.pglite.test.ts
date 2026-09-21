@@ -337,3 +337,56 @@ describe('what the dashboard reads', () => {
     expect(platform.map(r => r.agentSlug).sort()).toEqual([ORG_SCOPE_SLUG, featureScopeSlug('retrieval.embed')].sort());
   });
 });
+
+describe('a charge that hits database trouble', () => {
+  it('retries a failed write and records the spend exactly once', async () => {
+    const realInsert = db.insert.bind(db);
+    let attempts = 0;
+    const insert = vi.spyOn(db, 'insert').mockImplementation((table: Parameters<typeof realInsert>[0]) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error('connection terminated unexpectedly');
+      }
+      return realInsert(table);
+    });
+
+    await chargeUsage({
+      orgId: ORG,
+      agentSlug: AGENT,
+      model: CHAT_MODEL,
+      usage: { inputTokens: 1_000_000, outputTokens: 0 },
+    });
+    insert.mockRestore();
+
+    expect(attempts).toBe(2);
+
+    // One charge's worth, not two: the attempt that threw wrote nothing, so the
+    // retry started from the same counters.
+    const orgRow = await getBudget({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG });
+
+    expect(orgRow?.currentMicroCents).toBe(100_000_000);
+    expect(orgRow?.currentCents).toBe(100);
+  });
+
+  it('gives up after a bounded number of attempts and leaves the counters alone', async () => {
+    const insert = vi.spyOn(db, 'insert').mockImplementation(() => {
+      throw new Error('connection terminated unexpectedly');
+    });
+
+    await expect(chargeUsage({
+      orgId: ORG,
+      agentSlug: AGENT,
+      model: CHAT_MODEL,
+      usage: { inputTokens: 1_000_000, outputTokens: 0 },
+    })).rejects.toThrow('connection terminated unexpectedly');
+
+    expect(insert).toHaveBeenCalledTimes(3);
+
+    insert.mockRestore();
+
+    // No row at all: every attempt rolled back, so nothing was half-written.
+    const orgRow = await getBudget({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG });
+
+    expect(orgRow).toBeNull();
+  });
+});

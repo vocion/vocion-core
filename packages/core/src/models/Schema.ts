@@ -1732,7 +1732,7 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
   latencyMs: integer('latency_ms'),
   /**
    * What this one case cost: the agent run's token usage priced by
-   * `tokenCostCents`, plus how many model turns and tool calls it took.
+   * `tokenCostMicroCents`, plus how many model turns and tool calls it took.
    * NULL on rows written before the column existed and on errored cases.
    */
   usage: jsonb('usage').$type<{

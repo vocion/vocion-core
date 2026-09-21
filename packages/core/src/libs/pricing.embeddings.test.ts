@@ -96,3 +96,30 @@ describe('the Langfuse bootstrap', () => {
     }
   });
 });
+
+describe('accumulating over many calls', () => {
+  /**
+   * The rule the budget counter and `runAgentDeep`'s per-run total both rely
+   * on: a long period is thousands of small charges, and adding them up as
+   * cents drifts because most of those fractions are not values a
+   * floating-point number holds exactly. Adding whole micro-cents cannot.
+   */
+  it('is exact over ten thousand batches, where summing cents is not', () => {
+    const usage = { inputTokens: 12_345, outputTokens: 0 };
+    const batches = 10_000;
+
+    let microCents = 0;
+    let cents = 0;
+    for (let batch = 0; batch < batches; batch++) {
+      microCents += tokenCostMicroCents('text-embedding-3-small', usage);
+      cents += tokenCostCents('text-embedding-3-small', usage);
+    }
+
+    // 12,345 tokens x 2 cents per million = 24,690 micro-cents a batch.
+    expect(microCents).toBe(246_900_000);
+    expect(microCents / 1_000_000).toBe(246.9);
+    // The same sum taken in cents lands near it, but not on it.
+    expect(cents).not.toBe(246.9);
+    expect(Math.abs(cents - 246.9)).toBeLessThan(0.000_001);
+  });
+});
