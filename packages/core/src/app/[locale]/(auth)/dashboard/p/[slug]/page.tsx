@@ -1,4 +1,4 @@
-import type { PageManifest, PageRow } from '@/libs/workspace/pages';
+import type { PageField, PageManifest, PageRow, PageView } from '@/libs/workspace/pages';
 // Aliased at build time: the workspace's own pages/components/registry.tsx
 // when it ships one, the in-repo empty stub otherwise (see next.config.ts).
 import { components as wsxComponents } from '@wsx/registry';
@@ -22,6 +22,7 @@ import {
   computeSeries,
   computeStat,
   groupRows,
+  isZeroFigure,
   pagePlugin,
   readWorkspacePageContent,
   resolveField,
@@ -141,18 +142,43 @@ async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[
     // value for a filter goes to the service; several are applied here, so
     // the page never invents a query the service does not have.
     const { listWorkerRuns } = await import('@/services/WorkerRunService');
+    const { recoveryLabel, requestId, taskRecordId, withRunRecovery } = await import('@/libs/factory/runFacts');
     const one = (xs?: string[]) => (xs?.length === 1 ? xs[0] : undefined);
     const runs = await listWorkerRuns(orgId, { agentSlug: one(src.agentSlugs), status: one(src.status), kind: one(src.kinds), limit: src.limit });
-    return runs
+    const kept = runs
       .filter(r => (!src.agentSlugs?.length || src.agentSlugs.includes(r.agentSlug))
         && (!src.status?.length || src.status.includes(r.status))
-        && (!src.kinds?.length || src.kinds.includes(r.kind)))
+        && (!src.kinds?.length || src.kinds.includes(r.kind)));
+    // The four concepts `status` was carrying, read once here so every field,
+    // stat and group on every page sees the same answer (libs/factory/runFacts.ts).
+    return withRunRecovery(kept)
       .map(r => ({
         id: r.id,
-        title: r.summary?.split('\n')[0] ?? `${r.kind} run #${r.id}`,
+        title: r.facts.headline,
         status: r.status,
-        createdAt: r.createdAt,
+        createdAt: r.createdAt ?? null,
         meta: {
+          // The honest reading: four independent facts, none contradicting
+          // the one beside it, plus why it went wrong and whether the factory
+          // fixed it without anyone asking.
+          execution: r.facts.execution,
+          verification: r.facts.verification,
+          output: r.facts.output,
+          outputUrl: r.facts.outputUrl,
+          disposition: r.disposition,
+          failureClass: r.facts.failureClass,
+          successful: r.facts.successful,
+          recovery: r.recovery.kind,
+          recoveryNote: recoveryLabel(r.recovery),
+          headline: r.facts.headline,
+          checks: r.facts.checksTotal > 0 ? `${r.facts.checksPassed}/${r.facts.checksTotal}` : null,
+          filesChanged: r.facts.filesChanged,
+          taskKey: r.taskKey,
+          taskRecordId: taskRecordId(r),
+          requestId: requestId(r),
+          durationSeconds: r.claimedAt && r.completedAt
+            ? Math.max(0, Math.round((r.completedAt.getTime() - r.claimedAt.getTime()) / 1000))
+            : null,
           agentSlug: r.agentSlug,
           kind: r.kind,
           status: r.status,
@@ -277,6 +303,39 @@ function SeriesStrip({ series }: { series: ReturnType<typeof computeSeries> }) {
   );
 }
 
+/**
+ * The row of views above a page that declared them.
+ *
+ * A view that narrows these rows is a query on this page; a view that names
+ * another surface is a link to it. Both are drawn the same because the
+ * question is the same one ("what happened"), and the difference is in where
+ * the click lands rather than in a second navigation pattern.
+ * @param root0 - Props.
+ * @param root0.views - The declared views.
+ * @param root0.active - The view in force.
+ * @param root0.slug - The page, for the `?view=` links.
+ */
+function ViewSwitcher({ views, active, slug }: { views: PageView[]; active: PageView; slug: string }) {
+  return (
+    <nav className="mb-4 flex flex-wrap items-center gap-1" aria-label="Views" data-testid="page-views">
+      {views.map((v) => {
+        const on = v.key === active.key;
+        const href = v.href ?? (v.key === views[0]!.key ? `/dashboard/p/${slug}` : `/dashboard/p/${slug}?view=${v.key}`);
+        return (
+          <Link
+            key={v.key}
+            href={href}
+            aria-current={on ? 'page' : undefined}
+            className={`rounded-md px-2.5 py-1 text-xs ${on ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted/60'}`}
+          >
+            {v.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 function Widgets({ manifest, position, rows, stats }: {
   manifest: PageManifest;
   position: 'above' | 'below';
@@ -322,8 +381,10 @@ function Widgets({ manifest, position, rows, stats }: {
 
 export default async function WorkspacePage(props: {
   params: Promise<{ locale: string; slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { locale, slug } = await props.params;
+  const searchParams = await props.searchParams;
   setRequestLocale(locale);
   const { orgId, userId } = await auth();
   if (!orgId) {
@@ -347,9 +408,16 @@ export default async function WorkspacePage(props: {
   const content = readWorkspacePageContent(manifest);
   const now = await currentTime();
 
+  // The view in force. A `?view=` naming a view that links elsewhere, or no
+  // view at all, falls back to the first one declared, which is the default
+  // by construction.
+  const views = manifest.views ?? null;
+  const asked = typeof searchParams.view === 'string' ? searchParams.view : undefined;
+  const activeView = views ? (views.find(v => v.key === asked && v.href === undefined) ?? views[0]!) : null;
+
   let rows: PageRow[] = [];
   if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && manifest.source) {
-    rows = applyFilter(await loadRows(manifest, orgId), manifest.filters, new Date(now));
+    rows = applyFilter(await loadRows(manifest, orgId), [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {
@@ -389,7 +457,11 @@ export default async function WorkspacePage(props: {
 
   const stats: Record<string, string> = {};
   for (const s of manifest.stats ?? []) {
-    stats[s.label] = computeStat(rows, s, new Date(now));
+    const figure = computeStat(rows, s, new Date(now));
+    if (s.hideWhenZero && isZeroFigure(figure)) {
+      continue;
+    }
+    stats[s.label] = figure;
   }
   const series = (manifest.series ?? []).map(sr => computeSeries(rows, sr, new Date(now)));
 
@@ -400,9 +472,9 @@ export default async function WorkspacePage(props: {
   // Which plugin shipped this page, if any — the panel's slug.
   const ownedBy = pagePlugin(manifest);
 
-  const fields = manifest.fields ?? [
-    { key: 'title', label: 'Title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false },
-    { key: 'status', label: 'Status', from: 'status', format: 'badge' as const, total: false, priority: 1, hideWhenConstant: false },
+  const fields: PageField[] = manifest.fields ?? [
+    { key: 'title', label: 'Title', format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false },
+    { key: 'status', label: 'Status', from: 'status', format: 'badge', total: false, priority: 1, hideWhenConstant: false, detail: false },
   ];
 
   // Every `link` column that names a target type, resolved to that record's
@@ -441,6 +513,9 @@ export default async function WorkspacePage(props: {
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
       )}
+
+      {views && activeView && <ViewSwitcher views={views} active={activeView} slug={manifest.slug} />}
+      {activeView?.note && <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{activeView.note}</p>}
 
       {Object.keys(stats).length > 0 && (
         <div id="wsx-stats" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4">

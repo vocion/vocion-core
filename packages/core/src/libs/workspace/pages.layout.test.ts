@@ -19,7 +19,7 @@ import {
  */
 
 function field(over: Partial<PageField> & Pick<PageField, 'key'>): PageField {
-  return { label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, ...over };
+  return { label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, ...over };
 }
 
 function row(id: number, meta: Record<string, unknown>): PageRow {

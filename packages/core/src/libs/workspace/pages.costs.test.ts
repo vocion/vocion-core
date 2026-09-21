@@ -24,20 +24,20 @@ describe('money', () => {
   it('a sum stat adds the field, and format: money renders it as dollars', () => {
     const rows = [row(1, { actualCents: 1200 }), row(2, { actualCents: 350 }), row(3, {})];
 
-    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money' })).toBe('$15.50');
-    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'number' })).toBe('1550');
+    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$15.50');
+    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'number', hideWhenZero: false })).toBe('1550');
     // An average is over the rows that carry the field — the third row is not a $0 feature.
-    expect(computeStat(rows, { label: 'Avg', kind: 'avg', field: 'meta.actualCents', format: 'money' })).toBe('$7.75');
-    expect(computeStat([], { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money' })).toBe('$0.00');
+    expect(computeStat(rows, { label: 'Avg', kind: 'avg', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$7.75');
+    expect(computeStat([], { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$0.00');
   });
 
   it('the manifest accepts sum and money on a stat, and refuses a since with no window', () => {
     const base = { slug: 'costs', title: 'Costs', archetype: 'list', source: { kind: 'objects', objectType: 'request' } };
 
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money' }] }).success).toBe(true);
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'month' } }] }).success).toBe(true);
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'yesterday' } }] }).success).toBe(false);
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', format: 'euros' }] }).success).toBe(false);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money', hideWhenZero: false }] }).success).toBe(true);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'month' }, hideWhenZero: false }] }).success).toBe(true);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'yesterday', hideWhenZero: false } }] }).success).toBe(false);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', format: 'euros', hideWhenZero: false }] }).success).toBe(false);
   });
 });
 
@@ -58,16 +58,16 @@ describe('since', () => {
     ];
 
     expect(applyFilter(rows, [{ field: 'meta.at', op: 'since', value: 'month' }], NOW).map(r => r.id)).toEqual([1]);
-    expect(computeStat([row(1, { at: '2026-09-02T00:00:00Z', cents: 100 }), row(2, { at: '2026-07-02T00:00:00Z', cents: 900 })], { label: 'This month', kind: 'sum', field: 'meta.cents', format: 'money', where: { field: 'meta.at', op: 'since', value: 'month' } }, NOW)).toBe('$1.00');
+    expect(computeStat([row(1, { at: '2026-09-02T00:00:00Z', cents: 100 }), row(2, { at: '2026-07-02T00:00:00Z', cents: 900 })], { label: 'This month', kind: 'sum', field: 'meta.cents', format: 'money', where: { field: 'meta.at', op: 'since', value: 'month' }, hideWhenZero: false }, NOW)).toBe('$1.00');
   });
 });
 
 describe('totals and groups', () => {
   it('sums the columns marked total, rendered as the column renders', () => {
     const fields = [
-      { key: 'title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false },
-      { key: 'actual', from: 'meta.actualCents', format: 'money' as const, total: true, priority: 1, hideWhenConstant: false },
-      { key: 'tasks', from: 'meta.taskCount', format: 'mono' as const, total: true, priority: 1, hideWhenConstant: false },
+      { key: 'title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false, detail: false },
+      { key: 'actual', from: 'meta.actualCents', format: 'money' as const, total: true, priority: 1, hideWhenConstant: false, detail: false },
+      { key: 'tasks', from: 'meta.taskCount', format: 'mono' as const, total: true, priority: 1, hideWhenConstant: false, detail: false },
     ];
     const rows = [row(1, { actualCents: 1000, taskCount: 2 }), row(2, { actualCents: 25, taskCount: 1 }), row(3, {})];
 
@@ -90,7 +90,7 @@ describe('totals and groups', () => {
       ['—', [3, 4]],
     ]);
     // The total under a tag is the cumulative spend on everything that carried it.
-    expect(computeTotals(groups[0]!.rows, [{ key: 'actual', from: 'meta.actualCents', format: 'money', total: true, priority: 1, hideWhenConstant: false }])).toEqual({ actual: '$1.50' });
+    expect(computeTotals(groups[0]!.rows, [{ key: 'actual', from: 'meta.actualCents', format: 'money', total: true, priority: 1, hideWhenConstant: false, detail: false }])).toEqual({ actual: '$1.50' });
   });
 
   it('a scalar groups the way it always did', () => {
