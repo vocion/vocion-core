@@ -443,7 +443,7 @@ export function buildTeamReport(input: {
       },
       models: modelsByAgent.get(a.slug) ?? [],
       budget: b
-        ? { period: b.period, currentCents: Number(b.currentCents ?? 0), currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit), softCentsLimit: b.softCentsLimit === null ? null : Number(b.softCentsLimit) }
+        ? { period: b.period, currentCents: Number(b.currentMicroCents ?? 0) / 1_000_000, currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit), softCentsLimit: b.softCentsLimit === null ? null : Number(b.softCentsLimit) }
         : null,
     };
   };

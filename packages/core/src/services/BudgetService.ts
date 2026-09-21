@@ -60,13 +60,16 @@
  *
  * ## Which column is the money
  *
- * `currentMicroCents` is. It is what a charge accumulates and what a cap is
- * compared against, because an embedding batch costs a fraction of a cent and
- * a counter kept in whole cents is always up to one behind the truth.
- * `currentCents` is floored from it for display and for the callers that read
- * the table directly; nothing decides anything on it. Dropping it would be the
- * cleaner shape and is an expand-and-contract migration away — the dashboard,
- * `/api/v1/budgets` and both team reports read it today.
+ * `currentMicroCents` is, and it is the only one. A charge accumulates it and
+ * a cap is compared against it, because an embedding batch costs a fraction of
+ * a cent and a counter kept in whole cents is always up to one behind the
+ * truth.
+ *
+ * Cents are divided out of it when a row is read, never stored. There was a
+ * `currentCents` column doing that, and it was removed: a second copy of the
+ * same money can disagree with the first, and because it was floored per row,
+ * the agents' cents did not add up to the workspace's. The database column is
+ * dropped a release later than this code, per `migrations/CONVENTIONS.md`.
  */
 
 import type { FeatureName } from '@/libs/Langfuse/features';
@@ -217,7 +220,7 @@ async function maybeResetPeriod(row: typeof agentBudgetSchema.$inferSelect) {
   }
   const [updated] = await db
     .update(agentBudgetSchema)
-    .set({ currentTokens: 0, currentCents: 0, currentMicroCents: 0, periodStartedAt: now })
+    .set({ currentTokens: 0, currentMicroCents: 0, periodStartedAt: now })
     .where(eq(agentBudgetSchema.id, row.id))
     .returning();
   return updated!;
@@ -227,11 +230,37 @@ async function maybeResetPeriod(row: typeof agentBudgetSchema.$inferSelect) {
 /* Reading                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A budget row as callers read it: the stored row, plus its spend in cents.
+ *
+ * `currentCents` is worked out here rather than stored, so there is exactly one
+ * number holding the money and nothing to keep in step with it. It carries a
+ * fraction — a rerank that cost a fifth of a cent reads as 0.2, not 0.
+ */
+export type BudgetRow = typeof agentBudgetSchema.$inferSelect & { currentCents: number };
+
+/**
+ * Spend in cents, from the micro-cents that hold it.
+ * @param row - A stored budget row.
+ * @param row.currentMicroCents
+ */
+function spentCents(row: { currentMicroCents: number }): number {
+  return row.currentMicroCents / MICRO_CENTS_PER_CENT;
+}
+
+/**
+ * Attach the cents a caller reads to a stored row.
+ * @param row - A stored budget row.
+ */
+function withSpentCents(row: typeof agentBudgetSchema.$inferSelect): BudgetRow {
+  return { ...row, currentCents: spentCents(row) };
+}
+
 async function readScope(
   orgId: string,
   agentSlug: string,
   period: BudgetPeriod,
-): Promise<typeof agentBudgetSchema.$inferSelect | null> {
+): Promise<BudgetRow | null> {
   const [row] = await db
     .select()
     .from(agentBudgetSchema)
@@ -243,7 +272,7 @@ async function readScope(
   if (!row) {
     return null;
   }
-  return maybeResetPeriod(row);
+  return withSpentCents(await maybeResetPeriod(row));
 }
 
 /**
@@ -265,19 +294,13 @@ function breachOf(
       current: row.currentTokens,
     };
   }
-  // Compared in micro-cents rather than against the floored `currentCents`.
+  // Compared in micro-cents, which is where the money is. A limit is whole
+  // cents, so multiplying it up is exact and the comparison never touches a
+  // fraction.
   //
-  // The two agree today: `floor(m / 1e6) >= L` and `m >= L * 1e6` are the same
-  // condition for any whole-number L, and `hardCentsLimit` is a bigint. This is
-  // not a behaviour fix — it is so the cap stops depending on a column that is
-  // derived from the one that holds the money. `currentCents` is floored for
-  // display; if it ever drifts, or if a limit ever gains a fractional part,
-  // whoever made that change should not also have quietly changed what a cap
-  // refuses.
-  //
-  // `current` is still reported in cents — it is the unit the person set the
-  // cap in and the one the dashboard shows — so the message reads in the same
-  // unit as the limit beside it.
+  // `current` is reported in cents — the unit the person set the cap in and the
+  // one the dashboard shows — so the message reads in the same unit as the
+  // limit beside it.
   if (row.hardCentsLimit !== null && row.currentMicroCents >= row.hardCentsLimit * MICRO_CENTS_PER_CENT) {
     return {
       ok: false,
@@ -285,7 +308,7 @@ function breachOf(
       scope,
       agentSlug: row.agentSlug,
       limit: row.hardCentsLimit,
-      current: row.currentCents,
+      current: spentCents(row),
     };
   }
   return null;
@@ -397,12 +420,12 @@ export async function chargeUsage(opts: {
 
   const rows: Array<typeof agentBudgetSchema.$inferInsert> = [];
   if (opts.agentSlug) {
-    rows.push({ orgId: opts.orgId, agentSlug: opts.agentSlug, period, currentTokens: tokens, currentMicroCents: microCents, currentCents: Math.floor(microCents / MICRO_CENTS_PER_CENT) });
+    rows.push({ orgId: opts.orgId, agentSlug: opts.agentSlug, period, currentTokens: tokens, currentMicroCents: microCents });
   }
   if (opts.feature) {
-    rows.push({ orgId: opts.orgId, agentSlug: featureScopeSlug(opts.feature), feature: opts.feature, period, currentTokens: tokens, currentMicroCents: microCents, currentCents: Math.floor(microCents / MICRO_CENTS_PER_CENT) });
+    rows.push({ orgId: opts.orgId, agentSlug: featureScopeSlug(opts.feature), feature: opts.feature, period, currentTokens: tokens, currentMicroCents: microCents });
   }
-  rows.push({ orgId: opts.orgId, agentSlug: ORG_SCOPE_SLUG, period, currentTokens: tokens, currentMicroCents: microCents, currentCents: Math.floor(microCents / MICRO_CENTS_PER_CENT) });
+  rows.push({ orgId: opts.orgId, agentSlug: ORG_SCOPE_SLUG, period, currentTokens: tokens, currentMicroCents: microCents });
 
   await writeChargeWithRetry(rows, period, tokens, microCents);
 }
@@ -534,7 +557,6 @@ async function writeCharge(
         feature: sql`coalesce(${agentBudgetSchema.feature}, excluded.feature)`,
         currentTokens: sql`CASE WHEN ${stale} THEN ${tokens} ELSE ${agentBudgetSchema.currentTokens} + ${tokens} END`,
         currentMicroCents: nextMicroCents,
-        currentCents: sql`floor((${nextMicroCents}) / ${MICRO_CENTS_PER_CENT})`,
         periodStartedAt: sql`CASE WHEN ${stale} THEN ${periodStart} ELSE ${agentBudgetSchema.periodStartedAt} END`,
         updatedAt: new Date(),
       },
@@ -593,7 +615,8 @@ export async function listAllBudgets(orgId: string) {
     .select()
     .from(agentBudgetSchema)
     .where(eq(agentBudgetSchema.orgId, orgId));
-  return Promise.all(rows.map(r => maybeResetPeriod(r)));
+  const current = await Promise.all(rows.map(r => maybeResetPeriod(r)));
+  return current.map(r => withSpentCents(r));
 }
 
 /**

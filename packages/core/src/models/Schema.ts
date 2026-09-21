@@ -2109,18 +2109,22 @@ export const agentBudgetSchema = pgTable(
     /** Tokens consumed in the current period (sum of input + output). */
     currentTokens: bigint('current_tokens', { mode: 'number' }).default(0).notNull(),
     /**
-     * Dollars (in USD cents to keep math integer-safe), floored from
-     * `currentMicroCents`. This is the number the caps compare against and the
-     * dashboard shows.
-     */
-    currentCents: bigint('current_cents', { mode: 'number' }).default(0).notNull(),
-    /**
-     * The same spend at a millionth of a cent, and the column that is actually
-     * accumulated. Charging moved from one call per agent turn to one call per
-     * embedding batch, and a batch of chunks costs a fraction of a cent: with
-     * cents alone, rounding a tenth of a cent up to one cent on every batch
-     * billed a $1 sync as $10. Each charge adds its exact cost here and floors
-     * the result into `currentCents`.
+     * Spend in the current period, in micro-cents — a millionth of a cent.
+     *
+     * The only money column, and a whole number, so a charge is exact and so
+     * is every sum of charges. Charging moved from one call per agent turn to
+     * one call per embedding batch, and a batch of chunks costs a fraction of
+     * a cent: counting in whole cents rounded a tenth of a cent up to one on
+     * every batch and billed a $1 sync as $10.
+     *
+     * Cents for reading are divided out of this at the point of display.
+     * There used to be a `current_cents` column holding that division, and it
+     * was removed: it was a second copy of the same money that could disagree
+     * with this one, and because it was floored per row, the agents' cents
+     * never added up to the workspace's. The database column outlives this
+     * line by one release — nothing reads or writes it now, and a later
+     * migration drops it (see `migrations/CONVENTIONS.md`, expand and
+     * contract).
      */
     currentMicroCents: bigint('current_micro_cents', { mode: 'number' }).default(0).notNull(),
     /** Soft cap — warn but don't refuse. */

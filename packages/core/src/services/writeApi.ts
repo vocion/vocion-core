@@ -760,6 +760,16 @@ export type ApiAgentBudget = {
   feature: string | null;
   period: string;
   currentTokens: number;
+  /**
+   * Spend this period in micro-cents — a millionth of a cent. The exact
+   * number, and a whole one, so a consumer adding rows up gets the same total
+   * the product charged.
+   */
+  currentMicroCents: number;
+  /**
+   * The same spend in cents, for reading. Carries a fraction: a rerank that
+   * cost a fifth of a cent reads as 0.2.
+   */
   currentCents: number;
   softTokenLimit: number | null;
   softCentsLimit: number | null;
@@ -794,6 +804,7 @@ export async function apiListAgentBudgets(caller: ApiCaller): Promise<{ budgets:
       feature: r.feature,
       period: r.period,
       currentTokens: r.currentTokens,
+      currentMicroCents: r.currentMicroCents,
       currentCents: r.currentCents,
       softTokenLimit: r.softTokenLimit,
       softCentsLimit: r.softCentsLimit,

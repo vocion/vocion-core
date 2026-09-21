@@ -136,7 +136,7 @@ describe('fractions of a cent', () => {
     expect(totals.tokens).toBe(500_000);
   });
 
-  it('keeps a spend below a cent visible in tokens rather than losing it', async () => {
+  it('reports a spend below a cent as the fraction it is, not as zero', async () => {
     await chargeUsage({
       orgId: ORG,
       feature: 'retrieval.embed',
@@ -146,7 +146,9 @@ describe('fractions of a cent', () => {
 
     const totals = await orgUsageTotals({ orgId: ORG });
 
-    expect(totals.spentCents).toBe(0);
+    // A fifth of a hundredth of a cent, reported as itself rather than rounded
+    // away to nothing.
+    expect(totals.spentCents).toBe(0.002);
     expect(totals.tokens).toBe(1000);
   });
 });
@@ -254,9 +256,9 @@ describe('what a cap refuses', () => {
     }
 
     expect((await preflightCheck({ orgId: ORG })).ok).toBe(true);
-    // And the displayed number is the floor of it, which is what the dashboard
-    // shows and what the refusal message quotes.
-    expect((await orgUsageTotals({ orgId: ORG })).spentCents).toBe(4);
+    // And the displayed number keeps the fraction, so a workspace a tenth of a
+    // cent short of its cap reads as that rather than as a whole cent short.
+    expect((await orgUsageTotals({ orgId: ORG })).spentCents).toBe(4.9);
   });
 
   it('lets an org with no cap through however much it has spent', async () => {
@@ -388,5 +390,30 @@ describe('a charge that hits database trouble', () => {
     const orgRow = await getBudget({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG });
 
     expect(orgRow).toBeNull();
+  });
+});
+
+describe('the rows add up', () => {
+  it('sums the agent rows to exactly what the workspace row holds', async () => {
+    // Three charges that each cost a fraction of a cent. Stored as floored
+    // whole cents these all read as 0, and the workspace row disagreed with
+    // the sum of the others by the whole amount.
+    for (const agentSlug of ['deal-lead', 'scheduler', 'researcher']) {
+      await chargeUsage({
+        orgId: ORG,
+        agentSlug,
+        model: EMBEDDING_MODEL,
+        usage: { inputTokens: 12_345 },
+      });
+    }
+
+    const agents = await listAgentBudgets(ORG);
+    const workspace = await getBudget({ orgId: ORG, agentSlug: ORG_SCOPE_SLUG });
+
+    expect(agents).toHaveLength(3);
+    expect(agents.reduce((total, row) => total + row.currentMicroCents, 0)).toBe(workspace!.currentMicroCents);
+    // 12,345 tokens x 2 micro-cents each x 3 agents.
+    expect(workspace!.currentMicroCents).toBe(74_070);
+    expect(workspace!.currentCents).toBe(0.07407);
   });
 });
