@@ -22,6 +22,7 @@ import { pluginEnableAction } from './plugin-enable';
 import { qcActions } from './qc';
 import { teamHireAgentAction } from './team-hire-agent';
 import { wikiWritePageAction } from './wiki-write-page';
+import { workspaceWriteOperatingIntentAction } from './workspace-operating-intent';
 import { workspaceWriteMissionAction, workspaceWritePlaybookAction } from './workspace-source';
 
 const registry = new Map<string, Action>();
@@ -75,6 +76,7 @@ registerAction(agentRevisePromptAction);
 // Execute with approval by default (`DEFAULT_RISK_TIER`) until a workspace promotes it.
 registerAction(workspaceWriteMissionAction);
 registerAction(workspaceWritePlaybookAction);
+registerAction(workspaceWriteOperatingIntentAction);
 // Kit / assembly verification decisions + the training-set loop (granted per workspace via trust + agents).
 for (const a of qcActions) {
   registerAction(a as Action);

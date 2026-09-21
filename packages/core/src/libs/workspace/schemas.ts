@@ -961,6 +961,101 @@ export const VoiceManifestSchema = z.object({
 });
 export type VoiceManifest = z.infer<typeof VoiceManifestSchema>;
 
+/**
+ * Operating intent, authored at workspace/<org>/operating-intent.yaml.
+ *
+ * The highest-leverage thing a person does is not approving individual work.
+ * It is saying what they want: what we are trying to achieve now, what beats
+ * what, what the factory may not do without asking, what it may spend, and
+ * which classes of action may proceed unattended.
+ *
+ * Workspace-as-code rather than a settings screen, for the same reason the
+ * playbooks are: it is versioned, it is diffable, a change to it is a commit
+ * with a reason on it, and the agents read the same file a person edits. A
+ * priority nobody can point at is not a priority.
+ *
+ * Applied onto `project.operating_intent` and composed into the system prompt
+ * of every agent in a workspace that states one
+ * (`services/agents/harness.ts`, `operatingIntentPromptNote`). A workspace
+ * that has authored nothing gets no section at all, because a section saying
+ * there are no constraints is a claim nobody made.
+ */
+export const OperatingIntentManifestSchema = z.object({
+  /**
+   * What we are trying to achieve now, most important first. One line each,
+   * stated as an outcome a person could later say yes or no to.
+   */
+  outcomes: z.array(z.object({
+    /** The outcome, in one line. */
+    statement: z.string().min(1),
+    /** Why it matters now, when that is not obvious from the statement. */
+    because: z.string().optional(),
+    /** When it is meant to be true by, as a plain date or a phrase like "this quarter". */
+    by: z.string().optional(),
+  })).default([]),
+  /**
+   * What beats what. Ordered, most important first: the list IS the ranking,
+   * so an agent choosing between two candidates reads down it rather than
+   * comparing two integers.
+   */
+  priorities: z.array(z.object({
+    /** The thing that is being ranked, in the workspace's own words. */
+    statement: z.string().min(1),
+    /** What it beats, when the comparison is the point ("reliability over a second product"). */
+    over: z.string().optional(),
+  })).default([]),
+  /**
+   * What the factory may NOT do without asking. Each is a refusal, not a
+   * preference: an agent that finds itself about to do one of these raises an
+   * ask and stops.
+   */
+  constraints: z.array(z.object({
+    /** The thing that must not happen unattended. */
+    statement: z.string().min(1),
+    /** Why, so the ask that quotes it can explain itself. */
+    because: z.string().optional(),
+  })).default([]),
+  /**
+   * Spend allowed without asking, per window. ADVISORY as of this version:
+   * it is composed into the prompts of the agents that choose work, and it is
+   * not enforced by the run budget. `services/autonomy` owns the enforced
+   * caps, and a figure here that disagrees with those caps does not override
+   * them.
+   */
+  budget: z.object({
+    /** The ceiling, in cents, for the window below. */
+    limitCents: z.number().int().min(0),
+    /** The window the ceiling applies to. */
+    window: z.enum(['day', 'week', 'month']),
+    /** What the ceiling covers and what it does not, in one line. */
+    note: z.string().optional(),
+  }).optional(),
+  /**
+   * Which classes of action may proceed unattended. Names action classes in
+   * the workspace's own words rather than registered action ids: the trust
+   * ladder (`trust.yaml`) is what actually gates an action, and this is the
+   * stated intent the ladder is supposed to express. Where the two disagree,
+   * the ladder wins and the disagreement is worth fixing.
+   */
+  autonomy: z.array(z.object({
+    /** The class of action, e.g. "routine releases", "answering a question". */
+    actionClass: z.string().min(1),
+    /** `unattended` proceeds; `ask` raises a decision; `never` does not happen. */
+    policy: z.enum(['unattended', 'ask', 'never']),
+    /** Why this class sits where it does. */
+    because: z.string().optional(),
+  })).default([]),
+  /**
+   * Product judgment the agents cannot derive from records: taste, standing
+   * calls, things that were tried and did not work, what "good" means here.
+   * Free prose, one note each.
+   */
+  productJudgment: z.array(z.string().min(1)).default([]),
+  /** When this was last reviewed by a person, so a stale intent reads as stale. */
+  reviewedAt: z.string().optional(),
+});
+export type OperatingIntentManifest = z.infer<typeof OperatingIntentManifestSchema>;
+
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().optional(),
