@@ -137,6 +137,7 @@ describe('performance: rework, not answered', () => {
       field: 'meta.actualCents',
       format: 'money',
       where: { field: 'meta.state', op: 'eq', value: 'answered' },
+      hideWhenZero: false,
     };
 
     // The old page printed this and called it waste. On this data it is zero,
@@ -177,7 +178,7 @@ describe('performance: one window, obeyed', () => {
   });
 
   it('leaves a lifetime stat alone', () => {
-    const cumulative: PageStat = { label: 'Spent ever', kind: 'sum', field: 'meta.actualCents', format: 'money', lifetime: true };
+    const cumulative: PageStat = { label: 'Spent ever', kind: 'sum', field: 'meta.actualCents', format: 'money', lifetime: true, hideWhenZero: false };
     const all = liveLikeRows();
 
     expect(computeStat(all, cumulative, NOW)).toBe('$85.62');

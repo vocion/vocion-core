@@ -55,9 +55,9 @@ describe('a ratio names both halves', () => {
     // Three shipped rows, $10.00 between them: $3.33 each. `avg` would say
     // $5.00, because it drops the row with no figure out of its denominator
     // while the count printed beside it keeps that row.
-    expect(computeStat(rows, { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', where, format: 'money' })).toBe('$3.33');
-    expect(computeStat(rows, { label: 'Per outcome', kind: 'avg', field: 'meta.actualCents', where, format: 'money' })).toBe('$5.00');
-    expect(computeStat(rows, { label: 'Outcomes', kind: 'countWhere', where, format: 'number' })).toBe('3');
+    expect(computeStat(rows, { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', where, format: 'money', hideWhenZero: false })).toBe('$3.33');
+    expect(computeStat(rows, { label: 'Per outcome', kind: 'avg', field: 'meta.actualCents', where, format: 'money', hideWhenZero: false })).toBe('$5.00');
+    expect(computeStat(rows, { label: 'Outcomes', kind: 'countWhere', where, format: 'number', hideWhenZero: false })).toBe('3');
   });
 
   it('counts one pool against another when `of` names the denominator', () => {
@@ -67,16 +67,17 @@ describe('a ratio names both halves', () => {
       where: [{ field: 'meta.state', op: 'eq', value: 'shipped' }, { field: 'meta.rework', op: 'lte', value: 0 }],
       of: { field: 'meta.state', op: 'eq', value: 'shipped' },
       format: 'percent',
+      hideWhenZero: false,
     })).toBe('33.3%');
   });
 
   it('sums one field over another when `overField` names the denominator', () => {
-    expect(computeStat(rows, { label: 'Rework share', kind: 'ratio', field: 'meta.rework', overField: 'meta.actualCents', format: 'percent' })).toBe('8.3%');
+    expect(computeStat(rows, { label: 'Rework share', kind: 'ratio', field: 'meta.rework', overField: 'meta.actualCents', format: 'percent', hideWhenZero: false })).toBe('8.3%');
   });
 
   it('is zero, not NaN, when the denominator is empty', () => {
-    expect(computeStat([], { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', format: 'money' })).toBe('$0.00');
-    expect(computeStat([], { label: 'Clean', kind: 'ratio', format: 'percent' })).toBe('0%');
+    expect(computeStat([], { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$0.00');
+    expect(computeStat([], { label: 'Clean', kind: 'ratio', format: 'percent', hideWhenZero: false })).toBe('0%');
   });
 });
 
@@ -90,16 +91,16 @@ describe('medianHours and missing', () => {
       row(5, {}),
     ];
 
-    expect(computeStat(rows, { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', suffix: ' h', format: 'number' })).toBe('5 h');
+    expect(computeStat(rows, { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', suffix: ' h', format: 'number', hideWhenZero: false })).toBe('5 h');
     // An even count averages the middle pair rather than picking a side.
-    expect(computeStat(rows.slice(0, 2), { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', format: 'number' })).toBe('3');
+    expect(computeStat(rows.slice(0, 2), { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', format: 'number', hideWhenZero: false })).toBe('3');
   });
 
   it('counts the rows a field is absent from, which `exists` cannot', () => {
     const rows = [row(1, { decidedAt: '2026-09-20T00:00:00Z' }), row(2, {}), row(3, { decidedAt: '' })];
 
-    expect(computeStat(rows, { label: 'Decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'exists' }, format: 'number' })).toBe('1');
-    expect(computeStat(rows, { label: 'Nobody decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'missing' }, format: 'number' })).toBe('2');
+    expect(computeStat(rows, { label: 'Decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'exists' }, format: 'number', hideWhenZero: false })).toBe('1');
+    expect(computeStat(rows, { label: 'Nobody decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'missing' }, format: 'number', hideWhenZero: false })).toBe('2');
   });
 
   it('takes several filters on one stat, every one of which a row must pass', () => {
@@ -110,6 +111,7 @@ describe('medianHours and missing', () => {
       kind: 'countWhere',
       where: [{ field: 'meta.state', op: 'eq', value: 'shipped' }, { field: 'meta.tasks', op: 'gte', value: 1 }],
       format: 'number',
+      hideWhenZero: false,
     })).toBe('1');
   });
 });
