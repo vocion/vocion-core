@@ -53,9 +53,9 @@ describe('the shipped catalogue', () => {
     const factory = pluginContents(loadPlugin('software-factory'));
 
     expect(factory.agents).toEqual(['change-reviewer', 'product-manager', 'task-engineer', 'task-planner']);
-    expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'triage-request', 'write-release-notes', 'write-task-contract']);
+    expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['house-voice', 'naming-the-work', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
-    expect(factory.objectTypes).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
+    expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'product', 'release', 'repo', 'request']);
     expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-debrief', 'product-review', 'stand-up-product', 'tell-the-requester']);
     // Every way the product manager acts is an automation — visible, pausable, named after the mission it serves.
     expect(factory.automations.filter(a => a.startsWith('product-'))).toEqual(['product-batch-decided', 'product-debrief', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
@@ -257,7 +257,7 @@ describe('loadWorkspace with the software factory', () => {
     const ws = loadWorkspace(makeWorkspace('plugins: [software-factory]\n'));
 
     expect(ws.enabledPlugins).toEqual(['software-factory']);
-    expect(ws.objectTypes.map(o => o.slug).sort()).toEqual(['engineering_task', 'product', 'release', 'repo', 'request']);
+    expect(ws.objectTypes.map(o => o.slug).sort()).toEqual(['architecture_plan', 'engineering_task', 'product', 'release', 'repo', 'request']);
 
     // The board's counters are on the product record, each described as agent-maintained.
     const product = ws.objectTypes.find(o => o.slug === 'product')?.schema as { properties: Record<string, { description?: string }> };
@@ -289,7 +289,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises', 'naming-the-work']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.9.0');
+    expect(ws.sha).toContain('+software-factory@1.10.0');
   });
 
   it('names the work: one playbook the planner, the engineer and the reviewer all read', () => {
@@ -424,7 +424,7 @@ describe('loadWorkspace with the growth loop', () => {
     // growth loop adds `growth_brief` and stops. Two plugins shipping one slug
     // is an error, and a second intake noun would be the duplication this
     // plugin's design argued against.
-    expect(types).toEqual(['engineering_task', 'growth_brief', 'product', 'release', 'repo', 'request']);
+    expect(types).toEqual(['architecture_plan', 'engineering_task', 'growth_brief', 'product', 'release', 'repo', 'request']);
 
     const brief = ws.objectTypes.find(o => o.slug === 'growth_brief')!;
     const props = (brief.schema as { properties: Record<string, { description?: string }> }).properties;

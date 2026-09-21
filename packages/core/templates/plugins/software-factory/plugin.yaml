@@ -75,7 +75,23 @@ name: Software factory
 # decisions waiting with their estimated minutes, spend over accepted change
 # with the waste line, and work autonomy reported apart from what it cost a
 # person. A figure the records cannot support says so in the figure's place.
-version: 1.9.0
+#
+# 1.10.0 - the plan, before the contract: a request that needs an architecture
+# plan gets one, and a person approves it, before any worker runs. The rule is
+# read off fields the contract already carries. A plan is REQUIRED when the risk
+# class is auth, billing, schema, infra or promise, when the work spans more
+# than one repository or declares a cross-repo dependency, when the allowed
+# paths span more than one package, when it changes a public interface (an HTTP
+# route, an object type schema, a database migration, a published contract), or
+# when more than one task sits under the request or the estimate is over the
+# threshold. It is OFFERED AND SKIPPABLE for a ui or logic change touching more
+# than one file, and a skip records its reason, because an optional step with no
+# recorded skip becomes a step nobody takes. `architecture_plan` is the noun,
+# the Task planner (Architecture, SA) writes it through
+# `skills/write-architecture-plan`, the feature report carries it as a stage
+# between triage and the contract, and the worker refuses a contract that needed
+# a plan and carries none before the repository is cloned.
+version: 1.10.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

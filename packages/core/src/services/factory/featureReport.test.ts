@@ -74,6 +74,27 @@ const task: ReportObject = {
     prUrl: 'https://github.com/example/northwind-portal/pull/12',
     filesChanged: ['src/features/rooms/ShareMenu.tsx', 'src/services/export/pdf.ts'],
     checks: [{ name: 'npm run lint', passed: true, exitCode: 0 }, { name: 'npm run test', passed: true, exitCode: 0 }],
+    plan: { planId: 'plan-31', approvedBy: 'Chris', approvedAt: '2026-09-02T18:00:00Z' },
+  },
+};
+
+const plan: ReportObject = {
+  id: 31,
+  title: 'Render the PDF server side from the room model',
+  status: 'approved',
+  createdAt: T('2026-09-02T17:00:00Z'),
+  meta: {
+    requestId: 41,
+    approach: 'Render server side from the room model, not from the DOM, so the PDF matches what the room holds rather than what a browser drew.',
+    writtenBy: 'agent:task-planner',
+    approvedBy: 'Chris',
+    approvedAt: '2026-09-02T18:00:00Z',
+    components: ['src/services/export: a renderer that takes the room model', 'src/features/rooms: one entry on the share menu'],
+    interfaces: ['POST /rooms/:id/export returns a PDF stream'],
+    dataImpact: 'No migration. The export reads the room model as it stands.',
+    risks: ['A long room times out the request: cap it at 200 sections and say so'],
+    alternatives: ['Print the DOM to PDF in the browser: rejected, it ships whatever the viewport happened to render'],
+    verification: 'Export the fixture room and diff the section list against the room model.',
   },
 };
 
@@ -168,6 +189,7 @@ function input(over: Partial<FeatureReportInput> = {}): FeatureReportInput {
   return {
     request,
     tasks: [task],
+    plans: [plan],
     workerRuns: [run()],
     asks: [ask],
     actionRuns: [handoff],
@@ -178,12 +200,130 @@ function input(over: Partial<FeatureReportInput> = {}): FeatureReportInput {
   };
 }
 
+describe('the plan stage', () => {
+  const noPlan = (over: Partial<ReportObject['meta']> = {}) => ({ ...task, meta: { ...task.meta, plan: undefined, ...over } });
+
+  it('sits between triage and the contract, because a plan reviewed after the run is a record and not a gate', () => {
+    const keys = assembleFeatureReport(input()).sections.map(s => s.key);
+
+    expect(keys.indexOf('plan')).toBe(keys.indexOf('triage') + 1);
+    expect(keys.indexOf('plan')).toBe(keys.indexOf('contract') - 1);
+  });
+
+  it('carries the approach, the interfaces, the data impact, what was rejected and how it will be verified', () => {
+    const s = section(assembleFeatureReport(input()), 'plan');
+    const entry = s.entries[0]!;
+
+    expect(s.absence).toBeNull();
+    expect(entry.title).toBe('Render the PDF server side from the room model');
+    expect(entry.facts.find(f => f.label === 'The approach, and why this one')?.value).toContain('not from the DOM');
+    expect(entry.facts.find(f => f.label === 'Approved by')?.value).toBe('Chris');
+    expect(entry.facts.find(f => f.label === 'Data or migration impact')?.value).toContain('No migration');
+    expect(entry.facts.find(f => f.label === 'How it will be verified')?.value).toContain('diff the section list');
+    expect(s.lists.find(l => l.label.startsWith('Interfaces added or altered'))?.items).toContain('POST /rooms/:id/export returns a PDF stream');
+    expect(s.lists.find(l => l.label.startsWith('Considered and rejected'))?.items[0]).toContain('rejected');
+  });
+
+  it('says a plan was required and none exists, rather than drawing a blank stage', () => {
+    const crossing = { ...task, meta: { ...task.meta, plan: undefined, riskClass: 'billing' } };
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [crossing] })), 'plan');
+
+    expect(s.absence).toContain('A plan was required and none is on the record');
+    expect(s.absence).toContain('the risk class is billing');
+    expect(s.absence).toContain('The work ran anyway.');
+    expect(s.facts.find(f => f.label === 'Was a plan required?')?.value).toBe('required, on 1 trigger');
+  });
+
+  it('says a plan was offered and nothing was recorded, which is not the same as declined', () => {
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [noPlan()] })), 'plan');
+
+    expect(s.absence).toContain('A plan was offered for this work');
+    expect(s.absence).toContain('nothing says it was declined');
+  });
+
+  it('says no plan was needed when the rule asked for none', () => {
+    const docs = { ...task, meta: { ...task.meta, plan: undefined, riskClass: 'docs', allowedPaths: ['docs/EXPORT.md'] } };
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [docs] })), 'plan');
+
+    expect(s.absence).toBe('No plan was needed for this work under the plan rule, and none was written.');
+  });
+
+  it('renders a skipped plan as "plan skipped: <reason>" and never as a blank', () => {
+    const skipped = { ...task, meta: { ...task.meta, plan: { skipped: true, skipReason: 'one string on one page, the approach is the change' } } };
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [skipped] })), 'plan');
+
+    expect(s.absence).toBeNull();
+    expect(s.lists.find(l => l.label.startsWith('What each task recorded'))?.items)
+      .toEqual(['Task 77: plan skipped: one string on one page, the approach is the change']);
+    expect(s.flags).toEqual([]);
+  });
+
+  it('flags a skip with no reason, because a skip with no reason reads exactly like a step nobody took', () => {
+    const skipped = { ...task, meta: { ...task.meta, plan: { skipped: true } } };
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [skipped] })), 'plan');
+
+    expect(s.lists.find(l => l.label.startsWith('What each task recorded'))?.items)
+      .toEqual(['Task 77: plan skipped: no reason was recorded']);
+    expect(s.flags.join(' ')).toContain('cannot be told apart from a step nobody took');
+  });
+
+  it('flags a skip the rule did not allow', () => {
+    const skipped = { ...task, meta: { ...task.meta, riskClass: 'schema', plan: { skipped: true, skipReason: 'it is small' } } };
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [skipped] })), 'plan');
+
+    expect(s.flags.join(' ')).toContain('skipped the plan and the rule required one');
+  });
+
+  it('names why the plan was required, one line per trigger, in the rule\'s order', () => {
+    const crossing = { ...task, meta: { ...task.meta, plan: undefined, riskClass: 'infra', allowedPaths: ['apps/web/src/**', 'packages/core/src/routes/**'] } };
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [crossing] })), 'plan');
+
+    expect(s.lists.find(l => l.label === 'Why a plan was required')?.items).toEqual([
+      'the risk class is infra, which is irreversible, trust bearing or an externally visible promise',
+      'the allowed paths span 2 packages (apps/web, packages/core), so an architectural boundary is being crossed',
+      'the allowed paths reach an HTTP route',
+    ]);
+  });
+
+  it('shows the contradiction when work that needed a plan ran without one', () => {
+    const crossing = { ...task, meta: { ...task.meta, plan: undefined, riskClass: 'auth' } };
+    const report = assembleFeatureReport(input({ plans: [], tasks: [crossing] }));
+
+    expect(report.contradictions.join(' ')).toContain('required a plan for this work and none is on the record');
+  });
+
+  it('shows the contradiction when the plan was approved after the work already ran', () => {
+    const late = { ...plan, meta: { ...plan.meta, approvedAt: '2026-09-09T09:00:00Z' } };
+    const report = assembleFeatureReport(input({ plans: [late] }));
+
+    expect(report.contradictions.join(' ')).toContain('A plan approved after the work is a record, not a gate.');
+  });
+
+  it('puts the plan on the timeline, written then approved, and the skip too', () => {
+    const report = assembleFeatureReport(input());
+
+    expect(report.timeline.filter(t => t.kind === 'plan').map(t => t.key)).toEqual(['plan-written-31', 'plan-approved-31']);
+
+    const skipped = { ...task, meta: { ...task.meta, plan: { skipped: true, skipReason: 'no design to make' } } };
+    const withSkip = assembleFeatureReport(input({ plans: [], tasks: [skipped] }));
+
+    expect(withSkip.timeline.find(t => t.kind === 'plan')?.title).toBe('Task 77: plan skipped: no design to make');
+  });
+
+  it('says what the rule could not check rather than guessing at it', () => {
+    const s = section(assembleFeatureReport(input({ plans: [], tasks: [{ ...noPlan(), meta: { ...task.meta, plan: undefined, estimateCents: undefined } }] })), 'plan');
+
+    expect(s.lists.find(l => l.label.startsWith('What the rule could not check'))?.items)
+      .toEqual(['what the work was estimated at']);
+  });
+});
+
 describe('the sections', () => {
-  it('always renders all nine, in reading order', () => {
+  it('always renders all ten, in reading order, with the plan between triage and the contract', () => {
     const report = assembleFeatureReport(input());
 
     expect(report.sections.map(s => s.key)).toEqual([...REPORT_SECTION_KEYS]);
-    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
   });
 
   it('a complete feature has every stage present and none of them absent', () => {
@@ -261,7 +401,7 @@ describe('the sections', () => {
 
 describe('a stage that did not happen says so', () => {
   it('a request with no task has no contract, no run, no change and no release', () => {
-    const report = assembleFeatureReport(input({ tasks: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
+    const report = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
 
     expect(section(report, 'contract').absence).toBe('No task contract was written for this request; nothing was dispatched.');
     expect(section(report, 'runs').absence).toBe('No worker run is recorded against this work.');
@@ -402,6 +542,8 @@ describe('the timeline', () => {
       'triaged',
       'decision',
       'decision',
+      'plan',
+      'plan',
       'contract',
       'run',
       'change',

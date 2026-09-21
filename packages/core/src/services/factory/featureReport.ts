@@ -30,6 +30,16 @@
  *    completion call can time out after the PR is open. The report shows
  *    both facts and flags the disagreement rather than picking a winner.
  *
+ * ## The plan stage
+ *
+ * The plan sits between triage and the contract, because a plan reviewed after
+ * the run is a record and not a gate. What it reads: `architecture_plan`
+ * records pointing at the request, and the `plan` block each task recorded. The
+ * rule that says whether one was needed is `planRule.ts`, the same rule the
+ * worker refuses on in `factory/worker/plan.mjs`. A plan that was offered and
+ * declined renders as `plan skipped: <reason>`, never as a blank, because a
+ * blank is indistinguishable from a step nobody took.
+ *
  * ## QA evidence, the shape a worker must post
  *
  * Nothing fills this slot yet; the section exists so the gap is visible.
@@ -54,6 +64,9 @@
  * so the convention can tighten later without dropping evidence already
  * posted.
  */
+
+import type { PlanDecision, PlanRecord } from './planRule';
+import { planRecordFromTask, planRequirementForTask } from './planRule';
 
 /** A business object as the report reads it — request, task or release. */
 export type ReportObject = {
@@ -131,6 +144,8 @@ export type ReportArtifact = {
 export type FeatureReportInput = {
   request: ReportObject;
   tasks: ReportObject[];
+  /** `architecture_plan` records pointing at this request. Absent on work that was never planned. */
+  plans: ReportObject[];
   workerRuns: ReportWorkerRun[];
   asks: ReportAsk[];
   actionRuns: ReportActionRun[];
@@ -177,7 +192,7 @@ export type ReportEvidence = {
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
-export const REPORT_SECTION_KEYS = ['ask', 'triage', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
+export const REPORT_SECTION_KEYS = ['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
 
 export type ReportSection = {
@@ -197,7 +212,7 @@ export type TimelineEntry = {
   key: string;
   /** Null when the record carries no time for it; those sort last and say so. */
   at: Date | null;
-  kind: 'asked' | 'triaged' | 'decision' | 'contract' | 'run' | 'change' | 'qa' | 'release';
+  kind: 'asked' | 'triaged' | 'plan' | 'decision' | 'contract' | 'run' | 'change' | 'qa' | 'release';
   title: string;
   detail: string | null;
   cents: number | null;
@@ -574,6 +589,158 @@ function triageSection(request: ReportObject): ReportSection {
   );
   if (!outcome) {
     s.flags.push('The twenty-percent test was never run on this request — no recommendation is on the record.');
+  }
+  return s;
+}
+
+/**
+ * What the plan rule decided for this request, taken across its tasks. The
+ * strongest answer wins: if any task crosses a boundary, the work crossed it.
+ * Null when there is no task yet to read a rule off.
+ * @param tasks - The tasks pointing at this request.
+ */
+export function planDecisionForRequest(tasks: ReportObject[]): PlanDecision | null {
+  if (tasks.length === 0) {
+    return null;
+  }
+  const repos = tasks
+    .map(t => str(t.meta, 'repoSlug') ?? str(t.meta, 'repo'))
+    .filter((r): r is string => r !== null);
+  const context = { taskCount: tasks.length, repos };
+  const decisions = tasks.map(t => planRequirementForTask(t.meta, context));
+  return decisions.find(d => d.level === 'required')
+    ?? decisions.find(d => d.level === 'offered')
+    ?? decisions[0]
+    ?? null;
+}
+
+/**
+ * The rule's answer as one sentence a person can read without the rule in
+ * front of them.
+ * @param decision - What the rule decided.
+ */
+function planLevelSentence(decision: PlanDecision): string {
+  if (decision.level === 'required') {
+    return `required, on ${decision.triggers.length} trigger${decision.triggers.length === 1 ? '' : 's'}`;
+  }
+  if (decision.level === 'offered') {
+    return 'offered and skippable, with a recorded reason';
+  }
+  return 'not required';
+}
+
+/**
+ * What one task recorded about the plan, always as a sentence. A task that
+ * recorded nothing says so; a skip is always written out as "plan skipped:
+ * <reason>", never left blank, because a blank is exactly the thing nobody can
+ * read six weeks later.
+ * @param plan - The task's plan block, or null when it carries none.
+ */
+export function planRecordLine(plan: PlanRecord | null): string {
+  if (plan === null) {
+    return 'no plan decision was recorded';
+  }
+  if (plan.skipped === true) {
+    return `plan skipped: ${plan.skipReason ?? 'no reason was recorded'}`;
+  }
+  const names = plan.planId ?? plan.url;
+  if (names === null || names === undefined) {
+    return 'a plan block is on the task and it names no plan';
+  }
+  return `planned against ${names}, ${plan.approvedBy === null || plan.approvedBy === undefined ? 'approved by nobody on the record' : `approved by ${plan.approvedBy}`}`;
+}
+
+/**
+ * The plan: the approach, and why this one, reviewed before the work ran.
+ *
+ * This stage is read from `architecture_plan` records and from what each task
+ * recorded about its own plan. Nothing here is inferred from the other stages:
+ * an approval on the request is not a plan approval, and a contract that got
+ * written is not evidence that anybody designed anything.
+ * @param plans - The plan records pointing at this request.
+ * @param tasks - The tasks pointing at this request.
+ * @param hasRuns - Whether any worker run exists, which changes what an absent plan means.
+ */
+function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: boolean): ReportSection {
+  const s = blank('plan', 'The plan');
+  const decision = planDecisionForRequest(tasks);
+  const recorded = tasks.map(task => ({ task, plan: planRecordFromTask(task.meta) }));
+  const skips = recorded.filter(r => r.plan?.skipped === true);
+  const carried = recorded.filter(r => r.plan !== null && r.plan.skipped !== true);
+
+  s.facts = [
+    { label: 'Was a plan required?', value: decision === null ? null : planLevelSentence(decision) },
+    { label: 'Plans on record', value: plans.length === 0 ? 'none' : String(plans.length) },
+  ];
+  if (decision !== null && decision.triggers.length > 0) {
+    s.lists.push({ label: 'Why a plan was required', items: decision.triggers.map(t => t.why) });
+  }
+  if (decision !== null && decision.offered !== null) {
+    s.lists.push({ label: 'Why a plan was offered', items: [decision.offered] });
+  }
+  if (decision !== null && decision.unknown.length > 0) {
+    s.lists.push({ label: 'What the rule could not check, so did not count', items: decision.unknown });
+  }
+  if (recorded.length > 0) {
+    s.lists.push({ label: 'What each task recorded about the plan', items: recorded.map(r => `Task ${r.task.id}: ${planRecordLine(r.plan)}`) });
+  }
+
+  for (const r of skips) {
+    if (r.plan?.skipReason === null || r.plan?.skipReason === undefined) {
+      s.flags.push(`Task ${r.task.id} recorded a skipped plan with no reason. A skip with no reason cannot be told apart from a step nobody took.`);
+    }
+    if (decision?.level === 'required') {
+      s.flags.push(`Task ${r.task.id} skipped the plan and the rule required one: ${decision.triggers[0]?.why ?? 'the rule did not say why'}.`);
+    }
+  }
+
+  if (plans.length === 0) {
+    if (carried.length === 0 && skips.length === 0) {
+      s.absence = decision?.level === 'required'
+        ? `A plan was required and none is on the record: ${decision.triggers[0]?.why ?? 'the rule did not say why'}.${hasRuns ? ' The work ran anyway.' : ''}`
+        : decision?.level === 'offered'
+          ? 'A plan was offered for this work. Nothing on the record says it was written, and nothing says it was declined.'
+          : tasks.length === 0
+            ? 'Nothing was planned, and nothing was contracted either; there is no task to judge the rule against.'
+            : 'No plan was needed for this work under the plan rule, and none was written.';
+      return s;
+    }
+    // A task named a plan the report cannot open. That is worth saying out loud
+    // rather than drawing an empty stage.
+    if (carried.length > 0) {
+      s.flags.push('The tasks name a plan that is not on record here, so the approach cannot be read from this page.');
+    }
+    return s;
+  }
+
+  s.entries = plans.map((plan) => {
+    const meta = plan.meta;
+    return {
+      key: `plan-${plan.id}`,
+      title: str(meta, 'title') ?? plan.title,
+      status: plan.status,
+      tone: statusTone(plan.status),
+      at: asDate(meta.approvedAt) ?? plan.createdAt,
+      cents: null,
+      facts: [
+        { label: 'The approach, and why this one', value: str(meta, 'approach'), format: 'quote' },
+        { label: 'Written by', value: str(meta, 'writtenBy') },
+        { label: 'Approved by', value: str(meta, 'approvedBy') ?? (plan.status === 'approved' ? 'not recorded' : 'nobody yet') },
+        { label: 'Approved', value: asDate(meta.approvedAt) ? formatStamp(asDate(meta.approvedAt)) : null },
+        { label: 'Data or migration impact', value: str(meta, 'dataImpact'), format: 'quote' },
+        { label: 'How it will be verified', value: str(meta, 'verification'), format: 'quote' },
+      ],
+      checks: [],
+      flags: str(meta, 'approvedBy') === null && plan.status === 'approved'
+        ? ['This plan is marked approved and names nobody who approved it.']
+        : [],
+    };
+  });
+  for (const plan of plans) {
+    for (const [key, label] of [['components', 'What changes, by component'], ['interfaces', 'Interfaces added or altered'], ['risks', 'What could go wrong, and what it would cost'], ['alternatives', 'Considered and rejected, and why']] as const) {
+      const items = list(plan.meta, key);
+      s.lists.push({ label: `${label} · plan ${plan.id}`, items: items.length > 0 ? items : [`This plan does not say. A plan that answers nothing here is a document, not a design.`] });
+    }
   }
   return s;
 }
@@ -999,6 +1166,46 @@ function buildTimeline(input: FeatureReportInput, mergedPrs: Set<string>): Timel
       href: null,
     });
   }
+  for (const plan of input.plans) {
+    out.push({
+      key: `plan-written-${plan.id}`,
+      at: plan.createdAt,
+      kind: 'plan',
+      title: `Plan written: ${plan.title}`,
+      detail: str(plan.meta, 'approach'),
+      cents: null,
+      tone: 'info',
+      href: `/dashboard/objects/${plan.id}`,
+    });
+    if (asDate(plan.meta.approvedAt)) {
+      out.push({
+        key: `plan-approved-${plan.id}`,
+        at: asDate(plan.meta.approvedAt),
+        kind: 'plan',
+        title: `Plan approved by ${str(plan.meta, 'approvedBy') ?? 'nobody named on the record'}`,
+        detail: null,
+        cents: null,
+        tone: 'ok',
+        href: `/dashboard/objects/${plan.id}`,
+      });
+    }
+  }
+  for (const task of input.tasks) {
+    const plan = planRecordFromTask(task.meta);
+    if (plan?.skipped === true) {
+      out.push({
+        key: `plan-skipped-${task.id}`,
+        at: task.createdAt,
+        kind: 'plan',
+        title: `Task ${task.id}: ${planRecordLine(plan)}`,
+        detail: null,
+        cents: null,
+        tone: 'warn',
+        href: `/dashboard/objects/${task.id}`,
+      });
+    }
+  }
+
   if (asDate(meta.decidedAt)) {
     out.push({
       key: 'request-decided',
@@ -1152,6 +1359,18 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
       out.push(`The tasks roll up ${money(sum)} spent and the worker runs charged ${money(line.runCents)}. One of the two is stale.`);
     }
   }
+  const planDecision = planDecisionForRequest(input.tasks);
+  if (planDecision?.level === 'required' && input.plans.length === 0 && input.workerRuns.length > 0) {
+    const skipped = input.tasks.filter(t => planRecordFromTask(t.meta)?.skipped === true).length;
+    out.push(`The plan rule required a plan for this work and none is on the record${skipped > 0 ? `, and ${skipped} task${skipped === 1 ? '' : 's'} recorded the plan as skipped` : ''}. ${input.workerRuns.length} worker run${input.workerRuns.length === 1 ? '' : 's'} ran anyway.`);
+  }
+  const firstRunAt = input.workerRuns.map(r => runAt(r)).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+  for (const plan of input.plans) {
+    const approvedAt = asDate(plan.meta.approvedAt);
+    if (approvedAt && firstRunAt && approvedAt.getTime() > firstRunAt.getTime()) {
+      out.push(`Plan ${plan.id} was approved at ${formatStamp(approvedAt)}, after the first worker run started at ${formatStamp(firstRunAt)}. A plan approved after the work is a record, not a gate.`);
+    }
+  }
   for (const task of input.tasks) {
     if (task.status === 'accepted' && !str(task.meta, 'prUrl')) {
       out.push(`Task ${task.id} is accepted and carries no pull request.`);
@@ -1191,7 +1410,7 @@ function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReport
 }
 
 /**
- * Assemble one request's whole story: the nine sections in reading order,
+ * Assemble one request's whole story: the ten sections in reading order,
  * the timeline oldest first, the money line and whatever the records
  * disagree about.
  * @param input - Every record already gathered for this request.
@@ -1209,6 +1428,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     sections: [
       askSection(input.request),
       triageSection(input.request),
+      planSection(input.plans, input.tasks, runs.length > 0),
       contractSection(input.tasks),
       approvalsSection(input.asks, input.actionRuns, runs.length > 0),
       runsSection(runs, mergedPrs),

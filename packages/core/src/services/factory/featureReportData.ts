@@ -12,6 +12,7 @@
  * | record | linked by |
  * |---|---|
  * | `engineering_task` | `metadata.requestId` = the request's id |
+ * | `architecture_plan` | `metadata.requestId` = the request's id |
  * | `worker_run` | `input.record` = `{type: 'engineering_task', id}` |
  * | `ask` | an `object_refs` entry for the request or one of its tasks |
  * | `action_run` | `input.requestId` / `input.taskId`, or `input.record` |
@@ -123,6 +124,15 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
   const taskIds = new Set(tasks.map(t => t.id));
 
+  // The plan stage. `catch` because a workspace on an older plugin has no such
+  // object type, and a missing type is not a plan: the section then says the
+  // stage did not happen, which is the honest answer.
+  const allPlans = await listBusinessObjects(orgId, 'architecture_plan').catch(() => []);
+  const plans = allPlans
+    .map(pl => toReportObject(pl as ObjectRow))
+    .filter(pl => idOf(pl.meta, 'requestId') === requestId)
+    .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+
   const allReleases = await listBusinessObjects(orgId, 'release').catch(() => []);
   const releases = allReleases
     .map(r => toReportObject(r as ObjectRow))
@@ -212,5 +222,5 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
     createdAt: a.createdAt,
   }));
 
-  return assembleFeatureReport({ request, tasks, workerRuns, asks, actionRuns, releases, artifacts, now });
+  return assembleFeatureReport({ request, tasks, plans, workerRuns, asks, actionRuns, releases, artifacts, now });
 }

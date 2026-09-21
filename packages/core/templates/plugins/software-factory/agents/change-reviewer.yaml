@@ -20,6 +20,7 @@ team: software-factory
 skills:
   - review-against-contract
 objectTypes:
+  - architecture_plan
   - engineering_task
   - repo
   - product
