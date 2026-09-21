@@ -11,7 +11,7 @@ describe('slash commands', () => {
   });
 
   it('matches by name and by alias — /clear is /new', () => {
-    expect(matchSlashCommands('').map(c => c.name)).toEqual(['new', 'history', 'search']);
+    expect(matchSlashCommands('').map(c => c.name)).toEqual(['new', 'history', 'search', 'help']);
     expect(matchSlashCommands('cl').map(c => c.name)).toEqual(['new']);
     expect(matchSlashCommands('con').map(c => c.name)).toEqual(['history']);
     expect(matchSlashCommands('zzz')).toEqual([]);

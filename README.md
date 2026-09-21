@@ -165,6 +165,8 @@ POST https://your-install/api/mcp
 Authorization: Bearer vcn_live_...
 ```
 
+`ask_workspace` sends a message to the workspace: the router picks the agent that handles it, one turn runs with that agent's tools and trust rules, and the reply comes back with the routing decision — see [agent tools → Asking the workspace](./docs/guides/agent-tools.md#asking-the-workspace).
+
 Full tool reference + the HTTP transport: [reference/mcp](https://vocion.ai/docs/reference/mcp).
 
 ## Control plane (REST + MCP)

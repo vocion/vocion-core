@@ -2,7 +2,7 @@
 
 import type { AgentSurfaceRequest } from './agentSurface';
 import type { AgentOption } from './types';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import type { PageContext } from '@/services/chat/pageContext';
 import { MessageSquare, PanelRightClose, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useViewportBelow } from '@/components/ui/useMobile';
 import { CommentChips } from '@/features/comments/AnchoredComments';
 import { useCommentLayer } from '@/features/comments/CommentLayer';
 import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
@@ -18,18 +19,17 @@ import { useGuidedReview } from '@/features/personalization/GuidedReview';
 import { GuidedReviewPanel } from '@/features/personalization/GuidedReviewPanel';
 import { SequencePointer } from '@/features/personalization/SequencePointer';
 import { pageShowsRecord, scopeRefToRecord } from '@/services/chat/pageContext';
-import { AgentMark } from './AgentMark';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from './agentSurface';
-import { AutonomyControl } from './AutonomyControl';
+import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from './autonomyOptions';
 import { ChatComposer } from './ChatComposer';
-import { ChatMenu } from './ChatMenu';
+import { ChatHeaderActions } from './ChatHeaderActions';
 import { useComposerQueueProps } from './composerQueue';
 import { hasChangeIntent } from './composerTags';
 import { RAIL_SET_EVENT } from './dockState';
 import { EmptyState, NoAgentsState } from './EmptyState';
-import { HistoryPopover } from './HistoryPopover';
 import { HitlGate } from './HitlGate';
 import { MessageList } from './MessageList';
+import { ModelControl } from './ModelControl';
 import { RailColumn } from './RailColumn';
 import {
   clampRailWidth,
@@ -134,18 +134,12 @@ const EMPTY_RUN = {
 /**
  * Whether the viewport is too narrow for a side-by-side rail — below the
  * breakpoint the rail covers the page as a sheet instead of narrowing it.
+ *
+ * One hook (`components/ui/useMobile`) answers this for every surface that
+ * asks; this names the rail's own breakpoint and nothing else.
  */
 function useNarrowViewport(): boolean {
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${RAIL_SHEET_BREAKPOINT - 1}px)`);
-    const onChange = () => setNarrow(mql.matches);
-    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks-extra/no-direct-set-state-in-use-effect
-    setNarrow(mql.matches);
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
+  return useViewportBelow(RAIL_SHEET_BREAKPOINT);
 }
 
 /**
@@ -576,18 +570,18 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
 
   const body = (
     <>
-      {/* ONE hairline-separated row, 48px tall (2026-09-15): the workspace
-          mark + its name as the title, then four equal 32px ghost controls —
-          history, the autonomy rung, the ⋯ menu, collapse. The underlined
-          "All conversations" link that used to sit under the title read as an
-          error; it is a row in the ⋯ menu now, and the history icon carries
-          the job it was doing. */}
+      {/* ONE hairline-separated row, 48px tall: "Chat" with the bubble as the
+          title, then 32px ghost controls — New chat, the conversations
+          dropdown (All conversations is its last row), collapse; the ⋯ menu
+          only in the phone sheet. The autonomy rung moved into the input bar
+          beside the model control on 2026-09-18. */}
       {/* In the sheet the close control is absolutely positioned in this
           corner, so the row keeps clear of it rather than stacking under it. */}
       <div className={`flex h-12 shrink-0 items-center gap-1 border-b border-border pl-3 ${narrow ? 'pr-11' : 'pr-1.5'}`}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {!scopeRef && <AgentMark name={headerName} className="size-6 justify-center" decorative />}
-          <span className="truncate text-sm font-semibold">{headerName}</span>
+          {/* Unscoped, the rail is titled "Chat" with the bubble — not the workspace's name, which the sidebar already says (Chris, 2026-09-18). */}
+          {!scopeRef && <MessageSquare className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+          <span className="truncate text-sm font-semibold">{scopeRef ? headerName : t('rail_title')}</span>
           {/* The drawer's scope, when an affordance opened it with one
               (`docs/specs/personalization-v2.md`): one line naming the
               subject, so an ask has an unambiguous referent. Not a panel and
@@ -604,25 +598,20 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             <span className="truncate text-xs text-muted-foreground">{session.workspaceName}</span>
           )}
         </div>
-        {!scopeRef && (
-          <HistoryPopover
-            recent={session.recentChats}
-            currentId={session.conversationId}
-            onPick={id => void session.handlePickConversation(id)}
-            onNewChat={session.handleNewChat}
-            search={session.searchConversations}
-          />
-        )}
-        {/* The conversation's rung — a setting, so it lives beside the
-            conversation's name and not inside the composer (§9.7). */}
-        <AutonomyControl
-          value={session.autonomy}
-          onChange={session.setAutonomy}
-          copy={autonomyCopy}
-          label={t('autonomy')}
+        {/* New chat + conversations as icons; the ⋯ menu in the phone sheet.
+            The rung moved into the input bar beside the model control. */}
+        <ChatHeaderActions
+          onNewChat={session.handleNewChat}
+          history={scopeRef
+            ? null
+            : {
+                recent: session.recentChats,
+                currentId: session.conversationId,
+                onPick: id => void session.handlePickConversation(id),
+                search: session.searchConversations,
+              }}
+          compact={narrow}
         />
-        {/* New chat + all conversations. There is no agent to pick (§9.10). */}
-        <ChatMenu onNewChat={session.handleNewChat} />
         {/* The sheet carries its own close control in this corner; a second
             one underneath it was two buttons in one 32px square. */}
         {!narrow && (
@@ -790,6 +779,14 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
           onAttachFiles={files => void session.attachFiles(files)}
           onRemoveAttachment={session.removeAttachment}
           onCommand={onCommand}
+          controls={<ModelControl value={session.modelPrefs} onChange={session.setModelPrefs} />}
+          settings={[autonomyMenuSetting(session.autonomy, autonomyCopy, t('autonomy_thread'))]}
+          onSetting={(id, opt) => {
+            const rung = id === AUTONOMY_SETTING_ID ? autonomyFromOption(opt) : null;
+            if (rung) {
+              session.setAutonomy(rung);
+            }
+          }}
         />
       </div>
     </>

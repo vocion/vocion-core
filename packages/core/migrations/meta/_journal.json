@@ -852,8 +852,99 @@
     {
       "idx": 121,
       "version": "7",
+      "when": 1789747656112,
+      "tag": "0121_artifact_share_audience",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1789748583066,
+      "tag": "0122_conversation_model_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1789750459386,
+      "tag": "0123_conversation_autonomy_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1789750519386,
+      "tag": "0124_project_enabled_plugins",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1789750579386,
+      "tag": "0125_project_client_facing_playbooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1789750639386,
+      "tag": "0126_action_run_content_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1789750699386,
+      "tag": "0127_project_learning_eagerness",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1789750759386,
+      "tag": "0128_automation_pause",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1789750819386,
+      "tag": "0129_ask_object_refs",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1789750879386,
+      "tag": "0130_agent_routing_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1789751000000,
+      "tag": "0131_causal_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1789751100000,
+      "tag": "0132_workspace_pause",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1789751200000,
+      "tag": "0133_user_nav_pref_page_seen",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
       "when": 1789834010268,
-      "tag": "0121_budget_feature_and_micro_cents",
+      "tag": "0134_budget_feature_and_micro_cents",
       "breakpoints": true
     }
   ]

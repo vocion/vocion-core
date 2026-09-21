@@ -25,6 +25,7 @@ import { apolloPeopleTools } from './apolloPeople';
 import { brandLookupTool } from './brandLookup';
 import { getBriefingTool, publishBriefingTool, refreshBriefingTool } from './briefing';
 import { calendarTools } from './calendarEvents';
+import { listCapabilitiesTool } from './capabilities';
 import { crawlSiteTool } from './crawlSite';
 import { createArtifactTool } from './createArtifact';
 import { crmTools } from './crm';
@@ -32,7 +33,9 @@ import { dataRoomTools } from './dataRooms';
 import { discoveryTools } from './discovery';
 import { documentTools } from './documents';
 import { editArtifactTools } from './editArtifacts';
+import { fetchImageTool } from './fetchImage';
 import { fetchUrlTool } from './fetchUrl';
+import { fileAskTool, withdrawAskTool } from './fileAsk';
 import { fileFeedbackTool } from './fileFeedback';
 import { findScreenshotsTool } from './findScreenshots';
 import { freshenSourceTool } from './freshenSource';
@@ -59,14 +62,18 @@ import { lookupObjectsTool } from './lookupObjects';
 import { updateMissionNotesTool } from './missionNotes';
 import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
+import { posthogCountTools } from './posthogCounts';
 import { proposeActionTool } from './proposeAction';
 import { recommendActionTool } from './recommendAction';
 import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
 import { listRecentRunsTool, listRunFeedbackTool } from './runs';
 import { searchKnowledgeTool } from './searchKnowledge';
+import { updateObjectTools } from './updateObject';
 import { webSearchTool } from './webSearch';
 import { whereToTool } from './whereTo';
+import { wikiTools } from './wiki';
+import { workspaceSourceTools } from './workspaceSource';
 import { zoomTools } from './zoomTranscript';
 
 /**
@@ -114,6 +121,10 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     searchKnowledgeTool(ctx),
     webSearchTool(ctx),
     fetchUrlTool(ctx),
+    // The same URL, handled as BYTES: a logo or a product shot, verified and
+    // returned as a data URI a document can hold. `fetch_url` is a prose
+    // reader and hands an image back as mojibake (2026-09-19).
+    fetchImageTool(ctx),
     crawlSiteTool(ctx),
     // A company's own site, read rather than recalled. Source-gated like the
     // other paid providers would be, except that brand lookup is useful to
@@ -126,11 +137,18 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // Where in Vocion a person does something, as a link — so an answer never
     // describes a screen it could have linked to. Read-only; on for every agent.
     whereToTool(ctx),
+    // What the workspace could turn on — plugins and connectors, on or off —
+    // so a gap becomes a recommendation instead of a workaround. Read-only.
+    listCapabilitiesTool(ctx),
     generateImageTool(ctx),
     findScreenshotsTool(ctx),
     runCodeTool(ctx),
     createArtifactTool(ctx),
     lookupObjectsTool(ctx),
+    // The write beside the read: declared fields on a record of a type the
+    // agent works with, through the `objects.update_meta` action. Empty for
+    // an agent with no object types.
+    ...updateObjectTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),
     checkLearningDedupTool(ctx),
@@ -141,6 +159,11 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     listRecentRunsTool(ctx),
     listRunFeedbackTool(ctx),
     requestHumanReviewTool(ctx),
+    // A question for a person on Needs you, and its withdrawal — through the
+    // `ask.file` / `ask.withdraw` actions, so the trust ladder decides whether
+    // an agent may interrupt a person unasked. On for every agent.
+    fileAskTool(ctx),
+    withdrawAskTool(ctx),
     proposeActionTool(ctx),
     recommendActionTool(ctx),
     pageContextTool(ctx),
@@ -159,7 +182,14 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...documentTools(ctx),
     // Data rooms: the source of record per engagement. Reads and filing are
     // in-workspace writes (records, links, artifacts, asks) — nothing leaves.
-    ...dataRoomTools(ctx),
+    // Present while the `data-rooms` plugin is on (an older context with no
+    // plugin list keeps them, so nothing already running loses a tool).
+    ...(ctx.enabledPlugins === undefined || ctx.enabledPlugins.includes('data-rooms') ? dataRoomTools(ctx) : []),
+    // The workspace wiki — long-term context. Present while the `wiki` plugin is on.
+    ...wikiTools(ctx),
+    // Missions and playbooks edit like artifacts: read the file, write it back
+    // whole through the `workspace.write_*` actions (reviewed by default).
+    ...workspaceSourceTools(ctx),
     updateMissionNotesTool(ctx),
     publishBriefingTool(ctx),
     getBriefingTool(ctx),
@@ -170,6 +200,8 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     ...hubspotDirectTools(ctx),
     // Source-gated — empty unless an Apollo source is in the agent's scope.
     ...apolloTools(ctx),
+    // Source-gated — the PostHog daily mirror, summed. Empty without a posthog source.
+    ...posthogCountTools(ctx),
     // Source-gated read-through caches (zoom / gmail sources in scope).
     ...zoomTools(ctx),
     ...gmailTools(ctx),

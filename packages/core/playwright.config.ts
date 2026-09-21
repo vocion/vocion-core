@@ -142,7 +142,13 @@ export default defineConfig<ChromaticConfig>({
     {
       name: 'queue',
       testDir: './e2e/queue',
-      timeout: projectTimeout(120 * 1000, 60 * 1000),
+      // The same 120s in CI as locally. Every spec here bootstraps its own
+      // admin and seeds through `npx` child processes (the sign-up route is
+      // invite-only), and the review route compiles a rich-text editor on
+      // first paint — a runner's cold start spends most of a 60s budget
+      // before an assertion runs. Raised after the phone spec timed out on
+      // CI at work that takes 5s locally.
+      timeout: 120 * 1000,
       use: { ...devices['Desktop Chrome'] },
     },
     // The feedback-to-learning loop end to end. Self-seeding like `queue`.

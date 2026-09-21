@@ -41,6 +41,19 @@ export type BarAction = {
   'shortcut'?: string;
   /** Ghost by default; `danger` reddens on hover. The primary is always ink. */
   'tone'?: 'ghost' | 'danger';
+  /**
+   * Keep the word beside the icon at every width. Secondaries drop to their
+   * icon on a phone by default; a card whose verbs a person meets for the
+   * first time — a hand-off's Reject and Snooze — says them in full there too
+   * (Chris, 2026-09-20, reading one on his phone).
+   */
+  'labelAlways'?: boolean;
+  /**
+   * Why the button is dead, when it is. A disabled control takes no pointer
+   * events, so the reason rides a wrapper that still hovers, and an
+   * `aria-describedby` so it is not hover-only.
+   */
+  'hint'?: string;
   'data-testid'?: string;
 };
 
@@ -67,21 +80,32 @@ const SOFT = 'bg-[var(--surface-soft,var(--muted))]';
 
 function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
   const Icon = a.icon;
-  return (
+  const hintId = a.hint ? `bar-hint-${String(a['data-testid'] ?? 'action')}` : undefined;
+  const button = (
     <Button
       variant="ghost"
       size="default"
       onClick={a.onClick}
       disabled={a.disabled || a.busy}
       data-testid={a['data-testid']}
+      aria-describedby={hintId}
       className={cn(
-        'h-11 w-full gap-2 rounded-lg text-sm sm:h-10 sm:w-auto',
-        primary ? `${INK} sm:min-w-36` : GHOST,
+        // A phone gets ONE row of verbs, so they size to their content rather
+        // than to the column. Full-width stacked buttons were costing half
+        // the viewport on the surface whose whole job is reading the content
+        // underneath them.
+        'h-10 w-auto gap-2 rounded-lg text-sm',
+        primary ? `${INK} px-4 sm:min-w-36` : `${GHOST} px-3`,
         !primary && a.tone === 'danger' && 'hover:text-red-600 dark:hover:text-red-400',
       )}
     >
       {a.busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : Icon && <Icon className="size-4" aria-hidden />}
-      <span>{a.label}</span>
+      {/* `sr-only`, not `hidden`: the word still has to reach a screen reader
+          and `getByRole('button', { name })`, which `display:none` would take
+          it out of. The PRIMARY keeps its word at every width — it is the one
+          that reaches the outside world, and an unlabelled icon is a poor
+          thing to ask someone to press for that. */}
+      <span className={primary || a.labelAlways ? undefined : 'sr-only sm:not-sr-only'}>{a.label}</span>
       {a.shortcut && (
         // Decorative, like the icon above it: the letter is a hint at the
         // keyboard shortcut, not part of what the button is called. Without
@@ -93,6 +117,17 @@ function ActionButton({ a, primary }: { a: BarAction; primary?: boolean }) {
         </kbd>
       )}
     </Button>
+  );
+  if (!a.hint) {
+    return button;
+  }
+  return (
+    // A real box, not `display:contents`: the disabled button takes no pointer
+    // events, so THIS is what the pointer lands on and what the tooltip hangs off.
+    <span title={a.hint} className="flex w-auto">
+      {button}
+      <span id={hintId} className="sr-only">{a.hint}</span>
+    </span>
   );
 }
 
@@ -106,14 +141,19 @@ export function StickyActionBar(props: {
   aside?: ReactNode;
   className?: string;
 }) {
-  const addLabel = props.labels?.addField ?? 'Add feedback';
-  const hideLabel = props.labels?.hideField ?? 'Hide feedback';
+  const addLabel = props.labels?.addField ?? 'Add a note';
+  const hideLabel = props.labels?.hideField ?? 'Hide the note';
   const { primary, secondary = [], field, aside } = props;
   const [fieldOpen, setFieldOpen] = useState(field?.defaultOpen ?? false);
   const showField = field !== undefined && (fieldOpen || field.value.trim().length > 0);
 
   return (
     <div
+      // The gutter reads this to drop its bottom padding, which is the strip
+      // a sticky box cannot reach (`PageWidth`). A `data-pattern`, like the
+      // rest of the pattern library, rather than the testid: what a page is
+      // built from is not a test hook.
+      data-pattern="sticky-action-bar"
       data-testid="sticky-action-bar"
       className={cn(
         // Sticky to the bottom of the column it lives in; bleeds to the page
@@ -150,23 +190,23 @@ export function StickyActionBar(props: {
         </div>
       )}
 
-      {/* Wraps at `sm`+ too: beside a conversation rail the column can be
-          narrower than the verbs, and they must never run under the rail. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      {/* One row, at every width. It still WRAPS: beside a conversation rail
+          the column can be narrower than the verbs, and they must never run
+          under the rail. */}
+      <div className="flex flex-row flex-wrap items-center gap-2">
         {field && (
           <button
             type="button"
             onClick={() => setFieldOpen(o => !o)}
-            className={cn('order-last inline-flex h-10 items-center gap-1 self-start rounded-lg px-2 text-[13px] text-muted-foreground transition sm:order-none', GHOST)}
+            className={cn('inline-flex h-10 items-center gap-1 rounded-lg px-2 text-[13px] text-muted-foreground transition', GHOST)}
             aria-expanded={showField}
           >
             {showField ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronUp className="size-3.5" aria-hidden />}
-            {showField ? hideLabel : addLabel}
+            <span className="sr-only sm:not-sr-only">{showField ? hideLabel : addLabel}</span>
           </button>
         )}
         {aside && <div className="flex items-center gap-2 sm:ml-2">{aside}</div>}
-        <div className="hidden flex-1 sm:block" />
-        <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <div className="ml-auto flex flex-row flex-wrap items-center justify-end gap-2">
           {secondary.map((a, i) => <ActionButton key={i} a={a} />)}
           <ActionButton a={primary} primary />
         </div>

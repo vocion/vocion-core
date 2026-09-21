@@ -10,7 +10,7 @@ import type { AutomationRunFilter } from '@/services/AutomationService';
  */
 
 const STATUSES = ['running', 'ok', 'error'] as const;
-const KINDS = ['workflow', 'mission_check', 'job'] as const;
+const KINDS = ['workflow', 'mission_check', 'job', 'control', 'skipped'] as const;
 const INVOKERS = ['schedule', 'test-run'] as const;
 
 type Parsed = { value: AutomationRunFilter } | { error: string };

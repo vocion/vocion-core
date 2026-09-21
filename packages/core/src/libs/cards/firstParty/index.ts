@@ -16,6 +16,8 @@ import { jsonDumpCard } from './jsonDump';
 import { keyValueCard } from './keyValue';
 import { linkCard } from './link';
 import { markdownCard } from './markdown';
+import { missionCard } from './mission';
+import { playbookCard } from './playbook';
 import { recordCard } from './record';
 import { sendStubCard } from './sendStub';
 import { sequenceCard } from './sequence';
@@ -46,6 +48,10 @@ export function registerFirstPartyCards(): void {
   // The paginated document (render_document) — rendered the way it prints,
   // with its render-verify verdict.
   registerCard(documentCard);
+  // Workspace sources (libs/workspace/source.ts): a mission's YAML and a
+  // SKILL.md, mirrored so they edit like artifacts.
+  registerCard(missionCard);
+  registerCard(playbookCard);
   registered = true;
 }
 
@@ -60,6 +66,8 @@ export { JSON_DUMP_SLUG, jsonDumpCard } from './jsonDump';
 export { KEY_VALUE_SLUG, keyValueCard } from './keyValue';
 export { LINK_SLUG, linkCard } from './link';
 export { MARKDOWN_SLUG, markdownCard } from './markdown';
+export { MISSION_SLUG, missionCard } from './mission';
+export { PLAYBOOK_SLUG, playbookCard } from './playbook';
 export { RECORD_SLUG, recordCard } from './record';
 export { SEND_STUB_SLUG, sendStubCard } from './sendStub';
 export { SEQUENCE_SLUG, sequenceCard } from './sequence';

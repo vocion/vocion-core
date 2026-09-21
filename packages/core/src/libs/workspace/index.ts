@@ -1,10 +1,14 @@
 export { type ApplyOptions, type ApplyResult, applyWorkspace } from './applier';
 export { autoCommit, type AutoCommitInput, type AutoCommitResult, currentHeadSha } from './auto-commit';
-export { getCurrentWorkspaceSha, invalidateCurrentContextShaCache } from './current-version';
+export { type AppliedWorkspaceVersion, getCurrentWorkspaceSha, getCurrentWorkspaceVersion, invalidateCurrentContextShaCache } from './current-version';
 export { type LoadedAgent, type LoadedObjectType, type LoadedPlaybook, type LoadedTeam, type LoadedWorkflow, type LoadedWorkspace, loadWorkspace, WorkspaceValidationError } from './loader';
+export { applyNewerThanFolder, folderChangedAt, folderWritable, isDeployManaged, judgeMountedFolder, type MountedFolder, type MountVerdict, readManifestOrgId } from './mounted-project';
+export { enabledPluginsFromWorkspaceDir, listPlugins, listPluginSlugs, type LoadedPlugin, loadPlugin, pluginContents, type PluginContents, type PluginInfo, pluginRoots, PLUGINS_REL, readPluginReadme, resolvePlugins } from './plugins';
 export { getWorkspacePath, WORKSPACE_SLUG_PATTERN } from './reader';
 export * from './schemas';
 export { computeWorkspaceSha } from './sha';
+export { isSourceKind, SOURCE_ARTIFACT_KINDS, SOURCE_KINDS, SOURCE_ROLE, sourceArtifactKind, sourceContentOf, sourceDir, sourceFolder, type SourceKind, sourceKindOf, sourceRecord, sourceRelPath, sourceSpec, SourceValidationError, splitFrontmatter, type ValidatedSource, validateSourceText } from './source';
 export { assertTeams, effectiveTeamSlug } from './teams';
 export { allowlistedTemplateVariableNames, readWorkspaceTextFile, substituteEnvTokens, TEMPLATE_VARS_ALLOWLIST_NAME, WorkspaceTemplateError } from './template-vars';
-export { deleteResource, slugToDirname, writeAgent, type WriteAgentInput, writeObjectType, type WriteObjectTypeInput, writeSkill, type WriteSkillInput, type WrittenResource } from './writer';
+export { type LoadedWikiPage, loadWikiPages, parseWikiPageFile, renderSeededWikiIndex, WIKI_INDEX_SLUG, WIKI_PAGES_DIR, WikiPageFrontmatterSchema, wikiPageSha } from './wiki-pages';
+export { deleteResource, slugToDirname, writeAgent, type WriteAgentInput, writeMission, type WriteMissionInput, writeObjectType, type WriteObjectTypeInput, writeSkill, type WriteSkillInput, writeSourceText, type WriteSourceTextInput, type WrittenResource, type WrittenSourceText } from './writer';

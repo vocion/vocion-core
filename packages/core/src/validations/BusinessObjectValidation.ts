@@ -34,6 +34,20 @@ export const CreateBusinessObjectValidation = z.object({
 
 export type CreateBusinessObjectInput = z.infer<typeof CreateBusinessObjectValidation>;
 
+/**
+ * `POST /api/v1/objects` — create an object, or upsert one by the external
+ * key its owning system knows it by (`externalKey: {system, id}`), so a
+ * deploy script or a worker can record the same release twice and land one
+ * row. `type` is the object type slug.
+ */
+export const UpsertBusinessObjectValidation = z.object({
+  type: z.string().min(1),
+  title: z.string().min(1).max(255),
+  status: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  externalKey: z.object({ system: z.string().min(1).max(100), id: z.string().min(1).max(255) }).optional(),
+});
+
 export const UpdateBusinessObjectValidation = z.object({
   id: z.coerce.number(),
   title: z.string().min(1).max(255).optional(),

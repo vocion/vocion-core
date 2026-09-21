@@ -24,7 +24,8 @@ import type { TrustManifest } from '@/libs/workspace/schemas';
 import type { AlignmentScore } from '@/services/alignment/AlignmentService';
 import { and, eq } from 'drizzle-orm';
 import { isNeverAuto } from '@/libs/actions/neverAuto';
-import { getAction, listActions } from '@/libs/actions/registry';
+import { actionForPolicyKey } from '@/libs/actions/policyKey';
+import { listActions } from '@/libs/actions/registry';
 import { db } from '@/libs/DB';
 import { autonomyPolicySchema, trustRuleSchema } from '@/models/Schema';
 import { evidenceFor, scoresByKey } from '@/services/alignment/AlignmentService';
@@ -79,8 +80,11 @@ export type EffectivePolicy = {
 };
 
 function resolve(actionId: string, policy: PolicyRow | null, trustRule: TrustRow | null): EffectivePolicy {
-  const action = getAction(actionId);
-  const riskTier = policy && isRiskTier(policy.riskTier) ? policy.riskTier : defaultRiskTier(actionId, action?.external);
+  // The key may be derived (`objects.update_meta.request`); the action behind
+  // it supplies the default tier, so a type nobody wrote a rule for is judged
+  // as its action rather than as an unknown, high-risk kind.
+  const action = actionForPolicyKey(actionId);
+  const riskTier = policy && isRiskTier(policy.riskTier) ? policy.riskTier : defaultRiskTier(actionId, action?.external, action?.id);
   const rung = policy && isRung(policy.rung) ? policy.rung : rungFromTrustRule(trustRule);
   const minConfidence = policy?.minConfidence ?? trustRule?.threshold ?? TIER_RULES[riskTier].minConfidence;
   return { actionId, rung, riskTier, minConfidence, policy, trustRule };
@@ -130,7 +134,7 @@ export async function effectivePolicies(orgId: string): Promise<Map<string, Effe
 export async function eligibility(orgId: string, actionId: string, now: Date = new Date()): Promise<Eligibility & { evidence: AlignmentEvidence; effective: EffectivePolicy }> {
   const effective = await effectivePolicy(orgId, actionId);
   const evidence = await evidenceFor({ orgId, actionId, tier: effective.riskTier, minConfidence: effective.minConfidence, now });
-  const action = getAction(actionId);
+  const action = actionForPolicyKey(actionId);
   const result = evaluateEligibility({ rung: effective.rung, tier: effective.riskTier, evidence, neverAuto: action ? isNeverAuto(action) : false });
   return { ...result, evidence, effective };
 }
@@ -153,7 +157,7 @@ export async function listPolicies(orgId: string, now: Date = new Date()): Promi
   const ids = new Set<string>([...listActions().map(a => a.id), ...policyBy.keys(), ...trustBy.keys()]);
 
   const views = await Promise.all([...ids].map(async (actionId) => {
-    const action = getAction(actionId);
+    const action = actionForPolicyKey(actionId);
     const effective = resolve(actionId, policyBy.get(actionId) ?? null, trustBy.get(actionId) ?? null);
     const evidence = await evidenceFor({ orgId, actionId, tier: effective.riskTier, minConfidence: effective.minConfidence, now });
     const neverAuto = action ? isNeverAuto(action) : false;
@@ -440,7 +444,8 @@ export async function syncPoliciesFromManifest(orgId: string, manifest: TrustMan
       errors.push({ action: rule.action, message: `rung "${rung}" ${rungAutomates(rung) ? 'automates' : 'does not automate'} but enabled is ${rule.enabled} — they must agree` });
       continue;
     }
-    const riskTier = rule.risk ?? riskMap[rule.action] ?? defaultRiskTier(rule.action, getAction(rule.action)?.external);
+    const ruleAction = actionForPolicyKey(rule.action);
+    const riskTier = rule.risk ?? riskMap[rule.action] ?? defaultRiskTier(rule.action, ruleAction?.external, ruleAction?.id);
     await db
       .insert(autonomyPolicySchema)
       .values({ orgId, actionId: rule.action, rung, riskTier, minConfidence: rule.autoApproveAbove, promotedAt: now, promotedBy: 'trust.yaml', source: 'trust.yaml', flagged: false, flagReason: null })

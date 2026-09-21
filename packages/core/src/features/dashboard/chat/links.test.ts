@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyDashboardLink } from './links';
+import { classifyDashboardLink, previewRefFor } from './links';
 
 describe('classifyDashboardLink', () => {
   it('recognises dashboard routes, with and without a locale prefix or origin', () => {
@@ -16,5 +16,13 @@ describe('classifyDashboardLink', () => {
     expect(classifyDashboardLink('https://other.example/dashboard/agents/x', 'https://agents.metacto.com')).toBeNull();
     expect(classifyDashboardLink('/sign-in')).toBeNull();
     expect(classifyDashboardLink(undefined)).toBeNull();
+  });
+
+  it('knows a data room, and offers it as a preview instead of a navigation', () => {
+    const room = classifyDashboardLink('/dashboard/rooms/22');
+
+    expect(room).toEqual({ href: '/dashboard/rooms/22', kind: 'room', id: '22' });
+    expect(previewRefFor(room!)).toEqual({ type: 'object', id: '22' });
+    expect(previewRefFor(classifyDashboardLink('/dashboard/agents/lead')!)).toBeNull();
   });
 });

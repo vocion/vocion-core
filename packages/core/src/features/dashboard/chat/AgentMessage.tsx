@@ -2,22 +2,34 @@
 
 import type { DashboardLinkKind } from './links';
 import type { AgentRun, ChatMessage, ConversationAutonomy, IndexedDocument } from './types';
-import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Bot, ClipboardCheck, FileText, FolderOpen, Gauge, Inbox, LayoutDashboard, MessageSquare, Newspaper, Rocket, Target, Users } from 'lucide-react';
 import { memo, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ConfidenceIndicator } from '@/components/ui/confidence-indicator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { openPreview } from '@/features/preview/previewState';
+import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { splitScratch } from '@/libs/chat/scratch';
 import { Link } from '@/libs/I18nNavigation';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
-import { classifyDashboardLink } from './links';
+import { classifyDashboardLink, previewRefFor } from './links';
 import { MessageFeedback } from './MessageFeedback';
 import { RecommendedActionStack } from './RecommendedActionStack';
+import { ScratchFold } from './ScratchFold';
+import { SelfUpdateChips } from './SelfUpdateChips';
 import { formatElapsed, useElapsed } from './useElapsed';
 import { WorkTimeline } from './WorkTimeline';
 
 /** One glyph per dashboard entity family, so a chip reads before its label does. */
+/** The abstract levels' words for the turn footer — the same words the composer's control shows; never a vendor or a model id. */
+const LEVEL_WORDS = {
+  strength: { fast: 'Fast', balanced: 'Balanced', deep: 'Deep' },
+  thinking: { off: 'off', low: 'light', medium: 'standard', high: 'deep' },
+} as const;
+
 const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'agent': Bot,
   'team': Users,
@@ -26,6 +38,7 @@ const LINK_ICON: Record<DashboardLinkKind, typeof Bot> = {
   'ask': Inbox,
   'briefing': Newspaper,
   'object': LayoutDashboard,
+  'room': FolderOpen,
   'review': ClipboardCheck,
   'learning': FileText,
   'eval': ClipboardCheck,
@@ -71,6 +84,8 @@ export type AgentMessageProps = {
   autonomy?: ConversationAutonomy;
   /** Preformatted attribution for a routed turn ("via Proposal Writer") — the workspace stays the speaker (§9.10). */
   via?: string;
+  /** Why the workspace routed the turn there, when it chose (`RoutingDecision.reason`) — shown on hover, so the attribution can be checked. */
+  viaReason?: string;
   /** Opens an artifact this turn produced in the pane beside the conversation. */
   onOpenArtifact?: (id: number) => void;
   /** The thread this turn belongs to — stamped into a failed step's Copy details. */
@@ -101,7 +116,7 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
-export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, onOpenArtifact, conversationId }: AgentMessageProps) => {
+export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
     ?? (message.content ? [{ type: 'text', text: message.content }] : []);
@@ -159,7 +174,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         <div className="flex flex-wrap items-center gap-2 text-[11px] tracking-wider text-muted-foreground uppercase">
           <AgentMark name={agentName} />
           {via && (
-            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case">{via}</span>
+            <span data-testid="via-eyebrow" className="tracking-normal text-muted-foreground/80 normal-case" title={viaReason}>{via}</span>
           )}
           {timestamp && <span className="tracking-normal normal-case">{formatTime(timestamp)}</span>}
           {sourceCount > 0 && (
@@ -173,6 +188,25 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               {' '}
               {sourceCount}
             </button>
+          )}
+          {message.model && (
+            // Which level answered — one quiet icon (Chris, 2026-09-18: "the
+            // icon is enough … at most put it in a tooltip"). The words live in
+            // the tooltip; never a vendor or a model id.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  data-testid="turn-model"
+                  aria-label={`Answered at ${LEVEL_WORDS.strength[message.model.strength]}`}
+                  className="inline-flex items-center text-muted-foreground/60"
+                >
+                  <Gauge className="size-3" aria-hidden />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" collisionPadding={8}>
+                {`${LEVEL_WORDS.strength[message.model.strength]}${message.model.thinking !== 'off' ? ` · thinking ${LEVEL_WORDS.thinking[message.model.thinking]}` : ''}`}
+              </TooltipContent>
+            </Tooltip>
           )}
           {/* The badge is the way IN to the failure, not a label over it: it
               opens the trace at the failed step, which carries the message and
@@ -228,54 +262,88 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                   failureContext={{ turnId: message.id ?? null, conversationId: conversationId ?? null, at: timestamp ?? null }}
                 />
               )
-            : (
-                <div key={`text-${seg.index}`} className="prose prose-sm max-w-none dark:prose-invert">
-                  <Markdown
-                    remarkPlugins={[remarkGfm]}
-                    // Keep our private citation scheme; react-markdown's default
-                    // sanitizer would strip `vocion-cite:` and drop the link.
-                    urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
-                    components={{
-                      a({ href, children, ...props }) {
-                        const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
-                        if (m !== null) {
-                          const n = Number(m);
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => onCitationClick?.(n)}
-                              className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
-                              aria-label={`Open source ${n}`}
-                            >
-                              {n}
-                            </button>
-                          );
-                        }
-                        // A same-origin dashboard route becomes a chip that
-                        // navigates in place (§9); anything else stays an
-                        // ordinary external link in a new tab.
-                        const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
-                        if (inApp) {
-                          const Icon = LINK_ICON[inApp.kind];
-                          return (
-                            <Link
-                              href={inApp.href}
-                              data-link-kind={inApp.kind}
-                              className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
-                            >
-                              <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-                              <span className="truncate">{children}</span>
-                            </Link>
-                          );
-                        }
-                        return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
-                      },
-                    }}
-                  >
-                    {citeLinkify(seg.text)}
-                  </Markdown>
-                </div>
-              )))}
+            // A `<scratch>` block inside a stored text run is the model
+            // thinking, folded (`ScratchFold`); the prose around it renders
+            // as it always did. The live turn never carries one — the streamer
+            // set it aside — so this is the reload path and the audit trail.
+            : splitScratch(seg.text).map((piece, i) => (piece.kind === 'scratch'
+                ? <ScratchFold key={`text-${seg.index}-${i}`} text={piece.text} />
+                : (
+                    // `break-words`: agent prose carries URLs, ids and inline
+                    // code that are single unbreakable words — a 527px
+                    // identifier was cut off both edges of a 390px phone
+                    // (the owner's screenshot, 2026-09-19). Wrapping is the
+                    // answer for prose; a genuinely wide block gets its own
+                    // scroller instead (the `table` renderer below).
+                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none break-words dark:prose-invert">
+                      <Markdown
+                        remarkPlugins={[remarkGfm]}
+                        // Keep our private citation scheme; react-markdown's default
+                        // sanitizer would strip `vocion-cite:` and drop the link.
+                        urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
+                        components={{
+                          // A table is the one thing in a turn that cannot
+                          // wrap: its width is the sum of its columns, and a
+                          // column holding an identifier has a min-content of
+                          // its own. So it scrolls INSIDE its own box rather
+                          // than pushing the transcript — the same rule the
+                          // typography plugin already gives `pre`.
+                          table({ children, ...props }) {
+                            return (
+                              <div className="max-w-full overflow-x-auto">
+                                <table {...props}>{children}</table>
+                              </div>
+                            );
+                          },
+                          a({ href, children, ...props }) {
+                            const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
+                            if (m !== null) {
+                              const n = Number(m);
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => onCitationClick?.(n)}
+                                  className="mx-0.5 inline-flex items-baseline rounded-sm bg-brand-amber/15 px-1 align-super text-[10px] font-semibold text-brand-amber-deep no-underline transition hover:bg-brand-amber/30"
+                                  aria-label={`Open source ${n}`}
+                                >
+                                  {n}
+                                </button>
+                              );
+                            }
+                            // A same-origin dashboard route becomes a chip that
+                            // navigates in place (§9); anything else stays an
+                            // ordinary external link in a new tab.
+                            const inApp = classifyDashboardLink(href, typeof window === 'undefined' ? undefined : window.location.origin);
+                            if (inApp) {
+                              const Icon = LINK_ICON[inApp.kind];
+                              return (
+                                <Link
+                                  href={inApp.href}
+                                  data-link-kind={inApp.kind}
+                                  // A room peeks on a plain click and navigates on ⌘-click,
+                                  // the same rule as a list row (`usePreviewList`).
+                                  onClick={(e) => {
+                                    const peek = previewRefFor(inApp);
+                                    if (peek && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                                      e.preventDefault();
+                                      openPreview(peek, e.currentTarget);
+                                    }
+                                  }}
+                                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 align-baseline text-[12px] font-medium text-foreground/85 no-underline transition hover:border-brand-amber/40 hover:text-foreground"
+                                >
+                                  <Icon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                                  <span className="truncate">{children}</span>
+                                </Link>
+                              );
+                            }
+                            return <a href={href} target="_blank" rel="noreferrer" {...props}>{children}</a>;
+                          },
+                        }}
+                      >
+                        {citeLinkify(normalizeAnswerHtml(piece.text))}
+                      </Markdown>
+                    </div>
+                  )))))}
           {/*
             The live indicator sits right under the prose while the turn runs
             — the shape OpenClaw and Claude Code both use. It used to be the
@@ -324,6 +392,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           )}
           {(message.artifacts?.length ?? 0) > 0 && (
             <ArtifactChips artifacts={message.artifacts!} onOpen={onOpenArtifact} />
+          )}
+          {(message.selfUpdates?.length ?? 0) > 0 && (
+            <SelfUpdateChips updates={message.selfUpdates!} />
           )}
         </div>
         {message.confidence && (

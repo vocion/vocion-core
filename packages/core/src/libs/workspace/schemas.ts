@@ -112,6 +112,33 @@ export const WorkspaceManifestSchema = z.object({
      * entry keeps its full-pass regenerate only.
      */
     regenerateSkills: z.record(z.string(), SlugSchema).optional(),
+    /**
+     * Which document playbooks are client-facing, and so cannot be exported
+     * as a PDF without having been read as the sceptical buyer on their
+     * current version (`services/documents/exportGate.ts`).
+     *
+     * Matched against `playbook` on a document artifact's spec — the tag the
+     * writing skill passes to `render_document`. Omit the key and core's
+     * defaults apply (`proposal`, `scope`, `partnership-update`); author an
+     * EMPTY list to gate nothing, which is the only way to turn the gate off
+     * and is deliberately explicit.
+     */
+    clientFacingPlaybooks: z.array(z.string().max(60)).max(40).optional(),
+    /**
+     * How eager this workspace is to improve itself, 0–10. Default 7.
+     *
+     * Moves the confidence bar for the class of actions that change what the
+     * system knows about how to work — adopting a rule from a correction a
+     * person made to an agent's work is the first of them
+     * (`libs/actions/eagerness.ts`). 0 always asks. 7 puts the bar at 72%,
+     * 10 at 60%; both clear a plain directive in the person's own words and
+     * neither clears a rule the model had to infer, because the dial moves
+     * the bar and never the confidence.
+     *
+     * A trust rule that names `autoApproveAbove` for a kind wins over the
+     * dial for that kind — pin one action without changing the appetite.
+     */
+    learningEagerness: z.number().int().min(0).max(10).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -138,11 +165,61 @@ export const WorkspaceManifestSchema = z.object({
   use: z.union([z.literal('all'), ActivationSelectorSchema]).optional(),
   /**
    * Suppress a core default even under `use: all` — the escape hatch. A
-   * disabled slug is omitted from the merged workspace entirely.
+   * disabled slug is omitted from the merged workspace entirely. Applies to
+   * plugin-provided slugs too.
    */
   disable: ActivationSelectorSchema.optional(),
+  /**
+   * Plugins to turn on, by slug (`templates/plugins/<slug>/plugin.yaml`). A
+   * plugin is a bundle of agents, skills, object types, missions, automations,
+   * teams, pages and trust rules that composes UNDER the workspace the way the
+   * base pack does — always fully active, overridable by slug with
+   * `extends: core`, suppressible with `disable:`. Dependencies (`depends:`)
+   * are pulled in automatically. Omit for none.
+   */
+  plugins: z.array(SlugSchema).default([]),
 });
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifestSchema>;
+
+/**
+ * `plugin.yaml` — the identity of a workspace plugin shipped inside
+ * vocion-core at `packages/core/templates/plugins/<slug>/`. A plugin is the
+ * abstract rung of the ladder made installable: the same directory shape as
+ * a workspace (agents/, skills/, objects/, missions/, automations/, teams/,
+ * pages/, trust.yaml), turned on with one line in workspace.yaml.
+ *
+ * `recommend.when` is what the chat reads to suggest a plugin that is off:
+ * short phrases naming the conversation patterns it serves. `connectors` are
+ * the connector slugs it works better with, so the same suggestion can say
+ * which system to connect.
+ */
+export const PluginManifestSchema = z.object({
+  slug: SlugSchema,
+  name: z.string().min(1),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/, 'plugin version must be semver x.y.z'),
+  description: z.string().min(1).describe('one line: what turning it on gives a person'),
+  /** Other plugins this one needs; turned on with it, ordered before it. */
+  depends: z.array(SlugSchema).default([]),
+  /** Core-registered surfaces (`features/navigation/surfaces.ts`) this plugin switches on. */
+  surfaces: z.array(z.string()).default([]),
+  /**
+   * Where the plugin's rows sit in the sidebar — its pages, the core routes it
+   * owns (`DashboardRoute.plugin`) and its surfaces, all together. Default
+   * `Workspace`: beside Chat and Review, pinned by default. Name a section only
+   * when the plugin is part of a named app — `GTM` puts its rows under that
+   * heading with the app's other surfaces. A page's own `nav.section` still
+   * wins for that page when it names one.
+   */
+  nav: z.object({
+    section: z.string().min(1).default('Workspace'),
+    order: z.number().default(0),
+  }).default({ section: 'Workspace', order: 0 }),
+  recommend: z.object({
+    when: z.array(z.string().min(1)).default([]),
+    connectors: z.array(z.string().min(1)).default([]),
+  }).default({ when: [], connectors: [] }),
+});
+export type PluginManifest = z.infer<typeof PluginManifestSchema>;
 
 /**
  * Team manifest (F1) — workspace/<org>/teams/<slug>.yaml. The team's
@@ -282,8 +359,21 @@ export const VerifiedMeasureSourceSchema = z.discriminatedUnion('connector', [
  * is that an account gained a member, and the measure's own `label` is where
  * the workspace's word for that belongs.
  */
-export const OBSERVED_ROW_KINDS = ['workspace-members'] as const;
+export const OBSERVED_ROW_KINDS = ['workspace-members', 'artifacts', 'data-rooms', 'data-room-sources'] as const;
 export type ObservedRowKind = typeof OBSERVED_ROW_KINDS[number];
+
+/**
+ * Narrows `rows: artifacts` — the artifact table is every kind of output, and
+ * a measure is about one of them: the wiki's pages (`folder: wiki`), the
+ * proposals rendered (`kind: document, playbook: proposal`), the ones that
+ * render-verified clean (`verified: true`). All optional, all ANDed.
+ */
+export const ObservedRowsWhereSchema = z.object({
+  kind: z.string().min(1).optional(),
+  folder: z.string().min(1).optional(),
+  playbook: z.string().min(1).optional(),
+  verified: z.boolean().optional(),
+}).partial();
 
 /**
  * `observed` — Vocion saw it happen in our own tables: `action_run` rows that
@@ -296,9 +386,14 @@ export const ObservedMeasureSourceSchema = z.object({
   actions: ActionIdList.optional(),
   counts: CountsKey.optional(),
   rows: z.enum(OBSERVED_ROW_KINDS).optional(),
+  /** Only with `rows: artifacts`. */
+  where: ObservedRowsWhereSchema.optional(),
 }).refine(
   s => [s.actions, s.counts, s.rows].filter(v => v !== undefined).length === 1,
   'observed source names exactly one of actions, a counts key or rows',
+).refine(
+  s => s.where === undefined || s.rows === 'artifacts',
+  '`where` narrows `rows: artifacts` only',
 );
 
 /**
@@ -563,6 +658,24 @@ export const AgentManifestSchema = z.object({
   /** Short tagline shown above the chat title. */
   eyebrow: z.string().optional(),
   /**
+   * What this agent answers for — short topics, intents or example asks
+   * (`handles: [wiki, standing rules, research, plans]`). When a message
+   * names no agent, the router matches it against these first, then the
+   * description and suggestions, and defaults to the workspace lead
+   * (`services/agents/router.ts`). Empty: reached by name or delegation only.
+   */
+  handles: z.array(z.string().min(1)).default([]),
+  /**
+   * How much this agent volunteers — `low` | `normal` | `high`, default
+   * `normal`. Three effects, each real: it breaks a routing tie; `high` ends
+   * a turn that produced a standing fact, decision or plan with one offer to
+   * carry it forward, `low` never volunteers; and `low` sits out debriefs —
+   * the automations that fire on completed work (`worker_run.completed`,
+   * `mission_run.completed`, `conversation.ended`, `pr.merged`,
+   * `automation_run.completed`).
+   */
+  initiative: z.enum(['low', 'normal', 'high']).default('normal'),
+  /**
    * Harness config (v0.3) — per-agent knobs for the reusable agent
    * harness. `provider` selects where the agent loop executes:
    * `local` (in-process deepagents loop, the default), `agentcore`
@@ -644,6 +757,17 @@ export const AgentManifestSchema = z.object({
      * mode and it stops calling the tool (observed 3→0 card regression).
      */
     recommendActionBackstop: z.boolean().optional(),
+    /**
+     * Action kinds this agent earns trust for on its OWN ledger. A proposal
+     * of a listed kind keys the autonomy ladder on `<kind>.<agent-slug>`
+     * (`wiki.write_page.wiki-researcher`) instead of the shared kind, so a
+     * trust rule, the rung and the alignment evidence can be this agent's
+     * alone while every other agent keeps the kind's rule. Honoured by the
+     * actions that carry a `by` field — `wiki.write_page` today; the tool
+     * fills it from the agent, never from the model. Optional rather than
+     * defaulted so agents applied before this exist stay unchanged.
+     */
+    ownLedger: z.array(z.string().min(1)).optional(),
   }).partial().transform(normalizeHarnessBlock).default({}),
 }).refine(
   v => !!(v.systemPromptFile || v.systemPrompt),
@@ -853,10 +977,17 @@ export const AutomationManifestSchema = z.object({
     /** 5-field cron, UTC. */
     schedule: z.string().regex(/^\S+ \S+ \S+ \S+ \S+$/, 'schedule must be a 5-field cron').optional(),
     /** Event type, e.g. `prospect.reply`. */
-    event: z.string().optional(),
+    /** One event type, or several — the automation fires on any of them. */
+    event: z.union([z.string(), z.array(z.string().min(1)).min(1)]).optional(),
     /** Payload filter for event-whens: every key must equal the payload's value. */
     filter: z.record(z.string(), z.unknown()).optional(),
-  }).refine(w => !!w.schedule !== !!w.event, { message: 'when must have exactly one of schedule | event' }),
+    /**
+     * Ceiling on event fires in a rolling ten-minute window (default 6).
+     * Beyond it the fires are held and coalesced into one run after the
+     * window. Event-whens only — a schedule fires on its cron.
+     */
+    maxFiresPer10m: z.number().int().min(1).max(1000).optional(),
+  }).refine(w => !!w.schedule !== !!w.event, { message: 'when must have exactly one of schedule | event' }).refine(w => w.maxFiresPer10m === undefined || !!w.event, { message: 'when.maxFiresPer10m applies to event-whens only — a schedule fires on its cron' }),
   do: z.object({
     workflow: z.string().optional(),
     checkMission: z.string().optional(),
@@ -929,6 +1060,44 @@ export type MissionManifest = z.infer<typeof MissionManifestSchema>;
 // Re-export InterpolatableStringSchema for step authors who want to type inputs explicitly.
 export { InterpolatableStringSchema };
 
+/**
+ * A metadata key as it may be inlined into a `metadata ->> 'key'` expression:
+ * a rollup's link fields reach the database as literals, so the grammar is
+ * what makes that safe rather than a convention.
+ */
+const MetaKeySchema = z.string().regex(/^[a-z_]\w*$/i, {
+  message: 'a metadata key is letters, digits and underscores',
+});
+
+/**
+ * One figure this type carries that is COMPUTED from another type's rows —
+ * the sum of a child field, or the count of children — rather than typed.
+ *
+ * The link runs one of two ways: `by` names the child's field that holds
+ * this record's id (`engineering_task.requestId` → `request`), `ids` names
+ * this record's field that lists child ids (`release.taskIds`). Core
+ * recomputes every rollup that reaches a child when that child's cost is
+ * written back from a worker run (`services/objects/rollups.ts`), and stamps
+ * `rollupsUpdatedAt` beside the figures; a page reads them like any other
+ * metadata. Nothing here reaches the database schema — the declaration is
+ * read from the type file at the moment it is needed, the way pages are.
+ */
+export const RollupSchema = z.object({
+  /** The metadata key written on THIS type. */
+  field: MetaKeySchema,
+  from: z.object({
+    /** The child object type. */
+    type: SlugSchema,
+    /** The child's metadata key holding this record's id. */
+    by: MetaKeySchema.optional(),
+    /** This record's metadata key listing child ids. */
+    ids: MetaKeySchema.optional(),
+  }).refine(l => (l.by !== undefined) !== (l.ids !== undefined), { message: 'a rollup link names exactly one of `by` (the child points here) or `ids` (this record lists its children)' }),
+  /** The child's metadata key to sum. Omitted, the rollup is a count of children. */
+  sum: MetaKeySchema.optional(),
+});
+export type Rollup = z.infer<typeof RollupSchema>;
+
 export const ObjectTypeManifestSchema = z.object({
   slug: SlugSchema,
   label: z.string(),
@@ -939,6 +1108,8 @@ export const ObjectTypeManifestSchema = z.object({
   classificationPromptFile: z.string().optional(),
   classificationPrompt: z.string().optional(),
   fewShotExamples: z.array(FewShotExampleSchema).default([]),
+  /** Figures computed from another type's rows — see {@link RollupSchema}. */
+  rollups: z.array(RollupSchema).optional(),
 });
 export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 

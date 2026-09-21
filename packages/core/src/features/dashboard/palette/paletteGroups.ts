@@ -1,6 +1,6 @@
 import type { DashboardRoute } from '@/features/navigation/dashboardNav';
 import { chatHotkeyLabel } from '@/features/dashboard/chat/chatHotkeys';
-import { DASHBOARD_GROUPS } from '@/features/navigation/dashboardNav';
+import { DASHBOARD_GROUPS, routeVisible } from '@/features/navigation/dashboardNav';
 
 /**
  * Pure model for the ⌘K palette — what the dialog renders, computed away
@@ -33,6 +33,8 @@ export function buildPaletteGroups(input: {
   query: string;
   routes: readonly DashboardRoute[];
   isAdmin: boolean;
+  /** Plugins the workspace turned on; a plugin-owned route hides while its plugin is off. Omit = no plugin gating. */
+  enabledPlugins?: readonly string[];
   agents?: PaletteEntity[];
   teams?: PaletteEntity[];
   missions?: PaletteEntity[];
@@ -54,7 +56,7 @@ export function buildPaletteGroups(input: {
 
   for (const heading of ROUTE_GROUP_ORDER) {
     const rows = input.routes
-      .filter(r => r.group === heading && (input.isAdmin || !r.adminOnly))
+      .filter(r => r.group === heading && routeVisible(r, { isAdmin: input.isAdmin, enabledPlugins: input.enabledPlugins }))
       .map<PaletteRow>(r => ({
         value: [r.title, ...(r.keywords ?? [])].join(' '),
         label: r.title,

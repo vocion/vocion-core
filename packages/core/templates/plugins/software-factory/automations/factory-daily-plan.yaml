@@ -1,0 +1,22 @@
+slug: factory-daily-plan
+name: Weekday planning pass
+description: >-
+  Wakes the Task planner every weekday afternoon to check the standing mission:
+  what was asked, what is in flight, what is stuck, and what nobody has
+  answered.
+status: active
+agent: task-planner
+when:
+  schedule: '0 15 * * 1-5'
+do:
+  checkMission: close-the-gap
+  prompt: >-
+    Read every named request with no task and no answer, and every task that
+    was dispatched and is not accepted. Write a task contract for what should
+    be built — objective, allowed paths, acceptance criteria, required checks,
+    risk class, budgets, and the request id on every one — and write the honest
+    answer for what should not be. Raise the attempt on anything whose run was
+    lost, and say plainly which tasks are blocked on a dependency that was
+    never written. Anything that cannot be made checkable goes on the queue as
+    a question, naming what would make it checkable. Report in four lines:
+    tasks written, answers written, blocked, waiting on a person.

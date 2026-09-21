@@ -379,6 +379,60 @@ export async function decideCandidate(opts: {
 }
 
 /**
+ * Put an adoption back — the undo behind a rule that adopted itself.
+ *
+ * Adoption is now done-for-you above a confidence bar
+ * (`libs/actions/learning-adopt-rule.ts`), and what earns a kind that
+ * autonomy is that it is reversible. Reversing means two things: the rule
+ * leaves the memory store, so the agent stops reading it on the next turn;
+ * and the candidate that carried it goes to `rejected` with the undo as its
+ * reason, so the evidence stays and the same wording is not re-adopted the
+ * next time someone says it.
+ *
+ * Idempotent on the parts that can already be gone: a rule key that no longer
+ * exists, or a candidate someone has since rejected by hand, is not an error.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id - The candidate that was approved.
+ * @param opts.undoneBy - The person undoing it.
+ * @param opts.reason - Shown on the rejected candidate; defaults to the undo.
+ */
+export async function unadoptCandidate(opts: {
+  orgId: string;
+  id: number;
+  undoneBy: string;
+  reason?: string;
+}): Promise<{ undone: boolean; ruleKey: string | null; reason?: string }> {
+  const candidate = await getCandidate(opts.orgId, opts.id);
+  if (!candidate) {
+    return { undone: false, ruleKey: null, reason: 'not_found' };
+  }
+  const ruleKey = candidate.createdMemoryKey ?? null;
+  if (ruleKey) {
+    const { removeRule } = await import('@/services/MemoryService');
+    try {
+      await removeRule({ orgId: opts.orgId, key: ruleKey });
+    } catch (error) {
+      // A rule already gone (consolidated away, removed by hand) still leaves
+      // the candidate to flip; the undo is about the agent's behaviour.
+      console.warn(`[LearningCandidateService] rule ${ruleKey} was already gone when undoing candidate ${opts.id}`, error);
+    }
+  }
+  await db
+    .update(learningCandidateSchema)
+    .set({
+      status: 'rejected',
+      rejectedReason: opts.reason?.trim() || 'Undone — the rule was adopted automatically and a person put it back.',
+      createdMemoryKey: null,
+      decidedBy: opts.undoneBy,
+      decidedAt: new Date(),
+    })
+    .where(and(eq(learningCandidateSchema.orgId, opts.orgId), eq(learningCandidateSchema.id, opts.id)));
+  await trackCandidateDecision(opts.orgId, opts.id, opts.undoneBy, 'rejected');
+  return { undone: true, ruleKey };
+}
+
+/**
  * Run the agent's eval dataset after one of its rules was adopted, and stamp
  * the run on the candidate so the card can show the delta.
  * @param orgId

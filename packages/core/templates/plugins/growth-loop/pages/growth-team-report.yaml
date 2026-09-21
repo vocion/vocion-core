@@ -1,0 +1,12 @@
+# Team report — a nav row, not a page. The report already exists at
+# /dashboard/team-report (cost per outcome, the measures with their provenance,
+# activity by member); this pins it beside the loop's own pages so "what did it
+# move" and "what did it cost" sit together without the report being built a
+# second time.
+slug: growth-team-report
+title: Team report
+description: Cost per brief that worked, the team's measures with their provenance, and activity by member — the core report, seated beside the loop.
+icon: bar-chart-3
+nav: {section: Growth, order: 4}
+archetype: link
+href: /dashboard/team-report

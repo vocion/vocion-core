@@ -165,10 +165,12 @@ test.describe('the platform selector decides which controls exist', () => {
       // place a platform becomes reachable, so a silent addition is worth a
       // failing assertion.
       'Apollo',
+      'GitHub',
       'Granola',
       'HubSpot',
       'Jira',
       'Notion',
+      'PostHog',
       'Strapi',
       'Google',
       'Slack',

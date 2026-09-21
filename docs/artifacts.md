@@ -29,7 +29,7 @@ The artifact model fixes that with three ideas:
 
 | Piece | Where | What it does |
 |---|---|---|
-| `artifact` table | `0095_artifact.sql` + `0101_artifact_version.sql`, `models/Schema.ts` | id, org, conversation, message, `kind` (`table` \| `markdown` \| `chart` \| `record` \| `link` \| `file`), `title`, `spec` jsonb, `url` (files), `folder`, `current_version`, `head_version_id`, `last_author_kind`/`last_author_id` |
+| `artifact` table | `0095_artifact.sql` + `0101_artifact_version.sql`, `models/Schema.ts` | id, org, conversation, message, `kind` (`table` \| `markdown` \| `chart` \| `record` \| `link` \| `file` \| `sequence` \| `document` \| `mission` \| `playbook`), `title`, `spec` jsonb, `url` (files), `folder`, `current_version`, `head_version_id`, `last_author_kind`/`last_author_id` |
 | `artifact_version` table | `0101_artifact_version.sql` | one immutable row per edit: `version`, `title`, `spec`, `author_kind` (`agent` \| `human` \| `system`), `author_id`, `run_id`, `message_id`, `change_summary` |
 | Card specs | `libs/cards/specs.ts` | zod schemas per kind — the tool validates with them, the card renders with them, the row stores what passes them |
 | Cards | `libs/cards/firstParty/{dataTable,markdown,chart,record,link}.tsx` | surfaces `chat` (dense) and `artifact` (full). `resolveCard()` is the only render path |
@@ -145,6 +145,22 @@ moving an artifact between folders (that is metadata).
 | `markdown` | edit the body in a plain textarea, ⌘S to save; select text for "Ask Vocion" |
 | `table` | edit cells, rename columns, change a column type, add/remove rows |
 | `chart`, `record`, `link`, `file` | edit the title and the folder; the content comes from the agent |
+| `mission`, `playbook` | edit the workspace FILE — a mission's YAML, a playbook's or skill's SKILL.md — in the same plain editor; select text for Ask or Change. The title follows the file's `name:` |
+
+**Edit is the door.** Markdown and tables had an editor and no visible way
+into it; the header now offers **Edit** (`actionsFor` → `edit`) on any kind a
+person can hand-edit, while there is nothing to save and the head version is on
+screen. A document reaches its editor through its HTML tab as before.
+
+**Missions and playbooks are mirrors, not copies.** The file in the workspace
+stays the source of truth; the applier keeps a `mission` / `playbook` artifact
+in step with it (`libs/workspace/source.ts`), and a Save in the pane writes the
+file first, then the version, then applies (`WorkspaceSourceService`). Restore
+writes the old text forward to the file. Mirrors are `visibility: system` —
+reached from their pages and by id, not listed in the log — and a deleted file
+takes its mirror with it. An agent's edit goes through the
+reviewed `workspace.write_*` actions rather than `update_artifact`, which
+redirects it. The whole loop is in [workspace.md](./workspace.md#edit-a-mission-or-a-playbook-in-the-app).
 
 The markdown editor is deliberately plain. A code editor here is a second
 thing to learn for content that is mostly prose, and anyone who wants one

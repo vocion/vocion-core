@@ -1,0 +1,31 @@
+# The Proposal Writer's own learning step. Every review decision on a proposal
+# (approve with a note, edit, reject) and every correction a person makes in
+# chat while a document is open files a candidate HERE, because the writer
+# declares this as its first learning step. Adopted rules mount into the
+# writer's context before the next proposal.
+#
+# Why its own bucket: feedback on a proposal generalises more often than most
+# feedback — a cut phrase, a rejected commercial shape, a sheet nobody read —
+# and the next client's proposal should start without the mistake.
+name: proposal-feedback
+title: Proposal feedback
+description: >-
+  What people changed, cut or rejected in client documents, as rules for the
+  next one: voice, structure, pricing shape, what a sheet must carry, what a
+  buyer pushed back on. Read before the first sheet of every proposal.
+agents:
+  - proposal-writer
+preamble: |
+  These rules came from real proposals: a line a person cut, a shape a buyer
+  rejected, a red-team finding that came back twice. They are narrower than
+  the skill and win where they disagree with it. Read them before the first
+  sheet; check the finished document against them before you call it ready.
+rules:
+  - id: assume-the-yes
+    text: Cut any closing line that invites a no or hedges the offer ("if this drops down your list, say so"). The document assumes the yes.
+  - id: no-chatbot-register
+    text: Never write "say so plainly", "tell me plainly", "before anything moves", or a constructed-contrast tail ("not X — Y"). Say the literal thing.
+  - id: new-buyer-new-document
+    text: A second buyer at the same client gets a new dated document, never a -v2 of the one the first buyer saw; a reviewed document is immutable.
+  - id: no-dollar-figures-in-the-send-email
+    text: The email that carries a proposal names no dollar figure; a number there invites a reaction before the reasoning is read.

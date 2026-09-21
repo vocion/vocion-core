@@ -320,9 +320,76 @@ describe('the work sits where it happened (interleaved, not hoisted)', () => {
       />,
     );
 
-    const folded = page.getByRole('button', { name: /Worked it out · 2 steps/ });
+    const folded = page.getByRole('button', { name: /Looked up 3 deals and read the briefing · 2 steps/ });
 
     await expect.element(folded).toBeInTheDocument();
     expect(folded.element().compareDocumentPosition(page.getByText('Done.').element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+// 2026-09-20: a transcript showed `<scratch> No engineering tasks on record.
+// Let me check knowledge / wiki … </scratch>` as body text, twice, between
+// tool-call rows, the second one cut mid-sentence. A block in a stored text
+// run is the model thinking; it folds to a muted line and never reads as prose.
+describe('a <scratch> block in a stored text run folds to "Thinking"', () => {
+  it('hides the block behind a disclosure and keeps the prose around it', async () => {
+    await render(
+      <AgentMessage
+        agentName="Northwind Lead"
+        message={{
+          role: 'assistant',
+          content: 'Checking.\n\n<scratch>No engineering tasks on record. Let me check knowledge / wiki.</scratch>\n\nFifteen runs, two still going.',
+          runs: [{ type: 'text', text: 'Checking.\n\n<scratch>No engineering tasks on record. Let me check knowledge / wiki.</scratch>\n\nFifteen runs, two still going.' }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText('Checking.')).toBeInTheDocument();
+    await expect.element(page.getByText('Fifteen runs, two still going.')).toBeInTheDocument();
+    // Neither tag reaches the page, and the block's words stay folded.
+    expect(document.body.textContent).not.toContain('<scratch>');
+    expect(document.body.textContent).not.toContain('</scratch>');
+    expect(page.getByTestId('scratch-fold-body').query()).toBeNull();
+
+    const fold = page.getByRole('button', { name: 'Show thinking' });
+
+    await expect.element(fold).toBeInTheDocument();
+
+    await userEvent.click(fold);
+
+    await expect.element(page.getByTestId('scratch-fold-body')).toHaveTextContent('No engineering tasks on record. Let me check knowledge / wiki.');
+  });
+
+  it('folds a block the stream cut off before it closed', async () => {
+    await render(
+      <AgentMessage
+        agentName="Northwind Lead"
+        message={{
+          role: 'assistant',
+          content: 'No tasks on record.\n\n<scratch>Let me check knowledge / wiki for what was bui',
+          runs: [{ type: 'text', text: 'No tasks on record.\n\n<scratch>Let me check knowledge / wiki for what was bui' }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText('No tasks on record.')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('<scratch>');
+    // Folded: the line carries its first sentence as a preview, the way the
+    // trace's reasoning line does; the body itself stays closed.
+    await expect.element(page.getByTestId('scratch-fold')).toBeInTheDocument();
+    expect(page.getByTestId('scratch-fold-body').query()).toBeNull();
+    expect(page.getByText('what was bui').query()?.tagName).not.toBe('P');
+  });
+
+  it('renders a plain answer with no fold at all', async () => {
+    await render(
+      <AgentMessage
+        agentName="Northwind Lead"
+        message={{ role: 'assistant', content: 'Fifteen runs.', runs: [{ type: 'text', text: 'Fifteen runs.' }] }}
+      />,
+    );
+
+    await expect.element(page.getByText('Fifteen runs.')).toBeInTheDocument();
+    expect(page.getByTestId('scratch-fold').query()).toBeNull();
   });
 });

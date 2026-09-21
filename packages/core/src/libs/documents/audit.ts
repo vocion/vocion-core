@@ -10,7 +10,9 @@
  * page count has to equal the sheet count, or a sheet broke across pages.
  */
 
-import type { DocumentSheetAudit, DocumentVerification } from '@/libs/cards/specs';
+import type { ProseSheet } from './componentAudit';
+import type { DocumentRedTeam, DocumentSheetAudit, DocumentVerification } from '@/libs/cards/specs';
+import { proseSheetsNote } from './componentAudit';
 
 /** Footer rules within this many CSS px of each other count as aligned (the cover's `.fsplit` note shifts it ~2px). */
 export const FOOTER_TOLERANCE_PX = 3;
@@ -22,6 +24,10 @@ export type AuditInput = {
   pdfPages: number | null;
   pdf?: string;
   unresolvedAssets: string[];
+  /** Classes used with no rule in the document's stylesheet (`classAudit.ts`). */
+  undefinedClasses?: string[];
+  /** Sheets carrying no component from the framework's vocabulary (`componentAudit.ts`). */
+  proseSheets?: ProseSheet[];
   at?: string;
 };
 
@@ -83,19 +89,34 @@ export function evaluateDocument(input: AuditInput): DocumentVerification {
   if (input.pdfPages !== null && input.pdfPages !== input.sheets.length) {
     issues.push(`The PDF has ${input.pdfPages} pages for ${input.sheets.length} sheets — a sheet is taller than one page or the @page size is off.`);
   }
+  const undefinedClasses = (input.undefinedClasses ?? []).slice(0, 40);
+  if (undefinedClasses.length > 0) {
+    // Named in full, because the fix is per class and the model cannot see
+    // which ones are missing by reading either half of the document.
+    issues.push(`${undefinedClasses.length} class${undefinedClasses.length === 1 ? '' : 'es'} used with no rule anywhere in the document's stylesheet: ${undefinedClasses.join(', ')}. Each one renders as a bare div. Add the rules, or use classes the framework defines.`);
+  }
   if (input.unresolvedAssets.length > 0) {
     issues.push(`${input.unresolvedAssets.length} asset${input.unresolvedAssets.length === 1 ? '' : 's'} did not load (${input.unresolvedAssets.slice(0, 4).join(', ')}${input.unresolvedAssets.length > 4 ? ', …' : ''}). Inline logos as data URIs; a relative path has nothing to resolve against.`);
   }
   if (input.sheets.length === 0) {
     issues.push('No `.sheet` elements were found — the document is not paginated.');
   }
+  // Deliberately NOT an issue, and deliberately not part of `ok`. The house
+  // rule is that a sheet carries a component or says in one line why it does
+  // not (`visuals.md`), and only a person or the red team can tell those
+  // apart — so the audit names the sheets and stops. Adding it to `issues`
+  // would make a legitimate prose sheet fail the verify loop for ever, and
+  // the model would answer by decorating it.
+  const proseSheets = (input.proseSheets ?? []).slice(0, 40);
   return {
     at: input.at ?? new Date().toISOString(),
     sheets: input.sheets.map(s => ({ ...s, clipped: s.clipped.slice(0, 12) })),
+    proseSheets,
     footerAligned,
     pdfPages: input.pdfPages,
     ...(input.pdf ? { pdf: input.pdf } : {}),
     unresolvedAssets: input.unresolvedAssets.slice(0, 20),
+    undefinedClasses,
     issues: issues.slice(0, 40),
     ok: issues.length === 0,
   };
@@ -115,10 +136,16 @@ export function verificationReceipt(v: DocumentVerification, opts: { images?: bo
     v.footerAligned ? `footers aligned${baseline === null ? '' : ` at ${baseline}px`}` : 'footers NOT aligned',
     v.pdfPages === null ? (v.pdf ? 'PDF printed · page count unavailable' : 'PDF not printed') : `PDF ${v.pdfPages} ${v.pdfPages === 1 ? 'page' : 'pages'}`,
     v.ok ? 'no issues' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`,
+    // A separate count, after the verdict, because it is not one of them.
+    ...((v.proseSheets ?? []).length > 0 ? [`${v.proseSheets!.length} prose-only`] : []),
   ].join(' · ');
   const lines = [head];
   for (const issue of v.issues) {
     lines.push(`- ${issue}`);
+  }
+  const prose = proseSheetsNote(v.proseSheets ?? [], v.sheets.length);
+  if (prose) {
+    lines.push(`- note: ${prose}`);
   }
   if (opts.images) {
     for (const s of v.sheets) {
@@ -143,4 +170,24 @@ export function verificationChip(v: DocumentVerification | undefined, sheetCount
   }
   const state = v.ok ? 'verified' : `${v.issues.length} ${v.issues.length === 1 ? 'issue' : 'issues'}`;
   return count ? `${count} · ${state}` : state;
+}
+
+/**
+ * A one-line red-team state for the surfaces that already show the verify
+ * chip: "read as the buyer · 2 blocking" / "not read as the buyer". Same
+ * shape as `verificationChip`, beside it, so the two claims read alike
+ * (principle 10 — the claim and its evidence in one place).
+ * @param r - `spec.redTeam`, absent when this version has not been read.
+ */
+export function redTeamChip(r: DocumentRedTeam | undefined): string {
+  if (!r) {
+    return 'not read as the buyer';
+  }
+  if (r.blocks > 0) {
+    return `read as the buyer · ${r.blocks} blocking`;
+  }
+  if (r.fixes > 0) {
+    return `read as the buyer · ${r.fixes} to fix`;
+  }
+  return 'read as the buyer · clean';
 }

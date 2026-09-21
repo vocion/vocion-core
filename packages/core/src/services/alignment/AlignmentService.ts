@@ -22,6 +22,7 @@
 
 import type { ActionSignal } from '@/services/ReviewService';
 import { and, eq, gte, sql } from 'drizzle-orm';
+import { policyKeyForRun } from '@/libs/actions/policyKey';
 import { decisionOutcome, parseSuggestedDecision } from '@/libs/actions/suggestedDecision';
 import { db } from '@/libs/DB';
 import { actionRunSchema, decisionAlignmentSchema } from '@/models/Schema';
@@ -159,7 +160,7 @@ export async function recordActionAlignment(opts: { orgId: string; runId: number
   }
   try {
     const [run] = await db
-      .select({ actionId: actionRunSchema.actionId, invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal })
+      .select({ actionId: actionRunSchema.actionId, input: actionRunSchema.input, invokedBy: actionRunSchema.invokedBy, proposal: actionRunSchema.proposal })
       .from(actionRunSchema)
       .where(and(eq(actionRunSchema.id, opts.runId), eq(actionRunSchema.orgId, opts.orgId)))
       .limit(1);
@@ -171,7 +172,10 @@ export async function recordActionAlignment(opts: { orgId: string; runId: number
     await recordDecision({
       orgId: opts.orgId,
       subjectKind: 'action',
-      subjectKey: run.actionId,
+      // The ladder's key, not always the action id: a merge earns per risk
+      // class, so its evidence files under `git.merge.<class>` — the same key
+      // the gate reads (`libs/actions/policyKey.ts`).
+      subjectKey: policyKeyForRun(run.actionId, run.input),
       subjectId: opts.runId,
       agentSlug,
       decision,

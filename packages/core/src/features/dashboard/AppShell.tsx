@@ -1,3 +1,4 @@
+import type { WorkspacePauseView } from '@/features/dashboard/WorkspaceOffSwitch';
 import type { SurfaceId } from '@/features/navigation/surfaces';
 import { eq } from 'drizzle-orm';
 import { setRequestLocale } from 'next-intl/server';
@@ -9,17 +10,24 @@ import { loadChatAgentContext } from '@/features/dashboard/chat/agentOptions';
 import { AgentSurfaceHotkey } from '@/features/dashboard/chat/AgentSurfaceHotkey';
 import { PageDock } from '@/features/dashboard/chat/PageDock';
 import { PageContextProvider } from '@/features/dashboard/context/PageContextProvider';
+import { PageWidth } from '@/features/dashboard/PageWidth';
 import { ShellBarActionsProvider } from '@/features/dashboard/ShellBarActions';
 import { WorkspaceDriftBanner } from '@/features/dashboard/WorkspaceDriftBanner';
+import { WorkspacePausedBanner } from '@/features/dashboard/WorkspaceOffSwitch';
 import { WorkspaceTour } from '@/features/dashboard/WorkspaceTour';
+import { DASHBOARD_ROUTES } from '@/features/navigation/dashboardNav';
+import { pluginNav } from '@/features/navigation/pluginNav';
 import { isSurfaceId } from '@/features/navigation/surfaces';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { readWorkspacePages } from '@/libs/workspace/pages';
+import { listPlugins } from '@/libs/workspace/plugins';
 import { readWorkspaceTour } from '@/libs/workspace/tour';
 import { projectSchema } from '@/models/Schema';
 import { listAgentBudgets, orgUsageTotals } from '@/services/BudgetService';
 import { needsYouCount } from '@/services/InboxService';
+import { mountedWorkspaceIsProjects } from '@/services/WorkspaceMountService';
+import { readWorkspacePauseWithName } from '@/services/workspacePause';
 import { ORG_ROLE } from '@/types/Auth';
 import { AppConfig } from '@/utils/AppConfig';
 
@@ -43,19 +51,32 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // Surfaces the workspace switched on (workspace.yaml `surfaces:`), read from
   // the same project row the stale-session guard already fetches.
   let enabledSurfaces: SurfaceId[] = [];
+  // Plugins the workspace turned on (workspace.yaml `plugins:`), same row —
+  // plugin-owned nav rows (Data rooms) show only while their plugin is on.
+  let enabledPlugins: string[] = [];
   // The workspace the shell is showing — named in the top bar so "where am I"
   // is answered without opening the switcher (design principle 8).
   let workspace: { slug: string; name: string } | null = null;
+  // The off switch, read on the server with the project row the stale-session
+  // guard already fetches. Server-rendered on purpose: a banner that arrives
+  // after a client fetch shows every page as running for a moment first, and
+  // the one state this must never misreport is "stopped".
+  let pause: WorkspacePauseView | null = null;
   if (orgId) {
     const [project] = await db
-      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces })
+      .select({ id: projectSchema.id, slug: projectSchema.slug, name: projectSchema.name, enabledSurfaces: projectSchema.enabledSurfaces, enabledPlugins: projectSchema.enabledPlugins, pausedAt: projectSchema.pausedAt })
       .from(projectSchema)
       .where(eq(projectSchema.id, orgId))
       .limit(1);
     // Drop ids this core no longer registers, so a stale workspace list can't
     // put a broken link in the sidebar.
     enabledSurfaces = (project?.enabledSurfaces ?? []).filter(isSurfaceId);
+    enabledPlugins = project?.enabledPlugins ?? [];
     workspace = project ? { slug: project.slug, name: project.name } : null;
+    if (project?.pausedAt) {
+      const held = await readWorkspacePauseWithName(orgId);
+      pause = held && { byName: held.by.name ?? held.by.id, when: formatPauseTime(held.at), note: held.note };
+    }
     if (!project) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
@@ -88,6 +109,21 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   // the shell down — a badge that reads 0 is a smaller fault than no page.
   const waiting = orgId ? await needsYouCount(orgId).catch(() => 0) : 0;
   const isAdmin = has({ role: ORG_ROLE.ADMIN });
+  // Where each enabled plugin's rows sit (plugin.yaml `nav.section`): its
+  // pages, the core routes it owns and its surfaces fold into one section, so
+  // the generic Pages and surface groups skip what a plugin claimed. The
+  // project's plugins come from the row read above — no second lookup — so a
+  // plugin only this project turned on lists its pages under a shared mount.
+  // The mounted folder's own pages (and its plugins') list only for the
+  // project that folder was applied to; another project under the same mount
+  // sees its plugins' pages and nothing of the folder's.
+  const mounted = orgId ? await mountedWorkspaceIsProjects(orgId).catch(() => false) : true;
+  const pages = readWorkspacePages({ enabledPlugins, mounted }).pages;
+  const nav = pluginNav({
+    plugins: safeListPlugins().filter(p => enabledPlugins.includes(p.manifest.slug)).map(p => p.manifest),
+    pages,
+    routes: DASHBOARD_ROUTES,
+  });
   // This workspace's spend vs cap this period — the header avatar's ring and
   // the menu's usage row. Hidden entirely when no budget exists.
   //
@@ -110,19 +146,28 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
     : null;
 
   return (
-    <SidebarProvider defaultOpen={defaultOpen}>
+    // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
+    // window scrolling and carrying the sidebar and the top bar with it.
+    <SidebarProvider defaultOpen={defaultOpen} className="h-svh overflow-hidden">
       {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
           instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
       <AppSidebar
         collapsible="icon"
         isAdmin={isAdmin}
-        enabledSurfaces={enabledSurfaces}
+        enabledPlugins={enabledPlugins}
+        enabledSurfaces={enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id))}
+        pluginNav={nav}
         needsYouCount={waiting}
-        workspacePages={readWorkspacePages().pages.filter(p => !p.nav.hidden).map(p => ({ title: p.title, url: `/dashboard/p/${p.slug}`, section: p.nav.section }))}
+        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section }))}
       />
-      <SidebarInset>
+      <SidebarInset className="min-h-0 overflow-hidden">
         <ShellBarActionsProvider>
-          <AppSidebarHeader workspace={workspace} usage={usage} />
+          <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={Boolean(orgId) && isAdmin && pause === null} />
+
+          {/* The workspace's state, above every page in it until someone
+              lifts it. Inside the inset rather than fixed, so it pushes the
+              page down instead of covering the first line of it. */}
+          {pause && <WorkspacePausedBanner pause={pause} canResume={isAdmin} />}
 
           {/* The page, full width, and the one conversation surface (058) as
               an overlay on its right edge — collapsed to an edge tab until
@@ -133,14 +178,14 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               pages that mount their own scoped dock inside `children` are
               skipped by PageDock. */}
           <PageContextProvider>
-            <div className="flex flex-1 items-stretch">
-              {/* Page gutter (B-034b §3): 24px → 40px, 32px vertical, reading
-                  width capped so prose never runs the whole monitor. */}
-              <div className="@container min-w-0 flex-1 px-4 py-6 pr-[calc(1rem+var(--rail-inset,0px))] transition-[padding] duration-200 sm:px-6 sm:pr-[calc(1.5rem+var(--rail-inset,0px))] lg:px-10 lg:py-8 lg:pr-[calc(2.5rem+var(--rail-inset,0px))]">
-                <div className="mx-auto w-full max-w-[1180px]">
-                  {props.children}
-                </div>
-              </div>
+            <div className="flex min-h-0 flex-1 items-stretch">
+              {/* The page gutter and the reading-width cap are one owner now
+                  (`PageWidth`): it knows the route, so it knows whether the
+                  page is capped, and whether the gutter scrolls or the page
+                  lays itself out to the height it was given. The gutter pads
+                  by `--rail-inset`, so a full-bleed page never sits under an
+                  open rail either. */}
+              <PageWidth>{props.children}</PageWidth>
               <PageDock agents={agents} />
             </div>
           </PageContextProvider>
@@ -152,8 +197,26 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
             : null;
         })()}
         <WorkspaceDriftBanner />
-        <AgentSurfaceHotkey isAdmin={isAdmin} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
+        <AgentSurfaceHotkey isAdmin={isAdmin} enabledPlugins={enabledPlugins} agents={agents.map(a => ({ slug: a.slug, name: a.name, description: a.description }))} />
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+/**
+ * "Sep 21, 3:14 PM UTC". Formatted on the server so the banner's timestamp
+ * cannot hydrate to a mismatch against a browser in another locale.
+ * @param at - When the switch was pulled.
+ */
+function formatPauseTime(at: Date): string {
+  return `${new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }).format(at)} UTC`;
+}
+
+/** The plugin catalogue, or nothing — a broken plugin.yaml must never take the shell down. */
+function safeListPlugins(): ReturnType<typeof listPlugins> {
+  try {
+    return listPlugins();
+  } catch {
+    return [];
+  }
 }

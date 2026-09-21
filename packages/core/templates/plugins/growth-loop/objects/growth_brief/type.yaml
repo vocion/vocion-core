@@ -1,0 +1,292 @@
+slug: growth_brief
+label: Growth brief
+description: >-
+  One piece of go-to-market work, written so somebody can do it without asking
+  a question, and JUDGED BY A READING TAKEN AFTER IT IS LIVE. That last clause
+  is the whole reason this is its own noun and not an `engineering_task` with
+  different fields.
+
+  A task contract is decided at acceptance: the required checks are commands,
+  they run against the commit, and when they pass the task is done. A brief
+  cannot be decided that way. The check at acceptance — does it say what the
+  brief asked, does it avoid what the brief forbade, is the claim sourced — is
+  a QUALITY GATE, and passing it proves only that the thing is fit to publish.
+  Whether the work was worth doing is a number read days or weeks later,
+  against a baseline, and that reading can come back flat on work whose gate
+  was clean. So a brief has two verdicts at two times, and `accepted` is its
+  halfway point rather than its end.
+
+  Everything the two nouns genuinely share is spelled the same way on purpose —
+  `objective`, `acceptanceContract`, `decisionCost`, and the
+  estimate/actual/variance cost triple core writes from the worker runs — so a
+  person reads one vocabulary across both and core's rollup and cost machinery
+  needs nothing new. What differs is what a brief bounds (claims, not file
+  paths), what decides it (a reading, not an exit code) and when (after, not
+  at).
+icon: target
+schema:
+  type: object
+  properties:
+    # ---- Where it came from -------------------------------------------
+    channel:
+      type: string
+      description: >-
+        Where the work lands. Not a department and not a team — the surface a
+        person will meet it on, because that is what decides the format, the
+        gate and what can be measured about it at all.
+      enum: [content, search, social, email, paid, partner, community, events, pr, product_surface, sales_enablement]
+    demandRef:
+      type: string
+      description: >-
+        The evidence of demand this brief answers, in the workspace's own
+        handle for it — the question people search for, the objection that
+        keeps coming back, the segment nobody covers. One line. A brief whose
+        `demandRef` is "we should probably have one of these" is the brief to
+        drop: every piece of work here traces to something somebody outside
+        wanted, or it traces to nothing.
+    requestId:
+      type: integer
+      description: >-
+        The id of the `request` record that asked for this, when a request did.
+        OPTIONAL and cross-plugin on purpose: `request` is the software
+        factory's intake noun and this plugin deliberately does not ship a
+        second one. With both plugins on, a customer's ask becomes one request
+        and the piece answering it becomes one brief pointing back at it; with
+        only this one on, briefs come from the demand map and the field is
+        empty. Two intake nouns would be the duplication, not this link.
+    requestedBy:
+      type: string
+      description: Who asked, when a person did — a name, a team, an account. Kept so the reply goes back to them; nothing more is stored.
+    # ---- The contract -------------------------------------------------
+    objective:
+      type: string
+      description: >-
+        What this is meant to change, in one or two sentences, stated as a
+        movement in a number rather than as a thing to make. "Move demo
+        requests from the pricing page" is an objective; "write a pricing FAQ"
+        is a deliverable. A brief with two objectives has none — split it.
+    audience:
+      type: string
+      description: >-
+        Who this is for and what they already believe, in the words the
+        workspace uses for its people. The second half matters more than the
+        first: work written for somebody with no prior belief reads as a
+        definition, and definitions do not move numbers.
+    claim:
+      type: string
+      description: >-
+        The SINGLE thing this piece has to land. Every deliverable under this
+        brief is a rendering of it; a deliverable that does not carry it does
+        not belong to this brief. One claim, so the gate has one thing to check
+        and the reading has one thing to attribute.
+    claimEvidence:
+      type: array
+      description: >-
+        What the claim rests on — links, artifact ids, a figure with its source
+        and the date it was read. The gate checks the claim against THIS and
+        nothing else, which is what makes "unsupported" a finding rather than
+        an opinion.
+      items: {type: string}
+    doNotClaim:
+      type: array
+      description: >-
+        The blast radius, written before the work starts — what this piece may
+        NOT say, one line each. A task contract bounds a worker by the paths it
+        may touch; a brief bounds it by the claims it may make, because that is
+        where the damage is. The list is specific and checkable: a capability
+        that does not exist yet, a comparison nobody has verified, a statistic
+        that circulates with no source, a customer who has not agreed to be
+        named. A deliverable that carries one of these is rejected on the list,
+        without being read on its merits.
+      items: {type: string}
+    outOfScope:
+      type: array
+      description: What this deliberately does not cover, so the producer does not widen it and the gate does not fail it for a gap that was chosen. Most rework comes from a brief that was silent, not from one that was wrong.
+      items: {type: string}
+    acceptanceContract:
+      type: array
+      description: >-
+        What has to be true for the deliverable to be fit to publish, one line
+        each, each checkable by a person or a command without re-reading the
+        whole piece. The editor decides against THIS list and nothing else.
+        Named the same as the task contract's field because it is the same
+        idea, doing the same job, at the same point in the work.
+      items: {type: string}
+    claimClass:
+      type: string
+      description: >-
+        What is on the other side of this claim being wrong, which is what
+        decides how much a person has to be involved before it goes out.
+        `descriptive` — it says what the thing is. `instructional` — it tells
+        somebody how to do something. `comparative` — it says how the thing
+        stands against a named alternative. `performance` — it puts a number on
+        an outcome. `regulated` — a claim whose wording is governed by somebody
+        outside the company. Ordered by what a retraction costs; the
+        `publish-what-holds` playbook says what each one needs behind it.
+      enum: [descriptive, instructional, comparative, performance, regulated]
+    verifiedAgainst:
+      type: string
+      description: >-
+        What the claims were checked against, and when — a version, a release,
+        a dated reading of a source. A piece whose evidence was true of a
+        product three versions ago is a piece that is now wrong, and without
+        this nobody can tell which. The staleness pin.
+    # ---- Who does it, and at what cost --------------------------------
+    assignedTo:
+      type: string
+      description: Slug of the agent or the name of the person doing the work. One brief, one owner; a brief nobody owns is a brief nobody does.
+    decisionCost:
+      type: integer
+      description: >-
+        Minutes of a person's attention this brief will ask for before it can
+        go out — 1 for a descriptive piece a person skims, 15 for a comparative
+        claim somebody has to stand behind, 60 for anything a regulator reads.
+        Summed across open briefs against the day's decision budget, so ten
+        cheap pieces cost a coffee and ten expensive ones cost a week. Same
+        field, same units and same job as the task contract's.
+    estimateCents:
+      type: integer
+      description: What this brief is expected to cost in model spend, in cents, written with the brief. The ESTIMATE half of the cost pair, kept when the actual lands so the two read side by side.
+    actualCents:
+      type: integer
+      description: >-
+        What it actually cost, in cents — the sum of `cents` over every worker
+        run queued for this record. WRITTEN BY CORE when a run for this record
+        ends (`input.record = {type: growth_brief, id}`), never typed. Read
+        `costUpdatedAt` beside it; a brief with no actual has not had a run end
+        yet.
+    varianceCents:
+      type: integer
+      description: '`actualCents` minus `estimateCents`, in cents — negative is under the estimate. Written with `actualCents` when both halves exist.'
+    costUpdatedAt:
+      type: string
+      format: date-time
+      description: When `actualCents` was last written — the moment the last run for this brief ended.
+    # ---- What it produced ---------------------------------------------
+    state:
+      type: string
+      description: >-
+        Where it stands. `drafted` — written, not yet ready to hand over.
+        `ready` — a producer can start it with no questions. `in_production` —
+        somebody is making it. `in_review` — the gate is reading it.
+        `changes_requested` — it came back. `accepted` — it passed the gate and
+        may go out. `published` — it is live. `measuring` — live, and the
+        reading is not due yet. `closed` — the reading is in and the verdict is
+        written. `dropped` — it will not be made, and `verdictReason` says why.
+        `accepted` is deliberately NOT terminal: everything interesting about a
+        brief happens after it.
+      enum: [drafted, ready, in_production, in_review, changes_requested, accepted, published, measuring, closed, dropped]
+    deliverables:
+      type: array
+      description: >-
+        What the brief produced. Each is a core artifact — versioned,
+        previewable, citable — so nothing here re-implements a document, and
+        `url` is filled once it is live somewhere public.
+      items:
+        type: object
+        properties:
+          title: {type: string}
+          format: {type: string, description: 'What it is — a post, a page, an email, a script, a deck, a one-pager.'}
+          artifactId: {type: integer, description: 'The core artifact holding it. The piece itself, one tap from this record.'}
+          url: {type: string, description: Where it is live. Empty until it is published.}
+    gate:
+      type: object
+      description: >-
+        The verdict at acceptance — the quality gate, not the outcome. Kept
+        whole because a piece that shipped on a second reading after two fixes
+        is a different piece from one that passed first time, and the rate at
+        which the gate passes on a first read is the team's most honest quality
+        measure.
+      properties:
+        verdict: {type: string, enum: [publish, revise, reject], description: 'Three values, never a score alone: a number invites averaging and a verdict forces a decision.'}
+        round: {type: integer, description: 'Which reading this is, counted from 1. A piece that needed a third round is a brief that was unclear, not a producer who was careless.'}
+        readBy: {type: string, description: 'Who or what read it. Say when it was a second model or a second vendor — a grader that shares the author''s blind spots is not an adversary.'}
+        unsupportedClaims: {type: array, items: {type: string}, description: 'Claims with nothing behind them, quoted. The finding that matters most, because it is the one that becomes a retraction.'}
+        doNotClaimHits: {type: array, items: {type: string}, description: 'Lines from `doNotClaim` the deliverable broke. A non-empty list is a rejection, whatever the rest of the read says.'}
+        fixes: {type: array, items: {type: string}, description: 'At most three, ordered. A list of nine is a rewrite, and a rewrite is a new brief.'}
+        readAt: {type: string, format: date-time}
+    publishedAt:
+      type: string
+      format: date-time
+      description: When it went live. The clock on the reading starts here, not when the work was accepted.
+    publishedBy:
+      type: string
+      description: Who released it. Publication is a person's act by default in this plugin; the field records which person, so "an agent published that" is a checkable claim.
+    # ---- What it moved -------------------------------------------------
+    measure:
+      type: object
+      description: >-
+        The one number this brief is judged on, named BEFORE the work starts.
+        Chosen after the fact, any piece looks like a success under some
+        number; chosen first, it can fail honestly.
+      properties:
+        key: {type: string, description: 'The measure, in the workspace''s own vocabulary — `qualified_sessions`, `replies`, `demo_requests`.'}
+        label: {type: string}
+        unit: {type: string}
+        source: {type: string, description: 'The system the reading comes from, named so anybody can take it again. A measure with no source is a measure nobody can check, and it belongs in `unmeasurable` rather than here.'}
+        attribution: {type: string, description: 'Which attribution model the reading is taken under — first touch, last touch, multi-touch, holdout, none. Identical data produces different winners under different models, so a reading that does not say which cannot be argued with.'}
+        baseline: {type: number, description: 'Where the number stood when the brief was written. Taken before, or the brief is not ready.'}
+        target: {type: number, description: 'What would count as this having worked, in the same unit.'}
+    readAfterDays:
+      type: integer
+      description: >-
+        How many days after `publishedAt` the first reading is due. Written
+        with the brief so the due date is a fact rather than a memory, and so a
+        piece measured after three days is not silently compared with one
+        measured after ninety.
+    readings:
+      type: array
+      description: >-
+        The readings themselves, oldest first. Several, because a number moves
+        and one reading is an anecdote. Each carries what it was read from and
+        when, so the verdict below is traceable in one move.
+      items:
+        type: object
+        properties:
+          value: {type: number}
+          takenAt: {type: string, format: date-time}
+          source: {type: string, description: 'Where this reading came from, named the way the measure names it.'}
+          note: {type: string, description: 'One line — what else was happening that a reader would need to know. A number beside a campaign that ran the same week is not the brief''s number.'}
+    verdict:
+      type: string
+      description: >-
+        What the readings say. `worked` — it reached the target or moved
+        materially toward it. `no_effect` — the number did not move outside its
+        normal variation. `hurt` — it moved the wrong way. `unmeasurable` — no
+        source exists, or the volume is too small for any reading to mean
+        anything. `unmeasurable` is a first-class answer, not a failure to do
+        the work: a channel reported as unmeasurable is honest, while one
+        quietly left out of the report reads as a channel with no return.
+      enum: [worked, no_effect, hurt, unmeasurable]
+    verdictReason:
+      type: string
+      description: >-
+        One to three sentences naming the reading, the baseline it is compared
+        with, the window and the attribution model. A verdict without this is
+        not written. On `no_effect` it says what would have had to be true for
+        the piece to work; on `unmeasurable` it names what instrument is
+        missing and what it would cost to have it.
+    verdictAt:
+      type: string
+      format: date-time
+      description: When the verdict was written. Older than the last review reads as stale and the page says so by showing the date.
+    theme:
+      type: string
+      description: The job this serves, in the workspace's own vocabulary — the handle a person uses to ask "what has onboarding content cost us and what did it return". The Cost per outcome page groups by it.
+# No `rollups:` — a brief is a leaf. What it cost is written straight onto it
+# by core when a worker run naming this record ends, the same way a task's
+# actual is written; there is no child type to sum. When the software factory
+# is also on, a `request` this brief answers rolls up its own tasks, and the
+# brief sits beside them rather than inside them.
+classificationPrompt: >-
+  Given a message, a request or a note — somebody asking for a page, a
+  complaint that the site does not answer a question, a search term nobody
+  covers, an idea in a meeting — decide whether it is one growth brief or
+  several. One brief has one objective stated as a movement in a number, one
+  audience, one claim, and one measure that can actually be read from a system
+  that exists. Split on audience and on claim, never on format: the same claim
+  as a post and as an email is one brief with two deliverables. Name the
+  channel, the measure and its source. If no source exists for the measure,
+  say so and propose the brief as `unmeasurable` rather than inventing a
+  number somebody will later be held to. If the claim cannot be stated in one
+  sentence, do not write a brief: write the question that would settle it.

@@ -28,6 +28,7 @@
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { Initiative } from '@/services/agents/initiative';
 import { tool as makeTool } from '@langchain/core/tools';
 import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
 import { and, eq, sql } from 'drizzle-orm';
@@ -39,9 +40,13 @@ import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { resolveTimeZone } from '@/libs/time/zone';
+import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
+import { readInitiative } from '@/services/agents/initiative';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { enabledPluginsForOrg } from '@/services/PluginService';
+import { mountWiki } from '@/services/wiki/WikiService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
@@ -137,6 +142,8 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
 export type ModelOverride = {
   model: string;
   provider?: LangChainProvider;
+  /** Per-conversation thinking effort (`libs/llm/modelPrefs.ts`), when the person chose one. */
+  thinking?: 'off' | 'low' | 'medium' | 'high';
 };
 
 /**
@@ -151,7 +158,7 @@ export type ModelOverride = {
 export function chatModelOptionsWithOverride(
   harnessConfig: HarnessModelConfig,
   override: ModelOverride | undefined,
-): ReturnType<typeof chatModelOptionsFor> {
+): ReturnType<typeof chatModelOptionsFor> & { thinking?: ModelOverride['thinking'] } {
   const base = chatModelOptionsFor(harnessConfig);
   if (!override) {
     return base;
@@ -162,7 +169,7 @@ export function chatModelOptionsWithOverride(
       `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
     );
   }
-  return { ...base, provider, model: override.model };
+  return { ...base, provider, model: override.model, ...(override.thinking ? { thinking: override.thinking } : {}) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,6 +209,10 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   const noopEmit: RuntimeContext['emit'] = () => {};
   const harnessConfig = row.harnessConfig ?? {};
   const defaultTimeZone = await workspaceTimeZone(orgId);
+  // Plugins the workspace has on, once per graph: plugin-owned tool sets are
+  // present only with their plugin, and the prompt names what is off. An apply
+  // resets the graph cache, so a toggle reaches the next turn.
+  const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
   const ctx: RuntimeContext = {
     orgId,
     timeZone: defaultTimeZone,
@@ -209,6 +220,7 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
+    enabledPlugins,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig,
     emit: noopEmit,
@@ -291,6 +303,25 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   systemPrompt = [systemPrompt, CLOCK].filter(Boolean).join('\n\n');
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
   systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
+
+  // CAPABILITIES (CORE, all agents). What the workspace could turn on and has
+  // not: the chat recommends a plugin when the conversation calls for it
+  // (Chris, 2026-09-18) instead of working around the gap. Data, not prose:
+  // the same catalogue the Plugins page lists. The graph cache resets on
+  // apply, so this line is as current as the toggle.
+  const capabilitiesNote = capabilitiesPromptNote(enabledPlugins);
+  if (capabilitiesNote) {
+    systemPrompt = `${systemPrompt}\n\n${capabilitiesNote}`;
+  }
+
+  // INITIATIVE (CORE, all agents). Whether a turn ends with an offer to carry
+  // the work forward is the agent's authored `initiative`, not a habit each
+  // prompt reinvents — one line here, the same words for every agent, so a
+  // workspace turns it up or down in YAML and the graph rebuilds on apply.
+  const initiativeNote = initiativePromptNote(readInitiative(row.initiative));
+  if (initiativeNote) {
+    systemPrompt = `${systemPrompt}\n\n${initiativeNote}`;
+  }
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
@@ -468,6 +499,49 @@ function toFileData(content: string): MountedFileData {
   return { content, mimeType: 'text/markdown', created_at: now, modified_at: now };
 }
 
+/**
+ * The one-paragraph note the system prompt carries about plugins: the wiki's
+ * mount when it is on, and each plugin that is OFF with when it helps. Empty
+ * when nothing needs saying.
+ * @param enabledPlugins - The workspace's enabled plugin slugs.
+ */
+/**
+ * The one line that carries an agent's `initiative` into its prompt.
+ *
+ * `high`: a turn that produced a standing fact, a decision or a plan ends with
+ * ONE offer to carry it forward, asked as a question — the researcher's "I can
+ * put this on a wiki page, shall I?". `low`: answer what was asked and stop.
+ * `normal` says nothing: the agent's own prompt decides, as it always has.
+ * @param initiative - The agent's authored level.
+ */
+export function initiativePromptNote(initiative: Initiative): string {
+  if (initiative === 'high') {
+    return 'INITIATIVE: high. When a turn produces something standing — a fact that will hold, a decision, a plan, a rule a person stated — end the reply with ONE concrete offer to carry it forward (write it on a wiki page, file the decision, plan the next step, queue the follow-up), asked as a question a person can answer with yes. One offer, the most useful one; never a list of options, never for a turn that produced nothing standing.';
+  }
+  if (initiative === 'low') {
+    return 'INITIATIVE: low. Answer what was asked and stop. Do not volunteer follow-ups, offers or next steps unless the person asks for them; a person turned this agent down to keep it quiet.';
+  }
+  return '';
+}
+
+export function capabilitiesPromptNote(enabledPlugins: readonly string[]): string {
+  let catalogue: ReturnType<typeof listPlugins>;
+  try {
+    catalogue = listPlugins();
+  } catch {
+    return '';
+  }
+  const lines: string[] = [];
+  if (enabledPlugins.includes('wiki')) {
+    lines.push('WIKI: the workspace wiki — long-term context that changes slowly (voice, standing rules, who is who, decisions) — is mounted at /wiki/index.md with the pages that fit at /wiki/<slug>.md. Read the relevant page before acting on a standing fact and cite it; read_wiki_page fetches one that did not fit. When you learn a durable fact or a person corrects a standing one, write it with write_wiki_page (honest confidence; above the bar it is done for you, below it a person decides).');
+  }
+  const off = catalogue.filter(p => !enabledPlugins.includes(p.manifest.slug));
+  if (off.length > 0) {
+    lines.push(`PLUGINS OFF in this workspace — recommend turning one on (recommend_action with action plugin.enable and input {"slug": "<slug>"}) when the conversation calls for it; list_capabilities has the full read: ${off.map(p => `${p.manifest.name} (${p.manifest.slug}) — ${p.manifest.description}${p.manifest.recommend.when.length ? ` Helps when: ${p.manifest.recommend.when.join('; ')}.` : ''}`).join(' | ')}`);
+  }
+  return lines.join('\n');
+}
+
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
@@ -505,8 +579,18 @@ export async function buildInitialFiles(
     workspaceSteps: row.learningSteps ?? [],
     ...memoryCtx,
   });
+  // The wiki (plugin `wiki`): the index and the pages that fit, at /wiki/…,
+  // fresh every turn — slow-changing context beside the fast-changing rules.
+  let wiki: Record<string, string> = {};
+  try {
+    if ((await enabledPluginsForOrg(orgId)).includes('wiki')) {
+      wiki = await mountWiki(orgId);
+    }
+  } catch (error) {
+    logger.warn(`agent "${agentSlug}": the wiki did not mount this turn`, { error });
+  }
   return Object.fromEntries(
-    Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...memories, ...wiki }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

@@ -9,6 +9,8 @@
  * the applier and the tests all agree on one vocabulary.
  */
 
+import { SELF_UPDATE_RISK } from '@/libs/actions/selfUpdate';
+
 export const RUNGS = [
   'observe',
   'recommend',
@@ -88,25 +90,44 @@ export function isRiskTier(value: unknown): value is RiskTier {
  * assumes the worst about an action it has not been told about.
  */
 export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
+  // The self-improvement class declares its own tiers, so the ladder, the
+  // autonomy page and the class read one table (`libs/actions/selfUpdate.ts`).
+  ...SELF_UPDATE_RISK,
   'hubspot.update': 'low',
   'gmail.send': 'medium',
   'personalization.enroll': 'medium',
   'discovery.review_proposal': 'low',
   'objects.propose_candidate': 'medium',
+  // Internal writes an agent makes on the workspace's own records and queue.
+  // Each is reversible and costs a person at most a minute to put back, so
+  // the done-for-you default applies. A workspace holding a type's writes to
+  // approval says so in trust.yaml.
+  'objects.update_meta': 'low',
+  'ask.file': 'low',
+  'ask.withdraw': 'low',
   'qc.hold': 'low',
   'qc.release': 'medium',
   'qc.request_rework': 'low',
   'dataset.add_example': 'low',
+  // Reversible and internal, so the done-for-you default would run them above
+  // 0.8 — but a mission is a standing responsibility and a playbook is the
+  // procedure every run reads. Medium holds both at Execute with approval
+  // until a workspace's trust.yaml promotes them.
+  'workspace.write_mission': 'medium',
+  'workspace.write_playbook': 'medium',
 };
 
 /**
  * The default tier for an action id, given whether the registry marks it as
  * touching the outside world.
- * @param actionId
+ * @param actionId - The ladder key: an action id, or a key derived from one.
  * @param external - `Action.external`; unknown ids are treated as external.
+ * @param baseActionId - The registered id behind a derived key, whose own
+ * default stands in when the key has none (`objects.update_meta.request` →
+ * `objects.update_meta`).
  */
-export function defaultRiskTier(actionId: string, external: boolean | undefined = true): RiskTier {
-  return DEFAULT_RISK_TIER[actionId] ?? (external ? 'high' : 'low');
+export function defaultRiskTier(actionId: string, external: boolean | undefined = true, baseActionId?: string): RiskTier {
+  return DEFAULT_RISK_TIER[actionId] ?? (baseActionId ? DEFAULT_RISK_TIER[baseActionId] : undefined) ?? (external ? 'high' : 'low');
 }
 
 /* ------------------------------------------------------------------ */

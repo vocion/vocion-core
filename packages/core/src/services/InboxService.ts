@@ -145,7 +145,9 @@ function proposalItem(r: ReviewRow, tab: InboxTab): InboxItem {
     status: r.status,
     at: tab === 'decided' ? (r.decidedAt ?? r.createdAt) : r.createdAt,
     href: inboxHref('proposal', r.id),
-    detail: tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
+    detail: r.status === 'awaiting_execution'
+      ? `Approved${r.decidedBy ? ` by ${r.decidedBy.replace(/^agent:/, '')}` : ''} — waiting to be done by hand`
+      : tab !== 'decided' && r.snoozedUntil && r.snoozedUntil > new Date() ? `Snoozed until ${r.snoozedUntil.toLocaleString()}` : undefined,
     reviewId: r.id,
     actionId: r.actionId,
     confidence: r.described.confidence,
@@ -187,7 +189,7 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
       // the subline says what the proposals would do (Chris, 2026-09-16).
       title: recordTitle(g.record),
       titleHint: g.record.fromId === true ? undefined : g.record.idLabel,
-      subline: [changeSummaryLine(summariseChanges(g.rows)), agents.length > 0 ? `proposed by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
+      subline: [changeSummaryLine(summariseChanges(g.rows)), agents.length > 0 ? `recommended by ${agents.join(', ')}` : null].filter(Boolean).join(' › '),
       agentSlug: agents[0] ?? null,
       teamSlug: null,
       risk: null,

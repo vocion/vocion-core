@@ -1,0 +1,34 @@
+# The briefs — everything still owed a deliverable or a decision, highest rank
+# first, grouped by theme. An ordinary `list` over the `growth_brief` noun. The
+# default filter keeps the states on the making side; what is live and waiting
+# on a number is on Measure, and what is closed is the record. A workspace that
+# wants a different cut replaces this file by slug.
+slug: growth-briefs
+title: Briefs
+description: Every brief still owed a deliverable, a decision or a reading — highest rank first, by theme.
+icon: target
+nav: {section: Growth, order: 1}
+archetype: list
+source: {kind: objects, objectType: growth_brief}
+sort: {field: meta.rank, dir: desc}
+groupBy: meta.theme
+stats:
+  - {label: Open briefs, kind: count}
+  - {label: Unranked, kind: countWhere, where: {field: meta.rank, op: exists, value: false}}
+  - {label: Ready to start, kind: countWhere, where: {field: meta.state, op: eq, value: ready}}
+  - {label: In review, kind: countWhere, where: {field: meta.state, op: eq, value: in_review}}
+  - {label: Came back, kind: countWhere, where: {field: meta.state, op: eq, value: changes_requested}}
+  - {label: Big bets in flight, kind: countWhere, where: {field: meta.claimClass, op: in, value: [comparative, performance, regulated]}}
+  - {label: No owner, kind: countWhere, where: {field: meta.assignedTo, op: exists, value: false}}
+  - {label: Decision minutes waiting, kind: sum, field: meta.decisionCost}
+fields:
+  - {key: title, label: Brief}
+  - {key: channel, label: Channel, from: meta.channel, format: badge}
+  - {key: claimClass, label: Claim, from: meta.claimClass, format: badge, tones: {descriptive: muted, instructional: info, comparative: warn, performance: warn, regulated: bad}}
+  - {key: state, label: State, from: meta.state, format: badge, tones: {drafted: muted, ready: info, in_production: info, in_review: warn, changes_requested: bad, accepted: ok, published: ok, measuring: info, closed: muted, dropped: muted}}
+  - {key: owner, label: Owner, from: meta.assignedTo, format: mono}
+  - {key: cost, label: Decision min, from: meta.decisionCost, format: mono}
+  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true}
+  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
+  - {key: demand, label: Demand, from: meta.demandRef}
+rowLink: /dashboard/objects/{id}

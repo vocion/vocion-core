@@ -1,10 +1,12 @@
 'use client';
 
-import { History, Search, SquarePen } from 'lucide-react';
+import { History, MessagesSquare, Search } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Link } from '@/libs/I18nNavigation';
+import { chatHotkeyLabel } from './chatHotkeys';
 
 export type HistoryHit = {
   id: number;
@@ -17,21 +19,20 @@ export type HistoryHit = {
 /**
  * The rail's history: recent threads grouped Today / Yesterday / Older, with
  * a search box over titles and message content (agent-chat-surface.md §9).
- * Picking a thread is one of the three intentional ways to resume one; the
- * "New chat" row is how you leave it. The list is the person's recent
- * threads — the pointer that no longer decides what a surface opens with.
+ * Picking a thread is one of the three intentional ways to resume one. The
+ * last, separated row is the way out to every conversation (Chris,
+ * 2026-09-18: "history and all conversations should be combined"); New chat
+ * is a top-level icon beside this one, not a row in here.
  * @param props
  * @param props.recent - The recent threads for the current agent.
  * @param props.currentId - The thread this surface is in, if any.
  * @param props.onPick - Load a thread into the surface.
- * @param props.onNewChat - Start fresh.
  * @param props.search - Search threads by title or content.
  */
-export function HistoryPopover({ recent, currentId, onPick, onNewChat, search }: {
+export function HistoryPopover({ recent, currentId, onPick, search }: {
   recent: HistoryHit[];
   currentId: number | null;
   onPick: (id: number) => void;
-  onNewChat: () => void;
   search: (q: string) => Promise<HistoryHit[]>;
 }) {
   const t = useTranslations('Chat');
@@ -113,17 +114,6 @@ export function HistoryPopover({ recent, currentId, onPick, onNewChat, search }:
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
             />
           </label>
-          <button
-            type="button"
-            onClick={() => {
-              onNewChat();
-              setOpen(false);
-            }}
-            className="mt-1.5 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition hover:bg-muted"
-          >
-            <SquarePen className="size-4 text-muted-foreground" aria-hidden />
-            {t('new_chat')}
-          </button>
           <div className="mt-1 max-h-80 overflow-y-auto">
             {rows.length === 0 && (
               <div className="px-2.5 py-3 text-xs text-muted-foreground">{hits ? t('history_no_match') : t('history_empty')}</div>
@@ -148,6 +138,16 @@ export function HistoryPopover({ recent, currentId, onPick, onNewChat, search }:
               </div>
             ))}
           </div>
+          <Link
+            href="/dashboard/conversations"
+            onClick={() => setOpen(false)}
+            data-testid="all-conversations"
+            className="mt-1 flex items-center gap-2 rounded-lg border-t border-border/60 px-2.5 pt-2 pb-1.5 text-sm text-foreground/85 transition hover:bg-muted"
+          >
+            <MessagesSquare className="size-4 text-muted-foreground" aria-hidden />
+            <span className="flex-1">{t('all_conversations')}</span>
+            <span className="text-[11px] tracking-widest text-muted-foreground">{chatHotkeyLabel('all-conversations')}</span>
+          </Link>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

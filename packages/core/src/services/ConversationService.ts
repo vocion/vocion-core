@@ -51,6 +51,8 @@ export type ConversationTraceNode = {
   resultDetail?: string;
   text?: string;
   result?: string;
+  /** Both tenses of the step's name, when a labeler supplied them. */
+  labels?: { running: string; done: string };
   confidence?: number;
   citations?: Array<{ sourceType: string; title: string; link?: string; snippet?: string; actorId: string }>;
   /** How many text runs had started when this step began — its place between the passages. */
@@ -213,6 +215,8 @@ export async function appendMessage(opts: {
   userId?: string;
   /** The turn's activity trace, persisted so levels 2 and 3 survive reload. */
   trace?: ConversationTraceNode[] | null;
+  /** How the workspace chose this message's agent, when nobody named one (`services/agents/router.ts`). */
+  routing?: import('@/services/agents/router').RoutingDecision | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -233,6 +237,7 @@ export async function appendMessage(opts: {
       runsJson: opts.runs ?? null,
       documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
       traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
+      routingJson: opts.routing ?? null,
     })
     .returning();
 
@@ -241,6 +246,8 @@ export async function appendMessage(opts: {
     .set({
       title: derivedTitle,
       messageCount: sql`${conversationSchema.messageCount} + 1`,
+      // A thread picked up again is open again; the idle sweep ends it anew.
+      endedAt: null,
     })
     .where(eq(conversationSchema.id, opts.conversationId));
 
@@ -329,6 +336,25 @@ export async function setConversationAutonomy(opts: { orgId: string; id: number;
   const [row] = await db
     .update(conversationSchema)
     .set({ autonomy: opts.autonomy })
+    .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Set how strong a model answers this thread and how much it thinks
+ * (`libs/llm/modelPrefs.ts`). Per conversation, like autonomy: appetite
+ * differs by task, not by day.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.strength
+ * @param opts.effort
+ */
+export async function setConversationModel(opts: { orgId: string; id: number; strength: 'fast' | 'balanced' | 'deep'; effort: 'off' | 'low' | 'medium' | 'high' }) {
+  const [row] = await db
+    .update(conversationSchema)
+    .set({ modelStrength: opts.strength, thinkingEffort: opts.effort })
     .where(and(eq(conversationSchema.orgId, opts.orgId), eq(conversationSchema.id, opts.id)))
     .returning();
   return row ?? null;

@@ -119,7 +119,11 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
         column is the point, and the width freed up goes to the sources rail,
         which is the panel that actually needed it.
       */}
-      <div className="mx-auto w-full max-w-3xl space-y-8">
+      {/* `min-w-0`: `max-w-3xl` is the reading MEASURE, i.e. a ceiling. Without
+          it the column's min-content is that same 768px, and a grid or flex
+          parent sized off min-content hands the transcript 768px on a 390px
+          phone. */}
+      <div className="mx-auto w-full max-w-3xl min-w-0 space-y-8">
         {blocksAfter(-1)}
         {messages.map((msg, i) => (
           <div key={i} className="space-y-8">
@@ -132,6 +136,7 @@ export function MessageList({ messages, agentName, streaming = false, activity, 
                     // A routed turn (`@agent`, `/search`, a delegation) is
                     // attributed, never re-identified: "via <specialist>" (§9.10).
                     via={msg.agentName && msg.agentName !== agentName ? t('via', { name: msg.agentName }) : undefined}
+                    viaReason={msg.routing?.reason}
                     streaming={streaming && i === lastIdx}
                     activity={i === lastIdx ? activity : undefined}
                     onShowSources={onShowSources}

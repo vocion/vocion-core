@@ -13,7 +13,7 @@ describe('describeActionRun', () => {
     });
 
     expect(d.title).toBe('Update Northwind renewal — Deal stage: presentationscheduled → contractsent, Next step: Send MSA, Amount: $48,000');
-    expect(d.subline).toBe('CRM update › proposed by deal-desk');
+    expect(d.subline).toBe('CRM update › recommended by deal-desk');
     expect(d.record).toEqual({ kind: 'deal', key: 'hubspot:deals:7781', name: 'Northwind renewal', idLabel: 'Deal 7781', fromId: false });
     expect(d.changes.map(c => c.field)).toEqual(['dealstage', 'hs_next_step', 'amount']);
     expect(d.changes[0]).toEqual({ field: 'dealstage', from: 'presentationscheduled', to: 'contractsent' });
@@ -81,7 +81,7 @@ describe('describeActionRun', () => {
     });
 
     expect(d.title).toBe('Enroll Jamie Smith (Contoso Supply) in MSP triage nurture');
-    expect(d.subline).toBe('Enrollment › proposed by personalization');
+    expect(d.subline).toBe('Enrollment › recommended by personalization');
     expect(d.record).toEqual({ kind: 'contact', key: 'hubspot:contacts:88201', name: 'Jamie Smith (Contoso Supply)' });
     expect(d.actionKind).toBe('Enrollment');
   });
@@ -96,7 +96,7 @@ describe('describeActionRun', () => {
 
     expect(d.title).toBe('Draft email to Jane@Example.test — Following up on Tuesday');
     expect(d.record).toEqual({ kind: 'email', key: 'email:jane@example.test', name: 'Jane@Example.test' });
-    expect(d.subline).toBe('Email draft › proposed by follow-up-coordinator');
+    expect(d.subline).toBe('Email draft › recommended by follow-up-coordinator');
   });
 
   it('unknown action: rationale first sentence, then the action id spelled out; no record', () => {
@@ -108,7 +108,7 @@ describe('describeActionRun', () => {
     });
 
     expect(withRationale.title).toBe('Two follow-up events look like the same conference.');
-    expect(withRationale.subline).toBe('Objects propose candidate › proposed by event-debrief-specialist');
+    expect(withRationale.subline).toBe('Objects propose candidate › recommended by event-debrief-specialist');
     expect(withRationale.record).toBeNull();
 
     const bare = describeActionRun({ id: 2, actionId: 'qc.flag', input: null, proposal: null, invokedBy: 'token:abc' });

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { AlertTriangle, CheckCircle2, Database, FileText, Layers, Plug, Scale, Share2 } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { Badge } from '@/components/ui/badge';
@@ -6,7 +6,7 @@ import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { db } from '@/libs/DB';
 import { Link } from '@/libs/I18nNavigation';
-import { agentSchema, businessObjectSchema, businessObjectTypeSchema, playbookSchema, workflowSchema } from '@/models/Schema';
+import { agentSchema, businessObjectSchema, businessObjectTypeSchema, playbookSchema, workflowSchema, workspaceVersionSchema } from '@/models/Schema';
 
 /**
  * Context dashboard — cross-cutting overview of every authored primitive
@@ -37,6 +37,15 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
     db.select({ id: playbookSchema.id }).from(playbookSchema).where(and(eq(playbookSchema.orgId, orgId), eq(playbookSchema.kind, 'skill'))),
     db.select({ id: workflowSchema.id }).from(workflowSchema).where(and(eq(workflowSchema.orgId, orgId), eq(workflowSchema.status, 'active'))),
   ]);
+
+  // The applied versions — what the drift banner links to when it says a
+  // project is applied from git: which sha, from which folder, by whom, when.
+  const versions = await db
+    .select({ id: workspaceVersionSchema.id, sha: workspaceVersionSchema.sha, sourcePath: workspaceVersionSchema.sourcePath, status: workspaceVersionSchema.status, appliedBy: workspaceVersionSchema.appliedBy, appliedAt: workspaceVersionSchema.appliedAt })
+    .from(workspaceVersionSchema)
+    .where(eq(workspaceVersionSchema.orgId, orgId))
+    .orderBy(desc(workspaceVersionSchema.appliedAt))
+    .limit(10);
 
   const objectCountByType = new Map<number, number>();
   for (const o of objects) {
@@ -129,6 +138,41 @@ export default async function ContextPage(props: { params: Promise<{ locale: str
           <UpcomingCard icon={CheckCircle2} title="System-of-record" description="Per-field ownership + conflict-resolution policy across connected systems." />
           <UpcomingCard icon={AlertTriangle} title="Data quality" description="Runtime log of findings and unresolved decisions awaiting stakeholder input." />
         </div>
+      </section>
+
+      <section id="versions" className="mt-10">
+        <h2 className="mb-2 text-sm font-semibold">Applied versions</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Every apply of this project's workspace, newest first — the sha the folder had, where it was applied from, and by whom.
+        </p>
+        {versions.length === 0
+          ? <p className="text-sm text-muted-foreground">Nothing has been applied to this project yet.</p>
+          : (
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-xs font-medium text-muted-foreground">
+                      <th className="px-4 py-2">Sha</th>
+                      <th className="px-4 py-2">Status</th>
+                      <th className="px-4 py-2">Applied by</th>
+                      <th className="px-4 py-2">When</th>
+                      <th className="px-4 py-2">From</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versions.map(v => (
+                      <tr key={v.id} className="border-b border-border/60 last:border-0">
+                        <td className="px-4 py-2 font-mono text-xs">{v.sha}</td>
+                        <td className="px-4 py-2"><Badge variant="outline">{v.status}</Badge></td>
+                        <td className="px-4 py-2 font-mono text-xs">{v.appliedBy ?? '—'}</td>
+                        <td className="px-4 py-2 text-muted-foreground"><time dateTime={v.appliedAt.toISOString()}>{v.appliedAt.toLocaleString()}</time></td>
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{v.sourcePath ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
       </section>
     </>
   );

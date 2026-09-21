@@ -22,6 +22,11 @@ export type ConversationAutonomy = (typeof CONVERSATION_AUTONOMY)[number];
  * @param raw - `body.autonomy` or `conversation.autonomy`.
  */
 export function readAutonomy(raw: unknown): ConversationAutonomy {
+  // Nothing said (no conversation row yet) is the default — done for you since
+  // 2026-09-18. A value that is neither rung is a client bug, and a bug asks.
+  if (raw === undefined || raw === null) {
+    return 'act-within-bounds';
+  }
   return raw === 'act-within-bounds' ? 'act-within-bounds' : 'ask-before-acting';
 }
 

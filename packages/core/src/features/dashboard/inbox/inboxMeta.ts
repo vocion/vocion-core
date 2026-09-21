@@ -4,14 +4,26 @@ import { CheckSquare, ClipboardCheck, DoorOpen, Gavel, GitMerge, KeyRound, Light
 
 /** How each kind is named and drawn. Order here is the order of the chips. */
 export const INBOX_KIND_META: Record<InboxKind, { label: string; plural: string; blurb: string; icon: LucideIcon }> = {
-  proposal: { label: 'Proposal', plural: 'Proposals', blurb: 'An action an agent wants to take — a CRM update, an email, an enrollment. Approving executes it.', icon: ClipboardCheck },
+  // Chris, 2026-09-19: "Reviews should not be proposals. 'Recommendation(s)'
+  // should probably be the term there under Reviews > X. 'As a human, I review
+  // the recommendations made by the system.'" A proposal is a specific artifact
+  // concretion of the GTM stack (`/gtm/proposals`, the `proposals` plugin, the
+  // Proposal Writer) — a different noun from a queued action awaiting a human.
+  // The stored kind stays `proposal`: this is a label, not a schema change.
+  proposal: { label: 'Recommendation', plural: 'Recommendations', blurb: 'An action an agent recommends taking — a CRM update, an email, an enrollment. Approving executes it.', icon: ClipboardCheck },
   ruling: { label: 'Ruling', plural: 'Rulings', blurb: 'Decisions only you can make — the team is blocked on the answer.', icon: Gavel },
   approval: { label: 'Approval', plural: 'Approvals', blurb: 'Something the team wants to do and is asking permission for.', icon: CheckSquare },
   merge: { label: 'Merge', plural: 'Merges', blurb: 'Pull requests ready for a human to merge.', icon: GitMerge },
   input: { label: 'Input', plural: 'Inputs', blurb: 'Something the team needs from you — a file, a fact, an answer.', icon: MessageSquareText },
   credential: { label: 'Credential', plural: 'Credentials', blurb: 'A key or a login the team needs to keep going.', icon: KeyRound },
   gate: { label: 'Gate', plural: 'Gates', blurb: 'Runs waiting for you to say go.', icon: DoorOpen },
-  recommendation: { label: 'Recommendation', plural: 'Recommendations', blurb: 'Changes the team proposes to itself — roles, models, budget.', icon: Lightbulb },
+  // Relabelled off "Recommendation" so that word belongs to the queue's main
+  // kind above. What this one actually is, everywhere it is raised — filing a
+  // document into a room (`DataRoomService.proposeFiling`), turning feedback
+  // into work, changing the team's own shape — is a short list with one option
+  // marked recommended. Its old blurb ("roles, models, budget") described only
+  // the third of those.
+  recommendation: { label: 'Choice', plural: 'Choices', blurb: 'A short list the team narrowed down, with the one it recommends marked — take it or pick another.', icon: Lightbulb },
   run: { label: 'Run', plural: 'Runs', blurb: 'Paused, awaiting review, or recently failed.', icon: PlayCircle },
   learning: { label: 'Suggested rule', plural: 'Suggested rules', blurb: 'Rules proposed from your feedback, waiting to be adopted.', icon: Sparkles },
 };
@@ -84,9 +96,9 @@ export function decisionCrumbs(kind: InboxKind, record?: string | null, section?
     { label: 'Workspace', href: '/dashboard' },
     REVIEW_CRUMB,
     // The middle crumb still LINKS to the kind's lane; a card that names its
-    // own section ("Discovery") relabels it, because "Review queue › Proposals ›
-    // Project Ranger" says less about where you are than "Review queue ›
-    // Discovery › Project Ranger" does.
+    // own section ("Discovery") relabels it, because "Review queue ›
+    // Recommendations › Project Ranger" says less about where you are than
+    // "Review queue › Discovery › Project Ranger" does.
     { label: section || INBOX_KIND_META[kind].plural, href: `/dashboard/inbox?kind=${kind}` },
   ];
   if (record) {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LABEL_VERDICTS } from '@/libs/actions/labelVerdict';
+import { SELF_UPDATE_NOUNS } from '@/libs/actions/selfUpdate';
 import { SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
 import { DISCOVERY_CLASSES, READINESS_CLASSES } from '@/services/discovery/classification';
 
@@ -23,6 +24,8 @@ export const runKind = z.enum(['skill', 'workflow', 'mission', 'action']);
 export const feedbackRating = z.enum(['up', 'down']);
 /** Whether a proposed rule asks the agent to change or to keep doing something. */
 export const learningPolarity = z.enum(['correct', 'reinforce']);
+/** Which of the six things the system changed about itself (`libs/actions/selfUpdate.ts`). */
+export const selfUpdateNoun = z.enum(SELF_UPDATE_NOUNS);
 
 /**
  * How far out a snooze pushed an item, bucketed. Buckets rather than a
@@ -169,6 +172,53 @@ export const ADOPTION_EVENTS = {
       version: z.number().int().positive(),
     }),
   },
+  /**
+   * An artifact came into being — by an agent, a person or a system pass.
+   * System-writable because most artifacts are agent output; the read side
+   * still counts humans only for per-user metrics. `folder` is the top-level
+   * folder (`wiki`), so a plugin's output can be counted without a new event.
+   */
+  'artifact.created': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      kind: z.string().max(20),
+      folder: z.string().max(40).optional(),
+    }),
+  },
+  /**
+   * A wiki page was written through `wiki.write_page` — created, revised, or
+   * found unchanged. `append` says a dated section was added rather than the
+   * page rewritten. The count against `artifact.created` with folder `wiki`
+   * is how much of the wiki the agents grow versus people.
+   */
+  'wiki.page_written': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      mode: z.enum(['created', 'revised', 'unchanged']),
+      append: z.boolean().optional(),
+    }),
+  },
+  /**
+   * A data room was opened, and a source was filed into one. `by` says who:
+   * the collector after a sync, an agent in a turn, or a person. The two
+   * counts are the data-rooms plugin's outcome measures, read from here.
+   */
+  'room.created': {
+    agent: true,
+    system: true,
+    meta: z.object({ by: z.enum(['collector', 'agent', 'human']) }),
+  },
+  'room.source_filed': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      by: z.enum(['collector', 'agent', 'human']),
+      /** Match score bucket for collector filings; absent for a named filing. */
+      score: z.enum(['high', 'medium']).optional(),
+    }),
+  },
   'learning.added': { agent: true },
   /**
    * Feedback proposed a rule nobody had proposed before, so a candidate is
@@ -197,6 +247,47 @@ export const ADOPTION_EVENTS = {
     meta: z.object({ decision: z.enum(['approved', 'rejected']) }),
   },
   /**
+   * The system changed something about ITSELF and it stuck — a wiki page, a
+   * mission's working notes, a playbook, an agent's own instructions, a
+   * remembered rule, a capability turned on. One event for every member of
+   * the self-improvement class (`libs/actions/selfUpdate.ts`), written from
+   * the single choke point every one of them executes through, so a new noun
+   * in the class needs no new event and no new `track()` call.
+   *
+   * It sits in the `learning.` family deliberately: the adoption rollup
+   * already counts that prefix as interaction, so "how much is this workspace
+   * teaching itself" is one query rather than a new one. `mode` says whether
+   * the ladder released it or a person did; `runId` rides as the resource so
+   * every row links to the run that can undo it.
+   */
+  'learning.self_updated': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      noun: selfUpdateNoun,
+      mode: z.enum(['auto', 'approved']),
+      /** The thing it touched — a page slug, a mission slug, an agent slug. */
+      target: z.string().max(120).optional(),
+      /** How much moved, for the nouns that have a size. Counts only. */
+      linesAdded: z.number().int().nonnegative().optional(),
+      linesRemoved: z.number().int().nonnegative().optional(),
+    }),
+  },
+  /**
+   * A person put a self-update back. The strongest signal in the class: it
+   * demotes the kind on the ladder (`AutonomyService.holdAfterUndo`), and the
+   * count against `learning.self_updated` is the honest answer to "is it
+   * teaching itself the right things".
+   */
+  'learning.self_update_undone': {
+    agent: true,
+    system: true,
+    meta: z.object({
+      noun: selfUpdateNoun,
+      target: z.string().max(120).optional(),
+    }),
+  },
+  /**
    * A person approved a consolidation proposal: one stronger rule replaced
    * several. `replaced` is how many were retired; `stepName` names the
    * namespace, so the growing-memory chart can mark "N → 1" on the day.
@@ -215,6 +306,8 @@ export const ADOPTION_EVENTS = {
     meta: z.object({
       kind: z.enum(['approval', 'input', 'ruling', 'credential', 'merge', 'recommendation', 'gate']),
       status: z.enum(['approved', 'rejected', 'done', 'superseded']),
+      /** The records the ask was about, so a reader can join the answer to them. */
+      objectRefs: z.array(z.object({ type: z.string(), id: z.string() })).optional(),
     }),
   },
   /**

@@ -6,8 +6,9 @@ a human to merge, a change the team recommends to itself, a gate before a run ma
 
 Unlike a [proposal](./trust.md) (an agent-proposed action), nothing executes when an ask is
 answered. The answer *is* the outcome: whoever filed the ask — an agent, an external worker, a sync
-script — reads it back over the API and acts on it. Asks are runtime objects, not authored files;
-they are filed by code and answered on **Needs you** (`/dashboard/inbox`), the [one decision
+script — reads it back (over the API, or from the `ask.decided` event) and acts on it. Asks are
+runtime objects, not authored files; they are filed by code — an agent's `file_ask` tool or
+`POST /api/v1/asks` — and answered on **Needs you** (`/dashboard/inbox`), the [one decision
 surface](../guides/needs-you.md) where everything waiting on a person is listed together: proposals,
 asks, stopped runs and suggested rules, each tagged with its kind. An ask's `kind` is its inbox
 kind; the kind chips filter the list to it, and its detail screen wears the same chrome as a
@@ -86,6 +87,32 @@ The `title` is the question a person would ask aloud. The `body` is the two sent
 before choosing. An option's `description` is the consequence of picking it. The recommended option
 carries a *Recommended* chip and nothing more.
 
+## Filed by an agent
+
+An agent inside the app files an ask with the **`file_ask`** tool and takes one back with
+**`withdraw_ask`** ([agent tools](../guides/agent-tools.md)). Neither calls the service directly:
+both are actions on the [trust ladder](./trust.md) — `ask.file` and `ask.withdraw` — because whether
+an agent may interrupt a person unasked is a trust question. Both are internal, `low` risk and
+reversible, so the default is *done for you*: a filing with confidence at or above 0.8 lands on
+Needs you at once and shows on the Review queue's Decided tab with **Undo**, which withdraws the
+question while it is still open. Below the bar, or in a workspace whose `trust.yaml` parks
+`ask.file` at `execute-with-approval`, a person first sees the proposal to ask — the question, its
+options, what it is about — and approving it is what files it.
+
+What the tool stamps that the model never types: `agentSlug` (the asking agent), `sourceRef`
+(`action_run:<id>`, the run that asked — a retried execution updates the ask it already filed
+rather than asking twice), and `contextUrl` when the caller gave none — the mission run the question
+came up in, so a person opening the ask reaches the work that raised it in one move. The receipt the
+agent reads back carries the ask's id and its URL on Needs you.
+
+An ask filed this way should say **what it is about**: `objectRefs` names the records, and they
+ride the `ask.decided` event beside the agent slug and the kind, so an automation filtered on
+`{ agentSlug: product-manager, kind: recommendation }` can write the person's answer back onto the
+request the recommendation was about. `groupKey` gathers a batch of asks into one decision sheet;
+`decisionCost` says how many minutes of attention each takes, which is what a batch is metered by.
+Undo never unwrites an answer: undoing the filing of an ask a person already decided leaves the
+decision as it is and says so on the run.
+
 ## Fields
 
 | Field | Type | Meaning |
@@ -94,8 +121,10 @@ carries a *Recommended* chip and nothing more.
 | `title` | string | The question, as a person would ask it. |
 | `body` | markdown, short | Why, and what happens on each answer. |
 | `options` | `{ id, label, description?, recommended?, confidence? }[]` | Named answers. Bare strings are accepted on POST and get `id = slug(label)`. At most one `recommended`. `confidence` (0–1) is how sure the asker is of that option — meant for the recommended one, so the sheet shows *Recommended with 72% confidence · agrees with you 92% (n=48)* the way a review card does. Advisory only. |
-| `sourceRef` | string, unique per org | Idempotency key for asks filed from outside — `workforce:approvals/003-…`. Re-filing updates the open row; it never reopens a decided one. |
-| `agentSlug`, `teamSlug` | slugs | Who is asking. |
+| `sourceRef` | string, unique per org | Idempotency key for asks filed from outside — `workforce:approvals/003-…`; `action_run:<id>` on one an agent filed. Re-filing updates the open row; it never reopens a decided one. |
+| `agentSlug`, `teamSlug` | slugs | Who is asking. Stamped from the run when an agent files it. |
+| `objectRefs` | `{ type, id }[]` | The records the question is about — an object type slug and the object's id (a string; a number is accepted). At most 20. Carried on `ask.decided`, so the answer can be written back onto them. |
+| `decisionCost` | integer, minutes | How much of a person's attention the decision is estimated to take. Said by the asker; a batch of asks is metered by the sum. |
 | `risk` | `low` \| `medium` \| `high` | Shown as a chip on the row. |
 | `groupKey`, `groupTitle` | strings | Several asks under one key form one decision sheet. |
 | `contextUrl` | URL | The long form — the approval file, the PR, the run. `url` is accepted as an alias on POST. |
@@ -115,13 +144,14 @@ All calls take a tenant API token (`Bearer vcn_live_…`) or a dashboard session
 
 | Call | What it does |
 |---|---|
-| `POST /api/v1/asks` `{ kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?, options?, groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }` | File a question. **201** `{ ask, created: true }` for a new one; **200** `{ ask, created: false }` when `sourceRef` matched an existing row (fields updated, status untouched). |
+| `POST /api/v1/asks` `{ kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?, options?, objectRefs?, decisionCost?, groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }` | File a question. **201** `{ ask, created: true }` for a new one; **200** `{ ask, created: false }` when `sourceRef` matched an existing row (fields updated, status untouched). |
 | `GET /api/v1/asks?status=open\|decided\|all&source=<prefix>&agentSlug=&kind=&groupKey=&limit=&offset=` | `{ items, total, limit, offset }`, newest first. `status` defaults to `open`; `decided` is every answered status; an exact status is accepted too. `source` is a prefix match on `sourceRef`. |
 | `GET /api/v1/asks/:id` | `{ ask }`. Cross-org and missing ids both 404. |
 | `POST /api/v1/asks/:id/decide` `{ decision, note? }` | Record the answer. `decision` is `approve` \| `reject` \| `done` \| `other` \| an option id; `other` requires `note`. **409** when the ask is not open. Requires the `approve` capability. |
 
 A filer that mirrors an external queue polls `GET …?status=decided&source=<its prefix>` and acts
-on `decision`, `decisionNote` and `followUp`.
+on `decision`, `decisionNote` and `followUp`. An agent inside the app files with `file_ask` instead
+of the API — see [Filed by an agent](#filed-by-an-agent).
 
 ## Example
 
@@ -148,11 +178,16 @@ on `decision`, `decisionNote` and `followUp`.
 
 ## Where it lives
 
-- **Table:** `ask`, migration `0091`. Indexed by `(org_id, status)`, `(org_id, agent_slug)`,
-  `(org_id, group_key)`; unique on `(org_id, source_ref)` where present.
-- **Service:** `services/AskService.ts` (file, list, decide, supersede, notifications);
+- **Table:** `ask`, migration `0091`; `object_refs` and `decision_cost` in `0129`. Indexed by
+  `(org_id, status)`, `(org_id, agent_slug)`, `(org_id, group_key)`; unique on `(org_id, source_ref)`
+  where present.
+- **Service:** `services/AskService.ts` (file, list, decide, supersede, reopen, notifications);
   `services/InboxService.ts` aggregates everything waiting on a person.
+- **Actions:** `libs/actions/ask-file.ts` (`ask.file`) and `libs/actions/ask-withdraw.ts`
+  (`ask.withdraw`) — how an agent files and withdraws through the trust ladder; the tools are
+  `services/agents/tools/fileAsk.ts`.
 - **UI:** `/dashboard/inbox` (filter with `?kind=<ask kind>`), `/dashboard/inbox/:id`, `/dashboard/inbox/g/:groupKey` — see [Needs you](../guides/needs-you.md).
-- **Adoption stream:** every answer lands as `ask.decided` with the kind and the resulting status.
+- **Adoption stream:** every answer lands as `ask.decided` with the kind, the resulting status, the
+  asking agent and the `objectRefs` it was about.
 - **Learning:** `services/feedback/askFeedbackQueue.ts` queues corrections for the classifier;
   `services/alignment/AlignmentService.ts` records every answer as alignment evidence.

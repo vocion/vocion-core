@@ -1,11 +1,22 @@
 import { NextIntlClientProvider } from 'next-intl';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import messages from '@/locales/en.json';
 import { ReviewHeader } from './ReviewHeader';
 import { UpNextMenu } from './UpNextMenu';
 import '@/styles/global.css';
+
+// The crumbs render through the locale-aware Link, and this file measures
+// geometry rather than routing — an anchor is the whole of what it needs.
+// Stubbed rather than imported for real because the browser project shares one
+// page: a module that several files mock and one file imports live loses its
+// registration, and the live importer is the file that fails.
+vi.mock('@/libs/I18nNavigation', () => ({
+  Link: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => '/dashboard/inbox',
+}));
 
 /**
  * The P0 from `docs/specs/discovery-ledger-v2.md`: *"The heading wraps to one

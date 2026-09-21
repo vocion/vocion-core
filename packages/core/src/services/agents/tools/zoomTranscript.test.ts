@@ -97,7 +97,7 @@ afterAll(async () => {
 describe('gating', () => {
   it('is absent without a zoom source, present with one', () => {
     expect(zoomTools(ctxFor(['gmail', 'hubspot']))).toHaveLength(0);
-    expect(zoomTools(ctxFor(['zoom'])).map(t => t.name)).toEqual(['get_zoom_transcript']);
+    expect(zoomTools(ctxFor(['zoom'])).map(t => t.name)).toEqual(['get_zoom_transcript', 'find_zoom_recordings']);
     expect(buildDomainTools(ctxFor(['zoom-sales'])).some(t => t.name === 'get_zoom_transcript')).toBe(true);
   });
 });

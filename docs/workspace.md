@@ -37,7 +37,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 
 ```
 <workspace-dir>/
-├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin
+├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin, plugins
 ├── trust.yaml                    # which actions may auto-execute, above what confidence, at which rung / risk tier
 ├── voice.yaml                    # banned constructions in outbound copy — the gate, not a suggestion (docs/guides/voice-rules.md)
 ├── agents/
@@ -60,7 +60,9 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 ├── sources/                      # YAML — connector definitions (no credentials!)
 ├── learnings/                    # whitelisted rule-step buckets
 ├── evals/                        # YAML — per-agent test cases (npm run eval:run)
-└── pages/                        # optional tenant dashboard pages (file-only, see below)
+├── pages/                        # optional tenant dashboard pages (file-only, see below)
+└── wiki/                         # markdown + frontmatter — pages that seed the wiki on apply (wiki plugin; docs/entities/workspace-manifest.md)
+    └── <slug>.md                 # title: required; summary, order, tags, managed: true|false
 ```
 
 **Every field of every file type** is documented one page per entity in
@@ -91,7 +93,7 @@ Workspace pages have their own guide: [`docs/workspace-pages.md`](./workspace-pa
 2. Name it on each agent that should mount it (`skills:` in the agent YAML).
    A skill activates on the model's judgement; where the work must happen
    every time, name the skill outright in the mission or automation prompt.
-3. `npm run workspace:check -- <path>` — validates without writing
+3. `npm run workspace:check -- <path>` — validates without writing (and without a database, if none answers: counts are then `unknown`)
 4. `npm run workspace:apply -- <path> --project <id|slug>` — writes to DB
 
 ### Attach a playbook
@@ -131,6 +133,102 @@ fewShotExamples:
 ### Edit an agent's system prompt
 
 Open `agents/<agent>.system-prompt.md` in the workspace, edit, save, re-apply. The agent uses the new prompt on the next request.
+
+### Edit a mission or a playbook in the app
+
+A mission's YAML and a playbook's (or skill's) `SKILL.md` **edit like
+artifacts** — the file is the source of truth, and it is *mirrored* into an
+artifact of kind `mission` or `playbook` (`libs/workspace/source.ts`) so it
+gets what every artifact has: the pane, **Edit** and ⌘S, a version for every
+save, Restore, Share, and select-to-ask. Nothing is versioned twice: the
+applier keeps the mirror in step the same way it keeps the `mission` and
+`playbook` rows in step, and a content-identical apply adds no version.
+
+What a person sees:
+
+- **`/dashboard/missions/<slug>`** — the charter as before, and below it the
+  file in the artifact pane. **Edit** opens the YAML in place; ⌘S saves.
+  Highlight anything in the charter or the file and the toolbar offers **Ask**
+  and **Change**.
+- **`/dashboard/skills/<slug>`** — the SKILL.md rendered through the same
+  pane (frontmatter as a meta line, body as markdown), with the same verbs.
+
+How a change becomes a version and a commit:
+
+| Who | Path | What happens |
+|---|---|---|
+| A person, in the pane | `client.artifacts.update` → `WorkspaceSourceService.writeWorkspaceSource` | The text is validated through the real schema, the **file is written**, the whole workspace is loaded (a refused load puts the file back), a version lands on the mirror under the person's name, then the workspace is **applied** — a `workspace_version` row like any `workspace:apply`. Their workspace, their edit: not an action. |
+| An agent, from chat | `read_mission` / `read_playbook`, then `write_mission` / `write_playbook` → the `workspace.write_mission` / `workspace.write_playbook` actions | The whole file is proposed with a reason and a confidence. The Review card carries the **diff**. Both kinds start at **Execute with approval** (`DEFAULT_RISK_TIER` marks them `medium`); a workspace promotes them in `trust.yaml` once approvals have earned it. Approving runs the same write path; **Undo** restores the previous text as a new version. |
+| Restore, from the version menu | `client.artifacts.restore` → `restoreWorkspaceSource` | The old text is written **forward** — to the file and as a new head — so disk and history agree and neither rewinds. |
+| An MCP client | `workspace_write_mission`, `workspace_write_playbook` | The manifest-shaped door, in the exact shape of `workspace_write_skill`: write the file, apply, and — opt-in — commit. |
+
+**Not in the log, by default.** Mirrors are `visibility: system`: reached from
+the mission and skills pages, by id, and as chips — never as a row per file in
+`/dashboard/artifacts`. Listing them there is a workspace switch, when one is
+wanted. **A deleted file takes its mirror with it**: the applier prunes mirrors
+whose file is gone, `workspace_delete` drops the mirror with the row, and a Save
+against a stale mirror is refused rather than writing the file back. A mirror
+that fails to write is a *warning* on the apply, never an error.
+
+**Git stays yours.** Nothing written from the app commits; the workspace
+shows *dirty* until you commit, exactly as it does after an MCP write with
+`autoCommit=false`. `workspace_version` answers "what was applied when", the
+mirror's versions answer "who changed this and why".
+
+A mission inherited from a plugin or the base pack has no workspace file yet:
+its mirror shows the inherited text, and saving creates the workspace's own
+copy. For a YAML kind that copy needs `extends: core` to be read as an
+override — the save reports the loader's message if it is missing. Skills and
+playbooks replace by slug, so no marker is needed.
+
+## How eager the system is to improve itself (`defaults.learningEagerness`)
+
+```yaml
+# workspace.yaml
+defaults:
+  learningEagerness: 7 # 0–10. Omit for 7.
+```
+
+One dial for the whole workspace, moving the confidence bar for the class of
+actions that change **what the system knows about how to work** — today, the
+rule it adopts when a person corrects an agent's work on a document
+(`learning.adopt_rule`; an action opts into the class with `selfImproving`).
+
+| Dial | Bar | What that means |
+|---|---|---|
+| `0` | never clears | the system always asks before it learns anything |
+| `7` (default) | 72% | a plain directive in the person's own words adopts itself, with Undo; a hedge or an inferred rule asks |
+| `10` | 60% | the same, with more headroom for the middle ground |
+
+It moves the **bar**, never the **confidence**: the number comes from what the
+person actually said (0.9 for an unhedged instruction, 0.5 for a hedge, an
+aside, or a rule the model had to infer), so a workspace at `10` still asks
+about an inferred rule. The formula is one pure function,
+`packages/core/src/libs/actions/eagerness.ts`.
+
+**Precedence:** a rule in `trust.yaml` naming `autoApproveAbove` for a kind
+wins over the dial for that kind — pin one action without changing the
+workspace's overall appetite.
+
+Every adopted rule lands in the agent's own learning step and shows in
+Review › Decided with **Undo**; undoing removes the rule from the store, so
+the agent stops reading it on its next run.
+
+## Plugins — capability you turn on (`plugins:`)
+
+A **plugin** is a bundle of agents, skills, object types, missions, automations,
+teams, pages and trust rules shipped inside vocion-core at
+`packages/core/templates/plugins/<slug>/`. A workspace turns one on with one line
+and overrides any of its files by slug, exactly as it does with the base pack:
+
+```yaml
+# workspace.yaml
+plugins: [wiki, data-rooms, proposals] # dependencies come along; OMIT → none
+```
+
+Three ship today — `wiki`, `data-rooms`, `proposals` — and the **Marketplace**
+(`/dashboard/marketplace`) switches them on and off by editing this list and
+applying. Composition rules, anatomy and how to write one: [`docs/plugins.md`](./plugins.md).
 
 ## Base packs — activate + extend (`extends` / `use` / `disable`)
 
@@ -197,7 +295,7 @@ All run from the vocion-core checkout and take the workspace path as an argument
 | Command | What it does |
 |---|---|
 | `npm run workspace:scaffold -- <name>` | Creates a new minimal-but-valid workspace at `../workspace/<name>`. |
-| `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes. |
+| `npm run workspace:check -- <path>` | Validates every YAML + MD file. Shows what would change. No DB writes — and no DB needed: with none reachable, counts are `unknown`. |
 | `npm run workspace:apply -- <path> --project <id\|slug>` | Writes changes to DB. Records a `workspace_version` row with the git SHA + diff summary. |
 | `npm run workspace:export` | Reads current DB rows into a directory. Use to bootstrap a new tenant from existing DB state. |
 

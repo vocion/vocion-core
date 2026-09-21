@@ -5,7 +5,7 @@ import { WorkTimeline } from './WorkTimeline';
 /**
  * The rail's transparency layer (agent-chat-surface.md §9): what the person
  * sees while the agent works — rows appearing as tool calls start, reasoning
- * folded to one line — and the single "Worked it out" line the turn folds to
+ * folded to one line — and the single headline line the turn folds to
  * afterwards.
  */
 const meta: Meta<typeof WorkTimeline> = {

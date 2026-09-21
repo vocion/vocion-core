@@ -1,3 +1,4 @@
+import type { TraceActor, TraceCitation, TraceNodeEvent, TraceNodeKind } from './types';
 /**
  * Typed trace emitter.
  *
@@ -24,9 +25,11 @@
  * Pure + stateful but deterministic: feed it recorded events and it produces
  * the same nodes every time (see traceEmitter.test.ts). No LLM, no IO.
  */
-import type { TraceActor, TraceCitation, TraceNodeEvent, TraceNodeKind } from './types';
+import type { StepLabels } from '@/libs/chat/stepLabels';
 
 /** The subset of a raw LangChain v2 stream event we consume. */
+import { fallbackStepLabels, stepLabelFor } from '@/libs/chat/stepLabels';
+
 export type RawStreamEvent = {
   event?: string;
   name?: string;
@@ -321,7 +324,10 @@ function labelFor(kind: TraceNodeKind, status: TraceNodeEvent['status'], subject
     case 'draft':
       return running ? 'Preparing a recommendation' : 'Recommended an action';
     default:
-      return running ? `Using ${subject}`.trim() : `Used ${subject}`.trim();
+      // "Used get_brand" named the mechanism; the deterministic table names
+      // the act (`libs/chat/stepLabels.ts`). The model half may refine it
+      // later through `applyLabels`.
+      return stepLabelFor(fallbackStepLabels(subject), status);
   }
 }
 
@@ -379,6 +385,9 @@ export type TraceEmitterOptions = {
  * or more `TraceNodeEvent`s to forward to the SSE client. Also exposes the
  * accumulated citations so the caller can emit a final message-level set.
  */
+/** The model is writing a tool call whose name is already known — the live line can say so. */
+export type ComposingEvent = { type: 'composing'; tool: string };
+
 export class TraceEmitter {
   private readonly leadName: string;
   /** taskId → specialist actor (recorded when the `task` tool starts). */
@@ -388,8 +397,18 @@ export class TraceEmitter {
   private readonly allCitations: TraceCitation[] = [];
   /** open reason nodes (id → actor/parent), so we emit `start` once then `progress`, and can close them when the answer begins. */
   private readonly openReason = new Map<string, { actor: TraceActor; parentId?: string }>();
+  /** Tool calls already announced as being written, per model turn (`composing`). */
+  private readonly composing = new Set<string>();
+  /** Events beside the trace — `composing` — for the caller to drain after each `handle`. */
+  private readonly sideEvents: ComposingEvent[] = [];
   /** node id → subject for the label (the query / skill name), so the `done` label matches `start`. */
   private readonly nodeSubjects = new Map<string, string>();
+  /** node id → the pair a labeler supplied, so `done` uses the same words as `start`. */
+  private readonly nodeLabels = new Map<string, StepLabels>();
+  /** node id → the last status emitted, so a late label patch never rewinds a finished step. */
+  private readonly nodeStatus = new Map<string, TraceNodeEvent['status']>();
+  /** node id → (actor, parent, kind) for patches. */
+  private readonly nodeMeta = new Map<string, { actor: TraceActor; parentId?: string; kind: TraceNodeKind }>();
   /**
    * Delegations that started and have not yet ended, so a run that dies
    * mid-delegation can still close them as failures. A delegate node left at
@@ -420,10 +439,84 @@ export class TraceEmitter {
   }
 
   /**
+   * Whether a step is worth asking the labeler about: a plain tool or skill
+   * call the lead or a specialist made. Searches keep their query, drafts
+   * and delegations have names of their own.
+   * @param id - The node id from a `start` event.
+   */
+  wantsLabels(id: string): boolean {
+    const meta = this.nodeMeta.get(id);
+    return Boolean(meta && (meta.kind === 'tool' || meta.kind === 'skill'));
+  }
+
+  /**
+   * A labeler finished naming a step. Records the pair so the `done` event
+   * uses the same words, and returns a patch event for the step at its
+   * CURRENT status — a label that arrives after the step finished says
+   * "Read the brand guide", never rewinds it to "Reading…".
+   * @param id - The node id.
+   * @param labels - The pair.
+   */
+  applyLabels(id: string, labels: StepLabels): TraceNodeEvent | null {
+    const meta = this.nodeMeta.get(id);
+    if (!meta) {
+      return null;
+    }
+    this.nodeLabels.set(id, labels);
+    const status = this.nodeStatus.get(id) ?? 'start';
+    return {
+      type: 'trace_node',
+      id,
+      parentId: meta.parentId,
+      actor: meta.actor,
+      kind: meta.kind,
+      status,
+      label: stepLabelFor(labels, status),
+      labels,
+    };
+  }
+
+  /**
    * Close any still-open reason nodes with a `done` status — call when the
    * answer starts streaming, so reasoning stops spinning "Thinking" while the
    * model does its post-answer tail (tool calls, drafts).
    */
+  /** Events raised beside the trace by the last `handle` calls; emptied on read. */
+  takeSideEvents(): ComposingEvent[] {
+    return this.sideEvents.splice(0, this.sideEvents.length);
+  }
+
+  /**
+   * A piece of the model's reasoning for the model turn at `ns` — extended
+   * thinking from the stream, or a `<scratch>` block the answer streamer set
+   * aside (`answerStream.ts`). Both are the same thing to the reader: what
+   * the agent thought before it said something, folded to one line. One
+   * reason node per actor per model turn; ns for a model turn is
+   * "model_request:<id>" (lead) or "tools:<taskId>|model_request:<id>".
+   * @param ns - The event's checkpoint namespace.
+   * @param delta - The reasoning text to append.
+   */
+  reasonDelta(ns: string, delta: string): TraceNodeEvent[] {
+    const actor = this.actorFor(ns);
+    const modelSeg = ns.split('|').pop() ?? ns;
+    const id = `reason:${modelSeg}`;
+    const parentId = taskIdOf(ns);
+    const first = !this.openReason.has(id);
+    if (first) {
+      this.openReason.set(id, { actor, parentId });
+    }
+    return [{
+      type: 'trace_node',
+      id,
+      parentId,
+      actor,
+      kind: 'reason',
+      status: first ? 'start' : 'progress',
+      label: labelFor('reason', 'progress', ''),
+      delta,
+    }];
+  }
+
   closeReasoning(): TraceNodeEvent[] {
     const out: TraceNodeEvent[] = [];
     for (const [id, { actor, parentId }] of this.openReason) {
@@ -495,30 +588,20 @@ export class TraceEmitter {
     const ns = nsOf(ev);
     switch (ev.event) {
       case 'on_chat_model_stream': {
+        // A tool call streams in pieces and its name arrives first: say what
+        // is being written while the arguments (a whole HTML document, on
+        // 2026-09-18, for 40 seconds) are still coming — 'Working' says nothing.
+        const chunks = (ev.data?.chunk as { tool_call_chunks?: Array<{ name?: string | null }> } | undefined)?.tool_call_chunks ?? [];
+        const named = chunks.find(c => typeof c.name === 'string' && c.name.length > 0)?.name;
+        if (named && !PLUMBING_TOOLS.has(named) && !this.composing.has(`${ns}:${named}`)) {
+          this.composing.add(`${ns}:${named}`);
+          this.sideEvents.push({ type: 'composing', tool: named });
+        }
         const { thinking } = extractChunk(ev.data?.chunk);
         if (!thinking) {
           return [];
         }
-        // One reason node per actor per model turn. ns for a model turn is
-        // "model_request:<id>" (lead) or "tools:<taskId>|model_request:<id>".
-        const actor = this.actorFor(ns);
-        const modelSeg = ns.split('|').pop() ?? ns;
-        const id = `reason:${modelSeg}`;
-        const parentId = taskIdOf(ns);
-        const first = !this.openReason.has(id);
-        if (first) {
-          this.openReason.set(id, { actor, parentId });
-        }
-        return [{
-          type: 'trace_node',
-          id,
-          parentId,
-          actor,
-          kind: 'reason',
-          status: first ? 'start' : 'progress',
-          label: labelFor('reason', 'progress', ''),
-          delta: thinking,
-        }];
+        return this.reasonDelta(ns, thinking);
       }
 
       case 'on_tool_start': {
@@ -559,6 +642,8 @@ export class TraceEmitter {
             ? (detail ?? 'a skill')
             : tool;
         this.nodeSubjects.set(id, subject);
+        this.nodeMeta.set(id, { actor, parentId, kind });
+        this.nodeStatus.set(id, 'start');
         return [{
           type: 'trace_node',
           id,
@@ -607,6 +692,7 @@ export class TraceEmitter {
           // is still an `on_tool_end`; rendering it as "Used X" would say the
           // opposite of what happened.
           const subject = this.nodeSubjects.get(id) ?? tool;
+          this.nodeStatus.set(id, 'error');
           return [{
             type: 'trace_node',
             id,
@@ -637,6 +723,8 @@ export class TraceEmitter {
         }
 
         const subject = this.nodeSubjects.get(id) ?? tool;
+        this.nodeStatus.set(id, 'done');
+        const pair = this.nodeLabels.get(id);
         return [{
           type: 'trace_node',
           id,
@@ -644,7 +732,8 @@ export class TraceEmitter {
           actor,
           kind,
           status: 'done',
-          label: labelFor(kind, 'done', subject),
+          label: pair ? stepLabelFor(pair, 'done') : labelFor(kind, 'done', subject),
+          ...(pair ? { labels: pair } : {}),
           result,
           resultDetail,
           citations: citations && citations.length ? citations : undefined,
@@ -672,6 +761,7 @@ export class TraceEmitter {
         if (kind === 'delegate') {
           this.openDelegations.delete(id);
         }
+        this.nodeStatus.set(id, 'error');
         return [{
           type: 'trace_node',
           id,

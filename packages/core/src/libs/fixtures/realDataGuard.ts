@@ -106,6 +106,14 @@ export const BANNED_NAMES: readonly BannedName[] = [
   { id: 'customer-workforce-b', hash: '9da1613599e57b50', head: '9da1613599e57b50', words: 1, why: 'Real customer on the workforce repo\'s unpublishable list. Never appeared here; banned pre-emptively.' },
   { id: 'customer-workforce-c', hash: 'b9ec7f646b183a20', head: '21c584f66fecc917', words: 2, why: 'Real customer on the workforce repo\'s unpublishable list. Never appeared here; banned pre-emptively.' },
 
+  // ── Named in a 2026-09-19 proposal-quality session ───────────────────────
+  // Both reached this repo as PROSE, not as fixtures: a real prospect named in
+  // two source comments describing where the red team came from, and a real
+  // past client named as a reference inside a live proposal that was quoted in
+  // working notes. Comments and docs are exactly as public as tests.
+  { id: 'prospect-precast-manufacturer', hash: '45e60041ea6a8592', head: '45e60041ea6a8592', words: 1, why: 'Real prospect (precast manufacturer) whose proposal the document red team was built against. Named in two source comments. Refer to it as "a real client proposal"; use `Northwind` in any example.' },
+  { id: 'client-named-as-reference', hash: '402f1554aacf309b', head: '402f1554aacf309b', words: 1, why: 'Real past client cited as a reference inside that proposal. Never a fixture; banned so a quote from the document cannot carry it in. Use `Radley Manufacturing`.' },
+
   // ── The client that ran its own parent deployment ────────────────────────
   { id: 'client-parent-deployment', hash: '44c4030414152e69', head: '44c4030414152e69', words: 1, why: 'Real client. Its name was the second parent-project example in the deployment docs, its GitHub org, its AWS profile, its live API hostnames, an env-var prefix, ~30 ticket ids and dozens of test slugs. Replaced by `Larkfield`.' },
 

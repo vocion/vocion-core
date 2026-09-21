@@ -24,6 +24,9 @@ vi.mock('@/libs/DB');
 const streamEvents = vi.fn();
 
 vi.mock('@/services/agents/harness', () => ({
+  // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
+  chatModelOptionsFor: () => ({}),
+  chatModelOptionsWithOverride: (_h: unknown, o?: { model: string; provider?: string; thinking?: string }) => (o ? { ...o } : {}),
   bindRequestEmit: vi.fn(),
   buildInitialFiles: vi.fn(async () => ({})),
   getCompiledAgent: vi.fn(async () => ({

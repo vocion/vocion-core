@@ -1,0 +1,39 @@
+slug: product-debrief
+name: Write what shipped on the record
+description: >-
+  Fires the moment the factory finishes something — a worker run completes or
+  fails, a pull request merges — so the Product manager writes it where a
+  person will look: the request's state and what answered it, the actual cost
+  beside the estimate, the recommendation refreshed with the outcome, draft
+  release notes on the release if one exists; the `product-debrief` mission's
+  "no request is answered by work its record does not know about", made a
+  trigger rather than a nightly pass. Authorizes nothing, announces nothing —
+  `tell-the-requester` closes the loop with the asker.
+status: active
+agent: product-manager
+when:
+  event:
+    - worker_run.completed
+    - worker_run.failed
+    - pr.merged
+do:
+  checkMission: product-debrief
+  prompt: >-
+    The factory just finished something; the event says which kind
+    (worker_run.completed, worker_run.failed or pr.merged) and carries its
+    ids and a summary. Find the request it served — a worker run names its
+    record (recordType, recordId) and its task names its requestId; a merged
+    pull request names its task in the branch or the body. Read the request
+    as it stands. Then write, through update_object: on a completed run,
+    state shipped when a release carries this task and building otherwise,
+    the task or release id on the request, and — after reading the rolled-up
+    actualCents against estimateCents — one sentence on the request when the
+    actual exceeds the estimate by half; on a failed run, leave the state
+    open and write the failure as decisionReason. If a recommendation ask put
+    this request in front of a person, refresh it with the outcome rather
+    than filing a new one. If a release record carries this work and has no
+    notes, draft them from the pull request and the request in the house
+    voice (write-release-notes) with notesSource agent, appended; never touch
+    notes a person owns. Authorize nothing, announce nothing, tell no asker.
+    Report in one line: what you read, the request, the state written, the
+    cost, notes drafted or not.

@@ -8,10 +8,11 @@ description: >-
   — proposals, scope docs, partnership updates — each render-verified before it
   is called done. Metacto is the seller; every client here is fictional.
 lead: proposal-writer
-# The Proposals app (GTM): rooms at Proposal stage, their latest document and
-# its verify state, open items, and Draft. Registered in core
-# (`features/navigation/surfaces.ts`); this line switches it on.
-surfaces: [proposals]
+# The whole capability comes from two plugins (packages/core/templates/plugins):
+# `proposals` brings the writer, the house sheet framework, the Proposals app
+# and its team; it depends on `data-rooms`, which brings the room type, the
+# skill, the keeper and the collector. This workspace adds only its brand.
+plugins: [proposals]
 goal: Every client document is grounded in its data room and render-verified before a person sees it.
 defaults:
   temperature: '0.2'

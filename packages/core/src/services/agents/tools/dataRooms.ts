@@ -17,13 +17,18 @@
  *
  * Reading is compact: the export bundle a person downloads is the same text
  * the agent reads, so what it writes from is what a person can check.
+ *
+ * The room is the collection around one entity (its `anchor`), and it carries
+ * its own standing knowledge: `rules` the agent reads first, `notes` (the
+ * wiki), a dated timeline and the highlights worth keeping for the case study.
+ * `update_data_room` maintains all of them; `unfile_from_data_room` is the
+ * undo of a filing, the collector's included.
  */
 
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createArtifact } from '@/services/ArtifactService';
-import { upsertAsk } from '@/services/AskService';
 import {
   addOpenItem,
   createDataRoom,
@@ -33,7 +38,10 @@ import {
   knowledgeDocument,
   listDataRooms,
   matchDataRoom,
+  proposeFiling,
+  roomAnchor,
   roomHref,
+  unfileFromDataRoom,
   updateDataRoom,
 } from '@/services/DataRoomService';
 import { authorOf } from './renderArtifacts';
@@ -78,6 +86,23 @@ async function resolveRoom(ctx: RuntimeContext, id: number | undefined): Promise
   return { error: rooms.length === 0 ? 'No data rooms exist yet. Open one with create_data_room.' : `Which room? ${rooms.slice(0, 8).map(r => `#${r.id} ${r.title}`).join(' · ')}. Pass room_id.` };
 }
 
+const anchorSchema = z.object({
+  type: z.string().min(1).max(40).describe('The workspace\'s word for the entity: deal, company, project, engagement, ticket…'),
+  system: z.string().max(40).optional().describe('Where it lives: hubspot, jira, github…'),
+  id: z.string().max(120).optional(),
+  url: z.string().max(500).optional(),
+  label: z.string().max(200).optional(),
+  amount: z.number().optional(),
+});
+
+const highlightSchema = z.object({
+  kind: z.enum(['quote', 'metric', 'win', 'challenge', 'testimonial', 'risk']),
+  text: z.string().min(1).max(1000),
+  who: z.string().max(120).optional().describe('Who said or did it.'),
+  date: z.string().max(20).optional().describe('YYYY-MM-DD.'),
+  source: z.string().max(200).optional().describe('The source title or transcript timestamp it came from.'),
+});
+
 const personSchema = z.object({
   name: z.string().min(1).max(120),
   role: z.string().max(120).optional(),
@@ -99,6 +124,7 @@ export function listDataRoomsTool(ctx: RuntimeContext) {
         stage: r.meta.stage ?? null,
         status: r.meta.status ? `${r.meta.status.slice(0, 160)}${r.meta.statusAt ? ` (as of ${r.meta.statusAt.slice(0, 10)})` : ''}` : null,
         sources: r.meta.sources?.length ?? 0,
+        anchor: roomAnchor(r.meta),
         closed: r.status === 'closed',
       })));
     },
@@ -122,7 +148,7 @@ export function readDataRoomTool(ctx: RuntimeContext) {
     },
     {
       name: 'read_data_room',
-      description: 'Read a data room as one markdown bundle — status, deliverables, cast, sources by weight (⭐⭐⭐ first: read those before writing anything), open items, every decision log, and the outline of every document. This is the same bundle a person downloads as LLM context. Omit `room_id` for the room the person is looking at.',
+      description: 'Read a data room as one markdown bundle — its RULES first (they govern everything you do in it), status, notes (the room\'s wiki), the entity it is anchored to, sources by weight (⭐⭐⭐ first: read those before writing anything), the timeline, highlights, open items, every decision log, and the outline of every document. This is the same bundle a person downloads as LLM context. Omit `room_id` for the room the person is looking at.',
       schema: z.object({
         room_id: z.number().int().positive().optional(),
       }),
@@ -151,12 +177,16 @@ export function createDataRoomTool(ctx: RuntimeContext) {
         status: args.status,
         cast: coerceJson(args.cast),
         ...(args.deal ? { deal: coerceJson(args.deal) } : {}),
+        ...(args.anchor ? { anchor: coerceJson(args.anchor) } : {}),
+        ...(args.notes ? { notes: args.notes } : {}),
+        ...(args.rules ? { rules: coerceJson(args.rules) } : {}),
       });
-      return `Opened data room #${room.id} "${room.title}" (${roomHref(room.id)}). Matching domains: ${(room.meta.domains ?? []).join(', ') || 'none yet — add the client\'s email domain so transcripts and threads can be filed to it automatically'}.`;
+      ctx.emit({ type: 'record_created', record: { type: 'object', id: String(room.id), label: room.title, href: roomHref(room.id) } });
+      return `Opened data room #${room.id} "${room.title}". When you tell the person, link it inline as [${room.title}](${roomHref(room.id)}) — the link is how they open it. Matching domains: ${(room.meta.domains ?? []).join(', ') || 'none yet — add the client\'s email domain so transcripts and threads can be filed to it automatically'}.`;
     },
     {
       name: 'create_data_room',
-      description: 'Open a data room for a NEW engagement: the source of record for everything known about it. Give the client\'s email domain(s) and any codename or aliases, so material can be matched to the room. Do not open a room for an engagement that already has one — list_data_rooms first.',
+      description: 'Open a data room for a NEW entity — the collection of everything ingested and everything written about one engagement, deal, project or client. Name the anchor (the CRM deal, the project) when there is one, give the client\'s email domain(s) and any codename or aliases so material is matched to the room on its own, and seed its rules and notes if the person stated any. Do not open a room for an entity that already has one — list_data_rooms first.',
       schema: z.object({
         title: z.string().min(1).max(200).describe('e.g. "Northwind — Hiring agents"'),
         client: z.string().max(120).optional().describe('The client\'s name as used in prose.'),
@@ -166,7 +196,10 @@ export function createDataRoomTool(ctx: RuntimeContext) {
         stage: z.string().max(60).optional().describe('In the CRM\'s words: Discovery, Proposal sent, Signed, In delivery.'),
         status: z.string().max(600).optional().describe('The status paragraph, one or two sentences.'),
         cast: z.array(personSchema).max(30).optional(),
-        deal: z.object({ system: z.string().optional(), id: z.string().optional(), url: z.string().optional(), amount: z.number().optional() }).optional(),
+        deal: z.object({ system: z.string().optional(), id: z.string().optional(), url: z.string().optional(), amount: z.number().optional() }).optional().describe('Shorthand for an anchor of type deal.'),
+        anchor: anchorSchema.optional().describe('The entity the room is the collection around.'),
+        notes: z.string().max(20_000).optional().describe('Opening notes for the room\'s wiki, markdown.'),
+        rules: z.array(z.string().max(300)).max(30).optional().describe('Rules for collecting and working the room, one line each: terminology, what files here, what never leaves it.'),
       }),
     },
   );
@@ -190,17 +223,30 @@ export function updateDataRoomTool(ctx: RuntimeContext) {
         ...(args.add_cast ? { addCast: coerceJson(args.add_cast) } : {}),
         ...(args.deliverable ? { deliverable: coerceJson(args.deliverable) } : {}),
         ...(args.deal ? { deal: coerceJson(args.deal) } : {}),
+        ...(args.anchor ? { anchor: coerceJson(args.anchor) } : {}),
         ...(args.closed === undefined ? {} : { closed: args.closed }),
+        ...(args.notes !== undefined ? { notes: args.notes } : {}),
+        ...(args.append_notes ? { appendNotes: args.append_notes } : {}),
+        ...(args.add_rules ? { addRules: coerceJson(args.add_rules) } : {}),
+        ...(args.remove_rules ? { removeRules: coerceJson(args.remove_rules) } : {}),
+        ...(args.milestone ? { milestone: coerceJson(args.milestone) } : {}),
+        ...(args.highlights ? { highlights: coerceJson(args.highlights) } : {}),
+        ...(args.auto_file === undefined ? {} : { autoFile: args.auto_file }),
       });
       if (!room) {
         return `No data room #${found.id}.`;
       }
-      const changed = ['status', 'stage', 'client', 'codename', 'domains', 'aliases', 'add_cast', 'deliverable', 'deal', 'closed', 'title'].filter(k => (args as Record<string, unknown>)[k] !== undefined);
-      return `Updated data room #${room.id} "${room.title}": ${changed.join(', ')}.${args.status !== undefined ? ` Status is dated ${room.meta.statusAt?.slice(0, 10)}.` : ''}`;
+      const changed = ['status', 'stage', 'client', 'codename', 'domains', 'aliases', 'add_cast', 'deliverable', 'deal', 'anchor', 'closed', 'title', 'notes', 'append_notes', 'add_rules', 'remove_rules', 'milestone', 'highlights', 'auto_file'].filter(k => (args as Record<string, unknown>)[k] !== undefined);
+      const counts = [
+        args.highlights ? `${room.meta.highlights?.length ?? 0} highlights on the room` : null,
+        args.add_rules || args.remove_rules ? `${room.meta.rules?.length ?? 0} rules` : null,
+        args.milestone ? `${room.meta.milestones?.length ?? 0} milestones` : null,
+      ].filter(Boolean);
+      return `Updated data room #${room.id} "${room.title}": ${changed.join(', ')}.${args.status !== undefined ? ` Status is dated ${room.meta.statusAt?.slice(0, 10)}.` : ''}${counts.length ? ` Now ${counts.join(', ')}.` : ''}`;
     },
     {
       name: 'update_data_room',
-      description: 'Keep a data room current: the dated status paragraph (say so when something ships), the stage, the deal link, people on the cast (added or corrected by email or name), a deliverable (planned, drafted, sent, signed), matching domains and aliases. Omit `room_id` for the room the person is looking at.',
+      description: 'Keep a data room current: the dated status paragraph (say so when something ships), the stage, the anchor (the deal or project it is about), people on the cast, a deliverable, matching domains and aliases — and the room\'s own knowledge: its NOTES (the wiki; replace with notes or add a dated section with append_notes), its RULES (add_rules / remove_rules — terminology, what files here, conventions the person stated), a MILESTONE on the timeline (planned or done), and HIGHLIGHTS worth keeping as they appear in material (a client\'s own words, a measured result, a win, a challenge met). When a person corrects you or states how things are called, add it as a rule so it holds next time. Omit `room_id` for the room the person is looking at.',
       schema: z.object({
         room_id: z.number().int().positive().optional(),
         title: z.string().max(200).optional(),
@@ -213,7 +259,15 @@ export function updateDataRoomTool(ctx: RuntimeContext) {
         add_cast: z.array(personSchema).max(30).optional().describe('People to add or correct.'),
         deliverable: z.object({ title: z.string(), date: z.string().optional(), artifactId: z.number().int().optional(), status: z.enum(['planned', 'drafted', 'sent', 'signed']).optional() }).optional(),
         deal: z.object({ system: z.string().optional(), id: z.string().optional(), url: z.string().optional(), amount: z.number().optional() }).optional(),
+        anchor: anchorSchema.optional(),
         closed: z.boolean().optional(),
+        notes: z.string().max(20_000).optional().describe('Replace the room\'s notes (markdown).'),
+        append_notes: z.string().max(10_000).optional().describe('Add a dated section to the notes instead of replacing them.'),
+        add_rules: z.array(z.string().max(300)).max(30).optional(),
+        remove_rules: z.array(z.string().max(300)).max(30).optional().describe('Exact rule text to remove.'),
+        milestone: z.object({ date: z.string().max(20), title: z.string().min(1).max(200), status: z.enum(['planned', 'done']), artifactId: z.number().int().optional(), note: z.string().max(300).optional() }).optional(),
+        highlights: z.array(highlightSchema).max(20).optional(),
+        auto_file: z.boolean().optional().describe('false stops the collector filing into this room on its own.'),
       }),
     },
   );
@@ -240,37 +294,11 @@ export function fileToDataRoomTool(ctx: RuntimeContext) {
         if (match.confidence === 'high' && match.best) {
           roomId = match.best.room.id;
           how = `matched at ${Math.round(match.best.score * 100)}% (${match.best.evidence.join(', ')})`;
-        } else if (match.confidence === 'medium' && match.best) {
-          const { ask } = await upsertAsk({
-            orgId: ctx.orgId,
-            createdBy: author.id,
-            ask: {
-              kind: 'recommendation',
-              title: `File "${title}" into ${match.best.room.title}?`,
-              body: `It looks like it belongs there (${match.best.evidence.join(', ')}), but not clearly enough to file on its own.\n\nCandidates: ${describe()}`,
-              options: match.candidates.slice(0, 3).map((c, i) => ({ id: `room-${c.room.id}`, label: c.room.title, recommended: i === 0, confidence: c.score })).concat([{ id: 'new-room', label: 'A new room', recommended: false, confidence: 0 }]),
-              contextUrl: roomHref(match.best.room.id),
-              sourceRef: args.document_id ? `data-room:file:${args.document_id}` : null,
-              risk: 'low',
-              agentSlug: ctx.agentSlug ?? null,
-            },
-          });
-          return `Not filed — the match is plausible but not clear (${describe()}). Asked a person to confirm (ask #${ask.id}). When they choose, file it with room_id.`;
         } else {
-          const { ask } = await upsertAsk({
-            orgId: ctx.orgId,
-            createdBy: author.id,
-            ask: {
-              kind: 'recommendation',
-              title: `New opportunity? "${title}" matches no data room`,
-              body: `Nothing filed yet. Open a room for it if this is a new engagement${match.candidates.length ? `; nearest rooms: ${describe()}` : ''}.`,
-              options: [{ id: 'open-room', label: 'Open a data room', recommended: true, confidence: 0.5 }, { id: 'ignore', label: 'Not an engagement', recommended: false }],
-              sourceRef: args.document_id ? `data-room:new:${args.document_id}` : null,
-              risk: 'low',
-              agentSlug: ctx.agentSlug ?? null,
-            },
-          });
-          return `Not filed — no data room matches "${title}"${match.candidates.length ? ` (nearest: ${describe()})` : ''}. Asked a person whether this is a new opportunity (ask #${ask.id}). Do not open a room on a guess; if they say yes, create_data_room then file with room_id.`;
+          const { ask, kind } = await proposeFiling(ctx.orgId, author.id, ctx.agentSlug ?? null, { title, documentId: args.document_id }, match);
+          return kind === 'confirm'
+            ? `Not filed — the match is plausible but not clear (${describe()}). Asked a person to confirm (ask #${ask.id}). When they choose, file it with room_id.`
+            : `Not filed — no data room matches "${title}"${match.candidates.length ? ` (nearest: ${describe()})` : ''}. Asked a person whether this is a new opportunity (ask #${ask.id}). Do not open a room on a guess; if they say yes, create_data_room then file with room_id.`;
         }
       }
       // Pasted material with no document behind it is kept as a note
@@ -374,6 +402,34 @@ export function addOpenItemTool(ctx: RuntimeContext) {
   );
 }
 
+export function unfileFromDataRoomTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const found = await resolveRoom(ctx, args.room_id);
+      if ('error' in found) {
+        return found.error;
+      }
+      if (!args.document_id && !args.artifact_id) {
+        return 'Say which source: document_id or artifact_id (read_data_room lists them).';
+      }
+      const out = await unfileFromDataRoom(ctx.orgId, found.id, { documentId: args.document_id, artifactId: args.artifact_id });
+      if (!out) {
+        return `Nothing to take out — data room #${found.id} has no source with that id.`;
+      }
+      return `Took "${out.removed.title}" out of data room #${out.room.id} "${out.room.title}"${out.removed.filedBy === 'auto' ? ' (it had been filed automatically)' : ''}. ${out.removed.documentId ? 'The collector will not file it there again on its own; file_to_data_room with room_id puts it back deliberately.' : ''}${out.room.meta.sources?.length ?? 0} sources remain.`;
+    },
+    {
+      name: 'unfile_from_data_room',
+      description: 'Take a source back out of a data room — the undo of a filing, including one the collector made automatically. The document stays in the knowledge base; only the room\'s link to it goes, and the room remembers not to auto-file it again. A decision log filed with it stays as an artifact.',
+      schema: z.object({
+        room_id: z.number().int().positive().optional(),
+        document_id: z.number().int().positive().optional(),
+        artifact_id: z.number().int().positive().optional(),
+      }),
+    },
+  );
+}
+
 export function dataRoomTools(ctx: RuntimeContext) {
-  return [listDataRoomsTool(ctx), readDataRoomTool(ctx), createDataRoomTool(ctx), updateDataRoomTool(ctx), fileToDataRoomTool(ctx), addOpenItemTool(ctx)];
+  return [listDataRoomsTool(ctx), readDataRoomTool(ctx), createDataRoomTool(ctx), updateDataRoomTool(ctx), fileToDataRoomTool(ctx), unfileFromDataRoomTool(ctx), addOpenItemTool(ctx)];
 }
