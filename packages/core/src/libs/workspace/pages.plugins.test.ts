@@ -54,43 +54,76 @@ describe('plugin pages', () => {
     expect(readWorkspacePageContent(guide!)).toContain('# How the wiki works');
   });
 
-  it('Work is one queue over the request noun, and the outcome is the row', () => {
+  it('Work is one queue over the request noun, read as four lanes', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const work = pages.find(p => p.slug === 'work');
 
     // Work replaced the Backlog, Recommendations and the Factory floor. Those
-    // were three views of one thing. The request is the row; the engineering
-    // tasks it spawned are COUNTED on it, and the chain of contract, runs,
-    // checks and pull request is one tap away on the report.
+    // were three views of one thing. The outcome is the row, and the seven
+    // internal states are read as the four lanes a person manages, by the
+    // named derivation rather than by the manifest.
     expect(issues).toEqual([]);
     expect(work?.origin).toBe('plugin:software-factory');
     expect(work?.archetype).toBe('list');
     expect(work?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(work?.groupBy).toBe('meta.state');
-    expect(work?.stats?.map(s => s.label)).toContain('Waiting on a person');
-    expect(work?.fields?.find(f => f.key === 'tasks')).toMatchObject({ from: 'meta.taskCount' });
-    expect(work?.rowLink).toBe('/dashboard/objects/{id}');
-    expect(work?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
-    // Declined requests are the archive, not the queue.
-    expect(work?.filters).toEqual([{ field: 'meta.state', op: 'neq', value: 'out_of_scope' }]);
+    expect(work?.derive).toBe('workQueue');
+    expect(work?.groupBy).toBe('meta.lane');
+    expect(work?.sort).toEqual({ field: 'meta.order', dir: 'asc' });
+    // The row IS the drill-down; the "Report" affordance beside it is gone.
+    expect(work?.rowLink).toBe('/dashboard/p/feature/{id}');
+    expect(work?.rowActions).toEqual([]);
   });
 
-  it('every Work row carries a reason from the closed list, never a bare priority', () => {
+  it('Work says four things on top, and neither of the two internal metrics', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const work = pages.find(p => p.slug === 'work');
+    const labels = work?.stats?.map(s => s.label) ?? [];
+
+    // 6 next, 1 in progress, 3 waiting, nothing urgent. Tasks written was
+    // plumbing; decision minutes belongs to the lane it describes, and rides
+    // on the Waiting heading instead of standing alone as a figure.
+    expect(labels).toEqual(['Next', 'In progress', 'Waiting on you', 'Urgent']);
+    expect(labels).not.toContain('Tasks written');
+    expect(labels).not.toContain('Decision minutes owed');
+    // Each figure counts the WHOLE queue, not the part a capped lane drew.
+    expect(work?.stats?.every(s => s.kind === 'max')).toBe(true);
+  });
+
+  it('a Work row is about five things, and says why in words', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
     const work = pages.find(p => p.slug === 'work');
     const keys = work?.fields?.map(f => f.key) ?? [];
 
-    // A number like 62 explains nothing. `meta.why` is the closed list of
-    // reason codes and `meta.priorityReason` is the same judgement in a
-    // sentence. A request ranked before the codes existed shows an empty
-    // cell, which is honest; a number in its place would not be.
+    // The outcome, why it is here, what is happening to it, which product,
+    // what it costs. Plus the rank and the conditional facts, both of which
+    // draw nothing when there is nothing to say.
+    expect(keys).toEqual(['title', 'why', 'flags', 'rank', 'status', 'product', 'cost']);
+    expect(work?.primary).toEqual({ field: 'title', subtitle: ['why', 'flags'] });
+
+    // Sixteen fields became these. The record's own vocabulary is gone.
+    for (const gone of ['state', 'decision', 'proposed', 'kind', 'severity', 'size', 'channel', 'tasks', 'estimate', 'actual', 'asked', 'decided', 'reason']) {
+      expect(keys).not.toContain(gone);
+    }
+  });
+
+  it('every Work row carries a reason in human words, never a code and never a bare priority', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const work = pages.find(p => p.slug === 'work');
+    const keys = work?.fields?.map(f => f.key) ?? [];
+
+    // A number like 62 explains nothing, and neither does `manual_toil`. The
+    // codes are still the closed list underneath; the row reads the sentence
+    // the derivation built from them, and a row with no reason says nothing
+    // at all rather than "not recorded".
     expect(keys).toContain('why');
-    expect(work?.fields?.find(f => f.key === 'why')).toMatchObject({ from: 'meta.why' });
-    expect(work?.fields?.find(f => f.key === 'reason')).toMatchObject({ from: 'meta.priorityReason' });
-    expect(keys).not.toContain('priority');
+    expect(work?.fields?.find(f => f.key === 'why')).toMatchObject({ from: 'meta.whyLine' });
+    expect(work?.fields?.some(f => f.from === 'meta.why')).toBe(false);
     expect(work?.fields?.some(f => f.from === 'meta.priority')).toBe(false);
+    expect(keys).not.toContain('priority');
   });
 
   it('the software factory ships five surfaces, not ten, and buries the evidence', () => {

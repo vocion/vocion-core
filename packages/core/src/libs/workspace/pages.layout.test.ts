@@ -60,6 +60,8 @@ describe('how hard a column holds on', () => {
 
     expect(page.fields?.map(f => f.priority)).toEqual([1, 1]);
     expect(page.fields?.map(f => f.hideWhenConstant)).toEqual([false, false]);
+    // A missing optional capability makes the interface smaller by default.
+    expect(page.fields?.map(f => f.hideWhenEmpty)).toEqual([true, true]);
   });
 });
 

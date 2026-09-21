@@ -94,9 +94,11 @@ describe('the software factory declares the page rather than core hard-coding it
     // A report is about one record, so it is reached from a row, not the nav.
     expect(feature?.nav.hidden).toBe(true);
     // Work and Performance are both lists of requests, so both reach the
-    // same report by the request's own id. The report is the drill target
-    // from every surface that names a request.
-    expect(work?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
+    // same report by the request's own id. On Work the ROW is the drill
+    // target, because the thing it opens is the outcome the row names, and a
+    // second affordance beside it was never a second meaning.
+    expect(work?.rowLink).toBe('/dashboard/p/feature/{id}');
+    expect(work?.rowActions).toEqual([]);
     expect(performance?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
   });
 });
