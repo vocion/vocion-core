@@ -28,7 +28,8 @@
  *         "steps": [                                  // tool calls, in order; each waits for its result
  *           { "tool": "render_document", "args": { "title": "…", "html": { "$file": "northwind-v1.html" } } }
  *         ],
- *         "reply": "The proposal is open beside you: 6 sheets, verified."
+ *         "reply": "The proposal is open beside you: 6 sheets, verified.",
+ *         "fails": { "after": "half a sentence", "reason": "connection reset" }
  *       }
  *     ],
  *     "fallback": "This scripted model has no line for that."
@@ -55,10 +56,21 @@ const StepSchema = z.object({
   tool: z.string().min(1),
   args: z.record(z.string(), z.unknown()).default({}),
 });
+/**
+ * A turn that dies part-way: the model speaks `after` and then throws with
+ * `reason`. The point is the half-answer — the only way to rehearse what the
+ * product does when a run fails after the person has already read some of it
+ * (#114), without waiting for a real model to drop a connection.
+ */
+const FailureSchema = z.object({
+  after: z.string().default(''),
+  reason: z.string().default('the scripted model was told to fail here'),
+});
 const TurnSchema = z.object({
   match: z.string().min(1),
   steps: z.array(StepSchema).default([]),
   reply: z.string().default('Done.'),
+  fails: FailureSchema.optional(),
 });
 export const ScriptSchema = z.object({
   turns: z.array(TurnSchema).min(1),
@@ -194,6 +206,18 @@ export class ScriptedChatModel extends BaseChatModel {
    * @param runManager
    */
   override async* _streamResponseChunks(messages: BaseMessage[], _options: this['ParsedCallOptions'], runManager?: CallbackManagerForLLMRun): AsyncGenerator<ChatGenerationChunk> {
+    const failure = this.failureFor(messages);
+    if (failure) {
+      // Speak the fragment, then die on it — the shape of a run that loses its
+      // model half way through an answer.
+      const partial = new ChatGenerationChunk({
+        text: failure.after,
+        message: new AIMessageChunk({ content: failure.after }),
+      });
+      yield partial;
+      await runManager?.handleLLMNewToken(failure.after);
+      throw new Error(failure.reason);
+    }
     const result = await this._generate(messages);
     const message = result.generations[0]!.message as AIMessage;
     const text = typeof message.content === 'string' ? message.content : '';
@@ -207,6 +231,21 @@ export class ScriptedChatModel extends BaseChatModel {
     });
     yield chunk;
     await runManager?.handleLLMNewToken(text);
+  }
+
+  /**
+   * The failure this turn is scripted to hit, if any — read at the point the
+   * model would otherwise speak its reply, so a turn's tool steps still run
+   * before it dies.
+   * @param messages - The conversation so far, as the runtime hands it over.
+   */
+  failureFor(messages: BaseMessage[]): { after: string; reason: string } | null {
+    const { human, toolResults } = positionInTurn(messages);
+    const turn = matchTurn(this.script, human);
+    if (!turn?.fails || turn.steps[toolResults]) {
+      return null;
+    }
+    return turn.fails;
   }
 
   async _generate(messages: BaseMessage[]): Promise<ChatResult> {

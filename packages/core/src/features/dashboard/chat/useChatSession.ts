@@ -796,8 +796,13 @@ export function useChatSession({
         setActivity(null);
         const message = String(evt.message ?? 'error');
         lastRunIsTextRef.current = false;
+        // The turn stops here with whatever text already arrived. Marking it
+        // now means the live transcript says the same thing the reloaded one
+        // will — the server writes the row `incomplete` from the same event
+        // (#114) — instead of the failure showing only as a tool breadcrumb.
         appendToLatestAgent(m => ({
           ...m,
+          status: 'incomplete' as const,
           runs: [...(m.runs ?? []), { type: 'tool', name: 'error', state: 'error', output: message }],
         }));
       }

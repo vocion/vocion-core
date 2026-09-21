@@ -458,4 +458,41 @@ describe('useChatSession', () => {
     expect(failed[0]).toMatchObject({ name: 'recommend_action' });
     expect((failed[0] as { output?: string }).output).toMatch(/named no action/);
   });
+
+  /**
+   * A run that dies mid-answer leaves text on screen (#114). The live
+   * transcript has to say so there and then, or the same turn reads one way
+   * now and another way after a reload, when the persisted row's `incomplete`
+   * arrives.
+   */
+  it('marks the turn incomplete when the stream reports an error mid-answer', async () => {
+    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
+    vi.mocked(client.conversations.create).mockResolvedValue({ id: 41 } as never);
+    const encoder = new TextEncoder();
+    const frames = [
+      'data: {"type":"response_delta","delta":"Four deals closed last month, worth"}\n\n',
+      'data: {"type":"error","message":"model connection reset"}\n\n',
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const f of frames) {
+            controller.enqueue(encoder.encode(f));
+          }
+          controller.close();
+        },
+      }),
+    }));
+
+    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
+    await vi.waitFor(() => expect(result.current.booted).toBe(true));
+    await result.current.sendMessage('how many deals closed?');
+
+    await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
+    const assistant = result.current.messages[1]!;
+
+    expect(assistant.status).toBe('incomplete');
+    expect(assistant.content).toContain('Four deals closed last month, worth');
+  });
 });
