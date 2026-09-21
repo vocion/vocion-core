@@ -54,61 +54,79 @@ describe('plugin pages', () => {
     expect(readWorkspacePageContent(guide!)).toContain('# How the wiki works');
   });
 
-  it('the software-factory floor is a list over the engineering_task object', () => {
+  it('Work is one queue over the request noun, and the outcome is the row', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
-    const floor = pages.find(p => p.slug === 'factory-floor');
+    const work = pages.find(p => p.slug === 'work');
 
-    // The task is the record a person reads and the worker_run underneath it
-    // is the lease — so the floor needs no worker-run source, only the
-    // objects source the list archetype already has.
+    // Work replaced the Backlog, Recommendations and the Factory floor. Those
+    // were three views of one thing. The request is the row; the engineering
+    // tasks it spawned are COUNTED on it, and the chain of contract, runs,
+    // checks and pull request is one tap away on the report.
     expect(issues).toEqual([]);
-    expect(floor?.origin).toBe('plugin:software-factory');
-    expect(floor?.archetype).toBe('list');
-    expect(floor?.source).toEqual({ kind: 'objects', objectType: 'engineering_task' });
-    expect(floor?.stats?.map(s => s.label)).toContain('Waiting on a person');
-    expect(floor?.rowLink).toBe('/dashboard/objects/{id}');
+    expect(work?.origin).toBe('plugin:software-factory');
+    expect(work?.archetype).toBe('list');
+    expect(work?.source).toEqual({ kind: 'objects', objectType: 'request' });
+    expect(work?.groupBy).toBe('meta.state');
+    expect(work?.stats?.map(s => s.label)).toContain('Waiting on a person');
+    expect(work?.fields?.find(f => f.key === 'tasks')).toMatchObject({ from: 'meta.taskCount' });
+    expect(work?.rowLink).toBe('/dashboard/objects/{id}');
+    expect(work?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
+    // Declined requests are the archive, not the queue.
+    expect(work?.filters).toEqual([{ field: 'meta.state', op: 'neq', value: 'out_of_scope' }]);
   });
 
-  it('the software-factory ships seven rows in its own section — five object lists, the run log, and a link to the team report', () => {
+  it('every Work row carries a reason from the closed list, never a bare priority', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const work = pages.find(p => p.slug === 'work');
+    const keys = work?.fields?.map(f => f.key) ?? [];
+
+    // A number like 62 explains nothing. `meta.why` is the closed list of
+    // reason codes and `meta.priorityReason` is the same judgement in a
+    // sentence. A request ranked before the codes existed shows an empty
+    // cell, which is honest; a number in its place would not be.
+    expect(keys).toContain('why');
+    expect(work?.fields?.find(f => f.key === 'why')).toMatchObject({ from: 'meta.why' });
+    expect(work?.fields?.find(f => f.key === 'reason')).toMatchObject({ from: 'meta.priorityReason' });
+    expect(keys).not.toContain('priority');
+    expect(work?.fields?.some(f => f.from === 'meta.priority')).toBe(false);
+  });
+
+  it('the software factory ships five surfaces, not ten, and buries the evidence', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
 
     expect(issues).toEqual([]);
-    // The portfolio comes first (order 0) and its section is AppCurious; the
-    // Factory control plane shares order 0 under Business and sorts after it by
-    // title; the evidence pages sit under Software factory - intake, the ten in
-    // front of a person, work, what it cost.
-    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'factory', 'backlog', 'releases', 'changelog', 'feature', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report']);
-    expect(mine.filter(p => p.nav.section === 'Business').map(p => p.slug)).toEqual(['factory']);
-    expect(mine.filter(p => p.nav.section === 'AppCurious').map(p => p.slug)).toEqual(['portfolio', 'releases', 'changelog']);
-    // The feature report is about ONE request, so it is reached from a row on
-    // the Backlog or the Factory floor and is not a row of its own.
-    expect(mine.filter(p => p.nav.section === 'Software factory' && !p.nav.hidden)).toHaveLength(7);
-    expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
-    expect(pages.find(p => p.slug === 'backlog')?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(pages.find(p => p.slug === 'backlog')?.filters).toEqual([{ field: 'meta.state', op: 'in', value: ['new', 'triaged', 'in_scope'] }]);
-    expect(pages.find(p => p.slug === 'product-board')?.source).toEqual({ kind: 'objects', objectType: 'product' });
-    // The log is the workerRuns source; the PR column is a link into result.
-    expect(pages.find(p => p.slug === 'factory-log')?.source).toEqual({ kind: 'workerRuns', kinds: ['worker', 'lead', 'red-team'], limit: 200 });
-    expect(pages.find(p => p.slug === 'factory-log')?.fields?.find(f => f.key === 'pr')).toMatchObject({ from: 'meta.result.pr_url', format: 'link' });
-    // The report is a row for a core route, not a second report.
-    expect(pages.find(p => p.slug === 'team-report')).toMatchObject({ archetype: 'link', href: '/dashboard/team-report' });
+    // Business is what a person manages: the 60-second control plane, the
+    // products, the queue, the economics. Activity is evidence and lives
+    // under Advanced. The feature report and the releases detail are reached
+    // from a row rather than from the nav.
+    expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'performance', 'products', 'releases', 'work']);
+    expect(mine.filter(p => p.nav.section === 'Business' && !p.nav.hidden).map(p => p.slug)).toEqual(['factory', 'products', 'work', 'performance']);
+    expect(mine.filter(p => p.nav.section === 'Advanced' && !p.nav.hidden).map(p => p.slug)).toEqual(['activity']);
+    expect(mine.filter(p => p.nav.hidden).map(p => p.slug).sort()).toEqual(['feature', 'releases']);
+
+    // The pages that were merged away are gone, not hidden.
+    for (const slug of ['backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
+      expect(pages.find(p => p.slug === slug)).toBeUndefined();
+    }
   });
 
-  it('the floor and the log are live, and the log reads the heartbeat', () => {
+  it('Work and Activity are live, and Activity reads the worker heartbeat', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
-    const log = pages.find(p => p.slug === 'factory-log');
-    const fields = Object.fromEntries((log?.fields ?? []).map(f => [f.key, f]));
+    const activity = pages.find(p => p.slug === 'activity');
+    const fields = Object.fromEntries((activity?.fields ?? []).map(f => [f.key, f]));
 
     // A worker heartbeats every ~30s; 15s keeps a running row moving without
     // a request the database would notice. No other page is live.
     expect(issues).toEqual([]);
-    expect(pages.find(p => p.slug === 'factory-floor')?.live).toEqual({ every: 15 });
-    expect(log?.live).toEqual({ every: 15 });
-    expect(pages.filter(p => p.origin === 'plugin:software-factory' && p.live).map(p => p.slug)).toEqual(['factory-floor', 'factory-log']);
+    expect(pages.find(p => p.slug === 'work')?.live).toEqual({ every: 15 });
+    expect(activity?.live).toEqual({ every: 15 });
+    expect(pages.filter(p => p.origin === 'plugin:software-factory' && p.live).map(p => p.slug).sort()).toEqual(['activity', 'work']);
+    expect(activity?.source).toEqual({ kind: 'workerRuns', kinds: ['worker', 'lead', 'red-team'], limit: 200 });
     // What the worker said, when it last spoke, how long its lease holds, whether it was told to stop.
     expect(fields.progress).toMatchObject({ from: 'meta.progress', format: 'progress' });
     expect(fields.heartbeat).toMatchObject({ from: 'meta.heartbeatAt', format: 'relative' });
@@ -116,68 +134,60 @@ describe('plugin pages', () => {
     expect(fields.stop).toMatchObject({ from: 'meta.stopRequested', format: 'badge', tones: { true: 'warn' } });
   });
 
-  it('the portfolio reads agent-maintained counters off the product record, and says so', () => {
+  it('Products is the one product page, and says where its counters came from', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
-    const portfolio = pages.find(p => p.slug === 'portfolio');
+    const products = pages.find(p => p.slug === 'products');
     const releases = pages.find(p => p.slug === 'releases');
 
-    expect(portfolio?.source).toEqual({ kind: 'objects', objectType: 'product' });
-    expect(portfolio?.nav).toMatchObject({ section: 'AppCurious', order: 0 });
-
-    // Every maintained counter carries its provenance in the label; revenue says it has no source.
-    const labels = portfolio?.fields?.map(f => f.label ?? f.key) ?? [];
-
-    expect(labels.filter(l => l.includes('agent-maintained'))).toHaveLength(4);
-    expect(labels).toContain('Revenue (no source yet)');
-    expect(readWorkspacePageContent(portfolio!)).toContain('agent-maintained');
+    // Products absorbed the portfolio and the Product board, which were two
+    // weaker copies of one page.
+    expect(products?.source).toEqual({ kind: 'objects', objectType: 'product' });
+    expect(products?.nav).toMatchObject({ section: 'Business', order: 1 });
+    expect(readWorkspacePageContent(products!)).toContain('agent-maintained');
+    // Releases keeps the detail, off the nav, newest first.
     expect(releases?.source).toEqual({ kind: 'objects', objectType: 'release' });
     expect(releases?.sort).toEqual({ field: 'meta.releasedAt', dir: 'desc' });
-    // The changelog is the same rows for the public's eyes: the announcement line, never the diff.
-    expect(pages.find(p => p.slug === 'changelog')).toMatchObject({ source: { kind: 'objects', objectType: 'release' }, nav: { section: 'AppCurious' } });
-    expect(pages.find(p => p.slug === 'changelog')?.fields?.map(f => f.from)).toContain('meta.announcement');
-    // Size class is on the backlog and the floor as a badge.
-    expect(pages.find(p => p.slug === 'backlog')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
-    expect(pages.find(p => p.slug === 'factory-floor')?.fields?.find(f => f.key === 'size')).toMatchObject({ from: 'meta.sizeClass', format: 'badge' });
+    expect(releases?.nav.hidden).toBe(true);
   });
 
-  it('the costs page reads rolled-up cents off the request, groups by tag with totals, and renders money', () => {
+  it('Performance leads with four numbers and never blends the two autonomy measures', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
-    const costs = pages.find(p => p.slug === 'costs');
-    const fields = Object.fromEntries((costs?.fields ?? []).map(f => [f.key, f]));
+    const perf = pages.find(p => p.slug === 'performance');
+    const fields = Object.fromEntries((perf?.fields ?? []).map(f => [f.key, f]));
+    const labels = (perf?.stats ?? []).map(s => s.label);
 
     expect(issues).toEqual([]);
-    // Rows are requests; the figures are on the record, put there by the
-    // roll-up, so the page never computes across types itself.
-    expect(costs?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(costs?.groupBy).toBe('meta.tags');
+    // Rows are requests; the figures are rolled up onto the record when a
+    // task's cost is written, so the page never computes across types.
+    expect(perf?.source).toEqual({ kind: 'objects', objectType: 'request' });
+    expect(perf?.groupBy).toBe('meta.tags');
     expect(fields.estimate).toMatchObject({ from: 'meta.estimateCents', format: 'money', total: true });
     expect(fields.actual).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
     expect(fields.variance).toMatchObject({ from: 'meta.varianceCents', format: 'money', total: true });
-    expect(fields.tasks).toMatchObject({ from: 'meta.taskCount' });
 
-    // Every stat that is money says so; the month window is a `since`.
-    const stats = Object.fromEntries((costs?.stats ?? []).map(s => [s.label, s]));
+    // The four headline numbers come first, in order, before the evidence.
+    expect(labels.slice(0, 4)).toEqual([
+      'Spent this month',
+      'Accepted changes (requests shipped)',
+      'Cost per accepted change',
+      'Waste: spent, then answered instead of shipped',
+    ]);
 
-    expect(stats['Total spent']).toMatchObject({ kind: 'sum', field: 'meta.actualCents', format: 'money' });
+    // Work autonomy and human attention are named separately. "94%
+    // auto-completed" beside "32 need attention" creates questions, not
+    // confidence, so neither is averaged into the other.
+    expect(labels.filter(l => l.startsWith('Work autonomy:'))).toHaveLength(2);
+    expect(labels.filter(l => l.startsWith('Human attention:'))).toHaveLength(2);
+    expect(labels.some(l => /^Autonomy$/.test(l))).toBe(false);
+
+    const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
+
     expect(stats['Spent this month']).toMatchObject({ kind: 'sum', where: { field: 'meta.rollupsUpdatedAt', op: 'since', value: 'month' } });
     expect(stats['Average cost of a feature']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'in', value: ['gap', 'idea'] } });
     expect(stats['Average cost of a bug']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'eq', value: 'bug' } });
-    expect(readWorkspacePageContent(costs!)).toContain('estimated');
-
-    // The floor carries the historical read: eight weeks, estimated beside actual, by the week the cost landed.
-    const floor = pages.find(p => p.slug === 'factory-floor');
-
-    expect(floor?.series).toEqual([expect.objectContaining({ dateField: 'meta.costUpdatedAt', bucket: 'week', buckets: 8, format: 'money', measures: [expect.objectContaining({ field: 'meta.estimateCents' }), expect.objectContaining({ field: 'meta.actualCents' })] })]);
-
-    // Backlog and releases carry the two money columns with totals.
-    for (const slug of ['backlog', 'releases', 'factory-floor']) {
-      const fs = pages.find(p => p.slug === slug)?.fields ?? [];
-
-      expect(fs.find(f => f.key === 'estimate')).toMatchObject({ from: 'meta.estimateCents', format: 'money', total: true });
-      expect(fs.find(f => f.key === 'actual')).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
-    }
+    expect(readWorkspacePageContent(perf!)).toContain('estimated');
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {
@@ -214,11 +224,11 @@ describe('plugin pages', () => {
     it('contribute their pages when the mounted workspace has none on', () => {
       workspace('');
       const { pages, issues } = readWorkspacePages({ enabledPlugins: ['software-factory'] });
-      const floor = pages.find(p => p.slug === 'factory-floor');
+      const work = pages.find(p => p.slug === 'work');
 
       expect(issues).toEqual([]);
-      expect(floor?.origin).toBe('plugin:software-factory');
-      expect(pagePlugin(floor!)).toBe('software-factory');
+      expect(work?.origin).toBe('plugin:software-factory');
+      expect(pagePlugin(work!)).toBe('software-factory');
       expect(pages.map(p => p.slug)).not.toContain('wiki');
     });
 
@@ -229,22 +239,22 @@ describe('plugin pages', () => {
       expect(issues).toEqual([]);
       expect(pages.filter(p => p.slug === 'wiki')).toHaveLength(1);
       expect(pages.find(p => p.slug === 'wiki')?.origin).toBe('plugin:wiki');
-      expect(pages.find(p => p.slug === 'factory-floor')?.origin).toBe('plugin:software-factory');
+      expect(pages.find(p => p.slug === 'work')?.origin).toBe('plugin:software-factory');
     });
 
     it('still yield to a same-slug workspace page', () => {
-      workspace('', { 'pages/factory-floor.yaml': 'slug: factory-floor\ntitle: Our floor\narchetype: markdown\n' });
-      const floor = readWorkspacePages({ enabledPlugins: ['software-factory'] }).pages.filter(p => p.slug === 'factory-floor');
+      workspace('', { 'pages/work.yaml': 'slug: work\ntitle: Our work\narchetype: markdown\n' });
+      const work = readWorkspacePages({ enabledPlugins: ['software-factory'] }).pages.filter(p => p.slug === 'work');
 
-      expect(floor).toHaveLength(1);
-      expect(floor[0]?.origin).toBe('workspace');
-      expect(floor[0]?.title).toBe('Our floor');
+      expect(work).toHaveLength(1);
+      expect(work[0]?.origin).toBe('workspace');
+      expect(work[0]?.title).toBe('Our work');
     });
 
     it('are read even with no workspace mounted at all', () => {
       delete process.env.WORKSPACE_PATH;
 
-      expect(readWorkspacePages({ enabledPlugins: ['software-factory'] }).pages.find(p => p.slug === 'factory-floor')?.origin).toBe('plugin:software-factory');
+      expect(readWorkspacePages({ enabledPlugins: ['software-factory'] }).pages.find(p => p.slug === 'work')?.origin).toBe('plugin:software-factory');
     });
 
     it('report a plugin this core no longer ships instead of throwing', () => {
@@ -259,7 +269,7 @@ describe('plugin pages', () => {
       workspace('plugins: [wiki]\n');
 
       expect(readWorkspacePages().pages.map(p => p.slug)).toEqual(readWorkspacePages({}).pages.map(p => p.slug));
-      expect(readWorkspacePages().pages.map(p => p.slug)).not.toContain('factory-floor');
+      expect(readWorkspacePages().pages.map(p => p.slug)).not.toContain('work');
     });
   });
 
@@ -274,7 +284,7 @@ describe('plugin pages', () => {
       expect(issues).toEqual([]);
       expect(pages.map(p => p.slug)).not.toContain('ours');
       expect(pages.map(p => p.slug)).not.toContain('wiki');
-      expect(pages.find(p => p.slug === 'factory-floor')?.origin).toBe('plugin:software-factory');
+      expect(pages.find(p => p.slug === 'work')?.origin).toBe('plugin:software-factory');
     });
 
     it('is read in full for the project it belongs to, and by default', () => {

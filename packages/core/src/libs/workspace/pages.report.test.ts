@@ -84,8 +84,8 @@ describe('the software factory declares the page rather than core hard-coding it
 
     const { pages, issues } = readWorkspacePages();
     const feature = pages.find(p => p.slug === 'feature');
-    const backlog = pages.find(p => p.slug === 'backlog');
-    const floor = pages.find(p => p.slug === 'factory-floor');
+    const work = pages.find(p => p.slug === 'work');
+    const performance = pages.find(p => p.slug === 'performance');
 
     expect(issues).toEqual([]);
     expect(feature?.origin).toBe('plugin:software-factory');
@@ -93,9 +93,10 @@ describe('the software factory declares the page rather than core hard-coding it
     expect(feature?.report).toEqual({ subject: 'request' });
     // A report is about one record, so it is reached from a row, not the nav.
     expect(feature?.nav.hidden).toBe(true);
-    // Both boards reach the same report — the backlog by the request's own
-    // id, the floor by the request the task serves.
-    expect(backlog?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
-    expect(floor?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{meta.requestId}' }]);
+    // Work and Performance are both lists of requests, so both reach the
+    // same report by the request's own id. The report is the drill target
+    // from every surface that names a request.
+    expect(work?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
+    expect(performance?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
   });
 });

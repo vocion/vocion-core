@@ -59,7 +59,7 @@ describe('the shipped catalogue', () => {
     expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-debrief', 'product-review', 'stand-up-product', 'tell-the-requester']);
     // Every way the product manager acts is an automation — visible, pausable, named after the mission it serves.
     expect(factory.automations.filter(a => a.startsWith('product-'))).toEqual(['product-batch-decided', 'product-debrief', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
-    expect(factory.pages).toEqual(['backlog', 'changelog', 'costs', 'factory', 'factory-floor', 'factory-log', 'feature', 'portfolio', 'product-board', 'recommendations', 'releases', 'team-report']);
+    expect(factory.pages).toEqual(['activity', 'factory', 'feature', 'performance', 'products', 'releases', 'work']);
     expect(factory.hasTrust).toBe(true);
   });
 

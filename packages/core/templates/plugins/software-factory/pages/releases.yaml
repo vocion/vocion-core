@@ -1,13 +1,20 @@
-# Releases — what actually reached people, newest first. The row the
-# portfolio's "shipped this month" counts and the row `tell-the-requester`
-# reads to close the loop. Written by the deploy — a script or the engineer —
-# over POST /api/v1/objects with the deploy's own key, then the health result
-# against the same row once the post-deploy check has run.
+# Releases. What actually reached people, newest first.
+#
+# Buried under Activity: it has no nav row of its own, and is reached from
+# Activity and from Products. It now carries the announcement line the
+# Changelog used to show on a page of its own, so the public wording of every
+# release is still one place, beside the deploy that carried it.
+#
+# The row the Products board's "shipped this month" counts, and the row
+# `tell-the-requester` reads to close the loop. Written by the deploy (a
+# script or the engineer) over POST /api/v1/objects with the deploy's own key,
+# then the health result against the same row once the post-deploy check has
+# run.
 slug: releases
 title: Releases
-description: Every deploy that reached people — product, version, what it carried, what the post-deploy check said, and who has been told.
+description: Every deploy that reached people, with product, version, what it carried, the announcement line the public reads, what the post-deploy check said, and who has been told.
 icon: rocket
-nav: {section: AppCurious, order: 1}
+nav: {section: Advanced, order: 2, hidden: true}
 archetype: list
 source: {kind: objects, objectType: release}
 sort: {field: meta.releasedAt, dir: desc}
@@ -37,5 +44,7 @@ fields:
   - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true, priority: 2}
   - {key: notesBy, label: Notes by, from: meta.notesSource, format: badge, tones: {agent: info, human: ok}, priority: 3}
   - {key: announced, label: Announced, from: meta.announcedAt, format: date, priority: 2}
-  - {key: announcement, label: Announcement, from: meta.announcement, priority: 3}
+  # The line the public reads. This is what the Changelog page carried; it
+  # is a column here rather than a page of its own.
+  - {key: announcement, label: What shipped, from: meta.announcement}
 rowLink: /dashboard/objects/{id}
