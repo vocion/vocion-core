@@ -128,6 +128,7 @@ entry needs `systemPrompt` or `systemPromptFile`.
 | `provider` | — | — | Pre-rename name for `runsOn`, with values `local` / `runtime` / `agentcore`. Still read and normalised; not written back. |
 | `interrupts` | string[] | `[]` | Skill or tool slugs that pause for human approval before executing. |
 | `maxTokens` | positive int | — | Cap on the model's output tokens. |
+| `promptCache` | bool | — | Whether turns ask the vendor to cache the prompt prefix. Unset lets the caller decide, so eval runs cache and ordinary chat does not. `false` refuses caching even on an eval run; `true` caches every turn. |
 | `excludeTools` | string[] | `[]` | Withhold built-in tools by name — e.g. `propose_action` for an agent that should have no CRM-write surface at all. The tools that write are listed in the [agent tools guide](../guides/agent-tools.md). |
 | `grantTools` | string[] | `[]` | The inverse: tools too powerful to be default-on, granted only to agents that name them. |
 | `model` | string | — | Model override for the `agentcore` / `runtime` providers. |

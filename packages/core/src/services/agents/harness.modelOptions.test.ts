@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 // have to be satisfiable for the module to load.
 vi.mock('@/libs/DB');
 
-const { chatModelOptionsFor } = await import('./harness');
+const { chatModelOptionsFor, withPromptCacheRequest } = await import('./harness');
 
 /**
  * Which chat model an agent's harness block asks for.
@@ -65,5 +65,48 @@ describe('chatModelOptionsFor', () => {
 
   it('omits an empty model string rather than asking for a nameless model', () => {
     expect(chatModelOptionsFor({ modelProvider: 'bedrock', model: '' })).toEqual({ provider: 'bedrock' });
+  });
+});
+
+/**
+ * Who decides whether a turn's prompt prefix is cached.
+ *
+ * Two parties have an opinion: the eval runner, which asks for caching
+ * because its cases re-read fetched pages every turn, and the agent's author,
+ * who may have a reason this agent must not be cached. The author wins, and
+ * that is the rule worth a test — an agent marked `promptCache: false` that
+ * quietly cached anyway would be a privacy answer silently reversed.
+ */
+describe('withPromptCacheRequest', () => {
+  it('takes the caller\'s answer when the agent has no opinion', () => {
+    const options: { provider: string; promptCache?: boolean } = { provider: 'bedrock' };
+
+    expect(withPromptCacheRequest(options, true)).toEqual({ provider: 'bedrock', promptCache: true });
+  });
+
+  it('keeps an agent that refused caching refused, even on a run that asked for it', () => {
+    expect(withPromptCacheRequest({ promptCache: false }, true)).toEqual({ promptCache: false });
+  });
+
+  it('keeps an agent that asked for caching cached, on a run with no opinion', () => {
+    expect(withPromptCacheRequest({ promptCache: true }, undefined)).toEqual({ promptCache: true });
+  });
+
+  it('leaves the options untouched when nobody has an opinion', () => {
+    const options: { provider: string; promptCache?: boolean } = { provider: 'bedrock' };
+
+    expect(withPromptCacheRequest(options, undefined)).toEqual({ provider: 'bedrock' });
+  });
+});
+
+describe('chatModelOptionsFor and prompt caching', () => {
+  it('carries a false through, rather than dropping it as falsy', () => {
+    // A dropped `false` reads downstream as "no opinion", which is how an
+    // agent that refused caching would end up cached on an eval run.
+    expect(chatModelOptionsFor({ promptCache: false })).toEqual({ promptCache: false });
+  });
+
+  it('carries a true through', () => {
+    expect(chatModelOptionsFor({ promptCache: true })).toEqual({ promptCache: true });
   });
 });

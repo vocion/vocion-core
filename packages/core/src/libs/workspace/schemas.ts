@@ -749,6 +749,16 @@ export const AgentManifestSchema = z.object({
     model: z.string().optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
+     * Whether this agent's turns ask the vendor to cache the prompt prefix
+     * (`libs/llm/promptCache.ts`). Leave it unset unless there is a reason:
+     * unset lets the caller decide, and eval runs then cache while ordinary
+     * chat does not. `false` refuses caching even on an eval run, for an
+     * agent whose prompt carries something that must never sit in a vendor's
+     * cache; `true` caches every turn, for an agent whose turns are long and
+     * whose prefix barely changes.
+     */
+    promptCache: z.boolean().optional(),
+    /**
      * Structural guarantee for A2UI action cards: when true and a turn ends
      * with ZERO recommend_action calls, the runtime runs a small follow-up
      * pass over the finished answer that emits the cards the agent's rules

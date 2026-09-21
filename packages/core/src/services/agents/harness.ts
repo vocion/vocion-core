@@ -89,6 +89,15 @@ export type HarnessModelConfig = {
   model?: string;
   modelProvider?: 'anthropic' | 'openai' | 'bedrock';
   maxTokens?: number;
+  /**
+   * Whether this agent's turns ask the vendor to cache the prompt prefix.
+   *
+   * Authors set it to turn caching OFF for an agent that should never have
+   * one — `false` here beats a caller that asks for caching, which is what
+   * "unless explicitly configured otherwise" means. Unset leaves the decision
+   * to the caller: eval runs ask for it, ordinary chat does not.
+   */
+  promptCache?: boolean;
 };
 
 /**
@@ -120,13 +129,36 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
   provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
+  promptCache?: boolean;
 } {
   const provider = harnessConfig.modelProvider;
   return {
     ...(provider ? { provider } : {}),
     ...(provider && harnessConfig.model ? { model: harnessConfig.model } : {}),
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
+    ...(harnessConfig.promptCache === undefined ? {} : { promptCache: harnessConfig.promptCache }),
   };
+}
+
+/**
+ * The model options for a turn, with the caller's caching request applied.
+ *
+ * The agent's own `promptCache` wins when it names one, in both directions:
+ * an author who wrote `promptCache: false` gets no caching even on an eval
+ * run, and one who wrote `true` gets it on every turn. Everything else takes
+ * the caller's answer, which is how eval runs cache and ordinary chat does
+ * not.
+ * @param options - Model options built from the agent's harness block.
+ * @param requested - What the caller asked for, or undefined for no opinion.
+ */
+export function withPromptCacheRequest<T extends { promptCache?: boolean }>(
+  options: T,
+  requested: boolean | undefined,
+): T {
+  if (options.promptCache !== undefined || requested === undefined) {
+    return options;
+  }
+  return { ...options, promptCache: requested };
 }
 
 /**
@@ -183,7 +215,12 @@ export type CompiledAgentGraph = {
   agentRow: typeof agentSchema.$inferSelect;
 };
 
-async function buildGraph(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<CompiledAgentGraph> {
+async function buildGraph(
+  orgId: string,
+  agentSlug: string,
+  modelOverride?: ModelOverride,
+  promptCache?: boolean,
+): Promise<CompiledAgentGraph> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -355,7 +392,11 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     });
   }
 
-  const model = await buildChatModelForOrg('main', orgId, chatModelOptionsWithOverride(harnessConfig, modelOverride));
+  const model = await buildChatModelForOrg(
+    'main',
+    orgId,
+    withPromptCacheRequest(chatModelOptionsWithOverride(harnessConfig, modelOverride), promptCache),
+  );
 
   // Only mount deepagents' SkillsMiddleware when THIS AGENT actually
   // mounts something. The middleware requires initialized state fields and
@@ -408,14 +449,19 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
 export async function getCompiledAgent(
   orgId: string,
   agentSlug: string,
-  opts: { modelOverride?: ModelOverride } = {},
+  opts: { modelOverride?: ModelOverride; promptCache?: boolean } = {},
 ): Promise<CompiledAgentGraph> {
-  if (opts.modelOverride) {
+  if (opts.modelOverride || opts.promptCache !== undefined) {
     // An overridden graph is built fresh and never cached: the cache is keyed
     // on the agent, and a cached graph holding the candidate model would answer
     // the next ordinary chat turn on it. Building per call is the price of
     // keeping the agent's own model the only one the cache ever holds.
-    return buildGraph(orgId, agentSlug, opts.modelOverride);
+    //
+    // A caching request is the same story in a cheaper coat: the flag lives on
+    // the model inside the graph, so a cached graph built for an eval run
+    // would hand its cache instruction to the next chat turn, and a graph
+    // built for chat would silently ignore the eval runner's request.
+    return buildGraph(orgId, agentSlug, opts.modelOverride, opts.promptCache);
   }
   const key = cacheKey(orgId, agentSlug);
   const cached = graphCache.get(key);

@@ -20,6 +20,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { bedrockRegion, resolveBedrockCredentials } from './bedrockCredentials';
 import { thinkingBudgetFor } from './modelPrefs';
 import { resolveOrgProviderKey } from './orgKey';
+import { CachingChatAnthropic, CachingChatBedrockConverse } from './promptCache';
 import { llmMode } from './replay';
 import { getReplayCache } from './replayCache';
 import { buildScriptedChatModel } from './scripted';
@@ -310,6 +311,16 @@ export type BuildChatModelOptions = {
    * `us-west-2`.
    */
   region?: string;
+  /**
+   * Ask the vendor to cache the prompt prefix on every call (`./promptCache.ts`).
+   *
+   * The agent loop re-sends the conversation each turn, so a turn that read a
+   * web page pays for that page again on every later turn. Caching turns the
+   * repeat reads into cache hits at a tenth of the price. Off unless a caller
+   * asks, because a cache write costs more than an ordinary read and a
+   * one-shot call never reads the entry back.
+   */
+  promptCache?: boolean;
 };
 
 /**
@@ -339,6 +350,10 @@ export function buildChatModel(
   // provider below is constructed but never called.
   const mode = llmMode();
   const streaming = mode === 'live' ? (opts.streaming ?? true) : false;
+  // Same constructor arguments either way; the subclass only fills in a
+  // `cache_control` call option the agent graph does not know to pass.
+  const Anthropic = opts.promptCache ? CachingChatAnthropic : ChatAnthropic;
+  const BedrockConverse = opts.promptCache ? CachingChatBedrockConverse : ChatBedrockConverse;
 
   switch (provider) {
     case 'anthropic': {
@@ -354,7 +369,7 @@ export function buildChatModel(
         // value other than the default anyway. This branch was `enabled` +
         // `budget_tokens` + `temperature: 1` until 2026-09-15, all three of
         // which 4.7+ answer with a 400.
-        return withReplay(new ChatAnthropic({
+        return withReplay(new Anthropic({
           model,
           streaming,
           apiKey,
@@ -363,7 +378,7 @@ export function buildChatModel(
         }));
       }
       if (thinkingBudget !== null) {
-        return withReplay(new ChatAnthropic({
+        return withReplay(new Anthropic({
           model,
           // Pre-4.6: budgeted thinking requires temperature 1 — override the
           // deterministic default 0 ONLY on this opt-in path.
@@ -382,7 +397,7 @@ export function buildChatModel(
               : {}),
         }));
       }
-      return withReplay(new ChatAnthropic({
+      return withReplay(new Anthropic({
         model,
         // 4.6+/5-family models 400 on any sampling parameter — omit it.
         ...(anthropicOmitsSampling(model) ? {} : { temperature }),
@@ -413,7 +428,7 @@ export function buildChatModel(
       // shared profile, or the host's instance role. Refusing here because one
       // named env var is empty would break every host that authenticates by
       // instance role, which is how the deployed path already works.
-      return withReplay(new ChatBedrockConverse({
+      return withReplay(new BedrockConverse({
         model,
         region: opts.region ?? bedrockRegion(),
         // Bedrock is a different transport to the same models, so it refuses

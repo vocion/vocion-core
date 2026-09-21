@@ -145,3 +145,50 @@ describe('produceTranscripts', () => {
     expect(transcript?.errored).toBe(false);
   });
 });
+
+/**
+ * Whether a case pays full price for the page it already read.
+ *
+ * A case is a long tool-using turn: whatever it fetched is re-sent on every
+ * later turn, and without a cache instruction the vendor bills all of it
+ * again. One measured case on a 240 KB listing spent 912,786 input tokens
+ * over 13 turns, and a run of those took an AWS account past its daily
+ * Bedrock token quota — so "the runner forgot to ask for caching" is a bug
+ * that shows up as a throttled account rather than a failing test.
+ */
+describe('produceTranscripts and prompt caching', () => {
+  beforeEach(() => {
+    runAgentDeep.mockReset();
+  });
+
+  it('asks for prompt caching on every case by default', async () => {
+    runAgentDeep.mockResolvedValue(agentResult(['fetch_url']));
+
+    await produceTranscripts({
+      orgId: 'org_1',
+      agentSlug: 'ingestion',
+      datasetSlug: 'extraction',
+      items: [{ input: 'read the listing' }, { input: 'read the other listing' }],
+    });
+
+    expect(runAgentDeep).toHaveBeenCalledTimes(2);
+
+    for (const call of runAgentDeep.mock.calls) {
+      expect(call[0]).toMatchObject({ promptCache: true });
+    }
+  });
+
+  it('lets a caller run without caching when they say so', async () => {
+    runAgentDeep.mockResolvedValue(agentResult(['fetch_url']));
+
+    await produceTranscripts({
+      orgId: 'org_1',
+      agentSlug: 'ingestion',
+      datasetSlug: 'extraction',
+      items: [{ input: 'read the listing' }],
+      promptCache: false,
+    });
+
+    expect(runAgentDeep.mock.calls[0]?.[0]).toMatchObject({ promptCache: false });
+  });
+});

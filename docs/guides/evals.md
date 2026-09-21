@@ -1045,6 +1045,26 @@ Three things worth internalising:
 - **Span ingestion costs money too**, by volume into CloudWatch Logs, plus
   storage. Sampling is 1%.
 
+**The agent's own tokens are usually the bigger bill.** Grading a case costs
+a judge call; *running* it costs a whole tool-using turn, and the loop re-sends
+everything the agent fetched on every later turn. One measured case on a 240 KB
+event listing spent 912,786 input tokens over 13 turns — about fifteen times
+the page itself — and a handful of those took an AWS account past its daily
+Bedrock token quota (`ThrottlingException: Too many tokens per day`).
+
+Two things follow:
+
+- **Eval runs ask the vendor to cache the prompt prefix.** `produceTranscripts`
+  passes `promptCache: true` into every case, which builds the model as a
+  caching subclass (`libs/llm/promptCache.ts`) and sends `cache_control` on
+  each call — Bedrock turns that into `cachePoint` blocks on the system
+  prompt, the tool list and the last message. Repeat reads then bill at cache
+  rates instead of full price. Set `promptCache: false` on a run to turn it
+  off, and `harness.promptCache` on the agent to decide for that agent in
+  either direction — the agent wins.
+- **Weigh a source before you write a case against it.** A dataset whose
+  cases each read a 300 KB page is expensive whatever the grader does.
+
 **Online evaluation is the one to watch.** It bills every day it is enabled,
 whether or not anyone reads the number. That is why it is created switched off,
 and why "off" means disabled rather than deleted — you keep the configuration and

@@ -427,6 +427,19 @@ export async function runAgentDeep(opts: {
    * they ask for something beyond the agent's own defaults.
    */
   modelPrefs?: import('@/libs/llm/modelPrefs').ModelPrefs;
+  /**
+   * Ask the vendor to cache this turn's prompt prefix
+   * (`libs/llm/promptCache.ts`). The eval runner sets it: a case re-reads the
+   * page it fetched on every later turn, and without a cache each re-read is
+   * billed at full price — enough of them took an account past its daily
+   * Bedrock token quota. An agent whose harness block names `promptCache`
+   * overrides this, in either direction.
+   *
+   * Only the in-process loop reads it. The other harness targets build their
+   * own model out of process, and a payload field they would ignore is worse
+   * than an honest single path.
+   */
+  promptCache?: boolean;
 }): Promise<{
   response: string;
   traceId: string;
@@ -548,7 +561,10 @@ export async function runAgentDeep(opts: {
   const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
   const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
   const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, opts.modelPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
-  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, { modelOverride });
+  const compiled = await getCompiledAgent(opts.orgId, opts.agentSlug, {
+    modelOverride,
+    ...(opts.promptCache === undefined ? {} : { promptCache: opts.promptCache }),
+  });
   bindRequestEmit(compiled, emit, opts.userId, opts.allowedSourceSlugs, opts.missionSlug, opts.missionRunId, opts.conversationId, opts.pageContext, opts.timeZone);
   const boundCtx = (compiled as unknown as { __ctx: import('./agents/types').RuntimeContext }).__ctx;
 

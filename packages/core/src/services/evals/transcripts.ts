@@ -82,6 +82,7 @@ type CaseJob = {
   itemIndex: number;
   item: EvalDatasetItem;
   modelOverride: { model: string; provider?: LangChainProvider } | undefined;
+  promptCache: boolean;
 };
 
 export type ProduceTranscriptsOptions = {
@@ -93,6 +94,15 @@ export type ProduceTranscriptsOptions = {
   modelOverride?: { model: string; provider?: LangChainProvider };
   /** Defaults to `DEFAULT_CASE_CONCURRENCY`. */
   concurrency?: number;
+  /**
+   * Whether cases ask the vendor to cache the prompt prefix. On by default:
+   * an eval case is a long tool-using turn that re-sends whatever it fetched
+   * on every later turn, so the same page is billed again and again. One
+   * measured case on a 240 KB listing spent 912,786 input tokens over 13
+   * turns, and a run of those took an AWS account past its daily Bedrock
+   * token quota. An agent whose harness block sets `promptCache` still wins.
+   */
+  promptCache?: boolean;
 };
 
 /**
@@ -113,6 +123,7 @@ async function runCase(job: CaseJob): Promise<CaseTranscript> {
       message: job.item.input,
       userId: 'eval-runner',
       modelOverride: job.modelOverride,
+      promptCache: job.promptCache,
       // Names the session this case's spans land under, so a batch job can
       // address its expected answer to the same session the on-demand path
       // synthesizes. Without it every case in the dataset shares one session.
@@ -166,6 +177,9 @@ export async function produceTranscripts(options: ProduceTranscriptsOptions): Pr
     itemIndex,
     item,
     modelOverride: options.modelOverride,
+    // On unless the caller says otherwise. The agent's own harness block is
+    // the other place this can be turned off, and it wins over this.
+    promptCache: options.promptCache ?? true,
   }));
   return mapWithConcurrency(jobs, options.concurrency ?? DEFAULT_CASE_CONCURRENCY, runCase);
 }

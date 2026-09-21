@@ -340,3 +340,56 @@ describe('withPromptCache', () => {
     expect(blocks[1]?.cache_control).toEqual({ type: 'ephemeral' });
   });
 });
+
+/**
+ * Whether the built model carries a cache instruction.
+ *
+ * `promptCache` is the option an eval run sets to stop paying full price for
+ * the same fetched page on every turn. The failure it guards against is
+ * silent: an option that never changes the class produces identical-looking
+ * runs and a larger bill.
+ */
+describe('buildChatModel and prompt caching', () => {
+  const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
+  });
+
+  afterEach(() => {
+    if (originalAnthropic === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = originalAnthropic;
+    }
+  });
+
+  it('builds a caching model when the caller asks for one', async () => {
+    const { CachingChatAnthropic } = await import('./promptCache');
+
+    const model = buildChatModel('main', { provider: 'anthropic', model: 'claude-sonnet-4-6', promptCache: true });
+
+    expect(model).toBeInstanceOf(CachingChatAnthropic);
+  });
+
+  it('builds an ordinary model when nobody asked', async () => {
+    const { CachingChatAnthropic } = await import('./promptCache');
+
+    const model = buildChatModel('main', { provider: 'anthropic', model: 'claude-sonnet-4-6' });
+
+    expect(model).toBeInstanceOf(ChatAnthropic);
+    expect(model).not.toBeInstanceOf(CachingChatAnthropic);
+  });
+
+  it('builds a caching Bedrock model too, since that is where the quota bites', async () => {
+    const { CachingChatBedrockConverse } = await import('./promptCache');
+
+    const model = buildChatModel('main', {
+      provider: 'bedrock',
+      model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      promptCache: true,
+    });
+
+    expect(model).toBeInstanceOf(CachingChatBedrockConverse);
+  });
+});
