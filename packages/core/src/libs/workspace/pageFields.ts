@@ -214,6 +214,41 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+/**
+ * A trailing link on every row of a `list` page — a second place a row can
+ * take you without taking the row's own click. `href` interpolates the row
+ * the way `rowLink` does, plus any accessor in braces:
+ * `/dashboard/p/feature/{meta.requestId}` reads the request off a task row,
+ * so the Factory floor and the Backlog reach the same report from rows of
+ * different nouns. An action whose href has a token the row cannot fill is
+ * not drawn for that row — a dead link is worse than no link.
+ */
+const RowActionSchema = z.object({
+  label: z.string().min(1),
+  href: z.string().min(1),
+});
+
+/**
+ * The `report` archetype — one RECORD's whole story on one page, in order,
+ * with the money and the decisions on it.
+ *
+ * It is the fourth archetype rather than a hand-coded page because the
+ * plugin that owns the nouns should own the surface: the software factory
+ * declares `subject: request` and gets `/dashboard/p/feature/<requestId>`,
+ * and a deployment that replaces the page by slug replaces the report too.
+ *
+ * `subject` is an enum of one on purpose. A report is not a generic record
+ * dump — it is an assembly that knows what a request's story IS (the ask,
+ * triage, the contract, approvals, the runs, the change, QA evidence, the
+ * release, the money) and which records tell each part
+ * (`services/factory/featureReport.ts`). A second subject means a second
+ * assembly, and it should be declared here when it exists rather than
+ * pretended at now.
+ */
+const ReportSchema = z.object({
+  subject: z.enum(['request']),
+});
+
 export const PageManifestSchema = z.object({
   slug: SlugSchema,
   title: z.string(),
@@ -231,9 +266,13 @@ export const PageManifestSchema = z.object({
    * redirects to `href`. It exists so a plugin can seat a core surface (the
    * team report) beside its own pages without duplicating it.
    */
-  archetype: z.enum(['list', 'queue', 'markdown', 'link']),
+  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report']),
   /** Required by `link`: the route the row opens. */
   href: z.string().min(1).optional(),
+
+  // ---- report config ----
+  /** Required by `report` — see {@link ReportSchema}. */
+  report: ReportSchema.optional(),
 
   // ---- list / queue config ----
   source: ListSourceSchema.optional(),
@@ -259,6 +298,8 @@ export const PageManifestSchema = z.object({
   series: z.array(SeriesSchema).optional(),
   /** Row click-through, e.g. `/dashboard/objects/{id}`. `{id}` interpolates. */
   rowLink: z.string().optional(),
+  /** Trailing links on each row — see {@link RowActionSchema}. */
+  rowActions: z.array(RowActionSchema).default([]),
   /** Re-read the page on an interval while it is open — see {@link LiveSchema}. */
   live: LiveSchema.optional(),
 
@@ -283,6 +324,7 @@ export const PageManifestSchema = z.object({
   widgets: z.array(WidgetSchema).default([]),
 })
   .refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] })
+  .refine(m => m.archetype !== 'report' || m.report !== undefined, { message: 'a report page needs report.subject — the record whose story it tells', path: ['report'] })
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(
     m => m.primary === undefined
@@ -304,6 +346,8 @@ export type PageLive = z.infer<typeof LiveSchema>;
 export type PageStat = z.infer<typeof StatSchema>;
 export type PageSeries = z.infer<typeof SeriesSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
+export type PageRowAction = z.infer<typeof RowActionSchema>;
+export type PageReport = z.infer<typeof ReportSchema>;
 
 // ---------------------------------------------------------------------------
 // Accessors + computation shared by the renderer
@@ -339,6 +383,31 @@ export function resolveField(row: PageRow, from: string): unknown {
     cur = (cur as Record<string, unknown>)[part];
   }
   return cur;
+}
+
+/**
+ * A row link or row action's href with its `{...}` tokens filled from the
+ * row. `{id}` is the row id; anything else is the same accessor grammar a
+ * field's `from` uses, so `{meta.requestId}` reads a task row's request.
+ *
+ * Null when a token has no value on this row. A half-filled href
+ * (`/dashboard/p/feature/undefined`) is a link to a 404 that looks like a
+ * link to a page, and a row that cannot reach the target should say nothing
+ * rather than lie about it.
+ * @param row - The row.
+ * @param template - The href, with `{accessor}` tokens.
+ */
+export function interpolateHref(row: PageRow, template: string): string | null {
+  let missing = false;
+  const out = template.replaceAll(/\{([^{}]+)\}/g, (_, accessor: string) => {
+    const v = resolveField(row, accessor.trim());
+    if (v === undefined || v === null || v === '') {
+      missing = true;
+      return '';
+    }
+    return encodeURIComponent(String(v));
+  });
+  return missing ? null : out;
 }
 
 /**

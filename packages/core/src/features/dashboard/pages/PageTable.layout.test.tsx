@@ -218,3 +218,50 @@ describe('the factory floor at 390', () => {
     expect(getComputedStyle(lead).left).toBe('0px');
   });
 });
+
+describe('row actions', () => {
+  it('reach the feature report from a task row, through the request it serves', async () => {
+    await page.viewport(1440, 900);
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable
+          rows={ROWS}
+          fields={FIELDS}
+          primary={PRIMARY}
+          rowLink="/dashboard/objects/{id}"
+          rowActions={[{ label: 'Report', href: '/dashboard/p/feature/{meta.requestId}' }]}
+          now={Date.parse('2026-09-14T00:00:00Z')}
+          links={LINKS}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    const hrefs = [...document.querySelectorAll('tbody a')]
+      .map(a => a.getAttribute('href'))
+      .filter(h => h?.includes('/p/feature/'));
+
+    expect(hrefs).toEqual(['/dashboard/p/feature/41', '/dashboard/p/feature/42']);
+  });
+
+  it('draw a dash, not a link to nowhere, when the row cannot fill the token', async () => {
+    await page.viewport(1440, 900);
+    const orphan: PageRow = { ...ROWS[1]!, id: 99, meta: { ...ROWS[1]!.meta, requestId: undefined } };
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable
+          rows={[orphan]}
+          fields={FIELDS}
+          primary={PRIMARY}
+          rowActions={[{ label: 'Report', href: '/dashboard/p/feature/{meta.requestId}' }]}
+          now={Date.parse('2026-09-14T00:00:00Z')}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    expect([...document.querySelectorAll('tbody a')].some(a => a.getAttribute('href')?.includes('/p/feature/'))).toBe(false);
+  });
+});

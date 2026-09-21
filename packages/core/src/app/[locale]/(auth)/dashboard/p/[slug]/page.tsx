@@ -46,8 +46,10 @@ import { listWorkflowRuns } from '@/services/WorkflowService';
  * Renders tenant-defined pages (see libs/workspace/pages.ts) as derivatives
  * of core page archetypes. The page never gets its own tables or services:
  * `list`/`queue` query data core already owns (business objects, tool calls,
- * knowledge documents), `markdown` renders prose, and custom widgets come
- * from the workspace's own component registry via the `@wsx/registry` alias.
+ * knowledge documents), `markdown` renders prose, `report` tells one
+ * record's whole story (at `/dashboard/p/<slug>/<id>` — this route is its
+ * index), and custom widgets come from the workspace's own component
+ * registry via the `@wsx/registry` alias.
  */
 
 async function loadRows(manifest: PageManifest, orgId: string): Promise<PageRow[]> {
@@ -343,7 +345,7 @@ export default async function WorkspacePage(props: {
   const now = await currentTime();
 
   let rows: PageRow[] = [];
-  if (manifest.archetype !== 'markdown' && manifest.source) {
+  if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.source) {
     rows = applyFilter(await loadRows(manifest, orgId), manifest.filters, new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
@@ -444,7 +446,24 @@ export default async function WorkspacePage(props: {
 
       <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
 
-      {manifest.archetype !== 'markdown' && groups.map((g, gi) => (
+      {manifest.archetype === 'report' && (
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          A report is about one record. Open it from a row on
+          {' '}
+          <Link href="/dashboard/p/backlog" className="underline">the Backlog</Link>
+          {' '}
+          — or go straight to
+          {' '}
+          <code className="font-mono">
+            /dashboard/p/
+            {manifest.slug}
+            /&lt;id&gt;
+          </code>
+          .
+        </p>
+      )}
+
+      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && groups.map((g, gi) => (
         <PageTable
           key={g.label ?? '__all'}
           id={gi === 0 ? 'wsx-table' : undefined}
@@ -452,6 +471,7 @@ export default async function WorkspacePage(props: {
           fields={fields}
           primary={manifest.primary}
           rowLink={manifest.rowLink}
+          rowActions={manifest.rowActions}
           groupLabel={g.label}
           now={now}
           links={links}

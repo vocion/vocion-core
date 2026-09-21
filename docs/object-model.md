@@ -25,7 +25,7 @@ sweep. Field-by-field reference for each authored type:
 | [Eval dataset](./entities/eval-dataset.md) | `evals/<slug>.yaml` | `EvalDatasetManifestSchema` | `eval_dataset` | `npm run eval:run --workspace @vocion/core` | `/api/v1/evals` |
 | [Trust rule](./entities/trust.md) | `trust.yaml` | `TrustManifestSchema` | `trust_rule` + `autonomy_policy` (rung, risk tier, floor, evidence) | auto-approval threshold check in `ActionService`; rung mapping in `AutonomyService` | `/dashboard/autonomy`; auto-executed runs over `GET /api/v1/reviews/auto-executed` |
 | [Voice rules](./guides/voice-rules.md) | `voice.yaml` | `VoiceManifestSchema` | `project.voice_rules` | `lintCopy` at every outbound-copy seam: the skill-turn output schema, `proposeAction` precheck, and the queue's rewrite | reviewer edit-diffs become pending rule candidates at `/dashboard/learnings` |
-| [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` (+ optional sibling `.md`) | `PageManifestSchema` | none — file-only | `readWorkspacePages()` at render; `workspace:apply` does not touch pages | `/dashboard/p/<slug>` |
+| [Workspace page](./workspace-pages.md) | `pages/<slug>.yaml` (+ optional sibling `.md`) | `PageManifestSchema` | none — file-only | `readWorkspacePages()` at render; `workspace:apply` does not touch pages | `/dashboard/p/<slug>`, and `/dashboard/p/<slug>/<id>` for the `report` archetype |
 
 ## Recorded objects (runtime state)
 
