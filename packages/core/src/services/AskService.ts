@@ -1,4 +1,5 @@
 import type { AskHistoryEntry, AskImpact, AskKind, AskObjectRef, AskOption, AskRisk, AskUrgency } from '@/models/Schema';
+import type { DecisionContract } from '@/services/inbox/decisionContract';
 import { and, asc, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { verbosityHints } from '@/features/dashboard/inbox/askText';
 import { db } from '@/libs/DB';
@@ -7,6 +8,7 @@ import { ASK_IMPACTS, ASK_KINDS, ASK_RISKS, ASK_URGENCIES, askSchema } from '@/m
 import { track } from '@/services/adoption/track';
 import { recordAskAlignment } from '@/services/alignment/AlignmentService';
 import { proposeLearningFromDecision } from '@/services/feedback/askFeedbackQueue';
+import { assertDecisionContract, DecisionContractError } from '@/services/inbox/decisionContract';
 
 export type { AskHistoryEntry, AskImpact, AskKind, AskObjectRef, AskOption, AskRisk, AskUrgency } from '@/models/Schema';
 // The vocabulary lives beside the row (see `models/Schema.ts`); this is its home for readers.
@@ -232,6 +234,16 @@ export type AskInput = {
   objectRefs?: AskObjectRef[];
   /** Minutes of a person's attention the decision is estimated to take. */
   decisionCost?: number | null;
+  /** THE DECISION CONTRACT. What must be decided, one sentence. */
+  decision?: string | null;
+  /** What the system thinks should happen. */
+  recommendation?: string | null;
+  /** Why no recommendation could be formed — required when there is none. */
+  recommendationWhyNot?: string | null;
+  /** The one or two strongest reasons. */
+  why?: string[] | null;
+  /** What happens if this waits, including "nothing". */
+  impactOfDelay?: string | null;
   groupKey?: string | null;
   groupTitle?: string | null;
   contextUrl?: string | null;
@@ -275,6 +287,11 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       options: ask.options,
       objectRefs: ask.objectRefs,
       decisionCost: ask.decisionCost,
+      decisionPrompt: ask.decision,
+      recommendation: ask.recommendation,
+      recommendationWhyNot: ask.recommendationWhyNot,
+      why: ask.why,
+      impactOfDelay: ask.impactOfDelay,
       groupKey: ask.groupKey,
       groupTitle: ask.groupTitle,
       contextUrl: ask.contextUrl,
@@ -283,7 +300,7 @@ export async function upsertAsk(opts: { orgId: string; ask: AskInput; createdBy?
       notifyAt: ask.notifyAt,
       projectId: ask.projectId,
     }).filter(([, v]) => v !== undefined),
-  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'urgency' | 'impact' | 'options' | 'objectRefs' | 'decisionCost' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
+  ) as Partial<Pick<Ask, 'kind' | 'title' | 'body' | 'agentSlug' | 'teamSlug' | 'risk' | 'urgency' | 'impact' | 'options' | 'objectRefs' | 'decisionCost' | 'decisionPrompt' | 'recommendation' | 'recommendationWhyNot' | 'why' | 'impactOfDelay' | 'groupKey' | 'groupTitle' | 'contextUrl' | 'contextMd' | 'dueAt' | 'notifyAt' | 'projectId'>> & Pick<Ask, 'kind' | 'title'>;
 
   const sourceRef = ask.sourceRef?.trim() || null;
   if (sourceRef) {
@@ -393,8 +410,59 @@ export async function fileAsk(opts: { orgId: string; ask: AskInput; createdBy?: 
       return { ask: await escalate(existing, opts), created: false, escalated: true };
     }
   }
-  const { ask, created } = await upsertAsk(opts);
+  // Everything from here creates a row, so this is where the contract is
+  // enforced. An escalation above never reaches it: the open ask it lands on
+  // passed this check when it was filed.
+  const contract = validateContract(opts.ask);
+  const { ask, created } = await upsertAsk({
+    ...opts,
+    ask: {
+      ...opts.ask,
+      decision: contract.decision,
+      recommendation: contract.recommendation,
+      recommendationWhyNot: contract.recommendationWhyNot,
+      why: contract.why,
+      impactOfDelay: contract.impactOfDelay,
+    },
+  });
   return { ask, created, escalated: false };
+}
+
+/**
+ * The decision contract a filing must carry, or a 400 that tells the agent
+ * what to do instead. One error taxonomy: the refusal reaches the API as a
+ * `VALIDATION_FAILED` `AskError` like any other bad filing.
+ * @param ask - What the filer sent.
+ */
+export function validateContract(ask: AskInput): DecisionContract {
+  try {
+    return assertDecisionContract({ ...ask, actions: ask.options ?? [] }, { subject: ask.title });
+  } catch (error) {
+    if (error instanceof DecisionContractError) {
+      throw new AskError('VALIDATION_FAILED', error.message, 400);
+    }
+    throw error;
+  }
+}
+
+/**
+ * The decision contract an ask holds, or null when it predates one. Read by
+ * the queue and by every surface that renders a row as decision support
+ * rather than as metadata about which agent asked.
+ * @param ask - The row.
+ */
+export function contractFromAsk(ask: Pick<Ask, 'decisionPrompt' | 'recommendation' | 'recommendationWhyNot' | 'why' | 'impactOfDelay' | 'options'>): DecisionContract | null {
+  if (!ask.decisionPrompt || !ask.impactOfDelay) {
+    return null;
+  }
+  return {
+    decision: ask.decisionPrompt,
+    recommendation: ask.recommendation,
+    recommendationWhyNot: ask.recommendation ? null : ask.recommendationWhyNot,
+    why: ask.why ?? [],
+    impactOfDelay: ask.impactOfDelay,
+    actions: ask.options,
+  };
 }
 
 /**

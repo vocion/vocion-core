@@ -47,6 +47,12 @@ export function fileAskTool(ctx: RuntimeContext) {
         body?: string;
         kind?: AskFileInput['kind'];
         options?: AskFileInput['options'];
+        decision?: string;
+        recommendation?: string;
+        recommendation_why_not?: string;
+        why?: string[];
+        impact_of_delay?: string;
+        recheck?: string;
         risk?: AskFileInput['risk'];
         group_key?: string;
         group_title?: string;
@@ -63,6 +69,14 @@ export function fileAskTool(ctx: RuntimeContext) {
         body: args.body,
         kind: args.kind,
         options: args.options,
+        // The decision contract. Without it the filing is refused before a
+        // queue item exists, and the refusal says what to go and find out.
+        decision: args.decision,
+        recommendation: args.recommendation,
+        recommendationWhyNot: args.recommendation_why_not,
+        why: args.why,
+        impactOfDelay: args.impact_of_delay,
+        ...(args.recheck ? { recheck: { note: args.recheck } } : {}),
         risk: args.risk,
         groupKey: args.group_key,
         groupTitle: args.group_title,
@@ -123,7 +137,7 @@ export function fileAskTool(ctx: RuntimeContext) {
     },
     {
       name: 'file_ask',
-      description: `Put ONE question in front of a person on Needs you — when you need a ruling, an approval, an input, a credential, a merge, or want to recommend an outcome a person must authorise. Nothing executes when they answer: the answer IS the outcome, and you (or an automation on ask.decided) read it back. Write it to be answered from a phone: a title that is the question (≤ 80 chars), a body of two to four lines (≤ 400 chars) saying why and what happens on each answer, and options whose description is the consequence of picking each — the long form goes in context_md. Name the records it is about in object_refs so the answer can be written back onto them. Several questions decided together share a group_key. Kinds: ${KIND_GUIDE}. Done for you above the confidence bar (the ask is filed at once, and a person can withdraw it with Undo); below it, or where the workspace holds ask.file at approval, a person first decides whether you may ask.`,
+      description: `Put ONE question in front of a person on Needs you — when you need a ruling, an approval, an input, a credential, a merge, or want to recommend an outcome a person must authorise. Nothing executes when they answer: the answer IS the outcome, and you (or an automation on ask.decided) read it back. Every ask must carry its decision contract — decision (one sentence: what must be decided), recommendation (or recommendation_why_not), why (one or two reasons), impact_of_delay, and options (the labelled choices) — or the filing is refused: human attention is scarce and an agent earns the right to interrupt. Write it to be answered from a phone: a title that is the question (≤ 80 chars), a body of two to four lines (≤ 400 chars) saying why and what happens on each answer, and options whose description is the consequence of picking each — the long form goes in context_md. Name the records it is about in object_refs so the answer can be written back onto them. Several questions decided together share a group_key. Kinds: ${KIND_GUIDE}. Done for you above the confidence bar (the ask is filed at once, and a person can withdraw it with Undo); below it, or where the workspace holds ask.file at approval, a person first decides whether you may ask.`,
       schema: z.object({
         title: z.string().min(1).max(200).describe('The question, as a person would ask it aloud. One line, ≤ 80 characters reads best.'),
         body: z.string().max(4_000).optional().describe('Two to four lines: why, and what happens on each answer. Markdown. ≤ 400 characters reads best; put the rest in context_md.'),
@@ -138,8 +152,14 @@ export function fileAskTool(ctx: RuntimeContext) {
             confidence: z.number().min(0).max(1).optional().describe('How sure you are of THIS option, 0–1. For the recommended one.'),
           }),
         ])).max(8).optional().describe('Named answers, at most 8. Bare strings work. Approve / Reject / Mark done and a free-text "other" are always there on top.'),
-        risk: z.enum(ASK_RISKS).optional().describe('How much rides on the answer, shown as a chip on the row.'),
-        group_key: z.string().min(1).max(200).optional().describe('Several asks under one key are answered as one decision sheet, one question per screen. Use one key per batch.'),
+        decision: z.string().min(1).max(300).describe('ONE sentence saying what this person must decide. Required: an item that cannot say this is not a decision and must not interrupt anyone.'),
+        recommendation: z.string().min(1).max(600).optional().describe('What you think should happen. Required unless you genuinely cannot form a view, in which case say why in recommendation_why_not.'),
+        recommendation_why_not: z.string().min(1).max(600).optional().describe('Why you could not form a view. Required when recommendation is absent.'),
+        why: z.array(z.string().min(1).max(300)).max(2).optional().describe('The ONE or TWO strongest reasons. More than two is a report, not a decision.'),
+        impact_of_delay: z.string().min(1).max(300).describe('What happens if this waits. Required. "Nothing — it is a reversible preference" is an answer, and a good one.'),
+        recheck: z.string().min(1).max(200).optional().describe('Set when you are RE-CHECKING a standing question rather than asking a new one: what is true now, short ("four requests blocked"). The open ask under the same group_key is escalated instead of doubled.'),
+        risk: z.enum(ASK_RISKS).optional().describe('How bad a WRONG answer is, shown as a chip on the row.'),
+        group_key: z.string().min(1).max(200).optional().describe('The decision\'s IDENTITY. Filing again under a key that already has an OPEN ask escalates that ask (urgency up, recheck appended) rather than creating a second row.'),
         group_title: z.string().min(1).max(200).optional().describe('What the sheet is called.'),
         object_refs: z.array(z.object({
           type: z.string().min(1).max(100).describe('An object type slug, e.g. "request".'),

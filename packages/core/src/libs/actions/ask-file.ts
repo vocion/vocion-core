@@ -58,7 +58,20 @@ const askFileInput = z.object({
   body: z.string().max(4_000).optional(),
   /** What sort of thing is waiting. `approval` when unsaid: approve, reject or mark done. */
   kind: z.enum(ASK_KINDS).default('approval'),
-  /** Named answers. Bare strings get `id = slug(label)`. At most one `recommended`. */
+  /**
+   * THE DECISION CONTRACT — what makes this an item a person can answer from
+   * the row rather than a notification they have to open.
+   */
+  decision: z.string().min(1).max(300).optional(),
+  /** What you think should happen. Required unless you say why you cannot form a view. */
+  recommendation: z.string().min(1).max(600).optional(),
+  /** Why you could not form a view. Required when `recommendation` is absent. */
+  recommendationWhyNot: z.string().min(1).max(600).optional(),
+  /** The one or two strongest reasons. More than two is a report, not a decision. */
+  why: z.array(z.string().min(1).max(300)).max(2).optional(),
+  /** What happens if this waits. "Nothing — it is a reversible preference" is an answer. */
+  impactOfDelay: z.string().min(1).max(300).optional(),
+  /** The explicit labelled choices. Bare strings get `id = slug(label)`. At most one `recommended`. */
   options: z.array(option).max(8).optional(),
   /** How bad a WRONG answer is. */
   risk: z.enum(ASK_RISKS).optional(),
@@ -170,9 +183,13 @@ export const askFileAction: Action<typeof askFileInput> = {
   // recommended — is what the service refuses, and the refusal should leave
   // no queue item behind.
   async precheck(_ctx, input) {
-    const { AskError, normaliseOptions } = await import('@/services/AskService');
+    const { AskError, normaliseOptions, validateContract } = await import('@/services/AskService');
     try {
-      normaliseOptions(input.options);
+      const options = normaliseOptions(input.options);
+      // The decision contract, checked BEFORE a queue item exists: an ask
+      // that cannot say what is being decided, what is recommended and what
+      // the choices are must not cost a person a click to find that out.
+      validateContract({ ...input, options, dueAt: undefined });
     } catch (error) {
       if (error instanceof AskError) {
         return error.message;
@@ -233,6 +250,11 @@ export const askFileAction: Action<typeof askFileInput> = {
         urgency: input.urgency,
         impact: input.impact,
         options: normaliseOptions(input.options),
+        decision: input.decision,
+        recommendation: input.recommendation,
+        recommendationWhyNot: input.recommendationWhyNot,
+        why: input.why,
+        impactOfDelay: input.impactOfDelay,
         objectRefs: input.objectRefs ?? [],
         decisionCost: input.decisionCost,
         groupKey: input.groupKey,

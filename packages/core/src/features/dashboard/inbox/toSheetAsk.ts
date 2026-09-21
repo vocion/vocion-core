@@ -1,5 +1,6 @@
 import type { SheetAsk } from '@/features/dashboard/inbox/AskSheet';
 import type { Ask } from '@/services/AskService';
+import { contractFromAsk } from '@/services/AskService';
 
 /**
  * The slice of an ask the client stepper needs — no decision fields, no
@@ -20,6 +21,7 @@ export function toSheetAsk(ask: Ask, alignment?: SheetAsk['alignment']): SheetAs
     agentSlug: ask.agentSlug,
     teamSlug: ask.teamSlug,
     risk: ask.risk,
+    contract: contractFromAsk(ask),
     history: ask.history,
   };
 }

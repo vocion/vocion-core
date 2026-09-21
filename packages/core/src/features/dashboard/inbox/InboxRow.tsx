@@ -6,6 +6,7 @@ import { ArrowUpRight, Check, ChevronRight, Loader2, RotateCcw, X } from 'lucide
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Column, ListRow, Subline } from '@/components/patterns';
+import { DecisionBlock } from '@/features/review/DecisionBlock';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { toast } from '@/components/ui/toast';
 import { Link } from '@/libs/I18nNavigation';
@@ -126,6 +127,11 @@ export function InboxRow({ item, tab, why }: { item: InboxItem; tab: InboxTab; w
               ]}
             />
             {why && <span className="mt-0.5 block text-[13px] leading-5 text-foreground/80">{why}</span>}
+            {/* The row IS the decision support (#501's hand-off card,
+                generalised): what is recommended and what waiting costs,
+                under the breadcrumb, so nothing has to be opened to find out
+                what is being asked. */}
+            {tab !== 'decided' && item.contract && <DecisionBlock contract={item.contract} compact />}
           </>
         )}
         columns={(

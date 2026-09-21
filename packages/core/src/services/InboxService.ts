@@ -6,6 +6,7 @@ import type { ReviewRow } from '@/services/inbox/reviewRows';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { contractFromAsk } from '@/services/AskService';
 import { changeSummaryLine, summariseChanges } from '@/services/inbox/changeSummary';
 import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRun';
 import { escalationsFrom } from '@/services/inbox/failureEscalation';
@@ -266,6 +267,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
     });
   }
   for (const a of standalone) {
+    const contract = contractFromAsk(a);
     rows.push({
       key: `ask:${a.id}`,
       kind: kindForAsk(a.kind),
@@ -280,6 +282,7 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       at: a.createdAt,
       href: inboxHref('ask', a.id),
       askId: a.id,
+      ...(contract ? { contract } : {}),
     });
   }
   return rows;

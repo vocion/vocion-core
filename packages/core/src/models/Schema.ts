@@ -3982,6 +3982,21 @@ export const askSchema = pgTable(
      * asker; null when it did not say.
      */
     decisionCost: integer('decision_cost'),
+    /**
+     * THE DECISION CONTRACT (migration 0134). What must be decided in one
+     * sentence — `decision_prompt` and not `decision`, because `decision`
+     * already holds the ANSWER. Refused on write when a new ask arrives
+     * without it (`services/inbox/decisionContract.ts`).
+     */
+    decisionPrompt: text('decision_prompt'),
+    /** What the system thinks should happen. Null only with a reason beside it. */
+    recommendation: text('recommendation'),
+    /** Why no recommendation could be formed — required when `recommendation` is null. */
+    recommendationWhyNot: text('recommendation_why_not'),
+    /** The one or two strongest reasons, not the whole case. */
+    why: jsonb('why').$type<string[]>().default([]).notNull(),
+    /** What happens if this waits. "Nothing — it is a reversible preference" is an answer. */
+    impactOfDelay: text('impact_of_delay'),
     /** Several asks sharing a key form one decision sheet. */
     groupKey: text('group_key'),
     groupTitle: text('group_title'),

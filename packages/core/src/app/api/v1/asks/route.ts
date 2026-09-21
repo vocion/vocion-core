@@ -57,7 +57,11 @@ export async function GET(req: Request) {
  *     objectRefs?: { type, id }[], decisionCost?,
  *     groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }
  *
- * File a question for a person. `options` may be bare strings (id = slug of
+ * File a question for a person. Every NEW ask must carry its decision
+ * contract — `decision` (one sentence saying what must be decided),
+ * `recommendation` (or `recommendationWhyNot`), `why` (one or two reasons),
+ * `impactOfDelay`, and `options` (the labelled choices) — or the reply is a
+ * 400 naming what is missing. `options` may be bare strings (id = slug of
  * the label) or objects; at most one may be `recommended`. `objectRefs` names
  * the records the question is about (an object type slug and the object's
  * id); they ride the `ask.decided` event so the answer can be written back
@@ -140,6 +144,13 @@ export async function POST(req: Request) {
         options: 'options' in body ? normaliseOptions(body.options) : undefined,
         objectRefs: 'objectRefs' in body ? normaliseObjectRefs(body.objectRefs) : undefined,
         decisionCost: decisionCost === undefined ? undefined : (decisionCost as number | null),
+        // The decision contract. A NEW ask without it is refused with a 400
+        // that says what to go and find out.
+        decision: optStr(body, 'decision'),
+        recommendation: optStr(body, 'recommendation'),
+        recommendationWhyNot: optStr(body, 'recommendationWhyNot'),
+        why: Array.isArray(body.why) ? body.why.filter((w): w is string => typeof w === 'string') : undefined,
+        impactOfDelay: optStr(body, 'impactOfDelay'),
         groupKey: optStr(body, 'groupKey'),
         groupTitle: optStr(body, 'groupTitle'),
         contextUrl: 'contextUrl' in body ? optStr(body, 'contextUrl') : optStr(body, 'url'),

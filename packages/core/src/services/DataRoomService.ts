@@ -725,6 +725,11 @@ export async function addOpenItem(orgId: string, id: number, item: { title: stri
         { id: 'done', label: 'Done', recommended: false },
         { id: 'drop', label: 'Drop it', recommended: false },
       ],
+      // The decision contract, so the row says what is being decided without
+      // being opened (`services/inbox/decisionContract.ts`).
+      decision: `Decide whether "${item.title}" is done or should be dropped.`,
+      recommendationWhyNot: 'This is the room\'s own open item; only the person who owns it knows where it stands.',
+      impactOfDelay: item.urgent ? 'It is marked due now: the room shows it outstanding until someone says otherwise.' : 'Nothing runs on it; the room keeps showing it open.',
     },
   });
   return ask;
@@ -790,6 +795,10 @@ export async function proposeFiling(orgId: string, createdBy: string | null, age
         body: `It looks like it belongs there (${match.best.evidence.join(', ')}), but not clearly enough to file on its own.\n\nCandidates: ${describe()}`,
         options: match.candidates.slice(0, 3).map((c, i) => ({ id: `room-${c.room.id}`, label: c.room.title, recommended: i === 0, confidence: c.score })).concat([{ id: 'new-room', label: 'A new room', recommended: false, confidence: 0 }]),
         contextUrl: roomHref(match.best.room.id),
+        decision: `Decide which room "${material.title}" is filed into.`,
+        recommendation: `File it into ${match.best.room.title}.`,
+        why: [`It matches on ${match.best.evidence.join(', ')}.`, 'The match is strong enough to name a room but not to file on its own.'],
+        impactOfDelay: 'The document stays unfiled, so nobody searching that room finds it.',
         sourceRef: material.documentId ? `data-room:file:${material.documentId}` : null,
         risk: 'low',
         agentSlug,
@@ -805,6 +814,10 @@ export async function proposeFiling(orgId: string, createdBy: string | null, age
       title: `New opportunity? "${material.title}" matches no data room`,
       body: `Nothing filed yet. Open a room for it if this is a new engagement${match.candidates.length ? `; nearest rooms: ${describe()}` : ''}.`,
       options: [{ id: 'open-room', label: 'Open a data room', recommended: true, confidence: 0.5 }, { id: 'ignore', label: 'Not an engagement', recommended: false }],
+      decision: `Decide whether "${material.title}" is a new engagement worth a room of its own.`,
+      recommendation: 'Open a data room for it.',
+      why: [match.candidates.length > 0 ? `It matches no existing room; the nearest are ${describe(2)}.` : 'It matches no existing room.'],
+      impactOfDelay: 'The document stays unfiled and nothing gathers around it.',
       sourceRef: material.documentId ? `data-room:new:${material.documentId}` : null,
       risk: 'low',
       agentSlug,

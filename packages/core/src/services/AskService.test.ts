@@ -247,7 +247,7 @@ describe('fileAsk — one decision, one durable object', () => {
     decision: 'Decide whether to ship the board with four requests unanswered.',
     recommendation: 'Hold the release until the four are answered.',
     impactOfDelay: 'Four requests stay blocked and their askers hear nothing.',
-    actions: [{ id: 'hold', label: 'Hold the release', recommended: true }, { id: 'ship', label: 'Ship anyway' }],
+    options: [{ id: 'hold', label: 'Hold the release', recommended: true }, { id: 'ship', label: 'Ship anyway' }],
   };
 
   it('files one ask, then escalates the same group key instead of filing a sibling', async () => {
@@ -314,5 +314,55 @@ describe('fileAsk — one decision, one durable object', () => {
     const other = await svc.fileAsk({ orgId: OTHER_ORG, ask: { kind: 'ruling', title: 'q', groupKey: 'g', ...contract } });
 
     expect(other.created).toBe(true);
+  });
+});
+
+describe('fileAsk — the decision contract is a condition of filing', () => {
+  it('refuses an ask that does not say what must be decided', async () => {
+    await expect(svc.fileAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Have a look at this' } }))
+      .rejects.toThrow(/No decision .* investigate until you can present a decision/is);
+  });
+
+  it('refuses an ask with no labelled choices', async () => {
+    await expect(svc.fileAsk({
+      orgId: ORG,
+      ask: { kind: 'ruling', title: 'q', decision: 'Decide whether to raise the cap.', recommendation: 'Raise it.', impactOfDelay: 'The task cannot finish.' },
+    })).rejects.toThrow(/not a decision, it is a notification/i);
+  });
+
+  it('refuses an ask with no recommendation and no reason for having none', async () => {
+    await expect(svc.fileAsk({
+      orgId: ORG,
+      ask: { kind: 'ruling', title: 'q', decision: 'Decide whether to raise the cap.', impactOfDelay: 'x', options: svc.normaliseOptions(['Raise it', 'Leave it']) },
+    })).rejects.toThrow(/say what you think should happen, or say why you cannot form a view/i);
+  });
+
+  it('files, and reads the contract back off the row', async () => {
+    const { ask } = await svc.fileAsk({
+      orgId: ORG,
+      ask: {
+        kind: 'ruling',
+        title: 'Raise the cap on the migration task?',
+        decision: 'Decide whether to raise the cap on the migration task.',
+        recommendation: 'Raise it to $8 and retry.',
+        why: ['It failed at the cap three times.'],
+        impactOfDelay: 'The migration stays unfinished.',
+        options: svc.normaliseOptions([{ label: 'Raise the cap', recommended: true }, 'Leave it and close the task']),
+      },
+    });
+
+    expect(svc.contractFromAsk(ask)).toMatchObject({
+      decision: 'Decide whether to raise the cap on the migration task.',
+      recommendation: 'Raise it to $8 and retry.',
+      why: ['It failed at the cap three times.'],
+      impactOfDelay: 'The migration stays unfinished.',
+    });
+    expect(svc.contractFromAsk(ask)!.actions.map(a => a.id)).toEqual(['raise-the-cap', 'leave-it-and-close-the-task']);
+  });
+
+  it('reads no contract off an ask filed before there was one', async () => {
+    const { ask } = await svc.upsertAsk({ orgId: ORG, ask: { kind: 'input', title: 'old row' } });
+
+    expect(svc.contractFromAsk(ask)).toBeNull();
   });
 });
