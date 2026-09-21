@@ -799,11 +799,17 @@ export function useChatSession({
         // The turn stops here with whatever text already arrived. Marking it
         // now means the live transcript says the same thing the reloaded one
         // will — the server writes the row `incomplete` from the same event
-        // (#114) — instead of the failure showing only as a tool breadcrumb.
+        // (#114).
+        //
+        // This used to add a tool run called "error" instead, which lit the
+        // tool-error badge: the person read "error failed" over a turn where
+        // no tool had failed, and after the notice landed they read the same
+        // failure twice in one bubble. The run is gone; the reason travels on
+        // the message.
         appendToLatestAgent(m => ({
           ...m,
           status: 'incomplete' as const,
-          runs: [...(m.runs ?? []), { type: 'tool', name: 'error', state: 'error', output: message }],
+          statusReason: message,
         }));
       }
     }
@@ -1341,9 +1347,12 @@ export function useChatSession({
           .map(run => run.text)
           .join('\n\n'),
         trace: aborted ? finalizeTrace(m.trace) : (m.trace ?? []),
+        // A turn that lost its connection is the same story as one whose run
+        // threw: unfinished, not a failed tool (#114). Stopping on purpose is
+        // neither, so an abort marks nothing.
         ...(aborted
           ? {}
-          : { runs: [...(m.runs ?? []), { type: 'tool' as const, name: 'error', state: 'error' as const, output: (err as Error).message }] }),
+          : { status: 'incomplete' as const, statusReason: (err as Error).message }),
       }));
     } finally {
       // NOTE: the stream stash is NOT cleared here — on a reload the fetch

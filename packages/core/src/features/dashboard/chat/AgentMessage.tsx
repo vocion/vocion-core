@@ -403,12 +403,20 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
         {message.status === 'incomplete' && (
           <div
             data-testid="incomplete-turn-notice"
+            role="status"
             className="mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
           >
             <AlertCircle className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
             <span>
-              This answer stopped part-way — something went wrong mid-reply, so what
-              you see above is unfinished. Ask again for a complete one.
+              This answer stopped partway through, so what you see above is unfinished.
+              Ask again for a complete one.
+              {message.statusReason && (
+                <span className="mt-1 block text-foreground/60">
+                  What went wrong:
+                  {' '}
+                  {message.statusReason}
+                </span>
+              )}
             </span>
           </div>
         )}

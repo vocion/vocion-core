@@ -66,10 +66,23 @@ test('a turn that fails mid-answer keeps its text, says it is unfinished, and su
 
   // The persisted row, not the live stream: the notice has to come back with
   // the transcript, because the fragment outlives the tab it arrived in.
-  await page.reload();
+  //
+  // Reload in a loop rather than once. The client calls the turn done on the
+  // `done` event, which the route sends BEFORE it awaits the database write,
+  // so a single reload can land in the gap and read a transcript the row has
+  // not reached yet — green here, red on a slower machine.
+  await expect.poll(
+    async () => {
+      await page.reload();
+      // Give the transcript a moment to hydrate before counting; an empty
+      // count here means the row was not there yet, and the poll reloads.
+      await page.getByText('Four deals closed last month, worth').last().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      return page.getByTestId('incomplete-turn-notice').count();
+    },
+    { timeout: 120_000, message: 'the reloaded transcript never showed the turn as unfinished' },
+  ).toBeGreaterThan(0);
 
   await expect(page.getByText('Four deals closed last month, worth').last()).toBeVisible({ timeout: 120_000 });
-  await expect(page.getByTestId('incomplete-turn-notice').last()).toBeVisible({ timeout: 120_000 });
 
   // The thread carries on: the next turn answers normally, and only the
   // failed turn wears the notice.

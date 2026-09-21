@@ -235,6 +235,13 @@ export type ChatMessage = {
    * whole answer, and the server leaves it out of the model's history.
    */
   status?: 'incomplete' | null;
+  /**
+   * Why the turn stopped, in the runtime's own words ("the model connection
+   * dropped mid-answer"). Live only — the transcript shows it under the
+   * notice so a person can say what happened when they report it. Not
+   * persisted, so a reloaded turn carries the notice without the reason.
+   */
+  statusReason?: string;
 };
 
 export type AgentOption = {

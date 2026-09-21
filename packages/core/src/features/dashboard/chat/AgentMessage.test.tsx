@@ -403,13 +403,18 @@ describe('AgentMessage — a turn that died part-way (#114)', () => {
           role: 'assistant',
           content: 'Four deals closed last month, worth',
           status: 'incomplete',
+          statusReason: 'the model connection dropped mid-answer',
           runs: [{ type: 'text', text: 'Four deals closed last month, worth' }],
         }}
       />,
     );
 
     await expect.element(page.getByTestId('incomplete-turn-notice')).toBeInTheDocument();
-    await expect.element(page.getByText(/stopped part-way/)).toBeInTheDocument();
+    await expect.element(page.getByText(/stopped partway/)).toBeInTheDocument();
+    // What went wrong, in the runtime's words, so a person can report it.
+    await expect.element(page.getByText(/connection dropped mid-answer/)).toBeInTheDocument();
+    // And no tool-error badge: nothing here was a failing tool.
+    expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
   });
 
   it('says nothing on a turn that finished, so a healthy answer carries no warning', async () => {

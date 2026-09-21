@@ -338,7 +338,11 @@ export async function POST(request: Request): Promise<Response> {
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
           const { text, runs, documents, trace } = collector.finalise();
-          if (text || runs.length > 0) {
+          // A turn that threw before it spoke has nothing to show, but it still
+          // happened: without a row the whole turn disappears on reload and the
+          // person is left looking at their own question with no answer and no
+          // explanation. So a failed turn is always written, empty or not.
+          if (text || runs.length > 0 || failed) {
             try {
               const msg = await appendMessage({
                 orgId,
@@ -376,8 +380,13 @@ export async function POST(request: Request): Promise<Response> {
                     .catch(() => {});
                 }
               }
-            } catch {
-              /* conversation may have been deleted mid-stream */
+            } catch (error) {
+              // Usually the conversation was deleted while the turn ran, which
+              // is nothing to report. Anything else means the person's answer
+              // is on their screen and nowhere else — and, for a failed turn,
+              // that the transcript says "unfinished" now and will say nothing
+              // at all after a reload. Say so in the log either way.
+              console.warn('agent stream: could not persist the assistant turn', { conversationId, failed }, error);
             }
           }
         }

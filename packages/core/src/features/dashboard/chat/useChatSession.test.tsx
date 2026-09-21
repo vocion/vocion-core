@@ -494,5 +494,9 @@ describe('useChatSession', () => {
 
     expect(assistant.status).toBe('incomplete');
     expect(assistant.content).toContain('Four deals closed last month, worth');
+    expect(assistant.statusReason).toBe('model connection reset');
+    // A dropped stream is not a failed tool: no breadcrumb claiming one is,
+    // which is what used to light the tool-error badge beside the notice.
+    expect((assistant.runs ?? []).filter(r => r.type === 'tool' && r.state === 'error')).toHaveLength(0);
   });
 });

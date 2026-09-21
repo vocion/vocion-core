@@ -63,6 +63,14 @@ async function diesPartWay(opts: RunOpts): Promise<RunResult> {
 }
 
 /**
+ * A run that throws before it says anything at all.
+ * @param _opts - What the route hands the runtime; unused, nothing is spoken.
+ */
+async function diesBeforeSpeaking(_opts: RunOpts): Promise<RunResult> {
+  throw new Error('the model refused the request');
+}
+
+/**
  * A run that streams a whole answer and returns.
  * @param opts - What the route hands the runtime; only `onEvent` is used here.
  */
@@ -111,6 +119,19 @@ describe('agent stream route — a turn that dies part-way', () => {
 
     expect(assistant?.content).toBe('Four deals closed last month.');
     expect(assistant?.status).toBeNull();
+  });
+
+  it('still writes a row when the run throws before it speaks, so the turn does not vanish on reload', async () => {
+    vi.mocked(runAgentDeep).mockImplementation(diesBeforeSpeaking);
+    const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
+
+    await postTurn(conv.id, 'how many deals closed?');
+
+    const assistant = (await listMessages({ orgId: ORG, conversationId: conv.id })).find(r => r.role === 'assistant');
+
+    expect(assistant).toBeDefined();
+    expect(assistant?.content).toBe('');
+    expect(assistant?.status).toBe('incomplete');
   });
 
   it('keeps the fragment out of the history the next turn replays to the model', async () => {
