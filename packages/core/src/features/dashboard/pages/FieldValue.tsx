@@ -3,7 +3,7 @@ import type { PageField, PageRow } from '@/libs/workspace/pageFields';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
 import { relativeLabel } from '@/libs/timeAgo';
-import { formatDuration, formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
+import { fieldHasSource, fieldIsFresh, formatDuration, formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
 
 /**
  * ONE formatting layer for a declared field, wherever it is read.
@@ -65,7 +65,133 @@ export function EmptyValue({ field }: { field: PageField }) {
 }
 
 /**
- * One declared field's value, formatted.
+ * Our figure beside the one it is measured against, as `format: compare`.
+ *
+ * The Product board spent four columns on this (ours, their name, their
+ * price, the date it was checked) and the comparison still had to be made in
+ * the reader's head. It is ONE fact: what we charge, against whom, at what.
+ * The date it was checked is how much to trust it, not part of the reading,
+ * so it rides on the title. Either side alone still says something; the
+ * field is drawn as long as one of them is recorded.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The field declaration, carrying `beside`.
+ */
+export function CompareValue({ row, field }: { row: PageRow; field: PageField }) {
+  const ours = resolveField(row, field.from ?? field.key);
+  const theirs = field.beside ? resolveField(row, field.beside.from) : undefined;
+  const whose = field.beside?.labelFrom ? resolveField(row, field.beside.labelFrom) : undefined;
+  const checked = field.beside?.checkedFrom ? resolveField(row, field.beside.checkedFrom) : undefined;
+  if (isEmptyValue(ours) && isEmptyValue(theirs) && isEmptyValue(whose)) {
+    return <EmptyValue field={field} />;
+  }
+  const checkedOn = toDate(checked);
+  return (
+    <span
+      className="flex flex-col gap-0.5"
+      data-testid="compare-value"
+      title={checkedOn ? `Checked ${checkedOn.toLocaleDateString()}` : undefined}
+    >
+      {isEmptyValue(ours)
+        ? <span className="text-sm text-muted-foreground">not priced yet</span>
+        : <span className="text-lg leading-tight font-semibold tracking-tight text-foreground">{String(ours)}</span>}
+      {(!isEmptyValue(theirs) || !isEmptyValue(whose)) && (
+        <span className="text-xs text-muted-foreground">
+          {'against '}
+          {isEmptyValue(whose) ? 'the incumbent' : String(whose)}
+          {isEmptyValue(theirs)
+            ? <span className="italic">, price not recorded</span>
+            : <span className="font-medium text-foreground/90">{` ${String(theirs)}`}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A queue as a shape rather than a number, as `format: workload`.
+ *
+ * Two open requests with one being worked on and nothing urgent is a healthy
+ * backlog; two open with both urgent and neither moving is a morning's work.
+ * The bare "2" cannot tell those apart, so it is not yet information, and a
+ * portfolio row that prints it has spent its space without answering the
+ * question it was opened for. Urgent is the only part that carries weight,
+ * and only when there is some: a quiet row should read quiet.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The field declaration, carrying `workload`.
+ */
+export function WorkloadValue({ row, field }: { row: PageRow; field: PageField }) {
+  const cfg = field.workload!;
+  const num = (accessor?: string): number | null => {
+    if (!accessor) {
+      return null;
+    }
+    const v = resolveField(row, accessor);
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  const open = num(field.from ?? field.key);
+  if (open === null) {
+    return <EmptyValue field={field} />;
+  }
+  const plural = open === 1 ? cfg.noun : `${cfg.noun}s`;
+  if (open === 0) {
+    return <span className="text-sm text-muted-foreground" data-testid="workload-value">{`No ${plural}`}</span>;
+  }
+  const inFlight = num(cfg.inFlightFrom);
+  const urgent = num(cfg.urgentFrom);
+  return (
+    <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm" data-testid="workload-value">
+      <span className="font-medium">{`${open} ${plural}`}</span>
+      {inFlight !== null && inFlight > 0 && (
+        <span className="text-xs text-muted-foreground">{`· ${inFlight} being worked on`}</span>
+      )}
+      {urgent !== null && (
+        urgent > 0
+          ? <span className="text-xs font-medium text-destructive">{`· ${urgent} ${cfg.urgentLabel}`}</span>
+          : <span className="text-xs text-muted-foreground">{`· none ${cfg.urgentLabel}`}</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The muted line under a value. See a field's `caption`.
+ *
+ * `promoted` is the case where the value it was qualifying is not recorded.
+ * "Last shipped: not recorded, 22h ago" is a dash and a contradiction; "Last
+ * shipped: 22h ago" is the part we do know, said plainly, so the caption
+ * steps up and takes the line rather than propping up an empty one.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.field - The field declaration, carrying `caption`.
+ * @param root0.now - The instant a `relative` caption is measured against.
+ * @param root0.promoted - Whether it is standing in for the missing value.
+ */
+function Caption({ row, field, now, promoted }: { row: PageRow; field: PageField; now: number; promoted?: boolean }) {
+  const raw = resolveField(row, field.caption!.from);
+  if (isEmptyValue(raw)) {
+    return null;
+  }
+  const d = toDate(raw);
+  const text = field.caption!.format === 'relative' && d
+    ? relativeLabel(d, now)
+    : field.caption!.format === 'date' && d
+      ? d.toLocaleDateString()
+      : String(raw);
+  return (
+    <span
+      className={promoted ? 'block text-sm' : 'block text-xs text-muted-foreground'}
+      title={d ? d.toLocaleString() : undefined}
+      data-testid="field-caption"
+    >
+      {text}
+    </span>
+  );
+}
+
+/**
+ * One declared field's value, formatted, with its caption under it.
  * @param root0 - Props.
  * @param root0.row - The row (or record) the value is read from.
  * @param root0.field - The field declaration.
@@ -73,7 +199,56 @@ export function EmptyValue({ field }: { field: PageField }) {
  * @param root0.links - Resolved record references, by {@link recordLinkKey}.
  */
 export function FieldValue({ row, field, now, links }: { row: PageRow; field: PageField; now: number; links?: LinkMap }) {
+  const body = <FieldBody row={row} field={field} now={now} links={links} />;
+  if (!field.caption || fieldIsFresh(row, field, now)) {
+    return body;
+  }
+  // Nothing was recorded for the value itself, so the caption is all this
+  // field knows. It says that on its own instead of propping up a dash.
+  if (isEmptyValue(resolveField(row, field.from ?? field.key))) {
+    return <Caption row={row} field={field} now={now} promoted />;
+  }
+  return (
+    <span className="block">
+      {body}
+      <Caption row={row} field={field} now={now} />
+    </span>
+  );
+}
+
+/**
+ * One declared field's value, formatted.
+ * @param root0 - Props.
+ * @param root0.row - The row (or record) the value is read from.
+ * @param root0.field - The field declaration.
+ * @param root0.now - The instant a `relative` value is measured against.
+ * @param root0.links - Resolved record references, by {@link recordLinkKey}.
+ */
+function FieldBody({ row, field, now, links }: { row: PageRow; field: PageField; now: number; links?: LinkMap }) {
   const raw = resolveField(row, field.from ?? field.key);
+  // Nothing is feeding this field, so whatever is sitting in it is not an
+  // observation. Say what is missing in the page's words, "monitoring not
+  // connected" and never "unknown", so a reader can tell a product in trouble
+  // from a product we have not wired up. Not a badge: it is not a state the
+  // product is in.
+  if (!fieldHasSource(row, field)) {
+    return (
+      <span className="text-xs text-muted-foreground italic" title={`${field.label ?? field.key}: ${field.source!.absentLabel}`}>
+        {field.source!.absentLabel}
+      </span>
+    );
+  }
+  // Freshness that is still fresh is the machinery reporting that it ran.
+  // It is drawn only once it has become news. See `staleAfterHours`.
+  if (fieldIsFresh(row, field, now)) {
+    return null;
+  }
+  if (field.format === 'compare') {
+    return <CompareValue row={row} field={field} />;
+  }
+  if (field.format === 'workload' && field.workload) {
+    return <WorkloadValue row={row} field={field} />;
+  }
   if (isEmptyValue(raw)) {
     // A badge column over a boolean is the one place an absent value is
     // worth saying out loud: the floor's `verified` used to paint a red

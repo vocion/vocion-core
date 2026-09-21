@@ -19,7 +19,7 @@ import {
  */
 
 function field(over: Partial<PageField> & Pick<PageField, 'key'>): PageField {
-  return { label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, ...over };
+  return { label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true, ...over };
 }
 
 function row(id: number, meta: Record<string, unknown>): PageRow {
@@ -114,7 +114,10 @@ describe('the row leads with one wide column', () => {
   const primary = { field: 'title', subtitle: ['repo', 'risk', 'attempt'] };
 
   it('takes the primary and its subtitle out of the columns', () => {
-    const rows = [row(1, { repoSlug: 'a', riskClass: 'logic', attempt: 2 }), row(2, { repoSlug: 'b', riskClass: 'ui', attempt: 1 })];
+    const rows = [
+      row(1, { repoSlug: 'a', riskClass: 'logic', attempt: 2, actualCents: 400 }),
+      row(2, { repoSlug: 'b', riskClass: 'ui', attempt: 1, actualCents: 512 }),
+    ];
     const layout = tableLayout(rows, fields, primary);
 
     expect(layout.primary?.key).toBe('title');
@@ -123,7 +126,10 @@ describe('the row leads with one wide column', () => {
   });
 
   it('hoists a constant subtitle fact too — a repository the same on every row is said once, not once per row', () => {
-    const rows = [row(1, { repoSlug: 'squatch-core', riskClass: 'logic' }), row(2, { repoSlug: 'squatch-core', riskClass: 'ui' })];
+    const rows = [
+      row(1, { repoSlug: 'squatch-core', riskClass: 'logic', attempt: 2, actualCents: 400 }),
+      row(2, { repoSlug: 'squatch-core', riskClass: 'ui', attempt: 1, actualCents: 512 }),
+    ];
     const layout = tableLayout(rows, fields, primary);
 
     expect(layout.constants.map(c => [c.field.label, c.value])).toEqual([['repo', 'squatch-core']]);
@@ -131,11 +137,23 @@ describe('the row leads with one wide column', () => {
   });
 
   it('is every column, in declaration order, on a page that declared no primary', () => {
-    const layout = tableLayout([row(1, {}), row(2, {})], fields);
+    const rows = [
+      row(1, { repoSlug: 'a', riskClass: 'logic', attempt: 2, actualCents: 400 }),
+      row(2, { repoSlug: 'b', riskClass: 'ui', attempt: 1, actualCents: 512 }),
+    ];
+    const layout = tableLayout(rows, fields);
 
     expect(layout.primary).toBeNull();
     expect(layout.subtitle).toEqual([]);
     expect(layout.columns.map(f => f.key)).toEqual(fields.map(f => f.key));
+  });
+
+  it('drops a column no row can fill, leaving the page smaller rather than gappy', () => {
+    const layout = tableLayout([row(1, {}), row(2, {})], fields);
+
+    expect(layout.primary).toBeNull();
+    expect(layout.columns.map(f => f.key)).toEqual(['title', 'status']);
+    expect(layout.dropped.map(f => f.key)).toEqual(['repo', 'risk', 'attempt', 'actual']);
   });
 });
 

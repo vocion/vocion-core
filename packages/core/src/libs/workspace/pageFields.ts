@@ -66,7 +66,88 @@ const FieldSchema = z.object({
    * `duration` reads an integer number of seconds as "18m 25s", because a
    * run's length is the thing being compared and `1105` is not.
    */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress', 'steps', 'duration']).default('text'),
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress', 'steps', 'duration', 'compare', 'workload']).default('text'),
+  /**
+   * For `format: compare`, the figure ours is read against and who it
+   * belongs to. Our price beside the incumbent's is one fact, not four
+   * columns: the comparison reads as "$15/mo per seat vs DocSend $30/user/mo"
+   * with the date it was checked on hover. Either side may be missing; the
+   * field is empty only when both are.
+   */
+  beside: z.object({
+    /** The figure to compare against, e.g. `meta.incumbent.listPrice`. */
+    from: z.string().min(1),
+    /** Whose figure it is, e.g. `meta.incumbent.name`. */
+    labelFrom: z.string().optional(),
+    /** When it was last verified. Secondary, so it renders on hover. */
+    checkedFrom: z.string().optional(),
+  }).optional(),
+  /**
+   * Where this field's value COMES from, and what to say when nothing is
+   * feeding it. A value and the absence of a feed are different facts and
+   * must never render the same: a product whose monitor says `degraded` is
+   * in trouble, and a product nothing monitors is one WE have not wired up.
+   * "Unknown" says the first about the second, which blames the product for
+   * our own gap.
+   *
+   * `from` names the accessor (or accessors, tried in order) that says a
+   * source exists. When none of them resolve, the cell renders
+   * `absentLabel` in the page's own words instead of the value, even if a
+   * value happens to be sitting there, and a stat or filter over the field
+   * is unaffected, because this is a rendering rule, not a data one.
+   */
+  source: z.object({
+    from: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+    /** What the cell says when nothing feeds this field, e.g. "monitoring not connected". */
+    absentLabel: z.string().min(1),
+  }).optional(),
+  /**
+   * For `format: workload`, how to read a queue as a shape rather than a
+   * number. "10 open" can be a disaster, a healthy backlog, ten small ideas
+   * or nine answered things nobody closed; the reader cannot tell which, so
+   * the figure is not yet information. What makes it one is how much of it
+   * is moving and whether any of it is urgent, which is the whole of the
+   * judgement a portfolio row is asked for. The backlog itself lives on
+   * Work; this says only whether to go there now.
+   */
+  workload: z.object({
+    /** What one item is called, singular, e.g. "open request". */
+    noun: z.string().min(1),
+    /** How many of them are being worked on right now. */
+    inFlightFrom: z.string().optional(),
+    /** How many need someone today. Rendered in the `bad` tone when above zero. */
+    urgentFrom: z.string().optional(),
+    /** What urgent is called here, e.g. "urgent" or "P1". */
+    urgentLabel: z.string().default('urgent'),
+  }).optional(),
+  /**
+   * A second, muted line under the value: a fact and the thing that
+   * qualifies it, drawn as ONE fact rather than two fields the reader has
+   * to pair up. "The document page has one Share button" is what shipped;
+   * "yesterday" is whether that still counts as news, and a row that spends
+   * two labelled slots on them has said one thing twice as slowly.
+   */
+  caption: z.object({
+    /** Where the qualifying value is read from. */
+    from: z.string().min(1),
+    /** How to draw it. `relative` reads a timestamp as its distance from now. */
+    format: z.enum(['text', 'date', 'relative']).default('text'),
+  }).optional(),
+  /**
+   * Draw this field ONLY where its date has gone stale. Freshness is not
+   * news until it stops being fresh. A "counters as of" stamp on every row
+   * of a healthy board is the machinery reporting that it ran, which is
+   * Vocion's business and not the reader's; the same stamp on a row whose
+   * figures are a week old is the most important thing on that row.
+   *
+   * A row inside the window renders nothing for the field, which makes the
+   * field empty there, so on a board where everything is current
+   * `hideWhenEmpty` takes the whole column away and the page is shorter
+   * exactly while things are fine. This is the same property as
+   * "the interface gets quieter as the system gets healthier", expressed
+   * once in the page layer rather than per page.
+   */
+  staleAfterHours: z.number().positive().optional(),
   /**
    * For `format: link` — the object type the value is an id (or a slug) of.
    * The cell then resolves to `/dashboard/objects/<id>` under the target's
@@ -103,6 +184,24 @@ const FieldSchema = z.object({
    * values differ, or which is empty on some row, stays a column.
    */
   hideWhenConstant: z.boolean().default(false),
+  /**
+   * Drop this field entirely when NO row has a value for it. The sibling of
+   * `hideWhenConstant`, and the general form of a platform rule: a missing
+   * optional capability should make the interface SMALLER, not fill it with
+   * blank cells. A revenue column of dashes does not report that revenue is
+   * zero. It advertises that we never built revenue, once per row, in the
+   * width a fact could have used.
+   *
+   * On by default, because a column no row can fill is never the reading a
+   * page was opened for. A field that must hold its place while it waits
+   * for a value, such as a checklist of things each row is expected to
+   * carry, sets it false and keeps its dashes.
+   *
+   * Distinct from `hideWhenConstant`, which hides a field every row ANSWERS
+   * the same way, and says the answer once above the table. A field hidden
+   * here is saying nothing, so nothing is hoisted.
+   */
+  hideWhenEmpty: z.boolean().default(true),
   /**
    * Which edge the value sits against. Figures read down a column when
    * they share a right edge, so `money` and `score` default to `right`
@@ -622,6 +721,21 @@ export const PageManifestSchema = z.object({
     field: z.string(),
     subtitle: z.array(z.string()).default([]),
   }).optional(),
+  /**
+   * How a `list` page draws a row. `table` is the grid of columns. `block`
+   * draws each row as one readable unit instead: the headline, its muted
+   * second line, then the remaining fields as labelled facts that wrap.
+   *
+   * A table is the right shape when rows are compared DOWN a column:
+   * fourteen tasks by cost. It is the wrong shape when a page holds a
+   * handful of rows a person reads ACROSS: a portfolio of two products in
+   * fourteen columns is a horizontal scrollbar, and every field a row does
+   * not carry is a dash taking up the width. In `block` a field is drawn
+   * only where it has a value, so a sparse row is short rather than gappy,
+   * and a label travels with its value instead of living in a header the
+   * reader has to look back up at.
+   */
+  layout: z.enum(['table', 'block']).default('table'),
   filters: z.array(FilterSchema).optional(),
   /**
    * Named ways of looking at the same rows, chosen with `?view=<key>` and
@@ -632,6 +746,18 @@ export const PageManifestSchema = z.object({
   groupBy: z.string().optional(),
   sort: z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).default('desc') }).optional(),
   stats: z.array(StatSchema).optional(),
+  /**
+   * How many rows a summary has to be summarising before it is drawn. A
+   * summary earns its place by saving the reader from reading the rows, and
+   * over two rows it saves nobody anything: seven cards above two products
+   * restate what the two lines underneath already say, in more space and one
+   * recomputation further from the truth. The same seven cards over twenty
+   * products are the reason to open the page.
+   *
+   * So the summary appears when the page grows into needing one, and a page
+   * that never says otherwise keeps today's behaviour.
+   */
+  statsMinRows: z.number().int().min(0).default(0),
   /** Figures over time, drawn under the stats — see {@link SeriesSchema}. */
   series: z.array(SeriesSchema).optional(),
   /** Row click-through, e.g. `/dashboard/objects/{id}`. `{id}` interpolates. */
@@ -666,6 +792,8 @@ export const PageManifestSchema = z.object({
   .refine(m => m.archetype !== 'overview' || m.panels !== undefined, { message: 'an overview page needs panels - the ordered list it computes', path: ['panels'] })
   .refine(m => m.panels === undefined || m.archetype === 'overview', { message: 'panels belong to the overview archetype', path: ['panels'] })
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
+  .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })
+  .refine(m => m.layout === 'table' || m.fields === undefined || m.fields.every(f => !f.total), { message: 'a block layout has no column to total under', path: ['layout'] })
   .refine(
     m => m.primary === undefined
       || [m.primary.field, ...m.primary.subtitle].every(k => (m.fields ?? []).some(f => f.key === k)),
@@ -1096,6 +1224,97 @@ export function constantColumns(rows: PageRow[], fields: PageField[]): Array<{ f
   return out;
 }
 
+/**
+ * Every accessor a field draws from: its own, plus the figure a `compare`
+ * field reads itself against, the counts a `workload` field shapes itself
+ * with, and a `caption`. A comparison with one side recorded is still worth
+ * drawing ("priced against Loom, price not recorded"), so every side counts
+ * towards whether the field has anything to say.
+ * @param field - The field declaration.
+ */
+export function fieldAccessors(field: PageField): string[] {
+  const own = field.from ?? field.key;
+  const also = [field.beside?.from, field.beside?.labelFrom, field.workload?.inFlightFrom, field.workload?.urgentFrom, field.caption?.from];
+  return [own, ...also.filter((a): a is string => a !== undefined)];
+}
+
+/**
+ * Whether a `staleAfterHours` field is being held back on this row because
+ * its date is still inside the window. See {@link FieldSchema}. A field that
+ * never asked for the rule is never held back, and a field that asked for it
+ * and has no date at all is: an unstamped row is not a fresh one, but it is
+ * also not news until something is there to be stale.
+ * @param row - The row.
+ * @param field - The field declaration.
+ * @param now - The instant staleness is measured against.
+ */
+export function fieldIsFresh(row: PageRow, field: PageField, now?: number): boolean {
+  if (field.staleAfterHours === undefined || now === undefined) {
+    return false;
+  }
+  const at = toDate(resolveField(row, field.from ?? field.key));
+  return at !== null && now - at.getTime() < field.staleAfterHours * 3_600_000;
+}
+
+/**
+ * Whether this row has anything for this field. A field held back for being
+ * fresh has nothing to say on this row, which is what lets a board where
+ * every counter is current drop the freshness field altogether.
+ * @param row - The row.
+ * @param field - The field declaration.
+ * @param now - The instant `staleAfterHours` is measured against.
+ */
+export function fieldIsEmptyOn(row: PageRow, field: PageField, now?: number): boolean {
+  if (fieldIsFresh(row, field, now)) {
+    return true;
+  }
+  // A field that declared a source and has none is not empty: the absence IS
+  // the news, and it is the news a person can act on. Dropping it here would
+  // leave an unmonitored product looking exactly like a monitored healthy
+  // one, which is the confusion the source rule exists to end.
+  if (field.source && !fieldHasSource(row, field)) {
+    return false;
+  }
+  return fieldAccessors(field).every(a => isEmptyValue(resolveField(row, a)));
+}
+
+/**
+ * Whether a field has a source feeding it on this row. See
+ * {@link FieldSchema}'s `source`. A field that never declared one is always
+ * sourced: most values are simply recorded, and only a field that stands in
+ * for a connection (health, a telemetry figure) can be unconnected.
+ * @param row - The row.
+ * @param field - The field declaration.
+ */
+export function fieldHasSource(row: PageRow, field: PageField): boolean {
+  if (!field.source) {
+    return true;
+  }
+  const from = field.source.from;
+  const accessors = Array.isArray(from) ? from : [from];
+  return accessors.some(a => !isEmptyValue(resolveField(row, a)));
+}
+
+/**
+ * The fields no row can fill: the disappearing-field rule. A field opted in
+ * (`hideWhenEmpty`, on by default) and not one row carries a value for it,
+ * so the page is smaller by exactly the width the blank cells were using.
+ *
+ * Judged over the rows actually being drawn, so a page filtered to the work
+ * that has shipped stops advertising the fields only unshipped work carries,
+ * and a page with no rows at all hides nothing: an empty table is not
+ * evidence about any field.
+ * @param rows - The rows about to be drawn.
+ * @param fields - The page's fields.
+ * @param now - The instant `staleAfterHours` is measured against.
+ */
+export function emptyFields(rows: PageRow[], fields: PageField[], now?: number): PageField[] {
+  if (rows.length === 0) {
+    return [];
+  }
+  return fields.filter(f => f.hideWhenEmpty && rows.every(r => fieldIsEmptyOn(r, f, now)));
+}
+
 export type TableLayout = {
   /** The column that leads each row, or null on a page with no `primary`. */
   primary: PageField | null;
@@ -1107,6 +1326,8 @@ export type TableLayout = {
   constants: Array<{ field: PageField; value: unknown }>;
   /** Fields that read inside the row's disclosure rather than as a column. */
   details: PageField[];
+  /** Fields dropped because no row could fill them. */
+  dropped: PageField[];
 };
 
 /**
@@ -1117,8 +1338,9 @@ export type TableLayout = {
  * @param rows - The rows under this table.
  * @param fields - The page's fields.
  * @param primary - The page's `primary` block, if it declared one.
+ * @param now - The instant `staleAfterHours` is measured against.
  */
-export function tableLayout(rows: PageRow[], fields: PageField[], primary?: PagePrimary): TableLayout {
+export function tableLayout(rows: PageRow[], fields: PageField[], primary?: PagePrimary, now?: number): TableLayout {
   const byKey = (k: string) => fields.find(f => f.key === k) ?? null;
   const lead = primary ? byKey(primary.field) : null;
   const sub = (primary?.subtitle ?? []).map(byKey).filter((f): f is PageField => f !== null && !f.detail);
@@ -1128,17 +1350,23 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
   // row's own disclosure instead.
   const details = fields.filter(f => f.detail && !spoken.has(f.key));
   const rest = fields.filter(f => !spoken.has(f.key) && !f.detail);
+  // A field nothing can fill goes first: it is not a constant to hoist, it
+  // is a fact the workspace does not have, and the page is smaller without
+  // it. The headline is never dropped, because a row has to be called something.
+  const dropped = emptyFields(rows, [...sub, ...rest], now);
+  const droppedKeys = new Set(dropped.map(f => f.key));
   // A constant fact is hoisted wherever it was going to be repeated — out
   // of a column, and out of the subtitle, which would otherwise say
   // "squatch-core" once per row just as loudly.
-  const constants = constantColumns(rows, [...sub, ...rest]);
-  const constantKeys = new Set(constants.map(c => c.field.key));
+  const constants = constantColumns(rows, [...sub, ...rest].filter(f => !droppedKeys.has(f.key)));
+  const gone = new Set([...droppedKeys, ...constants.map(c => c.field.key)]);
   return {
     primary: lead,
-    subtitle: sub.filter(f => !constantKeys.has(f.key)),
-    columns: rest.filter(f => !constantKeys.has(f.key)),
+    subtitle: sub.filter(f => !gone.has(f.key)),
+    columns: rest.filter(f => !gone.has(f.key)),
     constants,
     details,
+    dropped,
   };
 }
 
