@@ -11,6 +11,7 @@ import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRu
 import { escalationsFrom } from '@/services/inbox/failureEscalation';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
+import { planApprovalRows } from '@/services/inbox/planApprovalRows';
 import { chainReAsks, chaseLine } from '@/services/inbox/reAskChain';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
@@ -358,9 +359,12 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       .where(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending'))),
   ]);
 
+  const plans = await planApprovalRows(orgId);
+
   return [
     ...askItems(asks),
     ...proposalItems(actions, 'open'),
+    ...plans,
     ...missions.map((m): InboxItem => ({
       key: `mission:${m.id}`,
       kind: 'run',

@@ -1,0 +1,106 @@
+slug: architecture_plan
+label: Architecture plan
+description: >-
+  The approach to a piece of work, and why this one, written before the work
+  starts and approved by a person before the contract is written. It sits
+  between triage and the contract because a plan reviewed after the run is a
+  record, not a gate: by then the approach has already been chosen by whoever
+  typed first. The solution architect writes it, which here is the Task planner
+  agent, and a person approves it in Review, because direction and tradeoffs are
+  exactly what a person should decide. A plan is required when the work is
+  irreversible, trust bearing or externally visible, when it crosses a package
+  or a repository, when it changes a public interface, or when it is large
+  enough that the approach is a real choice; for a ui or logic change touching
+  more than one file it is offered and may be declined, with the reason recorded
+  on the task. It is deliberately short. A plan nobody reads is worse than none,
+  because it manufactures the appearance of review.
+icon: compass
+schema:
+  type: object
+  properties:
+    requestId:
+      x-display: {label: Request, format: link, to: request, group: What this plans}
+      type: integer
+      description: The `request` this plans. The feature report finds the plan by this field, so a plan without it appears on no page.
+    productSlug:
+      x-display: {label: Product, format: link, to: product, group: What this plans}
+      type: string
+      description: Slug of the `product` the work belongs to.
+    repoSlugs:
+      x-display: {label: Repositories, format: link, to: repo, group: What this plans}
+      type: array
+      description: Every repository the work lands in. More than one is itself a reason the plan was required.
+      items: {type: string}
+    approach:
+      x-display: {label: 'The approach, and why this one', role: prose, order: 1}
+      type: string
+      description: What we are going to do, and the reason this way and not the obvious alternative. One paragraph. If it cannot be said in a paragraph the work is not understood yet.
+    components:
+      x-display: {label: 'What changes, by component', role: prose, format: steps, order: 2}
+      type: array
+      description: One line per package, app or service that changes, saying what changes in it. This is the blast radius in plain words, and it is what the contract's allowed paths are written from.
+      items: {type: string}
+    interfaces:
+      x-display: {label: Interfaces added or altered, role: prose, format: steps, order: 3}
+      type: array
+      description: Every HTTP route, object type schema, published contract or exported function this adds or changes. Anything here is something outside the change already depends on, which is why the plan was required.
+      items: {type: string}
+    dataImpact:
+      x-display: {label: Data and migration, role: prose, order: 4}
+      type: string
+      description: What happens to data that already exists. Which migration, whether it is reversible, whether it can run while the old code is still serving, and what it costs to undo. "None" is a valid answer and is better than silence.
+    risks:
+      x-display: {label: 'What could go wrong, and what it would cost', role: prose, format: steps, order: 5}
+      type: array
+      description: One line per risk, each naming the cost if it happens, not just the risk. "The export times out on a long room" is half an answer; "and every person exporting sees a failed download" is the other half.
+      items: {type: string}
+    alternatives:
+      x-display: {label: 'Considered and rejected, and why', role: prose, format: steps, order: 6}
+      type: array
+      description: The approaches that were on the table and the reason each was not taken. A plan with nothing here was not a decision, it was a first idea written down.
+      items: {type: string}
+    verification:
+      x-display: {label: How it will be verified, role: prose, order: 7}
+      type: string
+      description: What will be true, and observable, when this is done, and how a person can see it themselves. The acceptance contract on the tasks is written from this.
+    writtenBy:
+      x-display: {label: Written by, group: Review}
+      type: string
+      description: Who wrote it, agent or person. The solution architect discipline owns this, which in this team is the Task planner.
+    status:
+      x-display: {label: Status, format: badge, group: Review, tones: {draft: muted, in_review: warn, approved: ok, rejected: bad, superseded: muted}}
+      type: string
+      description: 'Where the plan stands. `draft` is being written. `in_review` is in front of a person in Review. `approved` means a person said yes and the contract may now be written. `rejected` means a person said no; the approach changes and the plan is rewritten. `superseded` means a later plan replaced it, named in `supersededBy`.'
+      enum: [draft, in_review, approved, rejected, superseded]
+    approvedBy:
+      x-display: {label: Approved by, group: Review}
+      type: string
+      description: The person who approved it. A plan marked approved that names nobody is flagged on the feature report rather than read as an approval.
+    approvedAt:
+      x-display: {label: Approved, group: Review}
+      type: string
+      format: date-time
+      description: 'When it was approved. A plan approved after the first worker run started is shown as a contradiction on the feature report: it was a record, not a gate.'
+    decisionNote:
+      x-display: {label: What the approver said, role: prose, order: 8}
+      type: string
+      description: What the person said when they decided. The most valuable line on the record when the same question comes back in six weeks.
+    supersededBy:
+      x-display: {label: Superseded by, format: link, to: architecture_plan, group: Review}
+      type: integer
+      description: The plan that replaced this one. A plan is never edited into a different approach; it is superseded, so the record still says what was believed at the time.
+    taskIds:
+      x-display: {label: Tasks built from it, format: link, to: engineering_task}
+      type: array
+      description: The `engineering_task` records written from this plan. The contract carries the plan id back the other way, so the link can be read from either end.
+      items: {type: integer}
+    ruleLevel:
+      x-display: {label: The rule said, format: badge, group: Why this exists, tones: {required: warn, offered: info, not_required: muted}}
+      type: string
+      description: 'What the plan rule decided for this work: `required`, `offered` (skippable, with a recorded reason) or `not_required`. Written from the rule rather than by hand, so nobody argues it after the fact.'
+      enum: [required, offered, not_required]
+    ruleTriggers:
+      x-display: {label: Why a plan was required, role: prose, format: steps, group: Why this exists}
+      type: array
+      description: One sentence per trigger that fired, in the rule's own words, so the reason is on the record and not only in the code.
+      items: {type: string}

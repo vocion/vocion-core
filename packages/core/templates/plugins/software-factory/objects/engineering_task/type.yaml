@@ -101,6 +101,14 @@ schema:
       type: array
       description: Ids of engineering tasks that must be accepted before this one is dispatched. The planner writes the edges; a worker never discovers them at run time.
       items: {type: string}
+    planId:
+      x-display: {label: Plan, format: link, to: architecture_plan, group: The plan}
+      type: integer
+      description: The `architecture_plan` this task was built from. Written when the plan rule required or offered a plan and one was approved. The contract carries the same value as `plan.plan_id`, and the worker refuses a contract that needed a plan and names none.
+    plan:
+      x-display: {label: What was decided about a plan, role: prose, group: The plan}
+      type: object
+      description: 'What this task recorded about the plan, exactly as the contract carried it: `{plan_id, url, approved_by, approved_at}` when a plan was written and approved, or `{skipped: true, skip_reason}` when one was offered and declined. A skip without a reason is refused, and the feature report renders a skip as "plan skipped: <reason>" rather than as a blank, because a blank cannot be told apart from a step nobody took.'
     modelPolicy:
       x-display: {label: Model policy, group: Budget}
       type: string
