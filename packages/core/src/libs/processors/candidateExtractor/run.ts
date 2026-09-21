@@ -164,8 +164,9 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   if (extraction.status === 'skipped') {
     counts[extraction.reason] = (counts[extraction.reason] ?? 0) + 1;
     pushScore({ traceId: extraction.traceId, name: 'extraction-ok', value: 0 });
-    ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: `extraction skipped: ${extraction.reason}` });
-    notes.push(`extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`);
+    const skipMessage = `extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`;
+    ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: skipMessage });
+    notes.push(skipMessage);
     return { produced: 0, skipped: 1, notes, counts };
   }
 
