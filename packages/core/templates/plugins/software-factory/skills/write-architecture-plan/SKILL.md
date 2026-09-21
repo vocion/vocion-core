@@ -10,7 +10,7 @@ description: >-
   sent back, and what happens to the contract when the plan is approved. Read
   before writing any task contract, because the worker refuses a contract that
   needed a plan and carries none, before the repository is cloned.
-playbooks: [the-twenty-percent, written-promises, naming-the-work]
+playbooks: [the-twenty-percent, written-promises, naming-the-work, designing-a-surface]
 version: 1
 ---
 

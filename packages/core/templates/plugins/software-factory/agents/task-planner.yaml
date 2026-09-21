@@ -27,6 +27,8 @@ handles:
   - engineering tasks
 # Normal: plans when asked or when an automation fires; volunteers nothing beyond the ask.
 initiative: normal
+playbooks:
+  - designing-a-surface
 skills:
   - triage-request
   - write-architecture-plan

@@ -28,6 +28,7 @@ import {
   readWorkspacePageContent,
   resolveField,
 } from '@/libs/workspace/pages';
+import { deriveWorkQueue } from '@/libs/workspace/workQueue';
 import {
   agentSchema,
   businessObjectSchema,
@@ -418,7 +419,12 @@ export default async function WorkspacePage(props: {
 
   let rows: PageRow[] = [];
   if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && manifest.source) {
-    rows = applyFilter(await loadRows(manifest, orgId), [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
+    // A named derivation runs FIRST, over every row: it is what turns stored
+    // states into the lanes and sentences the page is declared in, and it
+    // needs the whole set to count what it then leaves out.
+    const loaded = await loadRows(manifest, orgId);
+    const derived = manifest.derive === 'workQueue' ? deriveWorkQueue(loaded, { now: new Date(now) }) : loaded;
+    rows = applyFilter(derived, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
       rows.sort((a, b) => {

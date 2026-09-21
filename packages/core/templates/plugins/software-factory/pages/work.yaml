@@ -1,83 +1,86 @@
-# Work. One queue, and the OUTCOME is the object.
+# Work. The queue a person manages, not a browser over the records behind it.
 #
-# This replaces three pages that were three views of the same thing: the
-# Backlog (requests still owed an outcome), Recommendations (what the Product
-# manager put in front of a person) and the Factory floor (the engineering
-# tasks). A recommendation is not a page; it is a Next item that nobody has
-# approved yet, and it sits in this queue with its decision state on the row.
-# A worker run is never the top-level object here: the request is the row, the
-# tasks it spawned are counted on it, and the whole chain (contract, runs,
-# checks, pull request, QA evidence, release) is one tap on through Report.
+# The outcome is still the object, and that part was right: one row is one
+# thing the factory owes or is delivering, and the tasks, runs, checks and
+# pull requests underneath it are the detail page's job. What was wrong was
+# the reading. The page showed the record: seven states, a decision state
+# beside a proposed outcome, sixteen columns, "not recorded" eighty times,
+# seventeen finished items, five token probes. That is a database browser for
+# a good data model.
 #
-# Grouped by state, so the queue reads as segments rather than as one list:
-# `new`, `triaged` and `in_scope` are what is next; `building` is in progress;
-# `shipped` and `answered` are recently done. What is waiting on a person is a
-# cut across those states rather than a state of its own, so it is counted in
-# the stats (`recommendationState: proposed`) instead of pretended to be a
-# group. `out_of_scope` is the archive and is filtered out.
+# So this page is DERIVED (`derive: workQueue`, libs/workspace/workQueue.ts).
+# The derivation is where the state machine turns into four lanes a person
+# thinks in, the reason codes turn into a sentence, and the money turns into
+# the one figure the lane makes sense of. The manifest below declares the
+# reading; it no longer declares the schema.
 #
-# Every row carries its REASON, never a bare priority integer. `meta.why` is
-# the closed list of reason codes (user_request, production_bug, blocks_goal,
-# breaks_promise, required_for_dogfood, manual_toil, platform_leverage,
-# factory_reliability, observed_behaviour) and `meta.priorityReason` is the
-# same judgement in the Product manager's own sentence. Until every request
-# carries `why`, the codes column is empty on the older rows and the sentence
-# carries the reason on its own. An empty cell is honest; a number in its
-# place would not be.
+#  - **Next**, ordered and numbered, because "what comes next" is the one
+#    question the section exists to answer. Only a request whose reason was
+#    recorded is ranked: an outcome nobody wrote a reason for cannot be
+#    argued to be the second most important thing we do, so it queues
+#    unnumbered and the heading says how many are in that state. Today that
+#    is all of them, and the page says so once, in the heading, rather than
+#    once per row in a column of blanks.
+#  - **In progress**, what a worker is building right now.
+#  - **Waiting on you**, derived rather than stored: an outcome whose
+#    recommendation nobody has decided is not moving, whatever its state
+#    says. Work owns the work state and shows it; Review still owns the
+#    decision, and the minutes it will cost ride on this lane's heading
+#    rather than standing alone as a metric.
+#  - **Done recently**, capped, with the rest one link away in Activity.
+#
+# Probes and end-to-end records are dropped here. They are legitimate history
+# and they are not management information; burying them is what the new
+# architecture was for.
 slug: work
 title: Work
-description: Every outcome the factory owes or is delivering, in one queue, grouped by state, each row carrying the reason it is here and the tasks it has spawned.
+description: What we owe, what is running, what is stopped on you, and what just landed.
 icon: list-checks
 nav: {section: Business, order: 2}
 archetype: list
 source: {kind: objects, objectType: request}
+# Seven states, four lanes, and every sentence on the row: see
+# libs/workspace/workQueue.ts, which is also where the mapping is argued with.
+derive: workQueue
 # States move as workers claim, finish and get reviewed; the queue re-reads
 # itself every 15s while open so what is stuck stays true.
 live: {every: 15}
-sort: {field: meta.askedAt, dir: asc}
-groupBy: meta.state
+# The derivation ordered the lanes and the rows inside them; the page just
+# keeps that order.
+sort: {field: meta.order, dir: asc}
+groupBy: meta.lane
+# The top line, in four figures. Each is a count of the WHOLE queue, stamped
+# on every row by the derivation, so a capped lane never makes the queue look
+# shorter than it is. Tasks written and decision minutes are gone from here:
+# one was plumbing, and the other belongs to the lane it describes.
 stats:
-  - {label: Next, kind: countWhere, where: {field: meta.state, op: in, value: [new, triaged, in_scope]}}
-  - {label: In progress, kind: countWhere, where: {field: meta.state, op: eq, value: building}}
-  - {label: Waiting on a person, kind: countWhere, where: {field: meta.recommendationState, op: eq, value: proposed}}
-  - {label: Recently done, kind: countWhere, where: {field: meta.state, op: in, value: [shipped, answered]}}
-  - {label: Untriaged, kind: countWhere, where: {field: meta.state, op: eq, value: new}}
-  - {label: P1, kind: countWhere, where: {field: meta.severity, op: eq, value: p1}}
-  - {label: Tasks written, kind: sum, field: meta.taskCount}
-  - {label: Decision minutes owed, kind: sum, field: meta.decisionCost, suffix: min}
+  - {label: Next, kind: max, field: meta.nextCount}
+  - {label: In progress, kind: max, field: meta.progressCount}
+  - {label: Waiting on you, kind: max, field: meta.waitingCount}
+  - {label: Urgent, kind: max, field: meta.urgentCount}
+# Five things about a row: the outcome, why it is here, what is happening to
+# it, which product it is for, and what it costs. Urgent, waiting and major
+# appear under the title only when they are true. Anything else about this
+# outcome is on the outcome's own page, which is where the row goes.
 primary:
   field: title
-  subtitle: [kind, channel, why]
+  subtitle: [why, flags]
 fields:
   - {key: title, label: Outcome}
-  # The reason this is here, from the closed list. Written by the Product
-  # manager; absent on a request ranked before the codes existed.
-  - {key: why, label: Why, from: meta.why}
-  - {key: reason, label: 'Why, in words', from: meta.priorityReason}
-  - {key: state, label: State, from: meta.state, format: badge, tones: {new: warn, triaged: info, in_scope: ok, building: info, shipped: ok, answered: muted}}
-  # A recommendation is a Next item nobody has approved yet. `proposed` is the
-  # honest count of what is waiting on the accountable person.
-  - {key: decision, label: Decision, from: meta.recommendationState, format: badge, tones: {proposed: warn, approved: ok, rejected: bad}}
-  - {key: proposed, label: Proposed, from: meta.recommendedOutcome, format: badge, tones: {build: ok, answer: info, decline: warn, merge: muted}, priority: 2}
+  # One human sentence, built from the closed reason list. Never `manual_toil`.
+  - {key: why, label: Why, from: meta.whyLine}
+  # Conditional facts. An empty list renders as nothing, not as a dash.
+  - {key: flags, label: Flags, from: meta.flags}
+  # Next is numbered one, two, three. Nothing ranked means no column at all
+  # (`hideWhenEmpty`), because a column of blanks is not a ranking.
+  - {key: rank, label: '#', from: meta.rank, format: mono, align: right}
+  - {key: status, label: What is happening, from: meta.workLine}
   - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
-  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
-  - {key: severity, label: Severity, from: meta.severity, format: badge, tones: {p1: bad, p2: warn, p3: muted}}
-  - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
-  - {key: channel, label: Channel, from: meta.channel, format: badge, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
-  # The tasks under this outcome, counted. The tasks themselves, with their
-  # contracts, checks and pull requests, are on the report.
-  - {key: tasks, label: Tasks, from: meta.taskCount, format: mono, align: right}
-  - {key: cost, label: Decision min, from: meta.decisionCost, format: mono, align: right, priority: 3}
-  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true, priority: 2}
-  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true, priority: 2}
-  - {key: asked, label: Asked, from: meta.askedAt, format: date, priority: 2}
-  - {key: decided, label: Decided, from: meta.decidedAt, format: date, priority: 3}
-# Declined requests are the archive, not the queue.
-filters:
-  - {field: meta.state, op: neq, value: out_of_scope}
-rowLink: /dashboard/objects/{id}
-# The whole story for this outcome: the ask, the contract, every approval,
-# every run with its checks and its cost, the pull request, QA evidence, the
-# release, and estimate against actual.
-rowActions:
-  - {label: Report, href: '/dashboard/p/feature/{id}'}
+  # An estimate while it is queued, spend against the estimate while it runs,
+  # what it cost once it is done. One column, because a person choosing what
+  # happens next needs to know whether it is four dollars or eighty-five.
+  - {key: cost, label: Cost, from: meta.costLine, format: mono, align: right}
+# The row IS the drill-down. There was a "Report" affordance on every row; it
+# was never a report, it was the outcome, and a row that opens somewhere else
+# than the thing it names is a second place to click for no second meaning.
+rowLink: /dashboard/p/feature/{id}

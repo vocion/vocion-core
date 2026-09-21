@@ -736,6 +736,22 @@ export const PageManifestSchema = z.object({
    * reader has to look back up at.
    */
   layout: z.enum(['table', 'block']).default('table'),
+  /**
+   * A named derivation run over the rows BEFORE filters, sort, grouping and
+   * stats, so the page can be declared in the words a person reads rather
+   * than in the fields a record happens to store.
+   *
+   * `workQueue` is the software factory's Work page: seven request states
+   * read as four lanes, the reason as a sentence, the money as the one
+   * figure the lane makes sense of, probes and the archive dropped, and the
+   * whole queue's counts stamped on every kept row so the top line counts
+   * what exists rather than what fitted (libs/workspace/workQueue.ts).
+   *
+   * A closed set of one, like the report archetype's `subject`: a derivation
+   * knows what these records MEAN and is not a general expression language
+   * on a page. A second one gets declared here when it exists.
+   */
+  derive: z.enum(['workQueue']).optional(),
   filters: z.array(FilterSchema).optional(),
   /**
    * Named ways of looking at the same rows, chosen with `?view=<key>` and
@@ -794,6 +810,7 @@ export const PageManifestSchema = z.object({
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })
   .refine(m => m.layout === 'table' || m.fields === undefined || m.fields.every(f => !f.total), { message: 'a block layout has no column to total under', path: ['layout'] })
+  .refine(m => m.derive === undefined || m.archetype === 'list', { message: 'derive is for list pages, the ones with rows to derive from', path: ['derive'] })
   .refine(
     m => m.primary === undefined
       || [m.primary.field, ...m.primary.subtitle].every(k => (m.fields ?? []).some(f => f.key === k)),
