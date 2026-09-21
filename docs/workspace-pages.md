@@ -37,8 +37,9 @@ the pages of the plugins it has on (`project.enabled_plugins`) and nothing of
 the folder's.
 
 A `list`/`queue` page composes: a stats row (`stats:`), a series strip
-(`series:`), grouping (`groupBy:`), filtering (`filters:`), sorting, per-field
-formats (`text|badge|score|date|mono|image|money|link|relative|progress`,
+(`series:`), grouping (`groupBy:`), filtering (`filters:`), named views
+(`views:`), sorting, per-field formats
+(`text|badge|score|date|mono|image|money|link|relative|progress|duration`,
 with badge tone maps), column totals (`total: true`), a `rowLink`
 click-through, and custom widgets.
 
@@ -48,6 +49,10 @@ with `format: money` — as dollars read from cents. Filters compare with `eq`,
 `neq`, `gte`, `lte`, `in`, `exists`, or `since`: `{field: meta.paidAt, op:
 since, value: month}` keeps the rows whose date is in this calendar month
 (`week`, `today` and `<n>d` are the other windows; UTC throughout).
+
+`hideWhenZero: true` on a stat leaves the figure off the page when it is zero,
+so a count of an exception appears when the exception happened and nowhere
+else ("0 lost" is a tile spent saying a thing did not happen).
 
 A field with `total: true` is summed under the table — under each group's
 table on a grouped page — as money for a `money` column and as a number
@@ -76,8 +81,38 @@ series:
 
 `relative` renders a timestamp as its distance from now ("12s ago", "in 4m")
 with the exact moment on hover; `progress` renders a worker's `{phase, note}`
-heartbeat object as "phase · note". A badge over a boolean `false` with no
-`'false'` tone renders as nothing, so an off flag is not a column of pills.
+heartbeat object as "phase · note"; `duration` reads an integer number of
+seconds as the length a person compares by ("18m 25s"). A badge over a boolean
+`false` with no `'false'` tone renders as nothing, so an off flag is not a
+column of pills.
+
+### `detail:` fields, and `views:`
+
+Two ways a page carries more than a row can hold.
+
+A field with `detail: true` is **evidence, not a column**. It is never drawn
+in the table and reads inside the row's own disclosure ("Evidence"), under its
+label, with empty fields left out rather than drawn as dashes. This is a
+different problem from `priority`, which drops a column the page would still
+like to show when the viewport will not allow it: a `detail` field is one the
+page does not want in the row at all. Activity declares twenty six fields and
+shows eleven; a heartbeat and a lease matter while a run is alive and are
+noise on a run that finished yesterday.
+
+`views:` are named ways of looking at the same page, chosen with `?view=<key>`
+and drawn as a switcher above the summary. A view with `filters` narrows this
+page's rows; a view with `href` is a different surface that belongs in the
+same row of tabs and navigates there. The first view declared is the default
+and has to be one of this page's own. A view never changes the `source`: a tab
+that quietly queried something else would make the summary above it mean a
+different thing per tab.
+
+```yaml
+views:
+  - {key: all, label: All, note: Everything, newest first.}
+  - {key: runs, label: Runs, filters: [{field: meta.kind, op: eq, value: worker}]}
+  - {key: releases, label: Releases, href: /dashboard/p/releases}
+```
 
 A `list`/`queue` page can also stay **live**: `live: {every: 15}` re-reads the
 rows and stats every 15 seconds while the tab is visible (bounded 5–120) and

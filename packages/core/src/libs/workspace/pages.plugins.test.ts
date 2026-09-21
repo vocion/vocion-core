@@ -139,6 +139,60 @@ describe('plugin pages', () => {
     expect(fields.stop).toMatchObject({ from: 'meta.stopRequested', format: 'badge', tones: { true: 'warn' } });
   });
 
+  it('Activity splits the four facts one status column was carrying', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const activity = pages.find(p => p.slug === 'activity');
+    const fields = Object.fromEntries((activity?.fields ?? []).map(f => [f.key, f]));
+    const stats = Object.fromEntries((activity?.stats ?? []).map(st => [st.label, st]));
+
+    expect(issues).toEqual([]);
+    // Execution, verification, output and task disposition are four columns
+    // reading four accessors. The row that said "failed / complete / passed /
+    // opened" can no longer be written, because nothing on this page reads
+    // `status` as the answer to all four questions.
+    expect(fields.execution).toMatchObject({ from: 'meta.execution', format: 'badge' });
+    expect(fields.verification).toMatchObject({ from: 'meta.verification', format: 'badge' });
+    expect(fields.output).toMatchObject({ from: 'meta.output', format: 'badge' });
+    expect(fields.disposition).toMatchObject({ from: 'meta.disposition', format: 'badge' });
+    expect(fields.failureClass).toMatchObject({ from: 'meta.failureClass', format: 'badge' });
+    expect(fields.recovery).toMatchObject({ from: 'meta.recoveryNote' });
+    // The raw column is still reachable, as evidence inside the row.
+    expect(fields.rawStatus).toMatchObject({ from: 'status', detail: true });
+
+    // The unit is the task, not the run.
+    expect(activity?.groupBy).toBe('meta.taskKey');
+    // Default row: what happened, then result, recovery, cost, duration, PR, time.
+    expect(activity?.primary).toEqual({ field: 'headline', subtitle: ['execution', 'verification', 'output', 'failureClass', 'recovery'] });
+    expect((activity?.fields ?? []).filter(f => !f.detail).map(f => f.key))
+      .toEqual(['headline', 'execution', 'verification', 'output', 'disposition', 'failureClass', 'recovery', 'cents', 'duration', 'pr', 'created']);
+
+    // The number the old strip never reported, plus the one that beats it.
+    expect(Object.keys(stats)).toContain('Failed');
+    expect(stats.Failed).toMatchObject({ kind: 'countWhere', where: { field: 'meta.execution', op: 'eq', value: 'failed' } });
+    expect(stats.Recovered).toMatchObject({ where: { field: 'meta.recovery', op: 'in', value: ['retried', 'preserved'] } });
+    expect(stats.Unresolved).toMatchObject({ where: { field: 'meta.recovery', op: 'eq', value: 'unresolved' } });
+    expect(stats.Spend).toMatchObject({ kind: 'sum', field: 'meta.cents', format: 'money' });
+    expect(stats['Spend on unsuccessful attempts']).toMatchObject({ kind: 'sum', where: { field: 'meta.successful', op: 'eq', value: false } });
+    // "0 lost" is a tile spent saying a thing did not happen.
+    expect(stats.Lost).toMatchObject({ hideWhenZero: true });
+
+    // Every heartbeat-era field is evidence now, not a column.
+    for (const key of ['agent', 'model', 'tokens', 'heartbeat', 'lease', 'summary', 'progress']) {
+      expect(fields[key]).toMatchObject({ detail: true });
+    }
+
+    // Activity means activity: the timeline is the default, the run table is
+    // a view, and the surfaces that are genuinely other records say so.
+    expect((activity?.views ?? []).map(v => v.key)).toEqual(['all', 'runs', 'unresolved', 'contract', 'environment', 'verification', 'releases', 'decisions']);
+    expect(activity?.views?.[0]?.key).toBe('all');
+    expect(activity?.views?.[0]?.filters).toBeUndefined();
+    expect(activity?.views?.find(v => v.key === 'releases')).toMatchObject({ href: '/dashboard/p/releases' });
+
+    // Back to the outcome the run served.
+    expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: '/dashboard/p/feature/{meta.requestId}' }]);
+  });
+
   it('Products is the one product page, and says where its counters came from', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();

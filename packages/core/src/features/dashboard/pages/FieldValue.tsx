@@ -3,7 +3,7 @@ import type { PageField, PageRow } from '@/libs/workspace/pageFields';
 import { Badge } from '@/components/ui/badge';
 import { StatusPill } from '@/components/ui/status-pill';
 import { relativeLabel } from '@/libs/timeAgo';
-import { formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
+import { formatDuration, formatMoney, formatProgress, isEmptyValue, resolveField, shortUrlLabel, toDate } from '@/libs/workspace/pageFields';
 
 /**
  * ONE formatting layer for a declared field, wherever it is read.
@@ -106,6 +106,10 @@ export function FieldValue({ row, field, now, links }: { row: PageRow; field: Pa
     }
     case 'mono':
       return <span className="font-mono text-xs">{s}</span>;
+    case 'duration': {
+      const secs = Number(raw);
+      return <span className="font-mono text-xs whitespace-nowrap tabular-nums">{Number.isFinite(secs) ? formatDuration(secs) : s}</span>;
+    }
     case 'money': {
       const cents = Number(raw);
       return <span className="font-mono text-sm tabular-nums">{Number.isFinite(cents) ? formatMoney(cents) : s}</span>;

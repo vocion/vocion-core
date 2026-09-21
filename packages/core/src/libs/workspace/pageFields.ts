@@ -63,8 +63,10 @@ const FieldSchema = z.object({
    * heartbeat column stays honest. `progress` renders a worker's
    * `{phase, note}` object as "phase · note" (any other object as its
    * primitive entries), so coarse progress reads as a sentence, not JSON.
+   * `duration` reads an integer number of seconds as "18m 25s", because a
+   * run's length is the thing being compared and `1105` is not.
    */
-  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress', 'steps']).default('text'),
+  format: z.enum(['text', 'badge', 'score', 'date', 'mono', 'image', 'money', 'link', 'relative', 'progress', 'steps', 'duration']).default('text'),
   /**
    * For `format: link` — the object type the value is an id (or a slug) of.
    * The cell then resolves to `/dashboard/objects/<id>` under the target's
@@ -107,6 +109,20 @@ const FieldSchema = z.object({
    * and everything else to `left`; this overrides that.
    */
   align: z.enum(['left', 'right']).optional(),
+  /**
+   * Progressive disclosure: this field is evidence, not a column. It is not
+   * drawn in the table at all, and reads inside the row's own disclosure
+   * instead, under its label.
+   *
+   * `priority` already drops a column on a narrow screen, which is a
+   * different problem: a `priority: 3` column is one the page would still
+   * like to show and the viewport will not allow. A `detail` field is one
+   * the page does NOT want in the row. A heartbeat and a lease matter while
+   * a run is alive and are noise on a run that finished yesterday; tokens
+   * explain a cost when someone is investigating one and are a wall of
+   * digits when nobody is.
+   */
+  detail: z.boolean().default(false),
 });
 
 /**
@@ -146,6 +162,13 @@ const StatSchema = z.object({
   suffix: z.string().optional(),
   /** `money` reads the figure as cents and shows dollars, the way a `money` field does. */
   format: z.enum(['number', 'money']).default('number'),
+  /**
+   * Leave the figure out entirely when it is zero. "0 lost" is a tile spent
+   * telling a person that a thing which did not happen did not happen, and
+   * it sits beside the figures that did. A count of an exception belongs on
+   * the page when the exception happened and nowhere else.
+   */
+  hideWhenZero: z.boolean().default(false),
 });
 
 /**
@@ -228,6 +251,40 @@ const ListSourceSchema = z.discriminatedUnion('kind', [
 const RowActionSchema = z.object({
   label: z.string().min(1),
   href: z.string().min(1),
+});
+
+/**
+ * A named way of looking at the same page, chosen with `?view=<key>`.
+ *
+ * A page called Activity that only ever shows worker runs is misnamed: the
+ * name promises everything that happened. Views let one page carry the
+ * chronological operational timeline AND the run-oriented table a person
+ * debugs with, without either of them becoming a second page that drifts.
+ *
+ * Two kinds, and the difference is honest rather than cosmetic:
+ *
+ * - A view with `filters` narrows THIS page's rows. The first view declared
+ *   is the default, and it is the one a bare visit lands on.
+ * - A view with `href` is a different surface that belongs in the same row of
+ *   tabs, and says so by navigating there. Releases and decisions are not
+ *   worker runs and pretending they are the same rows would be a lie about
+ *   the data. What they share is the question "what happened", so they share
+ *   the switcher.
+ *
+ * A view never changes the source. A tab that quietly queried something else
+ * would make the summary above it mean a different thing per tab, which is
+ * the defect this page was built to stop repeating.
+ */
+const ViewSchema = z.object({
+  key: z.string().regex(/^[a-z][a-z0-9-]*$/, { message: 'a view key is lowercase alphanumeric with dashes' }),
+  label: z.string().min(1),
+  /** One line under the switcher saying what this view is showing. */
+  note: z.string().optional(),
+  filters: z.array(FilterSchema).optional(),
+  href: z.string().min(1).optional(),
+}).refine(v => (v.filters === undefined) || (v.href === undefined), {
+  message: 'a view either narrows these rows or opens another surface, not both',
+  path: ['href'],
 });
 
 /**
@@ -503,6 +560,12 @@ export const PageManifestSchema = z.object({
     subtitle: z.array(z.string()).default([]),
   }).optional(),
   filters: z.array(FilterSchema).optional(),
+  /**
+   * Named ways of looking at the same rows, chosen with `?view=<key>` and
+   * drawn as a switcher above the summary. First one declared is the
+   * default. See {@link ViewSchema}.
+   */
+  views: z.array(ViewSchema).min(2).max(8).optional(),
   groupBy: z.string().optional(),
   sort: z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).default('desc') }).optional(),
   stats: z.array(StatSchema).optional(),
@@ -544,7 +607,10 @@ export const PageManifestSchema = z.object({
     m => m.primary === undefined
       || [m.primary.field, ...m.primary.subtitle].every(k => (m.fields ?? []).some(f => f.key === k)),
     { message: 'primary names a field this page does not declare', path: ['primary'] },
-  );
+  )
+  .refine(m => m.views === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'views are for list and queue pages, the ones with rows to narrow', path: ['views'] })
+  .refine(m => m.views === undefined || new Set(m.views.map(v => v.key)).size === m.views.length, { message: 'two views share a key', path: ['views'] })
+  .refine(m => m.views === undefined || m.views[0]?.href === undefined, { message: 'the first view is the default, so it has to be a view of this page rather than a link away from it', path: ['views'] });
 
 export type PageManifest = z.infer<typeof PageManifestSchema>;
 /** A validated page plus where it came from, so its prose resolves beside it. */
@@ -555,6 +621,7 @@ export type LoadedPage = PageManifest & {
   origin: 'workspace' | `plugin:${string}`;
 };
 export type PageField = z.infer<typeof FieldSchema>;
+export type PageView = z.infer<typeof ViewSchema>;
 export type PagePrimary = NonNullable<z.infer<typeof PageManifestSchema>['primary']>;
 export type PageLive = z.infer<typeof LiveSchema>;
 export type PageStat = z.infer<typeof StatSchema>;
@@ -773,6 +840,17 @@ export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Dat
 }
 
 /**
+ * Whether a rendered figure is nothing: `0`, `0%`, `$0.00`. A stat that
+ * declared `hideWhenZero` is left off the page when this is true, so the
+ * summary strip carries the exceptions that happened and not the ones that
+ * did not.
+ * @param rendered - The figure as {@link computeStat} rendered it.
+ */
+export function isZeroFigure(rendered: string): boolean {
+  return /^-?\$?0(?:\.0+)?\D*$/.test(rendered.trim());
+}
+
+/**
  * The columns marked `total`, summed over these rows and rendered the way
  * the column renders — money for a `money` column, a plain number otherwise.
  * Empty when no column asks for it.
@@ -904,7 +982,24 @@ export function isEmptyValue(raw: unknown): boolean {
  * @param field - The field declaration.
  */
 export function fieldAlign(field: PageField): 'left' | 'right' {
-  return field.align ?? (field.format === 'money' || field.format === 'score' ? 'right' : 'left');
+  return field.align ?? (field.format === 'money' || field.format === 'score' || field.format === 'duration' ? 'right' : 'left');
+}
+
+/**
+ * Seconds as the length a person compares runs by: `18m 25s`, `2h 4m`, `43s`.
+ * A run that took 1105 seconds and one that took 969 are hard to tell apart
+ * as integers and obvious as minutes.
+ * @param seconds - An integer number of seconds.
+ */
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) {
+    return `${total}s`;
+  }
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${sec}s`;
 }
 
 /**
@@ -947,6 +1042,8 @@ export type TableLayout = {
   columns: PageField[];
   /** Columns collapsed into the line above the table. */
   constants: Array<{ field: PageField; value: unknown }>;
+  /** Fields that read inside the row's disclosure rather than as a column. */
+  details: PageField[];
 };
 
 /**
@@ -961,9 +1058,13 @@ export type TableLayout = {
 export function tableLayout(rows: PageRow[], fields: PageField[], primary?: PagePrimary): TableLayout {
   const byKey = (k: string) => fields.find(f => f.key === k) ?? null;
   const lead = primary ? byKey(primary.field) : null;
-  const sub = (primary?.subtitle ?? []).map(byKey).filter((f): f is PageField => f !== null);
+  const sub = (primary?.subtitle ?? []).map(byKey).filter((f): f is PageField => f !== null && !f.detail);
   const spoken = new Set([lead?.key, ...sub.map(f => f.key)].filter(Boolean) as string[]);
-  const rest = fields.filter(f => !spoken.has(f.key));
+  // A `detail` field is evidence the page deliberately kept out of the row,
+  // so it never competes for width with the columns; it reads inside the
+  // row's own disclosure instead.
+  const details = fields.filter(f => f.detail && !spoken.has(f.key));
+  const rest = fields.filter(f => !spoken.has(f.key) && !f.detail);
   // A constant fact is hoisted wherever it was going to be repeated — out
   // of a column, and out of the subtitle, which would otherwise say
   // "squatch-core" once per row just as loudly.
@@ -974,6 +1075,7 @@ export function tableLayout(rows: PageRow[], fields: PageField[], primary?: Page
     subtitle: sub.filter(f => !constantKeys.has(f.key)),
     columns: rest.filter(f => !constantKeys.has(f.key)),
     constants,
+    details,
   };
 }
 

@@ -142,6 +142,7 @@ export function declaredRecordFields(schema: unknown): RecordField[] {
       total: false,
       priority: 1,
       hideWhenConstant: false,
+      detail: false,
       align: undefined,
       role,
       group: typeof d.group === 'string' ? d.group : 'Details',
