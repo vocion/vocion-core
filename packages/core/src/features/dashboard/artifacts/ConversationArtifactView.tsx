@@ -29,6 +29,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useViewportBelow } from '@/components/ui/useMobile';
 import { AGENT_SURFACE_EVENT, agentSurfaceRequestOf, focusAgentComposer } from '@/features/dashboard/chat/agentSurface';
 import { AUTONOMY_SETTING_ID, autonomyFromOption, autonomyMenuSetting } from '@/features/dashboard/chat/autonomyOptions';
 import { ChatComposer } from '@/features/dashboard/chat/ChatComposer';
@@ -45,6 +46,7 @@ import { ShellBarActionsPortal } from '@/features/dashboard/ShellBarActions';
 import { ArtifactPane } from './ArtifactPane';
 import { artifactReducer, initialArtifactPaneState, openArtifact } from './artifactReducer';
 import { ConversationSplit } from './ConversationSplit';
+import { SPLIT_STACK_BREAKPOINT } from './splitState';
 import { useArtifactEvents } from './useArtifactEvents';
 
 export type ConversationArtifactViewProps = {
@@ -199,6 +201,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
 
   const openById = useCallback((id: number) => dispatch({ type: 'open', id }), []);
 
+  // Below `lg` the two panes do not stand side by side: `ConversationSplit`
+  // shows ONE, and while an artifact is open that one is the artifact. The
+  // layout itself is CSS (so the first paint is right); this boolean is only
+  // for what CSS cannot say — that the pane's close control is the way back.
+  const stacked = useViewportBelow(SPLIT_STACK_BREAKPOINT);
+
   // Chips on a RELOADED transcript. A live turn attaches its own through the
   // event seam above; a reloaded one has only the artifacts and their
   // `messageId`, stamped when the assistant turn was persisted. Merged here
@@ -251,9 +259,12 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
       <ConversationSplit
         conversation={(
           <>
+            {/* The title is the flexible half of this row: `truncate` without
+                `min-w-0` cannot shrink inside a flex row, so a long
+                conversation title pushed the agent's name off the right edge. */}
             <div className="mb-2 flex items-baseline gap-2 px-1">
-              <h1 className="truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
-              <span className="text-xs text-muted-foreground">{session.agent.name}</span>
+              <h1 className="min-w-0 truncate text-sm font-medium text-foreground">{props.conversationTitle}</h1>
+              <span className="shrink-0 text-xs text-muted-foreground">{session.agent.name}</span>
             </div>
             <div className="flex min-h-0 flex-1 flex-col">
               {session.messages.length === 0 && !session.resuming
@@ -318,6 +329,10 @@ export function ConversationArtifactView(props: ConversationArtifactViewProps) {
                 onEndEdit={() => dispatch({ type: 'endEdit' })}
                 onDismissConflict={() => dispatch({ type: 'dismissConflict' })}
                 onUpdated={a => dispatch({ type: 'upsert', artifact: a, focus: true })}
+                // Below `lg` the transcript is not on screen beside this
+                // (`ConversationSplit`), so closing the pane IS the way back
+                // to it and the control says so.
+                back={stacked}
                 onClose={() => dispatch({ type: 'close' })}
               />
             )

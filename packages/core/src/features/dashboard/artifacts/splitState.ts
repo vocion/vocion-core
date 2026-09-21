@@ -43,6 +43,16 @@ export const CONVERSATION_SHARE = 5 / 12;
 export const SPLIT_FALLBACK = CONVERSATION_SHARE;
 /** One arrow key. */
 export const SPLIT_STEP = 0.02;
+/**
+ * The width at which the two panes stop stacking and stand side by side.
+ *
+ * This is Tailwind's `lg`, and `ConversationSplit`'s `lg:` variants are the
+ * other half of it — the CSS decides the LAYOUT (so the first paint is right
+ * with no JS) and this number is what a hook has to match when it decides
+ * something CSS cannot express, like whether the pane's close control says
+ * "close" or "back to the conversation". The two must move together.
+ */
+export const SPLIT_STACK_BREAKPOINT = 1024;
 
 const SPLIT_KEY = 'vocion_conversation_split';
 

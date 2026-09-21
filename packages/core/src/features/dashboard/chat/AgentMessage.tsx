@@ -269,13 +269,32 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             : splitScratch(seg.text).map((piece, i) => (piece.kind === 'scratch'
                 ? <ScratchFold key={`text-${seg.index}-${i}`} text={piece.text} />
                 : (
-                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none dark:prose-invert">
+                    // `break-words`: agent prose carries URLs, ids and inline
+                    // code that are single unbreakable words — a 527px
+                    // identifier was cut off both edges of a 390px phone
+                    // (the owner's screenshot, 2026-09-19). Wrapping is the
+                    // answer for prose; a genuinely wide block gets its own
+                    // scroller instead (the `table` renderer below).
+                    <div key={`text-${seg.index}-${i}`} className="prose prose-sm max-w-none break-words dark:prose-invert">
                       <Markdown
                         remarkPlugins={[remarkGfm]}
                         // Keep our private citation scheme; react-markdown's default
                         // sanitizer would strip `vocion-cite:` and drop the link.
                         urlTransform={url => (url.startsWith('vocion-cite:') ? url : defaultUrlTransform(url))}
                         components={{
+                          // A table is the one thing in a turn that cannot
+                          // wrap: its width is the sum of its columns, and a
+                          // column holding an identifier has a min-content of
+                          // its own. So it scrolls INSIDE its own box rather
+                          // than pushing the transcript — the same rule the
+                          // typography plugin already gives `pre`.
+                          table({ children, ...props }) {
+                            return (
+                              <div className="max-w-full overflow-x-auto">
+                                <table {...props}>{children}</table>
+                              </div>
+                            );
+                          },
                           a({ href, children, ...props }) {
                             const m = typeof href === 'string' && href.startsWith('vocion-cite:') ? href.slice('vocion-cite:'.length) : null;
                             if (m !== null) {
