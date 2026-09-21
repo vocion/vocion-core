@@ -154,7 +154,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
       />
       <SidebarInset className="min-h-0 overflow-hidden">
         <ShellBarActionsProvider>
-          <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={isAdmin && pause === null} />
+          <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={Boolean(orgId) && isAdmin && pause === null} />
 
           {/* The workspace's state, above every page in it until someone
               lifts it. Inside the inset rather than fixed, so it pushes the
