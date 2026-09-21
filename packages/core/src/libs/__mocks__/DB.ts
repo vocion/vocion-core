@@ -1,39 +1,55 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+/**
+ * The database every unit test gets: an in-memory PGlite with this package's
+ * full schema already on it.
+ *
+ * Restored from a dump rather than migrated. Building the schema meant
+ * replaying 143 migrations, and 219 test files mock this module, so the same
+ * two CPU-minutes of migration were spent on every run. `globalSetup` now does
+ * that work once and leaves the finished database in a file — see
+ * `libs/testing/migratedDatabaseSnapshot.ts` for the measurements and why the
+ * file lives where it does.
+ *
+ * Each file still gets its OWN database, restored from the same dump. Sharing
+ * one across files would let a test see rows another test wrote, which is the
+ * kind of failure that only shows up when the order changes.
+ */
+
+import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import { MIGRATIONS_FOLDER, SNAPSHOT_PATH } from '@/libs/testing/migratedDatabaseSnapshot';
 import * as schema from '@/models/Schema';
 
-const createDbConnection = () => {
-  // PGlite ships pgvector as a bundled extension under
-  // `@electric-sql/pglite/vector`. Loading it here means the
-  // pgvector-using migration 0019 applies cleanly in tests against
-  // the in-memory PGlite (otherwise CREATE EXTENSION fails because
-  // vector.control isn't on /tmp/pglite/share/postgresql/extension/).
-  const client = new PGlite({ extensions: { vector } });
-
-  return drizzle(client, { schema });
-};
-
-const db = createDbConnection();
-
 /**
- * Where drizzle's generated migrations live, resolved from THIS file rather
- * than from the working directory.
+ * A PGlite holding the migrated schema.
  *
- * `process.cwd()` used to be the base, which only worked when vitest was
- * launched from inside `packages/core`. Running it from the repo root — as
- * `vitest run --root packages/core` does — left every suite that touches the
- * database failing with "Can't find meta/_journal.json file", because
- * `--root` moves vitest's config root but not the process's cwd.
+ * Falls back to migrating when the dump is not there, so this module still
+ * works for anything that loads it outside a vitest run with the global setup
+ * — and so a missing dump costs time rather than breaking every database test
+ * at once.
  */
-const migrationsFolder = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../migrations',
-);
+async function migratedDatabase(): Promise<PGlite> {
+  // pgvector has to be registered on the restored database too: the dump
+  // carries the extension's data, not the code that reads it.
+  try {
+    const dump = await readFile(SNAPSHOT_PATH);
+    return new PGlite({ loadDataDir: new Blob([dump]), extensions: { vector } });
+  } catch (error) {
+    // Said out loud, because the difference is about 450ms on every file that
+    // takes this path — a suite that quietly got five times slower is worse to
+    // diagnose than one that says why.
+    console.warn(
+      `[test db] no migrated snapshot at ${SNAPSHOT_PATH}, migrating instead`,
+      error instanceof Error ? error.message : String(error),
+    );
+    const fresh = new PGlite({ extensions: { vector } });
+    await migrate(drizzle(fresh), { migrationsFolder: MIGRATIONS_FOLDER });
+    return fresh;
+  }
+}
 
-await migrate(db, { migrationsFolder });
+const db = drizzle(await migratedDatabase(), { schema });
 
 export { db };
