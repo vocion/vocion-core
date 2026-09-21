@@ -1,21 +1,29 @@
-# The Factory log — what the factory did today and what it cost. Every
-# worker run, newest first: the lead's planning ticks, the dispatched jobs and
-# the red-team grades, with the model's own summary and the pull request one
-# tap away. Rendered by the core `list` archetype over the `workerRuns` source
-# (worker_run rows — docs/entities/worker-run.md); no new table, no new route.
-# Bookkeeping runs (`compact`, `snapshot`) are left out: they are the
-# machinery's own noise, not the factory's work.
+# Activity. The evidence stream, buried on purpose.
+#
+# This was the Factory log, and it is where the factory's own record now
+# lives: every worker run, newest first, with the lead's planning ticks, the
+# dispatched jobs and the red-team grades, the model's own summary, the tokens
+# it spent and the pull request one tap away. Rendered by the core `list`
+# archetype over the `workerRuns` source (worker_run rows, see
+# docs/entities/worker-run.md); no new table, no new route. Bookkeeping runs
+# (`compact`, `snapshot`) are left out: they are the machinery's own noise,
+# not the factory's work.
+#
+# It sits under Advanced because a run is not something a person manages. It
+# is what a person reads when a number above it needs explaining. Releases,
+# the other half of this section, is a hidden page at /dashboard/p/releases,
+# reached from here and from Products rather than from the nav.
 #
 # Live: a worker heartbeats every ~30s with its progress, its cost and a
-# fresh lease, so the page re-reads itself every 15s while it is open — a
+# fresh lease, so the page re-reads itself every 15s while it is open. A
 # running row shows its phase moving, its heartbeat ageing and its lease
 # holding, and a row that has gone quiet is visible before the reaper marks
 # it lost. One request per interval per open tab; nothing new is emitted.
-slug: factory-log
-title: Factory log
-description: Every run the factory made — who ran, what kind, what it cost, what it said it did, and the pull request it opened.
-icon: scroll-text
-nav: {section: Software factory, order: 6}
+slug: activity
+title: Activity
+description: Every run the factory made, with who ran it, what kind it was, what it cost in money and tokens, what it said it did, and the pull request it opened.
+icon: activity
+nav: {section: Advanced, order: 1}
 archetype: list
 source: {kind: workerRuns, kinds: [worker, lead, red-team], limit: 200}
 live: {every: 15}

@@ -1,0 +1,73 @@
+# Performance. Is it getting the outcomes we want, at an acceptable cost?
+#
+# This is the former Costs page with the Team report folded into it. Four
+# headline numbers answer the question before anything else on the screen:
+# what was spent in the window, how many changes were accepted, what an
+# accepted change costs, and what was spent without producing one. Autonomy
+# comes next, as TWO measures that are never blended into one percentage:
+# how much work reached an outcome on its own, and how much of a person's
+# attention it took. "94% auto-completed" beside "32 need attention" creates
+# questions, not confidence, so both are named and neither is averaged.
+#
+# The per-tag cost table is still here, and it is deliberately below the fold:
+# it is the evidence for the numbers on top, not the answer. Rows are requests,
+# grouped by feature tag, with what their tasks were estimated to cost and what
+# they actually cost. The figures are ROLLED UP onto the request record by core
+# when a task's cost is written (objects/request/type.yaml, `rollups:`), so
+# this page reads them like any other field and never computes across types.
+#
+# A request tagged twice sits under both tags on purpose. The stats on top are
+# over every row once. "Spent this month" is the spend on requests whose cost
+# last moved this month; a request's cost moves when one of its tasks' runs
+# ends, so a long-running feature counts in the month its latest run ended.
+#
+# Per-run tokens are not here. A run is not an outcome, and the token count
+# per run is on Activity with the run that spent them.
+slug: performance
+title: Performance
+description: What the factory is producing and what it costs, in four numbers first, then the two autonomy measures, then the cumulative spend under every feature tag.
+icon: gauge
+nav: {section: Business, order: 3}
+archetype: list
+source: {kind: objects, objectType: request}
+sort: {field: meta.actualCents, dir: desc}
+groupBy: meta.tags
+stats:
+  # The four headline numbers, in this order, before anything else.
+  - {label: Spent this month, kind: sum, field: meta.actualCents, format: money, where: {field: meta.rollupsUpdatedAt, op: since, value: month}}
+  - {label: Accepted changes (requests shipped), kind: countWhere, where: {field: meta.state, op: eq, value: shipped}}
+  - {label: Cost per accepted change, kind: avg, field: meta.actualCents, format: money, where: {field: meta.state, op: eq, value: shipped}}
+  - {label: 'Waste: spent, then answered instead of shipped', kind: sum, field: meta.actualCents, format: money, where: {field: meta.state, op: eq, value: answered}}
+  # Autonomy, measure one: how much work reached an outcome.
+  - {label: 'Work autonomy: outcomes reached', kind: countWhere, where: {field: meta.state, op: in, value: [shipped, answered]}}
+  - {label: 'Work autonomy: of those, a person decided', kind: countWhere, where: {field: meta.decidedAt, op: exists}}
+  # Autonomy, measure two, named honestly: what it cost a person to be here.
+  - {label: 'Human attention: decision minutes asked of a person', kind: sum, field: meta.decisionCost, suffix: min}
+  - {label: 'Human attention: still waiting on a person', kind: countWhere, where: {field: meta.recommendationState, op: eq, value: proposed}}
+  # The evidence line under the answer.
+  - {label: Total spent, kind: sum, field: meta.actualCents, format: money}
+  - {label: Total estimated, kind: sum, field: meta.estimateCents, format: money}
+  - {label: Spent on work still in flight, kind: sum, field: meta.actualCents, format: money, where: {field: meta.state, op: eq, value: building}}
+  - {label: Requests with spend, kind: countWhere, where: {field: meta.actualCents, op: exists}}
+  # A feature is a gap or an idea; a bug is a bug. Incidents and questions are
+  # neither, and are left out of both averages rather than folded into one.
+  - {label: Average cost of a feature, kind: avg, field: meta.actualCents, format: money, where: {field: meta.kind, op: in, value: [gap, idea]}}
+  - {label: Average cost of a bug, kind: avg, field: meta.actualCents, format: money, where: {field: meta.kind, op: eq, value: bug}}
+primary:
+  field: title
+  subtitle: [kind, tags]
+fields:
+  - {key: title, label: Request}
+  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
+  - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
+  - {key: tags, label: Tags, from: meta.tags}
+  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true}
+  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
+  - {key: variance, label: Variance, from: meta.varianceCents, format: money, total: true, priority: 2}
+  - {key: tasks, label: Tasks, from: meta.taskCount, format: mono, align: right, priority: 2}
+  - {key: state, label: State, from: meta.state, format: badge, tones: {new: warn, triaged: info, in_scope: ok, out_of_scope: muted, building: info, shipped: ok, answered: muted}}
+  - {key: updated, label: Cost as of, from: meta.rollupsUpdatedAt, format: date, priority: 3}
+rowLink: /dashboard/objects/{id}
+# Every row here is a request, so every row reaches its own report.
+rowActions:
+  - {label: Report, href: '/dashboard/p/feature/{id}'}
