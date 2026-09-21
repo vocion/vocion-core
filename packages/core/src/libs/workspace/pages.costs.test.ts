@@ -65,9 +65,9 @@ describe('since', () => {
 describe('totals and groups', () => {
   it('sums the columns marked total, rendered as the column renders', () => {
     const fields = [
-      { key: 'title', format: 'text' as const, total: false },
-      { key: 'actual', from: 'meta.actualCents', format: 'money' as const, total: true },
-      { key: 'tasks', from: 'meta.taskCount', format: 'mono' as const, total: true },
+      { key: 'title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false },
+      { key: 'actual', from: 'meta.actualCents', format: 'money' as const, total: true, priority: 1, hideWhenConstant: false },
+      { key: 'tasks', from: 'meta.taskCount', format: 'mono' as const, total: true, priority: 1, hideWhenConstant: false },
     ];
     const rows = [row(1, { actualCents: 1000, taskCount: 2 }), row(2, { actualCents: 25, taskCount: 1 }), row(3, {})];
 
@@ -90,7 +90,7 @@ describe('totals and groups', () => {
       ['—', [3, 4]],
     ]);
     // The total under a tag is the cumulative spend on everything that carried it.
-    expect(computeTotals(groups[0]!.rows, [{ key: 'actual', from: 'meta.actualCents', format: 'money', total: true }])).toEqual({ actual: '$1.50' });
+    expect(computeTotals(groups[0]!.rows, [{ key: 'actual', from: 'meta.actualCents', format: 'money', total: true, priority: 1, hideWhenConstant: false }])).toEqual({ actual: '$1.50' });
   });
 
   it('a scalar groups the way it always did', () => {

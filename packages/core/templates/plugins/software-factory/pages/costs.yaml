@@ -30,15 +30,18 @@ stats:
   # neither, and are left out of both averages rather than folded into one.
   - {label: Average cost of a feature, kind: avg, field: meta.actualCents, format: money, where: {field: meta.kind, op: in, value: [gap, idea]}}
   - {label: Average cost of a bug, kind: avg, field: meta.actualCents, format: money, where: {field: meta.kind, op: eq, value: bug}}
+primary:
+  field: title
+  subtitle: [kind, tags]
 fields:
   - {key: title, label: Request}
   - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
-  - {key: product, label: Product, from: meta.product, format: mono}
+  - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
   - {key: tags, label: Tags, from: meta.tags}
   - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true}
   - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
-  - {key: variance, label: Variance, from: meta.varianceCents, format: money, total: true}
-  - {key: tasks, label: Tasks, from: meta.taskCount, format: mono}
+  - {key: variance, label: Variance, from: meta.varianceCents, format: money, total: true, priority: 2}
+  - {key: tasks, label: Tasks, from: meta.taskCount, format: mono, align: right, priority: 2}
   - {key: state, label: State, from: meta.state, format: badge, tones: {new: warn, triaged: info, in_scope: ok, out_of_scope: muted, building: info, shipped: ok, answered: muted}}
-  - {key: updated, label: Cost as of, from: meta.rollupsUpdatedAt, format: date}
+  - {key: updated, label: Cost as of, from: meta.rollupsUpdatedAt, format: date, priority: 3}
 rowLink: /dashboard/objects/{id}
