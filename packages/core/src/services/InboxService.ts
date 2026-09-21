@@ -1,12 +1,18 @@
+import type { Grounds } from '@/services/inbox/admissionBar';
+import type { AutonomyHold, AutonomyProposal, SettledJudgment } from '@/services/inbox/autonomyProposal';
 import type { DecisionContract } from '@/services/inbox/decisionContract';
 import type { FailedRun } from '@/services/inbox/failureEscalation';
 import type { InboxRef } from '@/services/inbox/inboxRef';
 import type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
+import type { AgendaCandidate, PolicyGap, Reclassified } from '@/services/inbox/reviewAgenda';
 import type { ReviewRow } from '@/services/inbox/reviewRows';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { admit } from '@/services/inbox/admissionBar';
+import { autonomyProposals } from '@/services/inbox/autonomyProposal';
 import { changeSummaryLine, summariseChanges } from '@/services/inbox/changeSummary';
+import { enrichmentLine } from '@/services/inbox/decisionTopic';
 import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRun';
 import { escalationsFrom } from '@/services/inbox/failureEscalation';
 import { inboxHref } from '@/services/inbox/inboxRef';
@@ -14,6 +20,7 @@ import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
 import { planApprovalRows } from '@/services/inbox/planApprovalRows';
 import { chainReAsks, chaseLine } from '@/services/inbox/reAskChain';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
+import { reviewAgenda } from '@/services/inbox/reviewAgenda';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
 
 /**
@@ -131,6 +138,13 @@ export type InboxQuery = {
 
 export type Inbox = {
   items: InboxItem[];
+  /**
+   * Open tab only: everything the admission bar sent somewhere other than a
+   * person, with the reason. Review is auditable, not merely short.
+   */
+  reclassified: Reclassified<AgendaRow>[];
+  /** Open tab only: standing policies that produced rows they should have absorbed. */
+  policyGaps: PolicyGap[];
   /** Rows per kind on this tab — the chip counts. Counted before the kind filter, after the others. */
   counts: Record<InboxKind, number>;
   total: number;
@@ -323,6 +337,64 @@ function exceptionItems(runs: FailedRun[]): InboxItem[] {
     detail: e.contract.recommendation ?? e.contract.recommendationWhyNot ?? undefined,
     contract: e.contract,
   }));
+}
+
+/**
+ * What a row DECLARES about itself at the admission bar, where the row's own
+ * title cannot say it.
+ *
+ * A plan waiting for approval is a direction decision: the work does not start
+ * until it is answered. A suggested rule is a policy decision by definition. An
+ * exception has already been through `failureEscalation`, which only escalates
+ * a failure class policy cannot resolve, and the answer sets that policy.
+ *
+ * Nothing here can rescue bookkeeping: `admit` checks the action-id rules
+ * first, so a declaration never buys a metadata update a place in Review.
+ * @param item
+ */
+function declaredGrounds(item: InboxItem): Grounds | null {
+  if (item.key.startsWith('plan:')) {
+    return 'direction';
+  }
+  if (item.kind === 'learning') {
+    return 'policy';
+  }
+  if (item.kind === 'exception') {
+    return 'policy';
+  }
+  return null;
+}
+
+/** An inbox row as the agenda sees it. */
+export type AgendaRow = InboxItem & AgendaCandidate;
+
+/**
+ * The open tab, after the admission bar.
+ *
+ * What survives is one row per DECISION, not one per thing the factory is
+ * unsure about. A decision that absorbed related questions says so on the row
+ * and carries them underneath; everything else is accounted for in
+ * `reclassified`, so a short queue is a claim anyone can check rather than a
+ * filter nobody can see behind.
+ * @param rows - Every candidate row the factory produced.
+ */
+function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'policyGaps'> {
+  const agenda = reviewAgenda(rows.map((item): AgendaRow => ({
+    ...item,
+    body: item.detail ?? item.subline ?? null,
+    grounds: declaredGrounds(item),
+  })));
+
+  const items = agenda.entries.map(({ topic }) => {
+    const folded = topic.members.length - 1 + topic.enrichments.length;
+    return {
+      ...topic.root,
+      // The count is what this one row replaced. It is the same promise the
+      // re-ask chain makes, one level up: the question is asked once.
+      ...(folded > 0 ? { count: (topic.root.count ?? 1) + folded, detail: enrichmentLine(topic) ?? topic.root.detail } : {}),
+    };
+  });
+  return { items, reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
 }
 
 /**
@@ -586,13 +658,14 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   // you clicked it (Chris, 2026-09-15: "decided counts show 0 when not
   // selected and 7 when selected") — a count on a tab is a promise about what
   // is behind it, so it cannot depend on which tab you are standing on.
-  const [open, snoozedRows, decidedRows, decidedAsks, decidedRules] = await Promise.all([
+  const [candidates, snoozedRows, decidedRows, decidedAsks, decidedRules] = await Promise.all([
     openItems(orgId),
     listReviewRows(orgId, 'snoozed'),
     listReviewRows(orgId, 'decided'),
     decidedAskItems(orgId),
     decidedLearningItems(orgId),
   ]);
+  const { items: open, reclassified, policyGaps } = admitted(candidates);
   const snoozed = proposalItems(snoozedRows, 'snoozed');
   const decided = [...proposalItems(decidedRows, 'decided'), ...decidedAsks, ...decidedRules];
   const tabs: Record<InboxTab, number> = { open: open.length, snoozed: snoozed.length, decided: decided.length };
@@ -610,7 +683,7 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   }
   sortItems(items, tab === 'decided' ? (query.sort ?? 'newest') : (query.sort ?? 'oldest'));
 
-  return { items, counts, total: items.length, tabs, facets };
+  return { items, counts, total: items.length, tabs, facets, reclassified: tab === 'open' ? reclassified : [], policyGaps: tab === 'open' ? policyGaps : [] };
 }
 
 /**
@@ -651,40 +724,72 @@ export async function listProposalQueue(orgId: string, query: InboxQuery = {}): 
 }
 
 /**
- * How many rows the open tab shows — the sidebar badge. A decision sheet (asks
- * under one key, proposals about one record) counts once, as on the page.
+ * How many DECISIONS are waiting on a person: the sidebar badge.
+ *
+ * It is the agenda's own length, computed the same way the page computes it,
+ * because a count on a badge is a promise about what is behind it. The
+ * badge counted its own way once and told the truth only by coincidence; now
+ * there is one definition of "needs you", and it is the admission bar.
  * @param orgId
  */
 export async function needsYouCount(orgId: string): Promise<number> {
-  const since = new Date(Date.now() - FAILURE_LOOKBACK_MS);
-  const count = (where: ReturnType<typeof and>, table: typeof missionRunSchema | typeof workerRunSchema | typeof learningCandidateSchema | typeof workflowRunSchema) =>
-    db.select({ n: sql<number>`count(*)::int` }).from(table).where(where).then(([r]) => r?.n ?? 0);
+  return admitted(await openItems(orgId)).items.length;
+}
 
-  const [asks, actions, missions, workflows, workers, exceptions, candidates] = await Promise.all([
-    // Asks are counted the way the page draws them: one per group_key, and
-    // one per chain, so an unanswered question chased on every check counts
-    // once. The badge must never promise more decisions than there are.
+/**
+ * What the workforce has earned.
+ *
+ * After every decision the system asks itself whether the judgment was
+ * reusable, and this is where it answers out loud. Three identical, unedited,
+ * low-consequence decisions in a row stop being three satisfied log lines and
+ * become one offer: stop asking.
+ *
+ * Only classes a STANDING POLICY could safely cover are eligible, and that is
+ * decided by the same admission bar the queue uses: if `admit` would already
+ * have delegated or resolved the class, the consequence of getting it wrong is
+ * routine and reversible. Anything the bar puts in front of a person stays a
+ * decision however many times it has been approved, because being right five
+ * times about pricing is not a licence to change pricing unattended.
+ * @param orgId
+ */
+export async function autonomyOffers(orgId: string): Promise<{ proposals: AutonomyProposal[]; holds: AutonomyHold[] }> {
+  const [actions, asks] = await Promise.all([
+    listReviewRows(orgId, 'decided'),
     db
-      .select({ id: askSchema.id, groupKey: askSchema.groupKey, title: askSchema.title, body: askSchema.body, sourceRef: askSchema.sourceRef, createdAt: askSchema.createdAt })
+      .select()
       .from(askSchema)
-      .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open')))
-      .then((rows) => {
-        const groups = new Set(rows.filter(r => r.groupKey).map(r => r.groupKey!));
-        return groups.size + chainReAsks(rows.filter(r => !r.groupKey)).length;
-      }),
-    listReviewRows(orgId, 'open').then(rows => groupByRecord(rows).length),
-    count(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review'])), missionRunSchema),
-    count(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused')), workflowRunSchema),
-    count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['paused', 'awaiting_review'])), workerRunSchema),
-    // Failures are counted only where they ESCALATED. A count that included
-    // every failed run would promise a badge of decisions the page does not
-    // show, which is the same lie the old queue told at 45 rows.
-    db
-      .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, error: workerRunSchema.error, attempt: workerRunSchema.attempt, input: workerRunSchema.input, at: workerRunSchema.updatedAt })
-      .from(workerRunSchema)
-      .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since)))
-      .then(rows => escalationsFrom(rows).length),
-    count(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending')), learningCandidateSchema),
+      .where(and(eq(askSchema.orgId, orgId), inArray(askSchema.status, ['approved', 'rejected'])))
+      .orderBy(desc(askSchema.decidedAt))
+      .limit(200),
   ]);
-  return asks + actions + missions + workflows + workers + exceptions + candidates;
+
+  const routine = (candidate: Parameters<typeof admit>[0]) => !admit(candidate).admitted;
+
+  const history: SettledJudgment[] = [];
+  for (const r of actions) {
+    if (r.status !== 'done' && r.status !== 'approved' && r.status !== 'rejected') {
+      continue;
+    }
+    history.push({
+      class: r.actionId,
+      label: `${humaniseActionId(r.actionId).toLowerCase()} actions`,
+      outcome: r.status === 'rejected' ? 'rejected' : 'approved',
+      // A note on a decision is a person saying "yes, but". That is a
+      // judgment that has not finished being a judgment.
+      edited: (r.note ?? '').trim() !== '',
+      consequence: { level: routine({ kind: 'proposal', title: r.described.title, actionId: r.actionId }) ? 'low' : 'medium', reversible: r.undoable === true || r.described.amount === null },
+      at: r.decidedAt ?? r.createdAt,
+    });
+  }
+  for (const a of asks) {
+    history.push({
+      class: `ask:${a.kind}`,
+      label: `${a.kind} questions`,
+      outcome: a.status === 'rejected' ? 'rejected' : 'approved',
+      edited: (a.decisionNote ?? '').trim() !== '' || a.followUp,
+      consequence: { level: routine({ kind: a.kind, title: a.title, body: a.body }) ? 'low' : 'medium', reversible: a.risk !== 'high' },
+      at: a.decidedAt ?? a.updatedAt,
+    });
+  }
+  return autonomyProposals(history);
 }

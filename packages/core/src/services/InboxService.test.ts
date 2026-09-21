@@ -13,7 +13,7 @@ vi.mock('@/services/FeedbackWorkerService', () => ({ enqueue: vi.fn(async () => 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } = await import('@/models/Schema');
 const { upsertAsk, decideAsk, normaliseOptions } = await import('@/services/AskService');
-const { INBOX_KINDS, listInbox, listProposalQueue, needsYou, needsYouCount } = await import('@/services/InboxService');
+const { autonomyOffers, INBOX_KINDS, listInbox, listProposalQueue, needsYou, needsYouCount } = await import('@/services/InboxService');
 
 const ORG = 'org_inbox_test';
 const day = 24 * 60 * 60 * 1000;
@@ -233,5 +233,109 @@ describe('InboxService — proposals', () => {
     expect(decided.counts).toMatchObject({ ruling: 1, proposal: 1, learning: 1 });
     expect((await listInbox(ORG, { tab: 'decided', kinds: ['learning'] })).items).toHaveLength(1);
     expect(await needsYouCount(ORG)).toBe((await listInbox(ORG)).total);
+  });
+});
+
+describe('InboxService \u2014 the admission bar', () => {
+  it('keeps the decisions and sends the bookkeeping to the policy that covers it', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'recommendation', title: 'Build a two-pane admin panel for Send?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Admin panel vs. Stamp rename: which goes next?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'CRITICAL (check 10): 4 askers waiting 13+ hrs on notes ownership' } });
+    await db.insert(actionRunSchema).values([
+      { orgId: ORG, actionId: 'objects.update_meta', status: 'pending', invokedBy: 'agent:ranker', input: { objectType: 'request', objectId: '38', properties: { priority: '62' } }, proposal: {} },
+    ] as never);
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.total).toBe(1);
+    expect(inbox.items[0]!.title).toBe('Build a two-pane admin panel for Send?');
+    expect(await needsYouCount(ORG)).toBe(1);
+  });
+
+  it('folds the related question into the decision and says so on the row', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'recommendation', title: 'Build a two-pane admin panel for Send?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Admin panel vs. Stamp rename: which goes next?' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.total).toBe(1);
+    expect(inbox.items[0]!.count).toBe(2);
+    expect(inbox.items[0]!.detail).toBe('1 related question folded in');
+  });
+
+  it('accounts for everything it did not show, with the policy it ran under', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'CRITICAL (check 10): 4 askers waiting 13+ hrs on the release notes' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items).toEqual([]);
+    expect(inbox.reclassified).toHaveLength(2);
+    expect(inbox.policyGaps).toEqual([expect.objectContaining({ policy: 'release-notes-have-a-standing-owner', count: 2, chases: 1 })]);
+  });
+
+  it('reports no reclassification on a tab that is not the open one', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
+
+    expect((await listInbox(ORG, { tab: 'decided' })).reclassified).toEqual([]);
+  });
+});
+
+describe('InboxService \u2014 earning autonomy', () => {
+  it('offers to stop asking after three routine approvals accepted unchanged', async () => {
+    const now = Date.now();
+    await db.insert(actionRunSchema).values([0, 1, 2].map(i => ({
+      orgId: ORG,
+      actionId: 'notify.requester',
+      status: 'done',
+      invokedBy: 'agent:comms',
+      createdAt: new Date(now - (5 - i) * day),
+      decidedAt: new Date(now - (4 - i) * day),
+      decidedBy: 'user_chris',
+      executedAt: new Date(now - (4 - i) * day),
+      input: { to: 'asker@example.com', subject: 'Your gap is closed', body: 'x' },
+      proposal: {},
+    })) as never);
+
+    const { proposals } = await autonomyOffers(ORG);
+
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.count).toBe(3);
+    expect(proposals[0]!.choices.map(c => c.id)).toEqual(['allow-automatically', 'keep-asking']);
+  });
+
+  it('keeps asking when a person overruled the class, however many times they approved before', async () => {
+    const now = Date.now();
+    await db.insert(actionRunSchema).values([
+      ...[0, 1, 2].map(i => ({
+        orgId: ORG,
+        actionId: 'notify.requester',
+        status: 'done',
+        invokedBy: 'agent:comms',
+        createdAt: new Date(now - (6 - i) * day),
+        decidedAt: new Date(now - (5 - i) * day),
+        decidedBy: 'user_chris',
+        executedAt: new Date(now - (5 - i) * day),
+        input: { to: 'asker@example.com', subject: 'Your gap is closed', body: 'x' },
+        proposal: {},
+      })),
+      {
+        orgId: ORG,
+        actionId: 'notify.requester',
+        status: 'rejected',
+        invokedBy: 'agent:comms',
+        createdAt: new Date(now - 2 * day),
+        decidedAt: new Date(now - 1 * day),
+        decidedBy: 'user_chris',
+        input: { to: 'asker@example.com', subject: 'Not this one', body: 'x' },
+        proposal: {},
+      },
+    ] as never);
+
+    const { proposals, holds } = await autonomyOffers(ORG);
+
+    expect(proposals).toEqual([]);
+    expect(holds[0]!.reason).toBe('1 of 3 identical decisions so far.');
   });
 });

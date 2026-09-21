@@ -66,6 +66,8 @@ const INBOX: Inbox = {
     actionKinds: [{ id: 'hubspot.update', count: 2 }],
     agents: [{ slug: 'revenue-lead', count: 2 }, { slug: 'proposal-writer', count: 1 }],
   },
+  reclassified: [],
+  policyGaps: [],
 };
 
 export const Open: Story = {
