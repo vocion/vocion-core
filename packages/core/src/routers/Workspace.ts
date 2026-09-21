@@ -9,6 +9,8 @@ import { applyNewerThanFolder, applyWorkspace, folderChangedAt, folderWritable, 
 import { workspaceFolderForProject, workspacePathForProject } from '@/libs/workspace/project-path';
 import { invalidateChipCache } from '@/services/chat/synthesis';
 import { folderOwner } from '@/services/WorkspaceMountService';
+import { pauseWorkspace, readWorkspacePauseWithName, resumeWorkspace, WorkspaceNotFoundError, WorkspacePauseStateError } from '@/services/workspacePause';
+import { ORG_ROLE } from '@/types/Auth';
 import { guardAuth, guardRole } from './AuthGuards';
 
 /**
@@ -471,3 +473,93 @@ export const applyNow = os
       applying = null;
     }
   });
+
+/* ------------------------------------------------------------------ */
+/* The off switch — one control over everything the factory does       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The workspace's pause, as every page's banner reads it: who, when, the note,
+ * and the date already formatted. The server formats it because a locale that
+ * differs between server and browser hydrates to a mismatch — the same reason
+ * `AutomationPauseControl` takes a formatted string rather than a `Date`.
+ *
+ * `canPause` says whether the person reading may pull or lift the switch.
+ * Everyone sees the banner; only an admin gets the button, and the banner
+ * names who placed the hold so everyone else knows who to ask.
+ */
+export const pauseState = os.handler(async () => {
+  const { orgId, has } = await guardAuth();
+  const pause = await readWorkspacePauseWithName(orgId);
+  return {
+    paused: pause && {
+      byName: pause.by.name ?? pause.by.id,
+      when: formatPauseTime(pause.at),
+      note: pause.note,
+    },
+    canPause: has({ role: ORG_ROLE.ADMIN }),
+  };
+});
+
+/**
+ * Pull the switch. Admin-gated, matching the API's owner-or-PM rule: holding
+ * the whole workspace is a heavier act than holding one automation, which any
+ * member may do.
+ */
+export const pause = os
+  .input(z.object({
+    /** Why. Required — it is what every page says until someone lifts it. */
+    note: z.string().trim().min(1).max(500),
+  }))
+  .handler(async ({ input }) => {
+    const by = await adminActor();
+    const held = await pauseWorkspace(by.orgId, { by, note: input.note }).catch(translateWorkspacePause);
+    return { paused: { byName: held.by.name ?? held.by.id, when: formatPauseTime(held.at), note: held.note } };
+  });
+
+/** Lift it. Everything underneath comes back exactly as it was left. */
+export const resume = os.handler(async () => {
+  const by = await adminActor();
+  await resumeWorkspace(by.orgId, { by }).catch(translateWorkspacePause);
+  return { paused: null };
+});
+
+/**
+ * The signed-in admin, as `paused_by` will name them. The name is left to
+ * `workspacePause` to resolve — one owner for it, and one fewer module
+ * reaching for the profile service.
+ */
+async function adminActor(): Promise<{ orgId: string; id: string }> {
+  const { orgId, userId } = await guardAuth();
+  await guardRole(ORG_ROLE.ADMIN);
+  return { orgId, id: userId };
+}
+
+/**
+ * "Sep 21, 3:14 PM UTC" — formatted here so the server and the browser agree.
+ * @param at
+ */
+function formatPauseTime(at: Date): string {
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(at)} UTC`;
+}
+
+/**
+ * A pause on a paused workspace (or a resume on a running one) is a CONFLICT
+ * — a second tab, most likely, or a second operator who got there first.
+ * @param err - Whatever the service threw.
+ */
+function translateWorkspacePause(err: unknown): never {
+  if (err instanceof WorkspacePauseStateError) {
+    throw new ORPCError('CONFLICT', { message: err.message });
+  }
+  if (err instanceof WorkspaceNotFoundError) {
+    throw new ORPCError('NOT_FOUND', { message: err.message });
+  }
+  throw err;
+}

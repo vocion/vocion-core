@@ -129,7 +129,7 @@ import {
 } from './Review';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
-import { applyNow as applyWorkspaceNow, readPrimitive, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, writeFile } from './Workspace';
+import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimitive, resume as resumeWorkspaceRoute, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, pauseState as workspacePauseState, writeFile } from './Workspace';
 
 export const router = {
   adoption: {
@@ -158,6 +158,14 @@ export const router = {
     driftStatus: workspaceDriftStatus,
     driftDiff: workspaceDriftDiff,
     applyNow: applyWorkspaceNow,
+  },
+  // The workspace's off switch. Under `workspace` rather than `context`
+  // because it is a fact about the running workspace, not about the authored
+  // files that `context.*` reads and applies.
+  workspace: {
+    pauseState: workspacePauseState,
+    pause: pauseWorkspaceRoute,
+    resume: resumeWorkspaceRoute,
   },
   plugins: {
     list: listPluginsRoute,

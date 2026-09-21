@@ -195,6 +195,18 @@ Setting `status: disabled` in the YAML and a pause can both hold at once;
 they are different statements (the author's, and an operator's), and each is
 lifted by the one who made it.
 
+**One pause, or twenty.** This pause holds one automation. The workspace has
+its own switch that holds everything it does by itself — every automation
+fire, every mission run, every worker run, every gated action — in one act,
+and it is the right control for "stop", where this one is the right control
+for "this debrief is noisy". The two are different facts and never touch each
+other: a workspace pause writes no automation row, so resuming the workspace
+leaves an automation you paused last week still paused. While the workspace
+is held, a matched event writes a `skipped` run with reason
+`workspace_paused` against each automation it would have fired, so the run
+log says why the afternoon is empty. See
+[the off switch](./workspace-manifest.md#the-off-switch--pausing-the-whole-workspace).
+
 A Schedule paused in Temporal directly, with nobody on the record, shows on
 the card as "paused in Temporal, not from here" — pause it in the app to put
 a name on it, or resume it where it was paused.

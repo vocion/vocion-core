@@ -44,7 +44,7 @@ export async function buildServer(
   );
 
   const tools = [
-    ...workspaceTools(config),
+    ...workspaceTools(config, identity),
     ...dataTools(config),
     ...capabilityTools(config),
     ...missionTools(config),

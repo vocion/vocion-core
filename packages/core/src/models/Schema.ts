@@ -294,6 +294,26 @@ export const projectSchema = pgTable(
      * briefings, mail — and the fallback when a turn arrives without one.
      */
     timeZone: text('time_zone'),
+    /**
+     * The workspace's off switch (migration 0132) — a person's hold on
+     * everything the factory does by itself: automation fires, mission runs,
+     * worker runs, and gated actions that are not a hand-off. Chat with an
+     * agent stays open; a turn that tries one of those is refused with this
+     * note. `services/workspacePause.ts` is the one guard every caller uses.
+     *
+     * A DIFFERENT fact from `automation.paused_at`, and that is the point: a
+     * workspace pause writes no automation row, so resuming the workspace
+     * restores exactly the per-automation state that was there before. An
+     * automation someone paused last Tuesday is still paused afterwards,
+     * because nothing touched it.
+     *
+     * NULL = running. `pausedBy` is the `user.id`, or `token:<id>` when an
+     * API token placed the hold; the name is resolved when shown. Never
+     * written by `workspace:apply` — a deploy does not lift a person's stop.
+     */
+    pausedAt: timestamp('paused_at', { mode: 'date' }),
+    pausedBy: text('paused_by'),
+    pausedNote: text('paused_note'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
