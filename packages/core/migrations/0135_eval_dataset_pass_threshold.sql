@@ -12,6 +12,9 @@
 -- ADD COLUMN with no default does not rewrite the table in Postgres 11 and
 -- later, so this is safe on a populated table and adds no index
 -- (CONVENTIONS.md rule 1 is about index builds; there is none here).
-ALTER TABLE "eval_dataset" ADD COLUMN IF NOT EXISTS "pass_threshold" real;
+-- double precision, not real: a 4-byte float does not round-trip a plain
+-- 0.6 through JavaScript, so the applier would read back 0.6000000238418579,
+-- decide the manifest had changed and rewrite the row on every single apply.
+ALTER TABLE "eval_dataset" ADD COLUMN IF NOT EXISTS "pass_threshold" double precision;
 --> statement-breakpoint
 COMMENT ON COLUMN "eval_dataset"."pass_threshold" IS 'Pass rate (0-1) a run must reach for eval:run to exit 0. NULL = use the runner default.';

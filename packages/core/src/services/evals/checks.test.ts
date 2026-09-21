@@ -193,6 +193,32 @@ describe('runCheck', () => {
     expect(outcome?.explanation).toContain('nothing to compare against');
   });
 
+  it('does not mistake a list for an object whose keys happen to be 0 and 1', () => {
+    // Object.keys(['a']) is ['0'], so a loose comparison would call
+    // { 0: 'title' } equal to ['title'] and report a rule kept that nobody
+    // checked — the worst thing a check can do.
+    const called = proposalTranscript([proposal({ dedupOn: ['title', 'startDate'] })]);
+
+    const outcome = runCheck(called, {
+      toolCalledWith: { tool: 'propose_action', path: 'dedupOn', equals: { 0: 'title', 1: 'startDate' } },
+    });
+
+    expect(outcome?.passed).toBe(false);
+  });
+
+  it('says so when subsetOf is pointed at something that is not a list', () => {
+    // Comparing "Live Music, Community" as one long value, or an object as
+    // "[object Object]", answers a question nobody asked.
+    const joined = proposalTranscript([proposal({ action_input: { categories: 'Live Music, Community' } })]);
+
+    const outcome = runCheck(joined, {
+      toolCalledWith: { tool: 'propose_action', path: 'action_input.categories', subsetOf: ['Live Music', 'Community'] },
+    });
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('not a list');
+  });
+
   it('skips an operator it does not recognise instead of failing the run', () => {
     // A manifest written against a newer build must not break this one.
     const unknown = { somethingNew: 'value' } as unknown as EvalCheck;

@@ -183,7 +183,10 @@ describe('workspace apply — eval evaluators', () => {
       .from(evalDatasetSchema)
       .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
 
-    expect(stored?.passThreshold).toBeCloseTo(0.6, 5);
+    // Exact, not approximate: the column is double precision so 0.6 comes
+    // back as 0.6, which is what lets the applier compare it without a
+    // tolerance and report an unchanged file as unchanged.
+    expect(stored?.passThreshold).toBe(0.6);
   });
 
   it('leaves the threshold unset when the file names none, so the runner default still applies', async () => {
@@ -195,6 +198,18 @@ describe('workspace apply — eval evaluators', () => {
       .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
 
     expect(stored?.passThreshold).toBeNull();
+  });
+
+  it('reports the same threshold applied twice as unchanged, not as an update every time', async () => {
+    // A `real` column would have failed this: Postgres hands 0.6 back to
+    // JavaScript as 0.6000000238418579, the comparison would never match,
+    // and every apply would rewrite the row and report it as a change.
+    const dir = writeThresholdFixture(0.6);
+    await applyWorkspace(await loadWorkspace(dir), { orgId: ORG });
+
+    const second = await applyWorkspace(await loadWorkspace(dir), { orgId: ORG });
+
+    expect(second.counts.evalDatasets).toMatchObject({ updated: 0, unchanged: 1 });
   });
 
   it('refuses a pass rate outside 0 to 1, where it could never be met or never be missed', async () => {

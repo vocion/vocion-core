@@ -66,15 +66,26 @@ function caseResultIdFor(transcripts: CaseTranscript[], itemIndex: number | unde
 /**
  * Roll a provider's scores into the numbers the dashboard reads.
  *
- * Pass rate counts only scores that carry a verdict this provider means as
- * pass or fail. An evaluator that errored is excluded from both sides rather
- * than counted as a failure, because "could not be scored" is not "scored
- * badly" and a run where AWS was down should not read as a quality drop.
+ * Pass rate counts only scores that actually said pass or fail. An evaluator
+ * that errored is excluded from both sides rather than counted as a failure,
+ * because "could not be scored" is not "scored badly" and a run where AWS was
+ * down should not read as a quality drop.
+ *
+ * So is an evaluator whose verdict is neither word. AWS's rating scales are
+ * categorical — `Correct`, `Mostly Correct` — and §4.5 of the evals guide
+ * refuses to map them onto pass/fail, because the threshold that would take
+ * is one AWS never stated. Counting them in the denominator anyway made
+ * every AgentCore-graded run report a pass rate no higher than the share of
+ * scores that happened to speak our vocabulary, which on a dataset graded
+ * only by AWS is zero. A rate nobody can act on is worse than no rate, and
+ * this one gates a build. Those scores still land as rows and still show on
+ * the dashboard beside their evaluator's own scale; they just do not move a
+ * number they cannot speak to.
  * @param scores - Everything this provider said.
  * @param transcripts - Used for latency and cost, which belong to the run.
  */
 export function summarizeProviderScores(scores: ProviderScore[], transcripts: CaseTranscript[]) {
-  const graded = scores.filter(score => !score.errorCode && score.label !== null && score.label !== undefined);
+  const graded = scores.filter(score => !score.errorCode && (score.label === 'pass' || score.label === 'fail'));
   const passed = graded.filter(score => score.label === 'pass').length;
   const failed = graded.filter(score => score.label === 'fail').length;
 

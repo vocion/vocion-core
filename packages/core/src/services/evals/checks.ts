@@ -149,7 +149,14 @@ function deepEquals(left: unknown, right: unknown): boolean {
   if (left === right) {
     return true;
   }
-  if (Array.isArray(left) && Array.isArray(right)) {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    // A list and an object are never the same value, however alike their
+    // keys look: `Object.keys(['a'])` is `['0']`, so without this a case
+    // authoring `equals: {0: title}` would quietly match the array
+    // `[title]` and report a rule kept that nobody checked.
+    if (!Array.isArray(left) || !Array.isArray(right)) {
+      return false;
+    }
     return left.length === right.length && left.every((item, index) => deepEquals(item, right[index]));
   }
   if (left && right && typeof left === 'object' && typeof right === 'object') {
@@ -215,9 +222,16 @@ function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition
     if (!found) {
       return { ok: false, reason: `${where} was missing, so nothing could be compared against the allowed values` };
     }
+    // `subsetOf` asks whether every element is allowed, so a value that is
+    // not a list has no elements to ask about. Stringifying it and comparing
+    // that would answer a different question, and answer it wrong: a
+    // comma-joined string would fail as one long value, and an object would
+    // be compared as "[object Object]".
+    if (!Array.isArray(value)) {
+      return { ok: false, reason: `${where} was ${renderArgumentValue(value)}, which is not a list, so its values cannot be checked against the allowed ones` };
+    }
     const allowed = new Set(condition.subsetOf);
-    const items = Array.isArray(value) ? value : [value];
-    const strays = items.filter(item => !allowed.has(String(item)));
+    const strays = value.filter(item => !allowed.has(String(item)));
     if (strays.length > 0) {
       return {
         ok: false,

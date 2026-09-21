@@ -70,8 +70,8 @@ describe('agentcore provider', () => {
   it('returns its own deterministic checks alongside the AWS evaluator scores', async () => {
     const scores = await agentcoreProvider.score({
       orgId: 'org_t',
-      agentSlug: 'event-ingestion-lead',
-      datasetSlug: 'veerio-event-extraction',
+      agentSlug: 'ingestion-lead',
+      datasetSlug: 'event-extraction',
       transcripts: [transcript()],
     });
 
@@ -92,8 +92,8 @@ describe('agentcore provider', () => {
 
     const scores = await agentcoreProvider.score({
       orgId: 'org_t',
-      agentSlug: 'event-ingestion-lead',
-      datasetSlug: 'veerio-event-extraction',
+      agentSlug: 'ingestion-lead',
+      datasetSlug: 'event-extraction',
       transcripts: [broken],
     });
 

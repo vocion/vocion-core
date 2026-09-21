@@ -2,7 +2,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { BriefingV2 } from '@/services/briefings/document';
 import type { StoredClassification } from '@/services/discovery/classification';
 import { relations, sql } from 'drizzle-orm';
-import { bigint, boolean, check, customType, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, real, serial, text, timestamp, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 
 /**
  * Postgres `tsvector` column type. Drizzle doesn't ship one out of the
@@ -1745,7 +1745,7 @@ export const evalDatasetSchema = pgTable(
      * sites will lose one to a page redesign and should not fail a build for
      * it.
      */
-    passThreshold: real('pass_threshold'),
+    passThreshold: doublePrecision('pass_threshold'),
     description: text('description'),
     /**
      * Test cases, the same shape `EvalDatasetItem` in
