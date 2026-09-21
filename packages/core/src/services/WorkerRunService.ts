@@ -6,6 +6,7 @@ import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from 
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
 import { recomputeRollups } from '@/services/objects/rollups';
+import { assertWorkspaceRunning } from '@/services/workspacePause';
 
 /**
  * WorkerRunService — the control plane for long-running agent runs that execute
@@ -121,6 +122,10 @@ export async function createWorkerRun(opts: {
   kind?: WorkerRunKind;
   model?: string | null;
 }): Promise<WorkerRun> {
+  // Queueing is where a paused workspace stops a worker run: the queue is the
+  // factory's intake, and a run added to it while the switch is off would sit
+  // there waiting to start the moment someone resumed.
+  await assertWorkspaceRunning(opts.orgId, 'worker_run');
   const [row] = await db.insert(workerRunSchema).values({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -198,6 +203,12 @@ function capRemainingCents(run: WorkerRun): number | null {
  * @param opts.workerId
  */
 export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string }): Promise<{ run: WorkerRun; toolClaim: string }> {
+  // Claiming too, and this is the half that matters operationally: the
+  // Fargate worker polls, so refusing the claim is what actually stops work
+  // starting on runs that were queued before the switch was pulled. A worker
+  // that already HOLDS a lease is not touched — it finishes, reports, and its
+  // heartbeat, complete and fail endpoints stay open to it.
+  await assertWorkspaceRunning(opts.orgId, 'worker_run');
   const run = await mustGet(opts.orgId, opts.id);
   const now = new Date();
   const leaseLapsed = run.leaseExpiresAt !== null && run.leaseExpiresAt < now;

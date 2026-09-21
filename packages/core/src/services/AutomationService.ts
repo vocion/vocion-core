@@ -28,6 +28,7 @@ import {
 import { automationRunSchema, automationSchema, knowledgeSourceSchema, userSchema } from '@/models/Schema';
 import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
+import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
 
 /**
  * The `automation_run.kind` of a pause or a resume. Not a fire: it dispatches
@@ -214,6 +215,24 @@ export async function beginAutomationFire(
     const message = `automation "${slug}" is paused${automation.pausedNote ? ` — ${automation.pausedNote}` : ''}`;
     await db.insert(automationRunSchema).values({ ...row, status: 'error', error: message, finishedAt: new Date() });
     throw new Error(message);
+  }
+  // The workspace's own off switch, which is a different fact from the
+  // automation's. It is asked here — the one place every fire passes,
+  // scheduled or event, test run or CLI call — and before any model call, so
+  // a stopped workspace spends nothing. The refusal is a `skipped` row rather
+  // than an `error`: nothing broke, a person said stop.
+  try {
+    await assertWorkspaceRunning(orgId, 'automation_fire');
+  } catch (err) {
+    if (err instanceof WorkspacePausedError) {
+      await recordSkippedFire(orgId, slug, {
+        event: opts.invokedBy ?? `automation:${slug}`,
+        payload: input,
+        invokedBy,
+        result: { kind: 'skipped', reason: 'workspace_paused', detail: err.message, event: invokedBy, causedBy: opts.causedBy ?? null },
+      });
+    }
+    throw err;
   }
 
   const [runRow] = await db
@@ -572,11 +591,12 @@ export async function automationRunFacets(orgId: string): Promise<{ slugs: strin
  * @param opts.event
  * @param opts.payload
  * @param opts.result
+ * @param opts.invokedBy - Who asked, when it was not an event — a schedule fire refused by the workspace switch.
  */
 export async function recordSkippedFire(
   orgId: string,
   slug: string,
-  opts: { event: string; payload: Record<string, unknown>; result: AutomationSkipResult },
+  opts: { event: string; payload: Record<string, unknown>; result: AutomationSkipResult; invokedBy?: string },
 ): Promise<number> {
   const now = new Date();
   const [row] = await db.insert(automationRunSchema).values({
@@ -584,7 +604,7 @@ export async function recordSkippedFire(
     slug,
     kind: SKIPPED_RUN_KIND,
     status: 'ok',
-    invokedBy: `event:${opts.event}`,
+    invokedBy: opts.invokedBy ?? `event:${opts.event}`,
     dryRun: false,
     input: opts.payload,
     result: opts.result as never,

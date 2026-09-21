@@ -323,6 +323,16 @@ written into the missions' goals and success criteria and into the planner's
 skill as convention the ledger is graded against. A `decisionCost` on the ask
 itself and a mission-level budget are named as core follow-ups below.
 
+**The whole factory has one switch.** *Pause workspace* in the top bar stops
+everything this plugin does by itself — every automation fire, every mission
+run, every worker run queued or claimed, and every gated action that is not a
+hand-off a person performs — in one click, with a note everyone else reads on
+every page until it is lifted. Chat with an agent stays open, a worker already
+mid-run finishes and reports, and automations someone paused individually stay
+paused when the workspace resumes. `POST /api/v1/workspace/pause { note }` and
+`workspace_pause` over MCP do the same from a terminal. See
+[the off switch](../../../../../docs/entities/workspace-manifest.md#the-off-switch--pausing-the-whole-workspace).
+
 ## What it costs
 
 Chris's ask, in his words: cost for feature and bug and release, individual

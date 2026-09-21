@@ -27,6 +27,7 @@ import { FeedbackDialog } from '@/features/dashboard/FeedbackButton';
 import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitch';
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { openManageView } from '@/features/dashboard/useNavView';
+import { WorkspacePauseButton } from '@/features/dashboard/WorkspaceOffSwitch';
 import { Link } from '@/libs/I18nNavigation';
 import { buildInfo, versionLabel } from '@/libs/version';
 import { ShellBarActionsOutlet } from './ShellBarActions';
@@ -44,10 +45,12 @@ import { ShellBarActionsOutlet } from './ShellBarActions';
  * @param props
  * @param props.workspace - Active project's slug and name, or null.
  * @param props.usage - This workspace's spend this period vs its hard cap (cents), when budgets exist.
+ * @param props.canPauseWorkspace - Show the off switch: an admin, on a workspace that is running. A paused one is owned by the banner instead.
  */
-export const AppSidebarHeader = ({ workspace = null, usage = null }: {
+export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorkspace = false }: {
   workspace?: { slug: string; name: string } | null;
   usage?: { spentCents: number; capCents: number | null } | null;
+  canPauseWorkspace?: boolean;
 }) => {
   const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
@@ -104,6 +107,13 @@ export const AppSidebarHeader = ({ workspace = null, usage = null }: {
       <div className="flex items-center justify-end gap-x-1 pr-0.5">
         {/* Page-owned controls (e.g. chat's New chat / Switch agent) land here. */}
         <ShellBarActionsOutlet />
+
+        {/* The workspace off switch. On the bar rather than on a settings
+            page because it is used in a hurry, from whatever page someone
+            happens to be on, phone included — and because a stop nobody can
+            find is not a stop. Once pulled, the banner below owns it and
+            this disappears: one control for the state, never two. */}
+        <WorkspacePauseButton canPause={canPauseWorkspace} />
 
         {/* Feedback and Docs left the bar on 2026-09-18 (Chris: "clean up this
             main header"): Feedback is a row in the account menu below, Docs

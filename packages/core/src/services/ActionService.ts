@@ -29,6 +29,7 @@ import { actionRunSchema, projectSchema } from '@/models/Schema';
 import { agentSlugFromPrincipal } from '@/services/adoption/attribution';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { getCredentialsForSource } from '@/services/SourceCredentialService';
+import { assertWorkspaceRunning } from '@/services/workspacePause';
 
 export class ActionError extends Error {
   code: string;
@@ -606,6 +607,16 @@ export async function executeAction(
         approvedByAgent: false,
       }
     : {};
+
+  // The workspace off switch. A hand-off is exempt and is checked first: it
+  // executes nothing, it hands a person a list of steps to perform by hand,
+  // and a person working by hand is not the factory working. Every other kind
+  // runs code or calls a model on the workspace's behalf, so it is refused —
+  // before the row is moved to `executing`, so a resumed workspace finds the
+  // run exactly where the approver left it.
+  if (!isManualAction(action)) {
+    await assertWorkspaceRunning(orgId, 'gated_action');
+  }
 
   // A hand-off (`libs/actions/manual.ts`) is released, not run: the approval
   // is the decision, the doing is a person's or an outside system's, and the
