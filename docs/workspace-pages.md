@@ -27,6 +27,7 @@ Every page derives from a core page shape rather than inventing one:
 | `queue` | the proposal list (read-only; decisions stay on Needs you, `/dashboard/inbox`) | `skillRuns` |
 | `markdown` | the docs page | a sibling `.md` file |
 | `report` | one record's whole story, at `/dashboard/p/<slug>/<id>` | the records that tell it |
+| `overview` | an ordered list of typed panels - the control plane | the records the panels name, plus decisions and the human-load fold |
 
 A deployment can host several projects on one mounted `WORKSPACE_PATH`. That
 folder's own `pages/` (and its plugins' pages) list only for the project the
@@ -120,6 +121,62 @@ another: the Backlog's rows are requests and link with `{id}`, the Factory
 floor's rows are tasks and link with `{meta.requestId}`. A row that cannot
 fill a token draws no link for it — a dead link is worse than no link. Values
 are URL-escaped.
+
+## The `overview` archetype
+
+An overview is **the page a person opens before they have decided what to look
+at**. It answers six questions above the fold - what is true, what changed
+since I last looked, what is in flight, what is next and why, what needs me,
+and is it worth what it costs - and then gets out of the way. Everything else
+on the nav is drill-down.
+
+It is an ordered list of typed `panels`, each computed server-side
+(`services/factory/overview.ts` assembles, `overviewData.ts` reads):
+
+| panel | what it computes |
+|---|---|
+| `status` | one row per record of a type: a headline and up to four inline facts, where a fact is either a field or a count of records pointing back at this one |
+| `digest` | change since a timestamp: arrivals, named transitions, roll-ups (a count and a sum, never a list) and decisions that arrived |
+| `active` | outcomes in flight, capped at `limit` (7), each with "4/5 tasks complete" and what it is waiting on |
+| `next` | the queue, ordered by `orderBy` and explained by `meta.why` - see below |
+| `needsYou` | open decisions, the minutes they estimate, and how many block work |
+| `economics` | spend in the window, accepted changes, cost per accepted change, waste |
+| `autonomy` | work autonomy AND, separately, what it cost a person |
+
+Three rules hold the page up, and they are the point of the archetype.
+
+**A figure the records cannot support is not drawn.** It becomes a gap: the
+measure's name and the reason it is not measurable, in the place the number
+would have been. "Not measurable, because no open decision names the record it
+is holding up" is a finding about the factory. A number invented to fill the
+space is not.
+
+**"Since you last looked" is per viewer, and says when it is guessing.** The
+stamp lives on `user_nav_pref.page_seen` (page slug to ISO instant, migration
+0133) and is read before the visit is recorded, so a reload does not empty the
+digest it just drew. A person who has never opened the page reads a fixed
+window under a heading that says so, never one dressed up as their own memory.
+
+**Work autonomy and human interruption are never blended.** "94%
+auto-completed" beside "32 need attention" creates questions, not confidence.
+The panel draws them as two groups under two headings, and names the second
+for what it is.
+
+### Why this, why now
+
+Every row in a `next` panel carries a reason from a closed list
+(`libs/workspace/reasonCodes.ts`), read from `meta.why` on the record:
+
+`user_request` · `production_bug` · `blocks_goal` · `breaks_promise` ·
+`required_for_dogfood` · `manual_toil` · `platform_leverage` ·
+`factory_reliability` · `observed_behaviour`
+
+They render as phrases - "a person asked for it · it blocks a goal" - never as
+a priority integer. `orderBy` decides the ORDER and is never drawn: a ranking
+is not an answer to "why this". `meta.whyNote` (or any key a page names in
+`noteFields`) adds one sentence of prose beside the codes, and prose alone is
+labelled as a note so it cannot be mistaken for a code. A record with no codes
+says "no reason recorded". Nothing is inferred from status, title or rank.
 
 ## The `report` archetype
 

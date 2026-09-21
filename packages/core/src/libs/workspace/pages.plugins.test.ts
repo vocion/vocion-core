@@ -77,9 +77,11 @@ describe('plugin pages', () => {
 
     expect(issues).toEqual([]);
     // The portfolio comes first (order 0) and its section is AppCurious; the
-    // evidence pages sit under Software factory — intake, the ten in front of a
-    // person, work, what it cost.
-    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'backlog', 'releases', 'changelog', 'feature', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report']);
+    // Factory control plane shares order 0 under Business and sorts after it by
+    // title; the evidence pages sit under Software factory - intake, the ten in
+    // front of a person, work, what it cost.
+    expect(mine.map(p => p.slug)).toEqual(['portfolio', 'factory', 'backlog', 'releases', 'changelog', 'feature', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report']);
+    expect(mine.filter(p => p.nav.section === 'Business').map(p => p.slug)).toEqual(['factory']);
     expect(mine.filter(p => p.nav.section === 'AppCurious').map(p => p.slug)).toEqual(['portfolio', 'releases', 'changelog']);
     // The feature report is about ONE request, so it is reached from a row on
     // the Backlog or the Factory floor and is not a row of its own.

@@ -1,0 +1,150 @@
+# Factory - the 60-second control plane, and the landing page.
+#
+# Chris's job is not to operate the factory. It is to run the business and
+# steer the factory. This page answers the six questions that job asks, in
+# order, above the fold:
+#
+#   1. What is true right now?               -> Status
+#   2. What changed since I last looked?     -> Since you last looked
+#   3. What is the factory doing now?        -> Working on now
+#   4. What is it planning next, and why?    -> Next
+#   5. What actually needs my judgment?      -> Needs you
+#   6. Is it getting the outcomes I want,
+#      at an acceptable cost?                -> Economics, Autonomy
+#
+# Everything else on the nav is drill-down, and everything the factory
+# generates in volume - deploys, worker runs, contract retries, token counts -
+# is evidence. Evidence does not disappear; it stops competing with the things
+# a person manages. So no panel here lists a worker run, and the digest rolls
+# releases into one money line rather than naming each one.
+#
+# Every figure is computed from records that exist. Where a figure the spec
+# asks for cannot be computed from what the write side records, the panel says
+# so in the figure's place rather than showing a plausible number. Today that
+# is: how many open decisions block work (no open ask names the record it is
+# holding up), minutes of human attention where a decision carries no
+# `decisionCost`, and "unnecessary escalations" (nothing records whether
+# policy could have decided an item without asking).
+slug: factory
+title: Factory
+description: What is true, what changed since you last looked, what is in flight, what is next and why, what needs you, and what it is costing.
+icon: gauge
+nav: {section: Business, order: 0}
+archetype: overview
+panels:
+  # 1. What is true right now. One line per product, counts computed from the
+  #    request and task records rather than read off the agent-maintained
+  #    counters on the product row, so the line cannot go stale between ticks.
+  - kind: status
+    title: Status
+    note: One line per product. Open and in-flight are counted from the request and task records themselves, not from the counters an agent refreshes each morning.
+    objectType: product
+    headline: title
+    rowLink: /dashboard/objects/{id}
+    facts:
+      - {kind: field, label: stage, from: meta.stage}
+      - {kind: field, label: health, from: meta.health}
+      - kind: related
+        label: open
+        objectType: request
+        relatedField: meta.product
+        subjectFields: [meta.slug, meta.name, title]
+        excludeStatus: [shipped, rejected, answered, duplicate]
+      - kind: related
+        label: building
+        objectType: engineering_task
+        relatedField: meta.productSlug
+        subjectFields: [meta.slug, meta.name, title]
+        status: [new, claimed, running, awaiting_review]
+
+  # 2. What changed since I last looked. Per viewer: the page remembers when
+  #    this person last opened it. A first visit says plainly that the window
+  #    is a fixed 24 hours and not their own memory.
+  - kind: digest
+    title: Since you last looked
+    note: Human-meaningful change only. Deploys roll up into one money line and worker runs are not here at all; both are on Activity.
+    fallbackHours: 24
+    arrivals:
+      # When the person ASKED, not when the row was written: the backlog was
+      # backfilled, so createdAt would report every request as brand new.
+      - {objectType: request, label: requests arrived, dateFields: [meta.askedAt, createdAt]}
+    transitions:
+      - objectType: request
+        to: [shipped]
+        label: shipped
+        dateFields: [meta.releasedAt, meta.answeredAt, updatedAt]
+        detail: 3
+      - objectType: engineering_task
+        to: [accepted]
+        label: changes accepted
+        dateFields: [meta.acceptedAt, meta.reviewedAt, updatedAt]
+        detail: 3
+    rollups:
+      - objectType: release
+        label: releases
+        dateFields: [meta.releasedAt, createdAt]
+        moneyField: meta.actualCents
+    decisions:
+      label: decisions arrived
+      risk: []
+
+  # 3. What the factory is doing now. Outcomes, not worker runs: the request is
+  #    the object a person asked for, and the engineering tasks under it are
+  #    the progress line.
+  - kind: active
+    title: Working on now
+    note: Outcomes in flight, not worker runs. Progress counts the engineering tasks contracted for each request.
+    objectType: request
+    statusIn: [active, building, new, candidate]
+    stateField: meta.state
+    stateIn: [in_scope, triaged, building, new]
+    limit: 7
+    rowLink: /dashboard/p/feature/{id}
+    tasks:
+      objectType: engineering_task
+      joinField: meta.requestId
+      completeStatus: [accepted]
+      waitingStatus: [awaiting_review]
+
+  # 4. What it plans next, and why. `orderBy` decides the order and is never
+  #    drawn: a priority integer is a ranking, not an answer. The reason comes
+  #    from `meta.why` (libs/workspace/reasonCodes.ts). A record that carries
+  #    no codes says so; it does not get a reason invented for it. The note
+  #    falls back to `priorityReason`, which is the prose the ranking skill
+  #    already writes, and is shown as a note rather than as a reason code.
+  - kind: next
+    title: Next
+    note: The order comes from the backlog ranking; the reason comes from the record. A row with no reason recorded says so rather than being given one.
+    objectType: request
+    statusIn: [new, candidate, active]
+    stateField: meta.state
+    stateIn: [new, triaged, in_scope]
+    orderBy: meta.priority
+    limit: 7
+    noteFields: [whyNote, priorityReason]
+    rowLink: /dashboard/p/feature/{id}
+
+  # 5. What needs a person. Count, minutes, and how many hold work up.
+  - kind: needsYou
+    title: Needs you
+    note: Questions an agent filed plus actions waiting on a yes. Minutes are the estimates the decisions themselves carry.
+    href: /dashboard/inbox
+
+  # 6a. Is it worth it. All four figures come from the engineering task
+  #     records, which carry an estimate and an actual on every row.
+  - kind: economics
+    title: Economics
+    note: Spend over accepted change. Failed and abandoned attempts are charged to the window they happened in, which is what makes the waste line honest.
+    windowDays: 30
+    objectType: engineering_task
+    dateFields: [meta.costUpdatedAt, meta.runCompletedAt, createdAt]
+    costField: meta.actualCents
+    acceptedStatus: [accepted]
+    wasteStatus: [rejected, abandoned]
+
+  # 6b. Two measures, never blended. Work autonomy is not the same question as
+  #     how much of a person's day this took.
+  - kind: autonomy
+    title: Autonomy
+    note: Work autonomy and human interruption are different measures and are reported apart. A high auto-completion rate beside a long decision queue is a question, not a reassurance.
+    windowDays: 7

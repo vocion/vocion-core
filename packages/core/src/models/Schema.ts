@@ -1654,6 +1654,12 @@ export const userNavPrefSchema = pgTable(
     userId: text('user_id').notNull(),
     pins: jsonb('pins').$type<string[]>().default([]).notNull(),
     dismissed: jsonb('dismissed').$type<string[]>().default([]).notNull(),
+    /**
+     * Page slug -> ISO instant this person last opened that page. Absent slug
+     * means never opened, and a surface that says "since you last looked"
+     * must say so rather than substitute a window. Migration 0133.
+     */
+    pageSeen: jsonb('page_seen').$type<Record<string, string>>().default({}).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())

@@ -17,8 +17,10 @@ import { z } from 'zod';
  * A page never introduces a new data model. Each page is a *derivative of a
  * core page archetype* — today `list` (the objects/type/[slug] shape),
  * `queue` (the review shape, read-only, linking into /dashboard/inbox for
- * decisions) or `markdown` (the docs shape) — configured over data core
- * already owns: business objects, skill runs, or knowledge documents.
+ * decisions), `markdown` (the docs shape), `report` (one record's whole story)
+ * or `overview` (an ordered list of typed panels - the control plane) -
+ * configured over data core already owns: business objects, skill runs, or
+ * knowledge documents.
  *
  * Pages are file-only: nothing is written to the database, `workspace:apply`
  * does not need to know about them, and deleting the YAML deletes the page.
@@ -249,6 +251,212 @@ const ReportSchema = z.object({
   subject: z.enum(['request']),
 });
 
+/**
+ * The `overview` archetype - the 60-second control plane.
+ *
+ * Every other archetype answers one question about one kind of row. This one
+ * answers the six a person running a business asks before they have decided
+ * what to look at: what is true, what changed since I last looked, what is
+ * happening now, what is planned next and why, what needs me, and is it worth
+ * what it costs. So the page is an ordered list of typed PANELS, each
+ * computed server-side from records core already owns
+ * (`services/factory/overview.ts` assembles, `overviewData.ts` reads).
+ *
+ * Panels are declarative rather than hand-coded for the same reason the
+ * report archetype is an archetype: the plugin that owns the nouns should own
+ * the surface, and a deployment that replaces the page by slug replaces its
+ * panels too.
+ *
+ * The one rule every panel holds to: a figure that the records cannot support
+ * is NOT drawn. The panel says which figure is missing and why, in the place
+ * the figure would have been. A fabricated metric on a page a person steers
+ * by is worse than a gap, because a gap can be fixed and a lie cannot be
+ * noticed.
+ */
+const PanelFactSchema = z.discriminatedUnion('kind', [
+  /** A value read straight off the record - stage, health, a date. */
+  z.object({
+    kind: z.literal('field'),
+    label: z.string().min(1),
+    from: z.string().min(1),
+  }),
+  /**
+   * A count of OTHER records that point back at this one. `relatedField` is
+   * the accessor on the related record holding this record's key;
+   * `subjectFields` are the accessors tried, in order, for that key on this
+   * record. Both sides are compared lower-cased and trimmed, because a
+   * product titled "Send" is written `send` on the rows that belong to it.
+   */
+  z.object({
+    kind: z.literal('related'),
+    label: z.string().min(1),
+    objectType: SlugSchema,
+    relatedField: z.string().min(1),
+    subjectFields: z.array(z.string().min(1)).min(1).default(['title']),
+    /** Keep only these statuses (omitted = every status). */
+    status: z.array(z.string()).optional(),
+    /** Drop these statuses. Applied after `status`. */
+    excludeStatus: z.array(z.string()).optional(),
+  }),
+]);
+
+const PanelBaseFields = {
+  title: z.string().min(1),
+  /** One line under the panel title, in the page's own words. */
+  note: z.string().optional(),
+};
+
+/**
+ * `since` for the digest: a per-viewer last-looked stamp when there is one,
+ * this many hours otherwise. The panel heading SAYS which of the two it used;
+ * a page that silently substitutes a window for a memory is telling a person
+ * their attention was tracked when it was not.
+ */
+const DigestFallbackHoursSchema = z.number().int().min(1).max(720).default(24);
+
+const OverviewPanelSchema = z.discriminatedUnion('kind', [
+  /** One row per record of a type: a headline and up to four inline facts. */
+  z.object({
+    kind: z.literal('status'),
+    ...PanelBaseFields,
+    objectType: SlugSchema,
+    headline: z.string().min(1).default('title'),
+    facts: z.array(PanelFactSchema).max(4).default([]),
+    /** Row click-through, e.g. `/dashboard/objects/{id}`. */
+    rowLink: z.string().optional(),
+  }),
+  /**
+   * Human-meaningful change since a timestamp. Deliberately NOT a feed:
+   * `arrivals` and `transitions` name the handful of changes a person cares
+   * about by name, and everything high-volume (deploys, worker runs) is only
+   * ever a `rollup` - a count and a sum, never a list.
+   */
+  z.object({
+    kind: z.literal('digest'),
+    ...PanelBaseFields,
+    fallbackHours: DigestFallbackHoursSchema,
+    /**
+     * Records that ARRIVED in the window. `dateFields` are tried in order:
+     * name the record's own stamp for when a person asked (`meta.askedAt`)
+     * first and leave `createdAt` last, because `createdAt` is when the ROW
+     * was written, which a backfill can move years after the ask.
+     */
+    arrivals: z.array(z.object({
+      objectType: SlugSchema,
+      label: z.string().min(1),
+      dateFields: z.array(z.string().min(1)).min(1).default(['createdAt']),
+    })).default([]),
+    /**
+     * Records whose status is now one of `to`, and whose stamp for that
+     * change falls in the window. `dateFields` are tried in order: name the
+     * record's own stamp for the change first (`meta.acceptedAt`) and leave
+     * `updatedAt` last. The panel reports which one it used, because
+     * "updated since you looked" is weaker evidence than "accepted at 14:02"
+     * and a reader is entitled to know which they are being shown.
+     */
+    transitions: z.array(z.object({
+      objectType: SlugSchema,
+      to: z.array(z.string()).min(1),
+      label: z.string().min(1),
+      dateFields: z.array(z.string().min(1)).min(1).default(['updatedAt']),
+      /** How many to name individually before the rest become a count. */
+      detail: z.number().int().min(0).max(10).default(3),
+    })).default([]),
+    /** A count and, when a money field is given, a sum. Never a list. */
+    rollups: z.array(z.object({
+      objectType: SlugSchema,
+      label: z.string().min(1),
+      dateFields: z.array(z.string().min(1)).min(1).default(['createdAt']),
+      moneyField: z.string().optional(),
+    })).default([]),
+    /** Decisions that arrived in the window, by risk. */
+    decisions: z.object({
+      label: z.string().min(1).default('decisions arrived'),
+      risk: z.array(z.string()).default([]),
+    }).optional(),
+  }),
+  /**
+   * Outcomes in flight - requests and initiatives, never worker runs. The
+   * unit is the thing a person asked for; the runs underneath it are
+   * evidence and live on the Activity surface.
+   */
+  z.object({
+    kind: z.literal('active'),
+    ...PanelBaseFields,
+    objectType: SlugSchema,
+    /** Statuses (or `stateField` values) that mean "in flight". */
+    statusIn: z.array(z.string()).min(1),
+    /** A second accessor that also has to be in flight, e.g. `meta.state`. */
+    stateField: z.string().optional(),
+    stateIn: z.array(z.string()).optional(),
+    limit: z.number().int().min(1).max(25).default(7),
+    /** The work underneath an outcome, for the "4/5 tasks complete" line. */
+    tasks: z.object({
+      objectType: SlugSchema,
+      /** Accessor on the task holding the outcome's id. */
+      joinField: z.string().min(1),
+      completeStatus: z.array(z.string()).min(1),
+      /** Task statuses that mean the outcome is waiting on a person. */
+      waitingStatus: z.array(z.string()).default([]),
+    }).optional(),
+    rowLink: z.string().optional(),
+  }),
+  /**
+   * The ordered queue of what the factory intends to do next, each with its
+   * reason. `orderBy` decides the ORDER and is never rendered: a priority
+   * integer is a ranking, not an answer to "why this". The answer comes from
+   * `meta.why` (see libs/workspace/reasonCodes.ts), and when it is absent the
+   * row says so.
+   */
+  z.object({
+    kind: z.literal('next'),
+    ...PanelBaseFields,
+    objectType: SlugSchema,
+    statusIn: z.array(z.string()).optional(),
+    stateField: z.string().optional(),
+    stateIn: z.array(z.string()).optional(),
+    orderBy: z.string().min(1).default('meta.priority'),
+    limit: z.number().int().min(1).max(25).default(7),
+    /** Metadata keys tried, in order, for the prose note beside the codes. */
+    noteFields: z.array(z.string().min(1)).min(1).default(['whyNote']),
+    rowLink: z.string().optional(),
+  }),
+  /** Open decisions: how many, how many minutes, how many hold work up. */
+  z.object({
+    kind: z.literal('needsYou'),
+    ...PanelBaseFields,
+    href: z.string().min(1).default('/dashboard/inbox'),
+  }),
+  /** Spend, accepted changes, cost per accepted change, waste. */
+  z.object({
+    kind: z.literal('economics'),
+    ...PanelBaseFields,
+    windowDays: z.number().int().min(1).max(365).default(30),
+    objectType: SlugSchema,
+    dateFields: z.array(z.string().min(1)).min(1).default(['createdAt']),
+    costField: z.string().min(1).default('meta.actualCents'),
+    /** Statuses that mean the change was accepted. */
+    acceptedStatus: z.array(z.string()).min(1),
+    /** Statuses that mean the money bought nothing - the waste line. */
+    wasteStatus: z.array(z.string()).min(1),
+  }),
+  /**
+   * Two measures that must not be blended. Work autonomy is "how much got
+   * done without a person"; human-interruption quality is "how much of a
+   * person's day it took and how much of that was worth taking". "94%
+   * auto-completed" beside "32 need attention" creates questions, not
+   * confidence, so both are reported and the second is named honestly.
+   */
+  z.object({
+    kind: z.literal('autonomy'),
+    ...PanelBaseFields,
+    windowDays: z.number().int().min(1).max(90).default(7),
+  }),
+]);
+
+export type PageOverviewPanel = z.infer<typeof OverviewPanelSchema>;
+export type PagePanelFact = z.infer<typeof PanelFactSchema>;
+
 export const PageManifestSchema = z.object({
   slug: SlugSchema,
   title: z.string(),
@@ -266,13 +474,17 @@ export const PageManifestSchema = z.object({
    * redirects to `href`. It exists so a plugin can seat a core surface (the
    * team report) beside its own pages without duplicating it.
    */
-  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report']),
+  archetype: z.enum(['list', 'queue', 'markdown', 'link', 'report', 'overview']),
   /** Required by `link`: the route the row opens. */
   href: z.string().min(1).optional(),
 
   // ---- report config ----
   /** Required by `report` — see {@link ReportSchema}. */
   report: ReportSchema.optional(),
+
+  // ---- overview config ----
+  /** Required by `overview` - the ordered panels, see {@link OverviewPanelSchema}. */
+  panels: z.array(OverviewPanelSchema).min(1).max(12).optional(),
 
   // ---- list / queue config ----
   source: ListSourceSchema.optional(),
@@ -325,6 +537,8 @@ export const PageManifestSchema = z.object({
 })
   .refine(m => m.archetype !== 'link' || m.href !== undefined, { message: 'a link page needs href — the route it opens', path: ['href'] })
   .refine(m => m.archetype !== 'report' || m.report !== undefined, { message: 'a report page needs report.subject — the record whose story it tells', path: ['report'] })
+  .refine(m => m.archetype !== 'overview' || m.panels !== undefined, { message: 'an overview page needs panels - the ordered list it computes', path: ['panels'] })
+  .refine(m => m.panels === undefined || m.archetype === 'overview', { message: 'panels belong to the overview archetype', path: ['panels'] })
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(
     m => m.primary === undefined
@@ -348,6 +562,7 @@ export type PageSeries = z.infer<typeof SeriesSchema>;
 export type PageWidget = z.infer<typeof WidgetSchema>;
 export type PageRowAction = z.infer<typeof RowActionSchema>;
 export type PageReport = z.infer<typeof ReportSchema>;
+export type PagePanels = NonNullable<z.infer<typeof PageManifestSchema>['panels']>;
 
 // ---------------------------------------------------------------------------
 // Accessors + computation shared by the renderer

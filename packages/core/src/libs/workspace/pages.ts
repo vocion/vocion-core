@@ -17,8 +17,9 @@ import { readWorkspaceTextFile } from '@/libs/workspace/template-vars';
  * A page never introduces a new data model. Each page is a *derivative of a
  * core page archetype* — today `list` (the objects/type/[slug] shape),
  * `queue` (the review shape, read-only, linking into /dashboard/inbox for
- * decisions), `markdown` (the docs shape) or `report` (one record's whole
- * story in order, at `/dashboard/p/<slug>/<id>`) — configured over data core
+ * decisions), `markdown` (the docs shape), `report` (one record's whole
+ * story in order, at `/dashboard/p/<slug>/<id>`) or `overview` (an ordered
+ * list of typed panels - the control plane) - configured over data core
  * already owns: business objects, skill runs, or knowledge documents.
  *
  * Pages are file-only: nothing is written to the database, `workspace:apply`
