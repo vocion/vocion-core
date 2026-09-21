@@ -22,6 +22,12 @@ successCriteria:
   - Every proposed reply is written for the asker in their own terms, states what changed or was decided and why, and names nothing that is still waiting on a person as done
   - No request moves to `shipped` or `answered` before its reply was released; `answeredAt` is when they heard, not when we decided; the release's announcedTo.requestIds is written when the reply is released, and announcedAt when the announcement is
   - Duplicates are told where the request they duplicate stands, once
+  - >-
+    One question asked about several releases is ONE decision sheet: every ask
+    that asks a person to own release notes carries the same `group_key`,
+    `software-factory:release-notes-ownership`, and a `group_title` naming the
+    question, so four releases waiting on one ruling cost a person one answer
+    rather than four screens
 desiredArtifacts:
   - Release notes drafted per release that has none, for a person to own
   - An announcement proposed per release with owned notes and no announcement

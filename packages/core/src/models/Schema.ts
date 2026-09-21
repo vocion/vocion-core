@@ -282,6 +282,27 @@ export const projectSchema = pgTable(
      */
     goal: text('goal'),
     /**
+     * The workspace's operating intent (migration 0135): what a person wants
+     * the factory doing now: outcomes, priorities, constraints, budget,
+     * autonomy policy and product judgment. Authored as workspace-as-code in
+     * `operating-intent.yaml`, shape in `libs/workspace/schemas.ts`
+     * `OperatingIntentManifestSchema`, composed into the prompts of the agents
+     * that choose and prioritise work.
+     *
+     * NULL = the factory has been told nothing. That is deliberately not the
+     * same fact as an authored intent with empty lists, which is a person
+     * saying there are no constraints; the agents report the two differently.
+     */
+    operatingIntent: jsonb('operating_intent').$type<{
+      outcomes?: Array<{ statement: string; because?: string; by?: string }>;
+      priorities?: Array<{ statement: string; over?: string }>;
+      constraints?: Array<{ statement: string; because?: string }>;
+      budget?: { limitCents: number; window: 'day' | 'week' | 'month'; note?: string };
+      autonomy?: Array<{ actionClass: string; policy: 'unattended' | 'ask' | 'never'; because?: string }>;
+      productJudgment?: string[];
+      reviewedAt?: string;
+    }>(),
+    /**
      * The workspace's mailbox (migration 0097): the address people write to,
      * answered by the workspace lead. Authored as `mailbox:` in workspace.yaml;
      * default address `<slug>@<VOCION_MAIL_DOMAIN>`. Null/false = no mailbox.

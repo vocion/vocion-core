@@ -100,13 +100,18 @@ describe('plugin pages', () => {
 
     expect(issues).toEqual([]);
     // Business is what a person manages: the 60-second control plane, the
-    // products, the queue, the economics. Activity is evidence and lives
-    // under Advanced. The feature report and the releases detail are reached
-    // from a row rather than from the nav.
-    expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'performance', 'products', 'releases', 'work']);
-    expect(mine.filter(p => p.nav.section === 'Business' && !p.nav.hidden).map(p => p.slug)).toEqual(['factory', 'products', 'work', 'performance']);
+    // products, the queue, the economics, and what a person wants next.
+    // Activity is evidence and lives under Advanced. The feature report and
+    // the releases detail are reached from a row rather than from the nav.
+    expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'guide', 'performance', 'products', 'releases', 'work']);
+    expect(mine.filter(p => p.nav.section === 'Business' && !p.nav.hidden).map(p => p.slug)).toEqual(['factory', 'products', 'work', 'performance', 'guide']);
     expect(mine.filter(p => p.nav.section === 'Advanced' && !p.nav.hidden).map(p => p.slug)).toEqual(['activity']);
     expect(mine.filter(p => p.nav.hidden).map(p => p.slug).sort()).toEqual(['feature', 'releases']);
+
+    // Guide is the fourth verb: what a person wants next. It is a row in
+    // Business rather than an object list, because operating intent is a file
+    // in the workspace and the core route at /dashboard/guide renders it.
+    expect(pages.find(p => p.slug === 'guide')).toMatchObject({ archetype: 'link', href: '/dashboard/guide', nav: { section: 'Business', order: 4 } });
 
     // The pages that were merged away are gone, not hidden.
     for (const slug of ['backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {

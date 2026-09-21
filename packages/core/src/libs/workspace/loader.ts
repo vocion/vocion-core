@@ -2,7 +2,7 @@ import type { ZodType } from 'zod';
 import type { ActivatedPack, ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
 import type { LoadedPlugin } from './plugins';
-import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, OperatingIntentManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
 import type { LoadedWikiPage } from './wiki-pages';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -22,6 +22,7 @@ import {
   LearningStepManifestSchema,
   MissionManifestSchema,
   ObjectTypeManifestSchema,
+  OperatingIntentManifestSchema,
   PackManifestSchema,
   PlaybookManifestSchema,
   SourceManifestSchema,
@@ -132,6 +133,11 @@ export type LoadedWorkspace = {
   trust: TrustManifest | null;
   /** The workspace's voice rules from voice.yaml, or null when unauthored. */
   voice: VoiceManifest | null;
+  /**
+   * The workspace's operating intent from operating-intent.yaml, or null when
+   * unauthored: what a person wants the factory to be doing now.
+   */
+  operatingIntent: OperatingIntentManifest | null;
   playbooks: LoadedPlaybook[];
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
@@ -240,6 +246,18 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     ? (() => {
         files.push(voicePath);
         return parseFile(voicePath, VoiceManifestSchema, 'voice') as VoiceManifest;
+      })()
+    : null;
+
+  // Operating intent: the person's standing instructions to the factory, one
+  // top-level file, same shape as trust.yaml and voice.yaml. Absent means the
+  // factory has been told nothing, which is not the same as being told
+  // "anything goes", and the agents say so rather than assuming.
+  const intentPath = ['operating-intent.yaml', 'operating-intent.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  const operatingIntent: OperatingIntentManifest | null = intentPath
+    ? (() => {
+        files.push(intentPath);
+        return parseFile(intentPath, OperatingIntentManifestSchema, 'operating intent') as OperatingIntentManifest;
       })()
     : null;
 
@@ -362,6 +380,7 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     automations,
     trust,
     voice,
+    operatingIntent,
     playbooks,
     learningSteps,
     evalDatasets,

@@ -208,6 +208,31 @@ schema:
       x-display: {label: Their reason, role: prose, order: 5}
       type: string
       description: The person's note on their decision, verbatim. On a rejection it is why, and it is quoted in the body if the request is ever recommended again on new evidence.
+    why:
+      x-display: {label: Why, format: badge, group: Why, tones: {user_request: ok, production_bug: bad, blocks_goal: warn, breaks_promise: bad, required_for_dogfood: warn, manual_toil: info, platform_leverage: info, factory_reliability: warn, observed_behaviour: muted}}
+      type: array
+      description: >-
+        Why this, why now. One or more reasons from a closed list, never a
+        number. A priority of 62 explains nothing; `user_request` plus
+        `required_for_dogfood` explains everything a person needs to argue
+        with. REQUIRED on every request triage touches: triage that cannot
+        name a reason has not understood the request, and the honest move is
+        to leave the request `new` and say what is missing rather than to
+        invent one. The list is closed so that "how much of this week went to
+        factory reliability" is answerable across records. Definitions live
+        beside the codes in `libs/workspace/reasonCodes.ts`.
+      items:
+        type: string
+        enum: [user_request, production_bug, blocks_goal, breaks_promise, required_for_dogfood, manual_toil, platform_leverage, factory_reliability, observed_behaviour]
+    whyNote:
+      x-display: {label: Why this, why now, role: prose, order: 6}
+      type: string
+      description: >-
+        The codes grounded in this record's own evidence, in one short line:
+        "3 user asks, dogfood blocker", "run 341 lost $11.86 of finished
+        work". Names the countable thing behind the code, not a restatement
+        of it: "user_request" is the code, "Chris and two dogfood users asked
+        on 2026-09-20" is the note. Written with `why` and read beside it.
 # What rolls up onto a request, and from where: the tasks that point at it.
 # Core recomputes these from every such task when one task's cost is written
 # (packages/core/src/services/objects/rollups.ts); the page reads them like

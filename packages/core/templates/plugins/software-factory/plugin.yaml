@@ -91,7 +91,20 @@ name: Software factory
 # `skills/write-architecture-plan`, the feature report carries it as a stage
 # between triage and the contract, and the worker refuses a contract that needed
 # a plan and carries none before the repository is cloned.
-version: 1.10.0
+#
+# 1.11.0 - why a piece of work exists, and what a person wants next. Every
+# request and every task carries `why`, one or more codes from the closed list
+# in core, and `whyNote`, the evidence behind them in one line. Triage writes
+# the codes from the record and leaves a request untagged when the evidence
+# names none; the planner refuses to plan a request with no reason; the task
+# inherits it; `write-task-contract` and `review-against-contract` fail a task
+# that carries none. `operating-intent.yaml` holds what a person wants the
+# factory doing - outcomes, what beats what, constraints, a budget, autonomy
+# policy and product judgment - and is composed into the prompt of every agent
+# that chooses or ranks work. The budget advises; it does not stop a run.
+# One ruling asked about four releases is also now one decision sheet: the
+# reply pass files the release-notes ownership asks under one `group_key`.
+version: 1.11.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

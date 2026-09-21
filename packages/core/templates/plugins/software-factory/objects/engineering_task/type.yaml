@@ -232,6 +232,29 @@ schema:
       x-display: {label: What the worker said it did, role: prose, order: 6}
       type: string
       description: The worker's own one-paragraph account of what it did and what it did not do. Its own words, kept as its own words, never rewritten into the record as fact.
+    why:
+      x-display: {label: Why, format: badge, group: Why, tones: {user_request: ok, production_bug: bad, blocks_goal: warn, breaks_promise: bad, required_for_dogfood: warn, manual_toil: info, platform_leverage: info, factory_reliability: warn, observed_behaviour: muted}}
+      type: array
+      description: >-
+        Why this task exists, in the same closed list the request uses, so a
+        person reading the floor can ask why of anything in flight without
+        opening the request. Normally inherited from the `request` this task
+        serves; it differs only when the task is one part of a larger ask and
+        that part has its own reason. REQUIRED: the planner proposes no task
+        without one, and `write-task-contract` fails review on a task whose
+        `why` is empty, because a task nobody can justify is a task to close
+        rather than dispatch.
+      items:
+        type: string
+        enum: [user_request, production_bug, blocks_goal, breaks_promise, required_for_dogfood, manual_toil, platform_leverage, factory_reliability, observed_behaviour]
+    whyNote:
+      x-display: {label: Why this, why now, role: prose, order: 13}
+      type: string
+      description: >-
+        One short line grounding the codes in this task's own evidence: the
+        count of askers, the run that lost the work, the promise at risk.
+        Carried onto the merge ask, so the person deciding reads why before
+        they read the diff.
 classificationPrompt: >-
   Given a request — a review item, an ask, a support thread, a message —
   decide whether it is one engineering task or several. One task changes one
