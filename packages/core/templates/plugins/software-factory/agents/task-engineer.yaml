@@ -28,6 +28,7 @@ playbooks:
   - verify-against-reality
   - house-voice
   - naming-the-work
+  - designing-a-surface
 harness:
   runsOn: external-worker
 systemPromptFile: ./task-engineer.system-prompt.md

@@ -10,7 +10,7 @@ description: >-
   is approved without verification artifacts, and why a contract below its
   repository's risk floor is rejected unread. Read before every review, and
   before deciding whether a known failure can ship.
-playbooks: [written-promises, verify-against-reality, naming-the-work]
+playbooks: [written-promises, verify-against-reality, naming-the-work, designing-a-surface]
 version: 2
 ---
 
@@ -19,6 +19,19 @@ version: 2
 A review answers one question: **does this change meet the contract it was
 dispatched under?** Not whether it is how you would have written it, and not
 whether the worker worked hard.
+
+## A change to a page is reviewed against the surface standard too
+
+A page change can satisfy every acceptance criterion and still be wrong,
+because the criteria are about what the page contains and the standard is
+about what it MEANS. So when the diff touches a page manifest, a panel, a
+column, a badge or an empty state, read it against the
+**designing-a-surface** playbook and return it when it renders stored codes
+or state names a person would have to learn the schema to read, draws a field
+no visible row can fill, says "not recorded" in a cell, repeats one missing
+fact on every row, puts evidence on an index page, presents a queue as
+ordered with no visible order, adds a second affordance that opens what the
+row already opens, or answers a question that belongs to another surface.
 
 ## What you read, and what you do not
 

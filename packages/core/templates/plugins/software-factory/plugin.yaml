@@ -127,7 +127,22 @@ name: Software factory
 # hours of being asked. A confident 0 is worse than no figure at all. The
 # lead's `keep-the-board-honest` tick maintains the new counters: `lastShipped`
 # and `lastReleaseAt`, `inFlight`, `healthSource` and `healthCheckedAt`.
-version: 1.12.0
+#
+# 1.13.0 - the surface standard, written down and attached. One playbook,
+# `playbooks/designing-a-surface`, holds the rule this product has now had to
+# state three times: index pages display decisions and meaning, detail pages
+# display records and evidence. With it, the companion rule that a missing
+# optional capability makes the interface SMALLER rather than filling it with
+# blank cells, and the division the navigation expresses (Factory how the
+# business is doing, Products what we operate, Work what we are doing about
+# it, Review only decisions, Performance whether the machine earns its keep,
+# Activity that everything happened). It is attached to what writes and
+# reviews a page: `write-task-contract`, `write-architecture-plan`,
+# `review-against-contract`, the planner, the engineer and the reviewer. Work
+# is the first page rebuilt to it: `pages/work.yaml` declares
+# `derive: workQueue` and reads as four lanes with ordered Next, derived
+# Waiting, capped Done and probes dropped.
+version: 1.13.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

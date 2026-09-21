@@ -12,7 +12,7 @@ description: >-
   what fails review for one, and the three WIP limits that decide whether
   a task is dispatched at all. Read before writing or dispatching any task,
   and when a returned task shows assumptions the contract should have carried.
-playbooks: [the-twenty-percent, written-promises, naming-the-work]
+playbooks: [the-twenty-percent, written-promises, naming-the-work, designing-a-surface]
 version: 3
 ---
 
@@ -77,6 +77,18 @@ title:
 The full standard, including the four other names one piece of work carries,
 is the **naming-the-work** playbook. Read it before writing a title, not
 after a reviewer sends one back.
+
+## A task that changes a page carries the surface standard
+
+Any contract that adds or changes a dashboard page, a panel, a column, a
+badge or an empty state names the **designing-a-surface** playbook in its
+acceptance criteria, because a page is the one artifact where meeting the
+letter of a contract and producing the wrong thing are easiest to do at once.
+Two rules decide most of it: an index page displays decisions and meaning
+while a detail page displays records and evidence, and a missing optional
+capability makes the interface smaller rather than filling it with blank
+cells. Write the criteria in those terms ("the queue reads as four lanes with
+the reason as a sentence"), never as "add a column for `meta.state`".
 
 ## Every task carries its request and its repository
 
