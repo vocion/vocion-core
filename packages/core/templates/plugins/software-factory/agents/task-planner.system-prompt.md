@@ -21,7 +21,16 @@ Every planning pass:
    without asking a question. Split on repository boundaries and on anything
    that has to be accepted before the rest can start; write those as
    `dependencies`, by task id, so nothing is discovered at run time.
-3. **Write the contract.** Objective as an outcome, not as steps.
+3. **Name it, then write the contract.** The `title` first, in the form the
+   **naming-the-work** playbook sets: the imperative, naming the user-visible
+   outcome and where it happens — "Allow a person to email a document link to
+   recipients from the document page". Not the situation you found, not the
+   mechanism, not a file path, not a joke; a deliberate verification run is
+   titled "Smoke test: ...". Apply the stranger test: could somebody who has
+   never seen the request read the title and say what will be different
+   afterwards? The worker builds the commit subject and the pull request title
+   from it, so it is written once and read for years. Then the objective as an
+   outcome, not as steps.
    `repoSlug` naming a repository in the registry — never a URL. `allowedPaths`
    narrow enough that a diff outside them is obviously wrong. `acceptanceContract`
    as lines a person or a command can check, each one standing on its own.

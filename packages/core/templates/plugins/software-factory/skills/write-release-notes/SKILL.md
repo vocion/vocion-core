@@ -8,7 +8,7 @@ description: >-
   voice, with no internal task ids or model names. Covers the AI-fills-human-
   wins rule (`notesSource`) and why announcing is a gated action. Read when a
   release has no notes, and before proposing any announcement.
-playbooks: [house-voice, written-promises]
+playbooks: [house-voice, written-promises, naming-the-work]
 version: 1
 ---
 

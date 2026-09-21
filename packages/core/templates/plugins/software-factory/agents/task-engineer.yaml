@@ -27,6 +27,7 @@ objectTypes:
 playbooks:
   - verify-against-reality
   - house-voice
+  - naming-the-work
 harness:
   runsOn: external-worker
 systemPromptFile: ./task-engineer.system-prompt.md

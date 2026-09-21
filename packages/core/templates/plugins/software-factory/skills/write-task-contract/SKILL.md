@@ -8,11 +8,12 @@ description: >-
   criteria and required checks have to say, how risk class and budgets are
   chosen, why every task carries the id of the request that asked for it and
   the slug of the repository it lands in, how the repository's risk floor
-  overrides the planner's guess, and the three WIP limits that decide whether
+  overrides the planner's guess, what the task's own title has to say and
+  what fails review for one, and the three WIP limits that decide whether
   a task is dispatched at all. Read before writing or dispatching any task,
   and when a returned task shows assumptions the contract should have carried.
-playbooks: [the-twenty-percent, written-promises]
-version: 2
+playbooks: [the-twenty-percent, written-promises, naming-the-work]
+version: 3
 ---
 
 # Writing a task contract
@@ -26,6 +27,42 @@ or a change nobody wanted.
 The contract is an `engineering_task` record. It is also the durable thing a
 person reads: the run underneath it is a lease that may be claimed three times,
 but the task is one task the whole way through.
+
+## The title names the change, literally
+
+Before anything else, the record's **`title`**. It is what a person sees in
+the backlog, in Review, in the merge queue, and — because the worker derives
+both from it — in the commit subject and the pull request title. It is
+**required**, and it has one form: the imperative, naming the user-visible
+outcome and where it happens.
+
+> Allow a person to email a document link to recipients from the document page.
+
+Apply the stranger test before you dispatch: **could a stranger read this
+title and tell you what will be different afterwards?** If they would have to
+open the record to find out, the title is wrong.
+
+**What fails review.** The reviewer returns the contract, unread, when the
+title:
+
+- describes the **situation** instead of the change — "Ship the email
+  wordmark the invite email already points at" says what the author found,
+  not what will be true afterwards;
+- is a **noun phrase** or a heading — "Wordmark work", "Content policy
+  detail page", "Analytics";
+- names a **file path, a framework or an internal module** when the change is
+  not about that thing — "in `apps/send-web`" is where the code lives, "on
+  the document page" is where the person is;
+- is the **objective pasted in** and truncated by the list;
+- is a **joke, a headline, or a pun**;
+- **hides a smoke test** behind product language — a deliberate verification
+  run is titled `Smoke test: <what it exercises>`;
+- omits the `(attempt N)` suffix where several records share one `taskId`;
+- runs past **100 characters**, or past 70 without a reason.
+
+The full standard, including the four other names one piece of work carries,
+is the **naming-the-work** playbook. Read it before writing a title, not
+after a reviewer sends one back.
 
 ## Every task carries its request and its repository
 
@@ -59,6 +96,8 @@ One repository, one objective, no questions. Split when:
   expensive.
 
 ## The five fields that do the work
+
+(Beside the title, which is covered above and is just as required.)
 
 **`objective`** — the outcome, in one or two sentences. Not steps. If you
 cannot state it without naming the files to edit, you do not understand the

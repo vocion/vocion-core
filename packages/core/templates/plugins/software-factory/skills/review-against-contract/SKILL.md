@@ -10,7 +10,7 @@ description: >-
   is approved without verification artifacts, and why a contract below its
   repository's risk floor is rejected unread. Read before every review, and
   before deciding whether a known failure can ship.
-playbooks: [written-promises, verify-against-reality]
+playbooks: [written-promises, verify-against-reality, naming-the-work]
 version: 2
 ---
 
