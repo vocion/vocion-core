@@ -233,6 +233,55 @@ export function workspaceAppPath(segments: readonly string[]): string {
 }
 
 /**
+ * Whether an app path belongs to a workspace, and so should carry one in the
+ * URL: a `/dashboard/…` page or a registered surface (`/gtm/…`).
+ *
+ * The rest of the app is account-wide or has no workspace yet — `/rpc` is the
+ * oRPC transport, `/onboarding` runs before a workspace exists, `/api-docs`
+ * documents the account. One rule, read by the proxy (which redirects a bare
+ * path to its canonical spelling) and by the `Link` wrapper (which prefixes
+ * the hrefs it renders), so the two cannot disagree about which URLs carry a
+ * workspace.
+ * @param path - An app path, optionally locale-prefixed; query and fragment ignored.
+ */
+export function isWorkspacePath(path: string): boolean {
+  const [pathOnly] = splitQuery(path);
+  const segments = pathOnly.split('/').filter(s => s !== '');
+  const first = (routing.locales as readonly string[]).includes(segments[0] ?? '') ? segments[1] : segments[0];
+  return first !== undefined && WORKSPACE_ROOT_SEGMENTS.includes(first);
+}
+
+/**
+ * The canonical spelling of an in-app href, or the href untouched.
+ *
+ * What every `Link` and `router.push` goes through (`libs/I18nNavigation.ts`),
+ * so a click keeps the workspace in the address bar rather than bouncing off
+ * the proxy's redirect.
+ *
+ * Left alone: anything that is not a rooted app path (external, `mailto:`, a
+ * bare `#anchor`, a relative path, a protocol-relative `//host`), anything
+ * already canonical, a locale-prefixed path (next-intl adds the locale
+ * itself, after this), and any page that does not belong to a workspace
+ * ({@link isWorkspacePath}). With no workspace in scope the href is returned
+ * as written — a bare link still works, the proxy canonicalises it on arrival.
+ * @param href - The href as the call site wrote it.
+ * @param slug - The active workspace slug, or null when the page has none.
+ */
+export function canonicalise(href: string, slug: string | null): string {
+  if (!slug || !href.startsWith('/') || href.startsWith('//')) {
+    return href;
+  }
+  const first = href.split('/').filter(s => s !== '')[0];
+  if (first !== undefined && (routing.locales as readonly string[]).includes(first)) {
+    return href;
+  }
+  if (parseWorkspacePath(href) || !isWorkspacePath(href)) {
+    return href;
+  }
+  return workspaceUrl(slug, href);
+}
+
+/**
  * Drop a leading `/{locale}?/w/<slug>` from a path, leaving the app path.
  *
  * The inverse of {@link workspaceUrl} for the part that matters: every

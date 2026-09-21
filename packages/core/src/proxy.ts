@@ -5,7 +5,7 @@ import { SURFACE_PATH_SEGMENTS } from './features/navigation/surfaces';
 import { ACTIVE_PROJECT_COOKIE, ACTIVE_PROJECT_COOKIE_OPTIONS } from './libs/activeProject';
 import { publicOrigin } from './libs/http/publicOrigin';
 import { routing } from './libs/I18nRouting';
-import { parseWorkspacePath, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
+import { isWorkspacePath, parseWorkspacePath, WORKSPACE_ENTRY_SEGMENT, WORKSPACE_HEADER, workspaceUrl } from './libs/links';
 
 const handleI18nRouting = createMiddleware(routing);
 
@@ -19,13 +19,6 @@ const handleI18nRouting = createMiddleware(routing);
 const PROTECTED_SEGMENTS = ['dashboard', 'onboarding', 'rpc', 'api-docs', WORKSPACE_ENTRY_SEGMENT, ...SURFACE_PATH_SEGMENTS];
 const PROTECTED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${PROTECTED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 const AUTH_PATH = /^\/(?:[^/]+\/)?(?:sign-in|sign-up|setup|invite)(?:$|\/|\?)/;
-
-// The segments a bare URL is rewritten INTO a canonical one for. `/rpc` is the
-// oRPC transport and `/onboarding` runs before a workspace exists, so both are
-// protected but never redirected; `api-docs` is account-wide, not per
-// workspace. Everything a person reads or acts on lives under one of these.
-const CANONICALISED_SEGMENTS = ['dashboard', ...SURFACE_PATH_SEGMENTS];
-const CANONICALISED_PATH = new RegExp(`^/(?:[^/]+/)?(?:${CANONICALISED_SEGMENTS.join('|')})(?:$|/|\\?)`);
 
 // Extract the locale prefix from a path — but ONLY if the first segment is an
 // actual configured locale. With `as-needed` prefixing, unprefixed paths like
@@ -155,7 +148,7 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
   // that did not go through the Link wrapper. Send it to its canonical
   // spelling so there is one URL per page per workspace, and so the reader can
   // see and share which workspace they are in.
-  if (request.method !== 'GET' || !CANONICALISED_PATH.test(path)) {
+  if (request.method !== 'GET' || !isWorkspacePath(path)) {
     return null;
   }
   const workspace = await activeWorkspaceForUser(ctx.userId, request.cookies.get(ACTIVE_PROJECT_COOKIE)?.value);
