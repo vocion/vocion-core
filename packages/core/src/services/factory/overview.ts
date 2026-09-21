@@ -5,36 +5,42 @@ import { readReasons, reasonSummary } from '@/libs/workspace/reasonCodes';
 
 /**
  * The `overview` archetype's assembly - pure, no database, no clock of its
- * own. `overviewData.ts` reads the rows; this turns them into panels.
+ * own. `overviewData.ts` reads the rows; this turns them into a briefing.
  *
- * Six questions, above the fold, in sixty seconds: what is true, what changed
- * since I last looked, what is happening now, what is planned next and why,
- * what needs me, and is it worth what it costs.
+ * The page does not explain the factory's records. It briefs a person on
+ * their factory, in the order an executive team speaks: here is my read, here
+ * is what only you can decide, here is what is being built, here is what we
+ * intend next, here is what changed, and here is what it cost.
  *
- * The rule that shapes every function here: a figure the records cannot
- * support is not drawn. It becomes a GAP - a named measure with the reason it
- * is not measurable yet, in the place the number would have been. Three of
- * those reasons are live today and each is a real hole in the write side, not
- * a hole in this file:
+ * Four rules shape every function below.
  *
- *  - how many open decisions BLOCK work, when no open decision names the
- *    record it is holding up (`ask.objectRefs` empty);
- *  - minutes of human attention, when a decision carries no `decisionCost`
- *    estimate and a queued proposal carries none at all;
- *  - cost per accepted change, when nothing was accepted in the window.
- *
- * The autonomy panel keeps two measures apart on purpose. Work autonomy ("how
- * much finished without a person") and human-interruption quality ("how much
- * of a person's day this took, and how much of that was worth taking") are
- * different questions. Averaged into one reassuring number they answer
- * neither, so they are reported side by side and the second is named for what
- * it is.
+ *  1. **The judgment line is derived, not authored.** {@link judgmentLine}
+ *     runs LAST, over the panels that were already assembled, so the sentence
+ *     at the top cannot contradict the panels beneath it. When the records
+ *     cannot support a confident reading it says something true and narrow.
+ *     It never reads as moving when nothing is moving.
+ *  2. **A heading is a promise.** "In progress" lists only outcomes where a
+ *     worker is on the work right now. Approved, queued and awaiting-review
+ *     outcomes are accounted for in one line and live on Work.
+ *  3. **Nothing is ranked without a reason.** A record carrying no reason
+ *     code cannot enter the ranked Next list. The shortfall surfaces once, as
+ *     a factory quality defect, never one row at a time.
+ *  4. **Conclusions here, method behind an affordance.** A panel's `method`
+ *     text is carried but is never drawn beside a number, and a figure the
+ *     records cannot support is left out rather than drawn as NOT MEASURABLE.
+ *     Instrumentation gaps are not a management surface.
  */
 
 /** A business object, in the shape the page accessors already understand. */
 export type OverviewRecord = PageRow & {
   typeSlug: string;
   updatedAt: Date | null;
+};
+
+/** One option offered on a decision. */
+export type OverviewAskOption = {
+  label: string;
+  recommended?: boolean;
 };
 
 /** One decision waiting on (or answered by) a person. */
@@ -50,12 +56,20 @@ export type OverviewAsk = {
   decidedAt: Date | null;
   /** The records the question is about. Empty means nothing links it to work. */
   objectRefs: unknown;
+  /** `<subject>:<detail>` - what the decision is about, when the filer said. */
+  sourceRef: string | null;
+  /** An explicit "these are one decision sheet" key from the write side. */
+  groupKey: string | null;
+  /** The named answers, including which one the filer recommends. */
+  options: readonly OverviewAskOption[];
 };
 
 /** One agent-proposed action sitting in the review queue. */
 export type OverviewProposal = {
   id: number;
   title: string;
+  /** The action being proposed. Many proposals of one action is a trust gap. */
+  actionId: string;
   createdAt: Date;
 };
 
@@ -77,20 +91,15 @@ export type OverviewInput = {
 export type OverviewFigure = {
   label: string;
   value: string;
-  /** How the figure was computed, in a person's words. */
+  /** The one fact that makes the figure readable. Never methodology. */
   note?: string;
-};
-
-/** A measure that is NOT drawn, and the reason it cannot be. */
-export type OverviewGap = {
-  label: string;
-  why: string;
 };
 
 export type OverviewStatusRow = {
   id: string | number;
   headline: string;
-  facts: Array<{ label: string; value: string }>;
+  /** The row read as a sentence, not as a row of fields. */
+  summary: string;
   href: string | null;
 };
 
@@ -98,7 +107,6 @@ export type OverviewActiveRow = {
   id: string | number;
   title: string;
   progress: string;
-  waitingOn: string;
   href: string | null;
 };
 
@@ -106,18 +114,30 @@ export type OverviewNextRow = {
   id: string | number;
   title: string;
   why: string;
-  reasonRecorded: boolean;
+  href: string | null;
+};
+
+/** One decision, as a person meets it: what it is and what is recommended. */
+export type OverviewDecisionRow = {
+  id: string | number;
+  title: string;
+  /** The filer's recommended option, or null when it offered none. */
+  recommendation: string | null;
+  blocksWork: boolean;
+  /** How many further open records restate this same decision. */
+  restated: number;
   href: string | null;
 };
 
 export type OverviewPanelView
-  = | { kind: 'status'; title: string; note?: string; rows: OverviewStatusRow[]; empty: string | null }
-    | { kind: 'digest'; title: string; note?: string; heading: string; sinceKnown: boolean; since: Date; lines: string[]; empty: string | null }
-    | { kind: 'active'; title: string; note?: string; rows: OverviewActiveRow[]; more: number; empty: string | null }
-    | { kind: 'next'; title: string; note?: string; rows: OverviewNextRow[]; empty: string | null }
-    | { kind: 'needsYou'; title: string; note?: string; href: string; figures: OverviewFigure[]; gaps: OverviewGap[] }
-    | { kind: 'economics'; title: string; note?: string; figures: OverviewFigure[]; gaps: OverviewGap[] }
-    | { kind: 'autonomy'; title: string; note?: string; work: OverviewFigure[]; attention: OverviewFigure[]; gaps: OverviewGap[] };
+  = | { kind: 'judgment'; title: string; line: string }
+    | { kind: 'status'; title: string; note?: string; method?: string; rows: OverviewStatusRow[]; empty: string | null }
+    | { kind: 'digest'; title: string; note?: string; method?: string; heading: string; sinceKnown: boolean; since: Date; lines: string[]; collapsed: string | null }
+    | { kind: 'active'; title: string; note?: string; method?: string; rows: OverviewActiveRow[]; more: number; empty: string | null }
+    | { kind: 'next'; title: string; note?: string; method?: string; rows: OverviewNextRow[]; unreasoned: string | null; empty: string | null }
+    | { kind: 'needsYou'; title: string; note?: string; method?: string; href: string; count: number; blocking: number; rows: OverviewDecisionRow[]; more: number; accounting: string | null; collapsed: string | null }
+    | { kind: 'economics'; title: string; note?: string; method?: string; figures: OverviewFigure[] }
+    | { kind: 'autonomy'; title: string; note?: string; method?: string; figures: OverviewFigure[]; sentence: string | null };
 
 export type FactoryOverview = {
   panels: OverviewPanelView[];
@@ -271,7 +291,7 @@ export function describeAge(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Panels
+// Products
 // ---------------------------------------------------------------------------
 
 function factValue(record: OverviewRecord, fact: PagePanelFact, records: readonly OverviewRecord[]): string {
@@ -281,7 +301,7 @@ function factValue(record: OverviewRecord, fact: PagePanelFact, records: readonl
   }
   const k = subjectKey(record, fact.subjectFields);
   if (k === null) {
-    return 'no key to count by';
+    return '0';
   }
   const related = ofType(records, fact.objectType).filter((r) => {
     if (key(resolveField(r, fact.relatedField)) !== k) {
@@ -296,21 +316,66 @@ function factValue(record: OverviewRecord, fact: PagePanelFact, records: readonl
   return String(related.length);
 }
 
+/**
+ * One product as a sentence.
+ *
+ * The semantic move is the health clause. A product whose health reads
+ * `unknown` and which no work of any kind points at is not merely unknown:
+ * nothing is connected to it. That is a grey label turned into something a
+ * person can act on.
+ * @param panel - The status panel's config.
+ * @param record - One product.
+ * @param input - The assembled input.
+ */
+function productSummary(panel: Extract<PageOverviewPanel, { kind: 'status' }>, record: OverviewRecord, input: OverviewInput): string {
+  const counts = panel.facts
+    .filter(f => f.kind === 'related')
+    .map(f => ({ label: f.label, n: Number(factValue(record, f, input.records)) }));
+  const attached = counts.reduce((sum, c) => sum + (Number.isFinite(c.n) ? c.n : 0), 0);
+  const stage = panel.facts.find(f => f.kind === 'field' && f.from !== panel.healthField);
+  const stageText = stage && stage.kind === 'field' ? textAt(record, stage.from) : '';
+
+  const health = panel.healthField ? textAt(record, panel.healthField).trim().toLowerCase() : '';
+  const unknown = panel.healthField !== undefined && panel.unknownHealth.includes(health);
+
+  if (unknown && attached === 0) {
+    return stageText === ''
+      ? 'Not connected to the factory: no work, and nothing reports its health.'
+      : `${stageText}, but not connected to the factory: no work, and nothing reports its health.`;
+  }
+
+  const parts: string[] = [];
+  if (stageText !== '') {
+    parts.push(stageText);
+  }
+  if (panel.healthField) {
+    parts.push(health === '' ? 'health not recorded' : `health ${health}`);
+  }
+  const work = counts.filter(c => c.n > 0).map(c => countLabel(c.n, c.label));
+  parts.push(work.length > 0 ? work.join(', ') : 'nothing open');
+  return `${parts.join(' · ')}.`;
+}
+
 function statusPanel(panel: Extract<PageOverviewPanel, { kind: 'status' }>, input: OverviewInput): OverviewPanelView {
   const rows = ofType(input.records, panel.objectType).map(record => ({
     id: record.id,
     headline: textAt(record, panel.headline) || record.title,
-    facts: panel.facts.map(fact => ({ label: fact.label, value: factValue(record, fact, input.records) })),
+    summary: productSummary(panel, record, input),
     href: linkFor(panel.rowLink, record.id),
   }));
   return {
     kind: 'status',
     title: panel.title,
     note: panel.note,
+    method: panel.method,
     rows,
-    empty: rows.length === 0 ? `No ${panel.objectType} records exist yet, so there is nothing to report the state of.` : null,
+    empty: rows.length === 0 ? 'No product has been stood up yet.' : null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Since last visit
+// ---------------------------------------------------------------------------
 
 /**
  * The digest window and the heading that names it honestly.
@@ -326,13 +391,13 @@ export function digestWindow(panel: Extract<PageOverviewPanel, { kind: 'digest' 
     return {
       since: input.lastSeenAt,
       sinceKnown: true,
-      heading: `Since you last looked, ${describeAge(Math.max(0, input.now.getTime() - input.lastSeenAt.getTime()))} ago`,
+      heading: `${describeAge(Math.max(0, input.now.getTime() - input.lastSeenAt.getTime()))} ago`,
     };
   }
   return {
     since: new Date(input.now.getTime() - panel.fallbackHours * HOUR_MS),
     sinceKnown: false,
-    heading: `The last ${countLabel(panel.fallbackHours, 'hours')} - you have not opened this page before, so this is a fixed window, not your own`,
+    heading: `the last ${countLabel(panel.fallbackHours, 'hours')}, since you have not opened this page before`,
   };
 }
 
@@ -361,13 +426,9 @@ function digestPanel(panel: Extract<PageOverviewPanel, { kind: 'digest' }>, inpu
     }
     const named = moved.slice(0, transition.detail).map(x => x.record.title);
     const rest = moved.length - named.length;
-    const head = named.length > 0
+    lines.push(named.length > 0
       ? `${transition.label}: ${named.join(' · ')}${rest > 0 ? ` and ${countLabel(rest, 'more')}` : ''}`
-      : countLabel(moved.length, transition.label);
-    // Only `updatedAt` is an inference - every other field is the record's own
-    // stamp for the change. Say which, rather than let the reader assume.
-    const inferred = moved.filter(x => x.stamp.from === 'updatedAt').length;
-    lines.push(inferred === 0 ? head : `${head} (${inferred === moved.length ? 'timing' : `timing for ${inferred}`} read from last update, not a recorded stamp)`);
+      : countLabel(moved.length, transition.label));
   }
 
   for (const rollup of panel.rollups) {
@@ -381,12 +442,9 @@ function digestPanel(panel: Extract<PageOverviewPanel, { kind: 'digest' }>, inpu
       ? inWindow.map(x => numberAt(x.record, rollup.moneyField!)).filter((n): n is number => n !== null)
       : [];
     const total = cents.reduce((a, b) => a + b, 0);
-    if (rollup.moneyField && cents.length > 0) {
-      const priced = cents.length === inWindow.length ? '' : `, ${cents.length} of them priced`;
-      lines.push(`${formatMoney(total)} across ${countLabel(inWindow.length, rollup.label)}${priced}`);
-    } else {
-      lines.push(countLabel(inWindow.length, rollup.label));
-    }
+    lines.push(rollup.moneyField && cents.length > 0
+      ? `${formatMoney(total)} across ${countLabel(inWindow.length, rollup.label)}`
+      : countLabel(inWindow.length, rollup.label));
   }
 
   if (panel.decisions) {
@@ -400,13 +458,19 @@ function digestPanel(panel: Extract<PageOverviewPanel, { kind: 'digest' }>, inpu
     kind: 'digest',
     title: panel.title,
     note: panel.note,
+    method: panel.method,
     heading,
     sinceKnown,
     since,
     lines,
-    empty: lines.length === 0 ? 'Nothing a person would call a change. Deploys and worker runs are on Activity.' : null,
+    // Empty, the section is one line and takes no more room than it earns.
+    collapsed: lines.length === 0 ? `Nothing changed in ${heading}.` : null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// In progress
+// ---------------------------------------------------------------------------
 
 function inFlight(record: OverviewRecord, statusIn: readonly string[], stateField: string | undefined, stateIn: readonly string[] | undefined): boolean {
   if (!statusIn.includes(record.status ?? '')) {
@@ -419,50 +483,94 @@ function inFlight(record: OverviewRecord, statusIn: readonly string[], stateFiel
   return stateIn.includes(state);
 }
 
+/**
+ * Outcomes a worker is on right now, and an honest account of the rest.
+ *
+ * Membership is decided by the tasks, not by the outcome's own status. An
+ * outcome with no contracted task is approved or queued; an outcome whose
+ * tasks have all stopped is waiting on a review. Neither is in flight, and
+ * listing either under a heading that promises work in flight is what made
+ * the whole page feel unreliable. Both are counted in the empty line so the
+ * work that left this panel is still accounted for.
+ * @param panel - The active panel's config.
+ * @param input - The assembled input.
+ */
 function activePanel(panel: Extract<PageOverviewPanel, { kind: 'active' }>, input: OverviewInput): OverviewPanelView {
-  const pool = ofType(input.records, panel.objectType)
-    .filter(r => inFlight(r, panel.statusIn, panel.stateField, panel.stateIn))
-    .sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0));
+  const approved = ofType(input.records, panel.objectType)
+    .filter(r => inFlight(r, panel.statusIn, panel.stateField, panel.stateIn));
 
   const tasksCfg = panel.tasks;
-  const allTasks = tasksCfg ? ofType(input.records, tasksCfg.objectType) : [];
+  if (!tasksCfg) {
+    return {
+      kind: 'active',
+      title: panel.title,
+      note: panel.note,
+      method: panel.method,
+      rows: [],
+      more: 0,
+      empty: 'This panel names no task records, so it cannot tell work in progress from work merely approved.',
+    };
+  }
 
-  const rows: OverviewActiveRow[] = pool.slice(0, panel.limit).map((record) => {
-    if (!tasksCfg) {
+  const allTasks = ofType(input.records, tasksCfg.objectType);
+  const tasksOf = (record: OverviewRecord) => allTasks.filter(t => key(resolveField(t, tasksCfg.joinField)) === key(record.id));
+
+  const working = approved.filter(r => tasksOf(r).some(t => tasksCfg.workingStatus.includes(t.status ?? '')));
+  const queued = approved.filter(r => tasksOf(r).length === 0);
+  const waiting = allTasks.filter(t => tasksCfg.waitingStatus.includes(t.status ?? ''));
+
+  const rows: OverviewActiveRow[] = working
+    .sort((a, b) => (b.updatedAt?.getTime() ?? 0) - (a.updatedAt?.getTime() ?? 0))
+    .slice(0, panel.limit)
+    .map((record) => {
+      const mine = tasksOf(record);
+      const complete = mine.filter(t => tasksCfg.completeStatus.includes(t.status ?? '')).length;
+      const live = mine.filter(t => tasksCfg.workingStatus.includes(t.status ?? '')).length;
       return {
         id: record.id,
         title: record.title,
-        progress: 'no task records are configured for this panel',
-        waitingOn: 'not measurable',
+        progress: `${countLabel(live, 'tasks')} running, ${complete} of ${mine.length} done`,
         href: linkFor(panel.rowLink, record.id),
       };
-    }
-    const mine = allTasks.filter(t => key(resolveField(t, tasksCfg.joinField)) === key(record.id));
-    const complete = mine.filter(t => tasksCfg.completeStatus.includes(t.status ?? '')).length;
-    const waiting = mine.find(t => tasksCfg.waitingStatus.includes(t.status ?? ''));
-    const progress = mine.length === 0
-      ? 'no task has been contracted yet'
-      : `${complete}/${mine.length} tasks complete`;
-    const waitingOn = waiting
-      ? `a person: "${waiting.title}" is ${waiting.status}`
-      : mine.length === 0
-        ? 'a task contract'
-        : complete === mine.length
-          ? 'nothing - every task is complete and the outcome is still open'
-          : 'the factory: work is in progress';
-    return { id: record.id, title: record.title, progress, waitingOn, href: linkFor(panel.rowLink, record.id) };
-  });
+    });
+
+  // The empty state is designed, not defaulted: it says what left the panel
+  // and where it went, so a quiet section never reads as a missing section.
+  const elsewhere: string[] = [];
+  if (queued.length > 0) {
+    elsewhere.push(`${countLabel(queued.length, 'approved outcomes')} ${queued.length === 1 ? 'has' : 'have'} no task contract yet`);
+  }
+  if (waiting.length > 0) {
+    elsewhere.push(`${countLabel(waiting.length, 'changes')} ${waiting.length === 1 ? 'is' : 'are'} waiting on a review`);
+  }
+  const account = elsewhere.length > 0 ? ` ${elsewhere.join(' and ')}; both are on Work.` : '';
 
   return {
     kind: 'active',
     title: panel.title,
     note: panel.note,
+    method: panel.method,
     rows,
-    more: Math.max(0, pool.length - rows.length),
-    empty: rows.length === 0 ? 'Nothing is in flight. Everything asked for has been answered or shipped.' : null,
+    more: Math.max(0, working.length - rows.length),
+    empty: rows.length === 0 ? `Nothing is being built right now.${account}` : null,
   };
 }
 
+// ---------------------------------------------------------------------------
+// Next
+// ---------------------------------------------------------------------------
+
+/**
+ * What the factory intends to spend effort on next, and why.
+ *
+ * Nothing becomes prioritised work without a recorded reason. A queued record
+ * carrying no reason code cannot enter the ranked list at all - not greyed
+ * out, not last, not at all - because a rank without a reason is a number
+ * asking a person to trust it. The shortfall surfaces once, as a factory
+ * quality defect, rather than being absorbed one row at a time.
+ * @param panel - The next panel's config.
+ * @param input - The assembled input.
+ */
 function nextPanel(panel: Extract<PageOverviewPanel, { kind: 'next' }>, input: OverviewInput): OverviewPanelView {
   const pool = ofType(input.records, panel.objectType).filter((r) => {
     if (panel.statusIn && !panel.statusIn.includes(r.status ?? '')) {
@@ -474,10 +582,13 @@ function nextPanel(panel: Extract<PageOverviewPanel, { kind: 'next' }>, input: O
     return panel.stateIn.includes(textAt(r, panel.stateField));
   });
 
-  // `orderBy` decides the order and is never rendered. A record with no rank
-  // sorts last rather than being dropped: it is still queued, it just has not
-  // been ranked, and hiding it would understate the queue.
-  const ordered = [...pool].sort((a, b) => {
+  const noteFields = panel.noteFields.map(f => (f.startsWith('meta.') ? f.slice(5) : f));
+  const withReason = pool.filter(r => readReasons(r.meta, noteFields).recorded);
+  const unreasoned = pool.length - withReason.length;
+
+  // `orderBy` decides the order and is never rendered: a priority integer is a
+  // ranking, not an answer.
+  const ordered = [...withReason].sort((a, b) => {
     const ra = numberAt(a, panel.orderBy);
     const rb = numberAt(b, panel.orderBy);
     if (ra !== rb) {
@@ -492,191 +603,351 @@ function nextPanel(panel: Extract<PageOverviewPanel, { kind: 'next' }>, input: O
     return (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0);
   });
 
-  const rows: OverviewNextRow[] = ordered.slice(0, panel.limit).map((record) => {
-    const reasons = readReasons(record.meta, panel.noteFields.map(f => (f.startsWith('meta.') ? f.slice(5) : f)));
-    return {
-      id: record.id,
-      title: record.title,
-      why: reasonSummary(reasons),
-      reasonRecorded: reasons.recorded,
-      href: linkFor(panel.rowLink, record.id),
-    };
-  });
+  const rows: OverviewNextRow[] = ordered.slice(0, panel.limit).map(record => ({
+    id: record.id,
+    title: record.title,
+    why: reasonSummary(readReasons(record.meta, noteFields)),
+    href: linkFor(panel.rowLink, record.id),
+  }));
 
   return {
     kind: 'next',
     title: panel.title,
     note: panel.note,
+    method: panel.method,
     rows,
-    empty: rows.length === 0 ? 'The queue is empty. Nothing is ranked to start next.' : null,
+    unreasoned: unreasoned > 0
+      ? `${countLabel(unreasoned, 'queued requests')} carry no recorded reason, so they cannot be ranked. Recording why is what puts them in this list.`
+      : null,
+    empty: rows.length === 0
+      ? pool.length === 0
+        ? 'Nothing is queued. The factory intends no new work.'
+        : 'Nothing can be ranked: every queued request is missing its reason, so the factory has no defensible order to work in.'
+      : null,
   };
 }
 
-function needsYouPanel(panel: Extract<PageOverviewPanel, { kind: 'needsYou' }>, input: OverviewInput): OverviewPanelView {
-  const open = input.asks.filter(a => a.status === 'open');
-  const proposals = input.pendingProposals.length;
-  const total = open.length + proposals;
+// ---------------------------------------------------------------------------
+// Needs you
+// ---------------------------------------------------------------------------
 
-  const estimated = open.filter(a => typeof a.decisionCost === 'number' && a.decisionCost >= 0);
-  const minutes = estimated.reduce((sum, a) => sum + (a.decisionCost ?? 0), 0);
-  const unestimated = total - estimated.length;
+const RISK_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
-  const figures: OverviewFigure[] = [
-    {
-      label: 'Open decisions',
-      value: String(total),
-      note: `${countLabel(open.length, 'questions')} filed by an agent and ${countLabel(proposals, 'proposals')} waiting on a yes`,
-    },
-  ];
-  const gaps: OverviewGap[] = [];
-
-  if (estimated.length > 0) {
-    figures.push({
-      label: 'Estimated minutes',
-      value: `${minutes} min`,
-      note: unestimated === 0
-        ? `every open decision carries an estimate`
-        : `a floor: ${countLabel(unestimated, 'items')} carry no estimate, so the real figure is higher`,
-    });
-  } else {
-    gaps.push({
-      label: 'Estimated minutes',
-      why: `Nothing open carries a decisionCost estimate, and a queued proposal has no field for one, so the minutes cannot be computed rather than guessed.`,
-    });
+/**
+ * What an open decision is ABOUT, for collapsing restatements of one question.
+ *
+ * `groupKey` is the write side saying so outright. Failing that a `sourceRef`
+ * reads `<subject>:<detail>`, and its subject is the decision's topic - unless
+ * that subject names a single record, in which case two decisions under it are
+ * genuinely two decisions and the whole ref is the key.
+ * @param ask - One open decision.
+ * @param perRecordSources - Prefixes that name a record rather than a subject.
+ */
+export function decisionSubject(ask: OverviewAsk, perRecordSources: readonly string[]): string {
+  if (ask.groupKey && ask.groupKey.trim() !== '') {
+    return `group:${ask.groupKey.trim()}`;
   }
-
-  // A decision "blocks work" only if something records what it is holding up.
-  // `ask.objectRefs` is that link. When no open ask carries one, the number is
-  // not small, it is unknown, and the panel says so.
-  const linked = open.filter(a => Array.isArray(a.objectRefs) && a.objectRefs.length > 0);
-  if (linked.length > 0) {
-    figures.push({
-      label: 'Blocking work',
-      value: String(linked.length),
-      note: `decisions that name the record they are holding up${linked.length < open.length ? `; ${open.length - linked.length} name nothing, so this is a floor` : ''}`,
-    });
-  } else if (total > 0) {
-    gaps.push({
-      label: 'Blocking work',
-      why: `No open decision names the record it is holding up (ask.objectRefs is empty on all ${open.length}), so how many block work is not measurable yet.`,
-    });
+  const ref = (ask.sourceRef ?? '').trim();
+  if (ref === '') {
+    return `ask:${ask.id}`;
   }
-
-  return { kind: 'needsYou', title: panel.title, note: panel.note, href: panel.href, figures, gaps };
+  const colon = ref.indexOf(':');
+  if (colon <= 0) {
+    return `ref:${ref}`;
+  }
+  const prefix = ref.slice(0, colon);
+  return perRecordSources.includes(prefix) ? `ref:${ref}` : `subject:${prefix}`;
 }
 
-function economicsPanel(panel: Extract<PageOverviewPanel, { kind: 'economics' }>, input: OverviewInput): OverviewPanelView {
-  const since = new Date(input.now.getTime() - panel.windowDays * DAY_MS);
-  const pool = ofType(input.records, panel.objectType).filter((r) => {
-    const at = stamp(r, panel.dateFields);
-    return at !== null && at.at >= since;
+/**
+ * The decisions a person actually has to make, and one line for the rest.
+ *
+ * Two things are deliberately NOT counted here. A routine approval an agent
+ * has already answered for itself is a yes waiting to be clicked, not a
+ * judgment call, and it is accounted for in one line and tuned under Autonomy.
+ * A restatement of a question already in this list is the factory re-filing,
+ * not a person being asked twice, and it collapses into the decision it
+ * restates. What is left is one number that means exactly what it says: human
+ * judgment required.
+ * @param panel - The needsYou panel's config.
+ * @param input - The assembled input.
+ */
+function needsYouPanel(panel: Extract<PageOverviewPanel, { kind: 'needsYou' }>, input: OverviewInput): OverviewPanelView {
+  const open = input.asks.filter(a => a.status === 'open');
+
+  const bySubject = new Map<string, OverviewAsk[]>();
+  for (const ask of open) {
+    const subject = decisionSubject(ask, panel.perRecordSources);
+    const group = bySubject.get(subject);
+    if (group) {
+      group.push(ask);
+    } else {
+      bySubject.set(subject, [ask]);
+    }
+  }
+
+  const decisions = [...bySubject.values()].map((group) => {
+    const sorted = [...group].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const first = sorted[0]!;
+    const recommended = group.map(a => a.options.find(o => o.recommended)).find(o => o !== undefined);
+    return {
+      first,
+      restated: group.length - 1,
+      risk: Math.max(...group.map(a => RISK_RANK[a.risk ?? ''] ?? 0)),
+      blocksWork: group.some(a => Array.isArray(a.objectRefs) && a.objectRefs.length > 0),
+      recommendation: recommended ? recommended.label : null,
+    };
   });
+
+  const ranked = decisions.sort((a, b) => {
+    if (a.blocksWork !== b.blocksWork) {
+      return a.blocksWork ? -1 : 1;
+    }
+    if (a.risk !== b.risk) {
+      return b.risk - a.risk;
+    }
+    return a.first.createdAt.getTime() - b.first.createdAt.getTime();
+  });
+
+  const rows: OverviewDecisionRow[] = ranked.slice(0, panel.limit).map(d => ({
+    id: d.first.id,
+    title: d.first.title,
+    recommendation: d.recommendation,
+    blocksWork: d.blocksWork,
+    restated: d.restated,
+    href: `${panel.href}?ask=${d.first.id}`,
+  }));
+
+  const restated = decisions.reduce((sum, d) => sum + d.restated, 0);
+  const routine = input.pendingProposals.length;
+  const rest: string[] = [];
+  if (restated > 0) {
+    rest.push(`${countLabel(restated, 'open records')} restate decisions already in this list`);
+  }
+  if (routine > 0) {
+    rest.push(`${countLabel(routine, 'routine approvals')} are waiting on a yes an agent already recommended`);
+  }
+
+  return {
+    kind: 'needsYou',
+    title: panel.title,
+    note: panel.note,
+    method: panel.method,
+    href: panel.href,
+    count: decisions.length,
+    blocking: decisions.filter(d => d.blocksWork).length,
+    rows,
+    more: Math.max(0, decisions.length - rows.length),
+    accounting: rest.length > 0 ? `${rest.join('; ')}. Both are on Review.` : null,
+    // Nothing needs a person: the whole section is one line.
+    collapsed: decisions.length === 0
+      ? routine > 0
+        ? `Nothing needs your judgment. ${countLabel(routine, 'routine approvals')} are waiting on a yes on Review.`
+        : 'Nothing needs you.'
+      : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Economics
+// ---------------------------------------------------------------------------
+
+/**
+ * What the factory spent, what it bought, and what had to be done twice.
+ *
+ * A trend beats an explanation, so spend is reported against the window
+ * before it whenever there IS a window before it. When there is not - a
+ * factory two days old has no previous month - the panel says that in one
+ * short clause rather than printing a change against zero.
+ * @param panel - The economics panel's config.
+ * @param input - The assembled input.
+ */
+function economicsPanel(panel: Extract<PageOverviewPanel, { kind: 'economics' }>, input: OverviewInput): OverviewPanelView {
+  const windowMs = panel.windowDays * DAY_MS;
+  const since = new Date(input.now.getTime() - windowMs);
+  const before = new Date(since.getTime() - windowMs);
+
+  const dated = ofType(input.records, panel.objectType)
+    .map(r => ({ record: r, at: stamp(r, panel.dateFields)?.at ?? null }))
+    .filter((x): x is { record: OverviewRecord; at: Date } => x.at !== null);
+  const pool = dated.filter(x => x.at >= since).map(x => x.record);
+  const prior = dated.filter(x => x.at >= before && x.at < since).map(x => x.record);
+
   const cents = (rows: OverviewRecord[]) => rows
     .map(r => numberAt(r, panel.costField))
     .filter((n): n is number => n !== null)
     .reduce((a, b) => a + b, 0);
 
   const spend = cents(pool);
+  const priorSpend = cents(prior);
   const accepted = pool.filter(r => panel.acceptedStatus.includes(r.status ?? ''));
-  const wasted = pool.filter(r => panel.wasteStatus.includes(r.status ?? ''));
+  const rework = pool.filter(r => panel.reworkStatus.includes(r.status ?? ''));
   const windowLabel = countLabel(panel.windowDays, 'days');
 
+  const trend = prior.length === 0
+    ? 'no earlier window to compare yet'
+    : priorSpend === 0
+      ? `nothing was spent in the ${windowLabel} before`
+      : `${Math.abs(Math.round(((spend - priorSpend) / priorSpend) * 100))}% ${spend >= priorSpend ? 'up on' : 'down on'} the ${windowLabel} before`;
+
   const figures: OverviewFigure[] = [
-    { label: `Spend, last ${windowLabel}`, value: formatMoney(spend), note: `${countLabel(pool.length, 'pieces of work')} carried cost in the window` },
-    { label: 'Accepted changes', value: String(accepted.length), note: `status ${panel.acceptedStatus.join(' or ')}` },
+    { label: `Spend, last ${windowLabel}`, value: formatMoney(spend), note: trend },
   ];
-  const gaps: OverviewGap[] = [];
 
   if (accepted.length > 0) {
     figures.push({
       label: 'Cost per accepted change',
       value: formatMoney(Math.round(spend / accepted.length)),
-      note: 'all spend in the window over what was accepted, so failed attempts are charged to the change they were for',
-    });
-  } else {
-    gaps.push({
-      label: 'Cost per accepted change',
-      why: `Nothing reached ${panel.acceptedStatus.join(' or ')} in the last ${windowLabel}, so there is no denominator. Spend without an accepted change is all waste, below.`,
+      note: countLabel(accepted.length, 'changes accepted'),
     });
   }
 
   figures.push({
-    label: 'Waste',
-    value: formatMoney(cents(wasted)),
-    note: `spent on ${countLabel(wasted.length, 'pieces of work')} that ended ${panel.wasteStatus.join(' or ')} and produced nothing accepted`,
+    label: 'Rework spend',
+    value: formatMoney(cents(rework)),
+    note: spend > 0
+      ? `${Math.round((cents(rework) / spend) * 100)}% of spend, across ${countLabel(rework.length, 'attempts')} that did not land`
+      : countLabel(rework.length, 'attempts that did not land'),
   });
 
-  return { kind: 'economics', title: panel.title, note: panel.note, figures, gaps };
+  return { kind: 'economics', title: panel.title, note: panel.note, method: panel.method, figures };
 }
 
+// ---------------------------------------------------------------------------
+// Autonomy
+// ---------------------------------------------------------------------------
+
+/**
+ * Four numbers and one thing to do about them.
+ *
+ * "Meaningful decisions required" used to sit here beside an open-decision
+ * count, and read together they said the factory made thirty-five
+ * interruptions of which six mattered. They were never the same measure: one
+ * is a queue, the other is throughput. This one is named for what it is -
+ * decisions a person answered in the window - and the queue lives, once,
+ * under Needs you.
+ * @param panel - The autonomy panel's config.
+ * @param input - The assembled input.
+ */
 function autonomyPanel(panel: Extract<PageOverviewPanel, { kind: 'autonomy' }>, input: OverviewInput): OverviewPanelView {
   const load = input.humanLoad;
-  const work: OverviewFigure[] = [];
-  const attention: OverviewFigure[] = [];
-  const gaps: OverviewGap[] = [];
+  const figures: OverviewFigure[] = [];
   const windowLabel = countLabel(panel.windowDays, 'days');
 
-  if (!load || load.workItems === 0) {
-    gaps.push({
-      label: 'Work autonomy',
-      why: `No work item was created in the last ${windowLabel}, so there is nothing to divide by.`,
-    });
-  } else {
+  if (load && load.workItems > 0) {
     const unattended = percent(load.unattendedRate);
-    work.push({
-      label: 'Handled without a person',
-      value: unattended ?? 'not measurable',
-      note: `${load.workItems - load.needingDecision} of ${countLabel(load.workItems, 'work items')} in the last ${windowLabel} reached the end with nobody in the loop`,
-    });
+    if (unattended !== null) {
+      figures.push({
+        label: 'Finished without you',
+        value: unattended,
+        note: `${load.workItems - load.needingDecision} of ${countLabel(load.workItems, 'pieces of work')}`,
+      });
+    }
     const autoCompleted = percent(load.autonomousCompletionRate);
     if (autoCompleted !== null) {
-      work.push({
-        label: 'Executed under a trust rule',
+      figures.push({
+        label: 'Ran under a trust rule',
         value: autoCompleted,
-        note: `${load.autoExecuted} of ${countLabel(load.executed, 'executed actions')} needed no approval`,
+        note: `${load.autoExecuted} of ${countLabel(load.executed, 'executed actions')}`,
       });
     }
   }
 
   if (load) {
-    attention.push({
-      label: 'Meaningful decisions required',
+    figures.push({
+      label: `Decisions you answered, last ${windowLabel}`,
       value: String(load.interventions),
-      note: `decisions a person actually took in the last ${windowLabel}`,
+      note: 'throughput, not the queue: what is open is under Needs you',
     });
-    attention.push({
-      label: 'Escalations approved unchanged',
+    figures.push({
+      label: 'Approved unchanged',
       value: String(load.approvedClean),
-      note: `asked for, then waved through without an edit. Named for what it is: the count of interruptions that changed nothing`,
+      note: 'asked for, then waved through without an edit',
     });
   }
 
-  // Minutes of attention is only as good as the estimates on the decisions
-  // that carry one. Action-run proposals carry none at all, so the figure is
-  // always a floor and is labelled as one.
-  const since = new Date(input.now.getTime() - panel.windowDays * DAY_MS);
-  const decided = input.asks.filter(a => a.decidedAt !== null && a.decidedAt >= since);
-  const estimated = decided.filter(a => typeof a.decisionCost === 'number');
-  if (estimated.length > 0) {
-    const minutes = estimated.reduce((sum, a) => sum + (a.decisionCost ?? 0), 0);
-    attention.push({
-      label: 'Attention per day',
-      value: `${Math.round((minutes / panel.windowDays) * 10) / 10} min`,
-      note: `a floor: only ${estimated.length} of ${countLabel(decided.length, 'decisions')} answered in the window carried a minutes estimate, and a proposal carries none`,
-    });
+  // One thing to do. The biggest repeated proposal is the strongest signal a
+  // trust rule would pay, because a person clicking the same yes over and over
+  // is the factory asking a question policy could answer.
+  const byAction = new Map<string, number>();
+  for (const proposal of input.pendingProposals) {
+    byAction.set(proposal.actionId, (byAction.get(proposal.actionId) ?? 0) + 1);
+  }
+  const repeated = [...byAction.entries()].sort((a, b) => b[1] - a[1])[0];
+  let sentence: string | null = null;
+  if (repeated && repeated[1] >= 3) {
+    sentence = `${countLabel(repeated[1], 'queued approvals')} are all ${repeated[0]}. A trust rule for it would take them off your desk.`;
+  } else if (load && load.approvedClean >= 3) {
+    sentence = `${countLabel(load.approvedClean, 'approvals')} were accepted unchanged in the last ${windowLabel} and are candidates for more autonomy.`;
+  }
+
+  return { kind: 'autonomy', title: panel.title, note: panel.note, method: panel.method, figures, sentence };
+}
+
+// ---------------------------------------------------------------------------
+// The judgment line
+// ---------------------------------------------------------------------------
+
+/**
+ * One synthesised sentence, derived from the panels that were just assembled.
+ *
+ * It reads the assembled views rather than the raw records on purpose: the
+ * line at the top of the page can then only say what the page below it
+ * already says. It states facts - not a score, not a colour - and it will not
+ * reach for a confident reading the records do not support. Above all it
+ * never reads as moving over a factory that is stuck: the first clause is
+ * decided by whether anything is actually being built and whether anyone is
+ * waiting on a person.
+ * @param assembled - Every other panel, already computed.
+ */
+export function judgmentLine(assembled: readonly OverviewPanelView[]): string {
+  const needs = assembled.find(p => p.kind === 'needsYou');
+  const active = assembled.find(p => p.kind === 'active');
+  const next = assembled.find(p => p.kind === 'next');
+  const economics = assembled.find(p => p.kind === 'economics');
+
+  const building = active ? active.rows.length : 0;
+  const decisions = needs ? needs.count : 0;
+  const blocking = needs ? needs.blocking : 0;
+  const queued = next ? next.rows.length : 0;
+
+  // Nothing to read. Say that, narrowly, rather than inventing a state.
+  if (!needs && !active) {
+    return 'Not enough is recorded yet to say how the factory is doing.';
+  }
+  if (building === 0 && decisions === 0 && queued === 0) {
+    return next && next.unreasoned !== null
+      ? 'Idle. Nothing is being built and nothing needs you, but the queue cannot be ranked until requests record why they matter.'
+      : 'Idle. Nothing is being built, nothing is queued and nothing needs you.';
+  }
+
+  const clauses: string[] = [];
+
+  if (building === 0 && decisions > 0) {
+    clauses.push(`Stalled: nothing is being built and ${countLabel(decisions, 'decisions')} ${decisions === 1 ? 'is' : 'are'} waiting on you`);
+    if (blocking > 0) {
+      clauses.push(`${blocking} of them ${blocking === 1 ? 'names' : 'name'} work ${blocking === 1 ? 'it is' : 'they are'} holding up`);
+    }
+  } else if (building === 0) {
+    clauses.push(`Nothing is being built, and ${countLabel(queued, 'requests')} ${queued === 1 ? 'is' : 'are'} ranked and waiting to start`);
+  } else if (decisions > 0) {
+    clauses.push(`${countLabel(building, 'outcomes')} in progress, ${countLabel(decisions, 'decisions')} waiting on you${blocking > 0 ? `, ${blocking} of them blocking work` : ''}`);
   } else {
-    gaps.push({
-      label: 'Attention per day',
-      why: `No decision answered in the last ${windowLabel} carried a minutes estimate, so the time a person spent is not recorded anywhere and will not be invented here.`,
-    });
+    clauses.push(`${countLabel(building, 'outcomes')} in progress and nothing needs you`);
   }
 
-  gaps.push({
-    label: 'Unnecessary escalations',
-    why: `Nothing records whether policy COULD have decided an item without asking. "Escalations approved unchanged" is the closest honest proxy and is reported above under its own name; it is not the same measure.`,
-  });
+  // The one clause that stops the sentence overclaiming. When most of what
+  // the factory attempted had to be done again, no reading of the top line
+  // is allowed to sound like things are going well.
+  if (economics) {
+    const rework = economics.figures.find(f => f.label === 'Rework spend');
+    const share = rework?.note?.match(/^(\d+)% of spend, across (\d+) attempts?/);
+    if (share && Number(share[1]) >= 40) {
+      clauses.push(`${share[1]}% of recent spend went on attempts that did not land`);
+    }
+  }
 
-  return { kind: 'autonomy', title: panel.title, note: panel.note, work, attention, gaps };
+  return `${clauses.join('. ')}.`;
 }
 
 /**
@@ -686,8 +957,12 @@ function autonomyPanel(panel: Extract<PageOverviewPanel, { kind: 'autonomy' }>, 
  *   visit and the clock. See {@link OverviewInput}.
  */
 export function assembleOverview(input: OverviewInput): FactoryOverview {
-  const panels = input.panels.map((panel): OverviewPanelView => {
+  // Everything but the judgment line first, so the judgment line can be
+  // derived from what the page is actually going to say.
+  const assembled = input.panels.map((panel): OverviewPanelView | null => {
     switch (panel.kind) {
+      case 'judgment':
+        return null;
       case 'status':
         return statusPanel(panel, input);
       case 'digest':
@@ -706,5 +981,13 @@ export function assembleOverview(input: OverviewInput): FactoryOverview {
         throw new Error(`unknown overview panel kind`);
     }
   });
+
+  const computed = assembled.filter((p): p is OverviewPanelView => p !== null);
+  const panels = input.panels.map((panel, i): OverviewPanelView => (
+    panel.kind === 'judgment'
+      ? { kind: 'judgment', title: panel.title, line: judgmentLine(computed) }
+      : assembled[i]!
+  ));
+
   return { panels, lastSeenAt: input.lastSeenAt };
 }
