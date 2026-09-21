@@ -32,7 +32,11 @@
 import sanitize from 'sanitize-html';
 import { EMAIL_TAGS, isHtmlBody, textToParagraphs } from './emailBodyShape';
 
-export { EMAIL_TAGS, isHtmlBody, textToParagraphs };
+// Re-exported so callers have one import for "what is an email body";
+// `emailBodyText` lives in the shape module because the voice rules read it
+// and the workspace applier loads those on an older Node than `sanitize-html`
+// supports.
+export { EMAIL_TAGS, emailBodyText, isHtmlBody, textToParagraphs } from './emailBodyShape';
 
 const SANITIZE_OPTIONS: sanitize.IOptions = {
   allowedTags: [...EMAIL_TAGS],
@@ -61,40 +65,4 @@ export function emailBodyHtml(body: string): string {
     return textToParagraphs(body);
   }
   return sanitize(body, SANITIZE_OPTIONS).trim();
-}
-
-/**
- * The body as plain text, whatever it arrived as: what the voice rules read,
- * and what a plain-text fallback sends.
- *
- * Block boundaries become blank lines and `<br>` a single newline, so the
- * shape of the message survives the round trip and a lint message can still
- * quote a recognisable span.
- * @param body - The stored body, text or HTML.
- */
-export function emailBodyText(body: string): string {
-  if (!isHtmlBody(body)) {
-    return body;
-  }
-  const withBreaks = sanitize(body, SANITIZE_OPTIONS)
-    .replaceAll(/<br\s*\/?>/gi, '\n')
-    .replaceAll(/<\/(p|li)>/gi, '\n\n')
-    .replaceAll(/<li\b[^>]*>/gi, '• ');
-  return decodeEntities(sanitize(withBreaks, { allowedTags: [], allowedAttributes: {} }))
-    .replaceAll(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-/**
- * The handful of entities `textToParagraphs` and the editor produce.
- * @param s
- */
-function decodeEntities(s: string): string {
-  return s
-    .replaceAll('&nbsp;', ' ')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', '\'')
-    .replaceAll('&amp;', '&');
 }

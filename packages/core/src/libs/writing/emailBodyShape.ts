@@ -60,3 +60,47 @@ export function textToParagraphs(text: string): string {
     .map(p => `<p>${p.replaceAll('\n', '<br>')}</p>`)
     .join('');
 }
+
+/**
+ * The words out of a body, whatever shape it is in: what the voice rules
+ * read, and what a plain-text fallback sends.
+ *
+ * Deliberately NOT the sanitizer. The output here is plain text matched by
+ * regex and never rendered, so it needs no security-grade parse — and
+ * keeping `sanitize-html` out of this module keeps it out of the workspace
+ * applier's import graph, which runs on an older Node than that package
+ * declares support for.
+ *
+ * Block boundaries become blank lines and `<br>` a single newline, so the
+ * shape of the message survives and a lint message can still quote a
+ * recognisable span.
+ * @param body - The stored body, prose or HTML.
+ */
+export function emailBodyText(body: string): string {
+  if (!isHtmlBody(body)) {
+    return body;
+  }
+  return decodeEntities(
+    body
+      .replaceAll(/<br\s*\/?>/gi, '\n')
+      .replaceAll(/<li\b[^>]*>/gi, '• ')
+      .replaceAll(/<\/(p|li|ul|ol)>/gi, '\n\n')
+      .replaceAll(/<[^>]+>/g, ''),
+  )
+    .replaceAll(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * The handful of entities the editor and `textToParagraphs` produce.
+ * @param s
+ */
+function decodeEntities(s: string): string {
+  return s
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', '\'')
+    .replaceAll('&amp;', '&');
+}
