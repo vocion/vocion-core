@@ -11,6 +11,7 @@ import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRu
 import { escalationsFrom } from '@/services/inbox/failureEscalation';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
+import { chainReAsks, chaseLine } from '@/services/inbox/reAskChain';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
 
@@ -228,7 +229,9 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
 
 /**
  * Open asks as rows — several open asks under one group_key are one decision
- * sheet, answered as a stepper; a group with one open ask is just an ask.
+ * sheet, answered as a stepper; a group with one open ask is just an ask; and
+ * an ask that exists only to chase an older open ask is folded into the ask it
+ * chases rather than given a row of its own (`services/inbox/reAskChain.ts`).
  * @param asks
  */
 function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
@@ -265,21 +268,29 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       count: group.length,
     });
   }
-  for (const a of standalone) {
+  for (const chain of chainReAsks(standalone)) {
+    const a = chain.root;
+    const chased = chaseLine(chain);
     rows.push({
       key: `ask:${a.id}`,
       kind: kindForAsk(a.kind),
       shape: 'single',
       ref: { kind: 'ask', id: a.id },
       title: a.title,
-      subline: [a.agentSlug ? `asked by ${a.agentSlug}` : null, a.teamSlug ? `team ${a.teamSlug}` : null].filter(Boolean).join(' › ') || undefined,
+      subline: [a.agentSlug ? `asked by ${a.agentSlug}` : null, a.teamSlug ? `team ${a.teamSlug}` : null, chased].filter(Boolean).join(' › ') || undefined,
       agentSlug: a.agentSlug,
       teamSlug: a.teamSlug,
-      risk: a.risk,
+      // Going unanswered is itself evidence of importance, so a chased
+      // decision takes the highest risk anyone attached to it. The chases
+      // stop being rows; they do not stop being signal.
+      risk: chain.chases.some(c => c.risk === 'high') || a.risk === 'high' ? 'high' : chain.chases.some(c => c.risk === 'medium') || a.risk === 'medium' ? 'medium' : a.risk,
       status: a.status,
       at: a.createdAt,
       href: inboxHref('ask', a.id),
       askId: a.id,
+      // The count is the rows this one replaced, so the page can say the
+      // question was asked eight times without printing it eight times.
+      count: chain.chases.length > 0 ? chain.chases.length + 1 : undefined,
     });
   }
   return rows;
@@ -646,10 +657,17 @@ export async function needsYouCount(orgId: string): Promise<number> {
     db.select({ n: sql<number>`count(*)::int` }).from(table).where(where).then(([r]) => r?.n ?? 0);
 
   const [asks, actions, missions, workflows, workers, exceptions, candidates] = await Promise.all([
-    db.select({ n: sql<number>`count(distinct coalesce(${askSchema.groupKey}, ${askSchema.id}::text))::int` })
+    // Asks are counted the way the page draws them: one per group_key, and
+    // one per chain, so an unanswered question chased on every check counts
+    // once. The badge must never promise more decisions than there are.
+    db
+      .select({ id: askSchema.id, groupKey: askSchema.groupKey, title: askSchema.title, body: askSchema.body, sourceRef: askSchema.sourceRef, createdAt: askSchema.createdAt })
       .from(askSchema)
       .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open')))
-      .then(([r]) => r?.n ?? 0),
+      .then((rows) => {
+        const groups = new Set(rows.filter(r => r.groupKey).map(r => r.groupKey!));
+        return groups.size + chainReAsks(rows.filter(r => !r.groupKey)).length;
+      }),
     listReviewRows(orgId, 'open').then(rows => groupByRecord(rows).length),
     count(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review'])), missionRunSchema),
     count(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused')), workflowRunSchema),
