@@ -419,6 +419,206 @@ describe('findMigrationSafetyProblems — the concurrent directory', () => {
   });
 });
 
+/**
+ * The bug these pin: on 2026-09-21 the dev deploy stopped at
+ * `concurrent/0108_eval_run_group_provider_idx.sql` with `column
+ * "run_group_id" does not exist`, because the column arrives in 0113 and a
+ * concurrent build runs straight after the migration sharing its number.
+ * Nothing caught it earlier — dev and the unit tests skip `concurrent/`
+ * altogether, so the box is the first place the file ever runs.
+ */
+describe('a concurrent build placed ahead of the columns it indexes', () => {
+  it('rejects one whose column arrives in a later migration', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0108_earlier.sql`,
+        sql: 'ALTER TABLE "eval_run" ADD COLUMN "provider" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0113_eval_score_providers.sql`,
+        sql: 'ALTER TABLE "eval_run" ADD COLUMN IF NOT EXISTS "run_group_id" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0108_eval_run_group_provider_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "eval_run_group_provider_idx"\n  ON "eval_run" ("run_group_id", "provider");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['concurrent-build-ahead-of-its-columns']);
+    expect(problems[0]!.message).toContain('added by migration 0113');
+    expect(problems[0]!.message).toContain(`${CONCURRENT_SUBDIR}/0113_<name>.sql`);
+  });
+
+  it('accepts the same build once it is renumbered to the migration that adds the column', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0113_eval_score_providers.sql`,
+        sql: 'ALTER TABLE "eval_run" ADD COLUMN IF NOT EXISTS "run_group_id" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0113_eval_run_group_provider_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "eval_run_group_provider_idx" ON "eval_run" ("run_group_id");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems).toEqual([]);
+  });
+
+  it('reads the columns a CREATE TABLE introduces, not just the ones ALTER TABLE adds', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0090_seed.sql`,
+        sql: 'CREATE TABLE "eval_run" ("id" text PRIMARY KEY NOT NULL, "org_id" text NOT NULL);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0090_eval_run_org_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "eval_run_org_idx" ON "eval_run" ("org_id");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems).toEqual([]);
+  });
+
+  it('catches a column named only in a partial index WHERE clause', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL, "org_id" text NOT NULL);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0104_agent_approval.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "approved_by_agent" boolean DEFAULT false NOT NULL;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_approved_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_approved_idx" ON "action_run" ("org_id") WHERE "approved_by_agent";',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['concurrent-build-ahead-of-its-columns']);
+    expect(problems[0]!.message).toContain('"approved_by_agent"');
+  });
+
+  it('stays quiet about a column no numbered migration in the set introduces', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "org_id" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_idx" ON "action_run" ("created_at");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems).toEqual([]);
+  });
+
+  it('reads every column of an ALTER TABLE that adds several at once', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0105_two_columns.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "org_id" text, ADD COLUMN "decided_at" timestamp;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_decided_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_decided_idx" ON "action_run" ("decided_at");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['concurrent-build-ahead-of-its-columns']);
+    expect(problems[0]!.message).toContain('added by migration 0105');
+  });
+
+  it('is not thrown off by a parenthesis inside a string literal in CREATE TABLE', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL, "state" text DEFAULT \'(pending\' NOT NULL);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0140_later.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "state" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_state_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_state_idx" ON "action_run" ("state");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    // The literal used to swallow the rest of the statement, losing "state"
+    // from 0100 and leaving only the later arrival to compare against.
+    expect(problems).toEqual([]);
+  });
+
+  it('reads a WHERE clause column that follows a semicolon inside a literal', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL, "org_id" text NOT NULL, "state" text);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0130_agent_approval.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "approved_by_agent" boolean;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_partial_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_partial_idx" ON "action_run" ("org_id") WHERE "state" = \'a;b\' AND "approved_by_agent";',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['concurrent-build-ahead-of-its-columns']);
+    expect(problems[0]!.message).toContain('"approved_by_agent"');
+  });
+
+  it('does not confuse a column of the same name on another table', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "state" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0120_artifact_state.sql`,
+        sql: 'ALTER TABLE "artifact" ADD COLUMN "state" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_state_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_state_idx" ON "action_run" ("state");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems).toEqual([]);
+  });
+});
+
 describe('readMigrationFiles', () => {
   it('reads the numbered migrations and skips non-SQL files', () => {
     const root = writeMigrationsDirectory({

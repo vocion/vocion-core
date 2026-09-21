@@ -1,7 +1,11 @@
 -- eval_run is a pre-existing table, so this index builds here, outside the
 -- transactional migration (CONVENTIONS.md rule 1).
 --
--- Numbered 0113 because that is the migration adding run_group_id.
+-- Numbered 0113, not 0108: both columns it indexes, run_group_id and
+-- provider, are added by 0113_eval_score_providers.sql. A concurrent file
+-- runs straight after the numbered migration sharing its number, so at 0108
+-- the columns do not exist yet and the deploy stops with
+-- `column "run_group_id" does not exist`.
 --
 -- Deliberately NOT unique, though one run per (run_group_id, provider) is
 -- exactly the rule the application holds to. A unique index cannot live in
