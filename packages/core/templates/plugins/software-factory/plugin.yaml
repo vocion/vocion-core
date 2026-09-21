@@ -66,7 +66,16 @@ name: Software factory
 # the form and lists what fails review, the planner names the task before it
 # writes the contract, and the engineer builds the commit subject and the
 # pull request title from the title rather than truncating the objective.
-version: 1.8.0
+#
+# 1.9.0 - the Factory page: `pages/factory.yaml` is the landing page and the
+# 60-second control plane, on core's new `overview` archetype. Seven panels,
+# in the order the six questions are asked: products with what is owed and what
+# is building, what changed since THIS viewer last looked, the outcomes in
+# flight with their task progress, the queue with its reason codes, the
+# decisions waiting with their estimated minutes, spend over accepted change
+# with the waste line, and work autonomy reported apart from what it cost a
+# person. A figure the records cannot support says so in the figure's place.
+version: 1.9.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

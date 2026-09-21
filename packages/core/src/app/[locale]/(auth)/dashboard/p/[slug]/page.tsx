@@ -8,6 +8,7 @@ import { notFound, redirect } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
+import { OverviewView } from '@/features/dashboard/factory/OverviewView';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
@@ -33,6 +34,7 @@ import {
   knowledgeSourceSchema,
   toolCallSchema,
 } from '@/models/Schema';
+import { loadFactoryOverview } from '@/services/factory/overviewData';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { resolveRecordLinks } from '@/services/objects/recordLinks';
 import { readPageForOrg } from '@/services/PluginService';
@@ -48,7 +50,8 @@ import { listWorkflowRuns } from '@/services/WorkflowService';
  * `list`/`queue` query data core already owns (business objects, tool calls,
  * knowledge documents), `markdown` renders prose, `report` tells one
  * record's whole story (at `/dashboard/p/<slug>/<id>` — this route is its
- * index), and custom widgets come from the workspace's own component
+ * index), `overview` computes an ordered list of typed panels over the same
+ * records, and custom widgets come from the workspace's own component
  * registry via the `@wsx/registry` alias.
  */
 
@@ -322,7 +325,7 @@ export default async function WorkspacePage(props: {
 }) {
   const { locale, slug } = await props.params;
   setRequestLocale(locale);
-  const { orgId } = await auth();
+  const { orgId, userId } = await auth();
   if (!orgId) {
     // A valid session with no organization here — typically a cookie from a
     // sibling localhost app (shared AUTH_SECRET). A bare 404 hides the cause;
@@ -345,7 +348,7 @@ export default async function WorkspacePage(props: {
   const now = await currentTime();
 
   let rows: PageRow[] = [];
-  if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.source) {
+  if (manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && manifest.source) {
     rows = applyFilter(await loadRows(manifest, orgId), manifest.filters, new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;
@@ -375,6 +378,14 @@ export default async function WorkspacePage(props: {
       pausedWorkflowRuns = await listWorkflowRuns(orgId, { status: 'paused', limit: 50 });
     }
   }
+
+  // The overview archetype computes itself server-side: the panels are the
+  // page, so there are no rows, no stats and no table above them. The visit is
+  // recorded here (per viewer, per slug) so the digest has a "since" to
+  // measure from next time.
+  const overview = manifest.archetype === 'overview' && manifest.panels
+    ? await loadFactoryOverview({ orgId, userId: userId ?? null, slug: manifest.slug, panels: manifest.panels, now: new Date(now) })
+    : null;
 
   const stats: Record<string, string> = {};
   for (const s of manifest.stats ?? []) {
@@ -446,6 +457,8 @@ export default async function WorkspacePage(props: {
 
       <Widgets manifest={manifest} position="above" rows={rows} stats={stats} />
 
+      {overview && <OverviewView overview={overview} />}
+
       {manifest.archetype === 'report' && (
         <p className="max-w-2xl text-sm text-muted-foreground">
           A report is about one record. Open it from a row on
@@ -463,7 +476,7 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && groups.map((g, gi) => (
+      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && groups.map((g, gi) => (
         <PageTable
           key={g.label ?? '__all'}
           id={gi === 0 ? 'wsx-table' : undefined}

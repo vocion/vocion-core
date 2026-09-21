@@ -59,7 +59,7 @@ describe('the shipped catalogue', () => {
     expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-debrief', 'product-review', 'stand-up-product', 'tell-the-requester']);
     // Every way the product manager acts is an automation — visible, pausable, named after the mission it serves.
     expect(factory.automations.filter(a => a.startsWith('product-'))).toEqual(['product-batch-decided', 'product-debrief', 'product-recommendations-check', 'product-tag-audit', 'product-weekly-review']);
-    expect(factory.pages).toEqual(['backlog', 'changelog', 'costs', 'factory-floor', 'factory-log', 'feature', 'portfolio', 'product-board', 'recommendations', 'releases', 'team-report']);
+    expect(factory.pages).toEqual(['backlog', 'changelog', 'costs', 'factory', 'factory-floor', 'factory-log', 'feature', 'portfolio', 'product-board', 'recommendations', 'releases', 'team-report']);
     expect(factory.hasTrust).toBe(true);
   });
 
@@ -289,7 +289,7 @@ describe('loadWorkspace with the software factory', () => {
     expect(ws.trust?.rules.find(r => r.action === 'release.announce')).toMatchObject({ enabled: false, rung: 'execute-with-approval', risk: 'medium' });
     expect(ws.skills.find(s => s.slug === 'write-release-notes')?.playbooks).toEqual(['house-voice', 'written-promises', 'naming-the-work']);
     expect(ws.teams.find(t => t.slug === 'software-factory')?.measures.map(m => m.key)).toContain('prs_opened');
-    expect(ws.sha).toContain('+software-factory@1.8.0');
+    expect(ws.sha).toContain('+software-factory@1.9.0');
   });
 
   it('names the work: one playbook the planner, the engineer and the reviewer all read', () => {
