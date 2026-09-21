@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { InboxKind, InboxTab } from '@/services/InboxService';
-import { CheckSquare, ClipboardCheck, DoorOpen, Gavel, GitMerge, KeyRound, Lightbulb, MessageSquareText, PlayCircle, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckSquare, ClipboardCheck, DoorOpen, Gavel, GitMerge, KeyRound, Lightbulb, MessageSquareText, PlayCircle, Sparkles } from 'lucide-react';
 
 /** How each kind is named and drawn. Order here is the order of the chips. */
 export const INBOX_KIND_META: Record<InboxKind, { label: string; plural: string; blurb: string; icon: LucideIcon }> = {
@@ -24,7 +24,12 @@ export const INBOX_KIND_META: Record<InboxKind, { label: string; plural: string;
   // marked recommended. Its old blurb ("roles, models, budget") described only
   // the third of those.
   recommendation: { label: 'Choice', plural: 'Choices', blurb: 'A short list the team narrowed down, with the one it recommends marked — take it or pick another.', icon: Lightbulb },
-  run: { label: 'Run', plural: 'Runs', blurb: 'Paused, awaiting review, or recently failed.', icon: PlayCircle },
+  run: { label: 'Run', plural: 'Runs', blurb: 'Paused or awaiting review — a run that is waiting on you.', icon: PlayCircle },
+  // Chris, 2026-09-21: a failure is a log line, not a decision. What reaches
+  // Review is the one the factory cannot recover — a third attempt, or a
+  // failure class nothing retries — and it arrives as a decision with a
+  // recommendation. Plain failures live in the Factory log and on the floor.
+  exception: { label: 'Exception', plural: 'Exceptions', blurb: 'Automation could not recover. The system says what it thinks you should do; you decide.', icon: AlertTriangle },
   learning: { label: 'Suggested rule', plural: 'Suggested rules', blurb: 'Rules proposed from your feedback, waiting to be adopted.', icon: Sparkles },
 };
 

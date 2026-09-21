@@ -77,7 +77,7 @@ describe('InboxService — one list, every kind tagged', () => {
     expect(inbox.items.map(i => i.title)).not.toContain('not mine');
   });
 
-  it('folds paused missions and workflows, waiting/failed worker runs and pending rule candidates into run + learning rows with kind-prefixed refs', async () => {
+  it('folds paused missions and workflows, waiting worker runs and pending rule candidates into run + learning rows with kind-prefixed refs', async () => {
     await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Weekly brief', brief: 'b', status: 'paused', pauseReason: 'needs a source', team: { lead: 'revenue-lead', members: [] } });
     await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Review me', brief: 'b', status: 'awaiting_review', team: { lead: 'revenue-lead', members: [] } });
     await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Done brief', brief: 'b', status: 'completed', team: { lead: 'revenue-lead', members: [] } });
@@ -85,23 +85,55 @@ describe('InboxService — one list, every kind tagged', () => {
     await db.insert(workflowRunSchema).values({ orgId: ORG, workflowId: wf!.id, status: 'paused', pauseReason: 'approve step 2' });
     await db.insert(workflowRunSchema).values({ orgId: ORG, workflowId: wf!.id, status: 'completed' });
     await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'ceo', status: 'awaiting_review' });
-    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: 'budget' });
-    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'lost', updatedAt: new Date(Date.now() - 3 * day) });
     await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'ceo', status: 'completed' });
     await db.insert(learningCandidateSchema).values({ orgId: ORG, stepName: 'editorial', ruleText: 'Cite the file', status: 'pending' });
     await db.insert(learningCandidateSchema).values({ orgId: ORG, stepName: 'editorial', ruleText: 'Old', status: 'rejected' });
 
     const inbox = await needsYou(ORG);
 
-    expect(inbox.counts.run).toBe(5);
+    expect(inbox.counts.run).toBe(4);
     expect(inbox.counts.learning).toBe(1);
     expect(inbox.items.find(i => i.title === 'Weekly brief')).toMatchObject({ kind: 'run', agentSlug: 'revenue-lead', subline: 'needs a source', href: expect.stringMatching(/^\/dashboard\/inbox\/mission-\d+$/) });
     expect(inbox.items.find(i => i.title === 'Review me')).toMatchObject({ kind: 'run', status: 'awaiting_review' });
     expect(inbox.items.find(i => i.title.startsWith('Weekly digest'))).toMatchObject({ kind: 'run', subline: 'approve step 2', href: expect.stringMatching(/^\/dashboard\/inbox\/workflow-\d+$/) });
-    expect(inbox.items.filter(i => i.kind === 'run' && i.agentSlug === 'writer')).toHaveLength(1); // the 3-day-old lost run is outside the window
-    expect(inbox.items.find(i => i.kind === 'run' && i.agentSlug === 'writer')!.href).toMatch(/^\/dashboard\/inbox\/worker-\d+$/);
+    expect(inbox.items.find(i => i.kind === 'run' && i.agentSlug === 'ceo')!.href).toMatch(/^\/dashboard\/inbox\/worker-\d+$/);
     expect(inbox.items.find(i => i.kind === 'learning')).toMatchObject({ title: 'Cite the file', href: expect.stringMatching(/^\/dashboard\/inbox\/learning-\d+$/) });
     expect(await needsYouCount(ORG)).toBe(inbox.total);
+  });
+
+  it('does not list a plain failed or lost run — a failure is a log line, not a decision', async () => {
+    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: 'worker timed out after 300s', input: { taskId: 'T-1' } });
+    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'lost', input: { taskId: 'T-2' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.total).toBe(0);
+    expect(inbox.counts.exception).toBe(0);
+    expect(await needsYouCount(ORG)).toBe(0);
+  });
+
+  it('surfaces a third failure of one task as an exception carrying a recommendation', async () => {
+    for (const id of [1, 2, 3]) {
+      await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: `attempt ${id}: worker timed out after 300s`, input: { taskId: 'T-1' } });
+    }
+
+    const inbox = await needsYou(ORG);
+    const exception = inbox.items.find(i => i.kind === 'exception');
+
+    expect(inbox.items).toHaveLength(1);
+    expect(exception).toMatchObject({ agentSlug: 'writer', risk: 'high', href: expect.stringMatching(/^\/dashboard\/inbox\/worker-\d+$/) });
+    expect(exception!.contract!.recommendation).toBeTruthy();
+    expect(exception!.contract!.impactOfDelay).toBeTruthy();
+    expect(exception!.contract!.actions.length).toBeGreaterThan(1);
+    expect(await needsYouCount(ORG)).toBe(1);
+  });
+
+  it('escalates a failure class nothing retries on its first occurrence', async () => {
+    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: 'the worker refused the contract', input: { taskId: 'T-9' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items.filter(i => i.kind === 'exception')).toHaveLength(1);
   });
 
   it('counts a decision sheet once on the badge, like the page does', async () => {

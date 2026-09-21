@@ -1,3 +1,5 @@
+import type { DecisionContract } from '@/services/inbox/decisionContract';
+import type { FailedRun } from '@/services/inbox/failureEscalation';
 import type { InboxRef } from '@/services/inbox/inboxRef';
 import type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
 import type { ReviewRow } from '@/services/inbox/reviewRows';
@@ -6,6 +8,7 @@ import { db } from '@/libs/DB';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
 import { changeSummaryLine, summariseChanges } from '@/services/inbox/changeSummary';
 import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRun';
+import { escalationsFrom } from '@/services/inbox/failureEscalation';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
@@ -26,8 +29,12 @@ import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
  *                   an open `ask`; several under one group key are one sheet
  *                                                   → /dashboard/inbox/:id · /dashboard/inbox/g/:groupKey
  *   run             a paused / awaiting-review mission or workflow run, a
- *                   paused / awaiting / failed / lost worker run
+ *                   paused / awaiting-review worker run — things that WAIT on
+ *                   a person
  *                                                   → /dashboard/inbox/mission-:id · workflow-:id · worker-:id
+ *   exception       a failure the factory cannot recover from, as a decision
+ *                   with a recommendation (`services/inbox/failureEscalation.ts`)
+ *                                                   → /dashboard/inbox/worker-:id
  *   learning        a pending `learning_candidate` (a suggested rule)
  *                                                   → /dashboard/inbox/learning-:id
  *
@@ -93,6 +100,12 @@ export type InboxItem = {
   decidedBy?: string | null;
   /** Decided tab: the note that travelled with the decision. */
   note?: string | null;
+  /**
+   * What must be decided, what the system thinks, why, what waiting costs and
+   * the labelled choices — so the ROW is decision support rather than metadata
+   * about which agent asked (`services/inbox/decisionContract.ts`).
+   */
+  contract?: DecisionContract;
 };
 
 export type InboxFacets = {
@@ -124,7 +137,13 @@ export type Inbox = {
   facets: InboxFacets;
 };
 
-const RECENT_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * How far back the escalation rule looks for failures of the same task. A
+ * plain failure NEVER appears here — it is a log line, and the Factory log
+ * and the floor already show it (Chris, 2026-09-21). This window exists only
+ * so `escalationsFrom` can see a task's third attempt.
+ */
+const FAILURE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * One row from one proposal.
@@ -267,14 +286,42 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
 }
 
 /**
+ * The failures that became decisions. A plain failed or lost run produces
+ * NOTHING here: it is an operational event, and Review is not an event
+ * stream. Only a task the factory cannot recover — a third attempt, or a
+ * failure class with no retry policy — reaches a person, and then it arrives
+ * as a decision with a recommendation, what it blocks and what happens if it
+ * is ignored.
+ * @param runs - Failed and lost worker runs inside the lookback window.
+ */
+function exceptionItems(runs: FailedRun[]): InboxItem[] {
+  return escalationsFrom(runs).map((e): InboxItem => ({
+    key: e.key,
+    kind: 'exception',
+    shape: 'single',
+    ref: { kind: 'worker', id: e.runId },
+    title: e.contract.decision,
+    subline: [`${e.agentSlug}`, `${e.attempts} ${e.attempts === 1 ? 'attempt' : 'attempts'}`, e.trigger === 'no-retry-policy' ? 'no retry policy' : 'retries exhausted'].join(' › '),
+    agentSlug: e.agentSlug,
+    teamSlug: null,
+    risk: 'high',
+    status: 'exception',
+    at: e.at,
+    href: inboxHref('worker', e.runId),
+    detail: e.contract.recommendation ?? e.contract.recommendationWhyNot ?? undefined,
+    contract: e.contract,
+  }));
+}
+
+/**
  * Everything on the OPEN tab: asks, described + grouped proposals, paused or
- * awaiting-review missions and workflows, waiting / failed worker runs,
- * suggested rules.
+ * awaiting-review missions and workflows, waiting worker runs, unrecoverable
+ * failures as exceptions, suggested rules.
  * @param orgId
  */
 async function openItems(orgId: string): Promise<InboxItem[]> {
-  const since = new Date(Date.now() - RECENT_FAILURE_WINDOW_MS);
-  const [asks, actions, missions, workflows, waitingWorkers, failedWorkers, candidates] = await Promise.all([
+  const since = new Date(Date.now() - FAILURE_LOOKBACK_MS);
+  const [asks, actions, missions, workflows, waitingWorkers, failures, candidates] = await Promise.all([
     db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'))).orderBy(desc(askSchema.id)),
     listReviewRows(orgId, 'open'),
     db
@@ -291,7 +338,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       .from(workerRunSchema)
       .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['paused', 'awaiting_review']))),
     db
-      .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, error: workerRunSchema.error, at: workerRunSchema.updatedAt })
+      .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, error: workerRunSchema.error, attempt: workerRunSchema.attempt, input: workerRunSchema.input, at: workerRunSchema.updatedAt })
       .from(workerRunSchema)
       .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since))),
     db
@@ -345,20 +392,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       at: w.at,
       href: inboxHref('worker', w.id),
     })),
-    ...failedWorkers.map((w): InboxItem => ({
-      key: `worker:${w.id}`,
-      kind: 'run',
-      shape: 'single',
-      ref: { kind: 'worker', id: w.id },
-      title: `${w.agentSlug} — worker run #${w.id} ${w.status}`,
-      subline: w.error ?? (w.status === 'lost' ? 'Lease lapsed without a heartbeat' : 'Run failed'),
-      agentSlug: w.agentSlug,
-      teamSlug: null,
-      risk: 'medium',
-      status: w.status,
-      at: w.at,
-      href: inboxHref('worker', w.id),
-    })),
+    ...exceptionItems(failures),
     ...candidates.map((c): InboxItem => ({
       key: `learning:${c.id}`,
       kind: 'learning',
@@ -607,11 +641,11 @@ export async function listProposalQueue(orgId: string, query: InboxQuery = {}): 
  * @param orgId
  */
 export async function needsYouCount(orgId: string): Promise<number> {
-  const since = new Date(Date.now() - RECENT_FAILURE_WINDOW_MS);
+  const since = new Date(Date.now() - FAILURE_LOOKBACK_MS);
   const count = (where: ReturnType<typeof and>, table: typeof missionRunSchema | typeof workerRunSchema | typeof learningCandidateSchema | typeof workflowRunSchema) =>
     db.select({ n: sql<number>`count(*)::int` }).from(table).where(where).then(([r]) => r?.n ?? 0);
 
-  const [asks, actions, missions, workflows, workers, failed, candidates] = await Promise.all([
+  const [asks, actions, missions, workflows, workers, exceptions, candidates] = await Promise.all([
     db.select({ n: sql<number>`count(distinct coalesce(${askSchema.groupKey}, ${askSchema.id}::text))::int` })
       .from(askSchema)
       .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open')))
@@ -620,8 +654,15 @@ export async function needsYouCount(orgId: string): Promise<number> {
     count(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review'])), missionRunSchema),
     count(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused')), workflowRunSchema),
     count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['paused', 'awaiting_review'])), workerRunSchema),
-    count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since)), workerRunSchema),
+    // Failures are counted only where they ESCALATED. A count that included
+    // every failed run would promise a badge of decisions the page does not
+    // show, which is the same lie the old queue told at 45 rows.
+    db
+      .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, error: workerRunSchema.error, attempt: workerRunSchema.attempt, input: workerRunSchema.input, at: workerRunSchema.updatedAt })
+      .from(workerRunSchema)
+      .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since)))
+      .then(rows => escalationsFrom(rows).length),
     count(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending')), learningCandidateSchema),
   ]);
-  return asks + actions + missions + workflows + workers + failed + candidates;
+  return asks + actions + missions + workflows + workers + exceptions + candidates;
 }
