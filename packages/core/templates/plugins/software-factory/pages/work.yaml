@@ -1,0 +1,83 @@
+# Work. One queue, and the OUTCOME is the object.
+#
+# This replaces three pages that were three views of the same thing: the
+# Backlog (requests still owed an outcome), Recommendations (what the Product
+# manager put in front of a person) and the Factory floor (the engineering
+# tasks). A recommendation is not a page; it is a Next item that nobody has
+# approved yet, and it sits in this queue with its decision state on the row.
+# A worker run is never the top-level object here: the request is the row, the
+# tasks it spawned are counted on it, and the whole chain (contract, runs,
+# checks, pull request, QA evidence, release) is one tap on through Report.
+#
+# Grouped by state, so the queue reads as segments rather than as one list:
+# `new`, `triaged` and `in_scope` are what is next; `building` is in progress;
+# `shipped` and `answered` are recently done. What is waiting on a person is a
+# cut across those states rather than a state of its own, so it is counted in
+# the stats (`recommendationState: proposed`) instead of pretended to be a
+# group. `out_of_scope` is the archive and is filtered out.
+#
+# Every row carries its REASON, never a bare priority integer. `meta.why` is
+# the closed list of reason codes (user_request, production_bug, blocks_goal,
+# breaks_promise, required_for_dogfood, manual_toil, platform_leverage,
+# factory_reliability, observed_behaviour) and `meta.priorityReason` is the
+# same judgement in the Product manager's own sentence. Until every request
+# carries `why`, the codes column is empty on the older rows and the sentence
+# carries the reason on its own. An empty cell is honest; a number in its
+# place would not be.
+slug: work
+title: Work
+description: Every outcome the factory owes or is delivering, in one queue, grouped by state, each row carrying the reason it is here and the tasks it has spawned.
+icon: list-checks
+nav: {section: Business, order: 2}
+archetype: list
+source: {kind: objects, objectType: request}
+# States move as workers claim, finish and get reviewed; the queue re-reads
+# itself every 15s while open so what is stuck stays true.
+live: {every: 15}
+sort: {field: meta.askedAt, dir: asc}
+groupBy: meta.state
+stats:
+  - {label: Next, kind: countWhere, where: {field: meta.state, op: in, value: [new, triaged, in_scope]}}
+  - {label: In progress, kind: countWhere, where: {field: meta.state, op: eq, value: building}}
+  - {label: Waiting on a person, kind: countWhere, where: {field: meta.recommendationState, op: eq, value: proposed}}
+  - {label: Recently done, kind: countWhere, where: {field: meta.state, op: in, value: [shipped, answered]}}
+  - {label: Untriaged, kind: countWhere, where: {field: meta.state, op: eq, value: new}}
+  - {label: P1, kind: countWhere, where: {field: meta.severity, op: eq, value: p1}}
+  - {label: Tasks written, kind: sum, field: meta.taskCount}
+  - {label: Decision minutes owed, kind: sum, field: meta.decisionCost, suffix: min}
+primary:
+  field: title
+  subtitle: [kind, channel, why]
+fields:
+  - {key: title, label: Outcome}
+  # The reason this is here, from the closed list. Written by the Product
+  # manager; absent on a request ranked before the codes existed.
+  - {key: why, label: Why, from: meta.why}
+  - {key: reason, label: 'Why, in words', from: meta.priorityReason}
+  - {key: state, label: State, from: meta.state, format: badge, tones: {new: warn, triaged: info, in_scope: ok, building: info, shipped: ok, answered: muted}}
+  # A recommendation is a Next item nobody has approved yet. `proposed` is the
+  # honest count of what is waiting on the accountable person.
+  - {key: decision, label: Decision, from: meta.recommendationState, format: badge, tones: {proposed: warn, approved: ok, rejected: bad}}
+  - {key: proposed, label: Proposed, from: meta.recommendedOutcome, format: badge, tones: {build: ok, answer: info, decline: warn, merge: muted}, priority: 2}
+  - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
+  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
+  - {key: severity, label: Severity, from: meta.severity, format: badge, tones: {p1: bad, p2: warn, p3: muted}}
+  - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
+  - {key: channel, label: Channel, from: meta.channel, format: badge, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
+  # The tasks under this outcome, counted. The tasks themselves, with their
+  # contracts, checks and pull requests, are on the report.
+  - {key: tasks, label: Tasks, from: meta.taskCount, format: mono, align: right}
+  - {key: cost, label: Decision min, from: meta.decisionCost, format: mono, align: right, priority: 3}
+  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true, priority: 2}
+  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true, priority: 2}
+  - {key: asked, label: Asked, from: meta.askedAt, format: date, priority: 2}
+  - {key: decided, label: Decided, from: meta.decidedAt, format: date, priority: 3}
+# Declined requests are the archive, not the queue.
+filters:
+  - {field: meta.state, op: neq, value: out_of_scope}
+rowLink: /dashboard/objects/{id}
+# The whole story for this outcome: the ask, the contract, every approval,
+# every run with its checks and its cost, the pull request, QA evidence, the
+# release, and estimate against actual.
+rowActions:
+  - {label: Report, href: '/dashboard/p/feature/{id}'}

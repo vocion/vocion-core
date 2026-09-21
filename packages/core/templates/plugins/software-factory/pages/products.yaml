@@ -1,0 +1,59 @@
+# Products. What exists, how it is doing, what it costs beside the incumbent,
+# who answers for it, and what shipped. This is the former AppCurious portfolio
+# with the Product board folded into it (the live URLs, the incumbent price
+# comparison and the accountable person were the only things the board said
+# that the portfolio did not) and the per-product "what shipped" line that the
+# Changelog used to carry on its own page.
+#
+# The counters (open requests, shipped this month, last release, median days,
+# P1s) are AGENT-MAINTAINED: a page's stats compute over their own rows, so a
+# count across requests or releases per product cannot be a page stat. The
+# lead's `keep-the-board-honest` tick recomputes them from the records each
+# morning and stamps `countersUpdatedAt`. Revenue stays empty until a verified
+# source exists.
+#
+# Rows here are products, not requests, so there is no Report action: the
+# feature report takes a request id, and a link a row cannot fill is worse
+# than no link. The drill from a product is its own record, and from there
+# the requests that name it.
+slug: products
+title: Products
+description: Every product, its stage and health, our price beside the incumbent's, the person accountable, what shipped and when, and what is still owed.
+icon: layout-dashboard
+nav: {section: Business, order: 1}
+archetype: list
+source: {kind: objects, objectType: product}
+sort: {field: meta.stage, dir: asc}
+stats:
+  - {label: Products, kind: count}
+  - {label: Live, kind: countWhere, where: {field: meta.stage, op: eq, value: live}}
+  - {label: In dogfood, kind: countWhere, where: {field: meta.stage, op: eq, value: dogfood}}
+  - {label: Down or degraded, kind: countWhere, where: {field: meta.health, op: in, value: [down, degraded]}}
+  - {label: Products with a P1 open, kind: countWhere, where: {field: meta.p1Open, op: gte, value: 1}}
+  - {label: Priced against an incumbent, kind: countWhere, where: {field: meta.incumbent.listPrice, op: exists}}
+  - {label: Median days to ship (avg), kind: avg, field: meta.medianDaysToShip, suffix: d}
+primary:
+  field: title
+  subtitle: [app, site, owner]
+fields:
+  - {key: title, label: Product}
+  - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
+  - {key: health, label: Health, from: meta.health, format: badge, tones: {ok: ok, degraded: warn, down: bad, unknown: muted}}
+  - {key: app, label: App, from: meta.urls.app, format: link}
+  - {key: site, label: Site, from: meta.urls.site, format: link}
+  # From the Product board: our price, the incumbent by name, their dated list
+  # price, and the person who answers for the product.
+  - {key: price, label: Our price, from: meta.ourPrice, format: mono, align: right}
+  - {key: incumbent, label: Incumbent, from: meta.incumbent.name}
+  - {key: incumbentPrice, label: Their price, from: meta.incumbent.listPrice, format: mono, align: right}
+  - {key: checked, label: Price checked, from: meta.incumbent.checkedOn, format: date, priority: 3}
+  - {key: owner, label: Accountable, from: meta.accountableUser, format: mono}
+  # From the Changelog: what shipped for this product, and when it last did.
+  - {key: shipped, label: Shipped this month (agent-maintained), from: meta.shippedThisMonth, format: mono, align: right}
+  - {key: lastRelease, label: Last shipped (agent-maintained), from: meta.lastReleaseAt, format: date}
+  - {key: open, label: Open requests (agent-maintained), from: meta.openRequests, format: mono, align: right}
+  - {key: p1, label: P1 open (agent-maintained), from: meta.p1Open, format: mono, align: right, priority: 2}
+  - {key: median, label: Median days to ship (agent-maintained), from: meta.medianDaysToShip, format: mono, align: right, priority: 3}
+  - {key: revenue, label: Revenue (no source yet), from: meta.revenueMonthCents, format: money, priority: 3}
+  - {key: updated, label: Counters as of, from: meta.countersUpdatedAt, format: date, priority: 2}
+rowLink: /dashboard/objects/{id}
