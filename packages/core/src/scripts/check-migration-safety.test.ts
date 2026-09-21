@@ -526,6 +526,76 @@ describe('a concurrent build placed ahead of the columns it indexes', () => {
     expect(problems).toEqual([]);
   });
 
+  it('reads every column of an ALTER TABLE that adds several at once', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0105_two_columns.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "org_id" text, ADD COLUMN "decided_at" timestamp;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_decided_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_decided_idx" ON "action_run" ("decided_at");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['concurrent-build-ahead-of-its-columns']);
+    expect(problems[0]!.message).toContain('added by migration 0105');
+  });
+
+  it('is not thrown off by a parenthesis inside a string literal in CREATE TABLE', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL, "state" text DEFAULT \'(pending\' NOT NULL);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0140_later.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "state" text;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_state_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_state_idx" ON "action_run" ("state");',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    // The literal used to swallow the rest of the statement, losing "state"
+    // from 0100 and leaving only the later arrival to compare against.
+    expect(problems).toEqual([]);
+  });
+
+  it('reads a WHERE clause column that follows a semicolon inside a literal', () => {
+    const problems = findMigrationSafetyProblems([
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0100_run.sql`,
+        sql: 'CREATE TABLE "action_run" ("id" text PRIMARY KEY NOT NULL, "org_id" text NOT NULL, "state" text);',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/0130_agent_approval.sql`,
+        sql: 'ALTER TABLE "action_run" ADD COLUMN "approved_by_agent" boolean;',
+        isConcurrentBuild: false,
+      },
+      {
+        file: `${MIGRATIONS_RELATIVE_DIR}/${CONCURRENT_SUBDIR}/0100_action_run_partial_idx.sql`,
+        sql: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "action_run_partial_idx" ON "action_run" ("org_id") WHERE "state" = \'a;b\' AND "approved_by_agent";',
+        isConcurrentBuild: true,
+      },
+    ]);
+
+    expect(problems.map(problem => problem.rule)).toEqual(['concurrent-build-ahead-of-its-columns']);
+    expect(problems[0]!.message).toContain('"approved_by_agent"');
+  });
+
   it('does not confuse a column of the same name on another table', () => {
     const problems = findMigrationSafetyProblems([
       {

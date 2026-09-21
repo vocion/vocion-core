@@ -323,9 +323,79 @@ export function findIndexBuilds(blankedSql: string): IndexBuild[] {
 }
 
 const ADD_COLUMN_PATTERN = new RegExp(
-  String.raw`\bALTER\s+TABLE\s+(?:ONLY\s+)?(${IDENTIFIER})\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(${IDENTIFIER})`,
+  String.raw`\bADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(${IDENTIFIER})`,
   'gi',
 );
+
+/**
+ * Blank the contents of every string literal, preserving length, so a scan for
+ * structure — a closing parenthesis, the `;` that ends a statement — cannot be
+ * thrown off by a punctuation character sitting inside a value. Double-quoted
+ * identifiers are left alone: they are the column names being read.
+ *
+ * `blankSqlComments` deliberately keeps literals intact, because a keyword
+ * inside one should still count as SQL for the eager checks. Structural
+ * scanning wants the opposite, so it asks for this pass first.
+ * @param blankedSql - SQL with comments already blanked out.
+ */
+export function blankSqlStringLiterals(blankedSql: string): string {
+  const characters = blankedSql.split('');
+  let index = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let openDollarTag: string | null = null;
+
+  while (index < characters.length) {
+    const character = characters[index]!;
+
+    if (openDollarTag !== null) {
+      if (blankedSql.startsWith(openDollarTag, index)) {
+        index += openDollarTag.length;
+        openDollarTag = null;
+        continue;
+      }
+      if (character !== '\n') {
+        characters[index] = ' ';
+      }
+      index += 1;
+      continue;
+    }
+    if (inSingleQuote) {
+      inSingleQuote = character !== '\'';
+      if (inSingleQuote && character !== '\n') {
+        characters[index] = ' ';
+      }
+      index += 1;
+      continue;
+    }
+    if (inDoubleQuote) {
+      inDoubleQuote = character !== '"';
+      index += 1;
+      continue;
+    }
+    if (!inDoubleQuote && character === '$') {
+      const dollarTag = /^\$[A-Z_]*\$/i.exec(blankedSql.slice(index));
+      if (dollarTag) {
+        openDollarTag = dollarTag[0];
+        index += openDollarTag.length;
+        continue;
+      }
+    }
+    if (character === '\'') {
+      inSingleQuote = true;
+      index += 1;
+      continue;
+    }
+    if (character === '"') {
+      inDoubleQuote = true;
+      index += 1;
+      continue;
+    }
+    index += 1;
+  }
+
+  return characters.join('');
+}
 
 /** Words that open a table constraint rather than name a column. */
 const TABLE_CONSTRAINT_KEYWORDS = new Set(['constraint', 'primary', 'unique', 'foreign', 'check', 'exclude']);
@@ -401,16 +471,26 @@ function readCreateTableColumns(blankedSql: string, searchFrom: number): string[
  */
 export function findIntroducedColumns(blankedSql: string): Set<string> {
   const introduced = new Set<string>();
+  const structural = blankSqlStringLiterals(blankedSql);
 
-  for (const match of blankedSql.matchAll(CREATE_TABLE_PATTERN)) {
+  for (const match of structural.matchAll(CREATE_TABLE_PATTERN)) {
     const table = normaliseIdentifier(match[1]!);
-    for (const column of readCreateTableColumns(blankedSql, match.index + match[0].length)) {
+    for (const column of readCreateTableColumns(structural, match.index + match[0].length)) {
       introduced.add(columnKey(table, column));
     }
   }
 
-  for (const match of blankedSql.matchAll(ADD_COLUMN_PATTERN)) {
-    introduced.add(columnKey(normaliseIdentifier(match[1]!), normaliseIdentifier(match[2]!)));
+  // One ALTER TABLE can add several columns, so the table is read once and
+  // every ADD COLUMN inside that statement counted against it.
+  for (const statement of findStatements(structural)) {
+    const alteredTable = ALTER_TABLE_PATTERN.exec(statement.text);
+    if (!alteredTable) {
+      continue;
+    }
+    const table = normaliseIdentifier(alteredTable[1]!);
+    for (const added of statement.text.matchAll(ADD_COLUMN_PATTERN)) {
+      introduced.add(columnKey(table, normaliseIdentifier(added[1]!)));
+    }
   }
 
   return introduced;
@@ -423,6 +503,11 @@ export function findIntroducedColumns(blankedSql: string): Set<string> {
  * introduces — it predates the files being checked, or arrives through SQL
  * this parser does not read — and the ordering check stays quiet about it
  * rather than guessing.
+ *
+ * Arrival only. A later `DROP COLUMN` or `RENAME COLUMN` is invisible here, so
+ * a concurrent build that indexes a column a subsequent migration removes is
+ * not caught — dropping a column an index still names is its own review
+ * question, and inferring it from renames would be guesswork.
  * @param files - Migration files to inspect; concurrent builds are skipped.
  */
 export function buildColumnArrivalNumbers(files: MigrationFile[]): Map<string, number> {
@@ -455,8 +540,9 @@ export function buildColumnArrivalNumbers(files: MigrationFile[]): Map<string, n
  * @param build - The index build to read, as found by findIndexBuilds.
  */
 export function findIndexedColumns(blankedSql: string, build: IndexBuild): string[] {
-  const statementEnd = blankedSql.indexOf(';', build.offset);
-  const statement = blankedSql.slice(build.offset, statementEnd === -1 ? undefined : statementEnd);
+  const structural = blankSqlStringLiterals(blankedSql);
+  const statementEnd = structural.indexOf(';', build.offset);
+  const statement = structural.slice(build.offset, statementEnd === -1 ? undefined : statementEnd);
   const onClause = new RegExp(String.raw`\bON\s+(?:ONLY\s+)?${IDENTIFIER}`, 'i').exec(statement);
   if (!onClause) {
     return [];
@@ -673,7 +759,10 @@ function findConcurrentDirectoryProblems(
     }
   }
 
-  for (const statement of findStatements(blanked)) {
+  // Split on the literal-blanked text: a `;` inside a value would otherwise
+  // cut one index build into two statements, the second of which starts
+  // mid-clause and reads as something other than an index build.
+  for (const statement of findStatements(blankSqlStringLiterals(blanked))) {
     if (!isIndexOnlyStatement(statement.text)) {
       problems.push({
         file: file.file,

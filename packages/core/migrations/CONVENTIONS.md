@@ -43,6 +43,13 @@ project's deploy partway through. `npm run check:migrations` now fails on it
 to; a column no numbered migration introduces is left alone rather than
 guessed at.
 
+Renumber only a file that has not merged yet. The applier records a concurrent
+build under its filename (rule 5), so renaming one production already applied
+makes it unrecorded and it runs again — the `DROP INDEX` at the top of these
+files takes an ACCESS EXCLUSIVE lock and the table then sits unindexed for the
+length of the rebuild. For a merged file, leave it where it is and add a new
+concurrent file at the right number.
+
 This only works if whatever applies migrations in a given environment knows to
 look in `concurrent/`. A deploy that globs `packages/core/migrations/*.sql`
 skips the directory in silence, and the index is simply never built there.
