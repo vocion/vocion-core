@@ -101,7 +101,7 @@ describe('a stat that is only worth a tile when it happened', () => {
 });
 
 describe('a field that is evidence rather than a column', () => {
-  const f = (over: Partial<PageField> & Pick<PageField, 'key'>): PageField => ({ label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, ...over });
+  const f = (over: Partial<PageField> & Pick<PageField, 'key'>): PageField => ({ label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true, ...over });
 
   it('is kept out of the table and handed to the row', () => {
     const fields = [f({ key: 'headline' }), f({ key: 'cost', format: 'money' }), f({ key: 'tokens', detail: true }), f({ key: 'lease', detail: true })];
