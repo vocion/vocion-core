@@ -1,6 +1,8 @@
 -- eval_run is a pre-existing table, so this index builds here, outside the
 -- transactional migration (CONVENTIONS.md rule 1).
 --
+-- Numbered 0113 because that is the migration adding run_group_id.
+--
 -- Deliberately NOT unique, though one run per (run_group_id, provider) is
 -- exactly the rule the application holds to. A unique index cannot live in
 -- this directory — dev and the tests never build it, so they would accept
