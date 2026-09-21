@@ -12,19 +12,24 @@ schema:
   type: object
   properties:
     name:
+      x-display: {label: Name, group: Product}
       type: string
       description: What it is called in prose today.
     workingName:
+      x-display: {label: Working name, group: Product}
       type: string
       description: The name used while building, before launch. Kept beside `launchName` so a repository or a file named after the working name still resolves to this product.
     launchName:
+      x-display: {label: Launch name, group: Product}
       type: string
       description: The name it ships under. Empty until it is decided; a product may reach `dogfood` without one.
     stage:
+      x-display: {label: Stage, format: badge, group: Product, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
       type: string
       description: '`idea` — not yet building. `building` — code, no users. `dogfood` — the team uses it daily. `live` — people outside the team rely on it. `retired` — no longer offered, still answered for.'
       enum: [idea, building, dogfood, live, retired]
     incumbent:
+      x-display: {label: Incumbent, role: prose, format: steps, order: 2}
       type: object
       description: The product people use instead today, and what it costs them — the number ours is judged against. Dated and sourced so a stale comparison is visible as stale.
       properties:
@@ -34,9 +39,11 @@ schema:
         checkedOn: {type: string, format: date, description: When the price was last read from the source.}
         sourceUrl: {type: string, description: Where it was read. One tap from the number to the page.}
     ourPrice:
+      x-display: {label: Our price, group: Money}
       type: string
       description: What we charge, with its unit. Changing it is a permanent gate — a person's decision every time, never something a task adjusts on the way past.
     urls:
+      x-display: {label: Where it lives, role: prose, format: steps, order: 3}
       type: object
       description: Where it is. What a verification curl hits and what a request's asker was looking at.
       properties:
@@ -44,13 +51,16 @@ schema:
         app: {type: string}
         api: {type: string}
     repos:
+      x-display: {label: Repositories, format: link, to: repo}
       type: array
       description: Slugs of the `repo` records that make this product.
       items: {type: string}
     accountableUser:
+      x-display: {label: Accountable, group: Product}
       type: string
       description: Email of the person who answers for this product — who a merge ask on it goes to when the repository does not say otherwise, and whose name is on its promises.
     promises:
+      x-display: {label: Written promises, role: prose, format: steps, order: 1}
       type: array
       description: >-
         The written commitments, one line each, in the words they were made in
@@ -60,6 +70,7 @@ schema:
         list before approving anything on this product.
       items: {type: string}
     health:
+      x-display: {label: Health, role: prose, format: steps, order: 4}
       type: string
       description: >-
         How the product is doing right now, from the last nightly black-box
@@ -68,28 +79,36 @@ schema:
         never typed by hand, and read with `countersUpdatedAt` beside it.
       enum: [ok, degraded, down, unknown]
     openRequests:
+      x-display: {label: Open requests, group: Counters}
       type: integer
       description: How many `request` records for this product are still owed an outcome (state new, triaged, in_scope or building). AGENT-MAINTAINED by the lead's tick; a page's stats compute over their own rows, so a cross-type count lives here.
     p1Open:
+      x-display: {label: Open P1s, group: Counters}
       type: integer
       description: How many open requests for this product carry severity `p1`. AGENT-MAINTAINED by the lead's tick.
     shippedThisMonth:
+      x-display: {label: Shipped this month, group: Counters}
       type: integer
       description: How many `release` records for this product have a `releasedAt` in the current calendar month. AGENT-MAINTAINED by the lead's tick.
     medianDaysToShip:
+      x-display: {label: Median days to ship, group: Counters}
       type: number
       description: Median days from `request.askedAt` to the `releasedAt` of the release that closed it, over the last ninety days of closed requests for this product. AGENT-MAINTAINED — the tick computes it from the records; the team measure that sums a counts key cannot, which is why it lives here and reads as the agent's own figure.
     lastReleaseAt:
+      x-display: {label: Last release}
       type: string
       format: date-time
       description: The newest `release.releasedAt` for this product. AGENT-MAINTAINED by the lead's tick.
     revenueMonthCents:
+      x-display: {label: Revenue this month, format: money, group: Money}
       type: integer
       description: Revenue this month, in cents. LEFT EMPTY until a verified revenue source (Stripe) exists — the portfolio shows the column as "no source yet" rather than a zero nobody measured, because an empty cell is honest and a zero is a claim.
     countersUpdatedAt:
+      x-display: {label: Counters as of}
       type: string
       format: date-time
       description: When the agent-maintained counters above were last recomputed. Shown beside them; a counter older than a day is stale and the board says so.
     notes:
+      x-display: {label: Notes, role: prose, order: 5}
       type: string
       description: Standing knowledge about the product — positioning, who it is for, what was decided and when. Markdown.

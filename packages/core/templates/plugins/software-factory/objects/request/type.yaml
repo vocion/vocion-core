@@ -14,6 +14,7 @@ schema:
   type: object
   properties:
     kind:
+      x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
       type: string
       description: >-
         What sort of thing was asked. `bug` — something promised does not work.
@@ -23,19 +24,24 @@ schema:
         incidents go to severity and a repo; ideas go to the twenty-percent test.
       enum: [bug, gap, idea, incident, question]
     channel:
+      x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
       type: string
       description: The door it came through. Kept because the same request arrives differently by channel — a store review is public and terse, a dogfood note is trusted and specific — and the honest answer goes back the way it came.
       enum: [site, store_review, email, chat, github, dogfood, internal]
     product:
+      x-display: {label: Product, format: link, to: product, group: Where it came from}
       type: string
       description: Slug of the `product` record this is about. Every request belongs to a product; one that fits none is the first sign it is out of scope.
     title:
+      x-display: {hidden: true}
       type: string
       description: One line, in the asker's terms where possible. The row on the backlog.
     body:
+      x-display: {label: In their words, role: prose, order: 1}
       type: string
       description: The request as it arrived — the asker's own words, unedited. Triage summarises beside it, never instead of it.
     askedBy:
+      x-display: {label: Asked by, group: Where it came from}
       type: object
       description: Who asked. Enough to answer them on their channel; nothing more is kept.
       properties:
@@ -43,10 +49,12 @@ schema:
         email: {type: string}
         externalId: {type: string, description: 'Their id on the channel — a store reviewer id, a GitHub login, a chat user — so the reply lands where the request came from.'}
     askedAt:
+      x-display: {label: Asked}
       type: string
       format: date-time
       description: When they asked. The seven-day clock starts here, not when triage noticed.
     evidence:
+      x-display: {label: Evidence, role: prose, format: steps, order: 3}
       type: object
       description: What the asker gave us to go on. Kept as links and artifact ids so the planner and the reviewer read the same thing the asker saw.
       properties:
@@ -54,14 +62,17 @@ schema:
         videoUrl: {type: string}
         screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
     severity:
+      x-display: {label: Severity, format: badge, group: Triage, tones: {p1: bad, p2: warn, p3: muted}}
       type: string
       description: For bugs and incidents. `p1` — people cannot use what was promised, nothing waits overnight. `p2` — promised, broken, worked around. `p3` — wrong but tolerable. Not a priority score for ideas; an idea has value, not severity.
       enum: [p1, p2, p3]
     sizeClass:
+      x-display: {label: Size, format: badge, group: Triage, tones: {major: warn, minor: info, patch: muted}}
       type: string
       description: 'Size in release terms, not in effort: `major` — a new capability or product, which counts against the initiative limit of one in flight; `minor` — a feature within a product; `patch` — a fix. Decides which release class it rides in and how it is announced.'
       enum: [major, minor, patch]
     decisionCost:
+      x-display: {label: Decision minutes, group: Triage}
       type: integer
       description: >-
         Minutes of a person's attention the decision this request will ask for
@@ -71,6 +82,7 @@ schema:
         the promoter, so ten small merges cost a coffee and ten architecture
         asks cost a week.
     state:
+      x-display: {label: State, format: badge, group: Triage, tones: {new: warn, triaged: info, in_scope: ok, out_of_scope: muted, building: info, shipped: ok, answered: muted}}
       type: string
       description: >-
         Where it stands. `new` — arrived, unread. `triaged` — kind, product and
@@ -81,13 +93,16 @@ schema:
         request ends in `shipped`, `answered`, or as a duplicate of one that did.
       enum: [new, triaged, in_scope, out_of_scope, building, shipped, answered]
     answer:
+      x-display: {label: The answer given, role: prose, order: 2}
       type: string
       description: The honest written answer, when the request will not be built or is a question — in the asker's terms, saying what was decided and why, never "we will consider it". Proposed as a gated reply; a person releases it.
     answeredAt:
+      x-display: {label: Answered}
       type: string
       format: date-time
       description: When the answer or the shipped change went back to the asker. The seven-day clock stops here.
     tags:
+      x-display: {label: Tags, group: Triage}
       type: array
       description: >-
         Feature tags, free strings — `onboarding`, `billing`, `search` — the
@@ -97,29 +112,37 @@ schema:
         is the cumulative spend on everything that carried it.
       items: {type: string}
     taskIds:
+      x-display: {label: Tasks, format: link, to: engineering_task}
       type: array
       description: The `engineering_task` records this became. Usually one; several when it spanned repositories.
       items: {type: integer}
     estimateCents:
+      x-display: {label: Estimated, format: money, group: Cost}
       type: integer
       description: ROLLED UP — the sum of `estimateCents` over the tasks whose `requestId` is this record, in cents. Recomputed by core when any of those tasks' cost is written; read `rollupsUpdatedAt` beside it.
     actualCents:
+      x-display: {label: Actual, format: money, group: Cost}
       type: integer
       description: ROLLED UP — the sum of `actualCents` over the tasks whose `requestId` is this record, in cents. What this feature or bug has actually cost in model spend, every attempt included.
     varianceCents:
+      x-display: {label: Variance, format: money, group: Cost}
       type: integer
       description: ROLLED UP — the sum of the tasks' `varianceCents`; negative is under the estimate.
     taskCount:
+      x-display: {label: Tasks, group: Cost}
       type: integer
       description: ROLLED UP — how many tasks carry this request's id, whatever their status.
     rollupsUpdatedAt:
+      x-display: {label: Cost as of}
       type: string
       format: date-time
       description: When the rolled-up figures above were last recomputed. Empty means no task for this request has had a run end yet.
     duplicateOf:
+      x-display: {label: Duplicate of, format: link, to: request}
       type: integer
       description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
     dedupeKey:
+      x-display: {label: Dedupe key, format: mono, group: Where it came from}
       type: string
       description: A normalised handle triage computes — product plus the failing surface or the asked-for thing — so the third person reporting the same broken button is linked to the first rather than opening a third task.
     # ---- What the Product manager adds. Triage tags what a request IS; the
@@ -127,49 +150,62 @@ schema:
     # and what a person decided — and every one of these is written on the
     # request so the Backlog and Recommendations pages read it from the record.
     theme:
+      x-display: {label: Theme, group: Triage}
       type: string
       description: The job this serves, in the product's own vocabulary — "export", "onboarding", "billing clarity". Set by the product manager's tag audit, not by triage; the handle a backlog is grouped and ranked by.
     icp:
+      x-display: {label: Who asked, group: Where it came from}
       type: string
       description: Who this is for — the ideal customer profile it serves, in the words the product record uses for its people. Set by the product manager; a request that serves nobody the product is for ranks accordingly.
     source:
+      x-display: {label: Source, format: link}
       type: string
       description: Who filed it, when it was not the asker on a channel. `product-manager` marks an idea from the weekly ideas pass, so the Recommendations page can count "ideas of ours" and the ranking can weigh an agent's idea as one source and zero askers.
     releaseId:
+      x-display: {label: Shipped in, format: link, to: release}
       type: integer
       description: The `release` record that shipped this request — the link from an answered request to the deploy that answered it. Written when the request moves to `shipped`; a `shipped` request with no release is what the tag audit names.
     priority:
+      x-display: {label: Priority, group: Ranking}
       type: integer
       description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the twenty-percent test, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
       minimum: 0
       maximum: 100
     priorityReason:
+      x-display: {label: Why that priority, role: prose, order: 4}
       type: string
       description: One to three sentences naming which of the four inputs moved the score and by how much — the promise kept, the count of askers, the analytics figure with its source and date. A priority without this is not written.
     rankedAt:
+      x-display: {label: Ranked}
       type: string
       format: date-time
       description: When the priority was last scored. Older than the last weekly review reads as stale, and the page says so by showing the date.
     recommendedAt:
+      x-display: {label: Recommended}
       type: string
       format: date-time
       description: When the product manager put this request in front of a person as a recommendation ask. Its presence is what puts the request on the Recommendations page.
     recommendationBatch:
+      x-display: {label: Batch, format: mono, group: Ranking}
       type: string
       description: The ask group key the recommendation was filed under — `software-factory:batch/<date>` — so a batch reads as one thing on the page and the ten-then-pause rule can be checked from the record.
     recommendedOutcome:
+      x-display: {label: Proposed, format: badge, group: Ranking, tones: {build: ok, answer: info, decline: warn, merge: muted}}
       type: string
       description: 'What the product manager proposed a person do with it: `build` (the planner writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is the twenty-percent rule or a promise), `merge` (it duplicates an open request).'
       enum: [build, answer, decline, merge]
     recommendationState:
+      x-display: {label: Decision, format: badge, group: Ranking, tones: {proposed: warn, approved: ok, rejected: bad}}
       type: string
       description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and out of the next batch.'
       enum: [proposed, approved, rejected]
     decidedAt:
+      x-display: {label: Decided}
       type: string
       format: date-time
       description: When the person decided the recommendation. The gap from `recommendedAt` to here is the decision latency the daily check reports.
     decisionReason:
+      x-display: {label: Their reason, role: prose, order: 5}
       type: string
       description: The person's note on their decision, verbatim. On a rejection it is why, and it is quoted in the body if the request is ever recommended again on new evidence.
 # What rolls up onto a request, and from where: the tasks that point at it.

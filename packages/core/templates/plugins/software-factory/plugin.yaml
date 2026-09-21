@@ -33,7 +33,18 @@ name: Software factory
 # 1.5.1 — the log, in chat: "what have you built" and "what shipped" are
 # answered from the worker runs themselves through core's `list_recent_runs`,
 # whether or not a task record exists; the product manager handles them.
-version: 1.5.1
+#
+# 1.6.0 — the pages made readable. Every list here leads with a wide
+# primary column and a muted subtitle line instead of fourteen narrow
+# columns: a fact that is the same on every visible row (one repository,
+# one product) is said once above the table, figures sit against a right
+# edge, a column carries a `priority` so a phone drops the least important
+# first, and `Asked by` resolves the request id to the request's own
+# title. The object types now annotate their fields (`x-display`), so a
+# record at /dashboard/objects/<id> renders from its own type — the
+# contract, the checks, the evidence, the pull request and the cost —
+# through the same formatting layer the lists use.
+version: 1.6.0
 description: Every request — bug, review, email, incident — is tagged, ranked and, ten at a time, put in front of the person who decides; what they authorize becomes a task contract, a headless worker executes it in isolation, checks with evidence attached decide whether it worked, a person owns the merge, and every release reaches the asker — with the portfolio on top and the factory's evidence underneath.
 depends: []
 surfaces: []

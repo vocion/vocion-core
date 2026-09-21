@@ -19,12 +19,15 @@ stats:
   - {label: Announced, kind: countWhere, where: {field: meta.announcedAt, op: exists}}
   - {label: Waiting on an announcement, kind: countWhere, where: {field: meta.notesSource, op: eq, value: human}}
   - {label: Notes still the agent's draft, kind: countWhere, where: {field: meta.notesSource, op: eq, value: agent}}
+primary:
+  field: announcement
+  subtitle: [product, version, size]
 fields:
   - {key: released, label: Date, from: meta.releasedAt, format: date}
-  - {key: product, label: Product, from: meta.product, format: mono}
+  - {key: product, label: Product, from: meta.product, format: mono, hideWhenConstant: true}
   - {key: version, label: Version, from: meta.version, format: mono}
   - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
   - {key: announcement, label: What shipped, from: meta.announcement}
-  - {key: notesBy, label: Notes owned by, from: meta.notesSource, format: badge, tones: {agent: info, human: ok}}
-  - {key: announced, label: Announced, from: meta.announcedAt, format: date}
+  - {key: notesBy, label: Notes owned by, from: meta.notesSource, format: badge, tones: {agent: info, human: ok}, priority: 3}
+  - {key: announced, label: Announced, from: meta.announcedAt, format: date, priority: 2}
 rowLink: /dashboard/objects/{id}
