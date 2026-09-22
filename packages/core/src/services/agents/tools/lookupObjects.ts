@@ -46,7 +46,20 @@ export function lookupObjectsTool(ctx: RuntimeContext) {
       // model won't paste as an answer — it has to read + synthesize it.
       const rows = objects.map((obj) => {
         const meta = (obj.metadata ?? {}) as Record<string, unknown>;
-        const rec: Record<string, unknown> = { title: obj.title, status: obj.status };
+        // THE ID, first.
+        //
+        // `update_object` documents its own `id` parameter as "from
+        // lookup_objects" — and lookup_objects has never returned one. So a
+        // lead could find a record, reason about it correctly, and then be
+        // unable to write anything back to it. A live turn on 2026-09-22 ended
+        // exactly there: "the lookup_objects result doesn't include IDs …
+        // I don't have the numeric ID", after which it wrote its plan to a
+        // wiki page instead of onto the request. Every request on the factory
+        // board reading "not recorded" traces to this line.
+        //
+        // It is the first key because it is what the next tool call needs, and
+        // a digest that buries the handle is a digest a model has to hunt in.
+        const rec: Record<string, unknown> = { id: obj.id, title: obj.title, status: obj.status };
         for (const [k, v] of Object.entries(meta)) {
           if (v == null || NOISE_KEY.test(k) || isUrl(v)) {
             continue;

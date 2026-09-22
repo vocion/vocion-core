@@ -82,7 +82,27 @@ export const WorkspaceDriftBanner = ({ onApplied = () => window.location.reload(
 
   return (
     <>
-      <div role="status" className="fixed inset-x-3 bottom-3 z-50 mx-auto flex max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/95 px-3 py-2 shadow-sm backdrop-blur sm:inset-x-4 sm:bottom-4">
+      {/* ONLY the actionable notice floats.
+          A strip pinned to `bottom-3` at `z-50` sits exactly where every
+          surface puts its primary control, and it does not merely look
+          crowded: it EATS THE TAP. On a phone the chat composer's send
+          button is underneath this strip, and a probe retried the click
+          sixty times without ever reaching the button (2026-09-22). Chris
+          had already asked whether this banner was "an anti pattern or
+          footgun" — it was both.
+
+          So: a notice a person must ACT on (`apply`) still floats, because
+          it is the thing to do next, and it takes pointer events only on
+          its own controls. A notice that is merely true — this host mounts
+          another workspace, git is ahead of the deploy — has nowhere it
+          must be pressed, so it stops covering the product and sits in the
+          page flow where it can be read and scrolled past. */}
+      <div
+        role="status"
+        className={view.kind === 'apply'
+          ? 'pointer-events-none fixed inset-x-3 bottom-3 z-50 mx-auto flex max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/95 px-3 py-2 shadow-sm backdrop-blur sm:inset-x-4 sm:bottom-4 [&_a]:pointer-events-auto [&_button]:pointer-events-auto'
+          : 'mx-auto mb-3 flex w-full max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/60 px-3 py-2'}
+      >
         {/* Wraps to two lines rather than truncating to one. `truncate` on a
             phone cut every one of these after "The workspace mounted …",
             which is the half that carries no information: the strip stayed on

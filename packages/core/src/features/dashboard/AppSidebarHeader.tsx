@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
+import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Pause, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
@@ -27,7 +27,7 @@ import { FeedbackDialog } from '@/features/dashboard/FeedbackButton';
 import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitch';
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { openManageView } from '@/features/dashboard/useNavView';
-import { WorkspacePauseButton } from '@/features/dashboard/WorkspaceOffSwitch';
+import { WorkspacePauseDialog } from '@/features/dashboard/WorkspaceOffSwitch';
 import { envLabel as readEnvLabel } from '@/libs/envLabel';
 import { Link } from '@/libs/I18nNavigation';
 import { buildInfo, versionLabel } from '@/libs/version';
@@ -59,6 +59,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
   const tl = useTranslations('DashboardLayout');
   const user = session?.user;
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
   const initials = user?.name
     ?.split(' ')
     .map(p => p[0])
@@ -137,13 +138,6 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
       <div className="flex items-center justify-end gap-x-1 pr-0.5">
         {/* Page-owned controls (e.g. chat's New chat / Switch agent) land here. */}
         <ShellBarActionsOutlet />
-
-        {/* The workspace off switch. On the bar rather than on a settings
-            page because it is used in a hurry, from whatever page someone
-            happens to be on, phone included — and because a stop nobody can
-            find is not a stop. Once pulled, the banner below owns it and
-            this disappears: one control for the state, never two. */}
-        <WorkspacePauseButton canPause={canPauseWorkspace} />
 
         {/* Feedback and Docs left the bar on 2026-09-18 (Chris: "clean up this
             main header"): Feedback is a row in the account menu below, Docs
@@ -265,6 +259,18 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
               <MessageSquareText className="mr-2 size-4 text-muted-foreground" aria-hidden />
               Send feedback
             </DropdownMenuItem>
+            {/* The stop. It was a labelled button on the bar; on a phone that
+                put the widest word up there beside the workspace name, where
+                it read as something about the page rather than about the
+                workspace. It is a decision about the workspace, so it sits
+                with the workspace — and when it has been pulled, the banner
+                across every page is the loud half. */}
+            {canPauseWorkspace && (
+              <DropdownMenuItem onSelect={() => setPauseOpen(true)} data-testid="workspace-pause">
+                <Pause className="mr-2 size-4 text-muted-foreground" aria-hidden />
+                Pause workspace
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut({ callbackUrl: '/sign-in' })}>
               <LogOut className="mr-2 size-4" />
@@ -307,6 +313,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
           </DropdownMenuContent>
         </DropdownMenu>
         <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+        <WorkspacePauseDialog open={pauseOpen} onOpenChange={setPauseOpen} />
       </div>
     </header>
   );
