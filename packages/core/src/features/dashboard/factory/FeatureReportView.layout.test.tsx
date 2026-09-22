@@ -143,8 +143,8 @@ describe('the feature report, drawn', () => {
 
     const absences = [...document.querySelectorAll('[data-absence]')].map(el => el.textContent);
 
-    expect(absences).toContain('No QA evidence was captured for this task.');
-    expect(absences).toContain('No release carries this task.');
+    expect(absences).toContain('Not ready for review — nobody has looked at this running yet.');
+    expect(absences).toContain('Not released. Nothing has carried this work to people yet.');
   });
 
   it('flags the failed run whose pull request merged, in red, above the fold', async () => {

@@ -1000,10 +1000,23 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
     }))
     .sort((x, y) => x.at.getTime() - y.at.getTime());
   if (s.evidence.length === 0) {
+    // SAY WHAT IS OWED, not what the schema expects.
+    //
+    // This read "No QA evidence was captured for this task. Evidence attaches
+    // as an artifact on the engineering task with recordRole: qa-screenshot |
+    // qa-video | qa-report. Nothing posts it yet." — a developer TODO
+    // accidentally exposed to the customer (Chris, 2026-09-22). A person
+    // reading it learns the column name and not the thing that matters: no
+    // one has looked at this yet, and here is what looking at it means.
     s.absence = taskCount === 0
-      ? 'No QA evidence was captured for this task — there is no task to attach it to.'
-      : 'No QA evidence was captured for this task.';
-    s.flags.push('Evidence attaches as an artifact on the engineering task with `recordRole: qa-screenshot | qa-video | qa-report`. Nothing posts it yet.');
+      ? 'Not ready for review — nothing has been built yet, so there is nothing to look at.'
+      : 'Not ready for review — nobody has looked at this running yet.';
+    s.checks = [
+      { name: 'A shot of it working, on a desktop', passed: null, detail: null },
+      { name: 'A shot of it working, on a phone', passed: null, detail: null },
+      { name: 'The thing it promised, done once end to end', passed: null, detail: null },
+      { name: 'Before and after, where something visible changed', passed: null, detail: null },
+    ];
   }
   return s;
 }
@@ -1016,7 +1029,10 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
 function releaseSection(releases: ReportObject[]): ReportSection {
   const s = blank('release', 'The release');
   if (releases.length === 0) {
-    s.absence = 'No release carries this task.';
+    // "No release carries this task" is the join, said out loud. What a
+    // person wants here is whether this can go out and what is between it
+    // and going out.
+    s.absence = 'Not released. Nothing has carried this work to people yet.';
     return s;
   }
   s.entries = releases.map((release) => {
