@@ -45,6 +45,7 @@ import { appendMessage, createConversation, getConversation, listMessages, toHis
 import { projectSlugById } from '@/services/ProjectService';
 import { allowedSourceSlugsForUser } from '@/services/SourceAccessService';
 import { getWorkspaceLead } from '@/services/TeamService';
+import { stoppedShort } from './turnStatus';
 
 /** The most a caller may say in one turn. */
 export const MAX_MESSAGE_CHARS = 20_000;
@@ -396,7 +397,25 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   await Promise.allSettled(pending);
   const { text, runs, documents, trace } = collector.finalise();
   const reply = text || outcome.response;
-  const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: reply, runs, documents, trace, status: 'complete' });
+  // A TURN THAT DID WORK AND NEVER ANSWERED IS NOT COMPLETE.
+  //
+  // Nothing threw and nothing was cut off, so this used to be stored as
+  // `complete`: an empty answer under a spinner that stopped, with no notice
+  // and no reason, and the person's only move is to ask again. It is not
+  // rare — a reviewer that had already read the record it was asked to grade
+  // ended four turns running on the word "Reading".
+  const stalled = stoppedShort({ text: reply, toolCalls: trace.length });
+  const turn = await appendMessage({
+    orgId,
+    conversationId,
+    role: 'assistant',
+    content: reply,
+    runs,
+    documents,
+    trace,
+    status: stalled ? 'stalled' : 'complete',
+    ...(stalled ? { statusReason: `the turn ran ${trace.length} step${trace.length === 1 ? '' : 's'} and ended without answering` } : {}),
+  });
   return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, projectSlug, filed) };
 }
 
