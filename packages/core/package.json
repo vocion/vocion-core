@@ -32,6 +32,7 @@
     "openapi:generate": "tsx src/scripts/generate-openapi.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "e2e:chat-incomplete": "VOCION_LLM_PROVIDER=scripted VOCION_LLM_SCRIPT=e2e/chat-incomplete/scripts/mid-stream-failure.json WORKSPACE_PATH=templates/workspaces/client-documents VOCION_DISABLE_RUNTIME=1 playwright test --project=chat-incomplete --workers=1",
     "e2e:documents": "VOCION_LLM_PROVIDER=scripted VOCION_LLM_SCRIPT=e2e/documents/scripts/proposal-loop.json WORKSPACE_PATH=templates/workspaces/client-documents VOCION_DISABLE_RUNTIME=1 playwright test --project=documents --workers=1",
     "db-server:file": "pglite-server --extensions=vector --db=local.db --run 'npm run db:migrate'",
     "db-server:memory": "pglite-server --extensions=vector --run 'npm run db:migrate'",

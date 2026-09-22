@@ -1,0 +1,19 @@
+{
+  "turns": [
+    {
+      "match": "how many deals closed",
+      "steps": [],
+      "reply": "Four deals closed last month, worth $216K.",
+      "fails": {
+        "after": "Four deals closed last month, worth",
+        "reason": "the model connection dropped mid-answer"
+      }
+    },
+    {
+      "match": "who owns northwind",
+      "steps": [],
+      "reply": "Pat Reyes owns Northwind, and the retainer renews in March."
+    }
+  ],
+  "fallback": "This scripted model has no line for that message."
+}

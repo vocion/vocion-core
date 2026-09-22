@@ -7,6 +7,7 @@
  */
 
 import type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 
 export type IndexedDocument = {
   document_id: string;
@@ -228,6 +229,21 @@ export type ChatMessage = {
   thinkingText?: string;
   /** Agent's self-assessment of this turn's confidence (N.2). Null when the runtime didn't expose a signal. */
   confidence?: 'confident' | 'uncertain' | 'speculative' | null;
+  /**
+   * How the turn ended (#114) — the vocabulary lives in
+   * `services/chat/turnStatus.ts`. Absent or `complete` on a healthy turn;
+   * `incomplete`, `failed` and `refused` each get their own notice and are
+   * left out of the model's history; `stopped`, `truncated` and `continued`
+   * are ordinary endings, each with a quiet one-line marker instead.
+   */
+  status?: TurnStatus | null;
+  /**
+   * Why the turn ended that way, in the runtime's own words ("the model
+   * connection dropped mid-answer", "Budget exceeded for …"). Shown under the
+   * notice so a person can say what happened when they report it, and
+   * persisted since #114 so a reloaded turn still carries it.
+   */
+  statusReason?: string;
 };
 
 export type AgentOption = {

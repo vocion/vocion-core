@@ -23,6 +23,7 @@ import { labelStep } from './agents/stepLabeler';
 import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
+import { TurnRefusedError } from './agents/turnRefusal';
 
 /* ------------------------------------------------------------------ */
 /* Load agent config                                                   */
@@ -495,7 +496,10 @@ export async function runAgentDeep(opts: {
     // agent" would send someone to a page that cannot fix it.
     const message = `Budget exceeded for "${budgetCheck.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap under Budgets or wait for the next period.`;
     emit({ type: 'error', message });
-    throw new Error(message);
+    // Refused, not broken: no run started, so the turn is stored as `refused`
+    // and the person reads what to change rather than "the answer stopped
+    // partway through" (#114).
+    throw new TurnRefusedError(message);
   }
 
   // Harness dispatch — three targets, one event contract:

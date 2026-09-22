@@ -184,6 +184,22 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // #114 — a turn that dies part-way: the fragment is kept, marked, and
+    // still marked after a reload. Needs the scripted model, which is the
+    // only way to make a run fail with text already on screen, so it is
+    // defined only when the server is running one.
+    // Run with: npm run e2e:chat-incomplete
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
+      ? [
+          {
+            name: 'chat-incomplete',
+            testDir: './e2e/chat-incomplete',
+            timeout: projectTimeout(180 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no `setup` project dependency.

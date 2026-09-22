@@ -1582,6 +1582,28 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    */
   langfuseTraceId: text('langfuse_trace_id'),
   /**
+   * How the turn ended — one of `services/chat/turnStatus.ts`'s values:
+   * `complete`, `incomplete`, `failed`, `refused`, `stopped`, `truncated`,
+   * `continued`. NULL means the row predates the vocabulary and is treated as
+   * `complete`, which is what those rows were.
+   *
+   * Free-form text rather than an enum on purpose: the vocabulary is young and
+   * a new ending should not need a migration. `TurnStatus` and the tests around
+   * it are what keep it honest.
+   *
+   * Three things read it — the notice under the turn, whether the text is
+   * replayed to the model next turn (`toHistoryTurns` drops `incomplete`,
+   * `failed` and `refused`), and any count of how turns are ending.
+   */
+  status: text('status'),
+  /**
+   * Why the turn ended that way, in the runtime's own words — "Budget exceeded
+   * for …", "socket hang up". NULL on an ordinary turn. Shown under the notice
+   * so a person reporting a broken turn can say what happened, and so the same
+   * turn reads the same way after a reload as it did live.
+   */
+  statusReason: text('status_reason'),
+  /**
    * Agent's self-assessment of confidence for this turn — same enum as
    * skill_run.confidence. Nullable when the runtime doesn't expose a
    * signal (most current paths). Powers the <ConfidenceIndicator /> in

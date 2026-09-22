@@ -142,6 +142,13 @@ describe('handleInboundEmail', () => {
     const threads = await db.select().from(emailThreadSchema);
 
     expect(threads.map(t => t.direction).sort()).toEqual(['in', 'out']);
+
+    // The reply went out, so the stored turn says it finished rather than
+    // leaving a NULL that a reader has to guess at (#114).
+    const rows = await db.select().from(conversationMessageSchema);
+    const assistant = rows.find(r => r.role === 'assistant');
+
+    expect(assistant?.status).toBe('complete');
   });
 
   it('drops a redelivered webhook for an email already handled', async () => {

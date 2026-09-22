@@ -9,11 +9,13 @@
  */
 
 import type { PageContext } from '@/services/chat/pageContext';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { formatDateTime } from '@/libs/time/zone';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
+import { isDroppedFromHistory, isTurnStatus } from '@/services/chat/turnStatus';
 import { enqueue } from '@/services/FeedbackWorkerService';
 
 const DEFAULT_TITLE = 'New conversation';
@@ -203,6 +205,43 @@ export async function listMessages(opts: { orgId: string; conversationId: number
     .orderBy(asc(conversationMessageSchema.id));
 }
 
+/**
+ * The status to actually store, guarding the column against a word no reader knows.
+ *
+ * Every agent turn written from here on carries a status, so that reading one
+ * is the same question every time instead of "is this NULL because the turn
+ * finished, or because whoever wrote it forgot?". A caller that says nothing
+ * means the ordinary case, `complete` — the statuses that matter are the ones
+ * somebody chose deliberately.
+ *
+ * A person's own message gets NULL, because status describes how an agent's
+ * turn ended and a person's message does not end: they pressed enter and it
+ * was said. NULL also remains on every row written before this vocabulary
+ * existed, and every reader treats it as an ordinary finished turn, which is
+ * what those rows almost always were.
+ *
+ * A word outside the vocabulary is stored as `complete` with a warning naming
+ * it, because a typo would otherwise be wrong quietly and forever — and the
+ * row is still written either way, since the person's answer matters more than
+ * the label on it.
+ * @param status - What the caller asked for.
+ * @param role - Who the message is from; only an assistant turn takes a status.
+ * @returns The status to write into the column.
+ */
+function storableStatus(status: TurnStatus | null | undefined, role: 'user' | 'assistant'): TurnStatus | null {
+  if (role === 'user') {
+    return null;
+  }
+  if (status === null || status === undefined) {
+    return 'complete';
+  }
+  if (!isTurnStatus(status)) {
+    console.warn('appendMessage: unknown turn status, storing it as complete', { status });
+    return 'complete';
+  }
+  return status;
+}
+
 export async function appendMessage(opts: {
   orgId: string;
   conversationId: number;
@@ -217,6 +256,15 @@ export async function appendMessage(opts: {
   trace?: ConversationTraceNode[] | null;
   /** How the workspace chose this message's agent, when nobody named one (`services/agents/router.ts`). */
   routing?: import('@/services/agents/router').RoutingDecision | null;
+  /**
+   * How an assistant turn ended (`services/chat/turnStatus.ts`). Omitted means
+   * `complete`; a `user` message is stored without one whatever is passed.
+   * What it changes: the notice under the turn, and whether the text is
+   * replayed to the model on the next turn.
+   */
+  status?: TurnStatus | null;
+  /** Why it ended that way, in the runtime's own words. Only meaningful beside a `status` that owes an explanation. */
+  statusReason?: string | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -238,6 +286,8 @@ export async function appendMessage(opts: {
       documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
       traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
       routingJson: opts.routing ?? null,
+      status: storableStatus(opts.status, opts.role),
+      statusReason: opts.statusReason ?? null,
     })
     .returning();
 
@@ -268,6 +318,7 @@ const HISTORY_STAMP_GAP_MS = 6 * 60 * 60 * 1000;
  * Render persisted messages as the {role, content} list the agent
  * expects in its history. Tool runs are intentionally dropped —
  * they're UI ornaments only. (See rev-ai's to_history_turns.)
+ * Turns that ended badly are dropped too — see `isDroppedFromHistory`.
  * @param messages - Persisted rows, oldest first; `createdAt` enables the sent-time stamp.
  * @param opts - Options.
  * @param opts.timeZone - The person's zone for the stamps; absent, no stamps.
@@ -276,6 +327,7 @@ export function toHistoryTurns(messages: Array<{
   role: string;
   content: string;
   createdAt?: Date | string | null;
+  status?: string | null;
 }>, opts: { timeZone?: string } = {}): Array<{ role: 'user' | 'assistant'; content: string }> {
   const out: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   // When a zone is given, a person's turn is stamped with when it was sent —
@@ -285,6 +337,16 @@ export function toHistoryTurns(messages: Array<{
   let previous: Date | null = null;
   for (const m of messages) {
     if (!m.content.trim()) {
+      continue;
+    }
+    // Some endings are not replayed. A turn that died part-way stops
+    // mid-thought — sometimes mid-word — and handing that back as something
+    // the agent said lets a half-formed statement harden into fact over the
+    // rest of the thread (issue #114); a turn that was refused or never ran
+    // has nothing to hand back. A turn the PERSON stopped is replayed: they
+    // read it and decided that was enough. The person still sees every one of
+    // these rows; the model starts the next turn without some of them.
+    if (isDroppedFromHistory(m.status)) {
       continue;
     }
     if (m.role !== 'user' && m.role !== 'assistant') {
