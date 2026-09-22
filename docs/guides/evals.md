@@ -275,6 +275,49 @@ whole argument object. Give one or more of `equals`, `contains`, `present` and
 `subsetOf`, and all of them have to hold. `calls` says how many of the tool's
 calls must satisfy them: `every`, the default, or `some`.
 
+#### Finding the fields a check can read
+
+A `path` is only as good as your knowledge of what the agent actually sends,
+and nothing in the YAML tells you. Work it out in this order, outermost first:
+
+1. **The tool's own arguments.** For `propose_action` they are in
+   `packages/core/src/libs/actions/proposeActionArgs.ts`: `action_id`,
+   `action_input`, `confidence`, `rationale`, `evidence`, `suggested_decision`,
+   `suggested_decision_reason`, `suggested_snooze_until`. Other tools declare
+   theirs in `packages/core/src/services/agents/tools/<tool>.ts`, in the
+   `schema:` passed to `tool()`.
+2. **The action's payload, inside `action_input`.** Its shape depends on
+   `action_id`. For `objects.propose_candidate` — every proposal an ingestion
+   agent files — it is `candidateInputShape` in
+   `packages/core/src/libs/actions/objects-propose-candidate.ts`: `objectType`,
+   `title`, `fields`, `dedupOn`, `sourceUrl`, `sourceListingUrl`, `imageUrl`,
+   `summary`, `extractionNotes`, `rawExtractRef`. Note that `title` and
+   `dedupOn` sit here, beside `fields`, not inside it.
+3. **The record itself, inside `action_input.fields`.** These are your
+   workspace's own: the `schema.properties` of `objects/<type>/type.yaml`. The
+   field descriptions there say what format each value takes — whether a date
+   is a bare day or carries a time, which zone it is in — which is what decides
+   how a check should compare it. Pin the type with
+   `where: { path: action_input.objectType, equals: <type> }` so the rule is
+   checked against that type's fields and not every type's.
+4. **A real call, to be sure.** Open a case on the run page and follow its
+   Langfuse trace: each tool call is there with the exact arguments the model
+   sent. The run page itself lists tool names, not arguments.
+
+So `action_input.fields.startDate` reads: the `action_input` argument of
+`propose_action`, the `fields` of the candidate envelope, the `startDate`
+property of `event-candidate`.
+
+**Paths are checked before anything runs.** `workspace:apply`, and a parent
+repo's validation job that dry-runs it, refuse a `propose_action` check whose
+`path`, `where` path or `timezoneFrom` names an argument, envelope key or
+object-type field that does not exist, and list every one with its dataset,
+case and check number and the names that do exist. What it cannot know it
+leaves alone: another tool's arguments, another action's payload (a check
+pinned to `action_id: hubspot.update`), and anything deeper than a field name.
+Those still fail at run time as "was missing", which is the one reading you
+should always double-check against a trace before blaming the agent.
+
 **Dates** take `onOrAfter` and `onOrBefore`, which compare the calendar day at
 `path` against a day named relative to the run:
 
