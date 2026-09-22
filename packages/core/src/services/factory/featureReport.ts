@@ -228,8 +228,10 @@ export type FeatureReportSummary = {
   /** True while nothing has shipped — the elapsed figure is "so far". */
   elapsedOpen: boolean;
   totalCents: number;
-  humanDecisions: number;
-  attempts: number;
+  /** How many times a person decided — `null` when no decision record is linked at all, which is not the same as nobody deciding. */
+  humanDecisions: number | null;
+  /** How many worker runs ran — `null` when none is linked to work that plainly ran. */
+  attempts: number | null;
 };
 
 export type MoneyLine = {
@@ -249,6 +251,10 @@ export type FeatureReport = {
   title: string;
   summary: FeatureReportSummary;
   money: MoneyLine;
+  /** Where the work is and what it wants from a person — the top of the page. */
+  state: ReportState;
+  /** What this work is FOR, in the requester's own words. Null when nobody wrote one. */
+  goal: string | null;
   sections: ReportSection[];
   /** Oldest first — a person reads top to bottom and the newest entry is last. */
   timeline: TimelineEntry[];
@@ -1379,7 +1385,88 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
   if (input.releases.length > 0 && input.tasks.every(t => t.status !== 'accepted')) {
     out.push('A release carries this work and no task is accepted.');
   }
+  // The join that quietly became a zero. Tasks were written, and not one
+  // worker run is linked to them — so every run-derived figure on this page
+  // is reading an empty set, and says so rather than reading nothing as none.
+  if (input.tasks.length > 0 && input.workerRuns.length === 0) {
+    out.push(`Execution history is incomplete: ${input.tasks.length} task${input.tasks.length === 1 ? ' was' : 's were'} written for this work and no worker run is linked to ${input.tasks.length === 1 ? 'it' : 'them'}. Attempts, models and per-run cost are unreadable until that join is repaired.`);
+  }
   return out;
+}
+
+/**
+ * WHERE THIS WORK IS, AND WHAT IT WANTS FROM YOU.
+ *
+ * The one thing a person opening this page needs before anything else.
+ * Everything under it — the plan, the contract, the runs, the money — is the
+ * detail behind this sentence, and the page led with none of it: Work said
+ * `Blocked`, and the detail page opened with a paragraph describing the
+ * database while the actual blocker sat far below. Chris, 2026-09-22: *"That
+ * should be the first thing I see. Everything else is secondary until I
+ * resolve it."*
+ *
+ * Derived, never stored: a state read off the records cannot disagree with
+ * them, and a stored one eventually does.
+ */
+export type ReportState = {
+  key: 'blocked' | 'approve' | 'building' | 'review' | 'releasable' | 'released' | 'waiting';
+  /** "Blocked", "Building" — the badge. */
+  label: string;
+  /** "waiting on you", "no action needed" — the half that says whose move it is. */
+  detail: string;
+  /** True when a person is the one holding it up. Drives the sticky action on a phone. */
+  needsYou: boolean;
+  /** The question being asked, verbatim, when one is open. */
+  question: string | null;
+  /** The one thing to do about it, and where. */
+  action: { label: string; href: string } | null;
+};
+
+/**
+ * Read the state off the records, in the order that decides it: a person
+ * being asked something outranks everything, then a plan waiting for
+ * approval, then work in flight, then work waiting to be looked at.
+ * @param input - The report's inputs.
+ * @param line - The money line, for nothing yet but kept for symmetry.
+ */
+function buildState(input: FeatureReportInput): ReportState {
+  const openAsk = input.asks.find(a => a.decidedAt === null);
+  if (openAsk) {
+    return {
+      key: 'blocked',
+      label: 'Blocked',
+      detail: 'waiting on you',
+      needsYou: true,
+      question: openAsk.title,
+      action: { label: 'Review decision', href: '#report-approvals' },
+    };
+  }
+  const pendingAction = input.actionRuns.find(a => a.decidedAt === null && a.approvedByAgent === false);
+  if (pendingAction) {
+    return {
+      key: 'approve',
+      label: 'Needs approval',
+      detail: 'waiting on you',
+      needsYou: true,
+      question: `Approve ${pendingAction.actionId}?`,
+      action: { label: 'Review & approve', href: '#report-approvals' },
+    };
+  }
+  if (input.releases.length > 0) {
+    return { key: 'released', label: 'Released', detail: 'live for people', needsYou: false, question: null, action: { label: 'See the release', href: '#report-release' } };
+  }
+  const running = input.workerRuns.filter(r => !TERMINAL_BAD.has(r.status) && r.status !== 'completed');
+  if (running.length > 0) {
+    return { key: 'building', label: 'Building', detail: 'no action needed', needsYou: false, question: null, action: { label: 'View progress', href: '#report-runs' } };
+  }
+  const accepted = input.tasks.filter(t => t.status === 'accepted');
+  if (accepted.length > 0) {
+    const hasEvidence = input.artifacts.length > 0;
+    return hasEvidence
+      ? { key: 'releasable', label: 'Ready to release', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review release', href: '#report-release' } }
+      : { key: 'review', label: 'Ready for review', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review changes', href: '#report-qa' } };
+  }
+  return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null };
 }
 
 /**
@@ -1398,14 +1485,28 @@ function buildSummary(input: FeatureReportInput, line: MoneyLine): FeatureReport
   const humanDecisions
     = input.asks.filter(a => a.decidedAt !== null && a.decidedBy !== null).length
       + input.actionRuns.filter(a => a.approvedByAgent === false && a.decidedAt !== null).length;
+  // A ZERO IS A CLAIM. Do not make it out of an empty join.
+  //
+  // This strip said "0 attempts" on a work item showing five of them, "0
+  // human decisions" on one a person had approved, and did it beside a real
+  // cost and a real elapsed time — so the false figures wore the authority of
+  // the true ones. Chris, 2026-09-22: *"That destroys trust much faster than
+  // missing information would."*
+  //
+  // The rule: count zero only where the absence is itself the finding.
+  // Nothing ran and nothing was queued → 0 attempts, honestly. Work that
+  // plainly ran, with no run linked to it → we do not know, and the
+  // contradiction below says the join is incomplete.
+  const ranSomething = input.tasks.length > 0 || input.plans.length > 0;
+  const decisionRecords = input.asks.length + input.actionRuns.length;
   return {
     askedAt,
     shippedAt,
     elapsed: askedAt ? formatDuration(end.getTime() - askedAt.getTime()) : null,
     elapsedOpen: shippedAt === null,
     totalCents: line.actualCents ?? line.runCents,
-    humanDecisions,
-    attempts: input.workerRuns.length,
+    humanDecisions: decisionRecords === 0 && ranSomething ? null : humanDecisions,
+    attempts: input.workerRuns.length === 0 && ranSomething ? null : input.workerRuns.length,
   };
 }
 
@@ -1423,6 +1524,10 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   return {
     requestId: input.request.id,
     title: input.request.title,
+    state: buildState(normalised),
+    // The ask's own body, trimmed to a sentence or two — not the whole prompt,
+    // which belongs behind "the original request" in the ask section.
+    goal: str(input.request.meta, 'body') ?? str(input.request.meta, 'summary') ?? null,
     summary: buildSummary(normalised, line),
     money: line,
     sections: [
