@@ -10,7 +10,7 @@
 import type { CaseTranscript } from './transcripts';
 import type { ProviderScore } from './types';
 import { describe, expect, it } from 'vitest';
-import { summarizeProviderScores } from './scoring';
+import { summarizeProviderScores, verdictOf } from './scoring';
 
 function transcript(itemIndex = 0): CaseTranscript {
   return {
@@ -145,5 +145,38 @@ describe('summarizeProviderScores', () => {
 
     expect(summary.passRate).toBeNull();
     expect(summary.scoresWithoutVerdict).toBe(1);
+  });
+});
+
+describe('verdictOf', () => {
+  it('reads our own pass and fail words', () => {
+    expect(verdictOf(score({ label: 'pass' }))).toBe('pass');
+    expect(verdictOf(score({ label: 'fail', value: 0 }))).toBe('fail');
+  });
+
+  it('reads a trajectory matcher\'s 1 and 0 whatever it calls them', () => {
+    expect(verdictOf(score({ evaluatorSlug: 'Builtin.TrajectoryInOrderMatch', label: 'Correct', value: 1 }))).toBe('pass');
+    expect(verdictOf(score({ evaluatorSlug: 'Builtin.TrajectoryAnyOrderMatch', label: 'Incorrect', value: 0 }))).toBe('fail');
+  });
+
+  it('gives no verdict for a rating on AWS\'s own scale', () => {
+    // 0.83 "Very Helpful" is a position on a scale, not a pass. Calling it one
+    // would need a threshold nobody has written down.
+    expect(verdictOf(score({ evaluatorSlug: 'Builtin.Helpfulness', label: 'Very Helpful', value: 0.83 }))).toBeNull();
+    expect(verdictOf(score({ evaluatorSlug: 'Builtin.Correctness', label: 'Mostly Correct', value: 0.75 }))).toBeNull();
+  });
+
+  it('gives no verdict for a custom judge speaking its own labels', () => {
+    expect(verdictOf(score({ evaluatorSlug: 'tone-check', label: 'Warm', value: 1 }))).toBeNull();
+  });
+
+  it('does not read a 1 as a pass from an evaluator that is not a trajectory matcher', () => {
+    // The 0/1 rule is about what those three matchers are, not about the
+    // number: a judge that happens to score 1.0 is still on its own scale.
+    expect(verdictOf(score({ evaluatorSlug: 'Builtin.Correctness', label: 'Perfectly Correct', value: 1 }))).toBeNull();
+  });
+
+  it('gives no verdict for a partial trajectory score', () => {
+    expect(verdictOf(score({ evaluatorSlug: 'Builtin.TrajectoryExactOrderMatch', label: 'Partial', value: 0.5 }))).toBeNull();
   });
 });

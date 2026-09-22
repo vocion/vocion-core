@@ -39,6 +39,13 @@ vi.mock('./agentcoreEvaluators', () => ({
   resolveAgentcoreEvaluators: async () => [],
 }));
 
+// The workspace's zone is read from the project row at scoring time. Here it
+// is Vermont's, which is what makes `timezone: workspace` testable without a
+// database.
+vi.mock('@/libs/time/workspaceTimeZone', () => ({
+  workspaceTimeZone: async () => 'America/New_York',
+}));
+
 const { agentcoreProvider } = await import('./agentcore');
 
 function transcript(): CaseTranscript {
@@ -81,6 +88,24 @@ describe('agentcore provider', () => {
     expect(slugs).toContain('check:toolCalledWith:propose_action.dedupOn:equals=["title","startDate","venueName"]');
     expect(slugs).toContain('check:toolNotCalled:web_search');
     expect(scores.every(score => score.itemIndex === 0)).toBe(true);
+  });
+
+  it('judges timezone: workspace by the org\'s own zone, not UTC', async () => {
+    // At 9:30pm in Vermont it is already tomorrow in UTC. The provider has to
+    // hand the checks the workspace's zone, or tonight's event reads as past.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-23T01:30:00Z'));
+    try {
+      const tonight = transcript();
+      tonight.item.checks = [{ toolCalledWith: { tool: 'propose_action', path: 'startDate', onOrAfter: 'today', timezone: 'workspace' } }];
+      tonight.toolCalls[1] = { tool: 'propose_action', input: { startDate: '2026-09-22' }, output: 'proposed' };
+
+      const scores = await agentcoreProvider.score({ orgId: 'org_t', agentSlug: 'ingestion-lead', datasetSlug: 'event-extraction', transcripts: [tonight] });
+
+      expect(scores.find(score => score.evaluatorSlug.startsWith('check:toolCalledWith'))?.label).toBe('pass');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fails the check, not the run, when the agent broke the rule AWS cannot see', async () => {
