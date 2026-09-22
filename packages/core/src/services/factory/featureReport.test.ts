@@ -625,3 +625,18 @@ describe('the small parts', () => {
     expect(runChange(run({ result: null, progress: {} })).prUrl).toBeNull();
   });
 });
+
+describe('the story, and the machinery behind it', () => {
+  it('puts the ask, triage, contracts and approvals one level down, and keeps the rest in the story', () => {
+    const report = assembleFeatureReport(input({}));
+    const detail = report.sections.filter(s => s.group === 'detail').map(s => s.key);
+    const story = report.sections.filter(s => s.group === 'story').map(s => s.key);
+
+    expect(detail).toEqual(['ask', 'triage', 'contract', 'approvals']);
+    // Nothing is dropped: every section still belongs to exactly one half.
+    expect([...story, ...detail].sort()).toEqual([...report.sections.map(s => s.key)].sort());
+    expect(story).toContain('plan');
+    expect(story).toContain('qa');
+    expect(story).toContain('release');
+  });
+});

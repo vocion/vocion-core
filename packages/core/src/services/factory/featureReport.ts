@@ -195,8 +195,22 @@ export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 export const REPORT_SECTION_KEYS = ['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
 
+/**
+ * Which half of the page a section belongs to.
+ *
+ * `story` is the work as a person follows it — the plan, what it will take to
+ * be done, what was built, the evidence, what remains, what it cost. `detail`
+ * is the machinery that produced it: the original ask, the triage figures, the
+ * per-task contracts, the approval records. Both are true and both are needed;
+ * only one of them is what somebody opened the page to read. Chris,
+ * 2026-09-22: *"Nothing is lost. It's simply put at the correct level."*
+ */
+export type ReportSectionGroup = 'story' | 'detail';
+
 export type ReportSection = {
   key: ReportSectionKey;
+  /** Where it sits: in the story, or behind Technical details. */
+  group: ReportSectionGroup;
   title: string;
   /** Null when the stage happened. Otherwise the plain sentence saying it did not. */
   absence: string | null;
@@ -514,8 +528,15 @@ export function statusTone(status: string | null): Tone {
  * @param title - Its heading.
  */
 function blank(key: ReportSectionKey, title: string): ReportSection {
-  return { key, title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
+  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
 }
+
+/**
+ * The sections that are machinery rather than story: the original ask, the
+ * triage figures, the per-task contracts and the approval records. Useful,
+ * traceable, and not what a person opened this page to read.
+ */
+const DETAIL_SECTIONS: ReadonlySet<string> = new Set(['ask', 'triage', 'contract', 'approvals']);
 
 /**
  * Who asked, as one line: their name, else their email, else their id on the

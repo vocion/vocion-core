@@ -277,9 +277,22 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         </section>
       )}
 
-      <section>
+      {/* THE STORY, in the order a person follows it: what we are going to
+          make, what was built, the evidence, what remains, what it cost. The
+          machinery that produced it — the original ask, the triage figures,
+          the per-task contracts, the approval records — is all still here,
+          one level down, where it is traceable without being in the way. */}
+      <div className="space-y-5">
+        {report.sections.filter(x => x.group === 'story').map(section => <Section key={section.key} section={section} />)}
+      </div>
+
+      {/* HISTORY, at the bottom. The timeline is genuinely useful and it was
+          the second thing on the page, which made the database the
+          protagonist. The work is the protagonist; this is what happened to
+          it, for a reader who has got that far and wants it. */}
+      <section className="border-t border-border pt-5">
         <h2 className="mb-3 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-          In order
+          History
           <span className="ml-2 font-normal tracking-normal normal-case">
             {report.timeline.length}
             {' entries, newest last'}
@@ -288,9 +301,17 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         <Timeline report={report} />
       </section>
 
-      <div className="space-y-5">
-        {report.sections.map(section => <Section key={section.key} section={section} />)}
-      </div>
+      {report.sections.some(x => x.group === 'detail') && (
+        <details id="report-technical" className="border-t border-border pt-5">
+          <summary className="cursor-pointer list-none text-sm font-medium text-muted-foreground hover:text-foreground">
+            Technical details
+            <span className="ml-2 text-xs font-normal">the ask as written, triage, the contracts, the approval records</span>
+          </summary>
+          <div className="mt-4 space-y-5">
+            {report.sections.filter(x => x.group === 'detail').map(section => <Section key={section.key} section={section} />)}
+          </div>
+        </details>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Every figure on this page is read off a record.
