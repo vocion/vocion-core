@@ -270,6 +270,11 @@ rollups:
   - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
   - {field: varianceCents, from: {type: engineering_task, by: requestId}, sum: varianceCents}
   - {field: taskCount, from: {type: engineering_task, by: requestId}}
+  # Whether a worker is actually on it. `state: building` is a claim the
+  # request makes about itself; this counts the tasks that are moving, so the
+  # Work page can read a building request with nothing running as stopped
+  # without storing a second state that could disagree with the tasks.
+  - {field: runningTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [dispatched, running]}}
   # Rework: the same tasks, narrowed to the ones that were thrown away. Money
   # spent and then answered rather than shipped is NOT here, on purpose.
   - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}

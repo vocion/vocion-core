@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { costLine, deriveWorkQueue, flagsOf, isProbeRow, laneOf, whyLine, workLine } from './workQueue';
+import { costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -18,27 +18,62 @@ function row(id: number, title: string, meta: Record<string, unknown>, createdAt
 }
 
 describe('lanes', () => {
-  it('reads the seven states as four lanes', () => {
-    expect(laneOf(row(1, 'a', { state: 'new' }))).toBe('next');
-    expect(laneOf(row(2, 'b', { state: 'triaged' }))).toBe('next');
-    expect(laneOf(row(3, 'c', { state: 'in_scope' }))).toBe('next');
+  it('reads the seven states as three lanes', () => {
+    expect(laneOf(row(1, 'a', { state: 'new' }))).toBe('proposed');
+    expect(laneOf(row(2, 'b', { state: 'triaged' }))).toBe('proposed');
+    expect(laneOf(row(3, 'c', { state: 'in_scope' }))).toBe('proposed');
     expect(laneOf(row(4, 'd', { state: 'building' }))).toBe('progress');
     expect(laneOf(row(5, 'e', { state: 'shipped' }))).toBe('done');
     expect(laneOf(row(6, 'f', { state: 'answered' }))).toBe('done');
   });
 
-  it('puts an outcome with no state at all in Next, because it is owed and has not started', () => {
-    expect(laneOf(row(7, 'No nightly e2e runner for Send against production', {}))).toBe('next');
+  it('puts an outcome with no state at all in Proposed, because it is owed and has not started', () => {
+    expect(laneOf(row(7, 'No nightly e2e runner for Send against production', {}))).toBe('proposed');
   });
 
-  it('waits on the person even while the state says building', () => {
-    const building = row(8, 'Rename Send to Stamp', { state: 'building', recommendationState: 'proposed', recommendedOutcome: 'build' });
+  it('keeps a building outcome in progress when its recommendation is undecided, and flags it', () => {
+    const building = row(8, 'Rename Send to Stamp', { state: 'building', recommendationState: 'proposed', recommendedOutcome: 'build', taskCount: 5, runningTaskCount: 2 });
 
-    expect(laneOf(building)).toBe('waiting');
-    expect(workLine(building, 'waiting', NOW)).toBe('waiting on you to decide; Vocion recommends we build it');
+    // The lane answers "has a worker got to it", which is yes. That a person
+    // still owes a decision is a state on the row, not a lane of its own.
+    expect(laneOf(building)).toBe('progress');
+    expect(stateOf(building, 'progress')).toBe('Building');
+    expect(flagsOf(building, 'progress')).toContain('waiting on you');
   });
 
-  it('does not hold finished work in Waiting over a recommendation nobody closed', () => {
+  it('reads a building outcome with no task running as blocked, whatever the state says', () => {
+    const stalled = row(20, 'Nightly deploy run', { state: 'building', taskCount: 3, runningTaskCount: 0 });
+    const moving = row(21, 'Rename Send', { state: 'building', taskCount: 3, runningTaskCount: 1 });
+    const starting = row(22, 'Just claimed', { state: 'building', taskCount: 0 });
+
+    expect(isBlocked(stalled)).toBe(true);
+    expect(stateOf(stalled, 'progress')).toBe('Blocked');
+    expect(workLine(stalled, 'progress', NOW)).toBe('3 tasks written, none running');
+    expect(isBlocked(moving)).toBe(false);
+    // No tasks written yet is starting, not stopped.
+    expect(isBlocked(starting)).toBe(false);
+  });
+
+  it('sorts what has stopped above what is running', () => {
+    const rows = [
+      row(30, 'moving', { state: 'building', taskCount: 2, runningTaskCount: 1, askedAt: '2026-09-01T00:00:00Z' }),
+      row(31, 'stopped', { state: 'building', taskCount: 2, runningTaskCount: 0, askedAt: '2026-09-20T00:00:00Z' }),
+    ];
+
+    // Newer, but stopped — so it leads regardless of age.
+    expect(deriveWorkQueue(rows, { now: NOW }).map(r => r.id)).toEqual([31, 30]);
+  });
+
+  it('sorts an undecided recommendation above the queue behind it', () => {
+    const rows = [
+      row(40, 'queued long ago', { state: 'new', askedAt: '2026-09-01T00:00:00Z' }),
+      row(41, 'needs a decision', { state: 'new', recommendationState: 'proposed', askedAt: '2026-09-20T00:00:00Z' }),
+    ];
+
+    expect(deriveWorkQueue(rows, { now: NOW }).map(r => r.id)).toEqual([41, 40]);
+  });
+
+  it('does not hold finished work in progress over a recommendation nobody closed', () => {
     expect(laneOf(row(9, 'shipped anyway', { state: 'shipped', recommendationState: 'proposed' }))).toBe('done');
   });
 
@@ -92,10 +127,11 @@ describe('next is visibly ordered', () => {
   it('numbers one, two, three and says how many are left', () => {
     const out = deriveWorkQueue(reasoned, { now: NOW });
 
-    expect(out.map(r => r.meta.rank)).toEqual(['1', '2', '3']);
-    expect(out.map(r => r.title)).toEqual(['first', 'second', 'third']);
-    expect(out[0]!.meta.lane).toBe('Next · 1 more queued');
-    expect(out[0]!.meta.nextCount).toBe(4);
+    expect(out.map(r => r.meta.rank)).toEqual(['1', '2', '3', '4']);
+    expect(out.map(r => r.title)).toEqual(['first', 'second', 'third', 'fourth']);
+    expect(out[0]!.meta.lane).toBe('Proposed');
+    expect(out[0]!.meta.laneNote).toBeUndefined();
+    expect(out[0]!.meta.proposedCount).toBe(4);
   });
 
   it('does not rank a request with no recorded reason, and queues it behind the ranked work', () => {
@@ -117,14 +153,15 @@ describe('next is visibly ordered', () => {
     ];
     const out = deriveWorkQueue(rows, { now: NOW });
 
-    expect(out[0]!.meta.lane).toBe('Next · nothing ranked, no reason recorded on 4 queued');
+    expect(out[0]!.meta.lane).toBe('Proposed');
+    expect(out[0]!.meta.laneNote).toBe('nothing ranked, no reason recorded on 4');
     expect(out[0]!.meta.unreasonedCount).toBe(4);
     expect(out.every(r => r.meta.rank === undefined)).toBe(true);
   });
 });
 
 describe('the lanes carry what they could not draw', () => {
-  it('attaches the decision minutes to Waiting', () => {
+  it('attaches the decision minutes to Proposed', () => {
     const rows = [
       row(30, 'Send has no admin panel', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build', decisionCost: 15 }),
       row(38, 'Vocion fail endpoint cannot carry the kept branch', { state: 'triaged', recommendationState: 'proposed', recommendedOutcome: 'build', decisionCost: 2 }),
@@ -133,7 +170,8 @@ describe('the lanes carry what they could not draw', () => {
     const out = deriveWorkQueue(rows, { now: NOW });
 
     expect(out).toHaveLength(3);
-    expect(out[0]!.meta.lane).toBe('Waiting on you · about 19 min to decide');
+    expect(out[0]!.meta.lane).toBe('Proposed');
+    expect(out[0]!.meta.laneNote).toBe('about 19 min to decide');
     expect(out[0]!.meta.waitingCount).toBe(3);
   });
 
@@ -146,7 +184,8 @@ describe('the lanes carry what they could not draw', () => {
     const out = deriveWorkQueue(rows, { now: NOW });
 
     expect(out).toHaveLength(5);
-    expect(out[0]!.meta.lane).toBe('Done recently · 4 more in Activity');
+    expect(out[0]!.meta.lane).toBe('Done');
+    expect(out[0]!.meta.laneNote).toBe('4 more in Activity');
     expect(out[0]!.meta.doneCount).toBe(9);
     expect(out.map(r => r.title)).toEqual(['shipped 0', 'shipped 1', 'shipped 2', 'shipped 3', 'shipped 4']);
   });
@@ -157,7 +196,7 @@ describe('the lanes carry what they could not draw', () => {
     expect(deriveWorkQueue([old], { now: NOW })).toEqual([]);
   });
 
-  it('orders the lanes Next, In progress, Waiting, Done', () => {
+  it('orders the lanes In progress, Proposed, Done', () => {
     const rows = [
       row(1, 'done', { state: 'shipped', answeredAt: NOW.toISOString() }),
       row(2, 'waiting', { state: 'triaged', recommendationState: 'proposed' }),
@@ -166,8 +205,10 @@ describe('the lanes carry what they could not draw', () => {
     ];
     const out = deriveWorkQueue(rows, { now: NOW });
 
-    expect(out.map(r => r.meta.laneKey)).toEqual(['next', 'progress', 'waiting', 'done']);
-    expect(out.map(r => r.meta.order)).toEqual([0, 1000, 2000, 3000]);
+    // Waiting and queued are one lane now, and the decision leads it.
+    expect(out.map(r => r.meta.laneKey)).toEqual(['progress', 'proposed', 'proposed', 'done']);
+    expect(out.map(r => r.title)).toEqual(['building', 'waiting', 'queued', 'done']);
+    expect(out.map(r => r.meta.order)).toEqual([0, 1000, 1001, 2000]);
   });
 });
 
@@ -191,26 +232,36 @@ describe('the sentences on a row', () => {
       .toBe(`${'x'.repeat(60)}…`);
   });
 
-  it('says what is happening in the lane\'s own terms', () => {
-    expect(workLine(row(1, 'a', { state: 'new' }), 'next', NOW)).toBe('not triaged yet');
-    expect(workLine(row(2, 'b', { state: 'in_scope' }), 'next', NOW)).toBe('in scope, not started');
-    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5 }), 'progress', NOW)).toBe('building, 5 tasks underway');
-    expect(workLine(row(4, 'd', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('shipped yesterday');
+  it('says only what the badge does not, so no row repeats its own state', () => {
+    // The badge reads "Not triaged"; a line under it saying so again is the
+    // repetition the three-lane redraw existed to lose.
+    expect(stateOf(row(1, 'a', { state: 'new' }), 'proposed')).toBe('Not triaged');
+    expect(workLine(row(1, 'a', { state: 'new' }), 'proposed', NOW)).toBeNull();
+    expect(workLine(row(2, 'b', { state: 'in_scope' }), 'proposed', NOW)).toBeNull();
+    expect(workLine(row(3, 'c', { state: 'building', taskCount: 5, runningTaskCount: 2 }), 'progress', NOW)).toBe('5 tasks underway');
+    expect(workLine(row(4, 'd', { state: 'shipped', answeredAt: '2026-09-20T16:00:00Z' }), 'done', NOW)).toBe('yesterday');
+  });
+
+  it('says what a decision is for, since the badge only says one is owed', () => {
+    const waiting = row(5, 'e', { state: 'new', recommendationState: 'proposed', recommendedOutcome: 'build' });
+
+    expect(stateOf(waiting, 'proposed')).toBe('Decide');
+    expect(workLine(waiting, 'proposed', NOW)).toBe('Vocion recommends we build it');
   });
 
   it('says money the way the lane makes sense of it', () => {
-    expect(costLine(row(1, 'a', { estimateCents: 8500 }), 'next')).toBe('about $85.00');
+    expect(costLine(row(1, 'a', { estimateCents: 8500 }), 'proposed')).toBe('about $85.00');
     expect(costLine(row(2, 'b', { estimateCents: 8500, actualCents: 2412 }), 'progress')).toBe('$24.12 of about $85.00');
     expect(costLine(row(3, 'c', { actualCents: 84 }), 'done')).toBe('$0.84');
-    expect(costLine(row(4, 'd', {}), 'next')).toBeNull();
+    expect(costLine(row(4, 'd', {}), 'proposed')).toBeNull();
   });
 
   it('shows a conditional fact only when it is true, and never twice', () => {
-    expect(flagsOf(row(1, 'a', {}), 'next')).toEqual([]);
-    expect(flagsOf(row(2, 'b', { severity: 'p1', sizeClass: 'major' }), 'next')).toEqual(['urgent', 'major']);
+    expect(flagsOf(row(1, 'a', {}), 'proposed')).toEqual([]);
+    expect(flagsOf(row(2, 'b', { severity: 'p1', sizeClass: 'major' }), 'proposed')).toEqual(['urgent', 'major']);
     expect(flagsOf(row(3, 'c', { kind: 'incident' }), 'progress')).toEqual(['urgent']);
-    // The Waiting lane's heading already says it, so the row does not.
-    expect(flagsOf(row(4, 'd', { recommendationState: 'proposed' }), 'waiting')).toEqual([]);
+    // The row's own badge already reads "Decide", so the flag does not repeat it.
+    expect(flagsOf(row(4, 'd', { recommendationState: 'proposed' }), 'proposed')).toEqual([]);
     expect(flagsOf(row(5, 'e', { recommendationState: 'proposed' }), 'progress')).toEqual(['waiting on you']);
   });
 
