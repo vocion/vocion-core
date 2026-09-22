@@ -835,6 +835,18 @@ export const PageManifestSchema = z.object({
    */
   views: z.array(ViewSchema).min(2).max(8).optional(),
   groupBy: z.string().optional(),
+  /**
+   * How {@link groupBy}'s groups are drawn: stacked `sections` down one page,
+   * or `tabs`.
+   *
+   * Sections are right when a reader wants them all at once — a report read
+   * top to bottom. Tabs are right when each group is a PLACE: the Work queue's
+   * three lanes are three different questions ("what is running", "what do we
+   * owe", "what landed"), and a person opens the page holding one of them, so
+   * stacking all three costs them the height of the other two before they
+   * reach it.
+   */
+  groupsAs: z.enum(['sections', 'tabs']).default('sections'),
   sort: z.object({ field: z.string(), dir: z.enum(['asc', 'desc']).default('desc') }).optional(),
   stats: z.array(StatSchema).optional(),
   /**
@@ -894,6 +906,7 @@ export const PageManifestSchema = z.object({
   .refine(m => m.panels === undefined || m.archetype === 'overview', { message: 'panels belong to the overview archetype', path: ['panels'] })
   .refine(m => m.live === undefined || m.archetype === 'list' || m.archetype === 'queue', { message: 'live is for list and queue pages — the ones with rows to re-read', path: ['live'] })
   .refine(m => m.layout === 'table' || m.archetype === 'list', { message: 'layout: block is for list pages, the ones with rows to draw', path: ['layout'] })
+  .refine(m => m.groupsAs !== 'tabs' || !!m.groupBy, { message: 'groupsAs: tabs needs groupBy — tabs are the groups', path: ['groupsAs'] })
   .refine(m => m.layout === 'table' || m.fields === undefined || m.fields.every(f => !f.total), { message: 'a block layout has no column to total under', path: ['layout'] })
   .refine(m => m.derive === undefined || m.archetype === 'list', { message: 'derive is for list pages, the ones with rows to derive from', path: ['derive'] })
   .refine(

@@ -47,12 +47,12 @@ import { readReasons, reasonPhrase } from './reasonCodes';
  * to say so out loud are stamped on every row it keeps.
  */
 
-/** The four lanes, in the order a person reads them. */
-export const WORK_LANES = ['next', 'progress', 'waiting', 'done'] as const;
+/** The three lanes, in the order a person reads them. */
+export const WORK_LANES = ['progress', 'proposed', 'done'] as const;
 export type WorkLane = typeof WORK_LANES[number];
 
 /** How many rows each lane draws before the heading carries the remainder. */
-export const NEXT_SHOWN = 3;
+export const PROPOSED_SHOWN = 25;
 export const DONE_SHOWN = 5;
 /** How far back "done recently" reaches. Older work is Activity's. */
 export const DONE_WITHIN_DAYS = 14;
@@ -70,16 +70,9 @@ const OUTCOME_VERB: Record<string, string> = {
   merge: 'merge it into another request',
 };
 
-/** Where a queued outcome has got to, in words. */
-const NEXT_STATE_LINE: Record<string, string> = {
-  new: 'not triaged yet',
-  triaged: 'triaged, not scheduled',
-  in_scope: 'in scope, not started',
-};
-
 export type WorkQueueOptions = {
   now?: Date;
-  nextShown?: number;
+  proposedShown?: number;
   doneShown?: number;
   doneWithinDays?: number;
 };
@@ -151,9 +144,14 @@ export function isWaitingOnPerson(row: PageRow): boolean {
 
 /**
  * Which lane a row belongs in. Finished first (a stale recommendation on
- * shipped work is not a person blocking anything), then waiting, then
- * building, then queued. A record with no state at all is owed and has not
- * started, so it is Next.
+ * shipped work is not a person blocking anything), then building, and
+ * everything else is proposed — owed and not started.
+ *
+ * Waiting on a person used to be a lane of its own and is now a STATE on the
+ * row ({@link stateOf}). The lane answers "has a worker got to it"; whether a
+ * person owes a decision is a different question, and asking both of one axis
+ * put the same outcome in two places. A record with no state at all is owed
+ * and has not started, so it is proposed.
  * @param row - The row.
  */
 export function laneOf(row: PageRow): WorkLane {
@@ -161,10 +159,62 @@ export function laneOf(row: PageRow): WorkLane {
   if (state && DONE_STATES.has(state)) {
     return 'done';
   }
-  if (isWaitingOnPerson(row)) {
-    return 'waiting';
+  return state === 'building' ? 'progress' : 'proposed';
+}
+
+/**
+ * Whether a building outcome has actually stopped.
+ *
+ * The state field says a worker is on it; the tasks say whether one is. A
+ * request with tasks written and none of them dispatched or running is
+ * stalled, whatever the state claims, and a page that draws it as "building"
+ * is lying about what is happening — the same argument
+ * {@link isWaitingOnPerson} makes about an undecided recommendation. No new
+ * state is stored for this: `runningTaskCount` is a rollup over the tasks,
+ * so the queue cannot disagree with them.
+ * @param row - The row.
+ */
+export function isBlocked(row: PageRow): boolean {
+  if (laneOf(row) !== 'progress') {
+    return false;
   }
-  return state === 'building' ? 'progress' : 'next';
+  const tasks = num(row, 'taskCount') ?? 0;
+  return tasks > 0 && (num(row, 'runningTaskCount') ?? 0) === 0;
+}
+
+/** What a queued outcome is called before anyone has started it. */
+const PROPOSED_STATE_LABEL: Record<string, string> = {
+  new: 'Not triaged',
+  triaged: 'Triaged',
+  in_scope: 'In scope',
+};
+
+/**
+ * The row's state, as one badge.
+ *
+ * This is what replaced the section headings. Three lanes each used to carry
+ * two or three sub-headings, and every row under one repeated the heading's
+ * own sentence back ("waiting on you to decide", nine times down a column).
+ * The badge says it once, on the row, so one list can hold rows in different
+ * states without a heading between every pair of them.
+ *
+ * The label only: which tone paints it is presentation, and the page manifest
+ * owns that through `format: badge` + `tones`, the same way every other
+ * badged field on every other page does.
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function stateOf(row: PageRow, lane: WorkLane): string {
+  if (lane === 'progress') {
+    return isBlocked(row) ? 'Blocked' : 'Building';
+  }
+  if (lane === 'done') {
+    return str(row, 'state') === 'answered' ? 'Answered' : 'Shipped';
+  }
+  if (isWaitingOnPerson(row)) {
+    return 'Decide';
+  }
+  return PROPOSED_STATE_LABEL[str(row, 'state') ?? ''] ?? 'Queued';
 }
 
 /**
@@ -250,23 +300,25 @@ export function whyLine(row: PageRow): string | null {
  * @param lane - The lane it landed in.
  * @param now - The clock.
  */
-export function workLine(row: PageRow, lane: WorkLane, now: Date): string {
-  if (lane === 'waiting') {
-    const verb = OUTCOME_VERB[str(row, 'recommendedOutcome') ?? ''] ?? null;
-    return verb
-      ? `waiting on you to decide; Vocion recommends we ${verb}`
-      : 'waiting on you to decide';
-  }
+export function workLine(row: PageRow, lane: WorkLane, now: Date): string | null {
   if (lane === 'progress') {
-    const tasks = num(row, 'taskCount');
-    return tasks ? `building, ${tasks} ${tasks === 1 ? 'task' : 'tasks'} underway` : 'building';
+    const tasks = num(row, 'taskCount') ?? 0;
+    if (isBlocked(row)) {
+      return `${tasks} ${tasks === 1 ? 'task' : 'tasks'} written, none running`;
+    }
+    return tasks ? `${tasks} ${tasks === 1 ? 'task' : 'tasks'} underway` : null;
   }
   if (lane === 'done') {
     const when = finishedAt(row);
-    const verb = str(row, 'state') === 'answered' ? 'answered' : 'shipped';
-    return when ? `${verb} ${daysAgoLabel(when, now)}` : verb;
+    return when ? daysAgoLabel(when, now) : null;
   }
-  return NEXT_STATE_LINE[str(row, 'state') ?? ''] ?? 'queued';
+  if (isWaitingOnPerson(row)) {
+    const verb = OUTCOME_VERB[str(row, 'recommendedOutcome') ?? ''] ?? null;
+    return verb ? `Vocion recommends we ${verb}` : null;
+  }
+  // A queued row's state is already on its badge. Saying "queued" underneath
+  // a badge reading "Queued" is the repetition this page was redrawn to lose.
+  return null;
 }
 
 /**
@@ -305,7 +357,10 @@ export function flagsOf(row: PageRow, lane: WorkLane): string[] {
   if (str(row, 'severity') === 'p1' || str(row, 'kind') === 'incident') {
     out.push('urgent');
   }
-  if (isWaitingOnPerson(row) && lane !== 'waiting') {
+  // On the proposed lane the row's own badge already reads "Decide"; this
+  // flag exists for the outcome a worker is building while the recommendation
+  // behind it is still undecided, which no lane would otherwise show.
+  if (isWaitingOnPerson(row) && lane === 'progress') {
     out.push('waiting on you');
   }
   if (str(row, 'sizeClass') === 'major') {
@@ -323,21 +378,48 @@ export function flagsOf(row: PageRow, lane: WorkLane): string[] {
  * @param counts.ranked
  * @param counts.minutes
  */
-function laneLabel(lane: WorkLane, counts: { total: number; shown: number; ranked: number; minutes: number }): string {
-  const hidden = counts.total - counts.shown;
+function laneLabel(lane: WorkLane): string {
   if (lane === 'progress') {
     return 'In progress';
   }
-  if (lane === 'waiting') {
-    return counts.minutes > 0 ? `Waiting on you · about ${counts.minutes} min to decide` : 'Waiting on you';
+  return lane === 'done' ? 'Done' : 'Proposed';
+}
+
+/**
+ * The one line a lane carries that its rows could not: the decision time it
+ * is holding, the work it could not draw, the gap in what was recorded.
+ *
+ * It is a NOTE rather than part of the label because the label is now a tab,
+ * and a tab that grows a clause every time the data changes stops being a
+ * place to tap.
+ * @param lane - The lane.
+ * @param counts - What the lane knows about itself.
+ * @param counts.total - Rows in the lane.
+ * @param counts.shown - Rows it drew.
+ * @param counts.ranked - Rows that earned a rank.
+ * @param counts.queued - Rows nobody is waiting on a decision for.
+ * @param counts.minutes - Decision minutes the lane is holding.
+ * @param counts.blocked - Rows that have stopped.
+ */
+function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked: number; queued: number; minutes: number; blocked: number }): string | null {
+  const hidden = counts.total - counts.shown;
+  if (lane === 'progress') {
+    return counts.blocked > 0 ? `${counts.blocked} of ${counts.total} stopped` : null;
   }
   if (lane === 'done') {
-    return hidden > 0 ? `Done recently · ${hidden} more in Activity` : 'Done recently';
+    return hidden > 0 ? `${hidden} more in Activity` : null;
   }
-  if (counts.total > 0 && counts.ranked === 0) {
-    return `Next · nothing ranked, no reason recorded on ${counts.total} queued`;
+  const parts: string[] = [];
+  if (counts.minutes > 0) {
+    parts.push(`about ${counts.minutes} min to decide`);
   }
-  return hidden > 0 ? `Next · ${hidden} more queued` : 'Next';
+  if (counts.queued > 0 && counts.ranked === 0) {
+    parts.push(`nothing ranked, no reason recorded on ${counts.queued}`);
+  }
+  if (hidden > 0) {
+    parts.push(`${hidden} more queued`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 type Ordered = { row: PageRow; lane: WorkLane; rank: number | null };
@@ -358,14 +440,26 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date): Ordered[] {
   if (lane === 'done') {
     return [...rows].sort((a, b) => time(b) - time(a)).map(row => ({ row, lane, rank: null }));
   }
-  if (lane !== 'next') {
-    return [...rows].sort((a, b) => time(a) - time(b)).map(row => ({ row, lane, rank: null }));
+  // A stopped run costs a day; a running one costs nothing to leave alone. So
+  // blocked sorts above building, and the lane's note says how many stopped.
+  if (lane === 'progress') {
+    return [...rows]
+      .sort((a, b) => Number(isBlocked(b)) - Number(isBlocked(a)) || time(a) - time(b))
+      .map(row => ({ row, lane, rank: null }));
   }
-  const rankable = rows.filter(r => readReasons(meta(r)).recorded);
-  const rest = rows.filter(r => !readReasons(meta(r)).recorded);
+  // Proposed holds two kinds of row, and only one of them is stopped on a
+  // person: an outcome whose recommendation nobody has decided sits above the
+  // queue whatever its reason or age, because it is the only work here that
+  // moves the moment it is read.
+  const waiting = rows.filter(r => isWaitingOnPerson(r));
+  const queued = rows.filter(r => !isWaitingOnPerson(r));
+  const rankable = queued.filter(r => readReasons(meta(r)).recorded);
+  const rest = queued.filter(r => !readReasons(meta(r)).recorded);
+  waiting.sort((a, b) => time(a) - time(b));
   rankable.sort((a, b) => (num(b, 'priority') ?? 0) - (num(a, 'priority') ?? 0) || time(a) - time(b));
   rest.sort((a, b) => time(a) - time(b));
   return [
+    ...waiting.map(row => ({ row, lane, rank: null })),
     ...rankable.map((row, i) => ({ row, lane, rank: i + 1 })),
     ...rest.map(row => ({ row, lane, rank: null })),
   ];
@@ -384,7 +478,7 @@ function orderLane(lane: WorkLane, rows: PageRow[], now: Date): Ordered[] {
  */
 export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {}): PageRow[] {
   const now = options.now ?? new Date();
-  const nextShown = options.nextShown ?? NEXT_SHOWN;
+  const proposedShown = options.proposedShown ?? PROPOSED_SHOWN;
   const doneShown = options.doneShown ?? DONE_SHOWN;
   const withinMs = (options.doneWithinDays ?? DONE_WITHIN_DAYS) * 86_400_000;
 
@@ -408,42 +502,50 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
     byLane.get(laneOf(r))!.push(r);
   }
 
-  const nextRows = byLane.get('next')!;
-  const waitingRows = byLane.get('waiting')!;
+  const proposedRows = byLane.get('proposed')!;
+  const progressRows = byLane.get('progress')!;
+  const waitingRows = proposedRows.filter(r => isWaitingOnPerson(r));
+  const queuedRows = proposedRows.filter(r => !isWaitingOnPerson(r));
   const figures = {
-    nextCount: nextRows.length,
-    progressCount: byLane.get('progress')!.length,
-    waitingCount: waitingRows.length,
+    progressCount: progressRows.length,
+    proposedCount: proposedRows.length,
     doneCount: byLane.get('done')!.length,
+    blockedCount: progressRows.filter(r => isBlocked(r)).length,
+    waitingCount: waitingRows.length,
     urgentCount: kept.filter(r => flagsOf(r, laneOf(r)).includes('urgent')).length,
-    unreasonedCount: nextRows.filter(r => !readReasons(meta(r)).recorded).length,
+    unreasonedCount: queuedRows.filter(r => !readReasons(meta(r)).recorded).length,
     waitingMinutes: waitingRows.reduce((a, r) => a + (num(r, 'decisionCost') ?? 0), 0),
   };
 
   const out: PageRow[] = [];
   WORK_LANES.forEach((lane, laneIndex) => {
     const ordered = orderLane(lane, byLane.get(lane)!, now);
-    const cap = lane === 'next' ? nextShown : lane === 'done' ? doneShown : ordered.length;
+    const cap = lane === 'proposed' ? proposedShown : lane === 'done' ? doneShown : ordered.length;
     const shown = ordered.slice(0, cap);
-    const label = laneLabel(lane, {
+    const note = laneNote(lane, {
       total: ordered.length,
       shown: shown.length,
       ranked: ordered.filter(o => o.rank !== null).length,
+      queued: ordered.filter(o => !isWaitingOnPerson(o.row)).length,
       minutes: figures.waitingMinutes,
+      blocked: figures.blockedCount,
     });
     for (const [i, { row, rank }] of shown.entries()) {
       const flags = flagsOf(row, lane);
+      const state = stateOf(row, lane);
       out.push({
         ...row,
         meta: {
           ...row.meta,
           ...figures,
-          lane: label,
+          lane: laneLabel(lane),
           laneKey: lane,
+          laneNote: note ?? undefined,
           order: laneIndex * 1000 + i,
           rank: rank === null ? undefined : String(rank),
+          state,
           whyLine: whyLine(row) ?? undefined,
-          workLine: workLine(row, lane, now),
+          workLine: workLine(row, lane, now) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,
           flags: flags.length > 0 ? flags : undefined,
         },

@@ -11,6 +11,7 @@ import { StatusPill } from '@/components/ui/status-pill';
 import { OverviewView } from '@/features/dashboard/factory/OverviewView';
 import { LiveRefresh } from '@/features/dashboard/LiveRefresh';
 import { PageBlocks } from '@/features/dashboard/pages/PageBlocks';
+import { PageGroupTabs } from '@/features/dashboard/pages/PageGroupTabs';
 import { PageTable } from '@/features/dashboard/pages/PageTable';
 import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { ReviewQueue } from '@/features/dashboard/ReviewQueue';
@@ -707,9 +708,13 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && groups.map((g, gi) => {
+      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
-        return (
+        // Tabs are the groups, so the panel never draws the group's heading
+        // again inside itself, and the lane's note rides on the panel rather
+        // than growing the tab into a sentence.
+        const tabbed = manifest.groupsAs === 'tabs' && groups.length > 1;
+        const panel = (g: typeof groups[number], gi: number, groupLabel: string | null) => (
           <Rows
             key={g.label ?? '__all'}
             id={gi === 0 ? 'wsx-table' : undefined}
@@ -718,12 +723,26 @@ export default async function WorkspacePage(props: {
             primary={manifest.primary}
             rowLink={manifest.rowLink}
             rowActions={manifest.rowActions}
-            groupLabel={g.label}
+            groupLabel={groupLabel}
             now={now}
             links={links}
           />
         );
-      })}
+        if (!tabbed) {
+          return groups.map((g, gi) => panel(g, gi, g.label));
+        }
+        return (
+          <PageGroupTabs
+            groups={groups.map((g, gi) => ({
+              key: (g.label ?? `group-${gi}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `group-${gi}`,
+              label: g.label ?? '',
+              count: g.rows.length,
+              note: typeof g.rows[0]?.meta?.laneNote === 'string' ? g.rows[0].meta.laneNote : null,
+              children: panel(g, gi, null),
+            }))}
+          />
+        );
+      })()}
 
       {reviewCfg && (
         <section id="wsx-review" className="mt-8">
