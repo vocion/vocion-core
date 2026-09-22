@@ -6,8 +6,10 @@
  *
  *   definition (agent row)  ──►  compiled graph  ──►  event stream
  *
- * Per `(orgId, agentSlug)` it builds (and LRU-caches) a compiled
- * `createDeepAgent` graph wiring:
+ * Per `(orgId, agentSlug)` it loads (and LRU-caches) a BLUEPRINT — the
+ * parts of an agent that are identical on every request — and compiles a
+ * FRESH graph for each request from it, so nothing a single turn owns is
+ * ever shared (see `compileAgentForRequest`). A compiled graph wires:
  *   - LangChain `BaseChatModel` from the role registry, honoring the
  *     agent's `harness_config` knobs (e.g. `maxTokens`).
  *   - Tool factories from `./tools/*` (the single registry).
@@ -55,14 +57,27 @@ import { createMemoryDigestMiddleware } from './memoryDigest';
 import { buildDomainTools } from './tools/registry';
 
 /* ------------------------------------------------------------------ */
-/* LRU cache of compiled graphs                                        */
+/* LRU cache of agent blueprints — never of per-request state          */
 /* ------------------------------------------------------------------ */
 
-// Mirrors rev-ai's @lru_cache(maxsize=8) in server/agents/__init__.py.
-// Keep this small: each compiled graph holds a model + N tools + N
-// subagents, so the working set per org should stay tight.
-const GRAPH_CACHE_LIMIT = 16;
-const graphCache = new Map<string, Awaited<ReturnType<typeof buildGraph>>>();
+// Only what every request on an agent shares is cached: the agent's DB
+// row, its compiled system prompt, its delegable subagent descriptions,
+// and its chat model. Everything one turn owns — who asked, which
+// sources that person may read, where their events go, this turn's
+// citation numbers — is built fresh per request.
+//
+// This used to cache the compiled graph itself, whose tools had closed
+// over a single shared RuntimeContext that each request then overwrote
+// in place. Two overlapping turns on the same agent therefore traded
+// identities: one person's tokens arrived on the other's stream, and one
+// person's retrieval ran under the other's source permissions. A
+// background `refresh_briefing` run overlapping the turn that started it
+// was enough to trigger it (issue #109), so this is not a rare race.
+//
+// Keep the cache small: each blueprint holds a model plus N subagent
+// descriptions, so the working set per org should stay tight.
+const BLUEPRINT_CACHE_LIMIT = 16;
+const blueprintCache = new Map<string, AgentBlueprint>();
 
 function cacheKey(orgId: string, agentSlug: string): string {
   return `${orgId}::${agentSlug}`;
@@ -184,17 +199,75 @@ export function chatModelOptionsWithOverride(
 }
 
 /* ------------------------------------------------------------------ */
-/* Build graph                                                         */
+/* Blueprint — what every request on one agent shares                  */
 /* ------------------------------------------------------------------ */
 
 export type CompiledAgentGraph = {
-  /** The compiled deepagents instance. */
+  /** The compiled deepagents instance, built for ONE request. */
   graph: ReturnType<typeof createDeepAgent>;
   /** The agent's row from `agent` (for prompt + few-shot). */
   agentRow: typeof agentSchema.$inferSelect;
+  /**
+   * The runtime context this request's tools closed over. It belongs to this
+   * request alone — no other turn reads it and no other turn writes it — so
+   * the caller may safely stamp this turn's own details on it (the Langfuse
+   * `traceId`, for one) after the graph is compiled.
+   */
+  ctx: RuntimeContext;
 };
 
-async function buildGraph(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<CompiledAgentGraph> {
+/**
+ * Everything about an agent that does not change from one request to the
+ * next, so it can be built once and reused. Per-request state — the
+ * person, their source permissions, their event stream — is deliberately
+ * absent: it lives in the `RuntimeContext` that `compileAgentForRequest`
+ * builds fresh each time.
+ */
+type AgentBlueprint = {
+  /** The agent's row from `agent`. */
+  agentRow: typeof agentSchema.$inferSelect;
+  /** The fully compiled system prompt: authored text + the shared rules appended to it. */
+  systemPrompt?: string;
+  /**
+   * The agents this one may delegate to, WITHOUT their tools. Tools carry
+   * the requesting person's context, so they are attached per request.
+   */
+  subagentSpecs: Array<Omit<SubAgent, 'tools'>>;
+  /** This agent's chat model. Stateless per call, so one instance serves every request. */
+  model: Awaited<ReturnType<typeof buildChatModelForOrg>>;
+  /** The workspace's own zone (`project.time_zone`), the fallback when a turn names none. */
+  defaultTimeZone: string;
+  /** Whether this agent mounts any skill or playbook folders (decides the skills middleware). */
+  hasMounts: boolean;
+  /** The workspace's enabled plugin slugs; plugin-owned tools are built only with their plugin. */
+  enabledPlugins: string[];
+};
+
+/**
+ * What ONE request brings to an agent: who is asking, what they may read,
+ * and where their events go. Every field here is per-turn, which is why
+ * none of it may be cached alongside the agent.
+ */
+export type AgentRequest = {
+  /** Where this turn's structured events go — this person's SSE stream. */
+  emit: RuntimeContext['emit'];
+  /** Who triggered the run; omitted for schedules, MCP and API callers. */
+  userId?: string;
+  /** This person's source ACL (`SourceAccessService`); omitted means no narrowing. */
+  allowedSourceSlugs?: string[];
+  /** The mission this run belongs to, for mission-scoped tools. */
+  missionSlug?: string;
+  /** The `mission_run` driving this turn, for the audit trail. */
+  missionRunId?: number;
+  /** The persisted conversation this turn belongs to, stamped on `tool_call` rows. */
+  conversationId?: number;
+  /** Where the person is in the app right now, read by the `page_context` tool. */
+  pageContext?: RuntimeContext['pageContext'];
+  /** The person's own time zone for this turn; falls back to the workspace's. */
+  timeZone?: string;
+};
+
+async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: ModelOverride): Promise<AgentBlueprint> {
   // Org-scoped, not slug-only: slugs repeat across projects (two workspaces on
   // one box, plus orphaned rows from older deploys), and an unscoped pick is
   // arbitrary — one org's chat silently compiling ANOTHER org's prompt/config.
@@ -208,50 +281,16 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     throw new Error(`agent ${agentSlug} not found in org ${orgId}`);
   }
 
-  // Build a no-op runtime context; the SSE route swaps in a real
-  // `emit` per request. Tool factories close over the per-graph
-  // context but call `ctx.emit` on every invocation, so we replace
-  // the emit at runtime via mutable reference.
-  //
-  // (The graph is shared across requests; ctx.emit cannot be shared.
-  // We expose a `setEmit` on the returned object so the SSE route can
-  // attach its own emit before each `streamEvents` call. See the
-  // emitter pattern in `runAgentDeep` in services/AgentService.ts.)
-  const noopEmit: RuntimeContext['emit'] = () => {};
   const harnessConfig = row.harnessConfig ?? {};
   const defaultTimeZone = await workspaceTimeZone(orgId);
-  // Plugins the workspace has on, once per graph: plugin-owned tool sets are
-  // present only with their plugin, and the prompt names what is off. An apply
-  // resets the graph cache, so a toggle reaches the next turn.
+  // Plugins the workspace has on, once per blueprint: plugin-owned tool sets
+  // are present only with their plugin, and the prompt names what is off. An
+  // apply resets the blueprint cache, so a toggle reaches the next turn.
   const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
-  // The workspace's stated operating intent, once per graph, from the column
-  // the applier writes. `null` is "nobody has told this factory anything",
-  // which the note says out loud rather than treating as permission.
+  // The workspace's stated operating intent, once per blueprint, from the
+  // column the applier writes. `null` is "nobody has told this factory
+  // anything", which the note says out loud rather than treating as permission.
   const operatingIntent = await operatingIntentForOrg(orgId).catch(() => null);
-  const ctx: RuntimeContext = {
-    orgId,
-    timeZone: defaultTimeZone,
-    defaultTimeZone,
-    agentSlug: row.slug,
-    connectorSources: row.connectorSources ?? [],
-    objectTypeSlugs: row.objectTypeSlugs ?? [],
-    enabledPlugins,
-    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
-    harnessConfig,
-    emit: noopEmit,
-    citationSeq: { current: 0 },
-  };
-
-  // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
-  // plus our domain-specific tools below.
-  //
-  // Retrieval is the native pgvector path (`search_knowledge`). Source-typed
-  // filtering uses per-connector slugs (knowledge_source.slug).
-  // `harness.excludeTools` withholds built-ins by name — the tool never
-  // reaches the model's catalog, so the agent can't even offer it (vs.
-  // `interrupts`, which keeps the tool but gates execution).
-  const excludeTools = new Set(harnessConfig.excludeTools ?? []);
-  const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
   // the registry (agent-chat-surface.md §9 — routing is delegation): agents
@@ -263,26 +302,26 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   // only as a fallback for names not registered (legacy brief-runner etc.).
   // See services/agents/delegationRoster.ts for the ordering rules.
   const roster = await deriveDelegationRoster(orgId, row);
-  // Specialists get the SAME domain tool surface as the lead. Explicit
-  // because deepagents defaults a custom subagent's tools to [] (only its
-  // auto-injected general-purpose inherits) — which silently left every
-  // registered specialist with filesystem tools only.
-  const subagentTools = tools as SubAgent['tools'];
   // Authored config first, and it WINS a name collision with the derived
   // roster: an author who wrote a `subagents` entry for a slug tuned its
   // description/prompt on purpose; the registry row is the fallback, not the
   // override. The team-table entry for that slug is skipped.
+  //
+  // Tools are absent here on purpose. Specialists get the SAME domain tool
+  // surface as the lead (deepagents defaults a custom subagent's tools to
+  // [], which silently left every registered specialist with filesystem
+  // tools only), but those tools carry the requesting person's context, so
+  // `compileAgentForRequest` attaches this request's own set.
   const authored = row.subagents ?? [];
   const authoredNames = new Set(authored.map(s => s.name));
-  const subagents: SubAgent[] = authored.map(s => ({
+  const subagentSpecs: Array<Omit<SubAgent, 'tools'>> = authored.map(s => ({
     name: s.name,
     description: s.description,
     systemPrompt: s.systemPrompt,
-    tools: subagentTools,
   }));
   for (const d of roster.delegates) {
     if (!authoredNames.has(d.slug)) {
-      subagents.push({ name: d.slug, description: d.description, systemPrompt: d.systemPrompt, tools: subagentTools });
+      subagentSpecs.push({ name: d.slug, description: d.description, systemPrompt: d.systemPrompt });
     }
   }
 
@@ -372,12 +411,11 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   // "synthesize, never dump" rule never reaches the actor that composes the
   // reply. Pre-define our own `general-purpose` carrying the discipline; the
   // injector skips its default when one already exists by that name.
-  if (!subagents.some(s => s.name === 'general-purpose')) {
-    subagents.push({
+  if (!subagentSpecs.some(s => s.name === 'general-purpose')) {
+    subagentSpecs.push({
       name: 'general-purpose',
       description: 'General-purpose worker for research and multi-step tasks the lead delegates.',
       systemPrompt: 'You do delegated research and multi-step work, then return a concise, SYNTHESIZED result to the lead. NEVER paste raw tool output, record field-dumps (key: value lists), internal ids, /dashboard/... deep-links, or profile URLs — name people and the human reason in plain language. Return only what the lead needs to answer, tightly.',
-      tools: subagentTools,
     });
   }
 
@@ -397,8 +435,122 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
+  return { agentRow: row, systemPrompt, subagentSpecs, model, defaultTimeZone, hasMounts, enabledPlugins };
+}
+
+/**
+ * This agent's blueprint, from the cache when it is already there.
+ *
+ * Reading it moves the key to the back of the LRU, so a busy agent stays
+ * in the cache and an idle one falls out of it.
+ * @param orgId - Tenant scope.
+ * @param agentSlug - The agent to load.
+ */
+async function getBlueprint(orgId: string, agentSlug: string): Promise<AgentBlueprint> {
+  const key = cacheKey(orgId, agentSlug);
+  const cached = blueprintCache.get(key);
+  if (cached) {
+    blueprintCache.delete(key);
+    blueprintCache.set(key, cached);
+    return cached;
+  }
+  const fresh = await buildBlueprint(orgId, agentSlug);
+  lruSet(blueprintCache, key, fresh, BLUEPRINT_CACHE_LIMIT);
+  return fresh;
+}
+
+/**
+ * The runtime context for ONE request: the agent's fixed scope plus who is
+ * asking, what they may read, and where their events go.
+ *
+ * A fresh object every time is the whole point. The tools this request
+ * builds close over THIS object, so nothing another turn does can reach
+ * into it — which is what went wrong when one context was shared and
+ * overwritten per request (issue #109).
+ * @param orgId - Tenant scope.
+ * @param blueprint - The agent's cached, request-independent parts.
+ * @param request - What this one request brings.
+ */
+function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: AgentRequest): RuntimeContext {
+  const row = blueprint.agentRow;
+  return {
+    orgId,
+    agentSlug: row.slug,
+    connectorSources: row.connectorSources ?? [],
+    objectTypeSlugs: row.objectTypeSlugs ?? [],
+    enabledPlugins: blueprint.enabledPlugins,
+    searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
+    harnessConfig: row.harnessConfig ?? {},
+    defaultTimeZone: blueprint.defaultTimeZone,
+    // The person's zone for this turn, else the workspace's.
+    timeZone: resolveTimeZone(request.timeZone, blueprint.defaultTimeZone),
+    emit: request.emit,
+    userId: request.userId,
+    allowedSourceSlugs: request.allowedSourceSlugs,
+    missionSlug: request.missionSlug,
+    missionRunId: request.missionRunId,
+    conversationId: request.conversationId,
+    pageContext: request.pageContext,
+    provider: 'local',
+    // Delegation attribution for this turn only: the tool-call record reads
+    // it to credit a specialist's calls (taskId → specialist name).
+    delegations: new Map(),
+    // Citation numbering restarts each turn, and the numbers the model cites
+    // must belong to the sources THIS turn retrieved.
+    citationSeq: { current: 0 },
+  };
+}
+
+/**
+ * Compile a graph to answer ONE request, on this agent's cached blueprint.
+ *
+ * The blueprint (row, prompt, subagent descriptions, model) is shared; the
+ * runtime context and the tools that close over it are not. That split is
+ * the fix for issue #109: the graph used to be cached with its tools bound
+ * to a single context that every request overwrote in place, so two
+ * overlapping turns on one agent swapped identities — events to the wrong
+ * stream, retrieval under the wrong source permissions, `tool_call` rows
+ * stamped with the wrong person. Compiling per request costs a graph build
+ * against a turn that already costs seconds of model time.
+ * @param orgId - Tenant scope.
+ * @param agentSlug - The agent to run.
+ * @param request - Who is asking, what they may read, where their events go.
+ * @param opts - Per-request overrides.
+ * @param opts.modelOverride - Run this one request on a named model instead of the agent's own.
+ */
+export async function compileAgentForRequest(
+  orgId: string,
+  agentSlug: string,
+  request: AgentRequest,
+  opts: { modelOverride?: ModelOverride } = {},
+): Promise<CompiledAgentGraph> {
+  // An overridden model is never cached: the cache is keyed on the agent, and
+  // a blueprint holding the candidate model would answer the next ordinary
+  // chat turn on it. Building it per call keeps the agent's own model the
+  // only one the cache ever holds.
+  const blueprint = opts.modelOverride
+    ? await buildBlueprint(orgId, agentSlug, opts.modelOverride)
+    : await getBlueprint(orgId, agentSlug);
+
+  const ctx = buildRequestContext(orgId, blueprint, request);
+
+  // Tools: built-ins from createDeepAgent (ls/read_file/.../task/write_todos)
+  // plus our domain-specific tools below.
+  //
+  // Retrieval is the native pgvector path (`search_knowledge`). Source-typed
+  // filtering uses per-connector slugs (knowledge_source.slug).
+  // `harness.excludeTools` withholds built-ins by name — the tool never
+  // reaches the model's catalog, so the agent can't even offer it (vs.
+  // `interrupts`, which keeps the tool but gates execution).
+  const excludeTools = new Set(ctx.harnessConfig.excludeTools ?? []);
+  const tools = buildDomainTools(ctx).filter(t => !excludeTools.has(t.name));
+  // Specialists answer with the SAME tool surface as the lead, on this
+  // request's context — a delegate must not read more than the person who
+  // asked.
+  const subagents: SubAgent[] = blueprint.subagentSpecs.map(spec => ({ ...spec, tools: tools as SubAgent['tools'] }));
+
   const graph = createDeepAgent({
-    model,
+    model: blueprint.model,
     tools,
     subagents,
     // The agent's authored prompt goes HERE — deepagents combines it with its
@@ -407,7 +559,7 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     // it a SECOND system message once the middleware prepends its own, which
     // the model API rejects ("System messages are only permitted as the first
     // passed message").
-    systemPrompt,
+    systemPrompt: blueprint.systemPrompt,
     // Scratch stays ephemeral graph state; /memories/ routes to the LangGraph
     // Store over Postgres, so an agent's file reads there see the org's full
     // approved memory across threads. Writes under /memories/ are refused —
@@ -424,80 +576,15 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
     // unconditionally: it declares no required state fields.
     middleware: [createMemoryDigestMiddleware()],
     // `skills` mounts deepagents's SKILL.md auto-loader (string source PATHS).
-    ...(hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
+    ...(blueprint.hasMounts ? { skills: ['/skills/', '/playbooks/'] } : {}),
   });
 
-  // Attach the mutable RuntimeContext for the request adapter to update.
-  return Object.assign({ graph, agentRow: row }, { __ctx: ctx }) as CompiledAgentGraph;
-}
-
-export async function getCompiledAgent(
-  orgId: string,
-  agentSlug: string,
-  opts: { modelOverride?: ModelOverride } = {},
-): Promise<CompiledAgentGraph> {
-  if (opts.modelOverride) {
-    // An overridden graph is built fresh and never cached: the cache is keyed
-    // on the agent, and a cached graph holding the candidate model would answer
-    // the next ordinary chat turn on it. Building per call is the price of
-    // keeping the agent's own model the only one the cache ever holds.
-    return buildGraph(orgId, agentSlug, opts.modelOverride);
-  }
-  const key = cacheKey(orgId, agentSlug);
-  const cached = graphCache.get(key);
-  if (cached) {
-    graphCache.delete(key);
-    graphCache.set(key, cached);
-    return cached;
-  }
-  const fresh = await buildGraph(orgId, agentSlug);
-  lruSet(graphCache, key, fresh, GRAPH_CACHE_LIMIT);
-  return fresh;
+  return { graph, agentRow: blueprint.agentRow, ctx };
 }
 
 /** Test/dev hook: flush the cache (e.g. after `workspace:apply`). */
 export function resetAgentRuntimeCache(): void {
-  graphCache.clear();
-}
-
-/* ------------------------------------------------------------------ */
-/* Per-request emit binding                                            */
-/* ------------------------------------------------------------------ */
-
-// The graph closures captured a `ctx.emit` at build time. To attach a
-// per-request emit (the SSE writer for this user's stream) we expose a
-// helper that replaces the captured ref. Tools call ctx.emit through
-// the same object reference, so mutating its `emit` field is sufficient.
-
-export function bindRequestEmit(
-  compiled: CompiledAgentGraph,
-  emit: RuntimeContext['emit'],
-  userId?: string,
-  allowedSourceSlugs?: string[],
-  missionSlug?: string,
-  missionRunId?: number,
-  conversationId?: number,
-  pageContext?: RuntimeContext['pageContext'],
-  timeZone?: string,
-): void {
-  const internal = compiled as unknown as { __ctx: RuntimeContext };
-  internal.__ctx.emit = emit;
-  internal.__ctx.pageContext = pageContext;
-  // The person's zone for this turn, else the workspace's — never the last
-  // caller's, since the graph (and this ctx) is shared across requests.
-  internal.__ctx.timeZone = resolveTimeZone(timeZone, internal.__ctx.defaultTimeZone);
-  internal.__ctx.userId = userId;
-  internal.__ctx.allowedSourceSlugs = allowedSourceSlugs;
-  internal.__ctx.missionSlug = missionSlug;
-  internal.__ctx.missionRunId = missionRunId;
-  internal.__ctx.conversationId = conversationId;
-  internal.__ctx.provider = 'local';
-  internal.__ctx.traceId = undefined;
-  // Fresh delegation map per turn — the tool-call record attributes a
-  // specialist's calls through it (taskId → specialist name).
-  internal.__ctx.delegations = new Map();
-  // Fresh citation numbering per turn (the graph/ctx is reused across requests).
-  internal.__ctx.citationSeq = { current: 0 };
+  blueprintCache.clear();
 }
 
 /* ------------------------------------------------------------------ */

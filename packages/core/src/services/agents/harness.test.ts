@@ -35,14 +35,25 @@ vi.mock('deepagents', () => ({
 const { createDeepAgent } = await import('deepagents');
 const { db } = await import('@/libs/DB');
 const { agentSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
-const { getCompiledAgent, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
+const { buildChatModelForOrg } = await import('@/libs/llm');
+const { compileAgentForRequest, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
 
 const mockCreate = vi.mocked(createDeepAgent);
 
 const ORG = 'proj_f1_chat';
 const DIRECTOR = 'revenue-director';
 
-type GraphOptions = { subagents: SubAgent[]; systemPrompt?: string };
+type GraphOptions = { subagents: SubAgent[]; systemPrompt?: string; model?: unknown };
+
+/**
+ * Compile the agent the way a chat turn does. The request fields these
+ * tests don't care about stay empty — what matters here is the graph the
+ * harness hands the model.
+ * @param slug - The agent to compile.
+ */
+async function compile(slug: string) {
+  return compileAgentForRequest(ORG, slug, { emit: () => {} });
+}
 
 /**
  * The options buildGraph handed to createDeepAgent on its Nth call.
@@ -55,6 +66,7 @@ function graphOptions(n = 0): GraphOptions {
 beforeEach(async () => {
   resetAgentRuntimeCache();
   mockCreate.mockClear();
+  vi.mocked(buildChatModelForOrg).mockClear();
   await db.delete(teamSchema);
   await db.delete(agentSchema);
   await db.delete(projectSchema);
@@ -91,7 +103,7 @@ afterAll(async () => {
 
 describe('workspace-lead chat graph (F1 slice 2)', () => {
   it('merges the team leads into the lead\'s subagents, with the team named for provenance', async () => {
-    await getCompiledAgent(ORG, DIRECTOR);
+    await compile(DIRECTOR);
 
     const { subagents } = graphOptions();
     const names = subagents.map(s => s.name);
@@ -112,7 +124,7 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
   });
 
   it('names lead-less teams in the system prompt — degrade per team, never omit (acceptance #5)', async () => {
-    await getCompiledAgent(ORG, DIRECTOR);
+    await compile(DIRECTOR);
 
     const { systemPrompt } = graphOptions();
 
@@ -122,7 +134,7 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
   });
 
   it('leaves every non-workspace-lead agent untouched', async () => {
-    await getCompiledAgent(ORG, 'revenue-lead');
+    await compile('revenue-lead');
 
     const { subagents, systemPrompt } = graphOptions();
 
@@ -134,7 +146,7 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
 
   it('compiles from JSONB alone when no workspace lead is configured', async () => {
     await db.update(projectSchema).set({ leadAgentSlug: null });
-    await getCompiledAgent(ORG, DIRECTOR);
+    await compile(DIRECTOR);
 
     const { subagents, systemPrompt } = graphOptions();
 
@@ -142,12 +154,40 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
     expect(systemPrompt).toContain('You run the whole revenue workspace.');
   });
 
-  it('serves the compiled graph from the LRU until resetAgentRuntimeCache (the post-apply flush)', async () => {
-    const first = await getCompiledAgent(ORG, DIRECTOR);
-    const again = await getCompiledAgent(ORG, DIRECTOR);
+  it('reuses the cached blueprint across requests but never the graph (issue #109)', async () => {
+    const first = await compile(DIRECTOR);
+    const again = await compile(DIRECTOR);
 
-    expect(again).toBe(first);
-    expect(mockCreate).toHaveBeenCalledTimes(1);
+    // The agent's request-independent parts are built once: the same row and
+    // the same model object serve both requests, and the model was resolved
+    // from the org's credentials only once.
+    expect(again.agentRow).toBe(first.agentRow);
+    expect(graphOptions(1).model).toBe(graphOptions(0).model);
+    expect(vi.mocked(buildChatModelForOrg)).toHaveBeenCalledTimes(1);
+
+    // The graph and the context its tools close over are NOT shared: a second
+    // turn must not be able to see or overwrite the first turn's identity.
+    expect(again.graph).not.toBe(first.graph);
+    expect(again.ctx).not.toBe(first.ctx);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it('never caches a model override — the next ordinary turn runs the agent\'s own model', async () => {
+    // The model-upgrade test runs one turn on a candidate model. If that
+    // blueprint were cached, the next person to chat with this agent would be
+    // answered by the candidate instead of the agent's own model.
+    await compileAgentForRequest(ORG, DIRECTOR, { emit: () => {} }, { modelOverride: { model: 'claude-candidate-x', provider: 'anthropic' } });
+    await compile(DIRECTOR);
+
+    const calls = vi.mocked(buildChatModelForOrg).mock.calls;
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]![2]).toMatchObject({ model: 'claude-candidate-x', provider: 'anthropic' });
+    expect(calls[1]![2]).not.toHaveProperty('model');
+  });
+
+  it('rebuilds the blueprint after resetAgentRuntimeCache (the post-apply flush)', async () => {
+    await compile(DIRECTOR);
 
     // workspace:apply flushes the cache (applier.ts) so a team change —
     // here Founder GTM gaining a lead — reaches the next chat turn.
@@ -155,9 +195,7 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
     await db.update(teamSchema).set({ leadAgentSlug: 'gtm-lead' }).where(eq(teamSchema.slug, 'founder-gtm'));
     resetAgentRuntimeCache();
 
-    const rebuilt = await getCompiledAgent(ORG, DIRECTOR);
-
-    expect(rebuilt).not.toBe(first);
+    await compile(DIRECTOR);
 
     const names = graphOptions(1).subagents.map(s => s.name);
 
@@ -173,18 +211,18 @@ describe('initiative in the system prompt', () => {
       { orgId: ORG, slug: 'quiet', name: 'Quiet', systemPrompt: 'You curate.', initiative: 'low' },
     ]);
 
-    await getCompiledAgent(ORG, 'eager');
+    await compile('eager');
 
     expect(graphOptions(0).systemPrompt).toContain('INITIATIVE: high');
     expect(graphOptions(0).systemPrompt).toContain('ONE concrete offer');
 
-    await getCompiledAgent(ORG, 'quiet');
+    await compile('quiet');
 
     expect(graphOptions(1).systemPrompt).toContain('INITIATIVE: low');
     expect(graphOptions(1).systemPrompt).not.toContain('INITIATIVE: high');
 
     // `revenue-lead` has no initiative column value: normal, and no note at all.
-    await getCompiledAgent(ORG, 'revenue-lead');
+    await compile('revenue-lead');
 
     expect(graphOptions(2).systemPrompt).not.toContain('INITIATIVE:');
   });
@@ -208,7 +246,7 @@ describe('buildGraph org scoping', () => {
       { orgId: 'proj_other', slug: 'shared-lead', name: 'Theirs', systemPrompt: 'You are the OTHER org agent.', harnessConfig: {} },
     ]);
 
-    const compiled = await getCompiledAgent(ORG, 'shared-lead');
+    const compiled = await compile('shared-lead');
 
     expect(compiled.agentRow.orgId).toBe(ORG);
     expect(compiled.agentRow.harnessConfig).toEqual({ grantTools: ['classify_call'] });

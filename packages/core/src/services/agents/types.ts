@@ -351,13 +351,13 @@ export type RuntimeContext = {
   /**
    * Where the person is in the app for THIS turn (page, record, selection,
    * @-mentions) — read by the `page_context` tool. Set per request in
-   * `bindRequestEmit`; undefined for schedules, MCP and API callers.
+   * `compileAgentForRequest`; undefined for schedules, MCP and API callers.
    */
   pageContext?: import('@/services/chat/pageContext').PageContext;
   /**
    * The zone THIS turn's dates are judged in: the person's browser zone when
    * a turn carries one, else the workspace's (`defaultTimeZone`). Set per
-   * request in `bindRequestEmit`; the tools read it at call time.
+   * request in `compileAgentForRequest`; the tools read it at call time.
    */
   timeZone?: string;
   /** The workspace's zone (`project.time_zone`), resolved once at graph build. */
@@ -415,7 +415,8 @@ export type RuntimeContext = {
    * Per-turn global citation counter. `search_knowledge` allocates a
    * contiguous block for each call so the `[n]` numbers the model sees (and
    * is instructed to cite inline) stay unique + stable across multiple
-   * searches in one turn. Reset per request in `bindRequestEmit`.
+   * searches in one turn. Starts at zero in each request's own context
+   * (`compileAgentForRequest`), so one turn's numbers are only ever its own.
    */
   citationSeq: { current: number };
 };
