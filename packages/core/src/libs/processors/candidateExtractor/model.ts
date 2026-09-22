@@ -104,6 +104,7 @@ export type ExtractionResult
 export type ExtractionSkip
   = | 'model_invalid'
     | 'model_timeout'
+    | 'model_throttled'
     | 'budget_model_calls'
     | 'budget_tokens'
     | 'budget_exceeded';
@@ -243,6 +244,28 @@ function jsonAnswer(raw: string): string {
     }
   }
   return stripped;
+}
+
+/**
+ * Whether the provider refused the call rather than answering it badly.
+ *
+ * Read the two shapes `libs/retrieval/embedder.ts` already reads: the AWS SDK
+ * marks a throttle on `$retryable` and carries the status on
+ * `$metadata.httpStatusCode`, while an OpenAI-shaped client puts it on
+ * `status`. Verified against a live Bedrock refusal, which arrives unwrapped as
+ * `ThrottlingException` with `httpStatusCode: 429`.
+ * @param error - Whatever `.invoke` threw.
+ */
+function isThrottled(error: unknown): boolean {
+  const candidate = error as {
+    status?: number;
+    $metadata?: { httpStatusCode?: number };
+    $retryable?: { throttling?: boolean };
+  } | null;
+  if (candidate?.$retryable?.throttling) {
+    return true;
+  }
+  return (candidate?.status ?? candidate?.$metadata?.httpStatusCode) === 429;
 }
 
 /**
@@ -391,6 +414,13 @@ export async function extractRecords(opts: {
       if (isTimeout(error)) {
         // A timed-out call will time out again: the deadline is shared.
         lastFailure = 'model_timeout';
+        lastDetail = message;
+        break;
+      }
+      if (isThrottled(error)) {
+        // A daily or per-minute allowance will not clear between two
+        // attempts, so the corrective retry is spent for nothing.
+        lastFailure = 'model_throttled';
         lastDetail = message;
         break;
       }
