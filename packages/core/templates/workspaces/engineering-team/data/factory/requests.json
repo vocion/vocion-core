@@ -1,0 +1,211 @@
+[
+  {
+    "dedupeKey": "cobalt-events-cursor-rollout",
+    "title": "Events API clients stop breaking when a page is deleted mid-scroll",
+    "state": "building",
+    "kind": "change",
+    "surface": "api",
+    "sizeClass": "minor",
+    "product": "Events API",
+    "source": "support thread",
+    "why": ["customer-reported", "recurring"],
+    "whyNote": "Three tickets in a fortnight, all the same shape: a row deleted between two pages of a cursor scroll drops the next page entirely.",
+    "taskCount": 4,
+    "runningTaskCount": 2,
+    "estimateCents": 1800,
+    "actualCents": 1140,
+    "acceptanceFrozenAt": "2026-09-19T09:12:00.000Z",
+    "acceptance": [
+      { "statement": "A deleted row between two pages no longer drops the following page.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-2291", "checkedAt": "2026-09-21T14:02:00.000Z" },
+      { "statement": "Existing `?page=` callers keep working and still get the deprecation header.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-2292", "checkedAt": "2026-09-21T14:40:00.000Z" },
+      { "statement": "A cursor issued before this change still resolves for 30 days." }
+    ],
+    "visuals": { "surfaceUrl": "/dashboard/p/factory/w/events-api" }
+  },
+  {
+    "dedupeKey": "cobalt-oncall-handover-stalled",
+    "title": "On-call handover writes itself from the shift's incidents",
+    "state": "building",
+    "kind": "feature",
+    "surface": "ui",
+    "sizeClass": "minor",
+    "product": "Incident console",
+    "source": "team retro",
+    "why": ["repeated-manual-work"],
+    "whyNote": "Every handover is retyped from the incident list. Four minutes each, twice a day, and the detail people actually need gets left out when it is late.",
+    "taskCount": 3,
+    "runningTaskCount": 0,
+    "estimateCents": 2600,
+    "actualCents": 900,
+    "acceptanceFrozenAt": "2026-09-18T16:00:00.000Z",
+    "acceptance": [
+      { "statement": "The handover names every incident opened or still open during the shift.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-2270", "checkedAt": "2026-09-20T08:10:00.000Z" },
+      { "statement": "An engineer can edit it before it is sent." },
+      { "statement": "Nothing is sent without someone pressing send." }
+    ],
+    "visuals": { "surfaceUrl": "/dashboard/p/factory/w/incidents", "noVisualReason": "" }
+  },
+  {
+    "dedupeKey": "cobalt-release-notes-drafting",
+    "title": "Release notes are drafted from the merged changes, not from memory",
+    "state": "proposed",
+    "kind": "feature",
+    "surface": "ui",
+    "sizeClass": "minor",
+    "product": "Releases",
+    "source": "release checklist",
+    "recommendedOutcome": "build",
+    "why": ["repeated-manual-work", "quality-risk"],
+    "whyNote": "The checklist has said `write the notes` for eleven releases. Six shipped without them.",
+    "estimateCents": 2200,
+    "acceptance": [
+      { "statement": "Every merged change in the release appears in the draft." },
+      { "statement": "The draft is editable before it is published." }
+    ],
+    "visuals": {}
+  },
+  {
+    "dedupeKey": "cobalt-pr-review-sla",
+    "title": "A pull request that has waited two days says so, where reviewers look",
+    "state": "proposed",
+    "kind": "change",
+    "surface": "ui",
+    "sizeClass": "patch",
+    "product": "Review queue",
+    "source": "team retro",
+    "why": ["recurring"],
+    "whyNote": "The oldest open PR was nine days. Nobody was ignoring it; nothing said it was old.",
+    "estimateCents": 600,
+    "acceptance": [
+      { "statement": "A PR older than the team's agreed window is visibly marked in the queue." }
+    ],
+    "visuals": {}
+  },
+  {
+    "dedupeKey": "cobalt-severity-guess",
+    "title": "Incident severity is proposed from the symptoms, with the rule that chose it",
+    "state": "proposed",
+    "kind": "feature",
+    "surface": "flow",
+    "sizeClass": "major",
+    "product": "Incident console",
+    "source": "handbook",
+    "why": ["quality-risk"],
+    "whyNote": "Severity is set by whoever opens the incident, and the handbook's table is three clicks away at the moment it matters.",
+    "estimateCents": 5400,
+    "acceptance": [],
+    "visuals": {}
+  },
+  {
+    "dedupeKey": "cobalt-docs-stale-flag",
+    "title": "A handbook page whose subject changed says it is out of date",
+    "state": "proposed",
+    "kind": "change",
+    "surface": "ui",
+    "sizeClass": "minor",
+    "product": "Handbook",
+    "source": "support thread",
+    "why": ["customer-reported"],
+    "estimateCents": 1400
+  },
+  {
+    "dedupeKey": "cobalt-deploy-window-guard",
+    "title": "A deploy inside the freeze window asks first",
+    "state": "proposed",
+    "kind": "change",
+    "surface": "flow",
+    "sizeClass": "patch",
+    "product": "Releases",
+    "source": "incident CW-204",
+    "why": ["incident"],
+    "incident": true,
+    "whyNote": "CW-204 went out at 16:58 on a Friday. Nothing stopped it; nobody meant to.",
+    "estimateCents": 800
+  },
+  {
+    "dedupeKey": "cobalt-events-cursor-shipped",
+    "title": "Events API answers a cursor page in under 200ms at the 95th percentile",
+    "state": "shipped",
+    "kind": "change",
+    "surface": "api",
+    "sizeClass": "minor",
+    "product": "Events API",
+    "source": "support thread",
+    "taskCount": 5,
+    "runningTaskCount": 0,
+    "estimateCents": 2400,
+    "actualCents": 2180,
+    "acceptanceFrozenAt": "2026-09-10T11:00:00.000Z",
+    "acceptance": [
+      { "statement": "A cursor page answers in under 200ms at p95 on the production dataset.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-2101", "checkedAt": "2026-09-14T10:00:00.000Z" },
+      { "statement": "No client had to change to get it.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-2102", "checkedAt": "2026-09-14T10:04:00.000Z" }
+    ],
+    "visuals": { "surfaceUrl": "/dashboard/p/factory/w/events-api" }
+  },
+  {
+    "dedupeKey": "cobalt-incident-timeline-shipped",
+    "title": "An incident's timeline is built as it happens, not written up afterwards",
+    "state": "shipped",
+    "kind": "feature",
+    "surface": "ui",
+    "sizeClass": "major",
+    "product": "Incident console",
+    "source": "team retro",
+    "taskCount": 9,
+    "runningTaskCount": 0,
+    "estimateCents": 6000,
+    "actualCents": 7350,
+    "acceptanceFrozenAt": "2026-09-02T09:00:00.000Z",
+    "acceptance": [
+      { "statement": "Every status change and message lands on the timeline without anyone copying it.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-1980", "checkedAt": "2026-09-09T15:30:00.000Z" },
+      { "statement": "The write-up is exportable at the end.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-1981", "checkedAt": "2026-09-09T15:44:00.000Z" },
+      { "statement": "A private note stays out of the customer-facing export.", "met": false, "evidenceUrl": "/dashboard/p/factory/runs/cw-1982", "checkedAt": "2026-09-09T16:02:00.000Z" }
+    ],
+    "visuals": { "surfaceUrl": "/dashboard/p/factory/w/incidents" }
+  },
+  {
+    "dedupeKey": "cobalt-review-standards-answered",
+    "title": "Does the review standard apply to generated code?",
+    "state": "answered",
+    "kind": "question",
+    "surface": "none",
+    "sizeClass": "patch",
+    "product": "Handbook",
+    "source": "team retro",
+    "taskCount": 1,
+    "runningTaskCount": 0,
+    "actualCents": 90
+  },
+  {
+    "dedupeKey": "cobalt-runbook-links-shipped",
+    "title": "The on-call runbook links to the dashboards it names",
+    "state": "shipped",
+    "kind": "change",
+    "surface": "ui",
+    "sizeClass": "patch",
+    "product": "Handbook",
+    "source": "support thread",
+    "taskCount": 2,
+    "runningTaskCount": 0,
+    "estimateCents": 400,
+    "actualCents": 320,
+    "acceptanceFrozenAt": "2026-09-16T12:00:00.000Z",
+    "acceptance": [
+      { "statement": "Every dashboard named in the runbook is a link.", "met": true, "evidenceUrl": "/dashboard/p/factory/runs/cw-2240", "checkedAt": "2026-09-17T09:00:00.000Z" }
+    ],
+    "visuals": { "noVisualReason": "Text-only change inside an existing page; the before and after differ by link markup." }
+  },
+  {
+    "dedupeKey": "cobalt-flaky-test-quarantine",
+    "title": "A test that fails twice on unchanged code is quarantined, not retried forever",
+    "state": "proposed",
+    "kind": "change",
+    "surface": "none",
+    "sizeClass": "minor",
+    "product": "Pipeline",
+    "source": "team retro",
+    "why": ["repeated-manual-work", "quality-risk"],
+    "whyNote": "Reruns cost about forty minutes of pipeline a day and teach everyone to ignore a red build.",
+    "estimateCents": 1600
+  }
+]

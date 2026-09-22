@@ -10,6 +10,12 @@ description: >-
   releases, and documentation. Everything a person would see or an
   outbound action would touch stops at a human first.
 lead: engineering-lead
+# The factory pages — Work, Performance, Releases, Products — come from the
+# `software-factory` plugin rather than from this workspace, which is the
+# point: Cobalt Works is a brand and a cast, not a second copy of the
+# mechanism. Its fictional queue lives in `data/factory/` and is written by
+# `seed-factory-demo.ts`, so the pages have a history to read.
+plugins: [software-factory]
 # accountableUser is deliberately omitted so the template names nobody. A
 # CLI apply may add `accountableUser: <email>` before applying, and the
 # team inherits it.

@@ -1,0 +1,65 @@
+[
+  {
+    "dedupeKey": "cobalt-rel-events-2026-09-14",
+    "title": "Events API 2.4.0 — cursor pages under 200ms",
+    "product": "Events API",
+    "version": "2.4.0",
+    "releasedAt": "2026-09-14T09:40:00.000Z",
+    "commitSha": "a91c4f2",
+    "sizeClass": "minor",
+    "estimateCents": 2400,
+    "actualCents": 2180,
+    "varianceCents": -220,
+    "healthAfter": "ok",
+    "healthCheckedAt": "2026-09-14T10:40:00.000Z",
+    "outcome": {
+      "verdict": "validated",
+      "checkedAt": "2026-09-15T10:00:00.000Z",
+      "soakHours": 24,
+      "measures": [
+        { "label": "p95 cursor page", "before": 840, "after": 168, "unit": "ms", "goodWhen": "down" },
+        { "label": "pagination support tickets", "before": 3, "after": 0, "unit": "per week", "goodWhen": "down" }
+      ]
+    },
+    "notes": "Cursor now encodes (created_at, id); the old `?page=` parameter still answers for one minor version with a deprecation header."
+  },
+  {
+    "dedupeKey": "cobalt-rel-incidents-2026-09-09",
+    "title": "Incident console 1.8.0 — the timeline builds itself",
+    "product": "Incident console",
+    "version": "1.8.0",
+    "releasedAt": "2026-09-09T16:20:00.000Z",
+    "commitSha": "4d70bb1",
+    "sizeClass": "major",
+    "estimateCents": 6000,
+    "actualCents": 7350,
+    "varianceCents": 1350,
+    "healthAfter": "degraded",
+    "healthCheckedAt": "2026-09-09T17:20:00.000Z",
+    "outcome": {
+      "verdict": "regressed",
+      "checkedAt": "2026-09-10T18:00:00.000Z",
+      "soakHours": 26,
+      "measures": [
+        { "label": "time to first timeline entry", "before": 610, "after": 40, "unit": "s", "goodWhen": "down" },
+        { "label": "export completion", "before": 91, "after": 76, "unit": "%", "goodWhen": "up" }
+      ]
+    },
+    "notes": "The timeline landed and the export did not: a private note reaches the customer-facing export, which is why export completion fell rather than rose."
+  },
+  {
+    "dedupeKey": "cobalt-rel-handbook-2026-09-17",
+    "title": "Handbook — runbook dashboards are links",
+    "product": "Handbook",
+    "version": "2026.09.17",
+    "releasedAt": "2026-09-17T08:55:00.000Z",
+    "commitSha": "7fe0329",
+    "sizeClass": "patch",
+    "estimateCents": 400,
+    "actualCents": 320,
+    "varianceCents": -80,
+    "healthAfter": "ok",
+    "healthCheckedAt": "2026-09-17T09:55:00.000Z",
+    "notes": "Every dashboard the on-call runbook names is now a link to it."
+  }
+]
