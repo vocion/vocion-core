@@ -109,8 +109,8 @@ schema:
           type: string
           description: '`validated` — it did what it was for. `regressed` — something got worse. `inconclusive` — the soak ran but nothing moved enough to say, which is an honest answer and not a failure. Absent means nobody has looked yet.'
           enum: [validated, regressed, inconclusive]
-        checkedAt: {type: string, format: date-time, description: 'When the outcome was read. A verdict with no date cannot be told from a stale one.'}
-        soakHours: {type: number, description: 'How long it was live before the reading was taken. A verdict from ten minutes after a deploy is a smoke test wearing a verdict.'}
+        checkedAt: {type: string, format: date-time, description: When the outcome was read. A verdict with no date cannot be told from a stale one.}
+        soakHours: {type: number, description: How long it was live before the reading was taken. A verdict from ten minutes after a deploy is a smoke test wearing a verdict.}
         measures:
           type: array
           description: 'What moved, each with what it was before. A measure with no `before` is reported as unreadable rather than as flat.'

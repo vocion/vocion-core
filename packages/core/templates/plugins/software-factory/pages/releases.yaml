@@ -45,7 +45,7 @@ fields:
   # tell: did the CHANGE work. A release can be perfectly healthy and have
   # cost fifteen points of a funnel.
   - {key: health, label: Health after, from: meta.healthAfter, format: badge, tones: {ok: ok, degraded: warn, down: bad, unknown: muted}}
-  - {key: outcome, label: Outcome, from: meta.outcomeLine, format: badge, tones: {validated: ok, regressed: bad, inconclusive: muted, watching: info, 'outcome not checked': warn}}
+  - {key: outcome, label: Outcome, from: meta.outcomeLine, format: badge, tones: {validated: ok, regressed: bad, inconclusive: muted, watching: info, outcome not checked: warn}}
   - {key: measures, label: What moved, from: meta.outcomeMeasures}
   - {key: released, label: Released, from: meta.releasedAt, format: date}
   - {key: deploy, label: Deploy run, from: meta.deployRunUrl, format: link, priority: 3}
