@@ -14,7 +14,12 @@ import { computeStatChange, priorWindowRows } from './pageFields';
 const NOW = new Date('2026-09-22T12:00:00Z');
 const WINDOW: PageWindow = { field: 'meta.at', label: 'in the last', options: [30], default: 30 };
 
-/** A row `daysAgo` days before NOW, carrying `cost`. */
+/**
+ * A row `daysAgo` days before NOW, carrying `cost`.
+ * @param id
+ * @param daysAgo
+ * @param cost
+ */
 function row(id: number, daysAgo: number, cost: number): PageRow {
   return {
     id,

@@ -277,6 +277,7 @@ describe('plugin pages', () => {
       expect(stats[label]?.compare).toBe('prior');
       expect(stats[label]?.goodWhen).toBeDefined();
     }
+
     // Which way is GOOD is declared, never inferred: cost falling is good and
     // quality falling is not, and no arithmetic can tell them apart.
     expect(stats['Cost per release']?.goodWhen).toBe('down');

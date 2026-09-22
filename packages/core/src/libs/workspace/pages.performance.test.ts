@@ -205,6 +205,7 @@ describe('performance: what the page says when it has nothing to say', () => {
     // change look like a regression. What must hold is that NONE of them
     // renders blank, NaN or a dash when there is nothing to count.
     expect(rendered).toHaveLength((manifest().stats ?? []).length);
+
     for (const figure of rendered) {
       expect(figure).toMatch(/^\$?0(?:\.0+)?%?(?: ?(?:h|min))?$/);
     }
