@@ -28,6 +28,7 @@ import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitc
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { openManageView } from '@/features/dashboard/useNavView';
 import { WorkspacePauseButton } from '@/features/dashboard/WorkspaceOffSwitch';
+import { envLabel as readEnvLabel } from '@/libs/envLabel';
 import { Link } from '@/libs/I18nNavigation';
 import { buildInfo, versionLabel } from '@/libs/version';
 import { ShellBarActionsOutlet } from './ShellBarActions';
@@ -80,6 +81,9 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // `NEXT_PUBLIC_ENV_LABEL` is inlined at build time, so production ships
+  // this as a literal null and the branch disappears entirely.
+  const envLabel = readEnvLabel();
   const pct = usage && usage.capCents && usage.capCents > 0 ? Math.min(100, Math.round((usage.spentCents / usage.capCents) * 100)) : null;
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -87,6 +91,23 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
     <header className="sticky top-0 z-40 grid h-[60px] shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-3 border-b border-border/70 bg-background px-3 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
+        {/* WHICH INSTANCE THIS IS. The favicon and the page title already say
+            it, and neither survives a screenshot: a phone screenshot crops
+            the tab strip away entirely, so a preview screenshot and a
+            production screenshot were indistinguishable — which is how a dev
+            screen gets filed as a production bug, and how the reverse
+            happens, which is worse. It sits BEFORE the breadcrumb because it
+            qualifies everything after it, and it is absent in production, so
+            the presence of a badge always means something. */}
+        {envLabel !== null && (
+          <span
+            data-testid="env-badge"
+            aria-label={`This is the ${envLabel} instance, not production`}
+            className="shrink-0 rounded-md bg-amber-500 px-1.5 py-0.5 font-mono text-[10px] leading-none font-bold tracking-wide text-white uppercase"
+          >
+            {envLabel}
+          </span>
+        )}
         <Breadcrumb workspaceName={workspace?.name ?? null} />
       </div>
 
