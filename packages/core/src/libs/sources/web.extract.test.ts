@@ -151,11 +151,12 @@ describe('extractFromHtml on a show detail page', () => {
     expect(content).toContain('$31.00-$36.00');
   });
 
-  it('leads with the og:image as an absolute URL, entities decoded', () => {
-    const { content } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
+  it('declares the og:image as an absolute URL, entities decoded, and keeps it out of the text', () => {
+    const { content, structure } = extractFromHtml(DETAIL_HTML, DETAIL_URL);
 
-    expect(content.split('\n')[0]).toBe('Image: https://bellwaterhall.example/?og_img=1&pid=40405');
-    expect(content).not.toContain('og_img=1&#038;');
+    expect(structure?.ogImage).toBe('https://bellwaterhall.example/?og_img=1&pid=40405');
+    expect(structure?.ogImage).not.toContain('og_img=1&#038;');
+    expect(content).not.toContain('og_img=1');
   });
 
   it('renders a <time> as its label plus the machine-readable stamp', () => {
@@ -211,9 +212,9 @@ describe('extractFromHtml on a listing page', () => {
   });
 
   it('resolves a relative og:image and a relative card image', () => {
-    const { content } = extractFromHtml(LISTING_HTML, LISTING_URL);
+    const { content, structure } = extractFromHtml(LISTING_HTML, LISTING_URL);
 
-    expect(content).toContain('Image: https://bellwaterhall.example/wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
+    expect(structure?.ogImage).toBe('https://bellwaterhall.example/wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
     expect(content).toContain('[image: Nina Calder](https://bellwaterhall.example/wp-content/uploads/nina-calder.jpg)');
     expect(content).not.toContain('data:image');
   });
@@ -239,9 +240,9 @@ describe('extractFromHtml on a listing page', () => {
   });
 
   it('leaves relative URLs alone when no base URL is given', () => {
-    const { content } = extractFromHtml(LISTING_HTML);
+    const { content, structure } = extractFromHtml(LISTING_HTML);
 
-    expect(content).toContain('Image: /wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
+    expect(structure?.ogImage).toBe('/wp-content/uploads/2026/05/LAP-20241004-9175.jpg');
     expect(content).toContain('(/events/nina-calder/)');
     expect(content).toContain('[image: Nina Calder](/wp-content/uploads/nina-calder.jpg)');
     expect(content).not.toContain('https://bellwaterhall.example/events/nina-calder/');
@@ -371,8 +372,6 @@ const SMALL_HTML = `<!doctype html><html><head><title>T</title>
 <main><p>Hello <a href="/t">buy</a>.</p></main></body></html>`;
 
 const SMALL_CONTENT = [
-  'Image: https://ex.test/i.jpg',
-  '',
   'Hello buy (https://ex.test/t).',
   '',
   'Structured data (JSON-LD):',
@@ -380,17 +379,37 @@ const SMALL_CONTENT = [
 ].join('\n');
 
 describe('extractFromHtml, the content contract', () => {
-  it('returns exactly the text it always did', () => {
+  it('returns exactly the text the ingest hashes', () => {
     const { content } = extractFromHtml(SMALL_HTML, SMALL_URL);
 
     expect(content).toBe(SMALL_CONTENT);
   });
 
-  it('is unchanged by the structure it now also returns', () => {
+  it('is unchanged by the structure it also returns', () => {
     const { content, structure } = extractFromHtml(SMALL_HTML, SMALL_URL);
 
     expect(content).toBe(SMALL_CONTENT);
     expect(structure?.jsonLd).toBeDefined();
+    expect(structure?.ogImage).toBe('https://ex.test/i.jpg');
+  });
+
+  it('reads two fetches that differ only in the og:image URL as the same text', () => {
+    const dated = (day: string): string => SMALL_HTML.replace('content="/i.jpg"', `content="/i.jpg?v=${day}"`);
+
+    const first = extractFromHtml(dated('20260921'), SMALL_URL);
+    const second = extractFromHtml(dated('20260922'), SMALL_URL);
+
+    expect(first.content).toBe(second.content);
+    expect(first.structure?.ogImage).not.toBe(second.structure?.ogImage);
+  });
+
+  it('is empty for a page whose only content was its image', () => {
+    const imageOnly = '<!doctype html><html><head><meta property="og:image" content="/i.jpg"></head><body></body></html>';
+
+    const { content, structure } = extractFromHtml(imageOnly, SMALL_URL);
+
+    expect(content).toBe('');
+    expect(structure?.ogImage).toBe('https://ex.test/i.jpg');
   });
 });
 
