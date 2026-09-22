@@ -527,16 +527,16 @@ export function statusTone(status: string | null): Tone {
  * @param key - The section key.
  * @param title - Its heading.
  */
-function blank(key: ReportSectionKey, title: string): ReportSection {
-  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
-}
-
 /**
  * The sections that are machinery rather than story: the original ask, the
  * triage figures, the per-task contracts and the approval records. Useful,
  * traceable, and not what a person opened this page to read.
  */
 const DETAIL_SECTIONS: ReadonlySet<string> = new Set(['ask', 'triage', 'contract', 'approvals']);
+
+function blank(key: ReportSectionKey, title: string): ReportSection {
+  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
+}
 
 /**
  * Who asked, as one line: their name, else their email, else their id on the
