@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
-import { applyWindow, chosenWindow, computeStat, computeTotals, groupRows, PageManifestSchema } from './pageFields';
+import { applyWindow, chosenWindow, computeStat, PageManifestSchema } from './pageFields';
 
 /**
  * The Performance page's arithmetic, pinned.
@@ -80,8 +80,8 @@ describe('performance: a figure and the count beside it', () => {
 
   it('divides the spend on shipped work by how many shipped, not by how many carried a figure', () => {
     // The two headline numbers, and the third a reader gets by dividing them.
-    expect(computeStat(rows, statNamed('Shipped outcomes'), NOW)).toBe('9');
-    expect(computeStat(rows, statNamed('Cost per shipped outcome'), NOW)).toBe('$1.28');
+    expect(computeStat(rows, statNamed('Releases'), NOW)).toBe('9');
+    expect(computeStat(rows, statNamed('Cost per release'), NOW)).toBe('$1.28');
 
     const shippedSpend = rows
       .filter(r => r.meta.state === 'shipped')
@@ -94,25 +94,34 @@ describe('performance: a figure and the count beside it', () => {
   });
 
   it('would have printed the old, unreconcilable $1.44 had the stat stayed an average', () => {
-    const asAverage: PageStat = { ...statNamed('Cost per shipped outcome'), kind: 'avg' };
+    const asAverage: PageStat = { ...statNamed('Cost per release'), kind: 'avg' };
 
     // Eight of the nine shipped rows carry a cost: $11.50 over EIGHT is
     // $1.44, beside a 9, the exact number nobody could reproduce.
     expect(computeStat(rows, asAverage, NOW)).toBe('$1.44');
-    expect(computeStat(rows, statNamed('Cost per shipped outcome'), NOW)).not.toBe('$1.44');
+    expect(computeStat(rows, statNamed('Cost per release'), NOW)).not.toBe('$1.44');
   });
 
-  it('keeps the money additive: every group holds each request once and the totals sum to the page total', () => {
-    const groups = groupRows(rows, manifest().groupBy!);
-    const fields = manifest().fields!;
-    const perGroup = groups.map(g => ({ label: g.label, n: g.rows.length, actual: computeTotals(g.rows, fields).actual }));
-    const total = rows.reduce((a, r) => a + ((r.meta.actualCents as number | undefined) ?? 0), 0);
+  it('is its figures, and does not list the requests behind them', () => {
+    // Listing every request made this a second Backlog — the same rows, in a
+    // worse order, under headings that were not about them. The rows are
+    // Backlog's and Factory log's; the source stays, because the figures are
+    // computed from it.
+    expect(manifest().showRows).toBe(false);
+    expect(manifest().source).toMatchObject({ kind: 'objects', objectType: 'request' });
+  });
 
-    expect(perGroup.reduce((a, g) => a + g.n, 0)).toBe(rows.length);
-    expect(perGroup.find(g => g.label === 'shipped')?.actual).toBe('$11.50');
-    expect(perGroup.find(g => g.label === 'building')?.actual).toBe('$24.12');
-    // $11.50 shipped + $24.12 in flight = $35.62, the whole of it, once.
-    expect(total).toBe(3562);
+  it('divides every per-release figure by the same denominator', () => {
+    // One canonical unit. A reader who divides any two of these figures has
+    // to get the third, which is only true while they all count releases.
+    const released = computeStat(rows, statNamed('Releases'), NOW);
+    const perRelease = computeStat(rows, statNamed('Cost per release'), NOW);
+
+    expect(released).toBe('9');
+    expect(perRelease).toBe('$1.28');
+    // $11.50 of measured spend over 9 releases is $1.28 each.
+    expect(rows.filter(r => r.meta.state === 'shipped')
+      .reduce((a, r) => a + ((r.meta.actualCents as number | undefined) ?? 0), 0)).toBe(1150);
   });
 
   it('every stat with a note says what it counts, so no methodology paragraph has to', () => {
@@ -162,8 +171,8 @@ describe('performance: one window, obeyed', () => {
     expect(applyWindow(all, manifest().window, 30, NOW)).toHaveLength(all.length - 1);
     expect(applyWindow(all, manifest().window, 'all', NOW)).toHaveLength(all.length);
     // The 400-day-old request is $50 of spend on one more shipped outcome.
-    expect(computeStat(applyWindow(all, manifest().window, 'all', NOW), statNamed('Shipped outcomes'), NOW)).toBe('10');
-    expect(computeStat(applyWindow(all, manifest().window, 'all', NOW), statNamed('Cost per shipped outcome'), NOW)).toBe('$6.15');
+    expect(computeStat(applyWindow(all, manifest().window, 'all', NOW), statNamed('Releases'), NOW)).toBe('10');
+    expect(computeStat(applyWindow(all, manifest().window, 'all', NOW), statNamed('Cost per release'), NOW)).toBe('$6.15');
   });
 
   it('refuses a window the page does not offer, and honours the ones it does', () => {
@@ -191,18 +200,14 @@ describe('performance: what the page says when it has nothing to say', () => {
     const empty: PageRow[] = [];
     const rendered = (manifest().stats ?? []).map(s => computeStat(empty, s, NOW));
 
-    expect(rendered).toEqual([
-      '0',
-      '0 h',
-      '$0.00',
-      '0 min',
-      '0%',
-      '$0.00',
-      '0',
-      '0',
-      '0',
-      '0',
-    ]);
+    // Asserted as a property, not an ordered list: the page's stats change
+    // shape as the reading is argued with, and a fixed array made every such
+    // change look like a regression. What must hold is that NONE of them
+    // renders blank, NaN or a dash when there is nothing to count.
+    expect(rendered).toHaveLength((manifest().stats ?? []).length);
+    for (const figure of rendered) {
+      expect(figure).toMatch(/^\$?0(?:\.0+)?%?(?: ?(?:h|min))?$/);
+    }
 
     for (const value of rendered) {
       expect(value).not.toMatch(/NaN|Infinity|undefined|null/);
@@ -212,20 +217,20 @@ describe('performance: what the page says when it has nothing to say', () => {
   it('still draws each section, so an empty quality section reads as zero rather than as absent', () => {
     const groups = [...new Set((manifest().stats ?? []).map(s => s.group ?? null))];
 
-    expect(groups).toEqual([null, 'Quality', 'What autonomy saved']);
+    expect(groups).toEqual([null, 'Human involvement', 'Needs attention']);
   });
 });
 
 describe('performance: cycle time is measured, never invented', () => {
   it('takes the median over the requests that carry both ends, and leaves the rest out', () => {
     // Of the nine shipped, seven have an ask date and a ship date.
-    expect(computeStat(applyWindow(liveLikeRows(), manifest().window, 30, NOW), statNamed('Ask to ship, median'), NOW)).toBe('2 h');
+    expect(computeStat(applyWindow(liveLikeRows(), manifest().window, 30, NOW), statNamed('Speed to release'), NOW)).toBe('2 h');
   });
 
   it('is zero, not a guess, when nothing can be measured at all', () => {
     const noDates = [row(1, { state: 'shipped', actualCents: 100 })];
 
-    expect(computeStat(noDates, statNamed('Ask to ship, median'), NOW)).toBe('0 h');
+    expect(computeStat(noDates, statNamed('Speed to release'), NOW)).toBe('0 h');
   });
 
   it('will not count a ship that precedes its ask', () => {
@@ -234,21 +239,26 @@ describe('performance: cycle time is measured, never invented', () => {
       row(2, { state: 'shipped', askedAt: '2026-09-20T00:00:00Z', shippedAt: '2026-09-20T04:00:00Z' }),
     ];
 
-    expect(computeStat(backwards, statNamed('Ask to ship, median'), NOW)).toBe('4 h');
+    expect(computeStat(backwards, statNamed('Speed to release'), NOW)).toBe('4 h');
   });
 });
 
 describe('performance: autonomy stated as outcomes, not as a blend', () => {
   const rows = applyWindow(liveLikeRows(), manifest().window, 30, NOW);
 
-  it('counts the outcomes nobody had to decide, and the ones somebody did', () => {
-    expect(computeStat(rows, statNamed('Outcomes reached with no human decision'), NOW)).toBe('10');
-    expect(computeStat(rows, statNamed('Outcomes that needed one'), NOW)).toBe('1');
-    expect(computeStat(rows, statNamed('Still waiting on a person'), NOW)).toBe('1');
+  it('states autonomy as the share it reached without anyone, over one denominator', () => {
+    // Three raw counters asked a reader to divide in their head and left the
+    // denominator ambiguous. It is a share of everything that reached an
+    // outcome: 10 of 11.
+    expect(computeStat(rows, statNamed('Released without you'), NOW)).toBe('90.9%');
+    expect(computeStat(rows, statNamed('Waiting on you now'), NOW)).toBe('1');
   });
 
-  it('never averages the two into one percentage', () => {
-    expect((manifest().stats ?? []).some(s => /^autonomy$/i.test(s.label))).toBe(false);
-    expect((manifest().stats ?? []).filter(s => s.group === 'What autonomy saved').every(s => s.kind === 'countWhere')).toBe(true);
+  it('keeps what is waiting as a live count, not a windowed one', () => {
+    // "Waiting on you now" is the queue autonomy is meant to shrink. Scoping
+    // it to a window would hide anything that has been waiting longer than
+    // the window, which is precisely the part worth seeing.
+    expect(statNamed('Waiting on you now').lifetime).toBe(true);
+    expect(statNamed('Released without you').compare).toBe('prior');
   });
 });

@@ -25,6 +25,7 @@ import {
   chosenWindow,
   computeSeries,
   computeStat,
+  computeStatChange,
   groupRows,
   isZeroFigure,
   pagePlugin,
@@ -550,7 +551,15 @@ export default async function WorkspacePage(props: {
   // declared itself `lifetime`; either way, `hideWhenZero` still drops a
   // figure that came out to nothing.
   const statCards = (manifest.stats ?? [])
-    .map(s => ({ stat: s, value: computeStat(s.lifetime ? rows : windowed, s, new Date(now)) }))
+    .map(s => ({
+      stat: s,
+      value: computeStat(s.lifetime ? rows : windowed, s, new Date(now)),
+      // A figure that opted into `compare` is computed again over the period
+      // before it. `rows` and not `windowed`: the prior period lives OUTSIDE
+      // the chosen window, so handing it the windowed set would compare the
+      // period against nothing every time.
+      change: s.lifetime ? null : computeStatChange(rows, s, manifest.window, days, new Date(now)),
+    }))
     .filter(({ stat, value }) => !(stat.hideWhenZero && isZeroFigure(value)));
   for (const card of statCards) {
     stats[card.stat.label] = card.value;
@@ -658,18 +667,47 @@ export default async function WorkspacePage(props: {
             id={gi === 0 ? 'wsx-stats' : undefined}
             className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-4"
           >
-            {g.cards.map(({ stat: s, value }) => (
+            {g.cards.map(({ stat: s, value, change }) => (
               <div key={s.label} className="bg-background p-4">
-                <div className="font-mono text-2xl font-semibold tabular-nums">{value}</div>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-mono text-2xl font-semibold tabular-nums">{value}</span>
+                  {/* The direction, where the stat asked for one. A figure on
+                      its own is nearly unreadable — "$1.28 per release" says
+                      almost nothing, "$1.28 ↓ 38%" says the thing a reader
+                      came for. Colour only where the page declared which way
+                      is GOOD: cost falling is good, quality falling is not,
+                      and arithmetic cannot tell them apart. */}
+                  {change?.percent !== null && change !== null && change.direction !== 'flat' && (
+                    <span
+                      data-testid={`stat-change-${s.label}`}
+                      className={`font-mono text-xs tabular-nums ${
+                        change.good === null
+                          ? 'text-muted-foreground'
+                          : change.good
+                            ? 'text-[var(--brand-ok,#15803d)]'
+                            : 'text-[var(--brand-fail,#b91c1c)]'
+                      }`}
+                    >
+                      {change.direction === 'up' ? '↑' : '↓'}
+                      {' '}
+                      {Math.abs(Math.round(change.percent))}
+                      %
+                    </span>
+                  )}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">{s.label}</div>
-                {s.note && (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer text-[11px] text-muted-foreground/70 hover:text-foreground">
-                      What this counts
-                    </summary>
-                    <p className="mt-1 text-xs text-muted-foreground">{s.note}</p>
-                  </details>
+                {change && change.percent !== null && (
+                  <div className="mt-0.5 text-[11px] text-muted-foreground/70">
+                    {`was ${change.prior}`}
+                  </div>
                 )}
+                {/* "What this counts" no longer sits under every figure.
+                    A page that explains each of its own numbers inline reads
+                    as a system describing itself rather than a product
+                    stating a fact, and it buried the figures under prose on a
+                    phone. The note stays on the stat as DATA — it is what a
+                    methodology page is written from, and what a test asserts
+                    every figure can answer — it simply is not lecture. */}
               </div>
             ))}
           </div>
@@ -708,7 +746,7 @@ export default async function WorkspacePage(props: {
         </p>
       )}
 
-      {manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && (() => {
+      {manifest.showRows && manifest.archetype !== 'markdown' && manifest.archetype !== 'report' && manifest.archetype !== 'overview' && (() => {
         const Rows = manifest.layout === 'block' ? PageBlocks : PageTable;
         // Tabs are the groups, so the panel never draws the group's heading
         // again inside itself, and the lane's note rides on the panel rather

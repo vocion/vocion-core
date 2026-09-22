@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PageManifestSchema, pagePlugin, readWorkspacePageContent, readWorkspacePageMethodology, readWorkspacePages } from './pages';
+import { PageManifestSchema, pagePlugin, readWorkspacePageContent, readWorkspacePages } from './pages';
 
 // Plugin pages ride the same loader as workspace pages: an enabled plugin's
 // pages/ dir joins the list, a same-slug workspace page wins, and prose is
@@ -246,72 +246,67 @@ describe('plugin pages', () => {
     expect(releases?.nav.hidden).toBe(true);
   });
 
-  it('Performance leads with four numbers, and its cost figure reconciles against the count beside it', () => {
+  it('Performance answers one question, in four numbers that each carry their direction', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const perf = pages.find(p => p.slug === 'performance');
-    const fields = Object.fromEntries((perf?.fields ?? []).map(f => [f.key, f]));
     const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
     const headline = (perf?.stats ?? []).filter(s => s.group === undefined).map(s => s.label);
 
     expect(issues).toEqual([]);
-    // Rows are requests; the figures are rolled up onto the record when a
-    // task's cost is written, so the page never computes across types.
     expect(perf?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(fields.actual).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
-    expect(fields.rework).toMatchObject({ from: 'meta.reworkCents', format: 'money', total: true });
+    // It is its figures. Listing the requests under them made it a second
+    // Backlog — the same rows, in a worse order, under headings that were not
+    // about them. The source stays, because the figures come from it.
+    expect(perf?.showRows).toBe(false);
+    expect(perf?.fields ?? []).toEqual([]);
 
-    // FOUR headline numbers, in order, and nothing else ungrouped: output,
-    // speed, economics, human load.
+    // FOUR headline numbers: are we shipping faster, is quality holding, is
+    // it costing less, does it need less of me.
     expect(headline).toEqual([
-      'Shipped outcomes',
-      'Ask to ship, median',
-      'Cost per shipped outcome',
-      'Decision minutes asked of a person',
+      'Speed to release',
+      'Cost per release',
+      'Accepted first pass',
+      'Human time per release',
     ]);
 
-    // The cost figure and the count above it are over the SAME pool, which is
-    // what makes the page survive a reader dividing one by the other. `avg`
-    // would divide by however many rows carried a figure instead.
-    expect(stats['Cost per shipped outcome']).toMatchObject({
+    // Every one of them carries its DIRECTION. A figure alone is nearly
+    // unreadable: "$1.28 per release" says almost nothing against "$1.28,
+    // down 38%".
+    for (const label of headline) {
+      expect(stats[label]?.compare).toBe('prior');
+      expect(stats[label]?.goodWhen).toBeDefined();
+    }
+    // Which way is GOOD is declared, never inferred: cost falling is good and
+    // quality falling is not, and no arithmetic can tell them apart.
+    expect(stats['Cost per release']?.goodWhen).toBe('down');
+    expect(stats['Accepted first pass']?.goodWhen).toBe('up');
+
+    // One canonical unit. A reader who divides any two figures gets a third,
+    // which is only true while they all count releases.
+    expect(stats['Cost per release']).toMatchObject({
       kind: 'ratio',
       field: 'meta.actualCents',
       format: 'money',
       where: { field: 'meta.state', op: 'eq', value: 'shipped' },
     });
-    expect(stats['Cost per shipped outcome']?.of).toBeUndefined();
-    expect(stats['Shipped outcomes']).toMatchObject({
-      kind: 'countWhere',
-      where: { field: 'meta.state', op: 'eq', value: 'shipped' },
-    });
+    // "Outcome" is abstract AI language; release is software language. It is
+    // gone from every LABEL — the notes may still use the word in prose where
+    // they are describing something that is genuinely not a release.
+    expect((perf?.stats ?? []).map(s => s.label).join(' ')).not.toMatch(/outcome/i);
 
-    // An honest answer is not waste. Nothing on this page charges spend for
-    // reaching the `answered` outcome, and rework is the figure that replaced
-    // it.
+    // An honest answer is not waste, and rework is still the figure that
+    // replaced it — now under Needs attention, hidden while it is zero.
     expect(Object.keys(stats).some(l => /waste/i.test(l))).toBe(false);
-    expect(stats['Rework spend']).toMatchObject({ kind: 'sum', field: 'meta.reworkCents', format: 'money' });
+    expect(stats['Rework spend']).toMatchObject({ kind: 'sum', field: 'meta.reworkCents', format: 'money', hideWhenZero: true });
+    expect(stats['Defects reported']?.hideWhenZero).toBe(true);
     expect(JSON.stringify(perf?.stats)).not.toContain('"value":"answered"');
 
-    // Quality is its own section of three, and autonomy is stated as counts
-    // of outcomes rather than blended into a percentage.
-    expect((perf?.stats ?? []).filter(s => s.group === 'Quality').map(s => s.label)).toEqual([
-      'Accepted first pass',
-      'Rework spend',
-      'Defects reported',
-    ]);
-    expect((perf?.stats ?? []).filter(s => s.group === 'What autonomy saved')).toHaveLength(3);
-    expect(Object.keys(stats).some(l => /^Autonomy$/.test(l))).toBe(false);
-
-    // Tags are a filter, not a section: grouping by them double counts, since
-    // one request carries several and its money lands under each.
-    expect(perf?.groupBy).toBe('meta.state');
-    expect(fields.tags).toMatchObject({ from: 'meta.tags' });
-
-    // One window the whole page obeys, and the methodology is behind an
-    // affordance rather than above the numbers.
-    expect(perf?.window).toMatchObject({ field: 'createdAt', options: [7, 30, 90], default: 30 });
-    expect(readWorkspacePageMethodology(perf!)).toContain('Rework, not waste');
-    expect(readWorkspacePageContent(perf!)).not.toContain('estimated');
+    // Every figure still says what it counts — as DATA the methodology page
+    // is written from, not as a paragraph under each tile.
+    for (const s of perf?.stats ?? []) {
+      expect(s.note, `${s.label} has no note`).toBeTruthy();
+    }
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

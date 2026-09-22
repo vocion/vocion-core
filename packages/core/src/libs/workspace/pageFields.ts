@@ -286,6 +286,26 @@ const StatSchema = z.object({
   /** Optional suffix, e.g. "%" or "applicants". */
   suffix: z.string().optional(),
   /**
+   * Show this figure against the period immediately before it.
+   *
+   * A number on its own is nearly unreadable: `$1.28 per release` says almost
+   * nothing, while `$1.28 ↓ 38%` says the thing a reader came for. So a stat
+   * that opts in is computed twice — over the chosen window, and over the
+   * window of the same length ending where it began — and carries the change
+   * between them.
+   *
+   * Needs the page to declare a `window`: without one there is no period, and
+   * therefore no prior period to compare against.
+   */
+  compare: z.enum(['prior']).optional(),
+  /**
+   * Which direction is GOOD, for a stat that compares. Cost falling is good
+   * and quality falling is not, and no amount of arithmetic can tell them
+   * apart — the page has to say. Left out, the change is shown without a
+   * judgement attached.
+   */
+  goodWhen: z.enum(['up', 'down']).optional(),
+  /**
    * `money` reads the figure as cents and shows dollars, the way a `money`
    * field does; `percent` reads a `ratio` as a share and shows it as one.
    */
@@ -834,6 +854,16 @@ export const PageManifestSchema = z.object({
    * default. See {@link ViewSchema}.
    */
   views: z.array(ViewSchema).min(2).max(8).optional(),
+  /**
+   * Whether the rows themselves are drawn under the figures.
+   *
+   * An analytics page is its figures; the records behind them are somebody
+   * else's page. Performance listing every request turned it into a second
+   * backlog — the same rows Backlog already owns, in a worse order, under
+   * headings that were not about them. A page that says `false` keeps its
+   * source (the figures are computed from it) and links out instead.
+   */
+  showRows: z.boolean().default(true),
   groupBy: z.string().optional(),
   /**
    * How {@link groupBy}'s groups are drawn: stacked `sections` down one page,
@@ -1203,6 +1233,20 @@ function elapsedHours(rows: PageRow[], stat: PageStat): number[] {
  * @param now - The clock, for `since` filters.
  */
 export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Date()): string {
+  return renderFigure(statValue(rows, stat, now), stat.format, stat.suffix);
+}
+
+/**
+ * The stat as a NUMBER, before it is formatted.
+ *
+ * Split out of {@link computeStat} so a period comparison can divide one
+ * period's figure by another's. Formatting is the last thing that happens to
+ * a figure, and a delta has to be computed before it.
+ * @param rows - The rows in scope.
+ * @param stat - The stat declaration.
+ * @param now - The clock.
+ */
+export function statValue(rows: PageRow[], stat: PageStat, now: Date = new Date()): number {
   const pool = applyFilter(rows, filtersOf(stat.where), now);
   const nums = numbersOf(pool, stat.field);
   let value: number;
@@ -1230,7 +1274,79 @@ export function computeStat(rows: PageRow[], stat: PageStat, now: Date = new Dat
     default:
       value = aggregate(stat.kind, pool, nums);
   }
-  return renderFigure(value, stat.format, stat.suffix);
+  return value;
+}
+
+/** A figure beside the one before it. */
+export type StatChange = {
+  /** The figure for the chosen window, formatted. */
+  value: string;
+  /** The same figure for the window before it, formatted. */
+  prior: string;
+  /** Percent change, or null when the prior period was zero or unmeasurable. */
+  percent: number | null;
+  /** Which way it moved. */
+  direction: 'up' | 'down' | 'flat';
+  /** Whether the move is the good one, where the stat said which way is good. */
+  good: boolean | null;
+};
+
+/**
+ * The rows of the period immediately BEFORE the chosen window: the same span,
+ * ending where the window begins.
+ *
+ * Not "everything older" — a thirty-day figure has to be compared with thirty
+ * days, or a factory that has been running for a year will always look like
+ * it is improving.
+ * @param rows - Every row the page loaded.
+ * @param window - The page's window declaration.
+ * @param days - The chosen span in days.
+ * @param now - The clock.
+ */
+export function priorWindowRows(rows: PageRow[], window: PageWindow, days: number, now: Date = new Date()): PageRow[] {
+  const end = now.getTime() - days * 86_400_000;
+  const start = end - days * 86_400_000;
+  return rows.filter((r) => {
+    const d = toDate(resolveField(r, window.field));
+    return d !== null && d.getTime() >= start && d.getTime() < end;
+  });
+}
+
+/**
+ * A stat and the same stat one period earlier.
+ *
+ * `$1.28 per release` is nearly unreadable on its own; `$1.28 ↓ 38%` is the
+ * thing a reader came for. Returns null when the page declares no window, or
+ * the reader chose `all`, because then there is no period and so no prior one.
+ * @param all - Every row the page loaded, BEFORE the window was applied.
+ * @param stat - The stat declaration.
+ * @param window - The page's window declaration.
+ * @param days - The chosen span, or `all`.
+ * @param now - The clock.
+ */
+export function computeStatChange(
+  all: PageRow[],
+  stat: PageStat,
+  window: PageWindow | undefined,
+  days: number | 'all',
+  now: Date = new Date(),
+): StatChange | null {
+  if (stat.compare !== 'prior' || !window || days === 'all') {
+    return null;
+  }
+  const nowValue = statValue(applyWindow(all, window, days, now), stat, now);
+  const priorValue = statValue(priorWindowRows(all, window, days, now), stat, now);
+  // A prior period of zero cannot produce a percentage — "up from nothing" is
+  // infinite, not 100%. The figures are still shown; only the change is not.
+  const percent = priorValue === 0 ? null : ((nowValue - priorValue) / Math.abs(priorValue)) * 100;
+  const direction = nowValue === priorValue ? 'flat' : nowValue > priorValue ? 'up' : 'down';
+  return {
+    value: renderFigure(nowValue, stat.format, stat.suffix),
+    prior: renderFigure(priorValue, stat.format, stat.suffix),
+    percent,
+    direction,
+    good: stat.goodWhen === undefined || direction === 'flat' ? null : direction === stat.goodWhen,
+  };
 }
 
 /**
