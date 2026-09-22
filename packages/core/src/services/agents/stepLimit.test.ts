@@ -17,7 +17,7 @@ import { createDeepAgent } from 'deepagents';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { AgentManifestSchema } from '@/libs/workspace/schemas';
-import { isStepLimitError, stepLimitMessage, stepLimitStreamConfig } from './stepLimit';
+import { describeTurnFailure, isStepLimitError, stepLimitStreamConfig } from './stepLimit';
 
 /**
  * A chat model that asks for `next_lead` a set number of times, then answers.
@@ -116,13 +116,32 @@ describe('harness.maxSteps on a real deepagents graph', () => {
   });
 });
 
-describe('stepLimitMessage', () => {
-  it('names the limit and the setting the author can change', () => {
-    const message = stepLimitMessage(200, 'steps');
+describe('describeTurnFailure', () => {
+  it('rewords a real step-limit stop and keeps LangGraph\'s error as the cause', async () => {
+    const graphError = await runGraphTurn(new ScriptedLeadModel(Number.POSITIVE_INFINITY), 6);
 
-    expect(message).toContain('200 steps');
-    expect(message).toContain('maxSteps');
+    const { message, rethrow } = describeTurnFailure(graphError, 6);
+
+    expect(message).toContain('stopped after 6 steps');
+    expect(message).toContain('ask an admin');
     expect(message).not.toContain('Recursion limit');
+    expect((rethrow as Error).message).toBe(message);
+    expect((rethrow as Error).cause).toBe(graphError);
+  });
+
+  it('names deepagents\' own limit when the agent set none', () => {
+    const graphError = Object.assign(new Error('Recursion limit of 10000 reached'), { name: 'GraphRecursionError' });
+
+    expect(describeTurnFailure(graphError, undefined).message).toContain('stopped after 10000 steps');
+  });
+
+  it('passes any other failure through untouched', () => {
+    const toolFailure = new Error('HubSpot returned 503');
+
+    const { message, rethrow } = describeTurnFailure(toolFailure, 6);
+
+    expect(message).toBe('HubSpot returned 503');
+    expect(rethrow).toBe(toolFailure);
   });
 });
 

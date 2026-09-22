@@ -20,7 +20,7 @@ import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
 import { labelStep } from './agents/stepLabeler';
-import { DEEPAGENTS_DEFAULT_STEPS, isStepLimitError, stepLimitMessage, stepLimitStreamConfig } from './agents/stepLimit';
+import { describeTurnFailure, stepLimitStreamConfig } from './agents/stepLimit';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 
@@ -852,12 +852,8 @@ export async function runAgentDeep(opts: {
       await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
     }
   } catch (err) {
-    // LangGraph's own wording names a library setting the author never wrote;
-    // the step-limit message names the one they can change.
-    const stoppedAtStepLimit = isStepLimitError(err);
-    const message = stoppedAtStepLimit
-      ? stepLimitMessage(maxSteps ?? DEEPAGENTS_DEFAULT_STEPS, 'steps')
-      : (err as Error).message ?? 'agent run failed';
+    // A step-limit stop is reworded for the person; anything else keeps its own message.
+    const { message, rethrow } = describeTurnFailure(err, maxSteps);
     // The run died. Close anything still open as a FAILURE first, so the
     // persisted trace carries a terminal node instead of stopping at
     // "Delegating to <specialist>" — the exact trace this turn used to leave.
@@ -880,7 +876,7 @@ export async function runAgentDeep(opts: {
     emit({ type: 'error', message });
     trace.update({ output: { error: message } });
     await flushTraces();
-    throw stoppedAtStepLimit ? new Error(message, { cause: err }) : err;
+    throw rethrow;
   }
 
   // Release any held-back tail (partial-tag boundary) from the streamer. A

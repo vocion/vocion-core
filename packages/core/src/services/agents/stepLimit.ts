@@ -13,6 +13,13 @@
  * One model call followed by the tool calls it asked for is about two steps,
  * and tool calls made in parallel share one. The AWS-managed harness counts
  * tool rounds instead — one model call plus its tools — so it gets half.
+ *
+ * It is a limit per graph run, not a budget for the whole turn. A subagent
+ * started through the `task` tool inherits the same `recursionLimit` but
+ * counts from zero on every call, so a lead with `maxSteps: 200` that
+ * delegates five times can take up to 200 steps of its own plus 200 in each
+ * delegation. What it guarantees is that no single loop, lead or specialist,
+ * runs past the number.
  */
 
 /**
@@ -70,12 +77,33 @@ export function isStepLimitError(error: unknown): boolean {
  * The words the person sees when a turn is stopped at its step limit.
  *
  * Replaces LangGraph's "Recursion limit of N reached without hitting a stop
- * condition", which names a library setting the author never wrote. This one
- * names the setting they can change.
+ * condition", which names a library setting nobody wrote. The person reading
+ * it is usually chatting with the agent, not the one who configured it, so it
+ * says what happened first and points at an admin for the fix, naming the
+ * setting so the admin knows where to look.
  * @param limit - The limit that tripped, in the unit its provider counts.
  * @param unit - `steps` for the deepagents loops, `tool rounds` for AgentCore.
  */
 export function stepLimitMessage(limit: number, unit: 'steps' | 'tool rounds'): string {
   return `This agent stopped after ${limit} ${unit} without finishing its answer. `
-    + 'Raise `maxSteps` in the agent\'s harness block if its work needs more.';
+    + 'Try a narrower request, or ask an admin to raise the agent\'s step limit (`maxSteps`).';
+}
+
+/**
+ * What a failed deepagents turn reports, and what it rethrows.
+ *
+ * A step-limit stop gets the plain message and a new error carrying it, with
+ * LangGraph's original as `cause` so a caller that walks causes (mission task
+ * failures do) still finds it. Any other failure keeps its own message and is
+ * rethrown untouched.
+ * @param error - Anything caught from `streamEvents`.
+ * @param maxSteps - The agent's `harness.maxSteps`, if it set one.
+ * @returns The message for the `error` event and trace, and the error to throw.
+ */
+export function describeTurnFailure(error: unknown, maxSteps: number | undefined): { message: string; rethrow: unknown } {
+  if (isStepLimitError(error)) {
+    const message = stepLimitMessage(maxSteps ?? DEEPAGENTS_DEFAULT_STEPS, 'steps');
+    return { message, rethrow: new Error(message, { cause: error }) };
+  }
+  return { message: (error as Error | undefined)?.message ?? 'agent run failed', rethrow: error };
 }

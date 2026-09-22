@@ -34,7 +34,7 @@ export function turnFailureMessage(error: unknown, maxSteps: number | undefined)
   if (error instanceof Error && error.name === 'GraphRecursionError') {
     const limit = maxSteps ?? DEEPAGENTS_DEFAULT_STEPS;
     return `This agent stopped after ${limit} steps without finishing its answer. `
-      + 'Raise `maxSteps` in the agent\'s harness block if its work needs more.';
+      + 'Try a narrower request, or ask an admin to raise the agent\'s step limit (`maxSteps`).';
   }
   return (error as Error | undefined)?.message ?? 'agent run failed';
 }
