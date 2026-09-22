@@ -46,7 +46,7 @@
 # the requests that name it.
 slug: products
 title: Products
-description: Every product, where it is in its life, whether it is healthy, what we charge against the incumbent, and what last shipped.
+description: How are my products doing?
 icon: layout-dashboard
 nav: {section: Software factory, order: 1}
 archetype: list
@@ -61,9 +61,18 @@ stats:
   - {label: Live, kind: countWhere, where: {field: meta.stage, op: eq, value: live}}
   - {label: In dogfood, kind: countWhere, where: {field: meta.stage, op: eq, value: dogfood}}
   - {label: Down or degraded, kind: countWhere, where: {field: meta.health, op: in, value: [down, degraded]}}
+# Every field is in the subtitle on purpose. A block draws its remaining
+# fields as a definition list with an uppercase heading over each value —
+# OUR PRICE, LAST SHIPPED, OPEN WORK — which asks a reader past five labels
+# to reach five values, and filled a phone screen with two products. In the
+# subtitle they read as one line of facts under the name.
+#
+# The order is the order the questions get asked: is it alive (stage,
+# health), who owns it, what does it cost against the incumbent, when did it
+# last reach production, and how much is queued.
 primary:
   field: title
-  subtitle: [stage, health, owner]
+  subtitle: [stage, health, owner, price, lastRelease, open]
 fields:
   - {key: title, label: Product}
   - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
@@ -85,8 +94,11 @@ fields:
     from: meta.ourPrice
     format: compare
     beside: {from: meta.incumbent.listPrice, labelFrom: meta.incumbent.name, checkedFrom: meta.incumbent.checkedOn}
-  - key: lastShipped
-    label: Last shipped
+  # "Last shipped" is internal factory language. "Last release" is what a
+  # person running a product says, and the release itself is the thing they
+  # would open to see what changed.
+  - key: lastRelease
+    label: Last release
     from: meta.lastShipped
     caption: {from: meta.lastReleaseAt, format: relative}
   - key: open
@@ -94,9 +106,11 @@ fields:
     from: meta.openRequests
     format: workload
     workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.p1Open, urgentLabel: urgent}
-  # Only on a row whose figures have gone stale, and when none have, the
-  # field is empty on every row and the page drops it.
-  - {key: updated, label: Counters last recomputed, from: meta.countersUpdatedAt, format: relative, staleAfterHours: 24}
+  # Only on a row whose figures have gone STALE. "Counters last recomputed"
+  # is never primary card content: on a healthy row it is noise competing
+  # with the figures it describes, so when nothing is stale the field is
+  # empty on every row and the page drops it entirely.
+  - {key: updated, label: Recomputed, from: meta.countersUpdatedAt, format: relative, staleAfterHours: 24, detail: true}
 # No app and site columns. Where a product lives is not one of the six things
 # a person walking to the kitchen needs; it is on the product record, one tap
 # away, with everything else about it.

@@ -234,6 +234,37 @@ describe('plugin pages', () => {
     expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]);
   });
 
+  it('Products reads as a product card, not as a document', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const products = pages.find(p => p.slug === 'products');
+
+    // The page answers one question, and says so in one line rather than in a
+    // paragraph explaining itself.
+    expect(products?.description).toBe('How are my products doing?');
+
+    // EVERY field sits in the subtitle. A block draws its remaining fields as
+    // a definition list with an uppercase heading over each value — OUR
+    // PRICE, LAST SHIPPED, OPEN WORK — which asks a reader past five labels
+    // to reach five values, and filled a phone screen with two products.
+    const drawn = (products?.fields ?? []).filter(f => !f.detail).map(f => f.key);
+    const subtitle = products?.primary?.subtitle ?? [];
+
+    expect(subtitle).toEqual(['stage', 'health', 'owner', 'price', 'lastRelease', 'open']);
+    for (const key of drawn) {
+      expect(key === products?.primary?.field || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
+    }
+
+    // "Last shipped" is internal factory language; a person running a product
+    // says "last release", and the release is the thing they would open.
+    expect(drawn).toContain('lastRelease');
+    expect(drawn).not.toContain('lastShipped');
+
+    // Freshness is never primary card content. It is `detail`, and on a
+    // healthy row it is empty and the page drops it entirely.
+    expect((products?.fields ?? []).find(f => f.key === 'updated')?.detail).toBe(true);
+  });
+
   it('Products is the one product page, and says where its counters came from', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
