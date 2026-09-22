@@ -772,6 +772,27 @@ describe('what this piece of work cost', () => {
   });
 });
 
+describe('the goal, when the body opens with a label', () => {
+  const withBody = (body: string) => {
+    const base = input({});
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body } } });
+  };
+
+  it('says nothing rather than printing a label with a stray numeral', () => {
+    // The real body on the Stamp rename. Its first full stop is inside "1.",
+    // so the sentence rule kept it and the subtitle read
+    // "Acceptance criteria — each one a person can check: 1."
+    const report = withBody('Acceptance criteria — each one a person can check: 1. Every screen shows Stamp. 2. Old links resolve.');
+
+    expect(report.goal).toBeNull();
+  });
+
+  it('still takes a real opening sentence', () => {
+    expect(withBody('Launch as Stamp without breaking links. 1. Every screen shows Stamp.').goal)
+      .toBe('Launch as Stamp without breaking links.');
+  });
+});
+
 describe('build reads as a story', () => {
   const run = (id: number, at: string) => ({ id, kind: 'worker', status: 'completed', attempt: null, agentSlug: 'eng', model: 'm', cents: 10, createdAt: new Date(at), claimedAt: new Date(at), completedAt: new Date(at), summary: null, error: null, meta: {} }) as never;
 
