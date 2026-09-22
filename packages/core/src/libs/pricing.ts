@@ -18,6 +18,26 @@
  * cards under decorated ids (`us.anthropic.claude-sonnet-4-6`), so
  * lookups fall back to `canonicalModelId()`; see it for why the
  * decoration carries no price of its own.
+ *
+ * EVERY NUMBER HERE IS HAND-COPIED FROM A VENDOR PAGE AND NOTHING NOTICES
+ * WHEN ONE GOES STALE. A rate that drifts is invisible: spend still looks
+ * precise, budgets still enforce, and every figure is quietly wrong. That
+ * is vocion-core#540, which owns the fix — recorded source dates in the
+ * data, a staleness check that fails the build, and a decision on whether
+ * either vendor publishes a machine-readable price list.
+ *
+ * The cache rates are the newest and least-verified part of the table, so
+ * expect them to move first. Two things to know before trusting them:
+ *
+ *   - `cacheReadCentsPerMillion` is a real per-model number, read off the
+ *     page at the date above.
+ *   - `cacheWriteCentsPerMillion` is set on NO model today. Every write
+ *     prices through the hardcoded 1.25x multiplier below, which is the
+ *     Anthropic/Bedrock five-minute figure applied to every vendor in the
+ *     table. It happens to be harmless right now only because no OpenAI
+ *     path reports `cacheWriteTokens` at all — the first one that does
+ *     will be priced at Anthropic's multiplier unless a real rate lands
+ *     here first.
  */
 
 export type PricingTier = {
@@ -31,6 +51,10 @@ export type PricingTier = {
    * USD cents per 1M cache-WRITE input tokens. Unset means the vendor's
    * standard five-minute multiplier, 1.25x input — set it only for a model
    * that departs from that.
+   *
+   * Unset on every model today, so the multiplier is what actually prices
+   * writes. Filling this in per model is part of vocion-core#540; a vendor
+   * whose write premium is not 1.25x is mispriced until it is.
    */
   cacheWriteCentsPerMillion?: number;
 };
@@ -214,6 +238,11 @@ export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
   // caches automatically and bills no write premium. A provider that starts
   // reporting writes and does not charge 1.25x for them needs its own
   // `cacheWriteCentsPerMillion` before it is priced through here.
+  //
+  // Tracked as part of vocion-core#540 (the price table goes stale with no
+  // signal): this multiplier is hardcoded, undated, and vendor-specific, so
+  // it needs a recorded source date and a staleness check like every rate
+  // above it. Expect this number to be wrong before the table around it is.
   const write = cacheWrite * (tier.cacheWriteCentsPerMillion ?? tier.inputCentsPerMillion * 1.25);
   const output = (usage.outputTokens ?? 0) * tier.outputCentsPerMillion;
   return Math.round(input + cache + write + output);
