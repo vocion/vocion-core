@@ -64,6 +64,16 @@ about. Everything else is a spelling of it:
   the surface segments (from the registry) and the locales (from the routing
   config), so registering a surface cannot silently make an existing slug
   ambiguous.
+- **A rewrite stays on the server's own origin; only a redirect uses the
+  public one.** `publicOrigin()` is browser-facing (https, the public host),
+  while behind Caddy the app answers on plain http, so a rewrite target built
+  from `publicOrigin()` is cross-origin, and a cross-origin
+  `NextResponse.rewrite` is not an internal rewrite at all: Next turns it into
+  an outbound HTTP request. That request comes back through the proxy as a bare
+  `/dashboard/…`, collects the canonicalising redirect, and the browser is sent
+  to the URL it just asked for. That was the `ERR_TOO_MANY_REDIRECTS` of
+  2.154.1, signed in only, invisible in local dev where the two origins match.
+  `proxy.test.ts` walks the redirect chain so the cycle cannot come back.
 - **The cookie is "last active", nothing more.** It decides where a bare URL is
   sent and which workspace a fresh sign-in lands in. It never overrides a URL.
 - **Pages that do not belong to a workspace are left alone**: `/rpc` (the oRPC
