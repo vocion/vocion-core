@@ -78,22 +78,36 @@ function Block({ row, layout, now, links, href, rowActions }: {
   const facts = factsFor(row, layout.columns, now);
   const inner = (
     <>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-base font-semibold text-foreground">
+      {/* The headline and its state, on one line that does NOT wrap between
+          them. They used to share a `flex-wrap` row, so where the badge
+          landed depended on how long the title was — under the title on a
+          long one, beside it on a short one, and a column of rows that each
+          put their status somewhere different is a column you cannot scan.
+          The title takes the space it can (`min-w-0`) and wraps inside
+          itself; the badges hold the top right on every row. */}
+      <div className="flex items-start justify-between gap-x-3">
+        <span className="min-w-0 text-base font-semibold text-foreground">
           {layout.primary
             ? <FieldValue row={row} field={layout.primary} now={now} links={links} />
             : row.title}
         </span>
-        {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
-          <FieldValue key={f.key} row={row} field={f} now={now} links={links} />
-        ))}
+        {badges.some(f => !fieldIsEmptyOn(row, f, now)) && (
+          <span className="flex shrink-0 items-center gap-1.5">
+            {badges.filter(f => !fieldIsEmptyOn(row, f, now)).map(f => (
+              <FieldValue key={f.key} row={row} field={f} now={now} links={links} />
+            ))}
+          </span>
+        )}
       </div>
       {rest.some(f => !fieldIsEmptyOn(row, f, now)) && (
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-          {rest.filter(f => !fieldIsEmptyOn(row, f, now)).map((f, i) => (
+          {/* The separator TRAILS its fact rather than leading the next one.
+              Led, it wrapped onto the start of a new line as a stray "·"
+              floating before the value it was meant to divide. */}
+          {rest.filter(f => !fieldIsEmptyOn(row, f, now)).map((f, i, drawn) => (
             <span key={f.key} className="flex items-center gap-1.5">
-              {i > 0 && <span aria-hidden className="text-muted-foreground/50">·</span>}
               <FieldValue row={row} field={f} now={now} links={links} />
+              {i < drawn.length - 1 && <span aria-hidden className="text-muted-foreground/50">·</span>}
             </span>
           ))}
         </div>

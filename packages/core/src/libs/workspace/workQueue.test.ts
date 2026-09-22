@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, whyLine, workLine } from './workQueue';
+import { costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -209,6 +209,56 @@ describe('the lanes carry what they could not draw', () => {
     expect(out.map(r => r.meta.laneKey)).toEqual(['progress', 'proposed', 'proposed', 'done']);
     expect(out.map(r => r.title)).toEqual(['building', 'waiting', 'queued', 'done']);
     expect(out.map(r => r.meta.order)).toEqual([0, 1000, 1001, 2000]);
+  });
+});
+
+describe('what a row cannot show', () => {
+  it('asks nothing of work a person never looks at', () => {
+    expect(visualGap(row(1, 'a', { surface: 'infra', state: 'new' }), 'proposed')).toBeNull();
+    expect(visualGap(row(2, 'b', { surface: 'data', state: 'new' }), 'proposed')).toBeNull();
+    expect(visualGap(row(3, 'c', { surface: 'none', state: 'new' }), 'proposed')).toBeNull();
+  });
+
+  it('claims no gap for an outcome nobody has classified', () => {
+    // Otherwise every row the day this shipped reads "surface not set", and a
+    // column where every entry is the same complaint reports nothing.
+    expect(visualGap(row(4, 'd', { state: 'new' }), 'proposed')).toBeNull();
+    expect(visualGap(row(5, 'e', { state: 'shipped' }), 'done')).toBeNull();
+  });
+
+  it('wants a mock before a visual change is decided, and an after before it closes', () => {
+    expect(visualGap(row(6, 'f', { surface: 'ui', state: 'new' }), 'proposed')).toBe('no mock');
+    expect(visualGap(row(7, 'g', { surface: 'flow', state: 'new' }), 'proposed')).toBe('no mock');
+    expect(visualGap(row(8, 'h', { surface: 'ui', state: 'shipped' }), 'done')).toBe('no after');
+  });
+
+  it('is closed by the picture itself', () => {
+    expect(visualGap(row(9, 'i', { surface: 'ui', visuals: { beforeArtifactIds: [12] } }), 'proposed')).toBeNull();
+    expect(visualGap(row(10, 'j', { surface: 'ui', state: 'shipped', visuals: { afterArtifactIds: [13] } }), 'done')).toBeNull();
+    // A before does not close a done row: the question there is what shipped.
+    expect(visualGap(row(11, 'k', { surface: 'ui', state: 'shipped', visuals: { beforeArtifactIds: [14] } }), 'done')).toBe('no after');
+  });
+
+  it('is closed by a reason somebody wrote down, never by a silent skip', () => {
+    expect(visualGap(row(12, 'l', { surface: 'ui', visuals: { noVisualReason: 'copy-only change behind a flag' } }), 'proposed')).toBeNull();
+    // Blank is not a reason.
+    expect(visualGap(row(13, 'm', { surface: 'ui', visuals: { noVisualReason: '   ' } }), 'proposed')).toBe('no mock');
+  });
+
+  it('asks nothing of work already being built', () => {
+    expect(visualGap(row(14, 'n', { surface: 'ui', state: 'building' }), 'progress')).toBeNull();
+  });
+
+  it('counts the gap once on the lane, the way it counts an unranked queue', () => {
+    const rows = [
+      row(20, 'needs a mock', { surface: 'ui', state: 'new' }),
+      row(21, 'has one', { surface: 'ui', state: 'new', visuals: { beforeArtifactIds: [1] } }),
+      row(22, 'not visual', { surface: 'infra', state: 'new' }),
+    ];
+    const out = deriveWorkQueue(rows, { now: NOW });
+
+    expect(out[0]!.meta.laneNote).toContain('1 without a visual');
+    expect(out.map(r => r.meta.visualGap)).toContain('no mock');
   });
 });
 
