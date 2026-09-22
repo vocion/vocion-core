@@ -645,3 +645,33 @@ describe('a zero is a claim', () => {
     expect(report.summary.humanDecisions).toBe(0);
   });
 });
+
+describe('done when', () => {
+  it('reads the contract off the work, counts what holds, and keeps unchecked separate from failed', () => {
+    const req = {
+      ...input({}).request,
+      meta: {
+        ...input({}).request.meta,
+        acceptanceFrozenAt: '2026-09-20T09:00:00.000Z',
+        acceptance: [
+          { statement: 'Every screen shows Stamp', met: true, evidenceUrl: '/runs/1' },
+          { statement: 'Old links still resolve', met: false },
+          { statement: 'Emails name the product' },
+        ],
+      },
+    };
+    const report = assembleFeatureReport({ ...input({}), request: req });
+
+    expect(report.acceptance.total).toBe(3);
+    expect(report.acceptance.met).toBe(1);
+    expect(report.acceptance.items[2]!.met).toBeNull();
+    expect(report.acceptance.frozenAt).not.toBeNull();
+  });
+
+  it('is empty, not invented, when nobody wrote a contract', () => {
+    const report = assembleFeatureReport(input({}));
+
+    expect(report.acceptance.total).toBe(0);
+    expect(report.acceptance.items).toEqual([]);
+  });
+});

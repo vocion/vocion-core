@@ -255,6 +255,8 @@ export type FeatureReport = {
   state: ReportState;
   /** What this work is FOR, in the requester's own words. Null when nobody wrote one. */
   goal: string | null;
+  /** The contract: what has to be true before this is done. */
+  acceptance: ReportAcceptance;
   sections: ReportSection[];
   /** Oldest first — a person reads top to bottom and the newest entry is last. */
   timeline: TimelineEntry[];
@@ -1470,6 +1472,48 @@ function buildState(input: FeatureReportInput): ReportState {
 }
 
 /**
+ * DONE WHEN — the contract, where a person looks when they ask how close it is.
+ *
+ * The criteria were on the page and several screens down, inside the per-task
+ * contracts, repeated once per attempt. Chris, 2026-09-22: *"You have very
+ * good acceptance criteria buried way down the page. Bring them up."* They are
+ * the answer to "how close are we?", so they sit with the state.
+ *
+ * Read off the request rather than the tasks: the contract belongs to the
+ * work, not to whichever attempt happened to carry it — which is also why five
+ * attempts used to render five copies of it.
+ */
+export type ReportAcceptance = {
+  /** Each criterion and whether it holds. `met` null means nobody checked, which is not false. */
+  items: Array<{ statement: string; met: boolean | null; evidenceUrl: string | null }>;
+  met: number;
+  total: number;
+  /** When the contract stopped being a draft. Null while it still is. */
+  frozenAt: Date | null;
+};
+
+/**
+ * The contract as the page reads it.
+ * @param request - The request record.
+ */
+function buildAcceptance(request: ReportObject): ReportAcceptance {
+  const raw = Array.isArray(request.meta.acceptance) ? request.meta.acceptance : [];
+  const items = raw
+    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
+    .map(c => ({
+      statement: str(c, 'statement') ?? 'an unnamed criterion',
+      met: typeof c.met === 'boolean' ? c.met : null,
+      evidenceUrl: str(c, 'evidenceUrl'),
+    }));
+  return {
+    items,
+    met: items.filter(i => i.met === true).length,
+    total: items.length,
+    frozenAt: asDate(request.meta.acceptanceFrozenAt),
+  };
+}
+
+/**
  * The summary strip: asked, shipped, elapsed, total cost, how many human
  * decisions and how many attempts. Six figures, each read off a record.
  * @param input - The report's inputs.
@@ -1528,6 +1572,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     // The ask's own body, trimmed to a sentence or two — not the whole prompt,
     // which belongs behind "the original request" in the ask section.
     goal: str(input.request.meta, 'body') ?? str(input.request.meta, 'summary') ?? null,
+    acceptance: buildAcceptance(input.request),
     summary: buildSummary(normalised, line),
     money: line,
     sections: [
