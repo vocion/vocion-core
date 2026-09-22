@@ -30,7 +30,7 @@
  * (`services/temporal/activities/sourceSync.ts`) rather than the RPC route.
  */
 
-import type { IngestDoc, IngestResult } from './IngestionService';
+import type { IngestDoc, IngestResult, ProcessorRunMark } from './IngestionService';
 import type { SyncBudget, SyncBudgetLimits } from '@/libs/processors/budget';
 import type { RegisteredProcessor } from '@/libs/processors/registry';
 import type { ProcessorRunsOn, ProcessorSyncContext } from '@/libs/processors/types';
@@ -39,7 +39,7 @@ import { and, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { createSyncBudget } from '@/libs/processors/budget';
 import { getProcessor, listProcessorSlugs } from '@/libs/processors/registry';
-import { DEFAULT_RUNS_ON } from '@/libs/processors/types';
+import { DEFAULT_RUNS_ON, MAX_PROCESSOR_ATTEMPTS } from '@/libs/processors/types';
 import { processorRefOf } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
 import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
@@ -48,6 +48,7 @@ import {
   deleteDocumentsGoneFromSource,
   ensureSource,
   ingestDocument,
+  markProcessorRun,
   markSourceSynced,
 } from './IngestionService';
 import { getCredentialsForConnector } from './SourceCredentialService';
@@ -866,8 +867,32 @@ export async function runSync(opts: {
     if (!processor || !processorBudget) {
       return;
     }
+    // A document whose last run did not finish is due again even though its
+    // content is unchanged, up to the cap; new content starts the count over.
+    const priorAttempts = outcome.status === 'unchanged' ? outcome.processorAttempts : 0;
+    const retrying = outcome.status === 'unchanged' && priorAttempts > 0 && priorAttempts < MAX_PROCESSOR_ATTEMPTS;
+    const mark = async (step: ProcessorRunMark): Promise<void> => {
+      if (!outcome.documentId) {
+        return;
+      }
+      let attempts: number;
+      try {
+        attempts = await markProcessorRun(outcome.documentId, step);
+      } catch (markError) {
+        log('warn', 'could not record the document processor run', {
+          sourceId: opts.sourceId,
+          orgId: opts.orgId,
+          externalId: doc.externalId,
+          error: markError instanceof Error ? markError.message : String(markError),
+        });
+        return;
+      }
+      if (step.kind === 'failed' && attempts >= MAX_PROCESSOR_ATTEMPTS) {
+        bumpProcessorCount('processorRetriesExhausted');
+      }
+    };
     try {
-      if (!processor.runsOn.has(outcome.status)) {
+      if (!processor.runsOn.has(outcome.status) && !retrying) {
         return;
       }
       if (!outcome.documentId) {
@@ -877,8 +902,13 @@ export async function runSync(opts: {
         return;
       }
       if (processorBudget.outOfTime()) {
+        await mark({ kind: 'deferred', error: 'the sync ran out of time before this document', started: false });
         return;
       }
+      if (retrying && !processor.runsOn.has(outcome.status)) {
+        bumpProcessorCount('processorRetries');
+      }
+      await mark({ kind: 'started' });
       const { run } = await processor.load();
       const budgetMs = processorTimeoutMs(processor.documentTimeoutMs);
       const timeout = AbortSignal.timeout(budgetMs);
@@ -915,8 +945,16 @@ export async function runSync(opts: {
           bumpProcessorCount(`extract.${key}`, value);
         }
       }
+      if (!processed.retry) {
+        await mark({ kind: 'finished', contentHash: outcome.contentHash });
+      } else if (processed.retry.attempted) {
+        await mark({ kind: 'failed', error: processed.retry.reason });
+      } else {
+        await mark({ kind: 'deferred', error: processed.retry.reason, started: true });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      await mark({ kind: 'failed', error: message });
       bumpProcessorCount('processorErrors');
       result.firstProcessorError ??= message;
       recordFailure('processor', message, doc.externalId);

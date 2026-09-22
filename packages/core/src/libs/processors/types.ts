@@ -15,7 +15,9 @@
  *     its own try/catch, counts failures under their own `processor` scope, and
  *     leaves `counts.errors`, which gates tombstoning and the watermark, alone.
  *   - **It only runs for the outcomes it asks for.** `runsOn` defaults to
- *     created and updated, so an unchanged document costs nothing.
+ *     created and updated, so an unchanged document costs nothing, unless
+ *     its last run did not finish: a `retry`, a throw or a timeout is run
+ *     again up to a cap.
  *   - **It spends from one shared budget.** Every processor invocation in a
  *     sync shares the same `SyncBudget`, because they run eight at a time.
  *
@@ -33,9 +35,14 @@ export type ProcessorRunsOn = IngestResult['status'];
 
 /**
  * What a processor runs for when it does not say. An unchanged document has
- * the same content it had last run, so re-processing it buys nothing.
+ * the same content it had last run, so re-processing it buys nothing, unless
+ * that run did not finish, which the runner tracks per document and retries
+ * on its own (`ProcessorResult.retry`).
  */
 export const DEFAULT_RUNS_ON: ProcessorRunsOn[] = ['created', 'updated'];
+
+/** Tries a document's processor gets on the same content before the runner gives up on it. */
+export const MAX_PROCESSOR_ATTEMPTS = 3;
 
 /**
  * Anything a processor wants to keep for the length of one sync, rather than
@@ -98,6 +105,14 @@ export type ProcessorResult = {
    * `Record<string, number>`, so anything else cannot be stored.
    */
   counts?: Record<string, number>;
+  /**
+   * Set when the document was not fully processed for a reason that may clear
+   * by the next sync. The runner runs it again even though its content did not
+   * change, up to `MAX_PROCESSOR_ATTEMPTS`. `attempted: false` says no work was
+   * spent on it (a budget that ran out first), which keeps it due without
+   * counting towards the cap. Leave it unset for a deliberate skip.
+   */
+  retry?: { reason: string; attempted: boolean };
 };
 
 export type DocumentProcessor<TConfig = unknown> = {

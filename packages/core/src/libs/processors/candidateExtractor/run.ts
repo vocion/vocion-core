@@ -1,6 +1,6 @@
 /**
- * The `candidate-extractor` model stage: one bounded model call per changed
- * document, then a deterministic pipeline over what it returned.
+ * The `candidate-extractor` model stage: one bounded model call per changed or
+ * retried document, then a deterministic pipeline over what it returned.
  *
  *   known cards (once per sync) ─┐
  *   adopted rules (once per sync)─┼─> prompt ─> ONE model call ─> records
@@ -31,7 +31,7 @@ import { pushScore } from '@/libs/Langfuse';
 import { loadKnownCards } from './knownCards';
 import { labelRecords } from './labels';
 import { renderLearnings } from './learnings';
-import { extractRecords } from './model';
+import { extractRecords, SKIP_IS_RETRYABLE } from './model';
 import { buildExtractionPrompt } from './prompt';
 import { proposeRecords } from './propose';
 import { proposeRelatedObjects, resolveRecords } from './resolve';
@@ -174,7 +174,13 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     const skipMessage = `extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`;
     ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: skipMessage });
     notes.push(skipMessage);
-    return { produced: 0, skipped: 1, notes, counts };
+    return {
+      produced: 0,
+      skipped: 1,
+      notes,
+      counts,
+      ...(SKIP_IS_RETRYABLE[extraction.reason] ? { retry: { reason: skipMessage, attempted: extraction.calls > 0 } } : {}),
+    };
   }
 
   counts.found = extraction.records.length;
@@ -242,5 +248,8 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   // Langfuse without reading the counters.
   pushScore({ traceId: extraction.traceId, name: 'extraction-ok', value: produced > 0 ? 1 : 0 });
 
-  return { produced, skipped: Math.max(0, skipped), notes, counts };
+  const retry = proposed.budgetSpent
+    ? { reason: 'the sync\'s proposal budget ran out before every record was proposed', attempted: true }
+    : undefined;
+  return { produced, skipped: Math.max(0, skipped), notes, counts, ...(retry ? { retry } : {}) };
 };

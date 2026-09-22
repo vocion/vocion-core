@@ -967,6 +967,13 @@
       "when": 1789834310268,
       "tag": "0137_conversation_message_status_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1789834410268,
+      "tag": "0138_knowledge_document_processor_state",
+      "breakpoints": true
     }
   ]
 }

@@ -148,7 +148,7 @@ function context(over: Record<string, unknown> = {}) {
     sourceId: 1,
     sourceSlug: 'bellwater-hall',
     document,
-    outcome: { status: 'created' as const, documentId: 4242, chunks: 3 },
+    outcome: { status: 'created' as const, documentId: 4242, chunks: 3, contentHash: 'fixture-hash' },
     config,
     budget: createSyncBudget(),
     syncContext: { cache: new Map<string, unknown>() },
@@ -410,7 +410,29 @@ describe('candidate extractor, one document end to end', () => {
 
     expect(result).toMatchObject({ produced: 0, skipped: 1 });
     expect(result.counts).toMatchObject({ model_invalid: 1, model_calls: 2 });
+    expect(result.retry).toBeUndefined();
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
+  });
+
+  it('asks to be run again when the sync\'s proposal budget ran out before every record was proposed', async () => {
+    invoke.mockResolvedValue(answer());
+
+    const result = await run(context({ budget: createSyncBudget({ limits: { maxProposalsPerSync: 0 } }) }));
+
+    expect(result.retry).toEqual({ reason: expect.stringContaining('proposal budget'), attempted: true });
+  });
+
+  it('asks to be run again when the provider refused the call, and not when the answer was bad', async () => {
+    const refused = Object.assign(new Error('Too many tokens per day, please wait before trying again.'), {
+      $metadata: { httpStatusCode: 429 },
+    });
+    invoke.mockRejectedValue(refused);
+
+    const result = await run(context());
+
+    expect(result).toMatchObject({ produced: 0, skipped: 1 });
+    expect(result.retry).toEqual({ reason: expect.stringContaining('model_throttled'), attempted: true });
+    expect(result.counts).toMatchObject({ model_throttled: 1 });
   });
 
   it('spends one model call per document, whatever the document holds', async () => {

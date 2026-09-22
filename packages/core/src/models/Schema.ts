@@ -2784,6 +2784,12 @@ export const knowledgeDocumentSchema = pgTable(
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     /** SHA-256 of the canonical content. Re-ingest is a no-op when unchanged. */
     contentHash: text('content_hash').notNull(),
+    /** The `contentHash` a document processor last finished on. */
+    processedHash: text('processed_hash'),
+    /** Processor tries on this content without finishing; above zero and under the cap, the sync runs it again. */
+    processorAttempts: integer('processor_attempts').default(0).notNull(),
+    /** Why the last try did not finish. */
+    processorError: text('processor_error'),
     /** Last-modified hints from the upstream source (HTTP ETag / mtime). */
     etag: text('etag'),
     lastModifiedAt: timestamp('last_modified_at', { mode: 'date' }),

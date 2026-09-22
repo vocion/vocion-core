@@ -112,7 +112,7 @@ function context() {
     sourceId: 1,
     sourceSlug: 'riverton-listings',
     document,
-    outcome: { status: 'created' as const, documentId: 909, chunks: 2 },
+    outcome: { status: 'created' as const, documentId: 909, chunks: 2, contentHash: 'fixture-hash' },
     config,
     budget: createSyncBudget(),
     syncContext: { cache: new Map<string, unknown>() },

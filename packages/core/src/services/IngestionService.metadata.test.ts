@@ -24,7 +24,7 @@ vi.mock('@/libs/Langfuse', () => ({
 
 const { db } = await import('@/libs/DB');
 const { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema } = await import('@/models/Schema');
-const { ensureSource, ingestDocument } = await import('@/services/IngestionService');
+const { ensureSource, ingestDocument, markProcessorRun } = await import('@/services/IngestionService');
 
 const ORG = 'org_ingest_meta';
 
@@ -107,5 +107,60 @@ describe('unchanged content, widened metadata', () => {
 
     expect(again).toMatchObject({ status: 'unchanged', metadataRefreshed: true });
     expect((await storedMetadata('deals:3'))?.title).toBe('Renamed in HubSpot');
+  });
+});
+
+describe('processor state on a document', () => {
+  async function stateOf(id: number) {
+    const [row] = await db
+      .select({
+        processedHash: knowledgeDocumentSchema.processedHash,
+        processorAttempts: knowledgeDocumentSchema.processorAttempts,
+        processorError: knowledgeDocumentSchema.processorError,
+      })
+      .from(knowledgeDocumentSchema)
+      .where(eq(knowledgeDocumentSchema.id, id));
+    return row;
+  }
+
+  it('counts a try in SQL, carries it into the next unchanged ingest, and clears it on a finished run', async () => {
+    const ref = await src();
+    const doc = { externalId: 'deals:9', title: 'Acme', content: 'dealname: Acme\namount: 9000' };
+    const created = await ingestDocument(ref, doc);
+
+    expect(created.status).toBe('created');
+    expect(await markProcessorRun(created.documentId, { kind: 'started' })).toBe(1);
+    expect(await markProcessorRun(created.documentId, { kind: 'failed', error: `throttled ${'x'.repeat(600)}` })).toBe(1);
+    expect((await stateOf(created.documentId))?.processorError).toHaveLength(500);
+
+    const again = await ingestDocument(ref, doc);
+
+    expect(again).toMatchObject({ status: 'unchanged', processorAttempts: 1, contentHash: created.contentHash });
+
+    await markProcessorRun(created.documentId, { kind: 'started' });
+
+    expect(await markProcessorRun(created.documentId, { kind: 'finished', contentHash: created.contentHash })).toBe(0);
+    expect(await stateOf(created.documentId)).toEqual({ processedHash: created.contentHash, processorAttempts: 0, processorError: null });
+  });
+
+  it('gives a try back when no work was spent, but keeps the document due', async () => {
+    const ref = await src();
+    const created = await ingestDocument(ref, { externalId: 'deals:10', title: 'Beta', content: 'dealname: Beta' });
+    await markProcessorRun(created.documentId, { kind: 'started' });
+
+    expect(await markProcessorRun(created.documentId, { kind: 'deferred', error: 'budget', started: true })).toBe(1);
+    expect(await markProcessorRun(created.documentId, { kind: 'deferred', error: 'out of time', started: false })).toBe(1);
+  });
+
+  it('starts the count over when the content changes', async () => {
+    const ref = await src();
+    const created = await ingestDocument(ref, { externalId: 'deals:11', title: 'Gamma', content: 'dealname: Gamma' });
+    await markProcessorRun(created.documentId, { kind: 'started' });
+    await markProcessorRun(created.documentId, { kind: 'failed', error: 'throttled' });
+
+    const changed = await ingestDocument(ref, { externalId: 'deals:11', title: 'Gamma', content: 'dealname: Gamma\namount: 1' });
+
+    expect(changed.status).toBe('updated');
+    expect(await stateOf(created.documentId)).toMatchObject({ processorAttempts: 0, processorError: null });
   });
 });

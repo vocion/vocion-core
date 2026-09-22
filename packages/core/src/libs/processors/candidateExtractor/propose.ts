@@ -68,6 +68,8 @@ function log(level: 'info' | 'warn', message: string, properties: Record<string,
 export type ProposeOutput = {
   counts: Record<string, number>;
   notes: string[];
+  /** The sync's proposal budget ran out before every record was proposed. */
+  budgetSpent?: boolean;
 };
 
 /**
@@ -107,9 +109,11 @@ export async function proposeRecords(opts: {
   const { addDocumentLink } = await import('@/services/BusinessObjectService');
   const { candidateObjectIdForRun } = await import('@/libs/actions/objects-propose-candidate');
 
+  let budgetSpent = false;
   for (const record of opts.records) {
     if (!opts.budget.take('maxProposalsPerSync')) {
       notes.push('the sync\'s proposal budget is spent, so the rest of this document was not proposed');
+      budgetSpent = true;
       break;
     }
 
@@ -244,5 +248,5 @@ export async function proposeRecords(opts: {
     }
   }
 
-  return { counts, notes };
+  return { counts, notes, budgetSpent };
 }

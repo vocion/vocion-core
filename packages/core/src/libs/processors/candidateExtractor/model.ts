@@ -110,6 +110,19 @@ export type ExtractionSkip
     | 'budget_exceeded';
 
 /**
+ * Whether a skip may clear by the next sync. `model_invalid` already had its
+ * corrective retry, so reading the same text again is not likely to differ.
+ */
+export const SKIP_IS_RETRYABLE: Record<ExtractionSkip, boolean> = {
+  model_invalid: false,
+  model_timeout: true,
+  model_throttled: true,
+  budget_model_calls: true,
+  budget_tokens: true,
+  budget_exceeded: true,
+};
+
+/**
  * A run id as the model may write it: `41`, `"41"`, `"#41"`. Anything else is
  * not an id, and a hallucinated one is caught later against the known block.
  * @param value - Whatever came back in `seriesOf` / `duplicateOf`.

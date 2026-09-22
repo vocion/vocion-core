@@ -60,10 +60,15 @@ export type IngestDoc = {
   embedding?: number[];
 };
 
+/**
+ * `contentHash` is the hash the stored row carries. `processorAttempts`, on an
+ * unchanged document, is how many processor tries its content has had without
+ * finishing, which is what makes the sync give it another run.
+ */
 export type IngestResult
-  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean }
-    | { status: 'created'; documentId: number; chunks: number }
-    | { status: 'updated'; documentId: number; chunks: number };
+  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean; contentHash: string; processorAttempts: number }
+    | { status: 'created'; documentId: number; chunks: number; contentHash: string }
+    | { status: 'updated'; documentId: number; chunks: number; contentHash: string };
 
 export type SourceRef = {
   orgId: string;
@@ -190,6 +195,7 @@ export async function ingestDocument(
         metadata: knowledgeDocumentSchema.metadata,
         title: knowledgeDocumentSchema.title,
         uri: knowledgeDocumentSchema.uri,
+        processorAttempts: knowledgeDocumentSchema.processorAttempts,
       })
       .from(knowledgeDocumentSchema)
       .where(and(
@@ -226,7 +232,13 @@ export async function ingestDocument(
         })
         .where(eq(knowledgeDocumentSchema.id, prior.id));
       trace.update({ output: { status: 'unchanged', documentId: prior.id, metadataRefreshed: refreshed } });
-      return { status: 'unchanged', documentId: prior.id, metadataRefreshed: refreshed };
+      return {
+        status: 'unchanged',
+        documentId: prior.id,
+        metadataRefreshed: refreshed,
+        contentHash: hash,
+        processorAttempts: prior.processorAttempts,
+      };
     }
 
     // Pre-computed-embedding fast path: when the caller ships a vector,
@@ -257,8 +269,8 @@ export async function ingestDocument(
             .returning({ id: knowledgeDocumentSchema.id }))[0]!.id;
       trace.update({ output: { status: existing[0] ? 'updated' : 'created', chunks: 0 } });
       return existing[0]
-        ? { status: 'updated', documentId: inserted, chunks: 0 }
-        : { status: 'created', documentId: inserted, chunks: 0 };
+        ? { status: 'updated', documentId: inserted, chunks: 0, contentHash: existing[0].contentHash }
+        : { status: 'created', documentId: inserted, chunks: 0, contentHash: hash };
     }
 
     // Keep this embedding call before the transaction below, not inside it.
@@ -300,6 +312,8 @@ export async function ingestDocument(
             lastModifiedAt: doc.lastModifiedAt ?? null,
             ingestedAt: new Date(),
             lastSeenAt: new Date(),
+            processorAttempts: 0,
+            processorError: null,
             ...scope,
           })
           .where(eq(knowledgeDocumentSchema.id, documentId));
@@ -345,7 +359,7 @@ export async function ingestDocument(
     });
 
     trace.update({ output: { ...result, chunks: chunks.length } });
-    return { ...result, chunks: chunks.length };
+    return { ...result, chunks: chunks.length, contentHash: hash };
   } catch (err) {
     trace.update({
       output: { error: err instanceof Error ? err.message : String(err) },
@@ -354,6 +368,48 @@ export async function ingestDocument(
     });
     throw err;
   }
+}
+
+/**
+ * One step of a document processor's run, as the sync reports it.
+ *
+ * - `started`: a try is handed out, counted before the processor runs so a run
+ *   cut off by a crash or a deploy still leaves the document due.
+ * - `finished`: stamps the hash it ran on and clears the count.
+ * - `failed`: the try counts; says why.
+ * - `deferred`: no work was spent on it (a budget or the sync's time ran out
+ *   first), so the try is given back, and the document stays due.
+ */
+export type ProcessorRunMark
+  = | { kind: 'started' }
+    | { kind: 'finished'; contentHash: string }
+    | { kind: 'failed'; error: string }
+    | { kind: 'deferred'; error: string; started: boolean };
+
+/**
+ * Record a step of a document processor's run.
+ * @param documentId - The document the processor ran on.
+ * @param mark - What happened.
+ * @returns The document's try count afterwards.
+ */
+export async function markProcessorRun(documentId: number, mark: ProcessorRunMark): Promise<number> {
+  const attempts = knowledgeDocumentSchema.processorAttempts;
+  const set = mark.kind === 'started'
+    ? { processorAttempts: sql<number>`${attempts} + 1` }
+    : mark.kind === 'finished'
+      ? { processedHash: mark.contentHash, processorAttempts: 0, processorError: null }
+      : mark.kind === 'failed'
+        ? { processorError: mark.error.slice(0, 500) }
+        : {
+            processorAttempts: sql<number>`greatest(${attempts} - ${mark.started ? 1 : 0}, 1)`,
+            processorError: mark.error.slice(0, 500),
+          };
+  const [row] = await db
+    .update(knowledgeDocumentSchema)
+    .set(set)
+    .where(eq(knowledgeDocumentSchema.id, documentId))
+    .returning({ processorAttempts: attempts });
+  return row?.processorAttempts ?? 0;
 }
 
 /**
