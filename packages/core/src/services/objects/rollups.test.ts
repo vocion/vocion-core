@@ -135,7 +135,10 @@ describe('readRollupDeclarations', () => {
 
     // The request sums its tasks through the task's requestId; the release
     // through its own taskIds. Both carry the estimate/actual pair.
-    expect(decls.filter(d => d.parentType === 'request').map(d => d.rollup.field).sort()).toEqual(['actualCents', 'estimateCents', 'reworkCents', 'reworkTaskCount', 'shippedAt', 'taskCount', 'varianceCents']);
+    expect(decls.filter(d => d.parentType === 'request').map(d => d.rollup.field).sort()).toEqual(['actualCents', 'estimateCents', 'reworkCents', 'reworkTaskCount', 'runningTaskCount', 'shippedAt', 'taskCount', 'varianceCents']);
+    // Whether a worker is actually on it, so the Work queue can read a
+    // request that says `building` with nothing running as stopped.
+    expect(decls.find(d => d.parentType === 'request' && d.rollup.field === 'runningTaskCount')?.rollup).toEqual({ field: 'runningTaskCount', from: { type: 'engineering_task', by: 'requestId' }, where: { field: 'status', in: ['dispatched', 'running'] } });
     // Rework is the same children, narrowed to the ones that were thrown
     // away; the ship date comes the other way round, off the release that
     // names the request.

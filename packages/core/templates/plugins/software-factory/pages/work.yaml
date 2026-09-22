@@ -9,37 +9,47 @@
 # a good data model.
 #
 # So this page is DERIVED (`derive: workQueue`, libs/workspace/workQueue.ts).
-# The derivation is where the state machine turns into four lanes a person
+# The derivation is where the state machine turns into the lanes a person
 # thinks in, the reason codes turn into a sentence, and the money turns into
 # the one figure the lane makes sense of. The manifest below declares the
 # reading; it no longer declares the schema.
 #
-#  - **Next**, ordered and numbered, because "what comes next" is the one
-#    question the section exists to answer. Only a request whose reason was
-#    recorded is ranked: an outcome nobody wrote a reason for cannot be
-#    argued to be the second most important thing we do, so it queues
-#    unnumbered and the heading says how many are in that state. Today that
-#    is all of them, and the page says so once, in the heading, rather than
-#    once per row in a column of blanks.
-#  - **In progress**, what a worker is building right now.
-#  - **Waiting on you**, derived rather than stored: an outcome whose
-#    recommendation nobody has decided is not moving, whatever its state
-#    says. Work owns the work state and shows it; Review still owns the
-#    decision, and the minutes it will cost ride on this lane's heading
-#    rather than standing alone as a metric.
-#  - **Done recently**, capped, with the rest one link away in Activity.
+# THREE lanes, as three tabs. It was four sections down one page, and two of
+# them asked different questions of the same axis: "Next" and "Waiting on
+# you" both held work nobody had started, split by whether a person owed a
+# decision. That is a STATE, not a lane — so it moved onto the row as a
+# badge, and the two sections became one.
+#
+#  - **In progress**, what a worker is on now, with what has STOPPED at the
+#    top. `state: building` is a claim the request makes about itself; a
+#    request with tasks written and none of them running is stalled, and a
+#    page that draws it as building is lying about what is happening. The
+#    derivation reads that off the tasks (`runningTaskCount`), so nothing is
+#    stored that could disagree with them.
+#  - **Proposed**, everything owed and not started. An outcome whose
+#    recommendation nobody has decided leads the lane, because it is the only
+#    work here that moves the moment it is read; the ranked queue follows.
+#    Only a request whose reason was recorded is ranked — an outcome nobody
+#    wrote a reason for cannot be argued to be the second most important
+#    thing we do, so it queues unnumbered and the lane's note says how many
+#    are in that state.
+#  - **Done**, capped, with the rest one link away in Activity.
+#
+# What each lane could not draw rides on its NOTE (`meta.laneNote`) rather
+# than in its name: a tab that grows a clause every time the data changes
+# stops being a place to tap.
 #
 # Probes and end-to-end records are dropped here. They are legitimate history
 # and they are not management information; burying them is what the new
 # architecture was for.
 slug: work
 title: Work
-description: What we owe, what is running, what is stopped on you, and what just landed.
+description: What is running, what is proposed, and what just landed.
 icon: list-checks
 nav: {section: Business, order: 2}
 archetype: list
 source: {kind: objects, objectType: request}
-# Seven states, four lanes, and every sentence on the row: see
+# Seven states, three lanes, and every sentence on the row: see
 # libs/workspace/workQueue.ts, which is also where the mapping is argued with.
 derive: workQueue
 # States move as workers claim, finish and get reviewed; the queue re-reads
@@ -49,37 +59,61 @@ live: {every: 15}
 # keeps that order.
 sort: {field: meta.order, dir: asc}
 groupBy: meta.lane
-# The top line, in four figures. Each is a count of the WHOLE queue, stamped
-# on every row by the derivation, so a capped lane never makes the queue look
-# shorter than it is. Tasks written and decision minutes are gone from here:
-# one was plumbing, and the other belongs to the lane it describes.
-stats:
-  - {label: Next, kind: max, field: meta.nextCount}
-  - {label: In progress, kind: max, field: meta.progressCount}
-  - {label: Waiting on you, kind: max, field: meta.waitingCount}
-  - {label: Urgent, kind: max, field: meta.urgentCount}
-# Five things about a row: the outcome, why it is here, what is happening to
-# it, which product it is for, and what it costs. Urgent, waiting and major
-# appear under the title only when they are true. Anything else about this
-# outcome is on the outcome's own page, which is where the row goes.
+# Three lanes, three tabs. A lane was a section heading with its rows beneath
+# it, which meant the page was as tall as the whole queue and a person on a
+# phone scrolled past everything in progress to reach the one decision they
+# came to make. As tabs each lane is a place to stand, the counts read at a
+# glance without a grid of figures above them, and the page is the height of
+# one lane.
+groupsAs: tabs
+# BLOCKS, not a table. A table compares rows down a column, and that is the
+# right shape when the question is which is biggest. It is the wrong shape
+# here: sixteen columns on a phone is a horizontal scrollbar over a header
+# row the reader keeps looking back up at, and this queue is deliberately
+# sparse — a queued outcome nobody wrote a reason for has nothing to put in
+# most of them. A block draws the facts this row HAS and is short when it
+# has few.
+layout: block
+# The four-figure top line is gone. Each tab carries its own count, so the
+# grid above them was the same three numbers said twice.
+# Five things about a row, and every one of them in the subtitle rather than
+# as a labelled fact: a fact list draws an uppercase label above each value,
+# which on a five-field row is five labels a person reads past to reach five
+# values. The state is a badge beside the outcome; everything else is one
+# muted line under it. Anything more about this outcome is on its own page.
 primary:
   field: title
-  subtitle: [why, flags]
+  subtitle: [status, gap, flags, rank, detail, why, cost, product]
 fields:
   - {key: title, label: Outcome}
-  # One human sentence, built from the closed reason list. Never `manual_toil`.
-  - {key: why, label: Why, from: meta.whyLine}
+  # The badge, and the reason the lanes could be collapsed from four to
+  # three: it says which row set this row belongs to, so one list can hold
+  # rows in different states without a heading between every pair of them.
+  # Blocked reads bad, an undecided recommendation reads warn, and work that
+  # nobody has started is muted because it is not asking for anything yet.
+  - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Decide: warn, Shipped: ok, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
+  # What this row cannot show. A `ui` or `flow` outcome owes a mockup before
+  # it is decided and an after-shot before it closes; the row says which is
+  # missing and the lane counts them, the same way it reports an unranked
+  # queue. Work nobody has classified claims nothing, so the gate stays quiet
+  # until `surface` says a picture is owed.
+  - {key: gap, label: Missing, from: meta.visualGap, format: badge, tones: {no mock: warn, no after: warn}}
   # Conditional facts. An empty list renders as nothing, not as a dash.
   - {key: flags, label: Flags, from: meta.flags}
-  # Next is numbered one, two, three. Nothing ranked means no column at all
-  # (`hideWhenEmpty`), because a column of blanks is not a ranking.
-  - {key: rank, label: '#', from: meta.rank, format: mono, align: right}
-  - {key: status, label: What is happening, from: meta.workLine}
-  - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
+  # What is happening, minus whatever the badge already said. A queued row's
+  # line is empty on purpose: "Queued" under a badge reading "Queued" is the
+  # repetition this page was redrawn to lose.
+  - {key: detail, label: What is happening, from: meta.workLine}
+  # One human sentence, built from the closed reason list. Never `manual_toil`.
+  - {key: why, label: Why, from: meta.whyLine}
   # An estimate while it is queued, spend against the estimate while it runs,
-  # what it cost once it is done. One column, because a person choosing what
+  # what it cost once it is done. One figure, because a person choosing what
   # happens next needs to know whether it is four dollars or eighty-five.
-  - {key: cost, label: Cost, from: meta.costLine, format: mono, align: right}
+  - {key: cost, label: Cost, from: meta.costLine, format: mono}
+  # Which product it is for, hoisted out of every row when they all say the same.
+  - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
+  # Next is numbered one, two, three. Nothing ranked means no rank at all.
+  - {key: rank, label: '#', from: meta.rank, format: mono, align: right}
 # The row IS the drill-down. There was a "Report" affordance on every row; it
 # was never a report, it was the outcome, and a row that opens somewhere else
 # than the thing it names is a second place to click for no second meaning.

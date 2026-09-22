@@ -61,6 +61,35 @@ schema:
         urls: {type: array, items: {type: string}}
         videoUrl: {type: string}
         screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+    surface:
+      x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
+      type: string
+      description: >-
+        What this change alters for a person, which is what decides whether a
+        visual is owed. `ui` — something they look at. `flow` — a path they
+        follow through the product. `data` / `infra` — the machine underneath,
+        which a person never sees. `none` — nothing user-facing. Set at triage;
+        for work that already shipped it can be read off the diff, since
+        `engineering_task.filesChanged` says which paths it touched.
+      enum: [ui, flow, data, infra, none]
+    visuals:
+      x-display: {label: Visuals, role: prose, format: steps, order: 4}
+      type: object
+      description: >-
+        What this outcome looks like — proposed before it is built, captured
+        after it ships. Core artifacts, never a second noun: an artifact is
+        already the thing that versions, previews and can be cited, so a
+        mockup is an artifact, a flow diagram is an artifact whose body is a
+        mermaid fence, and an after-shot is an image artifact.
+
+        A `ui` or `flow` outcome owes a `before` to be decided and an `after`
+        to be closed. `noVisualReason` is the recorded way out — a way out
+        that is written down, never a silent skip.
+      properties:
+        beforeArtifactIds: {type: array, items: {type: integer}, description: 'Mockups, flow and architecture diagrams — what we propose to build, so a decision is made against something a person can see.'}
+        afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
+        surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
+        noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
     severity:
       x-display: {label: Severity, format: badge, group: Triage, tones: {p1: bad, p2: warn, p3: muted}}
       type: string
@@ -270,6 +299,11 @@ rollups:
   - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
   - {field: varianceCents, from: {type: engineering_task, by: requestId}, sum: varianceCents}
   - {field: taskCount, from: {type: engineering_task, by: requestId}}
+  # Whether a worker is actually on it. `state: building` is a claim the
+  # request makes about itself; this counts the tasks that are moving, so the
+  # Work page can read a building request with nothing running as stopped
+  # without storing a second state that could disagree with the tasks.
+  - {field: runningTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [dispatched, running]}}
   # Rework: the same tasks, narrowed to the ones that were thrown away. Money
   # spent and then answered rather than shipped is NOT here, on purpose.
   - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}
