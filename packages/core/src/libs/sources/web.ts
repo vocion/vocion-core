@@ -624,11 +624,20 @@ const PUBLISHED_URL_CHAR_CAP = 2048;
 /** Properties whose value is a URL the entry publishes about itself. */
 const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
 
+/**
+ * An exporter's own property for the event's picture. RFC 5545 has `ATTACH`
+ * for this, but calendar platforms that predate it or ignore it write an
+ * `X-` property instead (`X-TKF-FEATURED-IMAGE`, `X-WP-IMAGES-URL`), and a
+ * reader that knows only the standard names loses every such image.
+ */
+const ICS_VENDOR_IMAGE_RE = /^X-[A-Z0-9-]*IMAGE/;
+
 /** A relative reference written as a path, never a bare word like `None`. */
 const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
 
 /**
- * The URLs a VEVENT publishes about itself: its own page, and its attachments.
+ * The URLs a VEVENT publishes about itself: its own page, its attachments, and
+ * any picture an exporter writes under its own `X-` image property.
  *
  * A document's URLs are how the extractor tells a link the page really carried
  * from one a model invented. For an HTML page that list is the parsed links;
@@ -663,7 +672,8 @@ function icsPublishedUrls(block: string[], feedUrl: string): string[] {
   // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a feed
   // that ships inline base64 bytes on the first line and the poster URL on the
   // second would otherwise lose the poster entirely.
-  const values = ICS_URL_PROPERTIES.flatMap(name => icsPublishedValues(block, name));
+  const vendorImages = [...new Set(icsLines(block).map(line => line.property).filter(name => ICS_VENDOR_IMAGE_RE.test(name)))];
+  const values = [...ICS_URL_PROPERTIES, ...vendorImages].flatMap(name => icsPublishedValues(block, name));
   const base = icsNativeBase(block, feedUrl);
   const out: string[] = [];
   for (const value of values) {
