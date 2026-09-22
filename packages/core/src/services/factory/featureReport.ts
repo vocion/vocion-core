@@ -195,8 +195,22 @@ export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 export const REPORT_SECTION_KEYS = ['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
 
+/**
+ * Which half of the page a section belongs to.
+ *
+ * `story` is the work as a person follows it — the plan, what it will take to
+ * be done, what was built, the evidence, what remains, what it cost. `detail`
+ * is the machinery that produced it: the original ask, the triage figures, the
+ * per-task contracts, the approval records. Both are true and both are needed;
+ * only one of them is what somebody opened the page to read. Chris,
+ * 2026-09-22: *"Nothing is lost. It's simply put at the correct level."*
+ */
+export type ReportSectionGroup = 'story' | 'detail';
+
 export type ReportSection = {
   key: ReportSectionKey;
+  /** Where it sits: in the story, or behind Technical details. */
+  group: ReportSectionGroup;
   title: string;
   /** Null when the stage happened. Otherwise the plain sentence saying it did not. */
   absence: string | null;
@@ -255,6 +269,8 @@ export type FeatureReport = {
   state: ReportState;
   /** What this work is FOR, in the requester's own words. Null when nobody wrote one. */
   goal: string | null;
+  /** The contract: what has to be true before this is done. */
+  acceptance: ReportAcceptance;
   sections: ReportSection[];
   /** Oldest first — a person reads top to bottom and the newest entry is last. */
   timeline: TimelineEntry[];
@@ -519,8 +535,15 @@ export function statusTone(status: string | null): Tone {
  * @param key - The section key.
  * @param title - Its heading.
  */
+/**
+ * The sections that are machinery rather than story: the original ask, the
+ * triage figures, the per-task contracts and the approval records. Useful,
+ * traceable, and not what a person opened this page to read.
+ */
+const DETAIL_SECTIONS: ReadonlySet<string> = new Set(['ask', 'triage', 'contract', 'approvals']);
+
 function blank(key: ReportSectionKey, title: string): ReportSection {
-  return { key, title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
+  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
 }
 
 /**
@@ -1072,23 +1095,39 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
   const runCents = runs.reduce((a, r) => a + (r.cents ?? 0), 0);
   const taskEstimates = tasks.map(t => num(t.meta, 'estimateCents')).filter((n): n is number => n !== null);
   const taskActuals = tasks.map(t => num(t.meta, 'actualCents')).filter((n): n is number => n !== null);
-  const estimateCents = taskEstimates.length > 0
-    ? taskEstimates.reduce((a, b) => a + b, 0)
-    : num(request.meta, 'estimateCents');
+  // THE WORK'S OWN ESTIMATE FIRST.
+  //
+  // Summing the task contracts was the only source, and when one piece of
+  // work is attempted five times that sums five estimates for one job: the
+  // Stamp rename read "$85 estimated" against "$24.12 actual", a 72% saving
+  // that never existed. Chris, 2026-09-22: *"You need one immutable
+  // work-level estimate before execution if you want meaningful
+  // estimate-vs-actual. Do not derive it retrospectively by adding
+  // attempt-level estimates."*
+  const workEstimate = num(request.meta, 'estimateCents');
+  const summed = taskEstimates.length > 0 ? taskEstimates.reduce((a, b) => a + b, 0) : null;
+  const estimateCents = workEstimate ?? summed;
+  // A sum over more than one attempt is not an estimate of this work, so it
+  // is reported and never divided into. A single contract is the work.
+  const comparable = workEstimate !== null || taskEstimates.length === 1;
   const actualCents = taskActuals.length > 0
     ? taskActuals.reduce((a, b) => a + b, 0)
     : runs.length > 0 ? runCents : num(request.meta, 'actualCents');
   return {
     estimateCents,
     actualCents,
-    varianceCents: estimateCents === null || actualCents === null ? null : actualCents - estimateCents,
-    variancePct: estimateCents === null || actualCents === null || estimateCents === 0
+    varianceCents: !comparable || estimateCents === null || actualCents === null ? null : actualCents - estimateCents,
+    variancePct: !comparable || estimateCents === null || actualCents === null || estimateCents === 0
       ? null
       : Math.round(((actualCents - estimateCents) / estimateCents) * 100),
     runCents,
-    estimateSource: taskEstimates.length > 0
-      ? `summed over ${taskEstimates.length} task contract${taskEstimates.length === 1 ? '' : 's'}`
-      : num(request.meta, 'estimateCents') === null ? 'nobody estimated this' : 'the request rollup',
+    estimateSource: workEstimate !== null
+      ? 'estimated for this work before it started'
+      : summed === null
+        ? 'nobody estimated this'
+        : taskEstimates.length === 1
+          ? 'the one task contract written for it'
+          : `added up from ${taskEstimates.length} attempt contracts — not an estimate of this work, so it is not compared against`,
     actualSource: taskActuals.length > 0
       ? `summed over ${taskActuals.length} task${taskActuals.length === 1 ? '' : 's'}`
       : runs.length > 0 ? `summed over ${runs.length} worker run${runs.length === 1 ? '' : 's'}` : 'nothing has been charged',
@@ -1514,6 +1553,48 @@ function goalOf(request: ReportObject): string | null {
 }
 
 /**
+ * DONE WHEN — the contract, where a person looks when they ask how close it is.
+ *
+ * The criteria were on the page and several screens down, inside the per-task
+ * contracts, repeated once per attempt. Chris, 2026-09-22: *"You have very
+ * good acceptance criteria buried way down the page. Bring them up."* They are
+ * the answer to "how close are we?", so they sit with the state.
+ *
+ * Read off the request rather than the tasks: the contract belongs to the
+ * work, not to whichever attempt happened to carry it — which is also why five
+ * attempts used to render five copies of it.
+ */
+export type ReportAcceptance = {
+  /** Each criterion and whether it holds. `met` null means nobody checked, which is not false. */
+  items: Array<{ statement: string; met: boolean | null; evidenceUrl: string | null }>;
+  met: number;
+  total: number;
+  /** When the contract stopped being a draft. Null while it still is. */
+  frozenAt: Date | null;
+};
+
+/**
+ * The contract as the page reads it.
+ * @param request - The request record.
+ */
+function buildAcceptance(request: ReportObject): ReportAcceptance {
+  const raw = Array.isArray(request.meta.acceptance) ? request.meta.acceptance : [];
+  const items = raw
+    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
+    .map(c => ({
+      statement: str(c, 'statement') ?? 'an unnamed criterion',
+      met: typeof c.met === 'boolean' ? c.met : null,
+      evidenceUrl: str(c, 'evidenceUrl'),
+    }));
+  return {
+    items,
+    met: items.filter(i => i.met === true).length,
+    total: items.length,
+    frozenAt: asDate(request.meta.acceptanceFrozenAt),
+  };
+}
+
+/**
  * The summary strip: asked, shipped, elapsed, total cost, how many human
  * decisions and how many attempts. Six figures, each read off a record.
  * @param input - The report's inputs.
@@ -1572,6 +1653,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     // The ask's own body, trimmed to a sentence or two — not the whole prompt,
     // which belongs behind "the original request" in the ask section.
     goal: goalOf(input.request),
+    acceptance: buildAcceptance(input.request),
     summary: buildSummary(normalised, line),
     money: line,
     sections: [

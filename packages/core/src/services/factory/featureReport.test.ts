@@ -677,3 +677,78 @@ describe('the goal, as a subtitle', () => {
     expect(withBody('   ').goal).toBeNull();
   });
 });
+
+describe('the story, and the machinery behind it', () => {
+  it('puts the ask, triage, contracts and approvals one level down, and keeps the rest in the story', () => {
+    const report = assembleFeatureReport(input({}));
+    const detail = report.sections.filter(s => s.group === 'detail').map(s => s.key);
+    const story = report.sections.filter(s => s.group === 'story').map(s => s.key);
+
+    expect(detail).toEqual(['ask', 'triage', 'contract', 'approvals']);
+    // Nothing is dropped: every section still belongs to exactly one half.
+    expect([...story, ...detail].sort()).toEqual([...report.sections.map(s => s.key)].sort());
+    expect(story).toContain('plan');
+    expect(story).toContain('qa');
+    expect(story).toContain('release');
+  });
+});
+
+describe('done when', () => {
+  it('reads the contract off the work, counts what holds, and keeps unchecked separate from failed', () => {
+    const req = {
+      ...input({}).request,
+      meta: {
+        ...input({}).request.meta,
+        acceptanceFrozenAt: '2026-09-20T09:00:00.000Z',
+        acceptance: [
+          { statement: 'Every screen shows Stamp', met: true, evidenceUrl: '/runs/1' },
+          { statement: 'Old links still resolve', met: false },
+          { statement: 'Emails name the product' },
+        ],
+      },
+    };
+    const report = assembleFeatureReport({ ...input({}), request: req });
+
+    expect(report.acceptance.total).toBe(3);
+    expect(report.acceptance.met).toBe(1);
+    expect(report.acceptance.items[2]!.met).toBeNull();
+    expect(report.acceptance.frozenAt).not.toBeNull();
+  });
+
+  it('is empty, not invented, when nobody wrote a contract', () => {
+    const report = assembleFeatureReport(input({}));
+
+    expect(report.acceptance.total).toBe(0);
+    expect(report.acceptance.items).toEqual([]);
+  });
+});
+
+describe('what this piece of work cost', () => {
+  const req = (meta: Record<string, unknown>) => ({ ...input({}).request, meta: { ...input({}).request.meta, ...meta } });
+  const task = (estimate: number) => ({ id: 1, title: 't', status: 'accepted', meta: { estimateCents: estimate }, createdAt: new Date() }) as never;
+
+  it('will not compare against a sum of attempt contracts', () => {
+    // Five attempts at one rename summed to $85 and read as a 72% saving
+    // against $24.12 actually spent. The sum is reported; nothing divides by it.
+    const line = moneyLine(req({ estimateCents: null }), [task(1700), task(1700), task(1700), task(1700), task(1700)], []);
+
+    expect(line.estimateCents).toBe(8500);
+    expect(line.varianceCents).toBeNull();
+    expect(line.variancePct).toBeNull();
+    expect(line.estimateSource).toContain('not an estimate of this work');
+  });
+
+  it('compares against the work\'s own estimate when one was written before it started', () => {
+    const line = moneyLine(req({ estimateCents: 2000, actualCents: 2412 }), [task(1700), task(1700)], []);
+
+    expect(line.estimateCents).toBe(2000);
+    expect(line.varianceCents).toBe(412);
+    expect(line.estimateSource).toContain('before it started');
+  });
+
+  it('compares against a single contract, because one contract is the work', () => {
+    const line = moneyLine(req({ estimateCents: null, actualCents: 1500 }), [task(1700)], []);
+
+    expect(line.varianceCents).toBe(-200);
+  });
+});
