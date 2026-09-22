@@ -210,3 +210,49 @@ describe('the deliverable contract', () => {
     expect(result.response).toBe('Let me check the right structure first.');
   });
 });
+
+/**
+ * A turn that makes one lookup_objects call returning this text.
+ * @param output - What the tool returned.
+ */
+function lookupStream(output: string): AsyncIterable<unknown> {
+  const events = [
+    { event: 'on_tool_end', name: 'lookup_objects', metadata: { checkpoint_ns: 'tools:lookup-1' }, data: { input: { type_slug: 'event-candidate' }, output: { content: output } } },
+    { event: 'on_chat_model_stream', metadata: { checkpoint_ns: 'model_request:m1' }, data: { chunk: text('Found the cards.') } },
+  ];
+  return { async* [Symbol.asyncIterator]() {
+    for (const e of events) {
+      yield e;
+    }
+  } };
+}
+
+describe('the tool-call log an eval reads', () => {
+  it('keeps a long return whole in the log while the live event stays short', async () => {
+    // An eval check parses this JSON. Cut at 2,000 characters, as the live
+    // event is, a lookup of a few dozen cards stopped parsing and every rule
+    // about its records failed for the cut.
+    const cards = JSON.stringify(Array.from({ length: 60 }, (_, index) => ({ id: index, title: `Card ${index}`, startDate: '2026-10-06' })));
+    streamEvents.mockResolvedValue(lookupStream(cards));
+    const { result, events } = await run({ message: 'look up the event cards' });
+
+    const logged = result.toolCalls.find(call => call.tool === 'lookup_objects');
+    const streamed = events.find((e): e is Extract<AgentEvent, { type: 'tool_end' }> => e.type === 'tool_end' && e.tool === 'lookup_objects');
+
+    expect(cards.length).toBeGreaterThan(2000);
+    expect(logged?.output).toBe(cards);
+    expect(logged?.outputLength).toBeUndefined();
+    expect(streamed?.output.length).toBe(2000);
+  });
+
+  it('records the full length when even the log has to cut', async () => {
+    const huge = 'x'.repeat(60_000);
+    streamEvents.mockResolvedValue(lookupStream(huge));
+    const { result } = await run({ message: 'look up the event cards' });
+
+    const logged = result.toolCalls.find(call => call.tool === 'lookup_objects');
+
+    expect(logged?.output.length).toBe(50_000);
+    expect(logged?.outputLength).toBe(60_000);
+  });
+});

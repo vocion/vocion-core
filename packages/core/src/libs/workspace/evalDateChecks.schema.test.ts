@@ -24,6 +24,14 @@ function datasetWith(condition: Record<string, unknown>) {
   };
 }
 
+/**
+ * A one-case dataset around a single check of any kind.
+ * @param check - The check under test.
+ */
+function datasetWithCheck(check: Record<string, unknown>) {
+  return { slug: 'return-checks', name: 'Return checks', agentSlug: 'event-ingestion-lead', items: [{ input: 'Ingest', checks: [check] }] };
+}
+
 describe('toolCalledWith date bounds in a manifest', () => {
   it('accepts every phrase and zone the runner resolves', () => {
     for (const onOrAfter of ['today', 'Yesterday', '3 days ago', 'in 2 weeks', 'last month', '2026-09-01']) {
@@ -87,5 +95,34 @@ describe('toolCalledWith date bounds in a manifest', () => {
   it('still refuses a check that names a zone and asserts nothing', () => {
     // A zone alone is not a rule.
     expect(EvalDatasetManifestSchema.safeParse(datasetWith({ timezone: 'utc' })).success).toBe(false);
+  });
+});
+
+describe('toolReturned and * paths in a manifest', () => {
+  it('accepts a toolReturned check with a * path', () => {
+    const check = { toolReturned: { tool: 'lookup_objects', where: { path: 'type_slug', equals: 'event-candidate' }, path: '*.id', present: true } };
+
+    expect(EvalDatasetManifestSchema.safeParse(datasetWithCheck(check)).success).toBe(true);
+  });
+
+  it('refuses a toolReturned check that asserts nothing, naming the check', () => {
+    const result = EvalDatasetManifestSchema.safeParse(datasetWithCheck({ toolReturned: { tool: 'lookup_objects', path: '*.id' } }));
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain('toolReturned needs one of equals');
+  });
+
+  it('refuses a * in a where path, which has to give one answer per call', () => {
+    const inWhere = { toolCalledWith: { tool: 'propose_action', where: { path: 'action_input.fields.*.kind', equals: 'x' }, path: 'action_id', present: true } };
+
+    expect(JSON.stringify(EvalDatasetManifestSchema.safeParse(datasetWithCheck(inWhere)).error?.issues)).toContain('a where path reads one value');
+  });
+
+  it('lets timezoneFrom use a * only where path has one for it to match', () => {
+    const sameItem = { toolReturned: { tool: 'lookup_objects', path: '*.startDate', onOrAfter: 'today', timezoneFrom: '*.timezone' } };
+    const noItemToMatch = { toolReturned: { tool: 'lookup_objects', path: 'startDate', onOrAfter: 'today', timezoneFrom: '*.timezone' } };
+
+    expect(EvalDatasetManifestSchema.safeParse(datasetWithCheck(sameItem)).success).toBe(true);
+    expect(JSON.stringify(EvalDatasetManifestSchema.safeParse(datasetWithCheck(noItemToMatch)).error?.issues)).toContain('timezoneFrom has more * segments than path');
   });
 });

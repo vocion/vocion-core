@@ -241,6 +241,7 @@ The whole vocabulary, and it is a closed list on purpose:
 | `toolCalled: x` | The agent called tool `x` |
 | `toolNotCalled: x` | It did not call `x` |
 | `toolCalledWith: {...}` | The arguments of `x`'s calls look the way the case says |
+| `toolReturned: {...}` | What `x` handed back looks the way the case says |
 | `toolCallCount: {...}` | `x` was called exactly, at least or at most that many times |
 | `outputContains: "text"` | The answer contains that text |
 | `outputNotContains: "text"` | It does not |
@@ -430,6 +431,64 @@ anything kept, and an agent that silently stopped proposing anything is the
 regression most worth catching. Set `noCalls: pass` for the other shape of
 rule — "if it did this, it did it right" — such as a contact update a sales
 run only makes when the email thread named a new stakeholder.
+
+**Every item of a list** is `*` in a path. `action_input.fields.attendees.*.email`
+reads each attendee's email, and the rule holds only when all of them do; a
+failure names the item that broke it (`attendees.2.email was missing`). A list
+with no items fails, because "every item of nothing" is not something the
+agent did. A `where` filter needs one value per call, so the workspace refuses
+a `*` there. In `timezoneFrom`, a `*` means the same item `path` is on:
+`path: "*.startDate"` with `timezoneFrom: "*.timezone"` judges each record's
+date by that record's own zone.
+
+#### Checking what a tool returned
+
+`toolCalledWith` reads what the agent asked for. `toolReturned` reads what it
+got back, which is the only way to tell "the agent asked properly and the tool
+gave it nothing usable" apart from a run that went fine. It takes the same
+block — `where`, `path`, the same predicates, `noCalls`, `calls` — with one
+difference: `path` and `timezoneFrom` walk the return value, while `where`
+still picks calls by their **arguments**, so you can say which lookup you mean.
+
+```text
+  # Research: every record a lookup returns carries the id the next call needs.
+  - toolReturned:
+      tool: lookup_objects
+      where: { path: type_slug, equals: company }
+      path: "*.id"
+      present: true
+
+  # Support: an order lookup comes back with a status the refund flow knows.
+  - toolReturned:
+      tool: lookup_order
+      path: status
+      subsetOf: [paid, shipped, delivered, refunded]
+
+  # Scheduling: the calendar tool only offers slots from today on.
+  - toolReturned:
+      tool: find_free_slots
+      path: "*.start"
+      onOrAfter: today
+      timezone: workspace
+
+  # Research: a page fetch actually got the page, not an error.
+  - toolReturned: { tool: fetch_url, contains: "Total length" }
+```
+
+Every return reaches the transcript as text. When that text is JSON (as
+`lookup_objects` returns) it is parsed and `path` walks into it; when it is a
+sentence (as `fetch_url` and `propose_action` return), leave `path` out and
+use `contains` on the whole text. A `path` into a sentence fails with
+"returned text rather than JSON", quoting the start of what came back, so a
+tool that answered "No records found" reads as that and not as a missing
+field. A return too long for the run's log (over 50,000 characters) is kept
+cut short, and a `path` into it fails saying so rather than blaming the tool.
+The shape of a return is not declared anywhere core can read, so the
+workspace checks a `toolReturned` check's `where` paths at apply but not its
+`path`: find the fields in the tool's source or in a trace, as above.
+
+The tool names in these examples other than `lookup_objects`, `fetch_url` and
+`propose_action` are illustrations; use the tools your own agents have.
 
 | Pros | Cons |
 |---|---|

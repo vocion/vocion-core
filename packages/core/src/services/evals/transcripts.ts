@@ -44,6 +44,12 @@ export type ToolCallRecord = {
   tool: string;
   input: Record<string, unknown>;
   output: string;
+  /**
+   * The output's full length, present only when `output` was cut short on
+   * its way into the run's log. A check that cannot parse a cut return says
+   * it was cut, rather than blaming the tool for answering in text.
+   */
+  outputLength?: number;
 };
 
 /** What one case did, before anyone has an opinion about whether it was good. */

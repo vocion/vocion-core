@@ -17,6 +17,10 @@
  *   named by a `where` on `action_input.objectType`, or any of them when the
  *   check names none.
  *
+ * A `toolReturned` check's `where` is checked the same way, since it picks
+ * calls by their arguments; what the tool returned is not described anywhere
+ * core can read offline, so its `path` is left alone.
+ *
  * Tools whose arguments are not known here are not checked. A path deeper
  * than a field name (into an object a field holds) is not checked either,
  * because object type schemas rarely describe that far.
@@ -31,6 +35,7 @@ const PROPOSE_ACTION = 'propose_action';
 const PROPOSE_CANDIDATE = 'objects.propose_candidate';
 const PROPOSE_ACTION_ARGUMENTS = Object.keys(proposeActionArgsSchema.shape);
 const CANDIDATE_INPUT_KEYS = Object.keys(candidateInputShape.shape);
+const EVERY_ITEM = '*';
 
 /** One path a check reads, and the words a problem uses for where it came from. */
 type PathToCheck = { path: string; role: string };
@@ -40,19 +45,23 @@ type PathToCheck = { path: string; role: string };
  * @param check - One check from a case.
  */
 function argumentRule(check: EvalCheck): { tool: string; where: ToolCallFilter[]; paths: PathToCheck[] } | null {
-  if (!('toolCalledWith' in check)) {
+  const readsArguments = 'toolCalledWith' in check;
+  if (!readsArguments && !('toolReturned' in check)) {
     return null;
   }
-  const condition = check.toolCalledWith;
+  const condition = readsArguments ? check.toolCalledWith : check.toolReturned;
   const where = condition.where === undefined ? [] : Array.isArray(condition.where) ? condition.where : [condition.where];
   const paths: PathToCheck[] = [];
-  if (condition.path) {
+  // A toolReturned check's `path` and `timezoneFrom` read what the tool
+  // handed back, which nothing here describes; its `where` still picks calls
+  // by their arguments, so those are checked like any other.
+  if (readsArguments && condition.path) {
     paths.push({ path: condition.path, role: 'path' });
   }
   for (const filter of where) {
     paths.push({ path: filter.path, role: 'where path' });
   }
-  if (condition.timezoneFrom) {
+  if (readsArguments && condition.timezoneFrom) {
     paths.push({ path: condition.timezoneFrom, role: 'timezoneFrom' });
   }
   return { tool: condition.tool, where, paths };
@@ -84,10 +93,15 @@ function fieldNamesOf(objectType: LoadedObjectType): string[] {
  */
 function proposeActionPathProblem(path: string, where: ToolCallFilter[], objectTypes: LoadedObjectType[]): string | null {
   const [argument, envelopeKey, fieldName] = path.split('.');
+  // A `*` stands for every item of whatever list is there, so there is no
+  // one name to hold it against; the path is checked up to it and no further.
+  if (argument === EVERY_ITEM) {
+    return null;
+  }
   if (!PROPOSE_ACTION_ARGUMENTS.includes(argument!)) {
     return `propose_action takes no argument "${argument}"; it takes ${PROPOSE_ACTION_ARGUMENTS.join(', ')}`;
   }
-  if (argument !== 'action_input' || envelopeKey === undefined) {
+  if (argument !== 'action_input' || envelopeKey === undefined || envelopeKey === EVERY_ITEM) {
     return null;
   }
 
@@ -100,7 +114,7 @@ function proposeActionPathProblem(path: string, where: ToolCallFilter[], objectT
   if (!CANDIDATE_INPUT_KEYS.includes(envelopeKey)) {
     return `action_input has no "${envelopeKey}" for ${PROPOSE_CANDIDATE}; it takes ${CANDIDATE_INPUT_KEYS.join(', ')}`;
   }
-  if (envelopeKey !== 'fields' || fieldName === undefined) {
+  if (envelopeKey !== 'fields' || fieldName === undefined || fieldName === EVERY_ITEM) {
     return null;
   }
 

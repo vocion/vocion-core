@@ -156,6 +156,81 @@ function resolveArgumentPath(input: Record<string, unknown>, path: string | unde
   return { found: true, value: current };
 }
 
+/** The path segment that stands for every item of a list. */
+const EVERY_ITEM = '*';
+
+/**
+ * One value a path reached, the concrete path that reached it, and which
+ * item each `*` stood for on the way — so `timezoneFrom: "*.timezone"` can
+ * read the zone of the same record whose `*.startDate` is being judged.
+ */
+type ReachedValue = { found: boolean; value: unknown; path: string; itemKeys: string[] };
+
+/**
+ * Take one path segment from one value: its child, every child for `*`, or
+ * a miss that keeps the path so the failure sentence names it in full.
+ * @param from - The value reached so far.
+ * @param segment - The next segment of the path.
+ */
+function stepInto(from: ReachedValue, segment: string): ReachedValue[] {
+  const path = from.path ? `${from.path}.${segment}` : segment;
+  if (!from.found || from.value === null || typeof from.value !== 'object') {
+    return [{ found: false, value: undefined, path, itemKeys: from.itemKeys }];
+  }
+  const container = from.value as Record<string, unknown>;
+  if (segment === EVERY_ITEM) {
+    return Object.entries(container).map(([key, value]) => ({
+      found: true,
+      value,
+      path: from.path ? `${from.path}.${key}` : key,
+      itemKeys: [...from.itemKeys, key],
+    }));
+  }
+  if (!(segment in container)) {
+    return [{ found: false, value: undefined, path, itemKeys: from.itemKeys }];
+  }
+  return [{ found: true, value: container[segment], path, itemKeys: from.itemKeys }];
+}
+
+/**
+ * Every value a dot path reaches, one per item wherever the path says `*`.
+ *
+ * `*.id` over a lookup's three records reaches three ids, and a check on it
+ * holds only when all three do — "each returned record carries its id" is a
+ * rule about every record, not the first. A list with no items reaches
+ * nothing, which the caller reports rather than passing.
+ * @param root - The arguments, or the parsed return value.
+ * @param path - Dot path; omit to reach the root itself.
+ */
+function reachEveryValue(root: unknown, path: string | undefined): ReachedValue[] {
+  let reached: ReachedValue[] = [{ found: true, value: root, path: '', itemKeys: [] }];
+  if (!path) {
+    return reached;
+  }
+  for (const segment of path.split('.')) {
+    reached = reached.flatMap(from => stepInto(from, segment));
+  }
+  return reached;
+}
+
+/**
+ * A tool's return value, parsed when it is JSON.
+ *
+ * Every return reaches the transcript as text. A tool that hands back data —
+ * `lookup_objects` returns a JSON array of records — is parsed so a path can
+ * walk into it; one that returns a sentence stays a sentence, which `contains`
+ * can still read. Not parsing is an expected answer, not an error, so nothing
+ * is logged: the check that needed a field says so in its own explanation.
+ * @param output - The text the tool returned.
+ */
+function parseToolReturn(output: string): { isJson: boolean; value: unknown } {
+  try {
+    return { isJson: true, value: JSON.parse(output) };
+  } catch {
+    return { isJson: false, value: output };
+  }
+}
+
 /**
  * Compare two values the way someone reading the YAML would expect.
  *
@@ -310,13 +385,18 @@ function subsetFailure(argument: ResolvedArgument, allowedValues: string[]): str
  * When the call names none, or names something that is not a zone, the
  * check's own `timezone` answers instead, so a missing field falls back to a
  * rule someone wrote rather than to a guess.
- * @param call - The call being checked.
+ * A `*` in `timezoneFrom` stands for the same item as the matching `*` in
+ * `path`: with `path: "*.startDate"` and `timezoneFrom: "*.timezone"`, the
+ * second record's date is judged by the second record's zone.
+ * @param root - What the check reads: the call's arguments, or its parsed return.
  * @param condition - The check naming `timezone` and, optionally, `timezoneFrom`.
  * @param clock - The run's clock, carrying the workspace's zone for `workspace`.
+ * @param itemKeys - Which item each `*` in `path` reached, in order.
  */
-function zoneForCall(call: ToolCallRecord, condition: ToolArgumentCondition, clock: CheckClock): string {
-  if (condition.timezoneFrom) {
-    const { found, value } = resolveArgumentPath(call.input, condition.timezoneFrom);
+function zoneForCall(root: unknown, condition: ToolArgumentCondition, clock: CheckClock, itemKeys: string[]): string {
+  if (condition.timezoneFrom && root !== null && typeof root === 'object') {
+    const zonePath = sameItemPath(condition.timezoneFrom, itemKeys);
+    const { found, value } = resolveArgumentPath(root as Record<string, unknown>, zonePath);
     if (found && isValidTimeZone(value)) {
       return value;
     }
@@ -358,33 +438,96 @@ function dayBoundFailure(
 }
 
 /**
- * Decide whether one call's arguments satisfy the case's predicates.
+ * A path with each `*` replaced by the item the check is on, in order.
+ * @param path - A path that may hold `*` segments.
+ * @param itemKeys - The item each `*` in the check's `path` reached.
+ */
+function sameItemPath(path: string, itemKeys: string[]): string {
+  let next = 0;
+  return path.split('.').map(segment => segment === EVERY_ITEM ? (itemKeys[next++] ?? segment) : segment).join('.');
+}
+
+/** The two checks that read inside a call, and so which side of it they read. */
+type ToolConditionCheck = 'toolCalledWith' | 'toolReturned';
+
+/**
+ * How a failure sentence names a place in the call.
+ * @param tool - The tool's name.
+ * @param check - Which side of the call is being read.
+ * @param path - The concrete path reached, or empty for the whole thing.
+ */
+function describeLocation(tool: string, check: ToolConditionCheck, path: string): string {
+  if (check === 'toolReturned') {
+    return path ? `${tool} returned ${path}` : `${tool}'s return value`;
+  }
+  return path ? `${tool}.${path}` : `${tool} arguments`;
+}
+
+/**
+ * The first predicate one value breaks, or null when it keeps them all.
+ *
+ * Predicates are tried in a fixed order and the first failure is the one
+ * reported, so the score row names which predicate went wrong instead of
+ * leaving the reader to guess between six of them.
+ * @param argument - One value the path reached.
+ * @param condition - What the case said it must look like.
+ * @param zone - The zone date bounds are judged in.
+ * @param now - The run's clock.
+ */
+function firstFailure(argument: ResolvedArgument, condition: ToolArgumentCondition, zone: string, now: Date): string | null {
+  return (condition.present !== undefined ? presenceFailure(argument, condition.present) : null)
+    ?? (condition.equals !== undefined ? equalsFailure(argument, condition.equals) : null)
+    ?? (condition.contains !== undefined ? containsFailure(argument, condition.contains) : null)
+    ?? (condition.subsetOf !== undefined ? subsetFailure(argument, condition.subsetOf) : null)
+    ?? (condition.onOrAfter !== undefined ? dayBoundFailure(argument, condition.onOrAfter, 'onOrAfter', zone, now) : null)
+    ?? (condition.onOrBefore !== undefined ? dayBoundFailure(argument, condition.onOrBefore, 'onOrBefore', zone, now) : null);
+}
+
+/**
+ * Decide whether one call satisfies the case's predicates — in its
+ * arguments for `toolCalledWith`, in what it returned for `toolReturned`.
  *
  * Hands back the reason it failed rather than a bare false, so the score row
- * can name which predicate went wrong on which call instead of leaving the
- * reader to guess between four of them. Predicates are tried in a fixed order
- * and the first failure is the one reported.
+ * can name which predicate went wrong on which call. With a `*` in the path,
+ * every item has to hold, and the first one that does not is named by its
+ * index.
  * @param call - One tool call the agent made.
- * @param condition - What the case said those arguments must look like.
+ * @param condition - What the case said the call must look like.
  * @param clock - The run's clock and the workspace's zone, for date bounds.
+ * @param check - Which side of the call to read.
  */
-function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition, clock: CheckClock): { ok: boolean; reason: string } {
-  const { found, value } = resolveArgumentPath(call.input, condition.path);
-  const argument: ResolvedArgument = {
-    found,
-    value,
-    where: condition.path ? `${condition.tool}.${condition.path}` : `${condition.tool} arguments`,
-  };
+function callSatisfies(call: ToolCallRecord, condition: ToolArgumentCondition, clock: CheckClock, check: ToolConditionCheck): { ok: boolean; reason: string } {
+  let root: unknown = call.input;
+  if (check === 'toolReturned') {
+    const parsed = parseToolReturn(call.output);
+    // A path needs something to walk into. A tool that answered in a
+    // sentence — "No records found for this type." — has no fields, and
+    // saying so beats reporting every field it lacks as merely missing.
+    if (!parsed.isJson && condition.path) {
+      // A return cut on its way into the log is JSON that lost its end. The
+      // tool answered correctly; the rule simply cannot be judged, and the
+      // explanation has to say which of the two happened.
+      if (call.outputLength !== undefined && call.outputLength > call.output.length) {
+        return { ok: false, reason: `${condition.tool}'s return was ${call.outputLength} characters and only the first ${call.output.length} were kept, so ${condition.path} cannot be read from it` };
+      }
+      const preview = call.output.length > 80 ? `${call.output.slice(0, 80)}…` : call.output;
+      return { ok: false, reason: `${condition.tool} returned text rather than JSON, so ${condition.path} cannot be read from it ("${preview}")` };
+    }
+    root = parsed.value;
+  }
 
-  const failure
-    = (condition.present !== undefined ? presenceFailure(argument, condition.present) : null)
-      ?? (condition.equals !== undefined ? equalsFailure(argument, condition.equals) : null)
-      ?? (condition.contains !== undefined ? containsFailure(argument, condition.contains) : null)
-      ?? (condition.subsetOf !== undefined ? subsetFailure(argument, condition.subsetOf) : null)
-      ?? (condition.onOrAfter !== undefined ? dayBoundFailure(argument, condition.onOrAfter, 'onOrAfter', zoneForCall(call, condition, clock), clock.now) : null)
-      ?? (condition.onOrBefore !== undefined ? dayBoundFailure(argument, condition.onOrBefore, 'onOrBefore', zoneForCall(call, condition, clock), clock.now) : null);
-
-  return failure === null ? { ok: true, reason: '' } : { ok: false, reason: failure };
+  const reached = reachEveryValue(root, condition.path);
+  if (reached.length === 0) {
+    return { ok: false, reason: `${describeLocation(condition.tool, check, condition.path ?? '')} reached no items — the list was empty` };
+  }
+  for (const { found, value, path, itemKeys } of reached) {
+    const zone = zoneForCall(root, condition, clock, itemKeys);
+    const failure = firstFailure({ found, value, where: describeLocation(condition.tool, check, path) }, condition, zone, clock.now);
+    if (failure !== null) {
+      return { ok: false, reason: failure };
+    }
+  }
+  return { ok: true, reason: '' };
 }
 
 /**
@@ -490,8 +633,15 @@ function describeCallFilter(filter: ToolCallFilter): string {
   return parts.join(',');
 }
 
-function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition, clock: CheckClock): CheckOutcome {
-  const slug = `check:toolCalledWith:${describeArgumentCondition(condition)}`;
+/**
+ * Run a `toolCalledWith` or `toolReturned` check over every call it is about.
+ * @param transcript - What the case did.
+ * @param condition - The tool, the calls, and what they must look like.
+ * @param clock - The run's clock and the workspace's zone.
+ * @param check - Which side of each call to read; also the slug's prefix.
+ */
+function checkToolCalls(transcript: CaseTranscript, condition: ToolArgumentCondition, clock: CheckClock, check: ToolConditionCheck): CheckOutcome {
+  const slug = `check:${check}:${describeArgumentCondition(condition)}`;
   const calls = callsUnderTest(transcript, condition);
 
   // A rule about what the arguments looked like cannot be kept by a call that
@@ -513,7 +663,7 @@ function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgument
     };
   }
 
-  const results = calls.map(call => argumentsSatisfy(call, condition, clock));
+  const results = calls.map(call => callSatisfies(call, condition, clock, check));
   const failures = results.filter(result => !result.ok);
   const wantsEvery = (condition.calls ?? 'every') === 'every';
   const passed = wantsEvery ? failures.length === 0 : failures.length < results.length;
@@ -605,7 +755,10 @@ export function runCheck(transcript: CaseTranscript, check: EvalCheck, clock: Ch
     return checkToolNotCalled(transcript, check.toolNotCalled);
   }
   if ('toolCalledWith' in check) {
-    return checkToolCalledWith(transcript, check.toolCalledWith, clock);
+    return checkToolCalls(transcript, check.toolCalledWith, clock, 'toolCalledWith');
+  }
+  if ('toolReturned' in check) {
+    return checkToolCalls(transcript, check.toolReturned, clock, 'toolReturned');
   }
   if ('toolCallCount' in check) {
     return checkToolCallCount(transcript, check.toolCallCount);

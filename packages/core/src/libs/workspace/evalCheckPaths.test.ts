@@ -37,10 +37,23 @@ function datasetWith(...conditions: Array<Record<string, unknown>>): LoadedEvalD
   } as unknown as LoadedEvalDataset;
 }
 
+/**
+ * One dataset with one case carrying a `toolReturned` check on propose_action.
+ * @param condition - The check's body.
+ */
+function returnedDatasetWith(condition: Record<string, unknown>): LoadedEvalDataset {
+  return {
+    slug: 'returns',
+    name: 'Returns',
+    agentSlug: 'event-ingestion-lead',
+    items: [{ input: 'Ingest', checks: [{ toolReturned: { tool: 'propose_action', ...condition } }] }],
+  } as unknown as LoadedEvalDataset;
+}
+
 const EVENTS_ONLY = { path: 'action_input.objectType', equals: 'event-candidate' };
 
 describe('assertEvalCheckPaths', () => {
-  it('accepts the paths the Veerio datasets actually use', () => {
+  it('accepts the paths a live ingestion dataset uses', () => {
     expect(() => assertEvalCheckPaths([datasetWith(
       { where: EVENTS_ONLY, path: 'action_input.dedupOn', equals: ['title', 'startDate', 'venueName'] },
       { path: 'suggested_decision', present: true },
@@ -117,6 +130,23 @@ describe('assertEvalCheckPaths', () => {
     dataset.items[0]!.checks!.push(otherTool as never);
 
     expect(() => assertEvalCheckPaths([dataset], OBJECT_TYPES)).not.toThrow();
+  });
+
+  it('checks a path up to a * and no further', () => {
+    // `*` is every item of a list, so there is no one name to hold it
+    // against — but the misspelled envelope key before it is still caught.
+    expect(() => assertEvalCheckPaths([datasetWith({ where: EVENTS_ONLY, path: 'action_input.fields.*', present: true })], OBJECT_TYPES)).not.toThrow();
+    expect(() => assertEvalCheckPaths([datasetWith({ where: EVENTS_ONLY, path: 'action_input.fields.categories.*', present: true })], OBJECT_TYPES)).not.toThrow();
+    expect(() => assertEvalCheckPaths([datasetWith({ path: 'action_input.feilds.*', present: true })], OBJECT_TYPES))
+      .toThrow(/action_input has no "feilds"/);
+  });
+
+  it('checks a toolReturned where against the arguments, and leaves its path alone', () => {
+    // The return of propose_action is a sentence nothing here describes, but
+    // the where still picks calls by their arguments and can be misspelled.
+    expect(() => assertEvalCheckPaths([returnedDatasetWith({ where: EVENTS_ONLY, path: 'anything.at.all', present: true })], OBJECT_TYPES)).not.toThrow();
+    expect(() => assertEvalCheckPaths([returnedDatasetWith({ where: { path: 'action_input.objecttype', equals: 'event-candidate' }, contains: 'PENDING' })], OBJECT_TYPES))
+      .toThrow(/where path "action_input.objecttype"/);
   });
 
   it('accepts any field on a type whose schema declares no properties', () => {

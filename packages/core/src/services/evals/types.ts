@@ -45,6 +45,13 @@ export type EvalCheck
   = | { toolCalled: string }
     | { toolNotCalled: string }
     | { toolCalledWith: ToolArgumentCondition }
+    /**
+     * What a tool handed back had to look like — the same condition as
+     * `toolCalledWith`, read from the call's return value instead of its
+     * arguments. `where` still picks calls by their arguments; `path` and
+     * `timezoneFrom` read the return, parsed as JSON.
+     */
+    | { toolReturned: ToolArgumentCondition }
     | { toolCallCount: ToolCallCountCondition }
     | { outputMatches: string }
     | { outputContains: string }
@@ -104,7 +111,12 @@ export type ToolArgumentCondition = {
    * a venue proposal the run only makes when the venue is new.
    */
   noCalls?: 'fail' | 'pass';
-  /** Dot path into the call's arguments. Omit for the whole argument object. */
+  /**
+   * Dot path into the call's arguments (or, for `toolReturned`, its return
+   * value). Omit for the whole object. A `*` segment stands for every item of
+   * a list, so `*.id` means "each returned record's id", and every item has
+   * to satisfy the predicates.
+   */
   path?: string;
   /** The value at `path` must equal this, compared by value, not identity. */
   equals?: unknown;

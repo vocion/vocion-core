@@ -1289,19 +1289,76 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
 /**
- * One `where` filter on a `toolCalledWith` check. `present: false` exists so
+ * Whether a dot path names one value rather than every item of a list. A
+ * `where` filter needs a single answer per call, so `*` is refused there.
+ * @param path - A dot path from the manifest.
+ */
+function readsOneValue(path: string): boolean {
+  return !path.split('.').includes('*');
+}
+
+/**
+ * How many `*` segments a dot path has.
+ * @param path - A dot path from the manifest, or nothing.
+ */
+function countEveryItem(path: string | undefined): number {
+  return path ? path.split('.').filter(segment => segment === '*').length : 0;
+}
+
+/**
+ * One `where` filter on a `toolCalledWith` or `toolReturned` check. `present: false` exists so
  * a rule can step around the one legitimate exception to it — a series
  * refresh, which is the only event proposal carrying a `recurrence`, keeps
  * its first `startDate` even when that day has passed.
  */
 const ToolCallFilterSchema = z.object({
-  path: z.string(),
+  path: z.string().refine(readsOneValue, { message: 'a where path reads one value; a * segment only belongs in path' }),
   equals: z.unknown().optional(),
   present: z.boolean().optional(),
 }).refine(
   filter => filter.equals !== undefined || filter.present !== undefined,
   { message: 'a where filter needs equals or present — otherwise it matches every call' },
 );
+
+/**
+ * The condition a `toolCalledWith` or `toolReturned` check carries. The two
+ * differ only in what `path` and `timezoneFrom` read — the call's arguments
+ * or what the tool handed back — so they share one shape and one set of
+ * refusals.
+ * @param checkName - The check's key, for the refusal message.
+ * @param readsFrom - What `path` reads, for the field descriptions.
+ */
+function toolConditionSchema(checkName: 'toolCalledWith' | 'toolReturned', readsFrom: string) {
+  return z.object({
+    tool: z.string(),
+    where: z.union([ToolCallFilterSchema, z.array(ToolCallFilterSchema).min(1)]).optional().describe('only the calls whose arguments match this filter, or every filter in a list — one tool often files several kinds of thing'),
+    noCalls: z.enum(['fail', 'pass']).optional().describe('what no matching call means; fail by default'),
+    path: z.string().optional().describe(`dot path into ${readsFrom}; a * segment means every item of a list`),
+    equals: z.unknown().optional(),
+    contains: z.string().optional(),
+    present: z.boolean().optional(),
+    subsetOf: z.array(z.string()).optional().describe('every element at the path must be one of these'),
+    onOrAfter: z.string().refine(isRelativeDay, { message: 'onOrAfter must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or after this day, resolved when the check runs'),
+    onOrBefore: z.string().refine(isRelativeDay, { message: 'onOrBefore must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or before this day, resolved when the check runs'),
+    timezone: z.string().refine(isDayZone, { message: 'timezone must be utc, local, workspace, or an IANA zone like America/New_York' }).optional().describe('which zone "today" is in for onOrAfter and onOrBefore; utc by default'),
+    timezoneFrom: z.string().min(1).optional().describe(`dot path into ${readsFrom} naming the zone; a * means the same item path is on; timezone applies when it names none`),
+    calls: z.enum(['every', 'some']).optional().describe('how many of the tool\'s calls must match; every by default'),
+  }).refine(
+    condition => condition.equals !== undefined
+      || condition.contains !== undefined
+      || condition.present !== undefined
+      || condition.subsetOf !== undefined
+      || condition.onOrAfter !== undefined
+      || condition.onOrBefore !== undefined,
+    { message: `${checkName} needs one of equals, contains, present, subsetOf, onOrAfter or onOrBefore — otherwise it asserts nothing` },
+  ).refine(
+    // Each `*` in timezoneFrom is the item the matching `*` in path is on, so
+    // it cannot have more of them than path does — there would be no item to
+    // stand for.
+    condition => countEveryItem(condition.timezoneFrom) <= countEveryItem(condition.path),
+    { message: 'timezoneFrom has more * segments than path; each * in timezoneFrom stands for the item the matching * in path is on' },
+  );
+}
 
 /**
  * One deterministic check we run ourselves.
@@ -1322,29 +1379,16 @@ const EvalCheckSchema = z.union([
      * envelope shape, the dedup key and the suggested decision — all of them
      * arguments — measurable by nothing we have.
      */
-    toolCalledWith: z.object({
-      tool: z.string(),
-      where: z.union([ToolCallFilterSchema, z.array(ToolCallFilterSchema).min(1)]).optional().describe('only the calls matching this filter, or every filter in a list — one tool often files several kinds of thing'),
-      noCalls: z.enum(['fail', 'pass']).optional().describe('what no matching call means; fail by default'),
-      path: z.string().optional().describe('dot path into the arguments, e.g. action_input.dedupOn'),
-      equals: z.unknown().optional(),
-      contains: z.string().optional(),
-      present: z.boolean().optional(),
-      subsetOf: z.array(z.string()).optional().describe('every element at the path must be one of these'),
-      onOrAfter: z.string().refine(isRelativeDay, { message: 'onOrAfter must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or after this day, resolved when the check runs'),
-      onOrBefore: z.string().refine(isRelativeDay, { message: 'onOrBefore must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or before this day, resolved when the check runs'),
-      timezone: z.string().refine(isDayZone, { message: 'timezone must be utc, local, workspace, or an IANA zone like America/New_York' }).optional().describe('which zone "today" is in for onOrAfter and onOrBefore; utc by default'),
-      timezoneFrom: z.string().min(1).optional().describe('dot path into the same call naming its zone, e.g. action_input.fields.timezone; timezone applies when the call names none'),
-      calls: z.enum(['every', 'some']).optional().describe('how many of the tool\'s calls must match; every by default'),
-    }).refine(
-      condition => condition.equals !== undefined
-        || condition.contains !== undefined
-        || condition.present !== undefined
-        || condition.subsetOf !== undefined
-        || condition.onOrAfter !== undefined
-        || condition.onOrBefore !== undefined,
-      { message: 'toolCalledWith needs one of equals, contains, present, subsetOf, onOrAfter or onOrBefore — otherwise it asserts nothing' },
-    ),
+    toolCalledWith: toolConditionSchema('toolCalledWith', 'the call\'s arguments, e.g. action_input.dedupOn'),
+  }),
+  z.object({
+    /**
+     * What the tool handed back had to look like. Arguments say what the
+     * agent asked for; only the return says whether it got what it needed —
+     * a lookup that returns records without their ids leaves the agent
+     * unable to write anything back to them.
+     */
+    toolReturned: toolConditionSchema('toolReturned', 'the tool\'s return value, parsed as JSON, e.g. *.id'),
   }),
   z.object({
     /** How many times the tool was allowed to be called. */
