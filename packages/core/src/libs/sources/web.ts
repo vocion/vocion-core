@@ -753,9 +753,13 @@ type IcsLine = { property: string; colon: number; guessed: boolean; start: numbe
  *
  * One scan, because two callers need the same answer about where a property
  * begins and ends: the value reader below, and the filter that drops a
- * property before the block is hashed. A line whose name and value cannot be
- * told apart is left out, so a caller that removes lines never removes one it
- * did not understand.
+ * property before the block is hashed.
+ *
+ * A line with no colon to split on is left out entirely, so a caller that
+ * removes lines never removes one it could not parse. `guessed` covers the
+ * weaker case, a line whose quotes never closed: the name is still read from
+ * the text before the first `;`, which is why dropping such a line is safe
+ * while believing its value is not.
  * @param lines - the block's lines, starting at its own `BEGIN:`.
  */
 function icsLines(lines: string[]): IcsLine[] {

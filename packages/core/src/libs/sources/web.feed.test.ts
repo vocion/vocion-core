@@ -372,6 +372,24 @@ END:VCALENDAR`;
     expect(docs[0]?.content).toContain('DTSTART:20261206T150000Z');
   });
 
+  it('still drops a stamp whose quotes never closed, because the name is read before the parameters', async () => {
+    const guessed = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-12@venue.test
+SUMMARY:Guessed Split
+DTSTAMP;X-NOTE="unclosed:20261015T120000Z
+DTSTART:20261206T150000Z
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(guessed, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.content).not.toContain('DTSTAMP');
+    expect(docs[0]?.content).toContain('SUMMARY:Guessed Split');
+    expect(docs[0]?.content).toContain('DTSTART:20261206T150000Z');
+  });
+
   it('leaves a line alone when it cannot tell the property name from the value', async () => {
     const ambiguous = `BEGIN:VCALENDAR
 BEGIN:VEVENT
