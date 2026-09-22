@@ -108,16 +108,19 @@ function squashUrl(url: string): string {
 /**
  * Every URL the document itself published, the gate a model-returned URL has
  * to pass. Named apart from the `publishedUrls` option it reads, which is one
- * of its three inputs rather than the whole answer.
+ * of its four inputs rather than the whole answer.
  * @param links - `metadata.links`, the pre-strip list.
  * @param jsonLd - The page's JSON-LD blocks.
  * @param declared - `metadata.publishedUrls`, the URLs a non-HTML document
  * stated for itself, which is the only list a feed entry has.
+ * @param ogImage - `metadata.ogImage`, the one image an HTML document states
+ * for itself.
  */
 function documentUrls(
   links: PageLink[] | undefined,
   jsonLd: unknown[] | undefined,
   declared: string[] | undefined,
+  ogImage: string | undefined,
 ): { exact: Set<string>; blob: string } {
   // Held in the squashed form, which is also the form a match is stored in.
   // RFC 3986 has no whitespace in a URL at all, so any that reaches here is an
@@ -144,6 +147,17 @@ function documentUrls(
       exact.add(squashUrl(url));
     }
   }
+  // An HTML document states one image for itself in a <meta> tag, and
+  // `collectLinks` never walks one: it reads `a[href]` only
+  // (`libs/sources/web.ts`). So the og:image is in no link list and usually in
+  // no JSON-LD block either, and every one a model read off the document's own
+  // text was dropped here as unpublished, though the document published it as
+  // plainly as anything in that list. The connector declares it in the same
+  // blob as `publishedUrls` (`libs/sources/pageMetadata.ts`); this is the
+  // other half of that declaration.
+  if (ogImage) {
+    exact.add(squashUrl(ogImage));
+  }
   // JSON-LD carries URLs inside nested objects (`offers.url`, `image`), so a
   // substring check over the serialised blocks is the honest gate: the value
   // has to literally occur in what the page published.
@@ -161,6 +175,8 @@ function documentUrls(
  * @param opts.jsonLd - `metadata.jsonLd` from the page, for the URL gate.
  * @param opts.publishedUrls - `metadata.publishedUrls`, the URLs a feed entry
  * declared for itself, for the same gate.
+ * @param opts.ogImage - `metadata.ogImage`, the image the document stated for
+ * itself, for the same gate and for the fallback at the end of this file.
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
  */
@@ -171,6 +187,7 @@ export function validateRecords(opts: {
   links?: PageLink[];
   jsonLd?: unknown[];
   publishedUrls?: string[];
+  ogImage?: string;
   knownIds: Set<number>;
   today: string;
 }): ValidationOutput {
@@ -181,7 +198,12 @@ export function validateRecords(opts: {
     counts[key] = (counts[key] ?? 0) + 1;
   };
 
-  const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls);
+  // Cast out of a jsonb column rather than parsed, so the declared type is a
+  // claim; guarded here once for the two readers below, for the reason
+  // `documentUrls` guards the declared list.
+  const ogImage = typeof opts.ogImage === 'string' ? opts.ogImage : undefined;
+
+  const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls, ogImage);
   // Answers with the URL to store rather than with a yes, because the gate is
   // the last place that knows both spellings. A feed folds a long line and the
   // model may hand the value back with the fold still in it, so blessing the
@@ -337,24 +359,62 @@ export function validateRecords(opts: {
     kept.push(record);
   }
 
-  if (!config.collapseWithinDocument) {
-    return { records: kept, counts, notes };
+  let records = kept;
+  if (config.collapseWithinDocument) {
+    // One document listing the same thing twice, a listing page with a
+    // "featured" block above the calendar, is one record, not two proposals
+    // racing for the same dedup key.
+    const seen = new Map<string, ValidatedRecord>();
+    for (const record of kept) {
+      const key = config.dedupOn.map(field => normaliseForKey(record.fields[field])).join('|');
+      if (seen.has(key)) {
+        counts.collapsed = (counts.collapsed ?? 0) + 1;
+        continue;
+      }
+      seen.set(key, record);
+    }
+    if (counts.collapsed) {
+      notes.push(`${counts.collapsed} record(s) repeated inside the document and were collapsed`);
+    }
+    records = [...seen.values()];
   }
 
-  // One document listing the same thing twice, a listing page with a "featured"
-  // block above the calendar, is one record, not two proposals racing for the
-  // same dedup key.
-  const seen = new Map<string, ValidatedRecord>();
-  for (const record of kept) {
-    const key = config.dedupOn.map(field => normaliseForKey(record.fields[field])).join('|');
-    if (seen.has(key)) {
-      counts.collapsed = (counts.collapsed ?? 0) + 1;
-      continue;
+  // The image of last resort: the one the document published for itself.
+  //
+  // The connector has kept the og:image since `pageMetadata.ts` was written
+  // and nothing downstream ever read it. On one deployment 196 of 430 HTML
+  // documents carried one that went nowhere, and only 114 of the 221 resulting
+  // cards reached a reviewer with a picture on them.
+  //
+  // Applied ONLY to a document that produced exactly one record, because an
+  // og:image describes the DOCUMENT rather than any record in it. When the
+  // document describes one thing, the document's image is that thing's image.
+  // When it lists many, the image belongs to the page, and putting it on each
+  // record would state on every card something the document never said about
+  // any of them.
+  //
+  // It fills `imageUrl` and never a configured `imageFrom` field. `imageUrl`
+  // is what the proposal carries as the card's picture
+  // (`objects-propose-candidate.ts`), and it is extraction's own answer about
+  // the card; an `imageFrom` field is part of the record's data, and writing a
+  // fact about the document into it would be the inventing the prompt forbids.
+  //
+  // It goes THROUGH `published`, the same gate every model-returned URL
+  // passes, rather than around it. The gate knows this value only because
+  // `documentUrls` was told about it, so the fallback cannot outlive the
+  // declaration that justifies it: take the og:image back out of the gate and
+  // this fills nothing, rather than quietly writing past it.
+  const only = records.length === 1 ? records[0] : undefined;
+  if (ogImage && only && !only.imageUrl) {
+    const declared = published(ogImage);
+    if (declared !== undefined) {
+      only.imageUrl = declared;
+      // Said on the card, because a reviewer reading a picture of the wrong
+      // thing should be able to see where it came from.
+      only.issues.push('the image is the one the document published for itself, no image was stated for this record');
+      bump('image_from_document');
     }
-    seen.set(key, record);
   }
-  if (counts.collapsed) {
-    notes.push(`${counts.collapsed} record(s) repeated inside the document and were collapsed`);
-  }
-  return { records: [...seen.values()], counts, notes };
+
+  return { records, counts, notes };
 }
