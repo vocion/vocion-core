@@ -370,13 +370,9 @@ export function flagsOf(row: PageRow, lane: WorkLane): string[] {
 }
 
 /**
- * A lane's heading, which carries what the lane could not draw.
- * @param lane
- * @param counts
- * @param counts.total
- * @param counts.shown
- * @param counts.ranked
- * @param counts.minutes
+ * A lane's name — short, because it is a tab a person taps rather than a
+ * sentence they read. What the lane could not draw rides on {@link laneNote}.
+ * @param lane - The lane.
  */
 function laneLabel(lane: WorkLane): string {
   if (lane === 'progress') {

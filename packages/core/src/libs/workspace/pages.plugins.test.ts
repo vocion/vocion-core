@@ -75,20 +75,18 @@ describe('plugin pages', () => {
     expect(work?.rowActions).toEqual([]);
   });
 
-  it('Work says four things on top, and neither of the two internal metrics', () => {
+  it('Work carries no figures on top, because each tab counts itself', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
     const work = pages.find(p => p.slug === 'work');
-    const labels = work?.stats?.map(s => s.label) ?? [];
 
-    // 6 next, 1 in progress, 3 waiting, nothing urgent. Tasks written was
-    // plumbing; decision minutes belongs to the lane it describes, and rides
-    // on the Waiting heading instead of standing alone as a figure.
-    expect(labels).toEqual(['Next', 'In progress', 'Waiting on you', 'Urgent']);
-    expect(labels).not.toContain('Tasks written');
-    expect(labels).not.toContain('Decision minutes owed');
-    // Each figure counts the WHOLE queue, not the part a capped lane drew.
-    expect(work?.stats?.every(s => s.kind === 'max')).toBe(true);
+    // The four-figure top line was three of the same numbers the tabs now
+    // carry, said twice, over a queue two of them had already summarised.
+    expect(work?.stats ?? []).toEqual([]);
+    expect(work?.groupsAs).toBe('tabs');
+    expect(work?.groupBy).toBe('meta.lane');
+    // Blocks, not a table: sixteen columns on a phone was a sideways scroll.
+    expect(work?.layout).toBe('block');
   });
 
   it('a Work row is about five things, and says why in words', () => {
@@ -100,10 +98,14 @@ describe('plugin pages', () => {
     // The outcome, why it is here, what is happening to it, which product,
     // what it costs. Plus the rank and the conditional facts, both of which
     // draw nothing when there is nothing to say.
-    expect(keys).toEqual(['title', 'why', 'flags', 'rank', 'status', 'product', 'cost']);
-    expect(work?.primary).toEqual({ field: 'title', subtitle: ['why', 'flags'] });
+    expect(keys).toEqual(['title', 'status', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
+    // Every field sits in the subtitle so the uppercase fact list never
+    // draws: five labels a person reads past to reach five values.
+    expect(work?.primary).toEqual({ field: 'title', subtitle: ['status', 'flags', 'detail', 'why', 'cost'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
+    // `status` is the derived badge — "Blocked", "Decide" — never the
+    // record's own `state`, which is where `triaged` and `in_scope` live.
     for (const gone of ['state', 'decision', 'proposed', 'kind', 'severity', 'size', 'channel', 'tasks', 'estimate', 'actual', 'asked', 'decided', 'reason']) {
       expect(keys).not.toContain(gone);
     }
