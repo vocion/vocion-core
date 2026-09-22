@@ -621,14 +621,25 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
 const PUBLISHED_URL_CAP = 50;
 const PUBLISHED_URL_CHAR_CAP = 2048;
 
-/** Properties whose value is a URL the entry publishes about itself. */
-const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
+/**
+ * Properties whose value is a URL the entry publishes about itself: its page,
+ * its attachments, and RFC 7986's `IMAGE`.
+ */
+const ICS_URL_PROPERTIES = ['URL', 'ATTACH', 'IMAGE'] as const;
+
+/**
+ * An exporter's own property for the event's picture, for platforms that ignore
+ * `ATTACH` and `IMAGE` (`X-TKF-FEATURED-IMAGE`, `X-WP-IMAGES-URL`). Anchored so
+ * a property about an image, such as a credit or alt text, is not read as one.
+ */
+const ICS_VENDOR_IMAGE_RE = /^X-[A-Z0-9-]*IMAGES?(?:-UR[LI])?$/;
 
 /** A relative reference written as a path, never a bare word like `None`. */
 const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
 
 /**
- * The URLs a VEVENT publishes about itself: its own page, and its attachments.
+ * The URLs a VEVENT publishes about itself: its own page, its attachments, its
+ * image, and any picture an exporter writes under its own `X-` image property.
  *
  * A document's URLs are how the extractor tells a link the page really carried
  * from one a model invented. For an HTML page that list is the parsed links;
@@ -660,10 +671,11 @@ const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
  * @param feedUrl - the URL the feed was fetched from.
  */
 function icsPublishedUrls(block: string[], feedUrl: string): string[] {
+  const vendorImages = new Set(icsLines(block).map(line => line.property).filter(name => ICS_VENDOR_IMAGE_RE.test(name)));
   // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a feed
   // that ships inline base64 bytes on the first line and the poster URL on the
   // second would otherwise lose the poster entirely.
-  const values = ICS_URL_PROPERTIES.flatMap(name => icsPublishedValues(block, name));
+  const values = [...ICS_URL_PROPERTIES, ...vendorImages].flatMap(name => icsPublishedValues(block, name));
   const base = icsNativeBase(block, feedUrl);
   const out: string[] = [];
   for (const value of values) {
