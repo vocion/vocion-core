@@ -645,3 +645,32 @@ describe('a zero is a claim', () => {
     expect(report.summary.humanDecisions).toBe(0);
   });
 });
+
+describe('the goal, as a subtitle', () => {
+  const withBody = (body: string) => {
+    const base = input({});
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body } } });
+  };
+
+  it('takes the first sentence, so a body full of criteria does not become the subtitle', () => {
+    const report = withBody('Launch the product as Stamp at stampsend.com without breaking existing links. 1. Every screen shows Stamp. 2. Old URLs redirect.');
+
+    expect(report.goal).toBe('Launch the product as Stamp at stampsend.com without breaking existing links.');
+  });
+
+  it('does not end a sentence inside a domain name', () => {
+    expect(withBody('Serve it at stampsend.com from Monday.').goal).toBe('Serve it at stampsend.com from Monday.');
+  });
+
+  it('caps a single enormous sentence rather than printing it whole', () => {
+    const long = `Do ${'a very long clause '.repeat(20)}thing.`;
+    const goal = withBody(long).goal!;
+
+    expect(goal.length).toBeLessThanOrEqual(180);
+    expect(goal.endsWith('…')).toBe(true);
+  });
+
+  it('is null when nobody wrote one', () => {
+    expect(withBody('   ').goal).toBeNull();
+  });
+});

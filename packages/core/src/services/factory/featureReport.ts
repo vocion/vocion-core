@@ -1470,6 +1470,34 @@ function buildState(input: FeatureReportInput): ReportState {
 }
 
 /**
+ * WHAT THIS WORK IS FOR, in a sentence.
+ *
+ * The subtitle reads the ask's own body, and a body can be anything a person
+ * or an agent put there — on the Stamp rename it was six numbered acceptance
+ * criteria, which drew a nine-line wall of text under the title where a goal
+ * belongs. A subtitle that has to be read is not a subtitle.
+ *
+ * So: the first sentence, capped. The whole body is still on the page, in the
+ * ask, where a reader goes when the sentence is not enough.
+ * @param request - The request record.
+ */
+function goalOf(request: ReportObject): string | null {
+  const raw = (str(request.meta, 'summary') ?? str(request.meta, 'body') ?? '').trim();
+  if (raw === '') {
+    return null;
+  }
+  const oneLine = raw.replace(/\s+/g, ' ');
+  // A sentence ends at a full stop followed by a space and then a capital or
+  // a digit — a capital for ordinary prose, a digit because a body that
+  // continues "1. Every screen shows Stamp" is a list, and the list is not
+  // the goal. Not the dot inside "stampsend.com", which is followed by a
+  // lowercase letter.
+  const cut = oneLine.search(/\.\s+[A-Z0-9]/);
+  const first = cut === -1 ? oneLine : oneLine.slice(0, cut + 1);
+  return first.length > 180 ? `${first.slice(0, 179).trimEnd()}…` : first;
+}
+
+/**
  * The summary strip: asked, shipped, elapsed, total cost, how many human
  * decisions and how many attempts. Six figures, each read off a record.
  * @param input - The report's inputs.
@@ -1527,7 +1555,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     state: buildState(normalised),
     // The ask's own body, trimmed to a sentence or two — not the whole prompt,
     // which belongs behind "the original request" in the ask section.
-    goal: str(input.request.meta, 'body') ?? str(input.request.meta, 'summary') ?? null,
+    goal: goalOf(input.request),
     summary: buildSummary(normalised, line),
     money: line,
     sections: [
