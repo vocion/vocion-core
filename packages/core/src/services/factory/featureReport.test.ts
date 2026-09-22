@@ -625,3 +625,23 @@ describe('the small parts', () => {
     expect(runChange(run({ result: null, progress: {} })).prUrl).toBeNull();
   });
 });
+
+describe('a zero is a claim', () => {
+  it('will not count attempts or decisions out of an empty join, and says the history is incomplete', () => {
+    // The shape Chris met: tasks written, a plan on the record, and not one
+    // worker run linked — which rendered as a confident "0 attempts" beside a
+    // real cost, on a page listing five of them.
+    const report = assembleFeatureReport(input({ workerRuns: [], asks: [], actionRuns: [] }));
+
+    expect(report.summary.attempts).toBeNull();
+    expect(report.summary.humanDecisions).toBeNull();
+    expect(report.contradictions.join(' ')).toMatch(/Execution history is incomplete/);
+  });
+
+  it('still counts a real zero when nothing was ever written to run', () => {
+    const report = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
+
+    expect(report.summary.attempts).toBe(0);
+    expect(report.summary.humanDecisions).toBe(0);
+  });
+});

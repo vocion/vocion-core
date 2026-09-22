@@ -1,4 +1,4 @@
-import type { FeatureReport, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, Tone } from '@/services/factory/featureReport';
+import type { FeatureReport, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
 import { StatusPill } from '@/components/ui/status-pill';
 import { formatStamp, money } from '@/services/factory/featureReport';
@@ -197,6 +197,70 @@ function Section({ section }: { section: ReportSection }) {
 }
 
 /**
+ * WHERE THIS WORK IS, at the top, and what it wants from you.
+ *
+ * The page used to open with a paragraph describing the database and bury the
+ * live blocker several screens down; a person could scroll for a while without
+ * learning what to do. State first, the question verbatim, the one action —
+ * and on a phone the same action again, stuck to the bottom of the screen, so
+ * it is reachable from wherever the reading got to.
+ * @param props
+ * @param props.state - The derived state.
+ */
+function StateHeader({ state }: { state: ReportState }) {
+  const tone = state.needsYou
+    ? 'border-brand-amber/50 bg-brand-amber-tint'
+    : 'border-border bg-surface-soft';
+  return (
+    <section id="report-state" className={`rounded-lg border p-3 ${tone}`}>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className={`text-[11px] font-semibold tracking-[0.06em] uppercase ${state.needsYou ? 'text-brand-amber-deep' : 'text-muted-foreground'}`}>
+          {state.label}
+        </span>
+        <span className="text-xs text-muted-foreground">{state.detail}</span>
+      </div>
+      {state.question !== null && (
+        <p className="mt-2 text-sm font-medium break-words text-foreground">{state.question}</p>
+      )}
+      {state.action !== null && (
+        <a
+          href={state.action.href}
+          data-testid="report-primary-action"
+          className="mt-2 inline-flex h-9 items-center rounded-md bg-brand-amber px-3 text-[13px] font-medium text-white transition-colors hover:bg-brand-amber-deep"
+        >
+          {state.action.label}
+        </a>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The same action, stuck to the bottom of a phone screen, only while the work
+ * is actually waiting on a person. It is not shown from `sm` up, where the
+ * header above is never more than a scroll away.
+ * @param props
+ * @param props.state - The derived state.
+ */
+function StickyAction({ state }: { state: ReportState }) {
+  if (!state.needsYou || state.action === null) {
+    return null;
+  }
+  return (
+    <div className="pointer-events-none sticky bottom-3 z-30 -mx-1 flex justify-center sm:hidden">
+      <a
+        href={state.action.href}
+        data-testid="report-sticky-action"
+        className="pointer-events-auto inline-flex h-11 items-center gap-2 rounded-full bg-brand-amber px-5 text-sm font-medium text-white shadow-(--shadow-pop)"
+      >
+        <span className="opacity-80">{state.label}</span>
+        <span>{state.action.label}</span>
+      </a>
+    </div>
+  );
+}
+
+/**
  * Six figures across the top: asked, shipped, elapsed, what it cost, how
  * many times a person decided, how many attempts it took.
  * @param props - The report.
@@ -209,8 +273,10 @@ function SummaryStrip({ report }: { report: FeatureReport }) {
     ['Shipped', s.shippedAt ? formatStamp(s.shippedAt) : 'nothing has shipped'],
     ['Elapsed', s.elapsed === null ? 'not measurable' : s.elapsedOpen ? `${s.elapsed} so far` : s.elapsed],
     ['Total cost', money(s.totalCents)],
-    ['Human decisions', String(s.humanDecisions)],
-    ['Attempts', String(s.attempts)],
+    // `null` means no record is linked, which the assembly refuses to render
+    // as a zero — the contradictions block above says why.
+    ['Human decisions', s.humanDecisions === null ? 'not linked' : String(s.humanDecisions)],
+    ['Attempts', s.attempts === null ? 'not linked' : String(s.attempts)],
   ];
   return (
     <dl id="report-summary" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-3 lg:grid-cols-6">
@@ -265,6 +331,7 @@ function Timeline({ report }: { report: FeatureReport }) {
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
     <div className="max-w-3xl space-y-6 overflow-x-hidden">
+      <StateHeader state={report.state} />
       <SummaryStrip report={report} />
 
       {report.contradictions.length > 0 && (
@@ -291,6 +358,8 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
       <div className="space-y-5">
         {report.sections.map(section => <Section key={section.key} section={section} />)}
       </div>
+
+      <StickyAction state={report.state} />
 
       <p className="text-xs text-muted-foreground">
         Every figure on this page is read off a record.
