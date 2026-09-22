@@ -738,6 +738,13 @@ export const agentSchema = pgTable(
        * agent at one vendor without moving the whole deployment.
        */
       modelProvider?: 'anthropic' | 'openai' | 'bedrock';
+      /**
+       * Cache this agent's prompt prefix at the vendor. Unset means the
+       * process default (on), so this exists to turn caching OFF for one
+       * agent — a prompt that changes on every turn pays the 1.25x write
+       * rate for a cache nothing ever reads back. See `libs/llm/promptCache.ts`.
+       */
+      promptCache?: boolean;
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.

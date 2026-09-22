@@ -71,3 +71,32 @@ describe('harness runsOn', () => {
     expect(() => parseHarness({ runsOn: 'bedrock' })).toThrow();
   });
 });
+
+/**
+ * `harness.promptCache` — the per-agent prompt-cache switch.
+ *
+ * Same absent-versus-defaulted rule as `runsOn`, for the same reason: the block
+ * is stored verbatim as `harnessConfig`, so a schema default would land in the
+ * database as though the author had typed it, and `VOCION_PROMPT_CACHE=0` would
+ * look like it had been overruled per agent. The value worth writing is
+ * `false`, so `false` has to survive parsing intact rather than being treated
+ * as "unset".
+ */
+describe('harness promptCache', () => {
+  it('keeps a written false, which is the only reason to write it', () => {
+    expect(parseHarness({ promptCache: false }).promptCache).toBe(false);
+  });
+
+  it('keeps a written true', () => {
+    expect(parseHarness({ promptCache: true }).promptCache).toBe(true);
+  });
+
+  it('leaves the key absent when the author said nothing', () => {
+    expect('promptCache' in parseHarness({ runsOn: 'in-process' })).toBe(false);
+    expect('promptCache' in parseHarness(undefined)).toBe(false);
+  });
+
+  it('refuses a non-boolean rather than guessing what it meant', () => {
+    expect(() => parseHarness({ promptCache: 'yes' })).toThrow();
+  });
+});

@@ -42,6 +42,20 @@ describe('definitionHash', () => {
     expect(first).toBe(second);
   });
 
+  it('rebuilds when an agent turns prompt caching off', () => {
+    // The switch is read at graph-build time and baked into the chat model, so
+    // an agent that shares a cached graph with its caching twin keeps caching
+    // after the author said not to — and the only symptom is the bill.
+    const caching = definitionHash(request({
+      agent: { slug: 'sales-assistant', name: 'Sales Assistant', systemPrompt: 'Be helpful.' },
+    } as Partial<InvocationRequest>));
+    const notCaching = definitionHash(request({
+      agent: { slug: 'sales-assistant', name: 'Sales Assistant', systemPrompt: 'Be helpful.', promptCache: false },
+    } as Partial<InvocationRequest>));
+
+    expect(caching).not.toBe(notCaching);
+  });
+
   it('rebuilds when an org starts sending an AWS session', () => {
     const withoutKey = definitionHash(request());
     const withKey = definitionHash(request({
@@ -89,5 +103,25 @@ describe('definitionHash', () => {
     }));
 
     expect(before).toBe(after);
+  });
+});
+
+describe('definitionHash and prompt caching', () => {
+  it('keeps two agents apart when the only difference is whether they cache', () => {
+    // `promptCache` decides WHICH chat model class the graph is built with, so
+    // a shared graph would give one of the two agents the other's caching
+    // behaviour — and an author who wrote `promptCache: false` would get
+    // caching anyway, depending only on which agent ran first.
+    const cached = request({ agent: { slug: 'a', name: 'A', systemPrompt: 'Be helpful.' } });
+    const uncached = request({ agent: { slug: 'a', name: 'A', systemPrompt: 'Be helpful.', promptCache: false } });
+
+    expect(definitionHash(cached)).not.toBe(definitionHash(uncached));
+  });
+
+  it('still reuses one graph for two requests that agree about caching', () => {
+    const one = request({ agent: { slug: 'a', name: 'A', systemPrompt: 'Be helpful.', promptCache: false } });
+    const two = request({ agent: { slug: 'a', name: 'A', systemPrompt: 'Be helpful.', promptCache: false } });
+
+    expect(definitionHash(one)).toBe(definitionHash(two));
   });
 });

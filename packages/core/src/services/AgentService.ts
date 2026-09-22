@@ -3,6 +3,7 @@ import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
+import type { LangfuseTurnUsage } from '@/libs/Langfuse';
 import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
@@ -564,7 +565,7 @@ export async function runAgentDeep(opts: {
   const failedDelegations: FailedDelegation[] = [];
 
   // What this run cost, summed over every model turn the callback sees.
-  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, microCents: 0, cents: 0, turns: 0 };
+  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
 
   // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
   const { handler: langfuseHandler, trace } = createLangfuseCallback({
@@ -575,22 +576,7 @@ export async function runAgentDeep(opts: {
     input: { message: opts.message },
     metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
     onTurnEnd: async (turn) => {
-      usage.turns += 1;
-      usage.model = turn.model;
-      usage.inputTokens += turn.inputTokens ?? 0;
-      usage.outputTokens += turn.outputTokens ?? 0;
-      usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
-      // Summed in whole micro-cents, then divided once. Adding fractional
-      // cents turn by turn drifts, because most of them are not values a
-      // floating-point number can hold exactly; `cents` is recomputed from the
-      // exact total each time rather than accumulated, so it is right to read
-      // at any point in the run.
-      usage.microCents += tokenCostMicroCents(turn.model, {
-        inputTokens: turn.inputTokens,
-        outputTokens: turn.outputTokens,
-        cacheReadTokens: turn.cacheReadTokens,
-      });
-      usage.cents = usage.microCents / 1_000_000;
+      addTurnToRunUsage(usage, turn);
       await chargeUsage({
         orgId: opts.orgId,
         agentSlug: opts.agentSlug,
@@ -599,6 +585,7 @@ export async function runAgentDeep(opts: {
           inputTokens: turn.inputTokens,
           outputTokens: turn.outputTokens,
           cacheReadTokens: turn.cacheReadTokens,
+          cacheWriteTokens: turn.cacheWriteTokens,
         },
       });
     },
@@ -996,7 +983,10 @@ export type RunUsage = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Input tokens the vendor served from its prompt cache, at 0.1x the rate. */
   cacheReadTokens: number;
+  /** Input tokens the vendor wrote into its prompt cache, at 1.25x the rate. */
+  cacheWriteTokens: number;
   /**
    * What the run cost in micro-cents (a millionth of a cent) — the exact
    * number, summed as whole numbers over the run's turns.
@@ -1010,6 +1000,41 @@ export type RunUsage = {
   /** Model turns — one per LLM call, so retries and tool loops count. */
   turns: number;
 };
+
+/**
+ * Fold one finished model turn into a run's running total, in place.
+ *
+ * Lives here rather than inside the callback that calls it so the arithmetic
+ * can be read and tested on its own — it decides what the run is charged, and
+ * every way of getting it wrong is silent:
+ *
+ *   - A cache read not counted is a saving nobody can see on the run.
+ *   - A cache write not counted undercharges the first turn of every run by
+ *     about a quarter, because a written prefix costs 1.25x plain input.
+ *   - `cents` is recomputed from the exact micro-cent total rather than added
+ *     up turn by turn: most cent amounts are not values a floating-point
+ *     number holds exactly, so accumulating them drifts over a long run.
+ *
+ * `model` is overwritten rather than merged; a run that switches models mid-way
+ * is named after its last turn, and each turn is still priced on its own model.
+ * @param usage - The run's running total, updated in place.
+ * @param turn - What the provider reported for the turn that just finished.
+ */
+export function addTurnToRunUsage(usage: RunUsage, turn: LangfuseTurnUsage): void {
+  usage.turns += 1;
+  usage.model = turn.model;
+  usage.inputTokens += turn.inputTokens ?? 0;
+  usage.outputTokens += turn.outputTokens ?? 0;
+  usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
+  usage.cacheWriteTokens += turn.cacheWriteTokens ?? 0;
+  usage.microCents += tokenCostMicroCents(turn.model, {
+    inputTokens: turn.inputTokens,
+    outputTokens: turn.outputTokens,
+    cacheReadTokens: turn.cacheReadTokens,
+    cacheWriteTokens: turn.cacheWriteTokens,
+  });
+  usage.cents = usage.microCents / 1_000_000;
+}
 
 /**
  * The model override a conversation's preferences ask for, on the agent's

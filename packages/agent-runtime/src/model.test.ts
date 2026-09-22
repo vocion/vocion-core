@@ -12,6 +12,7 @@ import type { InvocationRequest } from './contract.js';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bedrockCredentialProvider, buildChatModel, resolveProvider } from './model.js';
+import { CachingChatAnthropic, CachingChatBedrockConverse } from './promptCache.js';
 
 type CredentialProvider = () => Promise<{
   accessKeyId: string;
@@ -168,5 +169,53 @@ describe('buildChatModel on the anthropic path', () => {
 
     expect((model as { client?: unknown }).client).toBeUndefined();
     expect(model.getName()).toBe('ChatAnthropic');
+  });
+});
+
+/**
+ * Prompt caching in the deployed artifact.
+ *
+ * The runtime is where the agent loop actually runs for a BYOA deployment, so
+ * an artifact built without the caching class pays full input price for the
+ * system prompt and the settled history on every turn of every run — the exact
+ * cost this ticket is about, on the exact path that produced the measurement.
+ * `promptCache.ts` here is a copy of core's; these pin that the copy is wired
+ * in, for both vendors, and that the kill switch reaches it.
+ */
+describe('buildChatModel and prompt caching', () => {
+  it('caches the prompt prefix on bedrock by default', async () => {
+    const model = await buildChatModel({ readAwsSession: () => SESSION_A });
+
+    expect(model).toBeInstanceOf(CachingChatBedrockConverse);
+  });
+
+  it('caches the prompt prefix on anthropic by default', async () => {
+    process.env.VOCION_MODEL_PROVIDER = 'anthropic';
+    process.env.ANTHROPIC_API_KEY = 'not-a-real-key';
+    const model = await buildChatModel({});
+
+    expect(model).toBeInstanceOf(CachingChatAnthropic);
+  });
+
+  it('builds the plain class when the caller opts out', async () => {
+    const model = await buildChatModel({ readAwsSession: () => SESSION_A, promptCache: false });
+
+    expect(model).not.toBeInstanceOf(CachingChatBedrockConverse);
+  });
+
+  it('is forced off by VOCION_PROMPT_CACHE=0, over the caller', async () => {
+    process.env.VOCION_PROMPT_CACHE = '0';
+    const model = await buildChatModel({ readAwsSession: () => SESSION_A, promptCache: true });
+
+    expect(model).not.toBeInstanceOf(CachingChatBedrockConverse);
+  });
+
+  it('still signs with the caller\'s own AWS session when caching is on', async () => {
+    // The caching subclass must not swallow the credential provider: a cached
+    // client signing with the wrong session is one tenant spending another
+    // tenant's AWS account, which is what `bedrockCredentialProvider` prevents.
+    const model = await buildChatModel({ readAwsSession: () => SESSION_A });
+
+    await expect(clientCredentialsOf(model)().then(c => c.sessionToken)).resolves.toBe(SESSION_A!.sessionToken);
   });
 });

@@ -24,10 +24,20 @@ export function bedrockClient(client: BedrockRuntimeClient): LLMClient {
     provider: 'bedrock',
     async generate(opts: LLMOptions): Promise<LLMResponse> {
       const systemPrompt = buildSystemPrompt(opts);
+      // A `cachePoint` closing the system blocks is what makes a repeated
+      // one-shot call — the same schema, rules and examples against a
+      // different document — pay the cache-read rate for its prefix instead of
+      // the full input rate. Converse evaluates the minimum against tools +
+      // system + messages together, and below it the call succeeds and simply
+      // does not cache, so this is safe to send on every request.
+      const cachePrompt = opts.promptCache ?? true;
+      const system = systemPrompt
+        ? [{ text: systemPrompt }, ...(cachePrompt ? [{ cachePoint: { type: 'default' as const } }] : [])]
+        : undefined;
       const request: ConverseCommandInput = {
         modelId: opts.model,
         messages: toConverseMessages(opts.messages),
-        ...(systemPrompt ? { system: [{ text: systemPrompt }] } : {}),
+        ...(system ? { system } : {}),
         inferenceConfig: {
           // Bedrock rejects an explicit `undefined` on some fields, so only
           // send what the caller actually set.
@@ -44,12 +54,24 @@ export function bedrockClient(client: BedrockRuntimeClient): LLMClient {
         .map(block => block.text ?? '')
         .join('');
 
+      // Converse reports `inputTokens` as the UNCACHED remainder only, so the
+      // two cache counts are added back to make `inputTokens` mean the whole
+      // input side — the same thing it means everywhere else in this codebase.
+      // AWS documents the sum:
+      // https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+      const cacheReadTokens = response.usage?.cacheReadInputTokens;
+      const cacheWriteTokens = response.usage?.cacheWriteInputTokens;
+      const uncachedInputTokens = response.usage?.inputTokens;
       return {
         content,
         finishReason: response.stopReason,
         usage: {
-          inputTokens: response.usage?.inputTokens,
+          inputTokens: uncachedInputTokens === undefined
+            ? undefined
+            : uncachedInputTokens + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0),
           outputTokens: response.usage?.outputTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
         },
       };
     },

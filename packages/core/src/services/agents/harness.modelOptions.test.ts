@@ -66,4 +66,38 @@ describe('chatModelOptionsFor', () => {
   it('omits an empty model string rather than asking for a nameless model', () => {
     expect(chatModelOptionsFor({ modelProvider: 'bedrock', model: '' })).toEqual({ provider: 'bedrock' });
   });
+
+  /**
+   * `promptCache` is the one field here whose useful value is `false`, so the
+   * "omit when unset" rule has to be spelled `!== undefined`. A truthiness
+   * check would drop exactly the setting an author bothered to write, and the
+   * agent whose prompt must not be cached would be cached anyway.
+   */
+  it('forwards promptCache: false, which is the only reason to write it', () => {
+    expect(chatModelOptionsFor({ promptCache: false })).toEqual({ promptCache: false });
+  });
+
+  it('forwards an explicit promptCache: true', () => {
+    expect(chatModelOptionsFor({ promptCache: true })).toEqual({ promptCache: true });
+  });
+
+  it('says nothing about caching when the author said nothing', () => {
+    // An omitted key is what leaves the process default and
+    // VOCION_PROMPT_CACHE reachable; a written-in `true` would not.
+    expect(chatModelOptionsFor({ maxTokens: 4096 })).toEqual({ maxTokens: 4096 });
+  });
+
+  it('carries promptCache alongside the provider and the cap', () => {
+    expect(chatModelOptionsFor({
+      modelProvider: 'bedrock',
+      model: 'us.anthropic.claude-sonnet-4-6',
+      maxTokens: 4096,
+      promptCache: false,
+    })).toEqual({
+      provider: 'bedrock',
+      model: 'us.anthropic.claude-sonnet-4-6',
+      maxTokens: 4096,
+      promptCache: false,
+    });
+  });
 });

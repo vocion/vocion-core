@@ -55,7 +55,9 @@ describe('bedrockClient request shape', () => {
       ],
     });
 
-    expect(sent[0]?.system).toEqual([{ text: 'Be terse.' }]);
+    // A `cachePoint` closes the system blocks so a repeated one-shot call
+    // pays the cache-read rate for its prefix. See promptCache.ts.
+    expect(sent[0]?.system).toEqual([{ text: 'Be terse.' }, { cachePoint: { type: 'default' } }]);
     expect(sent[0]?.messages).toEqual([{ role: 'user', content: [{ text: 'Hi' }] }]);
   });
 
@@ -71,7 +73,24 @@ describe('bedrockClient request shape', () => {
       ],
     });
 
-    expect(sent[0]?.system).toEqual([{ text: 'First.\n\nSecond.' }]);
+    expect(sent[0]?.system).toEqual([{ text: 'First.\n\nSecond.' }, { cachePoint: { type: 'default' } }]);
+  });
+
+  it('drops the cachePoint when the caller opts out', async () => {
+    // For a prompt that must not sit in the vendor's cache at all. The call
+    // still works; it just pays full input price every time.
+    const { client, sent } = stubClient();
+
+    await bedrockClient(client).generate({
+      model: 'm',
+      messages: [
+        { role: 'system', content: 'Be terse.' },
+        { role: 'user', content: 'Hi' },
+      ],
+      promptCache: false,
+    });
+
+    expect(sent[0]?.system).toEqual([{ text: 'Be terse.' }]);
   });
 
   it('omits the system field entirely when there are no system messages', async () => {
@@ -265,5 +284,56 @@ describe('buildBedrockRuntimeClient', () => {
     const client = buildBedrockRuntimeClient({ region: 'us-west-2', credentials: null });
 
     expect(client.config.credentials).toBeTypeOf('function');
+  });
+});
+
+/**
+ * Cache counts on the way back.
+ *
+ * Converse reports `inputTokens` as the UNCACHED remainder and puts the cached
+ * tokens in two fields beside it. Every other `inputTokens` in this codebase
+ * means the whole input side, so the adapter has to do the sum — otherwise a
+ * warm turn reads as 20 input tokens, the token cap stops binding, and the
+ * dashboard says a run that read 3,163 cached tokens read almost nothing.
+ * AWS documents the sum on the prompt-caching page.
+ */
+describe('bedrockClient cache accounting', () => {
+  it('adds the cache read back into inputTokens and reports it separately', async () => {
+    const { client } = stubClient({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 21, outputTokens: 7, cacheReadInputTokens: 3_163, cacheWriteInputTokens: 0 },
+    });
+
+    const result = await bedrockClient(client).generate({ model: 'm', messages: [{ role: 'user', content: 'Hi' }] });
+
+    expect(result.usage?.inputTokens).toBe(3_184);
+    expect(result.usage?.cacheReadTokens).toBe(3_163);
+    expect(result.usage?.cacheWriteTokens).toBe(0);
+  });
+
+  it('adds the cache write back too, on the cold first call', async () => {
+    const { client } = stubClient({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: { inputTokens: 20, outputTokens: 7, cacheReadInputTokens: 0, cacheWriteInputTokens: 3_163 },
+    });
+
+    const result = await bedrockClient(client).generate({ model: 'm', messages: [{ role: 'user', content: 'Hi' }] });
+
+    expect(result.usage?.inputTokens).toBe(3_183);
+    expect(result.usage?.cacheWriteTokens).toBe(3_163);
+  });
+
+  it('leaves inputTokens undefined when Converse reported none', async () => {
+    const { client } = stubClient({
+      output: { message: { role: 'assistant', content: [{ text: 'ok' }] } },
+      stopReason: 'end_turn',
+      usage: {},
+    });
+
+    const result = await bedrockClient(client).generate({ model: 'm', messages: [{ role: 'user', content: 'Hi' }] });
+
+    expect(result.usage?.inputTokens).toBeUndefined();
   });
 });
