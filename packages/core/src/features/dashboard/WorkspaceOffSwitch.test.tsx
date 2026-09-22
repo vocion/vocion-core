@@ -2,7 +2,7 @@ import { ORPCError } from '@orpc/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
-import { WorkspacePauseButton, WorkspacePausedBanner } from './WorkspaceOffSwitch';
+import { WorkspacePausedBanner, WorkspacePauseDialog } from './WorkspaceOffSwitch';
 import '@/styles/global.css';
 
 /**
@@ -51,9 +51,8 @@ beforeEach(() => {
 describe('the switch, on a running workspace', () => {
   it('pauses with the note a person typed, then tells the page to re-read', async () => {
     pause.mockResolvedValue({});
-    render(<WorkspacePauseButton canPause />);
+    render(<WorkspacePauseDialog open onOpenChange={() => {}} />);
 
-    await page.getByTestId('workspace-pause').click();
     await page.getByLabelText(/Why\?/).fill('holding the factory until the release goes out');
     await page.getByTestId('workspace-pause-confirm').click();
 
@@ -62,43 +61,39 @@ describe('the switch, on a running workspace', () => {
   });
 
   it('will not stop the workspace without a reason', async () => {
-    render(<WorkspacePauseButton canPause />);
-
-    await page.getByTestId('workspace-pause').click();
+    render(<WorkspacePauseDialog open onOpenChange={() => {}} />);
 
     await expect.element(page.getByTestId('workspace-pause-confirm')).toBeDisabled();
     expect(pause).not.toHaveBeenCalled();
   });
 
   it('says, before anyone confirms, what stops and what does not', async () => {
-    render(<WorkspacePauseButton canPause />);
-
-    await page.getByTestId('workspace-pause').click();
+    render(<WorkspacePauseDialog open onOpenChange={() => {}} />);
 
     await expect.element(page.getByText(/No automation fires/)).toBeVisible();
     await expect.element(page.getByText(/A worker already mid-run finishes/)).toBeVisible();
     await expect.element(page.getByText(/paused individually stay paused/)).toBeVisible();
   });
 
-  it('shows a member nothing rather than a button that would be refused', async () => {
-    render(<WorkspacePauseButton canPause={false} />);
+  it('shows nothing until it is opened', async () => {
+    render(<WorkspacePauseDialog open={false} onOpenChange={() => {}} />);
 
-    await expect.element(page.getByTestId('workspace-pause')).not.toBeInTheDocument();
+    await expect.element(page.getByTestId('workspace-pause-confirm')).not.toBeInTheDocument();
   });
 
-  it('keeps its label at phone width — an unlabelled icon is not a control anyone reaches for in a hurry', async () => {
+  it('asks for the reason at phone width, because the reason is the whole point', async () => {
+    // The trigger moved to the account menu (Chris, 2026-09-22: "I don't want
+    // to see the word Pause in the banner"); what this dialog still owes at
+    // 430px is the note field and a confirm a thumb can hit.
     await page.viewport(PHONE.width, PHONE.height);
-    render(<WorkspacePauseButton canPause />);
+    render(<WorkspacePauseDialog open onOpenChange={() => {}} />);
 
-    const button = page.getByTestId('workspace-pause');
+    await expect.element(page.getByLabelText(/Why\?/)).toBeVisible();
 
-    await expect.element(button).toBeVisible();
-    // "workspace" is dropped below `sm` for room; "Pause" never is.
-    expect((await button.element()).textContent).toContain('Pause');
-    // And it is a real tap target, not a 12px glyph.
-    expect((await button.element()).getBoundingClientRect().height).toBeGreaterThanOrEqual(32);
+    const confirm = page.getByTestId('workspace-pause-confirm');
 
-    await page.viewport(DESKTOP.width, DESKTOP.height);
+    await expect.element(confirm).toBeVisible();
+    expect((await confirm.element()).getBoundingClientRect().height).toBeGreaterThanOrEqual(32);
   });
 });
 

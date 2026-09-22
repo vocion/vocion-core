@@ -46,22 +46,32 @@ const STILL_RUNNING = 'A worker already mid-run finishes and reports, and chat w
 const REFUSED = 'No automation fires, no mission run starts, no worker run is queued or claimed, and no gated action executes.';
 
 /**
- * The control, for a workspace that is running. One button; the note is asked
- * for in the dialog, because a stop with no reason is a banner nobody can act
- * on and the note is the only part of it that says what to do.
+ * The stop, for a workspace that is running — the dialog only; its trigger is
+ * a row in the account menu (`AppSidebarHeader`).
+ *
+ * It used to be a labelled button on the top bar, on the argument that a stop
+ * nobody can find is not a stop. On a phone that argument cost more than it
+ * bought: "Pause" sat in the four-item bar beside the workspace name, read as
+ * a property of the page a person was on, and was the widest thing up there.
+ * Chris, 2026-09-22: *"I don't want to see the word Pause in the banner. Move
+ * into the user menu. Only showing header if paused."* The bar now says only
+ * what is true of the workspace — and when the switch IS pulled, the banner
+ * says so across every page, which is the loud state that actually warrants
+ * the room.
+ *
+ * The note is still asked for here, because a stop with no reason is a banner
+ * nobody can act on.
  * @param props
- * @param props.canPause - Admins only. A member sees nothing here rather than a button that 403s.
+ * @param props.open - Whether the dialog is showing.
+ * @param props.onOpenChange - Called with the next open state.
  */
-export function WorkspacePauseButton({ canPause }: { canPause: boolean }) {
+export function WorkspacePauseDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (next: boolean) => void }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!canPause) {
-    return null;
-  }
+  const setOpen = onOpenChange;
 
   const submit = async () => {
     setBusy(true);
@@ -80,22 +90,6 @@ export function WorkspacePauseButton({ canPause }: { canPause: boolean }) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        data-testid="workspace-pause"
-        // The label stays at phone width (#501): an unlabelled icon is not a
-        // control anyone reaches for in a hurry, and a hurry is when this one
-        // is used.
-        className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground sm:px-3"
-      >
-        <Pause className="size-4 shrink-0" aria-hidden />
-        <span>
-          Pause
-          <span className="hidden sm:inline"> workspace</span>
-        </span>
-      </button>
-
       <Dialog open={open} onOpenChange={next => !busy && setOpen(next)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
