@@ -678,6 +678,25 @@ describe('the goal, as a subtitle', () => {
   });
 });
 
+describe('not started is a claim too', () => {
+  const withRollup = (taskCount: number) => {
+    const base = input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] });
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, taskCount } } });
+  };
+
+  it('refuses to say "not started" when the record says work was written and none is linked', () => {
+    const report = withRollup(5);
+
+    expect(report.state.label).toBe('Unreadable');
+    expect(report.state.question).toMatch(/5 tasks were written/);
+    expect(report.contradictions.join(' ')).toMatch(/not one is linked/);
+  });
+
+  it('still says not started when nothing was ever written', () => {
+    expect(withRollup(0).state.label).toBe('Not started');
+  });
+});
+
 describe('the story, and the machinery behind it', () => {
   it('puts the ask, triage, contracts and approvals one level down, and keeps the rest in the story', () => {
     const report = assembleFeatureReport(input({}));
