@@ -405,6 +405,33 @@ export function acceptanceLine(row: PageRow, lane: WorkLane): string | null {
 }
 
 /**
+ * A finished outcome whose contract does not hold.
+ *
+ * This is the QA gate, and it is STRUCTURAL rather than a prompt. A request
+ * that reached `shipped` with criteria nobody checked, or criteria that
+ * failed, is not done — it is a claim. Stating that in code means it cannot
+ * be argued away by a model having a confident day, which is the whole reason
+ * the criteria carry evidence in the first place.
+ *
+ * An outcome with no criteria at all is NOT reported here: that gap belongs
+ * to the proposal, where {@link acceptanceLine} already reports it as "no
+ * criteria". Reporting it twice would put the same complaint on a row at both
+ * ends of its life.
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function contractGap(row: PageRow, lane: WorkLane): string | null {
+  if (lane !== 'done') {
+    return null;
+  }
+  const { total, met } = acceptanceOf(row);
+  if (total === 0 || met === total) {
+    return null;
+  }
+  return `${total - met} of ${total} unmet`;
+}
+
+/**
  * What this row cannot show, in the words the row would use.
  *
  * A decision about something a person will look at should be taken against
@@ -652,6 +679,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           state,
           visualGap: visualGap(row, lane) ?? undefined,
           acceptanceLine: acceptanceLine(row, lane) ?? undefined,
+          contractGap: contractGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,
           workLine: workLine(row, lane, now) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,

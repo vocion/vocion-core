@@ -83,7 +83,7 @@ layout: block
 # muted line under it. Anything more about this outcome is on its own page.
 primary:
   field: title
-  subtitle: [status, gap, contract, flags, rank, detail, why, cost, product]
+  subtitle: [status, gap, unmet, contract, flags, rank, detail, why, cost, product]
 fields:
   - {key: title, label: Outcome}
   # The badge, and the reason the lanes could be collapsed from four to
@@ -98,6 +98,11 @@ fields:
   # queue. Work nobody has classified claims nothing, so the gate stays quiet
   # until `surface` says a picture is owed.
   - {key: gap, label: Missing, from: meta.visualGap, format: badge, tones: {no mock: warn, no after: warn}}
+  # The QA gate, and it is code rather than a prompt: a finished outcome whose
+  # criteria nobody checked, or which failed, is a claim and not a release.
+  # Stating it structurally means it cannot be argued away by a model having a
+  # confident day — which is the whole reason the criteria carry evidence.
+  - {key: unmet, label: Unmet, from: meta.contractGap, format: badge, tones: {}}
   # The contract: what has to be true before this is done. A proposal says
   # how many criteria it carries, or that it carries none — "done when it
   # works" is not something a person can agree to. Once a worker is on it the

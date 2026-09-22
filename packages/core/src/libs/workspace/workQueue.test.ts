@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { acceptanceLine, acceptanceOf, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, contractGap, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -319,6 +319,44 @@ describe('the contract between a person and the factory', () => {
     const out = deriveWorkQueue([row(11, 'k', { state: 'new', acceptance: [crit('x')] })], { now: NOW });
 
     expect(out[0]!.meta.acceptanceLine).toBe('1 criterion');
+  });
+});
+
+describe('a finished outcome whose contract does not hold', () => {
+  const crit = (statement: string, met?: boolean) => (met === undefined ? { statement } : { statement, met });
+
+  it('says so, in code, rather than trusting a model to notice', () => {
+    const shipped = row(1, 'a', { state: 'shipped', acceptance: [crit('a', true), crit('b', false), crit('c')] });
+
+    // Shipped with one failed and one unchecked: that is a claim, not done.
+    expect(contractGap(shipped, 'done')).toBe('2 of 3 unmet');
+  });
+
+  it('is silent when every criterion holds', () => {
+    expect(contractGap(row(2, 'b', { state: 'shipped', acceptance: [crit('a', true)] }), 'done')).toBeNull();
+  });
+
+  it('does not report a missing contract twice', () => {
+    // An outcome with no criteria is the PROPOSAL's gap, reported there as
+    // "no criteria". Saying it again at the other end of its life would put
+    // the same complaint on one row twice.
+    expect(contractGap(row(3, 'c', { state: 'shipped' }), 'done')).toBeNull();
+    expect(acceptanceLine(row(3, 'c', { state: 'new' }), 'proposed')).toBe('no criteria');
+  });
+
+  it('asks nothing of work that has not finished', () => {
+    const building = row(4, 'd', { state: 'building', acceptance: [crit('a'), crit('b')] });
+
+    expect(contractGap(building, 'progress')).toBeNull();
+    expect(contractGap(row(5, 'e', { state: 'new', acceptance: [crit('a')] }), 'proposed')).toBeNull();
+  });
+
+  it('carries the gate onto the row', () => {
+    const out = deriveWorkQueue([
+      row(6, 'f', { state: 'shipped', answeredAt: NOW.toISOString(), acceptance: [crit('a', true), crit('b')] }),
+    ], { now: NOW });
+
+    expect(out[0]!.meta.contractGap).toBe('1 of 2 unmet');
   });
 });
 
