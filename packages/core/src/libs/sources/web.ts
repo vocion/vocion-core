@@ -590,7 +590,7 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
       return null;
     }
     seen.add(externalId);
-    const published = icsPublishedUrls(block);
+    const published = icsPublishedUrls(block, page.url);
     docs.push({
       externalId,
       uri: externalId,
@@ -624,6 +624,9 @@ const PUBLISHED_URL_CHAR_CAP = 2048;
 /** Properties whose value is a URL the entry publishes about itself. */
 const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
 
+/** A relative reference written as a path, never a bare word like `None`. */
+const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
+
 /**
  * The URLs a VEVENT publishes about itself: its own page, and its attachments.
  *
@@ -646,26 +649,62 @@ const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
  * past 140 characters, so a conformant feed splits its own event URL across
  * lines; read without unfolding it would arrive truncated.
  *
- * A relative value is dropped rather than resolved here. A calendar entry is
- * the one feed shape that travels: a VEVENT can be syndicated far from the
- * host that wrote it, so the feed URL is not reliably its base, and guessing
- * one is how a wrong link gets published. A JSON entry does not travel that
- * way, which is why `declaredUrls` does resolve.
+ * A relative value is resolved only for an event the feed's own host wrote. A
+ * calendar entry is the one feed shape that travels: a VEVENT can be syndicated
+ * far from the host that wrote it, so the feed URL is not always its base, and
+ * guessing one is how a wrong link gets published. The event's own absolute
+ * `URL` settles it: on the feed's origin, the event is native and a relative
+ * attachment means what the standard says, a path on that host; anywhere
+ * else, or absent, the relative value is dropped as before.
  * @param block - the VEVENT block's lines, as written in the feed.
+ * @param feedUrl - the URL the feed was fetched from.
  */
-function icsPublishedUrls(block: string[]): string[] {
+function icsPublishedUrls(block: string[], feedUrl: string): string[] {
+  // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a feed
+  // that ships inline base64 bytes on the first line and the poster URL on the
+  // second would otherwise lose the poster entirely.
+  const values = ICS_URL_PROPERTIES.flatMap(name => icsPublishedValues(block, name));
+  const base = icsNativeBase(block, feedUrl);
   const out: string[] = [];
-  for (const name of ICS_URL_PROPERTIES) {
-    // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
-    // feed that ships inline base64 bytes on the first line and the poster URL
-    // on the second would otherwise lose the poster entirely.
-    for (const value of icsPublishedValues(block, name)) {
-      if (isFetchableUrl(value)) {
-        out.push(value);
+  for (const value of values) {
+    if (isFetchableUrl(value)) {
+      out.push(value);
+      continue;
+    }
+    if (base && ICS_RELATIVE_PATH_RE.test(value)) {
+      const resolved = absoluteUrl(value, base);
+      if (resolved && isFetchableUrl(resolved)) {
+        out.push(resolved);
       }
     }
   }
   return dedupe(out).slice(0, PUBLISHED_URL_CAP);
+}
+
+/**
+ * The feed URL, when the event says it was written on the feed's own origin.
+ * @param block - the VEVENT block's lines, as written in the feed.
+ * @param feedUrl - the URL the feed was fetched from.
+ */
+function icsNativeBase(block: string[], feedUrl: string): string | undefined {
+  const feedOrigin = originOf(feedUrl);
+  if (!feedOrigin) {
+    return undefined;
+  }
+  const native = icsPublishedValues(block, 'URL').some(value => isFetchableUrl(value) && originOf(value) === feedOrigin);
+  return native ? feedUrl : undefined;
+}
+
+/**
+ * The origin of a URL, or undefined when it is not one.
+ * @param value - an absolute URL.
+ */
+function originOf(value: string): string | undefined {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
