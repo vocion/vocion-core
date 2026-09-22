@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { relativeLabel } from '@/libs/timeAgo';
 
 /**
@@ -63,17 +64,38 @@ export function LiveRefresh({ everyMs }: { everyMs: number }) {
     };
   }, [visible, everyMs, refresh]);
 
+  // What it says, in the two places it has room to say it. On a phone the
+  // elapsed seconds are the least useful thing on the row — they change every
+  // second, they are never acted on, and they push the state itself off the
+  // edge. The DOT carries the state there: green live, amber paused. The
+  // words come back from `sm:` up, where there is room for them.
+  const seconds = Math.round(everyMs / 1000);
+  const explain = visible
+    ? `Live — re-reads every ${seconds}s. Tap to read now.`
+    : 'Paused while this tab is hidden. Tap to read now.';
+
   return (
-    <span
-      role="status"
-      aria-live="off"
-      data-live={visible ? 'on' : 'paused'}
-      className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
-      title={visible ? `Re-reads every ${Math.round(everyMs / 1000)}s while this tab is open` : 'Paused while this tab is hidden'}
-    >
-      <span aria-hidden className={`size-1.5 rounded-full ${visible ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
-      {visible ? `live · ${relativeLabel(new Date(updatedAt), now)}` : 'paused'}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={refresh}
+          aria-label={explain}
+          data-live={visible ? 'on' : 'paused'}
+          data-testid="live-refresh"
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-full px-2 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        >
+          <span
+            aria-hidden
+            className={`size-1.5 shrink-0 rounded-full ${visible ? 'bg-emerald-500' : 'bg-amber-500'}`}
+          />
+          <span className="hidden sm:inline">
+            {visible ? `live · ${relativeLabel(new Date(updatedAt), now)}` : 'paused'}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{explain}</TooltipContent>
+    </Tooltip>
   );
 }
 

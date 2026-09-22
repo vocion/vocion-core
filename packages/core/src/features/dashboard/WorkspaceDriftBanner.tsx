@@ -83,14 +83,23 @@ export const WorkspaceDriftBanner = ({ onApplied = () => window.location.reload(
   return (
     <>
       <div role="status" className="fixed inset-x-3 bottom-3 z-50 mx-auto flex max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/95 px-3 py-2 shadow-sm backdrop-blur sm:inset-x-4 sm:bottom-4">
-        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+        {/* Wraps to two lines rather than truncating to one. `truncate` on a
+            phone cut every one of these after "The workspace mounted …",
+            which is the half that carries no information: the strip stayed on
+            screen, over the page, saying nothing.
+
+            And each now leads with the CONSEQUENCE rather than the mechanism.
+            "The workspace mounted on this host" is `WORKSPACE_PATH` internals;
+            what a reader needs is which content they are looking at, and
+            whether anything is waiting on them. */}
+        <p className="line-clamp-2 min-w-0 flex-1 text-xs text-muted-foreground">
           {view.kind === 'foreign' && (
             view.owner
-              ? `The workspace mounted on this host is ${view.owner.name}'s (${view.owner.slug}). This project is applied from git.`
-              : 'The workspace mounted on this host belongs to another project. This project is applied from git.'
+              ? `Showing content applied from git — this host mounts ${view.owner.slug}'s workspace.`
+              : 'Showing content applied from git — this host mounts another project.'
           )}
-          {view.kind === 'git' && 'Workspace files changed. This project is applied from git — the next deploy applies them.'}
-          {view.kind === 'apply' && `Workspace files changed — ${view.diff.changes} change${view.diff.changes === 1 ? '' : 's'} not yet applied.`}
+          {view.kind === 'git' && 'Workspace changed in git — the next deploy applies it.'}
+          {view.kind === 'apply' && `${view.diff.changes} workspace change${view.diff.changes === 1 ? '' : 's'} not applied yet.`}
         </p>
         {(view.kind === 'foreign' || view.kind === 'git') && (
           <Link href="/dashboard/workspace#versions" className="shrink-0 text-xs font-medium text-foreground hover:underline">

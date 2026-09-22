@@ -719,6 +719,8 @@ export const agentSchema = pgTable(
       provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
+      /** Graph steps one turn may take; unset keeps each provider's own backstop. See `services/agents/stepLimit.ts`. */
+      maxSteps?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
@@ -738,6 +740,13 @@ export const agentSchema = pgTable(
        * agent at one vendor without moving the whole deployment.
        */
       modelProvider?: 'anthropic' | 'openai' | 'bedrock';
+      /**
+       * Cache this agent's prompt prefix at the vendor. Unset means the
+       * process default (on), so this exists to turn caching OFF for one
+       * agent — a prompt that changes on every turn pays the 1.25x write
+       * rate for a cache nothing ever reads back. See `libs/llm/promptCache.ts`.
+       */
+      promptCache?: boolean;
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.

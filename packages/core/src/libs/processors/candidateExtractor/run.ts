@@ -123,6 +123,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links?: PageLink[];
     publishedUrls?: string[];
     ogImage?: string;
+    feedUrl?: string;
   };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
@@ -144,6 +145,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     jsonLd: jsonLdBlocks.length > 0 ? JSON.stringify(jsonLdBlocks) : '',
     pageText: ctx.document.content,
     uri: ctx.document.uri,
+    ogImage: metadata.ogImage,
     maxInputTokens: ctx.budget.caps.maxInputTokensPerCall,
   });
   if (prompt.trimmed.length > 0) {
@@ -184,10 +186,14 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links: metadata.links,
     jsonLd: jsonLdBlocks,
     publishedUrls: metadata.publishedUrls,
-    // The document's own image. Not sent to the model: `extractFromHtml`
-    // already writes it as the first line of `content`, so restating it in its
-    // own block would buy the call nothing and cost it tokens. What it was
-    // missing is a stage that knows the document published it.
+    // The feed a split entry came from, and only that. An ICS event travels,
+    // so its feed is not reliably its base (see `splitIcs`), and an HTML page
+    // already resolves its own links in the connector.
+    baseUrl: metadata.feedUrl,
+    // The document's own image, declared to the gate so a model that returned
+    // it is believed. The same value is stated in the prompt above, because
+    // the connector keeps it out of `content`: that text is hashed to decide
+    // the document changed, and a dated image URL would change it daily.
     ogImage: metadata.ogImage,
     knownIds: known.ids,
     today,

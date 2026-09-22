@@ -24,11 +24,18 @@ export function builtinBrowseProvider(): BrowseProvider {
       const contentType = res.headers.get('content-type') ?? '';
       const isHtml = contentType.includes('text/html');
       const raw = await res.text();
-      const { title, content } = isHtml ? extractFromHtml(raw, url) : { title: undefined, content: raw };
+      const { title, content, structure } = isHtml
+        ? extractFromHtml(raw, url)
+        : { title: undefined, content: raw, structure: undefined };
       if (!content.trim()) {
         return null;
       }
-      return { url, title: title ?? url, content };
+      // The extractor keeps the og:image out of the text it returns, because
+      // that text is hashed to decide a page changed and plenty of sites date
+      // that URL. A page read by hand is not hashed, and a reader who asked
+      // for the page wants to know what it shows, so it goes back on here.
+      const image = structure?.ogImage;
+      return { url, title: title ?? url, content: image ? `Image: ${image}\n\n${content}` : content };
     },
   };
 }

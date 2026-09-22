@@ -369,6 +369,23 @@ function declaredGrounds(item: InboxItem): Grounds | null {
 export type AgendaRow = InboxItem & AgendaCandidate;
 
 /**
+ * Actions whose proposals are one decision PER RECORD and never fold.
+ *
+ * The topic fold in `services/inbox/decisionTopic.ts` reads the title, and a
+ * per-lead card carries a constant one: every enroll proposal is "New MQL
+ * ready to enroll", so on 2026-09-22 about two hundred leads on the revenue
+ * inbox became a single row with nothing on it to say so. Each of those is a
+ * separate person and a separate send, so each is its own decision, whatever
+ * the title has in common with the next. They skip the agenda entirely; the
+ * bar would admit them anyway (an enroll reaches HubSpot, which is
+ * consequence), and skipping it keeps the fold from seeing them.
+ *
+ * This is the narrow fix. The durable one keys the fold on the SUBJECT a row
+ * is about rather than the words in its title, at which point this set goes.
+ */
+const UNFOLDED_ACTIONS: ReadonlySet<string> = new Set(['personalization.enroll']);
+
+/**
  * The open tab, after the admission bar.
  *
  * What survives is one row per DECISION, not one per thing the factory is
@@ -379,7 +396,8 @@ export type AgendaRow = InboxItem & AgendaCandidate;
  * @param rows - Every candidate row the factory produced.
  */
 function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'policyGaps'> {
-  const agenda = reviewAgenda(rows.map((item): AgendaRow => ({
+  const unfolded = rows.filter(r => r.actionId !== undefined && UNFOLDED_ACTIONS.has(r.actionId));
+  const agenda = reviewAgenda(rows.filter(r => !unfolded.includes(r)).map((item): AgendaRow => ({
     ...item,
     body: item.detail ?? item.subline ?? null,
     grounds: declaredGrounds(item),
@@ -394,7 +412,7 @@ function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'po
       ...(folded > 0 ? { count: (topic.root.count ?? 1) + folded, detail: enrichmentLine(topic) ?? topic.root.detail } : {}),
     };
   });
-  return { items, reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
+  return { items: [...items, ...unfolded], reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
 }
 
 /**

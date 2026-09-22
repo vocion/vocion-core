@@ -47,6 +47,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { agentSchema } from '@/models/Schema';
 import { composeUserText } from '@/services/chat/attachments';
+import { agentCoreToolRounds, stepLimitMessage } from '../stepLimit';
 import { withToolCallRecord } from '../toolCallRecord';
 import { searchKnowledgeTool } from '../tools/searchKnowledge';
 
@@ -59,8 +60,6 @@ const REGION = process.env.VOCION_AGENTCORE_REGION ?? 'us-east-1';
 const EXECUTION_ROLE_NAME = 'VocionAgentCoreHarnessRole';
 /** Default model when the agent's harness block doesn't set one. */
 const DEFAULT_MODEL_ID = 'global.anthropic.claude-sonnet-4-6';
-/** Max inline-tool round-trips per user turn — backstop against loops. */
-const MAX_TOOL_ROUNDS = 12;
 
 let controlClient: BedrockAgentCoreControlClient | undefined;
 let dataClient: BedrockAgentCoreClient | undefined;
@@ -445,8 +444,14 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
   let responseText = '';
   let sawText = false;
   const toolCallLog: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
+  // Inline-tool round-trips this turn may make: 12 unless the agent set
+  // `maxSteps`, then half of it — see stepLimit.ts.
+  const maxToolRounds = agentCoreToolRounds(row.harnessConfig?.maxSteps);
+  // Set only when the model stops asking for tools. Running out of rounds
+  // with a tool call still pending is a stopped turn, not an answer.
+  let finished = false;
 
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+  for (let round = 0; round < maxToolRounds; round++) {
     const resp = await data().send(new InvokeHarnessCommand({
       harnessArn: row.harnessArn,
       runtimeSessionId: sessionId,
@@ -512,6 +517,7 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
       .filter((tu): tu is { toolUseId: string; name: string; input: Record<string, unknown> } => !!tu);
 
     if (stopReason !== 'tool_use' || pendingUses.length === 0) {
+      finished = true;
       break;
     }
 
@@ -542,6 +548,14 @@ export async function runAgentOnAgentCoreHarness(opts: HarnessRunOptions): Promi
       { role: 'assistant', content: assistantBlocks },
       { role: 'user', content: resultBlocks },
     ];
+  }
+
+  if (!finished) {
+    // Used to fall through to `done` with whatever text the rounds had
+    // produced, so a cut-off turn read as a finished answer. Thrown, not
+    // emitted: the caller turns a throw into the `error` event, the same as
+    // a `runtimeClientError` above.
+    throw new Error(stepLimitMessage(maxToolRounds, 'tool rounds'));
   }
 
   emit({ type: 'done', response: responseText, traceId: '' });

@@ -49,7 +49,9 @@ describe('WorkspaceDriftBanner', () => {
     driftStatus.mockResolvedValue({ ...base, own: false, drifted: false, owner: { id: 'proj_b', slug: 'metacto-revenue', name: 'Metacto Revenue' } });
     const screen = await render(<WorkspaceDriftBanner />);
 
-    await expect.element(screen.getByRole('status')).toHaveTextContent('Metacto Revenue\'s (metacto-revenue)');
+    // The owner is named by SLUG, not by display name: the slug is what the
+    // reader will type or grep for, and the line has to survive a phone.
+    await expect.element(screen.getByRole('status')).toHaveTextContent('metacto-revenue');
     await expect.element(screen.getByRole('status')).toHaveTextContent('applied from git');
     await expect.element(screen.getByRole('link', { name: 'Version history' })).toHaveAttribute('href', '/dashboard/workspace#versions');
     expect(screen.container.textContent).not.toContain('Apply');
@@ -60,7 +62,7 @@ describe('WorkspaceDriftBanner', () => {
     driftStatus.mockResolvedValue({ ...base, deployManaged: true });
     const screen = await render(<WorkspaceDriftBanner />);
 
-    await expect.element(screen.getByRole('status')).toHaveTextContent('the next deploy applies them');
+    await expect.element(screen.getByRole('status')).toHaveTextContent('the next deploy applies it');
     await expect.element(screen.getByRole('link', { name: 'Version history' })).toBeVisible();
     expect(screen.container.textContent).not.toContain('Review & apply');
     expect(driftDiff).not.toHaveBeenCalled();
@@ -71,7 +73,7 @@ describe('WorkspaceDriftBanner', () => {
     const onApplied = vi.fn();
     const screen = await render(<WorkspaceDriftBanner onApplied={onApplied} />);
 
-    await expect.element(screen.getByRole('status')).toHaveTextContent('3 changes not yet applied');
+    await expect.element(screen.getByRole('status')).toHaveTextContent('3 workspace changes not applied yet');
 
     await screen.getByRole('button', { name: 'Review & apply' }).click();
 

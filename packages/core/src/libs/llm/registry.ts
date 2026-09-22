@@ -166,7 +166,7 @@ export type { BuildChatModelOptions, LangChainProvider, ModelRole } from './lang
 // provider-neutral LLMClient above stays the contract for plugin skills
 // (ctx.llm); buildChatModel is the contract for agent runtimes.
 
-export { buildChatModel, buildChatModelForOrg, withPromptCache } from './langchain';
+export { buildChatModel, buildChatModelForOrg } from './langchain';
 // Re-exported here so `@/libs/llm` stays the one import for anything
 // key-related; the implementation lives in `./orgKey` so lighter call sites can
 // take it without the client factory.

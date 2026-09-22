@@ -246,7 +246,7 @@ export type HeartbeatInput = {
   cursor?: string;
   counts?: Record<string, number>;
   /** Usage since the last heartbeat. Charged to the agent's period budget; never double-report. */
-  usage?: { model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cents?: number };
+  usage?: { model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; cents?: number };
   langfuseTraceId?: string;
   failures?: { scope: string; message: string }[];
 };
@@ -294,7 +294,12 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
   if (input.usage && tokens > 0) {
-    const usage: TokenUsage = { inputTokens: input.usage.inputTokens, outputTokens: input.usage.outputTokens, cacheReadTokens: input.usage.cacheReadTokens };
+    const usage: TokenUsage = {
+      inputTokens: input.usage.inputTokens,
+      outputTokens: input.usage.outputTokens,
+      cacheReadTokens: input.usage.cacheReadTokens,
+      cacheWriteTokens: input.usage.cacheWriteTokens,
+    };
     await chargeUsage({ orgId: run.orgId, agentSlug: run.agentSlug, model: input.usage.model, usage });
   }
   const r = updated!;

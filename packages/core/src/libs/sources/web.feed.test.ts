@@ -33,9 +33,11 @@ VERSION:2.0
 PRODID:-//Venue//EN
 BEGIN:VEVENT
 UID:evt-1@venue.test
+DTSTAMP:20261015T120000Z
 SUMMARY:Opening Night
 DTSTART;TZID=America/New_York:20261101T193000
 RRULE:FREQ=WEEKLY;COUNT=4
+LAST-MODIFIED:20261012T084500Z
 END:VEVENT
 BEGIN:VEVENT
 UID:evt-1@venue.test
@@ -316,16 +318,93 @@ describe('the ICS per-event split', () => {
     expect(docs.map(d => d.title)).toEqual(['Opening Night', 'Opening Night, moved']);
   });
 
-  it('keeps each component verbatim and expands nothing', async () => {
+  it('keeps each component as written but for the export stamp, and expands nothing', async () => {
     stubFetch(() => typed(TWO_EVENT_ICS, 'text/calendar'));
 
     const { docs } = await run({ urls: [ICS_URL] });
 
     expect(docs[0]?.content).toContain('RRULE:FREQ=WEEKLY;COUNT=4');
     expect(docs[0]?.content).toContain('DTSTART;TZID=America/New_York:20261101T193000');
+    expect(docs[0]?.content).toContain('LAST-MODIFIED:20261012T084500Z');
+    expect(docs[0]?.content).not.toContain('DTSTAMP');
     expect(docs[0]?.content.startsWith('BEGIN:VEVENT')).toBe(true);
     expect(docs[0]?.content.endsWith('END:VEVENT')).toBe(true);
     expect(docs[0]?.content).not.toContain('BEGIN:VCALENDAR');
+  });
+
+  it('reads two exports that differ only in their stamp as one unchanged document', async () => {
+    const withStamp = (stamp: string, params = ''): string => `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-9@venue.test
+SUMMARY:Second Sunday
+dtstamp${params}:${stamp}
+DTSTART:20261206T150000Z
+END:VEVENT
+END:VCALENDAR`;
+
+    stubFetch(() => typed(withStamp('20261015T120000Z'), 'text/calendar'));
+    const first = await run({ urls: [ICS_URL] });
+    stubFetch(() => typed(withStamp('20261016T235959Z', ';X-VENDOR=1'), 'text/calendar'));
+    const second = await run({ urls: [ICS_URL] });
+
+    expect(first.docs[0]?.content).toBe(second.docs[0]?.content);
+    expect(first.docs[0]?.content).toContain('DTSTART:20261206T150000Z');
+    expect(first.docs[0]?.content.toUpperCase()).not.toContain('DTSTAMP');
+  });
+
+  it('drops a stamp that was folded across lines, continuations and all', async () => {
+    const folded = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-10@venue.test
+SUMMARY:Folded Stamp
+DTSTAMP;X-SOURCE="an exporter annotation long enough to wrap":2026101
+ 5T120000Z
+DTSTART:20261206T150000Z
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(folded, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.content).not.toContain('DTSTAMP');
+    expect(docs[0]?.content).not.toContain('5T120000Z');
+    expect(docs[0]?.content).toContain('SUMMARY:Folded Stamp');
+    expect(docs[0]?.content).toContain('DTSTART:20261206T150000Z');
+  });
+
+  it('still drops a stamp whose quotes never closed, because the name is read before the parameters', async () => {
+    const guessed = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-12@venue.test
+SUMMARY:Guessed Split
+DTSTAMP;X-NOTE="unclosed:20261015T120000Z
+DTSTART:20261206T150000Z
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(guessed, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.content).not.toContain('DTSTAMP');
+    expect(docs[0]?.content).toContain('SUMMARY:Guessed Split');
+    expect(docs[0]?.content).toContain('DTSTART:20261206T150000Z');
+  });
+
+  it('leaves a line alone when it cannot tell the property name from the value', async () => {
+    const ambiguous = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-11@venue.test
+SUMMARY:Unclosed Quote
+DTSTAMP;X-SOURCE="an annotation whose quote never closes
+DTSTART:20261206T150000Z
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(ambiguous, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.content).toContain('quote never closes');
+    expect(docs[0]?.content).toContain('DTSTART:20261206T150000Z');
   });
 
   it('unfolds a folded UID', async () => {
@@ -479,6 +558,73 @@ describe('the ICS per-event split', () => {
     expect(published[0]).toBe('https://cdn.venue.test/p0.png');
   });
 
+  it('resolves a relative attachment on an event the feed\'s own host wrote', async () => {
+    const native = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-20@venue.test
+SUMMARY:Gallery Talk
+URL:https://venue.test/event/gallery-talk/
+ATTACH;FMTTYPE=image/jpeg:/wp-content/uploads/2026/05/talk.jpg
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(native, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/event/gallery-talk/',
+      'https://venue.test/wp-content/uploads/2026/05/talk.jpg',
+    ]);
+  });
+
+  it('drops a relative attachment on an event syndicated from another host', async () => {
+    const syndicated = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-21@elsewhere.test
+SUMMARY:Touring Show
+URL:https://elsewhere.test/shows/touring-show/
+ATTACH;FMTTYPE=image/jpeg:/images/touring.jpg
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(syndicated, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://elsewhere.test/shows/touring-show/']);
+  });
+
+  it('drops a relative attachment when the event names no page of its own', async () => {
+    const anonymous = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-22@venue.test
+SUMMARY:No Page
+ATTACH;FMTTYPE=image/jpeg:/images/no-page.jpg
+ATTACH:None
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(anonymous, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toBeUndefined();
+  });
+
+  it('never resolves a bare word, even on a native event', async () => {
+    const bare = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-23@venue.test
+SUMMARY:Bare Word
+URL:https://venue.test/event/bare-word/
+ATTACH:None
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(bare, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://venue.test/event/bare-word/']);
+  });
+
   it('reads past a quoted parameter that would otherwise forge a URL', async () => {
     stubFetch(() => typed(QUOTED_TRAP_ICS, 'text/calendar'));
 
@@ -492,6 +638,66 @@ describe('the ICS per-event split', () => {
 });
 
 describe('the JSON per-event split', () => {
+  it('reads an enveloped entry\'s links from inside the envelope', async () => {
+    const items = { events: [{ event: {
+      id: 1,
+      title: 'Random Chats About Statistics',
+      url: 'None',
+      localist_url: 'https://events.test/event/random-chats',
+      photo_url: 'https://images.test/photos/1.jpg',
+    } }] };
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://events.test/event/random-chats',
+      'https://images.test/photos/1.jpg',
+    ]);
+  });
+
+  it('keeps an enveloped entry keyed on its own content, not on the inner id', async () => {
+    // Localist repeats an inner id across the instances of a recurring event:
+    // eight of a hundred on the live feed. Keying on it would collide, and a
+    // collision abandons the split for the whole file.
+    const items = { events: [
+      { event: { id: 7, title: 'Weekly Yoga', localist_url: 'https://events.test/event/yoga-1' } },
+      { event: { id: 7, title: 'Weekly Yoga', localist_url: 'https://events.test/event/yoga-2' } },
+    ] };
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs).toHaveLength(2);
+    expect(docs[0]?.externalId).not.toEqual(docs[1]?.externalId);
+  });
+
+  it('leaves a nested object alone when it is not an entry envelope', async () => {
+    // One key holding a record is not enough: `image` is the publisher's shape,
+    // and reading it would declare a nested value as the entry's own.
+    const items = [
+      { image: { url: 'https://cdn.test/a.jpg', id: 'img-1' } },
+      { image: { url: 'https://cdn.test/b.jpg', id: 'img-2' } },
+    ];
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toBeUndefined();
+  });
+
+  it('declares a link an entry published as a bare relative path', async () => {
+    const items = [{ id: 'a1', fullUrl: 'events/opening-night', image: 'photos/a.jpg' }];
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/events/opening-night',
+      'https://venue.test/photos/a.jpg',
+    ]);
+  });
+
   it('keys each item by @id, id or slug', async () => {
     const items = [
       { '@id': 'https://venue.test/e/1', 'name': 'One' },
@@ -572,6 +778,89 @@ describe('the JSON per-event split', () => {
       `https://venue.test/events.json#${hashKey(items[1])}`,
     ]);
     expect(docs.some(d => d.externalId.endsWith('#0') || d.externalId.endsWith('#1'))).toBe(false);
+  });
+
+  it('stores what an entry\'s markup says, not the markup, and keys it as written', async () => {
+    const item = {
+      id: 'evt-1',
+      title: 'Opening Night',
+      body: '<div class="sqs-block" data-block-css="https://cdn.test/a1b2c3/styles.css">'
+        + '<p>Doors at 7pm.</p><p>Riverton Hall.</p><br><script>track()</script></div>',
+    };
+    stubFetch(() => Response.json([item]));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    const stored = JSON.parse(docs[0]!.content) as { body: string };
+
+    expect(stored.body).toBe('Doors at 7pm.\n\nRiverton Hall.');
+    expect(docs[0]?.content).not.toContain('sqs-block');
+    expect(docs[0]?.content).not.toContain('track()');
+    expect(docs[0]?.externalId).toBe('https://venue.test/events.json#evt-1');
+  });
+
+  it('reads two exports that differ only inside markup attributes as one unchanged document', async () => {
+    const withAsset = (version: string) => [{
+      id: 'evt-1',
+      title: 'Opening Night',
+      body: `<div data-block-css="https://cdn.test/${version}/styles.css"><p>Doors at 7pm.</p></div>`,
+    }];
+
+    stubFetch(() => Response.json(withAsset('a1b2c3')));
+    const first = await run({ urls: ['https://venue.test/events.json'] });
+    stubFetch(() => Response.json(withAsset('d4e5f6')));
+    const second = await run({ urls: ['https://venue.test/events.json'] });
+
+    expect(first.docs[0]?.content).toBe(second.docs[0]?.content);
+  });
+
+  it('keys a keyless entry on the entry as written, so the readable form never moves it', async () => {
+    const items = [{ when: '2026-11-01', body: '<p>Doors at 7pm.</p>' }];
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    expect(docs[0]?.externalId).toBe(`https://venue.test/events.json#${hashKey(items[0])}`);
+  });
+
+  it('writes a millisecond timestamp as the instant it names, and leaves other numbers alone', async () => {
+    const item = {
+      id: 'evt-2',
+      title: 'Second Sunday',
+      startDate: 1_790_118_000_000,
+      updated_on: 1_790_204_400_000,
+      season: 1_790_118_000_000,
+      price: 1_500,
+      capacity: 1_790_118_000_000_000,
+    };
+    stubFetch(() => Response.json([item]));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    const stored = JSON.parse(docs[0]!.content) as Record<string, unknown>;
+
+    expect(stored.startDate).toBe('2026-09-22T23:00:00.000Z');
+    expect(stored.updated_on).toBe('2026-09-23T23:00:00.000Z');
+    expect(stored.season).toBe(1_790_118_000_000);
+    expect(stored.price).toBe(1_500);
+    expect(stored.capacity).toBe(1_790_118_000_000_000);
+  });
+
+  it('reads markup out of a nested value and out of a title', async () => {
+    const item = {
+      id: 'evt-3',
+      summary: '<p>Late Set</p>',
+      location: { name: '<span>Riverton Hall</span>', capacity: 200 },
+    };
+    stubFetch(() => Response.json([item]));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    const stored = JSON.parse(docs[0]!.content) as { location: { name: string; capacity: number } };
+
+    expect(docs[0]?.title).toBe('Late Set');
+    expect(stored.location.name).toBe('Riverton Hall');
+    expect(stored.location.capacity).toBe(200);
   });
 
   it('keeps an empty array as one whole-file document', async () => {

@@ -275,6 +275,34 @@ describe('InboxService \u2014 the admission bar', () => {
     expect(inbox.policyGaps).toEqual([expect.objectContaining({ policy: 'release-notes-have-a-standing-owner', count: 2, chases: 1 })]);
   });
 
+  it('never folds enroll cards into one row: every lead is its own decision, however alike the titles', async () => {
+    const now = Date.now();
+    await db.insert(actionRunSchema).values([1, 2, 3].map(n => ({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      status: 'pending',
+      invokedBy: 'agent:personalization',
+      createdAt: new Date(now - n * 60_000),
+      input: { contactRef: `contacts:${n}`, contactName: `Lead ${n}`, companyName: `Company ${n}`, sequenceName: 'MSP nurture' },
+      proposal: { confidence: 0.8, agentSlug: 'personalization' },
+    })) as never);
+    await upsertAsk({ orgId: ORG, ask: { kind: 'recommendation', title: 'Build a two-pane admin panel for Send?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Admin panel vs. Stamp rename: which goes next?' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items.filter(i => i.actionId === 'personalization.enroll')).toHaveLength(3);
+    expect(inbox.items.filter(i => i.actionId === 'personalization.enroll').every(i => i.count === undefined)).toBe(true);
+
+    // The factory's own fold still holds beside them.
+    const asks = inbox.items.filter(i => i.kind !== 'proposal');
+
+    expect(asks).toHaveLength(1);
+    expect(asks[0]!.count).toBe(2);
+    expect(inbox.total).toBe(4);
+    expect(await needsYouCount(ORG)).toBe(4);
+  });
+
   it('reports no reclassification on a tab that is not the open one', async () => {
     await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
 
