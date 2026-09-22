@@ -66,7 +66,21 @@ export function PageWidth(props: { children: React.ReactNode }) {
     <div
       ref={gutter}
       data-page-gutter={fit}
-      className={cn(GUTTER, fit === 'viewport' ? 'flex min-h-0 flex-col overflow-hidden' : 'overflow-y-auto')}
+      // Below `md` the DOCUMENT scrolls (see AppShell), so a reading page must
+      // not open a scroller of its own — two scrollers is the bug this file
+      // exists to have fixed. A viewport-fit route (a two-pane working
+      // surface, chat) still bounds itself to the screen at every width:
+      // scrolling the window through a chat transcript is not a page, and a
+      // full-page capture of one would be meaningless anyway. `60px` is the
+      // top bar's own height (`AppSidebarHeader`, `h-[60px]`) — below `md` the
+      // shell no longer bounds its children, so the pane subtracts the chrome
+      // above it itself or the composer lands under the fold.
+      className={cn(
+        GUTTER,
+        fit === 'viewport'
+          ? 'flex h-[calc(100svh-60px)] min-h-0 flex-col overflow-hidden md:h-auto'
+          : 'md:overflow-y-auto',
+      )}
     >
       {/* Deliberately the same plain block box it has always been, minus the
           cap: every dashboard page lays itself out inside this, and turning
