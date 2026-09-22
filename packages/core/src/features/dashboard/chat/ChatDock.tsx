@@ -871,7 +871,18 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       );
 
   // Below the breakpoint the column covers the page as a sheet instead of
-  // narrowing it (032 §3.2), and shows one pane at a time.
+  // narrowing it (032 §3.2).
+  //
+  // The sheet comes up from the BOTTOM. It used to slide in from the right
+  // and then cover the whole screen anyway, so it paid an animation from the
+  // wrong edge for nothing — and it put the composer, the one control a
+  // person actually reaches for, as far from the thumb as the screen allows.
+  // A bottom sheet is where a phone expects a transient surface to live.
+  //
+  // It opens tall (88vh) rather than at a peek height. This sheet's job is a
+  // conversation, and a conversation with the keyboard up has almost no room
+  // left at a peek — the reason to drag it open would be immediate and
+  // constant, so it simply opens where a reader would have dragged it.
   const column = (
     <RailColumn
       priority="dock"
@@ -884,7 +895,15 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
       frame={narrow
         ? content => (
           <Sheet open onOpenChange={open => setCollapsedPersisted(!open)}>
-            <SheetContent side="right" className="flex w-full max-w-[28rem] flex-col gap-0 p-0 sm:max-w-[28rem]" aria-label={ariaLabel}>
+            <SheetContent
+              side="bottom"
+              className="flex h-[88vh] w-full flex-col gap-0 rounded-t-2xl p-0"
+              aria-label={ariaLabel}
+            >
+              {/* The grabber. It is not a control — the sheet is dismissed by
+                  its close button or the overlay — but it is what tells a
+                  reader at a glance which edge this surface belongs to. */}
+              <div aria-hidden className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-border" />
               <SheetHeader className="sr-only">
                 <SheetTitle>{ariaLabel}</SheetTitle>
                 {/* One identity (§9.10): the sheet is described as the workspace, never an agent. */}
