@@ -699,10 +699,31 @@ function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: bool
   const skips = recorded.filter(r => r.plan?.skipped === true);
   const carried = recorded.filter(r => r.plan !== null && r.plan.skipped !== true);
 
+  // THE PLAN CAN SPEAK FOR ITSELF.
+  //
+  // The rule's verdict is read off the TASKS, because that is where the
+  // allowed paths and the estimate live — and before a plan is approved there
+  // are no tasks yet. So a request with a plan sitting on it, written because
+  // the rule required one, printed "Was a plan required? not recorded" above
+  // the plan that says why it was. The plan records its own `ruleLevel` and
+  // `ruleTriggers` at the moment it was written; when the tasks cannot answer,
+  // they can.
+  const fromPlan = plans.map(p => str(p.meta, 'ruleLevel')).find(level => level !== null) ?? null;
+  const planTriggers = plans.flatMap(p => list(p.meta, 'ruleTriggers'));
   s.facts = [
-    { label: 'Was a plan required?', value: decision === null ? null : planLevelSentence(decision) },
+    {
+      label: 'Was a plan required?',
+      value: decision !== null
+        ? planLevelSentence(decision)
+        : fromPlan === null
+          ? null
+          : `${fromPlan === 'required' ? 'Yes' : fromPlan === 'offered' ? 'It was offered' : 'No'} — as the plan itself recorded when it was written; no task has been contracted yet for the rule to re-read.`,
+    },
     { label: 'Plans on record', value: plans.length === 0 ? 'none' : String(plans.length) },
   ];
+  if (decision === null && planTriggers.length > 0) {
+    s.lists.push({ label: 'Why the plan says it was required', items: planTriggers });
+  }
   if (decision !== null && decision.triggers.length > 0) {
     s.lists.push({ label: 'Why a plan was required', items: decision.triggers.map(t => t.why) });
   }
