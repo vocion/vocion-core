@@ -49,6 +49,7 @@ https://github.com/vocion/vocion-core.
 
 - [Multiple environments](https://github.com/vocion/vocion-core/blob/main/docs/deployment/multiple-environments.md): environment topology for a Vocion install.
 - [Parent project pattern](https://github.com/vocion/vocion-core/blob/main/docs/deployment/parent-project-pattern.md): carrying vocion-core as a submodule of a deployment repo.
+- [Prompt caching](https://github.com/vocion/vocion-core/blob/main/docs/guides/prompt-caching.md): the prompt prefix of every agent turn is cached at the vendor, on by default with nothing to configure; what it saves, the per-model minimum below which a prompt is ignored rather than charged, and the three ways to turn it off — `harness.promptCache: false` per agent, `promptCache: false` per call site, `VOCION_PROMPT_CACHE=0` process-wide.
 
 ## Contributing and licensing
 
