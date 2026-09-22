@@ -44,11 +44,19 @@ export const metadata: Metadata = {
     template: `${titlePrefix()}%s`,
     default: `${titlePrefix()}${AppConfig.name}`,
   },
+  // Added to the Home Screen this opens without browser chrome — and on iOS
+  // that is also the only way the app can ever receive a push, so it is the
+  // prerequisite for telling somebody their decision is holding work up.
+  manifest: '/manifest.webmanifest',
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: AppConfig.name },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  // The installed app draws under the notch and the home indicator rather
+  // than letterboxing itself inside them.
+  viewportFit: 'cover',
 };
 
 export function generateStaticParams() {
