@@ -43,6 +43,13 @@
  *     `ask_workspace` tool). The rest arrives as a `continued` row.
  *   - `continued`: the rest of an answer whose first half was `truncated` —
  *     one turn, two rows.
+ *   - `stalled`: the model did work and then ended the turn without answering
+ *     — "I'll check what that page is.", "Reading", and nothing after it. The
+ *     run did not throw and nothing was cut off, so every other value here
+ *     would call it finished; what the person gets is an empty answer under a
+ *     spinner that stopped, and their only move is to ask again. Chris hit it
+ *     twice in a row on a phone and it happened four times running to a
+ *     reviewer that had already read the record it was asked to grade.
  */
 export const TURN_STATUSES = [
   'complete',
@@ -52,6 +59,7 @@ export const TURN_STATUSES = [
   'stopped',
   'truncated',
   'continued',
+  'stalled',
 ] as const;
 
 /** How an assistant turn ended. */
@@ -67,7 +75,7 @@ export type TurnStatus = typeof TURN_STATUSES[number];
  * the person stopped on purpose is NOT here: they read it and decided that was
  * enough, which makes it part of the conversation.
  */
-const DROPPED_FROM_HISTORY = new Set<TurnStatus>(['incomplete', 'failed', 'refused']);
+const DROPPED_FROM_HISTORY = new Set<TurnStatus>(['incomplete', 'failed', 'refused', 'stalled']);
 
 /**
  * Should this row's text be left out of the history the next turn replays?
@@ -87,7 +95,34 @@ export function isDroppedFromHistory(status: string | null | undefined): boolean
  * @returns True for the endings that need an explanation, not just a marker.
  */
 export function isFailure(status: string | null | undefined): boolean {
-  return status === 'incomplete' || status === 'failed' || status === 'refused';
+  return status === 'incomplete' || status === 'failed' || status === 'refused' || status === 'stalled';
+}
+
+/**
+ * HOW MANY CHARACTERS COUNT AS AN ANSWER.
+ *
+ * Deliberately a length and not a shape. A turn that stopped short says "I'll
+ * check what that page is." or "Reading"; a turn that answered says more than
+ * that even when the answer is short. Reading the WORDS for an intention —
+ * matching "let me", "I'll check", "looking at" — is the prompt-shaped
+ * version of this check and would be wrong on "Yes, it merged." every time it
+ * is wrong at all.
+ */
+const ANSWER_FLOOR = 120;
+
+/**
+ * Did the model do work and then end the turn without answering?
+ *
+ * Both halves are needed. Tool calls with no answer is the failure; a short
+ * answer to a short question is not (`"Yes — PR #16 merged on Sunday."`), and
+ * neither is a turn that called nothing and replied briefly.
+ * @param turn - What the turn produced.
+ * @param turn.text - The assistant's prose, as stored.
+ * @param turn.toolCalls - How many tool steps the turn ran.
+ * @returns True when the turn worked and never said what it found.
+ */
+export function stoppedShort(turn: { text: string; toolCalls: number }): boolean {
+  return turn.toolCalls > 0 && turn.text.trim().length < ANSWER_FLOOR;
 }
 
 /**
