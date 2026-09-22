@@ -390,6 +390,8 @@ export type RuntimeContext = {
     /** Granted-only tools this agent receives (gated tools are absent unless named here). */
     grantTools?: string[];
     model?: string;
+    /** Cache this agent's prompt prefix at the vendor; unset means the process default (on). See `libs/llm/promptCache.ts`. */
+    promptCache?: boolean;
     /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
     recommendActionBackstop?: boolean;
     /** Action kinds this agent earns trust for on its own ledger (`<kind>.<agent-slug>`); see the workspace schema. */

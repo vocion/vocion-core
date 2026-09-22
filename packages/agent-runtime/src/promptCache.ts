@@ -10,7 +10,7 @@
  *
  * The agent loop re-sends the whole conversation on every turn, so a run that
  * fetched a page on turn 2 pays for that page again on every turn after.
- * Measured on the Veerio ingestion agent (dev mission run 24, 2026-09-09, from
+ * Measured on a customer ingestion agent (dev mission run 24, 2026-09-09, from
  * CloudWatch AWS/Bedrock metrics): 44 model calls in six minutes, 3.26M input
  * tokens against 20k output tokens, with the fixed prefix — system prompt,
  * mounted playbook, skills, learning rules — re-sent on all 44.
@@ -18,7 +18,7 @@
  * On Bedrock a cache read is billed at 10 percent of the input rate AND does
  * not count toward the account's tokens-per-day quota at all
  * (https://docs.aws.amazon.com/bedrock/latest/userguide/quotas-token-burndown.html).
- * That second one is why this matters here: the Veerio account hit its Sonnet
+ * That second one is why this matters here: that account hit its Sonnet
  * 4.6 daily quota twice in September and ingestion stopped with
  * `ThrottlingException: Too many tokens per day`.
  *

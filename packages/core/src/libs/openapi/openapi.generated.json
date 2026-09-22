@@ -5768,7 +5768,7 @@
     "/api/v1/worker-runs/{id}/checkpoint": {
       "post": {
         "operationId": "post_worker_runs_id_checkpoint",
-        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents?",
+        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents?",
         "tags": [
           "worker-runs"
         ],
@@ -5809,7 +5809,7 @@
             }
           }
         },
-        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\nSame contract as heartbeat; exists so a worker can name its intent. `cursor` is required here.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\nSame contract as heartbeat; exists so a worker can name its intent. `cursor` is required here.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -6101,7 +6101,7 @@
     "/api/v1/worker-runs/{id}/heartbeat": {
       "post": {
         "operationId": "post_worker_runs_id_heartbeat",
-        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents?",
+        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents?",
         "tags": [
           "worker-runs"
         ],
@@ -6142,7 +6142,7 @@
             }
           }
         },
-        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",

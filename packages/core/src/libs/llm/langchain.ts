@@ -511,7 +511,7 @@ function withReplay<T extends BaseChatModel>(model: T): T {
 }
 
 /**
- * Prompt caching moved out of this file on 2026-09-22 (VEERIO-261).
+ * Prompt caching moved out of this file on 2026-09-22 (LARK-261).
  *
  * `withPromptCache(messages)` used to live here. It marked the LAST message's
  * final text block as cacheable, which is the wrong end of the prompt: what

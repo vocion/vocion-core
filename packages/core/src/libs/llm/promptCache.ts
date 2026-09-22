@@ -6,7 +6,7 @@
  * An agent turn re-sends the whole conversation. A run that fetched a web page
  * on turn 2 carries that page again on turns 3, 4, 5 and every turn after, and
  * without a cache the vendor charges full input price for the same bytes each
- * time. Measured on the Veerio ingestion agent (dev mission run 24, 2026-09-09,
+ * time. Measured on a customer ingestion agent (dev mission run 24, 2026-09-09,
  * from CloudWatch AWS/Bedrock metrics): 44 model calls in six minutes,
  * 3.26M input tokens against 20k output tokens. The first call carried about
  * 18k tokens of system prompt, mounted playbook, skills and learning rules; the
@@ -20,7 +20,7 @@
  *      at all — "CacheReadInputTokenCount don't contribute to this calculation
  *      and are not counted toward your quota"
  *      (https://docs.aws.amazon.com/bedrock/latest/userguide/quotas-token-burndown.html).
- *      That is the one that matters most here: the Veerio account hit its
+ *      That is the one that matters most here: that account hit its
  *      Sonnet 4.6 daily quota twice in September and ingestion stopped with
  *      `ThrottlingException: Too many tokens per day`. Cached tokens are
  *      invisible to that quota, so the same work fits in the same day.

@@ -91,6 +91,7 @@ export type HarnessModelConfig = {
   model?: string;
   modelProvider?: 'anthropic' | 'openai' | 'bedrock';
   maxTokens?: number;
+  promptCache?: boolean;
 };
 
 /**
@@ -116,18 +117,26 @@ export type HarnessModelConfig = {
  * agent fell back to the local loop — which `VOCION_DISABLE_AGENTCORE=1` does
  * routinely in dev — and every turn would fail on an unknown model. Naming the
  * provider is how an author says which vendor's id this is.
+ *
+ * `promptCache` is forwarded only when the author actually wrote it, and the
+ * test is `!== undefined` rather than truthiness, because the whole point of
+ * the field is to carry `false`. Leaving it out when the author said nothing
+ * is what keeps `VOCION_PROMPT_CACHE=0` and the on-by-default behaviour in
+ * `buildChatModel` reachable.
  * @param harnessConfig - The agent's harness block, or an empty object.
  */
 export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
   provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
+  promptCache?: boolean;
 } {
   const provider = harnessConfig.modelProvider;
   return {
     ...(provider ? { provider } : {}),
     ...(provider && harnessConfig.model ? { model: harnessConfig.model } : {}),
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
+    ...(harnessConfig.promptCache !== undefined ? { promptCache: harnessConfig.promptCache } : {}),
   };
 }
 

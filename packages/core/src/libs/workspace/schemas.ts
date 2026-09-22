@@ -749,6 +749,23 @@ export const AgentManifestSchema = z.object({
     model: z.string().optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
     /**
+     * Ask the vendor to cache this agent's prompt prefix, or forbid it.
+     *
+     * On by default for Anthropic and Bedrock, so an author writes this only
+     * to say `false` — an agent whose system prompt or mounted files must not
+     * sit in a vendor's cache for the five minutes the TTL lasts. Setting it
+     * here beats the caller, because the person who wrote the agent is the one
+     * who knows what its prompt carries.
+     *
+     * Optional rather than defaulted so the stored row keeps saying nothing
+     * when the author said nothing: `VOCION_PROMPT_CACHE=0` and the process
+     * default both have to stay reachable, and a written-in `true` would make
+     * the kill switch look like it had been overruled per agent. See
+     * `libs/llm/promptCache.ts` for what caching buys and what silently will
+     * not cache.
+     */
+    promptCache: z.boolean().optional(),
+    /**
      * Structural guarantee for A2UI action cards: when true and a turn ends
      * with ZERO recommend_action calls, the runtime runs a small follow-up
      * pass over the finished answer that emits the cards the agent's rules
