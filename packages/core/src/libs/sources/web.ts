@@ -632,7 +632,7 @@ const ICS_URL_PROPERTIES = ['URL', 'ATTACH', 'IMAGE'] as const;
  * `ATTACH` and `IMAGE` (`X-TKF-FEATURED-IMAGE`, `X-WP-IMAGES-URL`). Anchored so
  * a property about an image, such as a credit or alt text, is not read as one.
  */
-const ICS_VENDOR_IMAGE_RE = /^X-[A-Z0-9-]*IMAGES?(-UR[LI])?$/;
+const ICS_VENDOR_IMAGE_RE = /^X-[A-Z0-9-]*IMAGES?(?:-UR[LI])?$/;
 
 /** A relative reference written as a path, never a bare word like `None`. */
 const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
