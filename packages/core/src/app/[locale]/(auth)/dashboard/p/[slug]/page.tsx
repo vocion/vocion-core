@@ -32,6 +32,7 @@ import {
   readWorkspacePageMethodology,
   resolveField,
 } from '@/libs/workspace/pages';
+import { deriveReleaseOutcome } from '@/libs/workspace/releaseOutcome';
 import { deriveWorkQueue } from '@/libs/workspace/workQueue';
 import {
   agentSchema,
@@ -492,7 +493,11 @@ export default async function WorkspacePage(props: {
     // states into the lanes and sentences the page is declared in, and it
     // needs the whole set to count what it then leaves out.
     const loaded = await loadRows(manifest, orgId);
-    const derived = manifest.derive === 'workQueue' ? deriveWorkQueue(loaded, { now: new Date(now) }) : loaded;
+    const derived = manifest.derive === 'workQueue'
+      ? deriveWorkQueue(loaded, { now: new Date(now) })
+      : manifest.derive === 'releaseOutcome'
+        ? deriveReleaseOutcome(loaded, { now: new Date(now) })
+        : loaded;
     rows = applyFilter(derived, [...(manifest.filters ?? []), ...(activeView?.filters ?? [])], new Date(now));
     if (manifest.sort) {
       const { field, dir } = manifest.sort;

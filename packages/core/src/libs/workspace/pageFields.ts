@@ -839,7 +839,7 @@ export const PageManifestSchema = z.object({
    * knows what these records MEAN and is not a general expression language
    * on a page. A second one gets declared here when it exists.
    */
-  derive: z.enum(['workQueue']).optional(),
+  derive: z.enum(['workQueue', 'releaseOutcome']).optional(),
   filters: z.array(FilterSchema).optional(),
   /**
    * Named ways of looking at the same rows, chosen with `?view=<key>` and
