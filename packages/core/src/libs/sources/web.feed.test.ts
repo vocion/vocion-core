@@ -367,6 +367,33 @@ describe('the ICS per-event split', () => {
     ]);
   });
 
+  it('declares the links a Localist entry publishes under its own names', async () => {
+    // Localist ships a `url` key whose value is the string "None". It is a
+    // string so it is read, it is not a URL so it is dropped, and the entry
+    // then declares nothing: a feed that looks like it publishes no links
+    // while publishing them under `localist_url` and `photo_url`.
+    const items = {
+      events: [{
+        event: {
+          id: 1,
+          title: 'Random Chats About Statistics',
+          url: 'None',
+          urlname: 'random-chats-about-statistics',
+          localist_url: 'https://events.test/event/random-chats-about-statistics',
+          photo_url: 'https://images.test/photos/1/huge/a.jpg',
+        },
+      }],
+    };
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://events.test/event/random-chats-about-statistics',
+      'https://images.test/photos/1/huge/a.jpg',
+    ]);
+  });
+
   it('omits the key when a component publishes nothing fetchable', async () => {
     stubFetch(() => typed(PUBLISHED_URLS_ICS, 'text/calendar'));
 
