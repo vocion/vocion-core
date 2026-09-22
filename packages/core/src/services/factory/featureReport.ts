@@ -1404,6 +1404,11 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
   // The join that quietly became a zero. Tasks were written, and not one
   // worker run is linked to them — so every run-derived figure on this page
   // is reading an empty set, and says so rather than reading nothing as none.
+  // The rollup and the rows disagree about whether any work was written.
+  const written = num(input.request.meta, 'taskCount') ?? 0;
+  if (written > 0 && input.tasks.length === 0) {
+    out.push(`This work records ${written} task${written === 1 ? '' : 's'} written for it, and not one is linked to it. Everything below that reads off tasks — the plan, the contract, the change, the money — is reading an empty set.`);
+  }
   if (input.tasks.length > 0 && input.workerRuns.length === 0) {
     out.push(`Execution history is incomplete: ${input.tasks.length} task${input.tasks.length === 1 ? ' was' : 's were'} written for this work and no worker run is linked to ${input.tasks.length === 1 ? 'it' : 'them'}. Attempts, models and per-run cost are unreadable until that join is repaired.`);
   }
@@ -1481,6 +1486,26 @@ function buildState(input: FeatureReportInput): ReportState {
     return hasEvidence
       ? { key: 'releasable', label: 'Ready to release', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review release', href: '#report-release' } }
       : { key: 'review', label: 'Ready for review', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review changes', href: '#report-qa' } };
+  }
+  // "NOT STARTED" IS A CLAIM TOO.
+  //
+  // The request keeps its own rollup of how many tasks were written for it,
+  // and that rollup can say five while not one task row links back — the same
+  // broken join that made the strip print "0 attempts". Drawing that as "not
+  // started", at the top of the page, in the place a person reads first, is
+  // the most confident version of the lie. So when the record says work was
+  // written and none of it is linked, the state says it cannot tell, and the
+  // contradictions block underneath says why.
+  const written = num(input.request.meta, 'taskCount') ?? 0;
+  if (written > 0) {
+    return {
+      key: 'waiting',
+      label: 'Unreadable',
+      detail: 'the records disagree',
+      needsYou: false,
+      question: `This work says ${written} task${written === 1 ? ' was' : 's were'} written for it and none of them is linked here.`,
+      action: null,
+    };
   }
   return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null };
 }
