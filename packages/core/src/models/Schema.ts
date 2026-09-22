@@ -719,6 +719,8 @@ export const agentSchema = pgTable(
       provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
+      /** Graph steps one turn may take; unset keeps each provider's own backstop. See `services/agents/stepLimit.ts`. */
+      maxSteps?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */

@@ -696,7 +696,8 @@ export const AgentManifestSchema = z.object({
    * our loop implements. Neither routes inference — a Bedrock call is a
    * direct Converse call in all three cases. `interrupts` lists skill/tool slugs that pause for
    * human approval (via the hitl_gate flow) before executing;
-   * `maxTokens` caps the model's output tokens; `excludeTools`
+   * `maxTokens` caps the model's output tokens; `maxSteps` stops a turn
+   * after that many steps; `excludeTools`
    * withholds built-in tools by name (e.g. `propose_action` for agents
    * that should have no CRM-write surface at all); `model` overrides the
    * model id; `modelProvider` overrides which vendor serves it.
@@ -738,6 +739,17 @@ export const AgentManifestSchema = z.object({
     provider: harnessTargetSchema.optional(),
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
+    /**
+     * Stop one turn after this many steps. A step is a LangGraph graph step:
+     * one model call plus the tools it asked for is about two. The
+     * AWS-managed harness counts tool rounds instead and gets half.
+     *
+     * Optional rather than defaulted: an agent that says nothing keeps each
+     * provider's own backstop (deepagents' 10,000 steps, AgentCore's 12
+     * rounds). Set it to stop a loop sooner — see
+     * `services/agents/stepLimit.ts`.
+     */
+    maxSteps: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
     /**
      * Granted-only tools this agent receives. Some built-ins (the discovery

@@ -150,3 +150,29 @@ describe('runAgentOnRuntime and the prompt-cache switch', () => {
     expect((captured.payload().agent as Record<string, unknown>).promptCache).toBe(true);
   });
 });
+
+describe('runAgentOnRuntime and the step limit', () => {
+  beforeEach(() => {
+    mintBedrockSessionForRuntime.mockResolvedValue(null);
+  });
+
+  it('carries the agent\'s maxSteps to the artifact', async () => {
+    // Dropped here, a runtime-hosted agent runs to deepagents' 10,000 steps
+    // no matter what its author wrote.
+    await seedHarness({ modelProvider: 'bedrock', maxSteps: 200 });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect((captured.payload().agent as Record<string, unknown>).maxSteps).toBe(200);
+  });
+
+  it('leaves the field out when the author set none', async () => {
+    await seedHarness({ modelProvider: 'bedrock' });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect('maxSteps' in (captured.payload().agent as Record<string, unknown>)).toBe(false);
+  });
+});
