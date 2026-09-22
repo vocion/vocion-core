@@ -733,20 +733,43 @@ describe('the JSON per-event split', () => {
     ]);
   });
 
-  it('keeps an enveloped entry keyed on its own content, not on the inner id', async () => {
-    // Localist repeats an inner id across the instances of a recurring event:
-    // eight of a hundred on the live feed. Keying on it would collide, and a
-    // collision abandons the split for the whole file.
+  it('keys an enveloped entry on its occurrence, so an edit or a view updates it rather than filing another', async () => {
+    const entry = (views: number, title: string, occurrence: number, day: string) => ({ event: {
+      id: 7,
+      title,
+      detail_views: views,
+      localist_url: `https://events.test/event/yoga-${day}`,
+      event_instances: [{ event_instance: { id: occurrence, start: `2026-10-${day}T10:00:00-04:00`, num_attending: views % 5 } }],
+    } });
+    const url = 'https://events.test/api/2/events';
+
+    stubFetch(() => Response.json({ events: [entry(10, 'Weekly Yoga', 501, '01'), entry(3, 'Weekly Yoga', 502, '08')] }));
+    const first = await run({ urls: [url] });
+    stubFetch(() => Response.json({ events: [entry(95, 'Weekly Yoga', 501, '01'), entry(40, 'Weekly Yoga, moved', 502, '08')] }));
+    const second = await run({ urls: [url] });
+
+    expect(first.docs.map(d => d.externalId)).toEqual([`${url}#7~501`, `${url}#7~502`]);
+    expect(second.docs.map(d => d.externalId)).toEqual(first.docs.map(d => d.externalId));
+    expect(second.docs[0]?.content).toBe(first.docs[0]?.content);
+    expect(second.docs[0]?.content).not.toContain('detail_views');
+    expect(second.docs[1]?.content).not.toBe(first.docs[1]?.content);
+  });
+
+  it('keeps the content key for enveloped entries that repeat an id with no occurrence to tell them apart', async () => {
+    // A collision abandons the split for the whole file, so a repeat without an
+    // occurrence falls back to the entry's content rather than its inner id.
     const items = { events: [
       { event: { id: 7, title: 'Weekly Yoga', localist_url: 'https://events.test/event/yoga-1' } },
       { event: { id: 7, title: 'Weekly Yoga', localist_url: 'https://events.test/event/yoga-2' } },
+      { event: { id: 9, title: 'Open Studio', localist_url: 'https://events.test/event/studio' } },
     ] };
     stubFetch(() => Response.json(items));
 
     const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
 
-    expect(docs).toHaveLength(2);
+    expect(docs).toHaveLength(3);
     expect(docs[0]?.externalId).not.toEqual(docs[1]?.externalId);
+    expect(docs[2]?.externalId).toBe('https://events.test/api/2/events#9');
   });
 
   it('leaves a nested object alone when it is not an entry envelope', async () => {
