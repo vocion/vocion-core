@@ -8,6 +8,29 @@ Vocion asks Anthropic and Bedrock to cache that prefix on every call, by default
 configuration. This page says what that changes, what it does not cache, how to read the
 numbers, and how to turn it off.
 
+## If you are building a project on Vocion
+
+**There is nothing to configure. It is on.** Every agent you define, every model call the
+framework makes on your behalf, already asks the vendor to cache its prefix. You do not opt
+in, you do not add a field, and there is no setup step you can forget.
+
+You would only reach for the switch in one situation, described in full under
+[When it is worth turning off](#when-it-is-worth-turning-off): an agent whose prefix is
+long enough to cache but which is called *less often than once every five minutes*. That
+agent pays a 25% premium on its prefix on every call and never reads one back. Everything
+conversational — anything where a person sends a second message within a few minutes — is
+strictly better off with the default.
+
+Two things worth knowing even though they need no action:
+
+- **A short prompt is free, not penalised.** If your prefix is under the model's minimum
+  (see [the table below](#what-silently-does-not-cache)), the cache instruction is ignored
+  and you are billed exactly as if caching were off. Measured, not assumed — see below.
+- **Your prompt sits in the vendor's cache for five minutes.** It is the same vendor
+  already receiving the prompt, under the same agreement, and the cache is scoped to your
+  own account. If that is nonetheless unacceptable for one agent, the switch is how you say
+  so.
+
 ## What it saves
 
 Two separate things, and the second one is the reason this exists.
@@ -32,6 +55,34 @@ quota, so the same work fits inside the same day.
 The measurement behind the change: dev mission run 24 (2026-09-09, from CloudWatch
 `AWS/Bedrock` metrics) made 44 model calls in six minutes for 3.26M input tokens against
 20k output tokens. The first call carried about 18k tokens of prefix; the last about 93k.
+
+## Measured, not modelled
+
+Run 2026-09-22 against `us.anthropic.claude-sonnet-4-6` on Bedrock (`us-west-2`), driven
+through `buildChatModel` — the real entry point, not a raw vendor call. A ~7,150-token
+system prefix held constant, only the user question changing.
+
+| Turn | input | cacheWrite | cacheRead | cost |
+|---|---|---|---|---|
+| caching on, call 1 (cold) | 7,157 | 7,154 | 0 | 2.7841c |
+| caching on, call 2 (warm) | 7,158 | 15 | 7,140 | 0.3092c |
+| caching on, call 3 (warm) | 7,158 | 15 | 7,140 | 0.2927c |
+| caching on, **streamed** call | 7,157 | 14 | 7,140 | 0.2908c |
+| caching **off**, control | 7,157 | 0 | 0 | 2.2176c |
+| caching **off**, control | 7,157 | 0 | 0 | 2.2266c |
+
+A warm turn costs **7.2x less** than the same turn uncached. The cold turn costs 1.25x the
+uncached one — exactly the published write premium — and that surcharge is repaid in full by
+the first warm turn, which saves 1.91c against a 0.56c cost. Over a 13-turn run: 6.4c
+against 28.9c, about 4.5x.
+
+The streamed row matters more than it looks. `BaseChatModel.stream()` prefers
+`_streamChatModelEvents` whenever a chat-model stream handler is attached, which is every
+agent turn; an implementation that overrode only the other two entry points typechecked,
+read correctly, and cached nothing here.
+
+A second run with a ~30-token prefix — under Sonnet's 1,024 minimum — reported 0 write and
+0 read, at a cost identical to caching being off. Short prompts are ignored, not penalised.
 
 ## What is cached
 
@@ -73,8 +124,8 @@ it past the minimum only helps if the padding is real content the call needs any
 and worked examples, not filler.
 
 **A prefix that is written and never read back.** A cache write costs 1.25x input, so a
-one-off call with no follow-up is a small loss. Everything caching is on for here reads the
-prefix back within seconds.
+call with no follow-up inside the five-minute TTL is a small loss. This is the only case
+where the default is the wrong answer, and it has its own section below.
 
 **A prefix that changed.** The cache keys on the bytes up to the cache point, so anything
 that varies per call — a timestamp in the system prompt, a re-ordered tool list — misses
@@ -105,6 +156,31 @@ before the rest is charged at the plain rate (`libs/pricing.ts`).
 A warm run reads roughly: cache write large on the first call, 0 after it; cache read large
 on every call after the first. Cache read 0 on turn 2 means the prefix was under the
 minimum, or it changed.
+
+## When it is worth turning off
+
+One case, and it is about cost rather than privacy.
+
+A cache entry lives for five minutes. An agent called **less frequently than that** finds
+the cache cold every time: it pays the 1.25x write premium on every single call and never
+once reads the prefix back. That is a permanent 25% surcharge on the prefix portion, buying
+nothing. A demo agent someone pokes at a few times an hour, a nightly job that processes one
+item per run, a webhook handler that fires sporadically — those are the shapes.
+
+Two things have to be true together before it costs you anything:
+
+1. The prefix clears the model's minimum, so caching actually engages. Below the minimum
+   nothing is written and nothing is charged.
+2. Calls are spaced further apart than the five-minute TTL, so no write is ever read back.
+
+If either is false, leave the default alone. In particular a *conversation* is always worth
+caching even if it is one conversation a day — the turns within it arrive seconds apart, so
+turn 1 writes and turns 2..n read.
+
+Rough arithmetic for the always-cold case: a 7,150-token prefix on Sonnet 4.6 costs 2.78c
+per call cached-but-never-read against 2.22c uncached. Small in absolute terms, and it only
+matters at volume — which an agent called this rarely by definition does not have. So this
+is a switch to reach for deliberately, not something to audit your agents over.
 
 ## Turning it off
 
