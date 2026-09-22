@@ -7,13 +7,18 @@
  * tool can do that the browser cannot is create without a conversation.
  */
 
+import type { ArtifactRow } from '@/services/ArtifactService';
 import { os } from '@orpc/server';
 import { z } from 'zod';
 import { exportArtifactAsPage } from '@/libs/artifacts/exportPage';
+import { artifactSharePath, signArtifactShare } from '@/libs/share/artifactShareToken';
+import { SHARE_AUDIENCES } from '@/libs/share/audience';
+import { SOURCE_ARTIFACT_KINDS, sourceContentOf, sourceKindOf } from '@/libs/workspace/source';
 import { track } from '@/services/adoption/track';
-import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
+import { ArtifactError, deleteArtifact, getArtifact, getArtifactVersion, listArtifactFolders, listArtifacts, listArtifactsForConversation, listArtifactVersions, restoreArtifactVersion, setArtifactFolder, setArtifactShare, toPayload, toVersionPayload, updateArtifact } from '@/services/ArtifactService';
 import { getConversation } from '@/services/ConversationService';
 import { reviseDocument } from '@/services/documents/DocumentEngine';
+import { restoreWorkspaceSource, WorkspaceSourceError, writeWorkspaceSource } from '@/services/workspace/WorkspaceSourceService';
 import { ApiError } from './ApiError';
 import { guardAuth } from './AuthGuards';
 
@@ -27,6 +32,13 @@ function rethrow(err: unknown): never {
       throw ApiError.notFound({ message: err.message });
     }
     throw ApiError.badRequest(err.message);
+  }
+  if (err instanceof WorkspaceSourceError) {
+    if (err.code === 'NOT_FOUND') {
+      throw ApiError.notFound({ message: err.message });
+    }
+    // The pane reads "conflict" off the message and offers Review / Keep mine.
+    throw ApiError.badRequest(err.code === 'CONFLICT' ? `conflict: ${err.message}` : err.message);
   }
   throw err;
 }
@@ -92,6 +104,36 @@ export const update = os
   .handler(async ({ input }) => {
     const auth = await guardAuth();
     try {
+      // A mission or a SKILL.md mirrored from the workspace
+      // (`libs/workspace/source.ts`): the FILE is the source of truth, so the
+      // save writes it first, and the mirror's new version comes out of that
+      // write — never the other way round. Title follows the file's `name:`.
+      if (input.spec && (typeof input.spec.yaml === 'string' || typeof input.spec.md === 'string')) {
+        const existing = await getArtifact({ orgId: auth.orgId, id: input.id });
+        if (existing && SOURCE_ARTIFACT_KINDS.has(existing.kind)) {
+          const kind = sourceKindOf(existing.kind, existing.spec);
+          const slug = typeof existing.spec.slug === 'string' ? existing.spec.slug : existing.recordId;
+          const content = sourceContentOf(input.spec);
+          if (!kind || !slug || content === null) {
+            throw ApiError.badRequest('this artifact mirrors a workspace file but names no slug');
+          }
+          const res = await writeWorkspaceSource({
+            orgId: auth.orgId,
+            kind,
+            slug,
+            content,
+            author: { kind: 'human', id: auth.userId },
+            changeSummary: input.changeSummary ?? 'Edited by hand',
+            ifVersion: input.ifVersion ?? null,
+            appliedBy: auth.userId ?? 'user',
+            existingOnly: true,
+          });
+          if (!res.unchanged) {
+            void track(auth, 'artifact.edited', { resource: ['artifact', res.artifact.id], meta: { kind: res.artifact.kind, action: 'edited', version: res.version.version } });
+          }
+          return { artifact: toPayload(res.artifact), version: toVersionPayload(res.version), collapsed: false };
+        }
+      }
       // A person's hand edit to a document's HTML goes through the engine, so
       // it is render-verified like an agent's edit: same door, same verdict.
       if (input.spec && typeof input.spec.html === 'string') {
@@ -134,6 +176,46 @@ export const update = os
     }
   });
 
+/**
+ * What the share picker shows: the audience, its owner, and the public path when there is one.
+ * @param row
+ */
+function shareInfo(row: ArtifactRow) {
+  return {
+    audience: row.shareAudience,
+    ownerId: row.shareOwnerId ?? null,
+    publicPath: row.shareAudience === 'anyone' ? artifactSharePath(signArtifactShare({ artifactId: row.id, orgId: row.orgId })) : null,
+  };
+}
+
+/** The share state of one artifact. */
+export const share = os
+  .input(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const row = await getArtifact({ orgId, id: input.id });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return shareInfo(row);
+  });
+
+/**
+ * Choose who an artifact opens for. `anyone` mints the public link; choosing
+ * anything narrower afterwards kills every copy of it, because the public
+ * route re-checks the audience on every request.
+ */
+export const setShare = os
+  .input(z.object({ id: z.number().int().positive(), audience: z.enum(SHARE_AUDIENCES) }))
+  .handler(async ({ input }) => {
+    const { orgId, userId } = await guardAuth();
+    const row = await setArtifactShare({ orgId, id: input.id, audience: input.audience, userId: userId ?? null });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return shareInfo(row);
+  });
+
 export const setFolder = os
   .input(z.object({ id: z.number().int().positive(), folder: z.string().max(120).nullable() }))
   .handler(async ({ input }) => {
@@ -169,6 +251,14 @@ export const restore = os
   .handler(async ({ input }) => {
     const auth = await guardAuth();
     try {
+      // A workspace source restores by writing the old text to the FILE, then
+      // forward as a new head — disk and history agree, and neither rewinds.
+      const existing = await getArtifact({ orgId: auth.orgId, id: input.id });
+      if (existing && SOURCE_ARTIFACT_KINDS.has(existing.kind)) {
+        const res = await restoreWorkspaceSource({ orgId: auth.orgId, id: input.id, version: input.version, author: { kind: 'human', id: auth.userId } });
+        void track(auth, 'artifact.edited', { resource: ['artifact', res.artifact.id], meta: { kind: res.artifact.kind, action: 'restored', version: res.version.version } });
+        return { artifact: toPayload(res.artifact), version: toVersionPayload(res.version) };
+      }
       const { artifact, version: v } = await restoreArtifactVersion({
         orgId: auth.orgId,
         id: input.id,

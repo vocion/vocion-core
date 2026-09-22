@@ -5,7 +5,7 @@ import { obj, str, workerRunErrorResponse } from '../../_lib';
 
 /**
  * POST /api/v1/worker-runs/:id/checkpoint
- *   { workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents? }, langfuseTraceId?, failures? }
+ *   { workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }
  * Extends the lease and records what the worker reports. The reply carries the
  * control signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.
  * Same contract as heartbeat; exists so a worker can name its intent. `cursor` is required here.
@@ -41,6 +41,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
         inputTokens: typeof usageRaw.inputTokens === 'number' ? usageRaw.inputTokens : undefined,
         outputTokens: typeof usageRaw.outputTokens === 'number' ? usageRaw.outputTokens : undefined,
         cacheReadTokens: typeof usageRaw.cacheReadTokens === 'number' ? usageRaw.cacheReadTokens : undefined,
+        // A cache WRITE costs more than a plain input token (1.25x), so a
+        // worker that reports one and has it folded into `inputTokens` is
+        // undercharged for every cold turn. Read separately for the same
+        // reason `TokenUsage` keeps the two apart.
+        cacheWriteTokens: typeof usageRaw.cacheWriteTokens === 'number' ? usageRaw.cacheWriteTokens : undefined,
         cents: typeof usageRaw.cents === 'number' ? Math.max(0, Math.round(usageRaw.cents)) : undefined,
       }
     : undefined;

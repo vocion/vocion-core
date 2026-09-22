@@ -6,15 +6,38 @@
  * Caller multiplies by `usage.input_tokens` / `usage.output_tokens`
  * and divides by 1e6 to get the cost of one model turn in cents.
  *
- * Cache reads (`cache_read_input_tokens`) are charged at the input
- * rate's cache-hit discount. Anthropic ships a 10x discount on cache
- * reads for prompt-cache-enabled prompts (see `withPromptCache` in
- * libs/llm/langchain.ts).
+ * Prompt caching splits the input side three ways. A cache read is
+ * charged at 0.1x the input rate (0.025x on Fable 5.1 and Mythos 5.1);
+ * a cache write at 1.25x for the five-minute TTL we send, and 2x for
+ * the one-hour one. Figures from Anthropic's prompt-caching page, read
+ * 2026-09-22:
+ * https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+ * See `libs/llm/promptCache.ts` for how the cache is asked for.
  *
  * Table keys are plain model names. Bedrock reports the same model
  * cards under decorated ids (`us.anthropic.claude-sonnet-4-6`), so
  * lookups fall back to `canonicalModelId()`; see it for why the
  * decoration carries no price of its own.
+ *
+ * EVERY NUMBER HERE IS HAND-COPIED FROM A VENDOR PAGE AND NOTHING NOTICES
+ * WHEN ONE GOES STALE. A rate that drifts is invisible: spend still looks
+ * precise, budgets still enforce, and every figure is quietly wrong. That
+ * is vocion-core#540, which owns the fix — recorded source dates in the
+ * data, a staleness check that fails the build, and a decision on whether
+ * either vendor publishes a machine-readable price list.
+ *
+ * The cache rates are the newest and least-verified part of the table, so
+ * expect them to move first. Two things to know before trusting them:
+ *
+ *   - `cacheReadCentsPerMillion` is a real per-model number, read off the
+ *     page at the date above.
+ *   - `cacheWriteCentsPerMillion` is set on NO model today. Every write
+ *     prices through the hardcoded 1.25x multiplier below, which is the
+ *     Anthropic/Bedrock five-minute figure applied to every vendor in the
+ *     table. It happens to be harmless right now only because no OpenAI
+ *     path reports `cacheWriteTokens` at all — the first one that does
+ *     will be priced at Anthropic's multiplier unless a real rate lands
+ *     here first.
  */
 
 export type PricingTier = {
@@ -24,6 +47,16 @@ export type PricingTier = {
   outputCentsPerMillion: number;
   /** USD cents per 1M cache-read input tokens (Anthropic discount). */
   cacheReadCentsPerMillion?: number;
+  /**
+   * USD cents per 1M cache-WRITE input tokens. Unset means the vendor's
+   * standard five-minute multiplier, 1.25x input — set it only for a model
+   * that departs from that.
+   *
+   * Unset on every model today, so the multiplier is what actually prices
+   * writes. Filling this in per model is part of vocion-core#540; a vendor
+   * whose write premium is not 1.25x is mispriced until it is.
+   */
+  cacheWriteCentsPerMillion?: number;
 };
 
 /**
@@ -67,12 +100,54 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
   'gpt-5.6-sol': { inputCentsPerMillion: 400, outputCentsPerMillion: 2000, cacheReadCentsPerMillion: 40 },
   'gpt-5.6-terra': { inputCentsPerMillion: 200, outputCentsPerMillion: 1200, cacheReadCentsPerMillion: 20 },
   'gpt-5.6-luna': { inputCentsPerMillion: 20, outputCentsPerMillion: 120, cacheReadCentsPerMillion: 2 },
+
+  // OpenAI embeddings — list prices from developers.openai.com/api/docs/pricing,
+  // read 2026-09-21. Embeddings return no completion, so the output rate is 0
+  // and every cent comes off the input side. `text-embedding-3-small` is the
+  // default an ingest run uses (see DEFAULT_MODELS in
+  // libs/retrieval/embeddingBackend.ts), and ingest is the largest single
+  // source of embedding spend, so an unpriced row here is what let a sync run
+  // up a four-figure bill under a $50 cap (#279).
+  'text-embedding-3-small': { inputCentsPerMillion: 2, outputCentsPerMillion: 0 },
+  'text-embedding-3-large': { inputCentsPerMillion: 13, outputCentsPerMillion: 0 },
+
+  // OpenAI image generation. `gpt-image-1` bills per TOKEN, not per image:
+  // $5/MTok text input, $10/MTok image input, $40/MTok output, same page and
+  // date as above. Only the text-input rate is carried here, because the
+  // generate_image tool sends a text prompt and no reference image; an
+  // image-to-image call would under-charge by the difference and needs its own
+  // row before that path ships.
+  'gpt-image-1': { inputCentsPerMillion: 500, outputCentsPerMillion: 4000 },
+
+  // Deliberately NOT priced: `amazon.titan-embed-text-v1`, the Bedrock
+  // embedding default. AWS publishes Titan embedding pricing behind a
+  // region-and-model picker we could not read a single figure off on
+  // 2026-09-21, and a guessed rate is worse than none — an unpriced model
+  // charges 0 cents while still charging its tokens, so a token cap keeps
+  // working and a cents cap visibly does not. Add the row, with the page and
+  // the date, once someone has the number in front of them.
 };
 
 export type TokenUsage = {
+  /**
+   * Every input token the call was billed for, cached ones included. That is
+   * the LangChain convention (`usage_metadata.input_tokens`), and it is NOT
+   * what a raw Bedrock Converse response means by `inputTokens` — Bedrock
+   * reports only the uncached remainder and expects the caller to add the two
+   * cache counts back. Anything reading a raw Converse response has to do that
+   * sum before filling this in.
+   */
   inputTokens?: number;
   outputTokens?: number;
+  /** Input tokens served from the vendor's prompt cache, billed at 0.1x. */
   cacheReadTokens?: number;
+  /**
+   * Input tokens written into the vendor's prompt cache, billed at 1.25x on
+   * the five-minute TTL. Counted separately because a cache write costs MORE
+   * than a plain input token, so folding it into `inputTokens` would quietly
+   * undercharge every first turn of every run.
+   */
+  cacheWriteTokens?: number;
 };
 
 /**
@@ -110,11 +185,34 @@ export function modelMatchPattern(modelName: string): string {
 }
 
 /**
- * Cost (in USD cents) for one model turn. Returns 0 if pricing is unknown.
- * @param model
- * @param usage
+ * Cost for one model turn, in MICRO-CENTS — a millionth of a cent. Returns 0
+ * if pricing is unknown.
+ *
+ * This is the exact one, and the one anything that accumulates should use.
+ * There is no division in it, by construction: a rate is cents per 1,000,000
+ * tokens and a micro-cent is a cent divided by 1,000,000, so the cost of
+ * `n` tokens is `n * rate` and nothing else. Every value involved is a whole
+ * number, so every step is exact.
+ *
+ * That matters because the alternative — computing cents by dividing by a
+ * million — is a floating-point division whose result usually is not
+ * representable, and a budget counter adds one of those up per embedding batch
+ * for the life of a period. The error per call is tiny; the reason not to
+ * accept it is that nothing here needs to.
+ *
+ * `Math.round` guards a rate somebody later writes as a fraction. Every rate in
+ * the table above is a whole number today, which makes the round a no-op; if
+ * one stops being whole, the cost rounds to the nearest micro-cent instead of
+ * silently carrying a fraction into an integer column.
+ *
+ * Ceiling: a turn of 1e9 tokens at the dearest rate here is 7.5e12 micro-cents,
+ * comfortably inside the range a JavaScript number holds exactly (9e15). A
+ * model priced above roughly 9,000,000 cents per million tokens would need a
+ * bigger type — say so here if that ever happens.
+ * @param model - Model id as the provider reports it.
+ * @param usage - Tokens the provider billed.
  */
-export function tokenCostCents(model: string, usage: TokenUsage): number {
+export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
   // Exact id first, so a table entry for a full provider id always wins
   // over the alias it would canonicalise to.
   const tier = PRICING[model] ?? PRICING[canonicalModelId(model)];
@@ -122,11 +220,46 @@ export function tokenCostCents(model: string, usage: TokenUsage): number {
     return 0;
   }
   const cacheRead = usage.cacheReadTokens ?? 0;
-  const inputBilledAtFullRate = Math.max(0, (usage.inputTokens ?? 0) - cacheRead);
-  const input = (inputBilledAtFullRate * tier.inputCentsPerMillion) / 1_000_000;
-  const cache = (cacheRead * (tier.cacheReadCentsPerMillion ?? tier.inputCentsPerMillion)) / 1_000_000;
-  const output = ((usage.outputTokens ?? 0) * tier.outputCentsPerMillion) / 1_000_000;
-  return input + cache + output;
+  const cacheWrite = usage.cacheWriteTokens ?? 0;
+  // `inputTokens` is the whole input side, cached tokens included, so the two
+  // cache counts come off it before the rest is charged at the plain rate.
+  // Clamped at zero because a provider that reports the three numbers some
+  // other way should charge too little rather than a negative amount.
+  const inputBilledAtFullRate = Math.max(0, (usage.inputTokens ?? 0) - cacheRead - cacheWrite);
+  const input = inputBilledAtFullRate * tier.inputCentsPerMillion;
+  const cache = cacheRead * (tier.cacheReadCentsPerMillion ?? tier.inputCentsPerMillion);
+  // 1.25x is the published five-minute cache-write multiplier, and five
+  // minutes is the TTL `libs/llm/promptCache.ts` asks for. A one-hour TTL
+  // would be 2x and needs its own rate before it is used anywhere.
+  //
+  // It is an Anthropic and Bedrock figure, and it is applied here to any tier
+  // that does not name its own rate — OpenAI rows included. That is harmless
+  // today only because no OpenAI path fills in `cacheWriteTokens`: OpenAI
+  // caches automatically and bills no write premium. A provider that starts
+  // reporting writes and does not charge 1.25x for them needs its own
+  // `cacheWriteCentsPerMillion` before it is priced through here.
+  //
+  // Tracked as part of vocion-core#540 (the price table goes stale with no
+  // signal): this multiplier is hardcoded, undated, and vendor-specific, so
+  // it needs a recorded source date and a staleness check like every rate
+  // above it. Expect this number to be wrong before the table around it is.
+  const write = cacheWrite * (tier.cacheWriteCentsPerMillion ?? tier.inputCentsPerMillion * 1.25);
+  const output = (usage.outputTokens ?? 0) * tier.outputCentsPerMillion;
+  return Math.round(input + cache + write + output);
+}
+
+/**
+ * Cost (in USD cents) for one model turn. Returns 0 if pricing is unknown.
+ *
+ * A fractional number of cents, for reading and for reporting one run's total.
+ * The division to get here is the only floating-point step in pricing, and it
+ * is deliberately at the edge: anything that ADDS costs up over time should
+ * take {@link tokenCostMicroCents} and stay in whole numbers.
+ * @param model - Model id as the provider reports it.
+ * @param usage - Tokens the provider billed.
+ */
+export function tokenCostCents(model: string, usage: TokenUsage): number {
+  return tokenCostMicroCents(model, usage) / 1_000_000;
 }
 
 /**

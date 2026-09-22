@@ -2,16 +2,21 @@
 
 import type { ComponentType } from 'react';
 import type { ReviewContent } from '@/libs/actions/types';
-import { ExternalLink, FileText, PenLine } from 'lucide-react';
+import { Check, Copy, ExternalLink, FileText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/Helpers';
+import { RichEmailBody } from './RichEmailBody';
 
 /**
- * Content-kind renderers for the review card — kinds register here the way
+ * Content-kind renderers for the review surface — kinds register here the way
  * actions register presenters, so a new object type lands by registering a
- * renderer and the card shell never changes. `email` reviews inline and is
+ * renderer and the shell never changes. `email` reads as an email and is
  * editable (edit-then-approve); `document` renders as summary + preview +
  * open-side-by-side with a version stamp so nobody decides on a stale render.
+ *
+ * Each item now owns a TAB of its own, so a renderer draws the pane and
+ * nothing else: no expand row, no position pill, no accordion chrome. The
+ * chrome came out with the boxed card it belonged to.
  */
 
 export type ContentEdit = { subject?: string; body?: string };
@@ -20,30 +25,39 @@ export type ContentRenderProps = {
   /** True for a moment after a conversation rewrite landed on this item. */
   changed?: boolean;
   item: ReviewContent;
-  /** 1-based position in the content list. */
-  position: number;
   /** Working copy of the reviewer's edits to this item, when editable. */
   edit?: ContentEdit;
   onEdit?: (patch: ContentEdit) => void;
-  defaultExpanded?: boolean;
-  /** Controlled expansion ("Edit all" on the page); the row's own toggle still works when undefined. */
-  expanded?: boolean;
   disabled?: boolean;
-  /**
-   * `inline` — the airy page presentation: no bordered inputs, the text sits
-   * in the flow and takes a soft fill only on focus. Default is the boxed card.
-   */
-  inline?: boolean;
 };
 
-const registry = new Map<string, ComponentType<ContentRenderProps>>();
+type Registration = { component: ComponentType<ContentRenderProps>; editable: boolean };
 
-export function registerContentKind(kind: string, component: ComponentType<ContentRenderProps>): void {
-  registry.set(kind, component);
+const registry = new Map<string, Registration>();
+
+/**
+ * Register a renderer for a content kind.
+ * @param kind - The `ReviewContent.kind` this draws.
+ * @param component - The renderer.
+ * @param opts - `editable` when the kind takes the reviewer's edits (edit-then-approve).
+ * @param opts.editable - Whether the kind accepts `onEdit`.
+ */
+export function registerContentKind(kind: string, component: ComponentType<ContentRenderProps>, opts: { editable?: boolean } = {}): void {
+  registry.set(kind, { component, editable: opts.editable ?? false });
 }
 
 export function contentKindRenderer(kind: string): ComponentType<ContentRenderProps> {
-  return registry.get(kind) ?? UnknownContent;
+  return registry.get(kind)?.component ?? UnknownContent;
+}
+
+/**
+ * Whether this kind takes the reviewer's edits. The shell asks the REGISTRY
+ * rather than testing `kind === 'email'` itself, so a new editable kind lands
+ * by registering one and the shell never learns its name.
+ * @param kind - The `ReviewContent.kind`.
+ */
+export function contentKindEditable(kind: string): boolean {
+  return registry.get(kind)?.editable ?? false;
 }
 
 /**
@@ -61,7 +75,7 @@ function UnknownContent({ item }: ContentRenderProps) {
 }
 
 // Inline editing: the text reads like text until you touch it (B-034b §2 —
-// soft fills, no chrome borders). The pencil on the row is the affordance.
+// soft fills, no chrome borders). The pane's own Edit is the affordance.
 const inlineFieldClass = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm outline-none transition hover:bg-[var(--surface-hover,var(--muted))] focus:bg-[var(--surface-soft,var(--muted))]';
 
 /**
@@ -79,7 +93,7 @@ const inlineFieldClass = 'w-full rounded-md bg-transparent px-2 py-1.5 text-sm o
  * @param props.disabled - Read-only when the caller passes no editor.
  * @param props.label - The accessible name; there is no visible label.
  */
-function AutoGrow({ value, onChange, className, disabled, label }: {
+export function AutoGrow({ value, onChange, className, disabled, label }: {
   value: string;
   onChange: (next: string) => void;
   className?: string;
@@ -108,15 +122,7 @@ function AutoGrow({ value, onChange, className, disabled, label }: {
   );
 }
 
-function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded: controlled, disabled, inline, changed }: ContentRenderProps) {
-  const [own, setOwn] = useState(defaultExpanded ?? false);
-  const expanded = controlled ?? own;
-  const setExpanded = (fn: (e: boolean) => boolean) => setOwn(fn(expanded));
-  // An email reads as an email on BOTH presentations. The bordered variant
-  // was the card's, and a boxed field inside a boxed row inside a boxed card
-  // is the nesting `patterns.md` bans — it is also exactly what made this look
-  // like a form. One treatment, so there is nothing to keep in step.
-  const field = inlineFieldClass;
+function EmailContent({ item, edit, onEdit, disabled, changed }: ContentRenderProps) {
   if (item.kind !== 'email') {
     return null;
   }
@@ -125,8 +131,8 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded:
   return (
     <div
       data-changed={changed ? 'true' : undefined}
+      data-testid={`email-pane-${item.id}`}
       className={cn(
-        inline ? 'border-b border-rule last:border-b-0' : 'border-b border-border/60 last:border-b-0',
         // A rewrite that landed while you were reading says where it landed,
         // then gets out of the way. Long transition, no animation on the way
         // in: the tint IS the arrival, the fade is the part you watch.
@@ -134,50 +140,45 @@ function EmailContent({ item, position, edit, onEdit, defaultExpanded, expanded:
         changed && 'bg-brand-amber-tint duration-0',
       )}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded(e => !e)}
-        aria-expanded={expanded}
-        className={`group flex w-full items-center gap-3 py-3 text-left ${inline ? 'rounded-md transition hover:bg-[var(--surface-hover,var(--muted))]' : ''}`}
-      >
-        <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${inline ? 'bg-muted/60 text-muted-foreground' : 'bg-muted'}`}>{position}</span>
-        <span className="shrink-0 text-[13px] text-muted-foreground">{item.label}</span>
-        <span className={`min-w-0 flex-1 truncate text-sm ${inline ? 'font-medium' : 'font-semibold'}`}>
-          {expanded ? '' : subject || body.split('\n')[0]}
-        </span>
-        <PenLine className={`size-3.5 shrink-0 text-muted-foreground/60 ${inline ? 'opacity-0 transition group-hover:opacity-100' : ''}`} aria-hidden />
-      </button>
-      {expanded && (
-        <div className="space-y-2 pb-3 pl-9">
-          {/* An email, not a form.
-              Chris, 2026-09-17: *"any way to make this block look a little
-              more like an email editor input and less nested inputs with clear
-              borders?"* Three things were making it read as a form: a boxed
-              field inside a boxed row inside a boxed card (the nesting
-              `patterns.md` bans outright), a label above each field naming
-              what the shape already says, and a fixed-height body with its own
-              scrollbar and resize grip — so a four-line email arrived pre-
-              cropped. Now the subject is a subject line with a hairline under
-              it, the body grows to its content, and the labels are there for
-              a screen reader only. */}
-          <label className="block">
-            <span className="sr-only">Subject</span>
-            <input
-              className={`${field} border-b border-rule text-[15px] font-medium`}
-              value={subject}
-              placeholder="Subject"
-              onChange={ev => onEdit?.({ subject: ev.target.value })}
-              disabled={disabled || !onEdit}
-            />
-          </label>
-          {/* No <label> wrapper: the control lives inside `AutoGrow`, so the
-              association has to travel as an accessible name instead. */}
-          <AutoGrow
-            label="Body"
-            className={`${field} leading-relaxed`}
+      {/* Nothing to edit here — a guided review, or a run already decided.
+          The body still renders through the editor, read-only: it may carry a
+          reviewer's formatting, and ProseMirror's schema is what makes showing
+          it safe without trusting what is stored. */}
+      {!onEdit && (
+        <>
+          {subject && <p className="border-b border-rule pb-1.5 text-[17px] font-medium">{subject}</p>}
+          <div className="mt-2 text-foreground/85">
+            <RichEmailBody value={body} label={`${item.label} body`} />
+          </div>
+        </>
+      )}
+      {/* An email, not a form. The subject is a subject line with a hairline
+          under it, the body grows to its content, and the labels are there for
+          a screen reader only — a boxed field inside a boxed row inside a
+          boxed card is the nesting `patterns.md` bans outright, and it is what
+          made this read as a form. */}
+      {onEdit && (
+        <label className="block">
+          <span className="sr-only">Subject</span>
+          <input
+            className={`${inlineFieldClass} border-b border-rule text-[17px] font-medium`}
+            value={subject}
+            placeholder="Subject"
+            onChange={ev => onEdit?.({ subject: ev.target.value })}
+            disabled={disabled}
+            aria-label={`${item.label} subject`}
+          />
+        </label>
+      )}
+      {/* No <label> wrapper: the control is a contenteditable inside
+          `RichEmailBody`, so the association travels as an accessible name. */}
+      {onEdit && (
+        <div className="mt-1">
+          <RichEmailBody
+            label={`${item.label} body`}
             value={body}
-            onChange={next => onEdit?.({ body: next })}
-            disabled={disabled || !onEdit}
+            onChange={next => onEdit({ body: next })}
+            disabled={disabled}
           />
         </div>
       )}
@@ -203,7 +204,7 @@ function DocumentContent({ item }: ContentRenderProps) {
           href={item.href}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-muted"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs underline decoration-border underline-offset-4 transition hover:bg-surface-hover hover:decoration-foreground"
         >
           Open side by side
           <ExternalLink className="size-3" aria-hidden />
@@ -215,7 +216,7 @@ function DocumentContent({ item }: ContentRenderProps) {
           src={item.previewHref}
           title={item.label}
           loading="lazy"
-          className="mt-3 h-80 w-full rounded-md border border-border bg-background"
+          className="mt-3 h-80 w-full rounded-md bg-background"
         />
       )}
     </div>
@@ -228,7 +229,9 @@ function ImageContent({ item }: ContentRenderProps) {
   }
   return (
     <div className="py-3">
-      <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border bg-muted/30">
+      {/* No frame: the page has one surface and this is not it. The rounded
+          clip and the soft ground are enough to say "image". */}
+      <a href={item.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md bg-muted/30">
         <img src={item.url} alt={item.label} loading="lazy" className="max-h-[420px] w-full object-contain" />
       </a>
       {item.caption && <p className="mt-2 text-sm break-words text-foreground/85">{item.caption}</p>}
@@ -246,6 +249,105 @@ function ImageContent({ item }: ContentRenderProps) {
   );
 }
 
-registerContentKind('email', EmailContent);
+/**
+ * A block read as written. `preformatted` keeps whitespace and sets a
+ * monospace face — a recipe of commands, a YAML excerpt — so a person can
+ * copy it and run it; without it, prose with its line breaks kept.
+ * @param root0
+ * @param root0.item
+ */
+function TextContent({ item }: ContentRenderProps) {
+  if (item.kind !== 'text') {
+    return null;
+  }
+  return item.preformatted
+    ? (
+        <pre data-testid={`text-pane-${item.id}`} className="mt-2 overflow-x-auto rounded-md bg-muted/40 p-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{item.body}</pre>
+      )
+    : (
+        <p data-testid={`text-pane-${item.id}`} className="mt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/85">{item.body}</p>
+      );
+}
+
+/**
+ * One command, in its own block, with the one control a command needs: copy.
+ * The button says what it did for a moment and then goes back to saying what
+ * it does, so a thumb on a phone gets an answer without a toast.
+ * @param props - The command and its step.
+ * @param props.command - The text to copy, shown as written.
+ * @param props.label - Which step it belongs to, for the accessible name.
+ */
+function CommandBlock({ command, label }: { command: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = setTimeout(() => setCopied(false), 1_600);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+    } catch {
+      // A browser that refuses the clipboard leaves the text selectable; the
+      // block itself is the fallback.
+    }
+  };
+  return (
+    <div className="relative mt-2" data-testid="command-block">
+      <pre className="overflow-x-auto rounded-md bg-muted/40 p-3 pr-12 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-foreground/90">{command}</pre>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+        title={copied ? 'Copied' : 'Copy'}
+        data-testid="copy-command"
+        className="absolute top-1.5 right-1.5 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-hover hover:text-foreground"
+      >
+        {copied ? <Check className="size-4 text-brand-pass" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The structured recipe: numbered steps, each a sentence, with its command
+ * in a block of its own and its link where the step happens. Read top to
+ * bottom on a phone, copied one command at a time.
+ * @param root0 - The render props.
+ * @param root0.item - The `steps` content item.
+ */
+function StepsContent({ item }: ContentRenderProps) {
+  if (item.kind !== 'steps') {
+    return null;
+  }
+  return (
+    <ol data-testid={`steps-pane-${item.id}`} className="mt-2 flex flex-col gap-4">
+      {item.steps.map((s, i) => (
+        <li key={`${i}-${s.say}`} className="flex gap-3" data-testid={`step-${i + 1}`}>
+          <span className="mt-px inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-soft text-[12px] font-semibold text-muted-foreground tabular-nums" aria-hidden>{i + 1}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-relaxed break-words text-foreground/90">
+              {s.say}
+              {s.url && (
+                <a href={s.url} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-1 text-[13px] underline decoration-border underline-offset-4 transition hover:decoration-foreground">
+                  Open
+                  <ExternalLink className="size-3" aria-hidden />
+                </a>
+              )}
+            </p>
+            {s.run && <CommandBlock command={s.run} label={`step ${i + 1}`} />}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+registerContentKind('email', EmailContent, { editable: true });
+registerContentKind('text', TextContent);
+registerContentKind('steps', StepsContent);
 registerContentKind('document', DocumentContent);
 registerContentKind('image', ImageContent);

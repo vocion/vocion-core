@@ -7,7 +7,7 @@ import type { InboxKind } from '@/services/InboxService';
  * screen, the hover verbs on a list row and the keyboard all read from here,
  * so a verb is never spelled one way on the row and another on the page.
  *
- *   proposal   Approve · Edit-and-approve (edits travel with Approve) · Snooze · Decline, plus Regenerate when the action supports it
+ *   proposal   Approve · Edit-and-approve (edits travel with Approve) · Snooze · Decline, plus Regenerate beside the item it regenerates
  *   ask        the ask's own options + Other — the option rows ARE the verbs; the bar carries Submit
  *   run        Resume · Cancel (missions, workflows); a worker run only opens
  *   learning   Adopt · Reject
@@ -16,13 +16,19 @@ import type { InboxKind } from '@/services/InboxService';
  * which of those actions a kind answers to, and what the key does there.
  */
 
-export type DecisionVerbId = 'approve' | 'reject' | 'snooze' | 'regenerate' | 'submit' | 'resume' | 'cancel' | 'skip' | 'save';
+/**
+ * `skip` and `save` are gone from the table: Skip was a second name for
+ * navigation `j` and `k` already do, and Save for later meant "leave it
+ * pending", which is what changing nothing already means. A verb that does
+ * what doing nothing does is an option, not an action (design principle 4).
+ */
+export type DecisionVerbId = 'approve' | 'reject' | 'snooze' | 'regenerate' | 'submit' | 'resume' | 'cancel';
 
 export type DecisionVerb = {
   id: DecisionVerbId;
   label: string;
   /** The single key that fires it on the detail screen, when there is one. */
-  shortcut?: 'a' | 'd' | 's' | 'j';
+  shortcut?: 'a' | 'd' | 's';
   /** Ghost by default; `danger` reddens on hover. */
   tone?: 'ghost' | 'danger';
   /** Shown as a hover verb on the list row. */
@@ -40,12 +46,12 @@ const APPROVE: DecisionVerb = { id: 'approve', label: 'Approve', shortcut: 'a', 
 const DECLINE: DecisionVerb = { id: 'reject', label: 'Decline', shortcut: 'd', tone: 'danger', onRow: true };
 const REJECT: DecisionVerb = { id: 'reject', label: 'Reject', shortcut: 'd', tone: 'danger', onRow: true };
 const SNOOZE: DecisionVerb = { id: 'snooze', label: 'Snooze', shortcut: 's' };
-const SKIP: DecisionVerb = { id: 'skip', label: 'Skip', shortcut: 'j' };
-const SAVE: DecisionVerb = { id: 'save', label: 'Save for later' };
 const SUBMIT: DecisionVerb = { id: 'submit', label: 'Submit' };
 const RESUME: DecisionVerb = { id: 'resume', label: 'Resume', shortcut: 'a' };
 const CANCEL: DecisionVerb = { id: 'cancel', label: 'Cancel run', shortcut: 'd', tone: 'danger' };
 const ADOPT: DecisionVerb = { id: 'approve', label: 'Adopt as rule', shortcut: 'a', onRow: true };
+const RETRY: DecisionVerb = { id: 'resume', label: 'Retry the task', shortcut: 'a' };
+const STOP: DecisionVerb = { id: 'cancel', label: 'Stop trying', shortcut: 'd', tone: 'danger' };
 
 const ASK: KindVerbs = { primary: SUBMIT, secondary: [], row: [APPROVE, REJECT] };
 
@@ -55,7 +61,7 @@ const ASK: KindVerbs = { primary: SUBMIT, secondary: [], row: [APPROVE, REJECT] 
  * no options of its own.
  */
 export const DECISION_VERBS: Record<InboxKind, KindVerbs> = {
-  proposal: { primary: APPROVE, secondary: [DECLINE, SNOOZE, SAVE, SKIP], row: [APPROVE, DECLINE] },
+  proposal: { primary: APPROVE, secondary: [DECLINE, SNOOZE], row: [APPROVE, DECLINE] },
   ruling: ASK,
   approval: ASK,
   merge: ASK,
@@ -65,6 +71,9 @@ export const DECISION_VERBS: Record<InboxKind, KindVerbs> = {
   recommendation: ASK,
   run: { primary: RESUME, secondary: [CANCEL], row: [] },
   learning: { primary: ADOPT, secondary: [REJECT], row: [ADOPT, REJECT] },
+  // An exception is answered on its run, retry it, or stop trying, so the
+  // row carries no quick verb it could not honour from the list.
+  exception: { primary: RETRY, secondary: [STOP], row: [] },
 };
 
 /**

@@ -1,30 +1,32 @@
 'use client';
 
 import type { ContentEdit } from './contentKinds';
-import type { ReviewCardRun } from './ReviewActionCard';
+import type { ReviewCardRun } from './ReviewSurface';
 import type { ReviewContentEdit } from '@/libs/actions/types';
 import { useEffect, useState } from 'react';
+import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
+import { withMinimumPending } from '@/features/dashboard/inbox/pending';
 import { isRegeneratingFresh } from '@/libs/actions/regenerating';
 import { client } from '@/libs/Orpc';
+import { currentCopy, currentHash, seedApprovals, seedEditsFromApprovals } from './contentWalk';
 
 /**
  * The decide path of a review run, as a hook: the working copy of the
  * content edits, the ONE feedback note, snooze, regenerate (with the server's
  * in-flight stamp polled to completion), the execution-failure hold, and the
- * decision itself — everything `ReviewActionCard` does that is not a `<div>`.
+ * decision itself — everything `ReviewSurface` does that is not a `<div>`.
  *
- * Extracted so a page can render the decision in its own type system (the
- * lead page's Detail archetype: sections + a sticky bar) while deciding the
- * SAME run through the SAME calls the card and the queue use. The card keeps
- * its own copy of this logic until PR #337 (which reshapes the card) lands;
- * then `ReviewActionCard` adopts this hook and the duplicate goes.
+ * ONE path, for every surface that decides a run. The review queue and the
+ * lead page both mount `ReviewSurface`, which mounts this: deciding on either
+ * is the same operation on the same run, through the same calls.
  *
  * `extraContentEdits` lets a surface merge edits it did not author — the
  * guided review's revisions, saved per run in `localStorage` — so a rewrite
  * asked for in the conversation rides an Enroll taken on the page.
  */
 
-export type ReviewDecision = 'approve' | 'reject';
+/** `done` closes a released hand-off — the person who did the work says so. */
+export type ReviewDecision = 'approve' | 'reject' | 'done';
 export type ReviewOutcome = ReviewDecision | 'snooze' | 'regenerate';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -37,6 +39,12 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
 } = {}) {
   const { onDecided, onRegenerated } = opts;
   const [contentEdits, setContentEdits] = useState<Record<string, ContentEdit>>({});
+  /**
+   * The checks, by content id → the hash of the copy each one was given for.
+   * Seeded from the run so a reload and a second window agree, and moved
+   * locally on approve so the tab checks without waiting for a refetch.
+   */
+  const [approvals, setApprovals] = useState<Record<string, string>>(() => seedApprovals(run.contentReview));
   const [propertyEdits, setPropertyEdits] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -51,9 +59,13 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     run.status === 'failed' ? (run.error ?? 'The action failed to execute.') : null,
   );
 
-  // Reset the working copy when the surface moves to another run.
+  // Reset the working copy when the surface moves to another run — and bring
+  // back the edits that sit behind a standing check, so an approved send's
+  // copy and its check return together rather than the copy quietly reverting
+  // and taking the check with it.
   useEffect(() => {
-    setContentEdits({});
+    setContentEdits(seedEditsFromApprovals(run.card.content ?? [], run.contentReview, run.revisions));
+    setApprovals(seedApprovals(run.contentReview));
     setNote('');
     // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
     setExecError(run.status === 'failed' ? (run.error ?? 'The action failed to execute.') : null);
@@ -79,7 +91,7 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     let alive = true;
     const check = async () => {
       try {
-        const s = await client.review.actionStatus({ id: run.id });
+        const s = await (isPollableRunId(run.id) ? client.review.actionStatus({ id: run.id }) : Promise.reject(new Error('not a run')));
         if (!alive) {
           return;
         }
@@ -126,13 +138,15 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setBusy(true);
     try {
       const { contentEdits: ce, editedInput } = buildDecision();
-      const outcome = await client.review.decideAction({
+      // Never less than ~400ms in flight: a decision that lands instantly
+      // reads as nothing having happened.
+      const outcome = await withMinimumPending(client.review.decideAction({
         id: run.id,
         decision,
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(decision === 'approve' && ce ? { contentEdits: ce } : {}),
         ...(decision === 'approve' && editedInput ? { editedInput } : {}),
-      });
+      }));
       // A failed execution is NOT a completed decision: the surface stays
       // with the error on it and Approve becomes Retry.
       if (decision === 'approve' && outcome.execution?.status === 'failed') {
@@ -150,11 +164,11 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     setBusy(true);
     try {
       const until = untilOrDays instanceof Date ? untilOrDays : new Date(Date.now() + untilOrDays * 86_400_000);
-      await client.review.snoozeAction({
+      await withMinimumPending(client.review.snoozeAction({
         id: run.id,
         until: until.toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
-      });
+      }));
       onDecided?.('snooze');
     } finally {
       setBusy(false);
@@ -165,15 +179,85 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
   // instruction. The surface HOLDS ITS PLACE: the server stamps the run, this
   // disables on that truth, and the poll re-enables in place when the new
   // content lands — same run id, zero duplicates.
-  const regenerate = async () => {
+  /**
+   * @param instruction - What the pass should do differently. Defaults to the
+   * shared feedback note, for a surface with no per-item control of its own.
+   * @param contentId - Which item the instruction is about (`send-3`), so the
+   * route files the copy it is about to replace against that send rather than
+   * against the run at large. Absent on a surface with one body.
+   */
+  const regenerate = async (instruction?: string, contentId?: string) => {
     setBusy(true);
     try {
-      const instruction = note.trim();
-      await client.review.regenerateAction({ id: run.id, feedback: instruction });
-      setRegen({ since: new Date().toISOString(), note: instruction });
+      const feedback = (instruction ?? note).trim();
+      await withMinimumPending(client.review.regenerateAction({ id: run.id, feedback, ...(contentId ? { contentId } : {}) }));
+      setRegen({ since: new Date().toISOString(), note: feedback });
       onDecided?.('regenerate');
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Approve ONE content item. A checkpoint, not an execution: the run stays
+   * pending, the payload is untouched, and the only thing that changes is that
+   * a person has vouched for exactly this copy.
+   *
+   * The hash is computed from what is RENDERED and the route hashes what it
+   * RECEIVES, through the same exported function, so the two can never
+   * disagree about what the check refers to. Moved locally first, because a
+   * check that waits for a refetch reads as a click that did nothing; a
+   * failure puts it back.
+   * @param contentId - The item being approved.
+   */
+  const approveContent = async (contentId: string) => {
+    const item = (run.card.content ?? []).find(i => i.id === contentId);
+    const copy = item ? currentCopy(item, contentEdits[contentId]) : null;
+    if (!item || !copy) {
+      return;
+    }
+    const hash = currentHash(item, contentEdits[contentId])!;
+    const previous = approvals[contentId];
+    setApprovals(a => ({ ...a, [contentId]: hash }));
+    try {
+      await client.review.approveContent({
+        id: run.id,
+        contentId,
+        ...(copy.subject !== undefined ? { subject: copy.subject } : {}),
+        body: copy.body,
+      });
+    } catch (err) {
+      setApprovals((a) => {
+        const next = { ...a };
+        if (previous === undefined) {
+          delete next[contentId];
+        } else {
+          next[contentId] = previous;
+        }
+        return next;
+      });
+      throw err;
+    }
+  };
+
+  /**
+   * Take one item's check back off. The history it wrote stands.
+   * @param contentId
+   */
+  const unapproveContent = async (contentId: string) => {
+    const previous = approvals[contentId];
+    setApprovals((a) => {
+      const next = { ...a };
+      delete next[contentId];
+      return next;
+    });
+    try {
+      await client.review.unapproveContent({ id: run.id, contentId });
+    } catch (err) {
+      if (previous !== undefined) {
+        setApprovals(a => ({ ...a, [contentId]: previous }));
+      }
+      throw err;
     }
   };
 
@@ -197,6 +281,9 @@ export function useReviewDecision(run: ReviewCardRun, opts: {
     editProperty,
     hasProperties,
     canRegenerate: Boolean(run.card.canRegenerate) && run.status !== 'failed',
+    approvals,
+    approveContent,
+    unapproveContent,
     decide,
     snooze,
     regenerate,

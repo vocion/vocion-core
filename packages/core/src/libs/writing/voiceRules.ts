@@ -23,6 +23,7 @@
  */
 
 import { z } from 'zod';
+import { emailBodyText } from './emailBodyShape';
 
 /** One banned construction, with the reason a reader can argue with. */
 export type VoiceRule = {
@@ -441,7 +442,11 @@ export function lintSends(
       if (typeof text !== 'string' || text === '') {
         continue;
       }
-      const { violations } = lintCopy(text, rules);
+      // The WORDS, not the markup. A reviewer's body may be HTML, and a
+      // banned phrase split across a tag (`<strong>game</strong> changer`)
+      // walks straight through a regex over markup — the gate would pass copy
+      // it exists to stop (`libs/writing/emailBody.ts`).
+      const { violations } = lintCopy(emailBodyText(text), rules);
       const described = describeViolations(violations, `${field} of send ${n}`);
       if (described) {
         lines.push(described);

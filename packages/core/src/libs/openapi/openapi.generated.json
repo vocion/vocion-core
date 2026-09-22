@@ -107,6 +107,10 @@
     {
       "name": "workflows",
       "description": "Endpoints under /api/v1/workflows."
+    },
+    {
+      "name": "workspace",
+      "description": "Endpoints under /api/v1/workspace."
     }
   ],
   "components": {
@@ -402,7 +406,7 @@
             }
           }
         },
-        "description": "{ kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?,\n    options?: (string | { id, label, description?, recommended? })[],\n    groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }\n\nFile a question for a person. `options` may be bare strings (id = slug of\nthe label) or objects; at most one may be `recommended`. `url` is accepted\nas an alias of `contextUrl`. The reply's `ask.url` is the workspace-aware\nlink to decide it (`/w/<workspace>/dashboard/inbox/<id>`) — paste that, not a\nbare `/dashboard/inbox` path. With a `sourceRef` this org has already filed,\nthe row is updated in place and the reply is 200 — only the fields present\nin the request change (send `null` to clear one); status and decision are\nnever touched by a re-file. A new ask is 201.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ kind, title, body?, sourceRef?, agentSlug?, teamSlug?, risk?,\n    options?: (string | { id, label, description?, recommended? })[],\n    objectRefs?: { type, id }[], decisionCost?,\n    groupKey?, groupTitle?, contextUrl?, contextMd?, dueAt?, notifyAt?, projectId? }\n\nFile a question for a person. `options` may be bare strings (id = slug of\nthe label) or objects; at most one may be `recommended`. `objectRefs` names\nthe records the question is about (an object type slug and the object's\nid); they ride the `ask.decided` event so the answer can be written back\nonto them. `decisionCost` is the minutes of attention the decision is\nestimated to take. `url` is accepted\nas an alias of `contextUrl`. The reply's `ask.url` is the workspace-aware\nlink to decide it (`/w/<workspace>/dashboard/inbox/<id>`) — paste that, not a\nbare `/dashboard/inbox` path. With a `sourceRef` this org has already filed,\nthe row is updated in place and the reply is 200 — only the fields present\nin the request change (send `null` to clear one); status and decision are\nnever touched by a re-file. A new ask is 201.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
           "required": true,
           "content": {
@@ -411,7 +415,13 @@
                 "type": "object",
                 "description": "The fields this endpoint reads.",
                 "properties": {
+                  "decisionCost": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
                   "kind": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "objectRefs": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "options": {
@@ -577,6 +587,43 @@
         ]
       }
     },
+    "/api/v1/automations": {
+      "get": {
+        "operationId": "get_automations",
+        "summary": "every automation, with its state.",
+        "tags": [
+          "automations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "every automation, with its state.\n\nWhat an operator needs before deciding which one to stop: each\nautomation's `status` (the authored one), `paused` (a person's hold — who,\nwhen, the note — or null), `when` and `do`, its `lastFire` (the most recent\nreal fire: id, kind, status, when it started and finished — a pause or a\nrefused match is not a fire), and `skips` — what the guards refused in the\nlast ten minutes, so a rate-limited automation is visible from the list."
+      }
+    },
     "/api/v1/automations/runs": {
       "get": {
         "operationId": "get_automations_runs",
@@ -695,6 +742,128 @@
               "type": "string"
             }
           }
+        ]
+      }
+    },
+    "/api/v1/automations/{slug}/pause": {
+      "post": {
+        "operationId": "post_automations_slug_pause",
+        "summary": "the emergency stop.",
+        "tags": [
+          "automations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "the emergency stop.\n\nHolds the automation: a schedule-when's Temporal Schedule is paused, an\nevent-when is skipped by the matcher, and any fire that reaches\n`beginAutomationFire` anyway is refused and recorded. The same service path\nas the dashboard's Pause button, so the record is the same: who (the\nsession's person, or the API token), when, and the `note` — which is\nrequired here, because a stop with no reason is the row nobody can act on\na week later.\n\nNeeds an owner or PM (a tenant token carries its role; a `['*']` grant\npasses too). Pausing an automation that is already paused answers 409 with\nthe current state, so a second operator learns the first got there.\n\n**Requires the `pause_automation` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "pause_automation"
+        ]
+      }
+    },
+    "/api/v1/automations/{slug}/resume": {
+      "post": {
+        "operationId": "post_automations_slug_resume",
+        "summary": "lift a pause.",
+        "tags": [
+          "automations"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "lift a pause.\n\nClears the hold, unpauses the Temporal Schedule for a schedule-when, and\nrecords who lifted it and whose pause it was — the same `control` row the\ndashboard's Resume writes. The note is optional here: the reason for a\nresume is usually the pause's note, answered.\n\nNeeds an owner or PM. Resuming an automation that is not paused answers\n409.\n\n**Requires the `pause_automation` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "description": "The slug from the URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "x-required-capability": [
+          "pause_automation"
         ]
       }
     },
@@ -2611,6 +2780,82 @@
         ]
       }
     },
+    "/api/v1/mission-runs": {
+      "get": {
+        "operationId": "get_mission_runs",
+        "summary": "the run list across every mission.",
+        "tags": [
+          "mission-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "the run list across every mission.\n\nThe read an operator hunts a runaway with: `?status=running` says what is\nin flight right now, `missionSlug` narrows it to one mission's runs, and\n`total` is how many matched — so \"sixty debrief runs\" is one call, not a\ncount in `psql`. Each row is the run's identity and state, with `causedBy`\n(the automation fires behind it, newest first) so the loop that made it can\nbe followed; the plan and the task outputs are on\n`GET /api/v1/mission-runs/:id`.\n\nQuery parameters:\n- `status` — only the runs in that state (`planning`, `running`, `paused`, `awaiting_review`, `completed`, `failed`, `cancelled`).\n- `missionSlug` — only the runs of that mission template.\n- `limit` — how many rows, newest first (default 50, maximum 200).",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "only the runs in that state (`planning`, `running`, `paused`, `awaiting_review`, `completed`, `failed`, `cancelled`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "missionSlug",
+            "in": "query",
+            "required": false,
+            "description": "only the runs of that mission template.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "how many rows, newest first (default 50, maximum 200).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/mission-runs/{id}": {
       "get": {
         "operationId": "get_mission_runs_id",
@@ -2677,6 +2922,101 @@
             }
           }
         ]
+      }
+    },
+    "/api/v1/mission-runs/{id}/cancel": {
+      "post": {
+        "operationId": "post_mission_runs_id_cancel",
+        "summary": "stop one mission run.",
+        "tags": [
+          "mission-runs"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The record is in a state that does not allow this. Codes: `MISSION_RUN_SETTLED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "stop one mission run.\n\nThe run is settled `cancelled` with the reason (default \"cancelled by\nuser\"); the loop's own final write honours a settled run and does not\noverwrite it (`settleRun` in `services/missions/runtime.ts`). The same\nservice path as the dashboard and the `mission_cancel` MCP tool.\n\nA run that is already `completed`, `failed` or `cancelled` answers 409 —\nthere is nothing left to stop, and re-labelling a finished run as\ncancelled would rewrite what happened. A missing id, or another org's,\n404s.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "The fields this endpoint reads.",
+                "properties": {
+                  "reason": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/missions/{slug}/runs": {
@@ -2845,6 +3185,87 @@
               "type": "integer"
             }
           }
+        ]
+      },
+      "post": {
+        "operationId": "post_objects",
+        "summary": "Write one object instance, or upsert it by the external key its owning system knows it by.",
+        "tags": [
+          "objects"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `VALIDATION_FAILED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Write one object instance, or upsert it by the external key its owning system knows it by.\n\nBody: `{ type, title, status?, metadata?, externalKey?: { system, id } }`.\nThe counterpart to `POST /objects/types`, which registers the shape. With\nan `externalKey` this org has already written,\nthe row is updated in place (`metadata` shallow-merged, `title` and `status`\nreplaced) and the reply is 200; otherwise a new object is 201. The key is\nthe owning system's own handle — a deploy script recording a `release`\nsends `{system: 'deploy', id: '<product>@<tag>'}` and can post the\npost-deploy health result later against the same key without forking the\nrow. The `type` must already be registered for this org (404 otherwise);\nthis endpoint never invents a shape. Same capability as registering a\ntype.\n\nAuth: a tenant API token (`Authorization: Bearer vcn_live_…`) or a\nsigned-in dashboard session.\n\n**Requires the `approve` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "A JSON object. This endpoint reads its fields dynamically, so they are described in the prose above.",
+                "properties": {},
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "x-required-capability": [
+          "approve"
         ]
       }
     },
@@ -3823,7 +4244,7 @@
             }
           }
         },
-        "description": "Approve or reject a queued item. Body:\n\n  { kind, id, action, reason?, learn?, editedInput?, externalRef? }\n\nwhere `kind` is `workflow` | `mission` | `action` and `action` is `approve`\nor `reject`. `editedInput` is the edit-then-approve payload — corrected\nfields for an action, or the input a paused workflow resumes with. It is\nignored on reject.\n\n`learn` defaults to true: a decision carrying a human reason queues that\nreason for the learning classifier, where it becomes a candidate a person\nadopts. An automated caller deciding in bulk with one canned reason passes\n`learn: false` so it trains nothing.\n\n`externalRef` is `{ system, id }` naming the record the caller created in\nits own system before approving — an admin panel publishes the record, then\napproves with its id, and the action links the two in one call. Core never\ncalls that system itself. Ignored on reject.\n\nDeciding requires the `approve` capability. Returns the refreshed queue.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "Approve or reject a queued item. Body:\n\n  { kind, id, action, reason?, learn?, editedInput?, externalRef?, resultUrl? }\n\nwhere `kind` is `workflow` | `mission` | `action` and `action` is `approve`,\n`reject` or `done`. `editedInput` is the edit-then-approve payload — corrected\nfields for an action, or the input a paused workflow resumes with. It is\nignored on reject.\n\n`done` is the hand-off's close (`docs/guides/needs-you.md` → *Hand-off\nactions*). A hand-off action — a merge, a deploy, a credential — is\napproved like any other, which releases it to `awaiting_execution`; whoever\nthen performs it posts `action: \"done\"` with a `reason` (the note) and,\nwhen there is one, `resultUrl` (the merged PR, the deployment). The run\nrecords who and when. `done` on a run that was never approved, or on a\nkind that runs in-process, is a 409.\n\n`learn` defaults to true: a decision carrying a human reason queues that\nreason for the learning classifier, where it becomes a candidate a person\nadopts. An automated caller deciding in bulk with one canned reason passes\n`learn: false` so it trains nothing.\n\n`externalRef` is `{ system, id }` naming the record the caller created in\nits own system before approving — an admin panel publishes the record, then\napproves with its id, and the action links the two in one call. Core never\ncalls that system itself. Ignored on reject.\n\nDeciding requires the `approve` capability. Returns the refreshed queue.\nAuth: tenant API token or dashboard session.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3851,6 +4272,9 @@
                     "description": "Read by this endpoint; see the description for what it must contain."
                   },
                   "reason": {
+                    "description": "Read by this endpoint; see the description for what it must contain."
+                  },
+                  "resultUrl": {
                     "description": "Read by this endpoint; see the description for what it must contain."
                   }
                 },
@@ -4226,6 +4650,99 @@
         ]
       }
     },
+    "/api/v1/rooms/{id}": {
+      "get": {
+        "operationId": "get_rooms_id",
+        "summary": "`GET /api/v1/rooms/:id` — the room as JSON (title, status, meta).",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`GET /api/v1/rooms/:id` — the room as JSON (title, status, meta).\n`PATCH /api/v1/rooms/:id` — a person editing the room's own knowledge from\nits page: the notes (the wiki), the rules, whether the collector may file\ninto it. Everything else changes through the agent's `update_data_room`,\nso the page stays one obvious path per field. A dashboard session or a\n`vcn_live_` token; the caller's org must own the room.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patch_rooms_id",
+        "summary": "PATCH /api/v1/rooms/{id}",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/rooms/{id}/export": {
       "get": {
         "operationId": "get_rooms_id_export",
@@ -4269,6 +4786,72 @@
             "description": "The id from the URL.",
             "schema": {
               "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/rooms/{id}/sources": {
+      "delete": {
+        "operationId": "delete_rooms_id_sources",
+        "summary": "`DELETE /api/v1/rooms/:id/sources?document=<id>` (or `?artifact=<id>`) — take a source out of a room: the undo of a filing, the collector's included.",
+        "tags": [
+          "rooms"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "`DELETE /api/v1/rooms/:id/sources?document=<id>` (or `?artifact=<id>`) —\ntake a source out of a room: the undo of a filing, the collector's\nincluded. The document stays in the knowledge base; the room forgets the\nlink and will not auto-file that document again. A dashboard session or a\n`vcn_live_` token; the caller's org must own the room.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "artifact",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document",
+            "in": "query",
+            "required": false,
+            "description": "Read from the query string. This one has no description in the handler yet.",
+            "schema": {
+              "type": "string"
             }
           }
         ]
@@ -5185,7 +5768,7 @@
     "/api/v1/worker-runs/{id}/checkpoint": {
       "post": {
         "operationId": "post_worker_runs_id_checkpoint",
-        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents?",
+        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents?",
         "tags": [
           "worker-runs"
         ],
@@ -5226,7 +5809,7 @@
             }
           }
         },
-        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\nSame contract as heartbeat; exists so a worker can name its intent. `cursor` is required here.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\nSame contract as heartbeat; exists so a worker can name its intent. `cursor` is required here.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -5518,7 +6101,7 @@
     "/api/v1/worker-runs/{id}/heartbeat": {
       "post": {
         "operationId": "post_worker_runs_id_heartbeat",
-        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents?",
+        "summary": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents?",
         "tags": [
           "worker-runs"
         ],
@@ -5559,7 +6142,7 @@
             }
           }
         },
-        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "description": "{ workerId, progress?, cursor?, counts?, usage?: { model, inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, cents? }, langfuseTraceId?, failures? }\nExtends the lease and records what the worker reports. The reply carries the\ncontrol signals — stop, paused, endsAt, capRemainingCents — and a fresh toolClaim.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
         "parameters": [
           {
             "name": "id",
@@ -5810,6 +6393,143 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/workspace": {
+      "get": {
+        "operationId": "get_workspace",
+        "summary": "what this workspace is, and whether it is running.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "what this workspace is, and whether it is running.\n\n`paused` is the whole reason this endpoint exists: the off switch has to be\nreadable by whatever is about to ask the workspace to do something, so a\nworker or an outside caller can say \"the factory is stopped\" instead of\ndiscovering it one refusal at a time. It is `null` when the workspace is\nrunning, and `{ by, at, note }` when someone has pulled the switch.\n\n`refuses` names what a pause holds and `allows` what it does not, so the\nlist a client shows never drifts from the list the guard enforces.\n\nAuth: tenant API token or dashboard session. Any authenticated caller may\nread this — it is a fact about the workspace they are already in."
+      }
+    },
+    "/api/v1/workspace/pause": {
+      "post": {
+        "operationId": "post_workspace_pause",
+        "summary": "the whole factory's off switch.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "the whole factory's off switch.\n\nOne call stops everything this workspace does by itself: every automation\nfire (scheduled or event, recorded as a `skipped` run with reason\n`workspace_paused`), every mission run, every worker run queued or claimed,\nand every gated action that is not a hand-off. Chat with an agent stays\nopen — a person talking is not the factory working — and a worker already\nholding a lease finishes and reports rather than being killed.\n\nIt does NOT touch per-automation pauses. An automation someone paused last\nweek is still paused after a resume, because a workspace pause never wrote\nto it. That is why this is a separate column rather than a bulk edit.\n\nThe `note` is required: it is the line everyone else in the workspace reads\non every page until the switch is lifted, so \"stopped, no reason given\" is\nnot a state this allows.\n\nNeeds an owner or PM (a tenant token carries its role; a `['*']` grant\npasses too). Pausing a workspace that is already paused answers 409 with\nthe current state, so a second operator learns the first got there.\n\n**Requires the `pause_workspace` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "x-required-capability": [
+          "pause_workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/resume": {
+      "post": {
+        "operationId": "post_workspace_resume",
+        "summary": "lift the workspace pause.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "lift the workspace pause.\n\nEverything comes back exactly as it was: schedules fire on their next tick,\nevent automations match again, worker runs may be claimed, gated actions\nexecute. Every automation a person paused individually is still paused,\nuntouched — nothing was saved on the way in, so nothing can be lost on the\nway out.\n\n`lifted` names whose hold this was and what their note said, because the\nperson resuming is usually not the person who stopped it.\n\nNeeds an owner or PM. Resuming a workspace that is not paused answers 409.\n\n**Requires the `pause_workspace` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "x-required-capability": [
+          "pause_workspace"
+        ]
       }
     }
   }

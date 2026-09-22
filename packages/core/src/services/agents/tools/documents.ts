@@ -1,6 +1,7 @@
 /**
  * render_document / read_document / edit_document / verify_document /
- * export_document_pdf — the document engine as the agent uses it.
+ * red_team_document / export_document_pdf — the document engine as the agent
+ * uses it.
  *
  * A document is a `document` artifact: paginated, print-ready HTML that opens
  * beside the conversation like any other artifact, with the same versions and
@@ -24,10 +25,14 @@ import type { RuntimeContext } from '../types';
 import type { DocumentSpec } from '@/libs/cards/specs';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { clientFacingPlaybooksFor } from '@/libs/documents/clientFacing';
 import { DocumentEditError, documentOpSchema } from '@/libs/documents/edit';
+import { stripFramework } from '@/libs/documents/framework';
 import { inspectDocument, outlineText, parseSheets } from '@/libs/documents/sheets';
 import { ArtifactError, getArtifact, listArtifactsForConversation, toPayload } from '@/services/ArtifactService';
-import { createDocument, documentReceipt, exportDocumentPdf, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
+import { createDocument, documentReceipt, exportDocumentPdf, redTeamDocumentArtifact, reviseDocument, verifyDocumentArtifact } from '@/services/documents/DocumentEngine';
+import { exportGate } from '@/services/documents/exportGate';
+import { redTeamReceipt } from '@/services/documents/redTeam';
 import { openArtifactId } from './editArtifacts';
 import { authorOf } from './renderArtifacts';
 
@@ -44,6 +49,29 @@ function coerceJson(v: unknown): unknown {
     }
   }
   return v;
+}
+
+/**
+ * The progress channel for a long document call.
+ *
+ * "'working…' isn't much info" (Chris, twice, 2026-09-18): a twelve-sheet
+ * render holds one step line for a minute. Each note lands on THAT line —
+ * `step_progress` is folded onto the step already running under this tool
+ * name — so the chat gains information, not a second surface (principle 6).
+ *
+ * Repeats are dropped, so a stage that reports twice costs nothing.
+ * @param ctx - The runtime context, for its per-request emit.
+ * @param tool - The tool name the step is running under.
+ */
+function progressTo(ctx: RuntimeContext, tool: string): (note: string) => void {
+  let last: string | null = null;
+  return (note: string) => {
+    if (note === last) {
+      return;
+    }
+    last = note;
+    ctx.emit({ type: 'step_progress', tool, note });
+  };
 }
 
 /**
@@ -120,11 +148,12 @@ export function renderDocumentTool(ctx: RuntimeContext) {
           author: authorOf(ctx),
           visibility: ctx.missionRunId ? 'system' : 'user',
           folder: args.folder ?? null,
-          record: recordScope(ctx),
+          // The room the agent names wins; else the record the person is on.
+          record: args.room_id ? { type: 'object', id: String(args.room_id), role: 'document' } : recordScope(ctx),
           title,
           html: args.html,
           playbook: args.playbook,
-          verify: { look: args.look ?? false },
+          verify: { look: args.look ?? false, onProgress: progressTo(ctx, 'render_document') },
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         const where = ctx.conversationId ? `open beside the conversation as artifact #${artifact.id}` : `saved as artifact #${artifact.id}`;
@@ -140,6 +169,7 @@ export function renderDocumentTool(ctx: RuntimeContext) {
       name: 'render_document',
       description: 'Create a PAGINATED, PRINT-READY document artifact — a proposal, scope doc, partnership update — from self-contained HTML in the house sheet framework (US-Letter `.sheet`s, pinned `.foot`, inline <style>, logos as data URIs). It renders in real Chrome, audits every sheet (footer alignment, overflow, clipping, PDF page count, unresolved assets) and returns the receipt with a screenshot URL per sheet. Fix anything the receipt lists with edit_document before you say the document is done. For prose that is not a paginated document use render_markdown.',
       schema: z.object({
+        room_id: z.number().int().positive().optional().describe('The data room this document belongs to. Pass it whenever you are writing from a room — the document then shows on the room and on the Proposals board. Defaults to the room the person has open.'),
         title: z.string().max(200).optional().describe('Artifact title. Defaults to the <title>, which is also the PDF filename — use "<Subject> - <What it is> (<Firm>) v<N.N>".'),
         html: z.string().min(200).describe('The complete HTML document: <!doctype html> … </html>, with <article class="sheet"> per page.'),
         look: z.boolean().optional().describe('Also run the vision pass over the rendered sheets (a model call). Default false; use it on the final pass.'),
@@ -162,7 +192,11 @@ export function readDocumentTool(ctx: RuntimeContext) {
         return `No document #${found.id}.`;
       }
       const spec = row.spec as Partial<DocumentSpec>;
-      const html = spec.html ?? '';
+      // The injected framework is the engine's, not the author's: reading it
+      // back would spend 45 KB of context on CSS the model cannot edit, and
+      // `part: "style"` would hand back the framework instead of the
+      // document's own tokens (`libs/documents/framework.ts`).
+      const html = stripFramework(spec.html ?? '');
       const parsed = parseSheets(html);
       const part = args.part ?? (args.sheets?.length ? 'sheets' : 'outline');
       const head = `Document #${row.id} "${row.title}" v${row.currentVersion}`;
@@ -218,7 +252,7 @@ export function editDocumentTool(ctx: RuntimeContext) {
           changeSummary: args.change_summary,
           ops: parsedOps.data,
           title: args.title ?? null,
-          verify: { look: args.look ?? false },
+          verify: { look: args.look ?? false, onProgress: progressTo(ctx, 'edit_document') },
         });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         return `Updated "${artifact.title}" to v${version.version} (${applied.join('; ')}). The person sees it live in the pane — do NOT repeat the content as text.\n\n${documentReceipt(outcome)}`;
@@ -254,7 +288,7 @@ export function verifyDocumentTool(ctx: RuntimeContext) {
         return found.error;
       }
       try {
-        const { artifact, outcome } = await verifyDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, verify: { look: args.look ?? true } });
+        const { artifact, outcome } = await verifyDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, verify: { look: args.look ?? true, onProgress: progressTo(ctx, 'verify_document') } });
         ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
         return `Verified "${artifact.title}" v${artifact.currentVersion}.\n\n${documentReceipt(outcome)}`;
       } catch (err) {
@@ -272,6 +306,82 @@ export function verifyDocumentTool(ctx: RuntimeContext) {
   );
 }
 
+export function redTeamDocumentTool(ctx: RuntimeContext) {
+  return tool(
+    async (args) => {
+      const found = await resolveDocument(ctx, args.id);
+      if ('error' in found) {
+        return found.error;
+      }
+      try {
+        const { artifact, outcome, record } = await redTeamDocumentArtifact({ orgId: ctx.orgId, id: found.id, agentSlug: ctx.agentSlug ?? null, rubric: args.rubric ?? null, context: args.context ?? null, onProgress: progressTo(ctx, 'red_team_document') });
+        if (record) {
+          ctx.emit({ type: 'artifact', artifact: toPayload(artifact) });
+        }
+        // The read is now ON the document, so export_document_pdf can see it
+        // without asking again — and will run this itself if it has to.
+        return `Red-teamed "${artifact.title}" v${record ? record.version : artifact.currentVersion}.\n\n${redTeamReceipt(outcome)}`;
+      } catch (err) {
+        if (err instanceof ArtifactError) {
+          return `red_team_document rejected: ${err.message}`;
+        }
+        return `Could not red-team the document: ${(err as Error).message ?? 'unknown error'}`;
+      }
+    },
+    {
+      name: 'red_team_document',
+      description: 'Read a document the way the sceptical buyer on the other side will — grounding, promised outcomes, honest placeholders, the client\'s own words, scope, commercial clarity, register — and get numbered findings by sheet, each with the rule it breaks and the fix. Run it after verify_document and before you call a proposal ready; fix the BLOCKs by sheet and run it again. Pass `rubric` with your skill\'s house rules and `context` with what the room actually knows, so "unsourced" is judged fairly. Omit `id` for the open document.',
+      schema: z.object({
+        id: z.number().int().positive().optional().describe('Artifact id. Omit for the one currently open beside the conversation.'),
+        rubric: z.string().max(6000).optional().describe('House rules to read against, appended to the generic buyer rubric — paste the red-team section of your skill.'),
+        context: z.string().max(8000).optional().describe('What the seller actually knows, in brief: the room\'s starred sources, the numbers the client gave, the decisions from the call. Figures outside this are unsourced.'),
+      }),
+    },
+  );
+}
+
+/**
+ * The gate a client document passes on the way out: it has to have been read
+ * as the sceptical buyer, on THIS version, before it can leave as a PDF.
+ *
+ * It lives at the tool rather than inside `exportDocumentPdf` on purpose.
+ * That function is the printer — HTML in, a file artifact out, an
+ * `ArtifactError` when the print fails — and the gate is a judgement that may
+ * need a model call and whose answer is a receipt written for the agent, not
+ * an exception. Folding it in would make one function both mechanism and
+ * judgement, and would give a future caller no way to report the findings.
+ * The decision itself is NOT here: it is `exportGate`, a pure module, so a
+ * second door (a download button, a mission step) is a few lines rather than
+ * a second implementation.
+ *
+ * Done-for-you, not an approval gate: a gated document nobody has read is
+ * read HERE and then sent if it comes back clean (Chris, 2026-09-19).
+ * @param ctx
+ * @param id - The document artifact.
+ */
+async function gateDocumentExport(ctx: RuntimeContext, id: number): Promise<{ action: 'export'; line: string | null } | { action: 'refuse'; line: string }> {
+  const row = await getArtifact({ orgId: ctx.orgId, id });
+  const spec = (row?.spec ?? {}) as Partial<DocumentSpec>;
+  const configured = await clientFacingPlaybooksFor(ctx.orgId).catch(() => null);
+  const first = exportGate({
+    playbook: spec.playbook ?? null,
+    configured,
+    read: spec.redTeam ? { kind: 'read', redTeam: spec.redTeam } : { kind: 'none' },
+  });
+  if (first.action !== 'read-first') {
+    return first;
+  }
+  // Nobody has read this version. Read it now rather than refusing — and if
+  // the read cannot run at all, say so and still send (never a silent block).
+  const { outcome, record } = await redTeamDocumentArtifact({ orgId: ctx.orgId, id, agentSlug: ctx.agentSlug ?? null });
+  const after = exportGate({
+    playbook: spec.playbook ?? null,
+    configured,
+    read: record ? { kind: 'read', redTeam: record, fresh: true } : { kind: 'unavailable', reason: outcome.status === 'skipped' ? outcome.reason : 'the review returned nothing usable' },
+  });
+  return after.action === 'read-first' ? { action: 'export', line: null } : after;
+}
+
 export function exportDocumentPdfTool(ctx: RuntimeContext) {
   return tool(
     async (args) => {
@@ -280,16 +390,21 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
         return found.error;
       }
       try {
-        const res = await exportDocumentPdf({ orgId: ctx.orgId, id: found.id, author: authorOf(ctx), conversationId: ctx.conversationId ?? null, visibility: ctx.missionRunId ? 'system' : 'user' });
+        const gate = await gateDocumentExport(ctx, found.id);
+        if (gate.action === 'refuse') {
+          return gate.line;
+        }
+        const res = await exportDocumentPdf({ orgId: ctx.orgId, id: found.id, author: authorOf(ctx), conversationId: ctx.conversationId ?? null, visibility: ctx.missionRunId ? 'system' : 'user', onProgress: progressTo(ctx, 'export_document_pdf') });
         ctx.emit({ type: 'artifact', artifact: toPayload(res.file) });
-        return `PDF ready: ${res.filename} (${res.pages ?? '?'} pages, ${Math.max(1, Math.round(res.bytes / 1024))} KB) at ${res.url} — background colours forced on, so the brand rule prints on the client's machine too. It is filed beside the document as a file artifact.`;
+        const head = `PDF ready: ${res.filename} (${res.pages ?? '?'} pages, ${Math.max(1, Math.round(res.bytes / 1024))} KB) at ${res.url} — background colours forced on, so the brand rule prints on the client's machine too. It is filed beside the document as a file artifact.`;
+        return gate.line ? `${head}\n\n${gate.line}` : head;
       } catch (err) {
         return `Could not export the PDF: ${(err as Error).message ?? 'unknown error'}`;
       }
     },
     {
       name: 'export_document_pdf',
-      description: 'Print a document artifact to a PDF file artifact, named from its <title>, with print colours forced on. Use when the person asks for the PDF or the document is ready to send. Omit `id` for the open document.',
+      description: 'Print a document artifact to a PDF file artifact, named from its <title>, with print colours forced on. Use when the person asks for the PDF or the document is ready to send. A CLIENT-FACING document (proposal, scope, partnership update) is read as the sceptical buyer on the way out: if this version has not been red-teamed yet, the export runs it first, and a BLOCKING finding stops the PDF until it is answered. Omit `id` for the open document.',
       schema: z.object({
         id: z.number().int().positive().optional(),
       }),
@@ -298,5 +413,5 @@ export function exportDocumentPdfTool(ctx: RuntimeContext) {
 }
 
 export function documentTools(ctx: RuntimeContext) {
-  return [renderDocumentTool(ctx), readDocumentTool(ctx), editDocumentTool(ctx), verifyDocumentTool(ctx), exportDocumentPdfTool(ctx)];
+  return [renderDocumentTool(ctx), readDocumentTool(ctx), editDocumentTool(ctx), verifyDocumentTool(ctx), redTeamDocumentTool(ctx), exportDocumentPdfTool(ctx)];
 }

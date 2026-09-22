@@ -19,6 +19,7 @@ import type { Principal } from '@/services/authz';
 import type { PendingPage, ReviewDetail, ReviewInclude, ReviewItem, ReviewKind } from '@/services/ReviewService';
 import type { SourceSyncState } from '@/services/SourceSyncService';
 import { parseSuggestedDecision, parseSuggestedDecisionReason, SUGGESTED_DECISIONS } from '@/libs/actions/suggestedDecision';
+import { ActionError } from '@/services/ActionService';
 import { authenticateBearer } from '@/services/ApiTokenService';
 import { AuthzDeniedError, enforce } from '@/services/authz';
 import { emitEvent } from '@/services/EventService';
@@ -254,8 +255,11 @@ export async function apiListAutoExecuted(caller: ApiCaller, opts: { limit?: num
 export type DecideInput = {
   kind: ReviewKind;
   id: number;
-  action: 'approve' | 'reject';
+  /** `done` closes a released hand-off (`libs/actions/manual.ts`); actions only. */
+  action: 'approve' | 'reject' | 'done';
   reason?: string;
+  /** Where the outcome lives, with `done` — the merged PR, the deployment, the post. */
+  resultUrl?: string;
   /**
    * Whether this decision may train the proposing agent (default true). An
    * automated caller, a cron rejecting every past-dated proposal with one
@@ -288,23 +292,43 @@ export async function apiDecideReview(
 ): Promise<{ ok: true; reviews: ReviewItem[] }> {
   assertKind(input.kind);
   assertId(input.id);
-  if (input.action !== 'approve' && input.action !== 'reject') {
-    throw new WriteApiError(400, 'VALIDATION_FAILED', 'action must be "approve" or "reject"');
+  if (input.action !== 'approve' && input.action !== 'reject' && input.action !== 'done') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'action must be "approve", "reject" or "done"');
+  }
+  if (input.action === 'done' && input.kind !== 'action') {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'only an action can be marked done — a workflow or mission run is approved or rejected');
+  }
+  if (input.resultUrl !== undefined && !/^https?:\/\//i.test(input.resultUrl)) {
+    throw new WriteApiError(400, 'VALIDATION_FAILED', 'resultUrl must be an http(s) URL');
   }
   enforceQueueCapability(caller, 'decide reviews');
 
-  await ReviewService.decide(
-    { kind: input.kind, id: input.id },
-    input.action,
-    caller.orgId,
-    {
-      reason: input.reason,
-      learn: input.learn,
-      reviewedBy: caller.actorId,
-      editedInput: input.action === 'approve' ? input.editedInput : undefined,
-      externalRef: input.action === 'approve' ? input.externalRef : undefined,
-    },
-  );
+  try {
+    await ReviewService.decide(
+      { kind: input.kind, id: input.id },
+      input.action,
+      caller.orgId,
+      {
+        reason: input.reason,
+        learn: input.learn,
+        reviewedBy: caller.actorId,
+        editedInput: input.action === 'approve' ? input.editedInput : undefined,
+        externalRef: input.action !== 'reject' ? input.externalRef : undefined,
+        resultUrl: input.action === 'done' ? input.resultUrl : undefined,
+      },
+    );
+  } catch (error) {
+    // A hand-off marked done before it was released, or an in-process kind
+    // marked done at all, is the caller's mistake: a 409 that says which. A
+    // run this org does not own is a 404, never another tenant's row.
+    if (error instanceof ActionError && error.code === 'INVALID_STATE') {
+      throw new WriteApiError(409, 'INVALID_STATE', error.message);
+    }
+    if (error instanceof ActionError && error.code === 'NOT_FOUND') {
+      throw new WriteApiError(404, 'NOT_FOUND', error.message);
+    }
+    throw error;
+  }
 
   const reviews = await ReviewService.listPending(caller.orgId);
   return { ok: true, reviews };
@@ -750,9 +774,26 @@ function apiRunOf(state: SourceSyncState): ApiSourceRun {
 /* ------------------------------------------------------------------ */
 
 export type ApiAgentBudget = {
+  /**
+   * What the row budgets: an agent's slug, or a reserved platform scope —
+   * `platform:all` for the workspace's whole spend and `platform:<feature>`
+   * for one non-agent surface.
+   */
   agentSlug: string;
+  /** The surface a `platform:<feature>` row rolls up; null on the others. */
+  feature: string | null;
   period: string;
   currentTokens: number;
+  /**
+   * Spend this period in micro-cents — a millionth of a cent. The exact
+   * number, and a whole one, so a consumer adding rows up gets the same total
+   * the product charged.
+   */
+  currentMicroCents: number;
+  /**
+   * The same spend in cents, for reading. Carries a fraction: a rerank that
+   * cost a fifth of a cent reads as 0.2.
+   */
   currentCents: number;
   softTokenLimit: number | null;
   softCentsLimit: number | null;
@@ -762,23 +803,32 @@ export type ApiAgentBudget = {
 };
 
 /**
- * Every agent budget row for the caller's org, limits included.
+ * Every budget row for the caller's org, limits included — agent rows and the
+ * platform scopes alike.
  *
- * Read-only to the caller, but not a pure read: `listAgentBudgets` rolls the
- * period boundary as it goes (idempotently), so the counters returned are the
- * ACTIVE period's rather than a stale one's. The dashboard's observability page
+ * Read-only to the caller, but not a pure read: the listing rolls the period
+ * boundary as it goes (idempotently), so the counters returned are the ACTIVE
+ * period's rather than a stale one's. The dashboard's observability page
  * renders cents totals only; the limit columns are the half an operator needs
  * to answer "would this run be refused?", and there was no API surface at all.
+ *
+ * Platform rows are included deliberately: since #279 they are where embedding,
+ * rerank and image spend lands, and an operator asking what a workspace costs
+ * would get the wrong number without them. Sum `platform:all` OR the agent
+ * rows, never both — every charge lands on `platform:all` as well as its own
+ * scope.
  * @param caller
  */
 export async function apiListAgentBudgets(caller: ApiCaller): Promise<{ budgets: ApiAgentBudget[] }> {
-  const { listAgentBudgets } = await import('@/services/BudgetService');
-  const rows = await listAgentBudgets(caller.orgId);
+  const { listAllBudgets } = await import('@/services/BudgetService');
+  const rows = await listAllBudgets(caller.orgId);
   return {
     budgets: rows.map(r => ({
       agentSlug: r.agentSlug,
+      feature: r.feature,
       period: r.period,
       currentTokens: r.currentTokens,
+      currentMicroCents: r.currentMicroCents,
       currentCents: r.currentCents,
       softTokenLimit: r.softTokenLimit,
       softCentsLimit: r.softCentsLimit,

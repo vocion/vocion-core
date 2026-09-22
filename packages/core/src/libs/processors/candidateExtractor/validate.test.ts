@@ -217,6 +217,78 @@ describe('candidate extractor validation', () => {
     expect(out.records[0]?.sourceUrl).toBeUndefined();
   });
 
+  it('accepts the image the document published for itself, which is in no link list', () => {
+    // A <meta> image is not an <a href>, so `collectLinks` never sees it and
+    // the gate used to drop every one a model read off the document's own
+    // text, the text `extractFromHtml` opens with that very URL.
+    const out = run([record({ imageUrl: 'https://bellwaterhall.example/og-card.png' })], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.records[0]?.issues).toEqual([]);
+  });
+
+  it('fills a missing image from the document\'s own, when the document described one record', () => {
+    const out = run([record()], configWith(), { ogImage: 'https://bellwaterhall.example/og-card.png' });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.records[0]?.issues.join(' ')).toContain('the document published for itself');
+    expect(out.counts.image_from_document).toBe(1);
+  });
+
+  it('leaves a document that published no image of its own exactly as it was', () => {
+    const out = run([record()]);
+
+    expect(out.records[0]?.imageUrl).toBeUndefined();
+    expect(out.records[0]?.issues).toEqual([]);
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('does not stamp the document\'s image on each record of a document that listed several', () => {
+    // An og:image describes the DOCUMENT. Where the document lists many
+    // records the image is the page's, and putting it on each one would state
+    // on every card something the document never said about any of them.
+    const out = run([record(), record({ fields: { title: 'Late Show' } })], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records.map(kept => kept.imageUrl)).toEqual([undefined, undefined]);
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('leaves an image the model read for the record rather than overwriting it', () => {
+    const out = run([record({ imageUrl: 'https://cdn.bellwaterhall.example/open-mic.jpg' })], configWith(), {
+      links: [{ url: 'https://cdn.bellwaterhall.example/open-mic.jpg', text: 'poster' }],
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://cdn.bellwaterhall.example/open-mic.jpg');
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('still drops an invented image, and fills the gap with the one the document published', () => {
+    // The gate is not softened by having an og:image to fall back on: the
+    // invented URL goes and is reported, and what lands is a value the
+    // document itself stated.
+    const out = run([record({ imageUrl: 'https://evil.example/pwn.png' })], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.records[0]?.issues.join(' ')).toContain('the image URL was not published by the document');
+  });
+
+  it('ignores a declared image that is not a string', () => {
+    // Cast out of a jsonb column, so the type is a claim. A number here would
+    // throw inside the gate and take the whole document with it.
+    for (const wrong of [42, null, { url: 'x' }, ['https://bellwaterhall.example/og-card.png']]) {
+      const out = run([record()], configWith(), { ogImage: wrong });
+
+      expect(out.records[0]?.imageUrl).toBeUndefined();
+    }
+  });
+
   it('collapses two records the document listed twice', () => {
     const config = configWith({ collapseWithinDocument: true });
 

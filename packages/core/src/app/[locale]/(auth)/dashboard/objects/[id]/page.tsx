@@ -1,16 +1,7 @@
 import type { Finding } from '@/features/dashboard/InspectionPhoto';
-import {
-  ArrowLeft,
-  Calendar,
-  Clock,
-  ExternalLink,
-  FileText,
-  Link2,
-  Phone,
-  Sparkles,
-  Tag,
-  User,
-} from 'lucide-react';
+import type { LinkMap } from '@/features/dashboard/pages/FieldValue';
+import type { PageRow } from '@/libs/workspace/pages';
+import { ArrowLeft, ExternalLink, FileText, Link2, Sparkles } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -18,13 +9,34 @@ import { AskAboutThis } from '@/features/dashboard/context/AskAboutThis';
 import { RecordContext } from '@/features/dashboard/context/RecordContext';
 import { InspectionPhoto } from '@/features/dashboard/InspectionPhoto';
 import { ObjectAgentActivity } from '@/features/dashboard/ObjectAgentActivity';
+import { RecordBody } from '@/features/dashboard/objects/RecordBody';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { VisionEngineControl } from '@/features/dashboard/VisionEngineControl';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { appImageUrl } from '@/libs/aws/s3';
 import { Link } from '@/libs/I18nNavigation';
+import { resolveField } from '@/libs/workspace/pages';
+import { declaredRecordFields, hasInspectionImage, isDiscoveryRecord, recordSections } from '@/libs/workspace/records';
 import { getBusinessObject } from '@/services/BusinessObjectService';
 import { recordRef } from '@/services/chat/recordContext';
+import { resolveRecordLinks } from '@/services/objects/recordLinks';
+
+/**
+ * A record — `/dashboard/objects/<id>`.
+ *
+ * Rendered from what the record's own type declares (`type.yaml` →
+ * `schema`, read here through {@link declaredRecordFields}), through the
+ * same formatting layer the list archetype uses, so a value looks the same
+ * in a row and on a record. Before this the page was one customer's
+ * discovery call in code: every object of every type got "Discovery
+ * Summary … a comprehensive overview of this discovery call" and an empty
+ * Details card, and an engineering task showed none of its contract, its
+ * checks, its pull request or its cost.
+ *
+ * The domain-specific blocks that were unconditional are now gated on the
+ * record actually carrying their fields: the discovery block on
+ * `key_topics`/`next_steps`, the vision block on `image_url`.
+ */
 
 const roleLabels: Record<string, string> = {
   transcript: 'Transcript',
@@ -37,18 +49,13 @@ const roleLabels: Record<string, string> = {
   follow_up: 'Follow-up',
 };
 
-function MetadataField({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3 py-2">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
-        {icon}
-      </div>
-      <div>
-        <div className="text-xs font-medium text-muted-foreground">{label}</div>
-        <div className="text-sm">{value}</div>
-      </div>
-    </div>
-  );
+/**
+ * Now, read once per render — `Date.now()` counts as impure inside a
+ * render, and one instant keeps every `relative` value on the page
+ * agreeing with the others. Same shape as the list renderer's.
+ */
+async function currentTime(): Promise<number> {
+  return Date.now();
 }
 
 export default async function ObjectDetailPage(props: {
@@ -70,6 +77,37 @@ export default async function ObjectDetailPage(props: {
   const meta = obj.metadata as Record<string, unknown>;
   const keyTopics = (meta.key_topics ?? meta.topics ?? []) as string[];
   const nextSteps = (meta.next_steps ?? []) as string[];
+  // A discovery call, and only one, gets the discovery block.
+  const isDiscovery = isDiscoveryRecord(meta);
+  const hasImage = hasInspectionImage(meta);
+
+  const row: PageRow = {
+    id: obj.id,
+    title: obj.title,
+    status: obj.status ?? null,
+    createdAt: obj.createdAt ?? null,
+    meta,
+  };
+  const fields = declaredRecordFields(obj.type.schema);
+  // What this page draws with its own hands, so the Other fields block
+  // stays what it says it is: everything nothing else showed.
+  const handled = [
+    ...(isDiscovery ? ['key_topics', 'topics', 'next_steps'] : []),
+    ...(hasImage ? ['image_url', 'verdict', 'confidence', 'explanation', 'findings', 'regions', 'regions_checked', 'checks', 'engines', 'reference_keys', 'bucket', 'known_label'] : []),
+  ];
+  const sections = recordSections(row, fields, handled);
+  const now = await currentTime();
+
+  // The record's neighbours, by their own titles: the request that asked
+  // for this, the release it shipped in, the repository and product it
+  // belongs to, the tasks it carries.
+  const links: LinkMap = await resolveRecordLinks(
+    orgId,
+    sections.links.filter(f => f.to).flatMap((f) => {
+      const v = resolveField(row, f.from ?? f.key);
+      return (Array.isArray(v) ? v : [v]).map(one => ({ to: f.to!, value: one }));
+    }),
+  );
 
   return (
     <>
@@ -85,20 +123,15 @@ export default async function ObjectDetailPage(props: {
 
       <TitleBar
         title={(
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-              <Phone className="size-5 stroke-primary" />
-            </div>
-            <div>
-              <div>{obj.title}</div>
-              <div className="flex items-center gap-2 text-sm font-normal">
-                <Badge variant="secondary">{obj.type.label}</Badge>
-                {obj.status && (
-                  <Badge variant={obj.status === 'completed' ? 'default' : 'outline'}>
-                    {obj.status}
-                  </Badge>
-                )}
-              </div>
+          <div className="min-w-0">
+            <div className="break-words">{obj.title}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-normal">
+              <Badge variant="secondary">{obj.type.label}</Badge>
+              {obj.status && (
+                <Badge variant={obj.status === 'completed' || obj.status === 'accepted' ? 'default' : 'outline'}>
+                  {obj.status}
+                </Badge>
+              )}
             </div>
           </div>
         )}
@@ -106,13 +139,13 @@ export default async function ObjectDetailPage(props: {
       />
       <RecordContext record={recordRef('object', obj.id, obj.title)} />
 
-      <div className="mb-6 space-y-4">
-        {typeof meta.image_url === 'string' && <VisionEngineControl compact />}
-        {typeof meta.image_url === 'string' && (
+      {hasImage && (
+        <div className="mb-6 space-y-4">
+          <VisionEngineControl compact />
           <InspectionPhoto
             objectId={obj.id}
             title={obj.title}
-            imageUrl={meta.image_url}
+            imageUrl={meta.image_url as string}
             verdict={typeof meta.verdict === 'string' ? meta.verdict : null}
             confidence={typeof meta.confidence === 'number' ? meta.confidence : null}
             explanation={typeof meta.explanation === 'string' ? meta.explanation : null}
@@ -124,36 +157,81 @@ export default async function ObjectDetailPage(props: {
             referenceUrls={Array.isArray(meta.reference_keys) && typeof meta.bucket === 'string' ? (meta.reference_keys as string[]).map(k => appImageUrl(meta.bucket as string, k)) : []}
             knownLabel={typeof meta.known_label === 'string' ? meta.known_label : null}
           />
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main content — left 2 cols */}
-        <div className="space-y-6 lg:col-span-2">
-          {/* Image-backed objects (inspections, scans): the picture first, then what was found. */}
-          {/* Summary */}
-          <div className="rounded-lg border border-border p-5">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+      <RecordBody
+        row={row}
+        sections={sections}
+        now={now}
+        links={links}
+        aside={(
+          <>
+            {isDiscovery && keyTopics.length > 0 && (
+              <section className="rounded-lg border border-border p-5">
+                <h2 className="mb-3 text-sm font-semibold">Key Topics</h2>
+                <div className="flex flex-wrap gap-1.5">
+                  {keyTopics.map(topic => (
+                    <Badge key={topic} variant="secondary" className="text-xs">{topic}</Badge>
+                  ))}
+                </div>
+              </section>
+            )}
+            <section className="rounded-lg border border-border p-5">
+              <h2 className="mb-2 text-sm font-semibold">System Info</h2>
+              <dl className="space-y-1 text-xs text-muted-foreground">
+                <div className="flex justify-between gap-3">
+                  <dt>Object ID</dt>
+                  <dd className="font-mono">{obj.id}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>Type</dt>
+                  <dd className="font-mono">{obj.type.slug}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>Created</dt>
+                  <dd>{new Date(obj.createdAt).toLocaleDateString()}</dd>
+                </div>
+                {obj.summaryGeneratedAt && (
+                  <div className="flex justify-between gap-3">
+                    <dt>Summary generated</dt>
+                    <dd>{new Date(obj.summaryGeneratedAt).toLocaleDateString()}</dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+          </>
+        )}
+      >
+        {/* A discovery call's own summary card, for a discovery call only. */}
+        {isDiscovery && (
+          <section className="rounded-lg border border-border p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="size-4 stroke-primary" />
               Discovery Summary
-            </div>
+            </h2>
             {obj.summary
-              ? (
-                  <div className="text-sm leading-relaxed text-foreground">
-                    {obj.summary}
-                  </div>
-                )
+              ? <div className="text-sm leading-relaxed text-foreground">{obj.summary}</div>
               : (
                   <div className="rounded-md bg-muted/50 p-4 text-center text-sm text-muted-foreground">
                     No summary generated yet. Summary generation will analyze linked documents
                     to create a comprehensive overview of this discovery call.
                   </div>
                 )}
-          </div>
+          </section>
+        )}
 
-          {/* Linked Documents */}
-          <div className="rounded-lg border border-border p-5">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        {/* Any record's own summary, when the type did not declare one as a field. */}
+        {!isDiscovery && obj.summary && !fields.some(f => f.key === 'summary') && (
+          <section className="rounded-lg border border-border p-5">
+            <h2 className="mb-3 text-sm font-semibold">Summary</h2>
+            <div className="text-sm leading-relaxed text-foreground">{obj.summary}</div>
+          </section>
+        )}
+
+        {obj.documentLinks.length > 0 && (
+          <section className="rounded-lg border border-border p-5">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <Link2 className="size-4" />
               Linked Sources
               <Badge variant="outline" className="ml-auto text-xs">
@@ -161,13 +239,10 @@ export default async function ObjectDetailPage(props: {
                 {' '}
                 documents
               </Badge>
-            </div>
+            </h2>
             <div className="space-y-2">
               {obj.documentLinks.map(link => (
-                <div
-                  key={link.id}
-                  className="flex items-center gap-3 rounded-md border border-border bg-background p-3"
-                >
+                <div key={link.id} className="flex items-center gap-3 rounded-md border border-border bg-background p-3">
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                     <FileText className="size-4" />
                   </div>
@@ -176,9 +251,7 @@ export default async function ObjectDetailPage(props: {
                       {link.semanticIdentifier ?? link.onyxDocumentId}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="font-mono text-[10px]">
-                        {link.sourceType}
-                      </Badge>
+                      <Badge variant="outline" className="font-mono text-[10px]">{link.sourceType}</Badge>
                       <span>{roleLabels[link.role] ?? link.role}</span>
                     </div>
                   </div>
@@ -195,128 +268,23 @@ export default async function ObjectDetailPage(props: {
                 </div>
               ))}
             </div>
-          </div>
+          </section>
+        )}
 
-          {/* Next Steps */}
-          {nextSteps.length > 0 && (
-            <div className="rounded-lg border border-border p-5">
-              <div className="mb-3 text-sm font-semibold">Next Steps</div>
-              <div className="space-y-2">
-                {nextSteps.map((step, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm">
-                    <div className="mt-1 size-1.5 shrink-0 rounded-full bg-primary" />
-                    {step}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Sidebar — right col */}
-        <div className="space-y-6">
-          {/* Metadata */}
-          <div className="rounded-lg border border-border p-5">
-            <div className="mb-2 text-sm font-semibold">Details</div>
-            <div className="divide-y divide-border">
-              {meta.prospect_name
-                ? (
-                    <MetadataField
-                      icon={<User className="size-4 stroke-muted-foreground" />}
-                      label="Prospect"
-                      value={String(meta.prospect_name)}
-                    />
-                  )
-                : null}
-              {meta.prospect_company
-                ? (
-                    <MetadataField
-                      icon={<User className="size-4 stroke-muted-foreground" />}
-                      label="Company"
-                      value={String(meta.prospect_company)}
-                    />
-                  )
-                : null}
-              {meta.scheduled_at
-                ? (
-                    <MetadataField
-                      icon={<Calendar className="size-4 stroke-muted-foreground" />}
-                      label="Scheduled"
-                      value={new Date(String(meta.scheduled_at)).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    />
-                  )
-                : null}
-              {meta.hubspot_deal_stage
-                ? (
-                    <MetadataField
-                      icon={<Tag className="size-4 stroke-muted-foreground" />}
-                      label="Deal Stage"
-                      value={(
-                        <Badge variant="secondary">{String(meta.hubspot_deal_stage)}</Badge>
-                      )}
-                    />
-                  )
-                : null}
-              {meta.duration_minutes
-                ? (
-                    <MetadataField
-                      icon={<Clock className="size-4 stroke-muted-foreground" />}
-                      label="Duration"
-                      value={`${meta.duration_minutes} min`}
-                    />
-                  )
-                : null}
-            </div>
-          </div>
-
-          {/* Topics */}
-          {keyTopics.length > 0 && (
-            <div className="rounded-lg border border-border p-5">
-              <div className="mb-3 text-sm font-semibold">Key Topics</div>
-              <div className="flex flex-wrap gap-1.5">
-                {keyTopics.map(topic => (
-                  <Badge key={topic} variant="secondary" className="text-xs">
-                    {topic}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Object ID & metadata */}
-          <div className="rounded-lg border border-border p-5">
-            <div className="mb-2 text-sm font-semibold">System Info</div>
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <div>
-                Object ID:
-                {obj.id}
-              </div>
-              <div>
-                Type:
-                {obj.type.slug}
-              </div>
-              <div>
-                Created:
-                {' '}
-                {new Date(obj.createdAt).toLocaleDateString()}
-              </div>
-              {obj.summaryGeneratedAt && (
-                <div>
-                  Summary generated:
-                  {' '}
-                  {new Date(obj.summaryGeneratedAt).toLocaleDateString()}
+        {nextSteps.length > 0 && (
+          <section className="rounded-lg border border-border p-5">
+            <h2 className="mb-3 text-sm font-semibold">Next Steps</h2>
+            <div className="space-y-2">
+              {nextSteps.map((step, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <div className="mt-1 size-1.5 shrink-0 rounded-full bg-primary" />
+                  {step}
                 </div>
-              )}
+              ))}
             </div>
-          </div>
-        </div>
-      </div>
+          </section>
+        )}
+      </RecordBody>
 
       <ObjectAgentActivity
         orgId={orgId}

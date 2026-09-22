@@ -1,0 +1,267 @@
+slug: engineering_task
+label: Engineering task
+description: >-
+  One unit of change a worker can execute and a machine can check: what to do,
+  where it may touch, what has to pass, and which named request asked for it.
+  This is the DURABLE record — a person reads the task, not the run. The
+  `worker_run` underneath it is the execution lease (claim, heartbeat, budget,
+  `counts`); a task that was picked up three times is still one task with three
+  attempts, and a task nobody has started yet is still a task. Everything a
+  worker sends back — the branch, the diff, the checks, the verification
+  artifacts, what it could not establish — lands on the same record, so the
+  contract, its result and the evidence behind it are read in one place.
+icon: hammer
+schema:
+  type: object
+  properties:
+    repoSlug:
+      x-display: {label: Repository, format: link, to: repo, group: Where}
+      type: string
+      description: >-
+        Slug of the `repo` record this change lands in. The contract cites that
+        record's checks by name and takes its risk floor from that record's
+        `riskDefaults`, so a task is only ever written against a repository the
+        factory has been told about. One task, one repository — a change that
+        spans two is two tasks with a dependency between them.
+    repo:
+      x-display: {hidden: true}
+      type: string
+      description: Older shape — the repository as owner/name before the registry existed. Read as the `repo` record whose `url` ends in it; new tasks carry `repoSlug`.
+    productSlug:
+      x-display: {label: Product, format: link, to: product, group: Where}
+      type: string
+      description: Slug of the `product` this task serves. Read by the reviewer for the product's written promises, which no change may quietly touch.
+    baseSha:
+      x-display: {label: Base commit, format: mono, group: The change}
+      type: string
+      description: The commit the work starts from. Written down because a check that passed against a different base proves nothing, and a reviewer reading the diff needs to know what it is a diff against.
+    objective:
+      x-display: {role: prose, order: 1}
+      type: string
+      description: What to accomplish, in one or two sentences, stated as an outcome rather than a set of steps. If it cannot be stated without naming files to edit, the task is not understood well enough to dispatch.
+    requestId:
+      x-display: {label: Asked by, format: link, to: request, order: 2}
+      type: integer
+      description: >-
+        The id of the `request` record that asked for this. Required by
+        convention and the single thing that stops the factory building what
+        nobody asked for; a task with no request is a task to close, not to
+        dispatch. One noun, whatever the channel — a bug report, a store review
+        and a dogfood note are all a `request`.
+    requestSummary:
+      x-display: {label: In their words, role: prose, order: 3}
+      type: string
+      description: The request in the requester's own words, one or two lines, so the reviewer can judge the change against what was actually asked rather than against the objective the planner wrote.
+    acceptanceContract:
+      x-display: {label: Acceptance contract, role: prose, format: steps, order: 4}
+      type: array
+      description: >-
+        What has to be true for this to be accepted, one line each, each one
+        checkable by a person or a command without re-reading the whole diff.
+        The reviewer decides against THIS list and nothing else.
+      items: {type: string}
+    allowedPaths:
+      x-display: {label: Paths it may touch, role: prose, format: steps, order: 12}
+      type: array
+      description: >-
+        Globs the worker may create or modify. The blast radius, written before
+        the work starts: a diff that touches anything outside this list is a
+        contract violation and is rejected without being read on its merits.
+      items: {type: string}
+    riskClass:
+      x-display: {label: Risk, format: badge, group: Contract, tones: {docs: muted, marketing: muted, deps: info, ui: info, logic: warn, auth: bad, billing: bad, schema: bad, infra: bad, promise: bad}}
+      type: string
+      description: >-
+        What the change can break if it is wrong, which is what decides how
+        much evidence the merge takes. Ordered roughly by blast radius — docs
+        and marketing are reversible prose, schema and infra are not. Never
+        lower than what the repository's `riskDefaults` says for any path in
+        `allowedPaths`: the planner raises it to the floor when writing, the
+        reviewer rejects a contract that sits below it. `promise` is the
+        class for a diff that nears one of the product's written promises —
+        pricing, plan limits, seats, what the free plan includes — and it
+        never earns its way past a person.
+      enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra, promise]
+    sizeClass:
+      x-display: {label: Size, format: badge, group: Contract, tones: {major: warn, minor: info, patch: muted}}
+      type: string
+      description: 'Size in release terms, not in effort: `major` — a new capability or product, which counts against the initiative limit of one in flight; `minor` — a feature within a product; `patch` — a fix. Decides which release class it rides in and how it is announced.'
+      enum: [major, minor, patch]
+    decisionCost:
+      x-display: {label: Decision minutes, group: Contract}
+      type: integer
+      description: >-
+        Minutes of a person's attention the merge ask for this task is expected
+        to take — 1 for a docs change, 5 for a logic change, 60 for anything
+        that changes an architecture or a price. Estimated by the planner from
+        the risk class and the size of the contract; the promoter sums it over
+        open asks against the daily decision budget before dispatching another.
+    dependencies:
+      x-display: {label: Waits on, format: link, to: engineering_task}
+      type: array
+      description: Ids of engineering tasks that must be accepted before this one is dispatched. The planner writes the edges; a worker never discovers them at run time.
+      items: {type: string}
+    planId:
+      x-display: {label: Plan, format: link, to: architecture_plan, group: The plan}
+      type: integer
+      description: The `architecture_plan` this task was built from. Written when the plan rule required or offered a plan and one was approved. The contract carries the same value as `plan.plan_id`, and the worker refuses a contract that needed a plan and names none.
+    plan:
+      x-display: {label: What was decided about a plan, role: prose, group: The plan}
+      type: object
+      description: 'What this task recorded about the plan, exactly as the contract carried it: `{plan_id, url, approved_by, approved_at}` when a plan was written and approved, or `{skipped: true, skip_reason}` when one was offered and declined. A skip without a reason is refused, and the feature report renders a skip as "plan skipped: <reason>" rather than as a blank, because a blank cannot be told apart from a step nobody took.'
+    modelPolicy:
+      x-display: {label: Model policy, group: Budget}
+      type: string
+      description: Which model tier the worker should run on for this task, in the workspace's own words (for example "cheap model, escalate on the second attempt"). The deployment decides what the words mean.
+    tokenBudget:
+      x-display: {label: Token budget, group: Budget}
+      type: integer
+      description: Token ceiling for the whole task across attempts. Charged against the agent's period budget by the run's reported usage, so this is the task's share of it rather than a second budget system.
+    wallClockBudget:
+      x-display: {label: Wall-clock budget (min), group: Budget}
+      type: integer
+      description: Minutes the task may take before the run's deadline passes and the worker is told to stop on its next heartbeat. A task that needs longer than its budget is a task that was scoped wrong.
+    estimateCents:
+      x-display: {label: Estimated, format: money, group: Cost}
+      type: integer
+      description: >-
+        What the planner expects this task to cost in model spend, in cents,
+        written with the contract from the size class, the risk class and the
+        model policy. The ESTIMATE half of the cost pair — kept when the
+        actual lands so the two can be read side by side. A task dispatched
+        without one takes the run's per-run cap (`capCents`) as its estimate
+        when the run ends, which is the ceiling standing in for a guess and
+        reads as such.
+    actualCents:
+      x-display: {label: Actual, format: money, group: Cost}
+      type: integer
+      description: >-
+        What the task actually cost, in cents — the sum of `cents` over every
+        worker run queued for this record, every attempt included, because a
+        task picked up three times cost three runs. WRITTEN BY CORE when a run
+        for this record ends (`input.record = {type: engineering_task, id}`),
+        never typed. Read `costUpdatedAt` beside it; a task with no actual
+        has not had a run end yet.
+    varianceCents:
+      x-display: {label: Variance, format: money, group: Cost}
+      type: integer
+      description: '`actualCents` minus `estimateCents`, in cents — negative is under the estimate. Written with `actualCents` when both halves exist.'
+    costUpdatedAt:
+      x-display: {label: Cost as of}
+      type: string
+      format: date-time
+      description: When `actualCents` was last written — the moment the last run for this task ended. The week the money is counted in on the floor's cost strip.
+    attempt:
+      x-display: {label: Attempt, group: Contract}
+      type: integer
+      description: Which attempt this is, counted from 1. Raised when a run is lost or a fix is dispatched after a failed check — the record shows how many workers it took, which is the honest cost of the task.
+    requiredChecks:
+      x-display: {label: Required checks, role: prose, format: steps, order: 5}
+      type: array
+      description: >-
+        The commands that decide whether the work is done, in the order they
+        run. Deterministic and repeatable: a check no one can run again is not
+        a check. Nothing is accepted on a worker's assurance that it tested it.
+      items: {type: string}
+    status:
+      x-display: {label: Status, format: badge, group: Contract, tones: {drafted: muted, ready: info, dispatched: info, running: info, awaiting_review: warn, changes_requested: warn, accepted: ok, rejected: bad, abandoned: muted}}
+      type: string
+      description: Where the task stands. Plain text rather than an enum because a deployment's stages are its own; these are the ones the plugin's own page filters on.
+      enum: [drafted, ready, dispatched, running, awaiting_review, changes_requested, accepted, rejected, abandoned]
+    branch:
+      x-display: {label: Branch, format: mono, group: The change}
+      type: string
+      description: The branch the worker pushed. Comes back from the run.
+    commitSha:
+      x-display: {label: Commit, format: mono, group: The change}
+      type: string
+      description: The commit the checks actually ran against, which is what the reviewer reads and what a person merges.
+    prUrl:
+      x-display: {label: Pull request, format: link}
+      type: string
+      description: The pull request. The one link that takes a person from this record to the change itself, in one move.
+    filesChanged:
+      x-display: {label: Files changed, role: prose, format: steps, order: 11}
+      type: array
+      description: Every path the diff touches, so a contract violation is visible without opening the pull request.
+      items: {type: string}
+    checks:
+      x-display: {label: Checks, role: prose, format: steps, order: 7}
+      type: array
+      description: The result of each required check, as run. A check with no exit code was not run, and a task whose checks were not run is not reviewable.
+      items:
+        type: object
+        properties:
+          name: {type: string, description: 'The check, as named in requiredChecks.'}
+          passed: {type: boolean}
+          exitCode: {type: integer, description: What the command returned. Kept beside `passed` because a non-zero exit a worker decided was fine is exactly the thing to look at.}
+          artifact: {type: string, description: 'Where the full output is — a log artifact or a URL. The receipt behind the verdict, one move away.'}
+    verification:
+      x-display: {label: Evidence, role: prose, format: steps, order: 8}
+      type: array
+      description: >-
+        The evidence a merge is decided on — one entry per check that ran,
+        each pointing at core artifacts a person can open in one tap: the
+        JUnit report, the Playwright trace, the screenshot, the curl of the
+        deployed URL. Distinct from `checks`, which is the bare result, because
+        this is where the proof lives: the reviewer does not approve a task
+        whose `verification` is empty or whose entries carry no artifact, and a
+        merge ask with no evidence behind it is not raised.
+      items:
+        type: object
+        properties:
+          check: {type: string, description: 'The check, as named in the repository''s `checks`.'}
+          passed: {type: boolean}
+          exitCode: {type: integer}
+          summary: {type: string, description: 'One line — what the check proved or where it failed, in words a person deciding the merge can read without opening the artifact.'}
+          artifactIds: {type: array, items: {type: integer}, description: 'The artifacts that carry the proof. At least one, or the entry proves nothing.'}
+    knownFailures:
+      x-display: {label: Known failures, role: prose, format: steps, order: 9}
+      type: array
+      description: What the worker knows is still broken and is telling you about rather than hiding. A task that ships with a known failure is a decision a person makes, not one a worker makes quietly.
+      items: {type: string}
+    assumptions:
+      x-display: {label: Assumptions it made, role: prose, format: steps, order: 10}
+      type: array
+      description: >-
+        What the worker had to assume because the contract did not say. Read
+        these before the diff: every one of them is either a fact to add to the
+        contract next time or the reason this attempt went wrong.
+      items: {type: string}
+    summary:
+      x-display: {label: What the worker said it did, role: prose, order: 6}
+      type: string
+      description: The worker's own one-paragraph account of what it did and what it did not do. Its own words, kept as its own words, never rewritten into the record as fact.
+    why:
+      x-display: {label: Why, format: badge, group: Why, tones: {user_request: ok, production_bug: bad, blocks_goal: warn, breaks_promise: bad, required_for_dogfood: warn, manual_toil: info, platform_leverage: info, factory_reliability: warn, observed_behaviour: muted}}
+      type: array
+      description: >-
+        Why this task exists, in the same closed list the request uses, so a
+        person reading the floor can ask why of anything in flight without
+        opening the request. Normally inherited from the `request` this task
+        serves; it differs only when the task is one part of a larger ask and
+        that part has its own reason. REQUIRED: the planner proposes no task
+        without one, and `write-task-contract` fails review on a task whose
+        `why` is empty, because a task nobody can justify is a task to close
+        rather than dispatch.
+      items:
+        type: string
+        enum: [user_request, production_bug, blocks_goal, breaks_promise, required_for_dogfood, manual_toil, platform_leverage, factory_reliability, observed_behaviour]
+    whyNote:
+      x-display: {label: Why this, why now, role: prose, order: 13}
+      type: string
+      description: >-
+        One short line grounding the codes in this task's own evidence: the
+        count of askers, the run that lost the work, the promise at risk.
+        Carried onto the merge ask, so the person deciding reads why before
+        they read the diff.
+classificationPrompt: >-
+  Given a request — a review item, an ask, a support thread, a message —
+  decide whether it is one engineering task or several. One task changes one
+  repository, has one objective a worker can execute without asking a
+  question, and has acceptance criteria a command or a reviewer can check.
+  Split on repository boundaries and on anything that has to be accepted
+  before the rest can start, and write the dependency edges. Carry the id of
+  the request onto every task you write. If the request cannot be made
+  checkable, do not write a task: write the question that would make it
+  checkable and put it on the queue.

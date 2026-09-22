@@ -1,6 +1,8 @@
 import { os } from '@orpc/server';
 import { z } from 'zod';
-import { listAttachmentsByMessage } from '@/services/ArtifactService';
+import { MODEL_STRENGTHS, THINKING_EFFORTS } from '@/libs/llm/modelPrefs';
+import { listArtifactsByIdsForChips, listAttachmentsByMessage } from '@/services/ArtifactService';
+import { artifactChipsByMessage } from '@/services/chat/artifactChips';
 import { attachmentFromArtifact } from '@/services/chat/attachments';
 import {
   appendMessage,
@@ -14,6 +16,7 @@ import {
   renameConversation,
   searchConversations,
   setConversationAutonomy,
+  setConversationModel,
   setMessageFeedback,
   tailMessages,
 } from '@/services/ConversationService';
@@ -38,15 +41,24 @@ export const get = os
     if (!conv) {
       throw ApiError.notFound({ id: input.id });
     }
-    const [messages, uploads] = await Promise.all([
+    const [messages, uploads, produced] = await Promise.all([
       listMessages({ orgId, conversationId: input.id }),
       listAttachmentsByMessage({ orgId, conversationId: input.id }),
+      listArtifactsByIdsForChips({ orgId, conversationId: input.id }),
     ]);
     // The files a person attached ride on their message, so a reloaded
-    // transcript shows the chips they saw when they sent it.
+    // transcript shows the chips they saw when they sent it — and so do the
+    // artifacts the agent produced, under the turn that made them
+    // (`artifactChipsByMessage`): the chip is a persisted fact, not a
+    // memory of the live stream.
+    const chips = artifactChipsByMessage(messages, produced);
     return {
       ...conv,
-      messages: messages.map(m => ({ ...m, attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact) })),
+      messages: messages.map(m => ({
+        ...m,
+        attachments: (uploads.get(m.id) ?? []).map(attachmentFromArtifact),
+        artifacts: chips.get(m.id) ?? [],
+      })),
     };
   });
 
@@ -159,6 +171,18 @@ export const feedback = os
   });
 
 /** How recommended actions behave in one thread (0094). */
+/** How strong a model answers this thread and how much it thinks (`libs/llm/modelPrefs.ts`). */
+export const setModel = os
+  .input(z.object({ id: z.number().int().positive(), strength: z.enum(MODEL_STRENGTHS), effort: z.enum(THINKING_EFFORTS) }))
+  .handler(async ({ input }) => {
+    const { orgId } = await guardAuth();
+    const row = await setConversationModel({ orgId, id: input.id, strength: input.strength, effort: input.effort });
+    if (!row) {
+      throw ApiError.notFound({ id: input.id });
+    }
+    return { id: row.id, strength: row.modelStrength ?? 'balanced', effort: row.thinkingEffort ?? 'off' };
+  });
+
 export const setAutonomy = os
   .input(z.object({ id: z.number().int().positive(), autonomy: z.enum(CONVERSATION_AUTONOMY) }))
   .handler(async ({ input }) => {

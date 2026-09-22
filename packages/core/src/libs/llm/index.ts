@@ -7,9 +7,12 @@ export type {
   LangChainProvider,
   ModelRole,
 } from './langchain';
-export { buildChatModel, buildChatModelForOrg, inferProviderForModel, resolvedModelId, withPromptCache } from './langchain';
+export { buildChatModel, buildChatModelForOrg, inferProviderForModel, resolvedModelId } from './langchain';
 export { openaiClient } from './openai';
+export { CachingChatAnthropic, CachingChatBedrockConverse, DEFAULT_CACHE_CONTROL, minimumCacheableTokens, promptCacheAllowed } from './promptCache';
 export { getLLMClient, getLLMClientForOrg, resolveOrgProviderKey } from './registry';
+export type { LangChainUsageMetadata } from './usage';
+export { modelIdOf, tokenUsageOf, usageMetadataOf } from './usage';
 export type {
   LLMClient,
   LLMMessage,

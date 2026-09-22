@@ -1,5 +1,5 @@
 import type { LeadRow, LeadRunState } from '@/features/personalization/LeadDetail';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { and, eq } from 'drizzle-orm';
 import { UserSearch } from 'lucide-react';
 import { setRequestLocale } from 'next-intl/server';
@@ -121,6 +121,12 @@ export default async function LeadPage(props: {
             // ISO across the server/client boundary, like the dates above.
             regeneratingSince: found.run.regeneratingSince?.toISOString() ?? null,
             regenerateNote: found.run.regenerateNote,
+            // The per-send walk reads these two off the run, so the lead page
+            // has to carry them for the same reason the queue's loader does:
+            // without them the checks are gone on every reload here, and the
+            // hold could never be satisfied.
+            contentReview: found.run.contentReview ?? null,
+            revisions: found.run.revisions ?? null,
             error: found.run.error,
             card: { ...card, canRegenerate: action?.regenerate !== undefined },
           } satisfies ReviewCardRun;
@@ -158,6 +164,24 @@ export default async function LeadPage(props: {
     missing: row.missing,
   });
 
+  // Who decided it, as a person rather than as a key. `lead_brief.decided_by`
+  // stores a user id, and the decision line reads it out loud — a `usr-…` in
+  // the sentence a reviewer screenshots is the identifier `patterns.md` bans
+  // outright. Resolved here, where the database is; the raw id stays in the
+  // review history for the audit.
+  const decidedBy = await (async () => {
+    if (!row.decidedBy) {
+      return null;
+    }
+    const { userSchema } = await import('@/models/Schema');
+    const [who] = await db
+      .select({ name: userSchema.name, email: userSchema.email })
+      .from(userSchema)
+      .where(eq(userSchema.id, row.decidedBy))
+      .limit(1);
+    return who?.name ?? who?.email ?? null;
+  })();
+
   // Dates cross the server/client boundary as ISO strings.
   const lead: LeadRow = {
     id: row.id,
@@ -188,7 +212,7 @@ export default async function LeadPage(props: {
     arrivedAt: row.arrivedAt?.toISOString() ?? null,
     briefedAt: row.briefedAt?.toISOString() ?? null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
-    decidedBy: row.decidedBy,
+    decidedBy,
     briefVersion: row.briefVersion,
     workspaceSha: row.workspaceSha,
     handoffSections: row.handoffSections,

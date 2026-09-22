@@ -30,6 +30,8 @@
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { OperatingIntentManifest } from '@/libs/workspace/schemas';
+import type { Initiative } from '@/services/agents/initiative';
 import { tool as makeTool } from '@langchain/core/tools';
 import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
 import { and, eq, sql } from 'drizzle-orm';
@@ -41,9 +43,14 @@ import { readOnlyBackend } from '@/libs/memory/readOnlyBackend';
 import { DrizzleMemoryStore, MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { resolveTimeZone } from '@/libs/time/zone';
+import { listPlugins } from '@/libs/workspace/plugins';
 import { agentSchema, playbookSchema } from '@/models/Schema';
+import { readInitiative } from '@/services/agents/initiative';
 import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
+import { enabledPluginsForOrg } from '@/services/PluginService';
+import { mountWiki } from '@/services/wiki/WikiService';
+import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
@@ -99,6 +106,7 @@ export type HarnessModelConfig = {
   model?: string;
   modelProvider?: 'anthropic' | 'openai' | 'bedrock';
   maxTokens?: number;
+  promptCache?: boolean;
 };
 
 /**
@@ -124,18 +132,26 @@ export type HarnessModelConfig = {
  * agent fell back to the local loop — which `VOCION_DISABLE_AGENTCORE=1` does
  * routinely in dev — and every turn would fail on an unknown model. Naming the
  * provider is how an author says which vendor's id this is.
+ *
+ * `promptCache` is forwarded only when the author actually wrote it, and the
+ * test is `!== undefined` rather than truthiness, because the whole point of
+ * the field is to carry `false`. Leaving it out when the author said nothing
+ * is what keeps `VOCION_PROMPT_CACHE=0` and the on-by-default behaviour in
+ * `buildChatModel` reachable.
  * @param harnessConfig - The agent's harness block, or an empty object.
  */
 export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
   provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
+  promptCache?: boolean;
 } {
   const provider = harnessConfig.modelProvider;
   return {
     ...(provider ? { provider } : {}),
     ...(provider && harnessConfig.model ? { model: harnessConfig.model } : {}),
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
+    ...(harnessConfig.promptCache !== undefined ? { promptCache: harnessConfig.promptCache } : {}),
   };
 }
 
@@ -152,6 +168,8 @@ export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
 export type ModelOverride = {
   model: string;
   provider?: LangChainProvider;
+  /** Per-conversation thinking effort (`libs/llm/modelPrefs.ts`), when the person chose one. */
+  thinking?: 'off' | 'low' | 'medium' | 'high';
 };
 
 /**
@@ -166,7 +184,7 @@ export type ModelOverride = {
 export function chatModelOptionsWithOverride(
   harnessConfig: HarnessModelConfig,
   override: ModelOverride | undefined,
-): ReturnType<typeof chatModelOptionsFor> {
+): ReturnType<typeof chatModelOptionsFor> & { thinking?: ModelOverride['thinking'] } {
   const base = chatModelOptionsFor(harnessConfig);
   if (!override) {
     return base;
@@ -177,7 +195,7 @@ export function chatModelOptionsWithOverride(
       `cannot tell which provider serves model "${override.model}"; pass provider explicitly (anthropic | openai | bedrock)`,
     );
   }
-  return { ...base, provider, model: override.model };
+  return { ...base, provider, model: override.model, ...(override.thinking ? { thinking: override.thinking } : {}) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -221,6 +239,8 @@ type AgentBlueprint = {
   defaultTimeZone: string;
   /** Whether this agent mounts any skill or playbook folders (decides the skills middleware). */
   hasMounts: boolean;
+  /** The workspace's enabled plugin slugs; plugin-owned tools are built only with their plugin. */
+  enabledPlugins: string[];
 };
 
 /**
@@ -263,6 +283,14 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
 
   const harnessConfig = row.harnessConfig ?? {};
   const defaultTimeZone = await workspaceTimeZone(orgId);
+  // Plugins the workspace has on, once per blueprint: plugin-owned tool sets
+  // are present only with their plugin, and the prompt names what is off. An
+  // apply resets the blueprint cache, so a toggle reaches the next turn.
+  const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
+  // The workspace's stated operating intent, once per blueprint, from the
+  // column the applier writes. `null` is "nobody has told this factory
+  // anything", which the note says out loud rather than treating as permission.
+  const operatingIntent = await operatingIntentForOrg(orgId).catch(() => null);
 
   // ONE mechanism: agents are agents. A lead's delegable roster DERIVES from
   // the registry (agent-chat-surface.md §9 — routing is delegation): agents
@@ -330,6 +358,36 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   // A place in Vocion is a link, not a description (2026-09-18: eight paragraphs of Zoom scope steps, no link). The tool holds the table; this line makes the call.
   systemPrompt = `${systemPrompt}\n\nWhen a person has to do something in Vocion themselves (connect or re-authorise a system, fix a credential, approve a proposal, adopt a learning), call where_to first and put the link it returns inline in your reply — never describe where to click without the link.`;
 
+  // CAPABILITIES (CORE, all agents). What the workspace could turn on and has
+  // not: the chat recommends a plugin when the conversation calls for it
+  // (Chris, 2026-09-18) instead of working around the gap. Data, not prose:
+  // the same catalogue the Plugins page lists. The graph cache resets on
+  // apply, so this line is as current as the toggle.
+  const capabilitiesNote = capabilitiesPromptNote(enabledPlugins);
+  if (capabilitiesNote) {
+    systemPrompt = `${systemPrompt}\n\n${capabilitiesNote}`;
+  }
+
+  // INITIATIVE (CORE, all agents). Whether a turn ends with an offer to carry
+  // the work forward is the agent's authored `initiative`, not a habit each
+  // prompt reinvents — one line here, the same words for every agent, so a
+  // workspace turns it up or down in YAML and the graph rebuilds on apply.
+  const initiativeNote = initiativePromptNote(readInitiative(row.initiative));
+  if (initiativeNote) {
+    systemPrompt = `${systemPrompt}\n\n${initiativeNote}`;
+  }
+
+  // OPERATING INTENT (CORE, all agents). What a person wants the factory
+  // doing, from `operating-intent.yaml` by way of `project.operating_intent`.
+  // An agent that chooses or ranks work reads this before it chooses; every
+  // other agent reads it as the standing context it is. Silent when the
+  // workspace has stated nothing, because an empty section would read as
+  // "there are no constraints", which is a different claim.
+  const intentNote = operatingIntentPromptNote(operatingIntent);
+  if (intentNote) {
+    systemPrompt = `${systemPrompt}\n\n${intentNote}`;
+  }
+
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
   // tool output — record JSON, search hits — into its reply and ignores "don't
   // paste" rules; fighting that with content-stripping is whack-a-mole (it
@@ -377,7 +435,7 @@ async function buildBlueprint(orgId: string, agentSlug: string, modelOverride?: 
   const hasAnyFolders = Number(playbookCount?.n ?? 0) > 0;
   const hasMounts = hasAnyFolders && ((row.skillSlugs ?? []).length > 0 || (row.playbookSlugs ?? []).length > 0);
 
-  return { agentRow: row, systemPrompt, subagentSpecs, model, defaultTimeZone, hasMounts };
+  return { agentRow: row, systemPrompt, subagentSpecs, model, defaultTimeZone, hasMounts, enabledPlugins };
 }
 
 /**
@@ -420,6 +478,7 @@ function buildRequestContext(orgId: string, blueprint: AgentBlueprint, request: 
     agentSlug: row.slug,
     connectorSources: row.connectorSources ?? [],
     objectTypeSlugs: row.objectTypeSlugs ?? [],
+    enabledPlugins: blueprint.enabledPlugins,
     searchConfig: (row.searchConfig as RuntimeContext['searchConfig']) ?? {},
     harnessConfig: row.harnessConfig ?? {},
     defaultTimeZone: blueprint.defaultTimeZone,
@@ -553,6 +612,103 @@ function toFileData(content: string): MountedFileData {
   return { content, mimeType: 'text/markdown', created_at: now, modified_at: now };
 }
 
+/**
+ * The one-paragraph note the system prompt carries about plugins: the wiki's
+ * mount when it is on, and each plugin that is OFF with when it helps. Empty
+ * when nothing needs saying.
+ * @param enabledPlugins - The workspace's enabled plugin slugs.
+ */
+/**
+ * The one line that carries an agent's `initiative` into its prompt.
+ *
+ * `high`: a turn that produced a standing fact, a decision or a plan ends with
+ * ONE offer to carry it forward, asked as a question — the researcher's "I can
+ * put this on a wiki page, shall I?". `low`: answer what was asked and stop.
+ * `normal` says nothing: the agent's own prompt decides, as it always has.
+ * @param initiative - The agent's authored level.
+ */
+export function initiativePromptNote(initiative: Initiative): string {
+  if (initiative === 'high') {
+    return 'INITIATIVE: high. When a turn produces something standing — a fact that will hold, a decision, a plan, a rule a person stated — end the reply with ONE concrete offer to carry it forward (write it on a wiki page, file the decision, plan the next step, queue the follow-up), asked as a question a person can answer with yes. One offer, the most useful one; never a list of options, never for a turn that produced nothing standing.';
+  }
+  if (initiative === 'low') {
+    return 'INITIATIVE: low. Answer what was asked and stop. Do not volunteer follow-ups, offers or next steps unless the person asks for them; a person turned this agent down to keep it quiet.';
+  }
+  return '';
+}
+
+/**
+ * The paragraph that carries the workspace's operating intent into an agent's
+ * prompt, so a stated priority changes what gets picked up.
+ *
+ * Read honestly, which is the whole point of the section:
+ *
+ *  - `null` produces NOTHING. A workspace that has stated no intent has told
+ *    the factory nothing, and a section saying "no constraints" would be the
+ *    factory inventing permission it was never given.
+ *  - The priorities are ORDERED, and the order is the ranking. An agent
+ *    choosing between two candidates reads down the list rather than
+ *    comparing two integers, which is what makes "why this, why now"
+ *    answerable in a person's own words.
+ *  - The constraints are refusals, not preferences. An agent about to do one
+ *    raises an ask and stops.
+ *  - The budget ADVISES. It is composed here and it is not enforced:
+ *    `services/autonomy` and the run caps are what actually stop spending,
+ *    and a figure here that disagrees with those caps does not override them.
+ *    The line says so, because an agent told it has a hard limit when it does
+ *    not will report a limit that was never applied.
+ *  - The autonomy lines are the stated intent; `trust.yaml` is what gates an
+ *    action. Where the two disagree the ladder wins.
+ * @param intent - The applied intent, or null when the workspace stated none.
+ */
+export function operatingIntentPromptNote(intent: OperatingIntentManifest | null): string {
+  if (!intent) {
+    return '';
+  }
+  const lines: string[] = [];
+  if (intent.outcomes.length > 0) {
+    lines.push(`WHAT WE ARE TRYING TO ACHIEVE NOW, most important first: ${intent.outcomes.map(o => `${o.statement}${o.because ? ` (because ${o.because})` : ''}${o.by ? ` (by ${o.by})` : ''}`).join(' | ')}`);
+  }
+  if (intent.priorities.length > 0) {
+    lines.push(`WHAT BEATS WHAT, in order. This list IS the ranking: when two pieces of work compete, the one further up wins, and you say which rule decided it. ${intent.priorities.map((p, i) => `${i + 1}. ${p.statement}${p.over ? ` over ${p.over}` : ''}`).join(' ')}`);
+  }
+  if (intent.constraints.length > 0) {
+    lines.push(`WHAT YOU MAY NOT DO WITHOUT ASKING. These are refusals, not preferences: if you are about to do one, do not do it. Raise an ask that quotes the constraint and stop. ${intent.constraints.map(c => `${c.statement}${c.because ? ` (because ${c.because})` : ''}`).join(' | ')}`);
+  }
+  if (intent.budget) {
+    lines.push(`BUDGET STATED: $${(intent.budget.limitCents / 100).toFixed(2)} per ${intent.budget.window}.${intent.budget.note ? ` ${intent.budget.note}` : ''} This figure ADVISES you and is NOT enforced by the platform: the run caps and the autonomy service are what actually stop spending. Plan inside it, say when a plan would exceed it, and never tell a person a spend was blocked by it.`);
+  }
+  if (intent.autonomy.length > 0) {
+    lines.push(`AUTONOMY AS STATED: ${intent.autonomy.map(a => `${a.actionClass}: ${a.policy}${a.because ? ` (${a.because})` : ''}`).join(' | ')}. This is the intent; the trust ladder in trust.yaml is what actually gates an action. Where they disagree the ladder wins and the disagreement is worth reporting.`);
+  }
+  if (intent.productJudgment.length > 0) {
+    lines.push(`PRODUCT JUDGMENT you cannot derive from the records: ${intent.productJudgment.join(' | ')}`);
+  }
+  if (lines.length === 0) {
+    return '';
+  }
+  const reviewed = intent.reviewedAt ? ` Last reviewed by a person on ${intent.reviewedAt}; if that is old, say so rather than treating it as fresh.` : ' Nobody has recorded when this was last reviewed.';
+  return `OPERATING INTENT (the workspace's standing instructions, authored in operating-intent.yaml and readable at /dashboard/guide). Read this before you choose or rank work, and name the rule that decided when you report what you picked.${reviewed}\n${lines.join('\n')}`;
+}
+
+export function capabilitiesPromptNote(enabledPlugins: readonly string[]): string {
+  let catalogue: ReturnType<typeof listPlugins>;
+  try {
+    catalogue = listPlugins();
+  } catch {
+    return '';
+  }
+  const lines: string[] = [];
+  if (enabledPlugins.includes('wiki')) {
+    lines.push('WIKI: the workspace wiki — long-term context that changes slowly (voice, standing rules, who is who, decisions) — is mounted at /wiki/index.md with the pages that fit at /wiki/<slug>.md. Read the relevant page before acting on a standing fact and cite it; read_wiki_page fetches one that did not fit. When you learn a durable fact or a person corrects a standing one, write it with write_wiki_page (honest confidence; above the bar it is done for you, below it a person decides).');
+  }
+  const off = catalogue.filter(p => !enabledPlugins.includes(p.manifest.slug));
+  if (off.length > 0) {
+    lines.push(`PLUGINS OFF in this workspace — recommend turning one on (recommend_action with action plugin.enable and input {"slug": "<slug>"}) when the conversation calls for it; list_capabilities has the full read: ${off.map(p => `${p.manifest.name} (${p.manifest.slug}) — ${p.manifest.description}${p.manifest.recommend.when.length ? ` Helps when: ${p.manifest.recommend.when.join('; ')}.` : ''}`).join(' | ')}`);
+  }
+  return lines.join('\n');
+}
+
 export async function buildInitialFiles(
   orgId: string,
   agentSlug: string,
@@ -590,8 +746,18 @@ export async function buildInitialFiles(
     workspaceSteps: row.learningSteps ?? [],
     ...memoryCtx,
   });
+  // The wiki (plugin `wiki`): the index and the pages that fit, at /wiki/…,
+  // fresh every turn — slow-changing context beside the fast-changing rules.
+  let wiki: Record<string, string> = {};
+  try {
+    if ((await enabledPluginsForOrg(orgId)).includes('wiki')) {
+      wiki = await mountWiki(orgId);
+    }
+  } catch (error) {
+    logger.warn(`agent "${agentSlug}": the wiki did not mount this turn`, { error });
+  }
   return Object.fromEntries(
-    Object.entries({ ...mounted, ...memories }).map(([path, body]) => [path, toFileData(body)]),
+    Object.entries({ ...mounted, ...memories, ...wiki }).map(([path, body]) => [path, toFileData(body)]),
   );
 }
 

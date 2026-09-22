@@ -264,4 +264,22 @@ describe('traceEmitter — a delegation that fails', () => {
     expect(done[0]).toMatchObject({ status: 'done' });
     expect(em.closeDelegations('never mind')).toHaveLength(0);
   });
+
+  it('says which tool is being written as soon as the call\'s name streams, once per model turn', () => {
+    const em = new TraceEmitter({ leadName: 'Lead' });
+    const ns = 'model_request:c1';
+    const chunkWithTool = (name: string | null) => ({ content: [], tool_call_chunks: [{ name, args: '{"ti', index: 0 }] });
+
+    em.handle({ event: 'on_chat_model_stream', metadata: { checkpoint_ns: ns }, data: { chunk: chunkWithTool('render_document') } });
+    em.handle({ event: 'on_chat_model_stream', metadata: { checkpoint_ns: ns }, data: { chunk: chunkWithTool(null) } });
+    em.handle({ event: 'on_chat_model_stream', metadata: { checkpoint_ns: ns }, data: { chunk: chunkWithTool('render_document') } });
+
+    expect(em.takeSideEvents()).toEqual([{ type: 'composing', tool: 'render_document' }]);
+    expect(em.takeSideEvents()).toEqual([]);
+
+    // Plumbing never announces itself.
+    em.handle({ event: 'on_chat_model_stream', metadata: { checkpoint_ns: ns }, data: { chunk: chunkWithTool('write_todos') } });
+
+    expect(em.takeSideEvents()).toEqual([]);
+  });
 });

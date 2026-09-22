@@ -20,6 +20,8 @@ import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg } from '@/libs/llm';
+import { usageMetadataOf } from '@/libs/llm/usage';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 
 const JUDGE_SYSTEM = `You are an evaluation judge for AI agent outputs.
 
@@ -112,9 +114,7 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
   ]);
   const raw = textOf(response.content);
 
-  const usage = (response as unknown as {
-    usage_metadata?: { input_tokens?: number; output_tokens?: number; input_token_details?: { cache_read?: number } };
-  }).usage_metadata;
+  const usage = usageMetadataOf(response);
   generation.end({
     output: raw,
     usageDetails: usage
@@ -124,6 +124,16 @@ export async function judgeTranscript(request: JudgeRequest): Promise<JudgeOutpu
           cache_read_input_tokens: usage.input_token_details?.cache_read,
         })
       : undefined,
+  });
+
+  // Charged, never refused: an eval run that stops halfway through a dataset
+  // reports a pass rate that is not a pass rate. The run's own cost accounting
+  // (`eval_case_result.usage`) is unchanged — this is the org-wide ledger.
+  await chargeModelCall({
+    orgId: request.orgId,
+    feature: FEATURES.EVAL_JUDGE,
+    role: 'classifier',
+    response,
   });
 
   const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();

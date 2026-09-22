@@ -103,6 +103,8 @@ export function toPayload(row: ArtifactRow): ArtifactPayload {
     version: row.currentVersion,
     authorKind: row.lastAuthorKind,
     authorId: row.lastAuthorId ?? null,
+    shareAudience: row.shareAudience,
+    shareOwnerId: row.shareOwnerId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -236,7 +238,53 @@ export async function createArtifact(input: CreateArtifactInput): Promise<{ arti
     .set({ headVersionId: version!.id })
     .where(and(eq(artifactSchema.orgId, input.orgId), eq(artifactSchema.id, artifact.id)))
     .returning();
+  announceSaved(withHead ?? artifact, 'created', input.author);
   return { artifact: withHead ?? artifact, version: version! };
+}
+
+/**
+ * Tell the rest of the system an artifact was saved — the `artifact.saved`
+ * event for automations (the wiki indexes its pages this way) and the
+ * adoption stream. Fire-and-forget: a save never waits on a subscriber, and a
+ * subscriber that fails is logged, never surfaced to the writer. Dynamic
+ * imports keep this module free of the event bus's dependency graph.
+ * @param row - The saved artifact, head already moved.
+ * @param change - v1, or a later version.
+ * @param author - Who saved it.
+ */
+function announceSaved(row: ArtifactRow, change: 'created' | 'revised', author: Author): void {
+  void (async () => {
+    try {
+      const { ARTIFACT_SAVED, emitEvent } = await import('@/services/EventService');
+      await emitEvent({
+        orgId: row.orgId,
+        type: ARTIFACT_SAVED,
+        payload: {
+          artifactId: row.id,
+          kind: row.kind,
+          folder: row.folder ? row.folder.split('/')[0]! : null,
+          title: row.title,
+          version: row.currentVersion,
+          change,
+          authorKind: author.kind,
+          recordType: row.recordType ?? null,
+          recordId: row.recordId ?? null,
+        },
+        dedupeKey: `artifact.saved:${row.id}:${row.currentVersion}`,
+        invokedBy: authorId(author) ?? `artifact:${row.id}`,
+      });
+      if (change === 'created') {
+        const { track } = await import('@/services/adoption/track');
+        await track({ orgId: row.orgId, userId: authorId(author) ?? 'system' }, 'artifact.created', {
+          agentSlug: author.kind === 'agent' ? (author.id ?? '').replace(/^agent:/, '') || undefined : undefined,
+          meta: { kind: row.kind.slice(0, 20), ...(row.folder ? { folder: row.folder.split('/')[0]!.slice(0, 40) } : {}) },
+        });
+      }
+    } catch (err) {
+      const { logger } = await import('@/libs/Logger');
+      logger.warn('artifact.saved announcement failed', { artifactId: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  })();
 }
 
 export type UpdateArtifactInput = {
@@ -337,6 +385,7 @@ export async function updateArtifact(input: UpdateArtifactInput): Promise<{ arti
     })
     .where(and(eq(artifactSchema.orgId, input.orgId), eq(artifactSchema.id, existing.id)))
     .returning();
+  announceSaved(artifact!, 'revised', input.author);
   return { artifact: artifact!, version, collapsed };
 }
 
@@ -373,6 +422,43 @@ export async function restoreArtifactVersion(opts: { orgId: string; id: number; 
  * @param opts.id
  * @param opts.folder
  */
+/**
+ * Who this artifact opens for (`libs/share/audience.ts`). `me` records the
+ * chooser as the owner; the other audiences clear it.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.id - Artifact id.
+ * @param opts.audience - me | workspace | anyone.
+ * @param opts.userId - The person choosing — the owner when the audience is `me`.
+ */
+export async function setArtifactShare(opts: { orgId: string; id: number; audience: 'me' | 'workspace' | 'anyone'; userId: string | null }): Promise<ArtifactRow | null> {
+  const [row] = await db
+    .update(artifactSchema)
+    .set({ shareAudience: opts.audience, shareOwnerId: opts.audience === 'me' ? opts.userId : null })
+    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Put an artifact on a record after the fact — the document a chat rendered
+ * before anyone named the room, filed as that room's deliverable. One truth:
+ * a deliverable with an `artifactId` IS the record's artifact, so the board
+ * and the room page read the same row. Unchanged when already anchored there.
+ * @param opts
+ * @param opts.orgId
+ * @param opts.id
+ * @param opts.record
+ */
+export async function anchorArtifact(opts: { orgId: string; id: number; record: ArtifactRecordScope }): Promise<ArtifactRow | null> {
+  const [row] = await db
+    .update(artifactSchema)
+    .set({ recordType: opts.record.type, recordId: opts.record.id, recordRole: opts.record.role, updatedAt: new Date() })
+    .where(and(eq(artifactSchema.orgId, opts.orgId), eq(artifactSchema.id, opts.id)))
+    .returning();
+  return row ?? null;
+}
+
 export async function setArtifactFolder(opts: { orgId: string; id: number; folder: string | null }): Promise<ArtifactRow | null> {
   const [row] = await db
     .update(artifactSchema)
@@ -528,6 +614,18 @@ export async function listArtifactVersions(opts: { orgId: string; artifactId: nu
  * @param opts.orgId
  * @param opts.conversationId
  */
+/**
+ * The artifacts the AGENT produced in a conversation — what hangs as a chip
+ * under a turn. A person's own uploads are attachments, filed separately.
+ * @param opts
+ * @param opts.orgId - Tenant.
+ * @param opts.conversationId - The thread.
+ */
+export async function listArtifactsByIdsForChips(opts: { orgId: string; conversationId: number }): Promise<ArtifactRow[]> {
+  const rows = await listArtifactsForConversation(opts);
+  return rows.filter(r => !(r.kind === 'file' && r.lastAuthorKind === 'human'));
+}
+
 export async function listArtifactsForConversation(opts: { orgId: string; conversationId: number }): Promise<ArtifactRow[]> {
   return db
     .select()

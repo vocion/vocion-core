@@ -1,0 +1,36 @@
+slug: wiki-debrief
+name: Read finished work into the wiki
+description: >-
+  Fires the moment work ends — a worker run completes, a mission run
+  completes, a conversation goes quiet, a pull request merges — so the Wiki
+  researcher reads it while the residue is fresh and decides whether a
+  standing fact, a decision or a plan changed; the `wiki-debrief` mission's
+  "nothing settled is known only to who was there", made a trigger rather
+  than a habit. Proposes page writes through `wiki.write_page`, gated by the
+  researcher's own ledger. `conversation.ended` needs the sweep below to be
+  scheduled; the other three events core raises on its own. An agent with
+  `initiative: low` would sit this out — the researcher is `high`.
+status: active
+agent: wiki-researcher
+when:
+  event:
+    - worker_run.completed
+    - mission_run.completed
+    - conversation.ended
+    - pr.merged
+do:
+  checkMission: wiki-debrief
+  prompt: >-
+    One piece of work just finished; the event says which kind and carries its
+    ids and a summary. Read the work itself, not the summary: a worker run's
+    result and summary (GET /api/v1/worker-runs/:id, or the record it ran
+    against), a mission run's tasks and their outputs, the conversation's
+    messages, the pull request's title and body. Skip a mission run whose
+    mode is check — that is an automation's own pass, and this is not a
+    ledger. Then decide, against the wiki as it stands (read the index and the
+    pages that fit): did this settle a standing fact, a decision or a plan
+    that a page carries or should? If yes, propose the revision or the dated
+    section on the page that fits with write_wiki_page, citing the work as
+    the source and an honest confidence; a new page only when none fits. If
+    no, write nothing. Report in one line: what you read, what changed, what
+    you wrote or left alone.

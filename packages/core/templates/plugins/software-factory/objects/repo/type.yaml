@@ -1,0 +1,71 @@
+slug: repo
+label: Repository
+description: >-
+  The registry a task contract is written against. A contract names a
+  repository by slug, cites checks by the names written here, and takes its
+  risk class from the paths it will touch — so the planner never invents a
+  check command, a worker never runs one nobody agreed to, and a change to
+  `policy/**` is at least `logic` whatever the planner called it. One record
+  per repository the factory may open a pull request in; a repository with no
+  record is one the factory does not touch.
+icon: git-branch
+schema:
+  type: object
+  properties:
+    slug:
+      x-display: {label: Slug, format: mono, group: Repository}
+      type: string
+      description: The handle a task's `repoSlug` uses. Short, stable, lowercase.
+    url:
+      x-display: {label: Repository, format: link}
+      type: string
+      description: Where the repository lives. The worker clones this; a person clicks it.
+    defaultBranch:
+      x-display: {label: Default branch, format: mono, group: Repository}
+      type: string
+      description: The branch a task's `baseSha` is read from and a pull request targets. Written down because `main` is a convention, not a fact.
+    product:
+      x-display: {label: Product, format: link, to: product}
+      type: string
+      description: Slug of the `product` this repository belongs to. A repository serving two products is listed under the one whose promises it carries.
+    checks:
+      x-display: {label: Checks, role: prose, format: steps, order: 1}
+      type: array
+      description: >-
+        The deterministic checks a worker may cite by name, and the exact
+        command each one runs. A task's `requiredChecks` are names from this
+        list; the worker runs the command as written here, never a paraphrase.
+        A check that is not here does not exist for the factory.
+      items:
+        type: object
+        properties:
+          name: {type: string, description: 'How a contract and a verification entry refer to it — `unit`, `typecheck`, `e2e-checkout`.'}
+          command: {type: string, description: 'The shell command, exactly as CI runs it.'}
+    deployCommand:
+      x-display: {label: Deploy command, format: mono, group: Repository}
+      type: string
+      description: How this repository reaches production. Recorded so the deploy is a named action a person approves, never a command a worker discovers.
+    riskDefaults:
+      x-display: {label: Risk floor by path, role: prose, format: steps, order: 2}
+      type: object
+      description: >-
+        A map from path glob to the LOWEST risk class a change touching it may
+        carry — `policy/**: logic`, `billing/**: billing`, `migrations/**:
+        schema`, `infra/**: infra`. The planner reads it when writing a
+        contract and the reviewer reads it when grading one: a task whose
+        `riskClass` is below what its touched paths demand is rejected before
+        the diff is read. This is what makes a bug fix safe to speed up — the
+        danger is in the files, not in the word "bug". `pricing/**: promise`
+        is how a product's written promises become a path rule.
+      additionalProperties:
+        type: string
+        enum: [docs, marketing, deps, ui, logic, auth, billing, schema, infra, promise]
+    owners:
+      x-display: {label: Owners, group: Repository}
+      type: array
+      description: The people who answer for this repository — who a reviewer's ask goes to and whose name is on a merge nobody else should make.
+      items: {type: string}
+    notes:
+      x-display: {label: Notes, role: prose, order: 3}
+      type: string
+      description: Standing knowledge a worker needs before its first commit here — how to run it, what is generated, what never to hand-edit. Markdown.

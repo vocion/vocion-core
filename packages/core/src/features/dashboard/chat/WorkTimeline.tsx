@@ -24,7 +24,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { failureReport, redactInternalIds } from '@/libs/chat/redact';
+import { stepHeadline } from '@/libs/chat/stepHeadline';
 import { sourceLabels } from './helpers';
+import { liveStepLabel } from './traceReducer';
 import { useElapsed } from './useElapsed';
 
 /**
@@ -34,9 +36,15 @@ import { useElapsed } from './useElapsed';
  * tool row the moment its start event arrives, flipping to done/error when it
  * lands; delegates indent their specialist's rows; reasoning folds to one
  * line ("Thinking…" → "Thought for 6s") with its first sentence showing.
- * AFTER the turn: one collapsed line ("Worked it out · 5 steps · 3 sources")
- * that opens into the curated, typed trace — reasoning, meaningful tool
- * steps (plumbing hidden), delegation to named specialists, citations.
+ * AFTER the turn: one collapsed line that says what the work WAS —
+ * "Researched 30 sources and wrote the brief" (`libs/chat/stepHeadline.ts`) —
+ * and opens into the curated, typed trace — reasoning, meaningful tool steps
+ * (plumbing hidden), delegation to named specialists, citations.
+ *
+ * No card. A group of steps is a quieter line between the passages, not a
+ * box in the prose: muted grey once finished so it sits behind the words,
+ * a soft text shimmer while it runs (Chris, 2026-09-18, against the Claude
+ * app). Hairlines, not borders (docs/design/patterns.md).
  */
 
 export type WorkTimelineProps = {
@@ -121,7 +129,7 @@ export function describeToolCall(name: string, input: Record<string, unknown>, l
       const conf = typeof input.confidence === 'number' ? ` · ${Math.round((input.confidence as number) * 100)}%` : '';
       // Whether it ran or waits is the run's to say (the card below carries
       // its status); this line stops claiming it was queued.
-      return { label: live ? `Proposing ${actionId}${conf}…` : `Proposed ${actionId}${conf}` };
+      return { label: live ? `Recommending ${actionId}${conf}…` : `Recommended ${actionId}${conf}` };
     }
     case 'create_artifact':
       return { label: live ? 'Creating artifact…' : 'Created artifact', detail: String(input.kind ?? '') || undefined };
@@ -371,7 +379,7 @@ function TraceRow({ node, nested, open, onToggle, failureContext }: { node: Trac
     <li className={`relative py-1.5 pl-7 ${nested ? 'ml-4 border-l border-border/50' : ''}`}>
       <span className="absolute top-2 left-0 grid size-4 place-items-center"><TraceMarker node={node} /></span>
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px] leading-snug">
-        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${node.label}` : node.label}</span>
+        <span className={`font-semibold ${node.kind === 'delegate' ? 'text-brand-amber-deep' : node.status === 'error' ? 'text-[var(--brand-fail)]' : 'text-foreground/90'}`}>{node.kind === 'delegate' ? `→ ${liveStepLabel(node)}` : liveStepLabel(node)}</span>
         {node.detail && <span className="min-w-0 text-muted-foreground">{node.detail}</span>}
         {node.result && (
           <span className="text-muted-foreground/80">
@@ -495,13 +503,16 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
   // line with its first sentence showing (agent-chat-surface.md §9).
   if (streaming) {
     const live = [...trace].reverse().find(n => n.kind !== 'reason' && (n.status === 'start' || n.status === 'progress'));
-    const headline = activity ?? live?.label ?? 'Working…';
+    // "Working…" on its own for a minute told the person nothing (Chris,
+    // twice). The step that is running says what it is on, and — when the
+    // call reports — where it has got to: `Building the document… sheet 7 of 12`.
+    const headline = activity ?? (live ? liveStepLabel(live) : null) ?? 'Working…';
     return (
       <div className="my-2" data-testid="work-timeline-live">
         {liveHeadline && (
-          <div className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground">
+          <div className="flex w-full items-center gap-2 py-1 text-left text-xs text-muted-foreground">
             <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-            <span className="min-w-0 flex-1 truncate font-medium">{headline}</span>
+            <span className="work-shimmer min-w-0 flex-1 truncate font-medium">{headline}</span>
             {elapsed >= 3 && (
               <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
                 {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}
@@ -510,13 +521,13 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
           </div>
         )}
         {(reasons.length > 0 || actions.length > 0) && (
-          <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+          <ol className="mt-0.5 flex flex-col border-l border-border/50 pl-3" data-testid="work-steps-live">
             {reasons.length > 0 && (
-              <li className="border-b border-border/40 py-1.5 last:border-b-0">
+              <li className="py-1">
                 <button type="button" onClick={() => setReasonOpen(v => !v)} aria-expanded={reasonOpen} className="flex w-full items-center gap-2 text-left text-xs">
                   <span className="grid size-4 shrink-0 place-items-center"><Brain className="size-3.5 text-brand-amber-deep" aria-hidden /></span>
                   <span className="min-w-0 flex-1 truncate text-[13px]">
-                    <span className="font-medium text-foreground/85">{actions.length === 0 ? 'Thinking…' : thoughtLabel}</span>
+                    <span className={`font-medium text-foreground/80 ${actions.length === 0 ? 'work-shimmer' : ''}`}>{actions.length === 0 ? 'Thinking…' : thoughtLabel}</span>
                     {!reasonOpen && reasonPreview && (
                       <span className="text-muted-foreground">
                         {' · '}
@@ -534,7 +545,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
             {actions.map((n) => {
               const kids = childrenOf(n.id);
               return (
-                <li key={n.id} className="border-b border-border/40 last:border-b-0">
+                <li key={n.id}>
                   <ol>
                     <TraceRow node={n} open={openDrill === n.id} onToggle={() => setOpenDrill(o => (o === n.id ? null : n.id))} />
                     {kids.map(k => (
@@ -554,33 +565,37 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
     `${steps} step${steps === 1 ? '' : 's'}`,
     sources > 0 ? `${sources} source${sources === 1 ? '' : 's'}` : null,
   ].filter(Boolean).join(' · ');
-  // A group of one step folds to THAT step — "Searched HubSpot · 12 records"
-  // says more than "Worked it out · 1 step", and once the steps sit between
-  // the passages most groups are one or two calls, not a whole turn's worth.
+  // The line says what the work WAS, from the steps' own finished labels.
+  // A group of one step is that step — "Searched HubSpot · 12 records" says
+  // more than any composition of it.
   const solo = actions.length === 1 && reasons.length === 0 && sources === 0 ? actions[0]! : null;
   const soloRadius = solo ? (solo.result ?? (solo.resultDetail && solo.resultDetail.length <= 60 ? solo.resultDetail : undefined)) : undefined;
+  const headline = solo ? null : stepHeadline(actions.map(n => ({ kind: n.kind, status: n.status, label: n.label, tool: n.tool })), sources);
+  const failed = actions.some(n => n.status === 'error');
 
   return (
-    <div className="my-2">
+    <div className="my-1.5" data-testid="work-group">
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition hover:text-foreground"
+        aria-label={`${solo ? solo.label : headline} · ${summary}`}
+        title={summary}
+        className={`group/work flex w-full items-center gap-2 py-1 text-left text-xs transition hover:text-foreground ${failed ? 'text-muted-foreground' : 'text-muted-foreground/75'}`}
       >
-        {solo ? <TraceMarker node={solo} /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
-        <span className="min-w-0 flex-1 truncate font-medium">
+        {solo ? <TraceMarker node={solo} /> : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
+        <span className="min-w-0 flex-1 truncate">
           {solo
             ? (
                 <>
                   <span className={solo.status === 'error' ? 'text-[var(--brand-fail)]' : undefined}>{solo.kind === 'delegate' ? `→ ${solo.label}` : solo.label}</span>
-                  {solo.detail && <span className="font-normal">{` · ${solo.detail}`}</span>}
+                  {solo.detail && <span className="text-muted-foreground/60">{` · ${solo.detail}`}</span>}
                 </>
               )
-            : `Worked it out · ${summary}`}
+            : headline}
         </span>
-        {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/80">{soloRadius}</span>}
-        <ChevronDown className={`size-3.5 shrink-0 text-muted-foreground/70 transition ${expanded ? 'rotate-180' : ''}`} aria-hidden />
+        {solo && soloRadius && <span className="max-w-[38%] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">{soloRadius}</span>}
+        <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground/50 transition group-hover/work:text-muted-foreground ${expanded ? 'rotate-90' : ''}`} aria-hidden />
       </button>
       {expanded && (
         <>
@@ -591,7 +606,7 @@ function TraceTimeline({ trace, streaming, activity, documents = [], inspect = 0
               </button>
             </div>
           )}
-          <ol className="mt-1 flex flex-col rounded-lg border border-border/60 bg-muted/10 px-3">
+          <ol className="mt-0.5 flex flex-col border-l border-border/50 pl-3" data-testid="work-steps">
             {reasons.length > 0 && (
               <ClaimLine
                 id="__reasoning__"
@@ -687,8 +702,8 @@ function ClaimLine({ id, icon, label, detail, radius, error, open, onToggle, chi
   children: React.ReactNode;
 }) {
   return (
-    <li className="border-b border-border/40 last:border-b-0" data-claim={id}>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 py-1.5 text-left text-xs transition hover:text-foreground">
+    <li data-claim={id}>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 py-1 text-left text-xs transition hover:text-foreground">
         <span className="grid size-4 shrink-0 place-items-center">{icon}</span>
         <span className="min-w-0 flex-1 truncate text-[13px]">
           <span className={`font-medium ${error ? 'text-[var(--brand-fail)]' : 'text-foreground/85'}`}>{label}</span>
@@ -743,7 +758,9 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
   const livePending = pending.length > 0
     ? describeToolCall(pending[pending.length - 1]!.name, pending[pending.length - 1]!.input ?? {}, true).label
     : null;
-  const headerText = streaming ? (activity ?? livePending ?? 'Working…') : `Worked it out · ${summary}`;
+  const legacyKind = (k: Kind): 'tool' | 'search' | 'delegate' | 'draft' => (k === 'delegation' ? 'delegate' : k === 'search' ? 'search' : k === 'draft' || k === 'proposal' ? 'draft' : 'tool');
+  const headline = stepHeadline(nodes.map(n => ({ kind: legacyKind(n.kind), status: n.state === 'pending' ? 'progress' : n.state, label: n.label })), sources);
+  const headerText = streaming ? (activity ?? livePending ?? 'Working…') : headline;
 
   return (
     <div className="my-2">
@@ -751,13 +768,14 @@ function LegacyWorkTimeline({ runs, streaming, activity, thinkingText, documents
         type="button"
         onClick={() => hasDetail && setOpen(v => !v)}
         aria-expanded={open}
+        aria-label={streaming ? headerText : `${headline} · ${summary}`}
         disabled={!hasDetail}
-        className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-left text-xs text-muted-foreground transition enabled:hover:text-foreground"
+        className="flex w-full items-center gap-2 py-1 text-left text-xs text-muted-foreground/75 transition enabled:hover:text-foreground"
       >
         {streaming
           ? <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-amber-deep" aria-hidden />
-          : <Brain className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />}
-        <span className="min-w-0 flex-1 truncate font-medium">{headerText}</span>
+          : <Brain className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
+        <span className={`min-w-0 flex-1 truncate ${streaming ? 'work-shimmer font-medium' : ''}`}>{headerText}</span>
         {streaming && elapsed >= 3 && (
           <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
             {elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`}

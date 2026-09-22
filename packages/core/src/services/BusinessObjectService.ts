@@ -2,6 +2,7 @@ import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeI
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
+import { recomputeRollupsForObject } from '@/services/objects/rollups';
 
 /* ------------------------------------------------------------------ */
 /* Object Types                                                        */
@@ -110,6 +111,61 @@ export const createBusinessObject = async (
   return obj;
 };
 
+/**
+ * Create an object, or update the one this org already holds under the same
+ * external key. The key is the owning system's own handle for the record —
+ * `{system: 'deploy', id: 'northwind-web@v1.4.2'}` — and the unique index on
+ * `(org, external_system, external_id)` is what makes a retried write land on
+ * one row instead of two. On update, `metadata` is shallow-merged so a later
+ * call can add what it learned (a post-deploy health result) without
+ * resending what it already said; `title` and `status` replace when present.
+ * Without a key this is a plain create.
+ * @param input - The object and, optionally, its external key.
+ * @param input.typeSlug
+ * @param input.title
+ * @param input.status
+ * @param input.metadata
+ * @param input.externalKey
+ * @param input.externalKey.system
+ * @param input.externalKey.id
+ * @param orgId - Tenant.
+ * @param actorId - Who wrote it, for `created_by`.
+ */
+export const upsertBusinessObjectByExternalKey = async (
+  input: { typeSlug: string; title: string; status?: string; metadata?: Record<string, unknown>; externalKey?: { system: string; id: string } },
+  orgId: string,
+  actorId: string,
+): Promise<{ object: typeof businessObjectSchema.$inferSelect; created: boolean }> => {
+  if (!input.externalKey) {
+    const created = await createBusinessObject({ typeSlug: input.typeSlug, title: input.title, status: input.status, metadata: input.metadata }, orgId, actorId);
+    return { object: created!, created: true };
+  }
+  const objType = await getObjectTypeBySlug(orgId, input.typeSlug);
+  if (!objType) {
+    throw new Error(`Object type "${input.typeSlug}" not found`);
+  }
+  const existing = await db.query.businessObjectSchema.findFirst({
+    where: and(eq(businessObjectSchema.orgId, orgId), eq(businessObjectSchema.externalSystem, input.externalKey.system), eq(businessObjectSchema.externalId, input.externalKey.id)),
+  });
+  if (existing) {
+    const [updated] = await db
+      .update(businessObjectSchema)
+      .set({ title: input.title, ...(input.status === undefined ? {} : { status: input.status }), metadata: { ...(existing.metadata ?? {}), ...(input.metadata ?? {}) } })
+      .where(eq(businessObjectSchema.id, existing.id))
+      .returning();
+    await recomputeRollupsForObject(orgId, existing.id);
+    return { object: updated!, created: false };
+  }
+  const [inserted] = await db
+    .insert(businessObjectSchema)
+    .values({ orgId, typeId: objType.id, title: input.title, status: input.status ?? 'active', metadata: input.metadata ?? {}, externalSystem: input.externalKey.system, externalId: input.externalKey.id, createdBy: actorId })
+    .returning();
+  if (inserted) {
+    await recomputeRollupsForObject(orgId, inserted.id);
+  }
+  return { object: inserted!, created: true };
+};
+
 export const updateBusinessObject = async (input: UpdateBusinessObjectInput, orgId: string) => {
   const updates: Record<string, unknown> = {};
   if (input.title !== undefined) {
@@ -126,7 +182,7 @@ export const updateBusinessObject = async (input: UpdateBusinessObjectInput, org
     updates.summaryGeneratedAt = new Date();
   }
 
-  return db
+  const rows = await db
     .update(businessObjectSchema)
     .set(updates)
     .where(and(
@@ -134,6 +190,10 @@ export const updateBusinessObject = async (input: UpdateBusinessObjectInput, org
       eq(businessObjectSchema.orgId, orgId),
     ))
     .returning();
+  if (rows.length > 0) {
+    await recomputeRollupsForObject(orgId, input.id);
+  }
+  return rows;
 };
 
 export const deleteBusinessObject = async (id: number, orgId: string) => {

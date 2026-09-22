@@ -28,6 +28,9 @@ vi.mock('@/services/agents/providers/agentcore', () => ({ runAgentOnAgentCoreHar
 // The in-process loop is the "neither provider ran" signal. Stubbing the
 // harness keeps the test off deepagents and off a live model.
 vi.mock('@/services/agents/harness', () => ({
+  // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
+  chatModelOptionsFor: () => ({}),
+  chatModelOptionsWithOverride: (_h: unknown, o?: { model: string; provider?: string; thinking?: string }) => (o ? { ...o } : {}),
   buildInitialFiles: vi.fn(async () => ({})),
   compileAgentForRequest: vi.fn(async () => {
     throw new Error('in-process loop reached');

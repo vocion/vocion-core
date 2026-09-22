@@ -6,6 +6,7 @@ import { ChevronRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import { ConfidenceMeter } from '@/components/patterns';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
@@ -28,6 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
   pending: 'Ready for review',
   open: 'Waiting on you',
   approved: 'Approved',
+  awaiting_execution: 'Approved — waiting to be done',
   executing: 'Executing',
   done: 'Done',
   failed: 'Failed',
@@ -85,6 +87,14 @@ export function ReviewHeader(props: {
   extra?: ReactNode;
   onBack?: () => void;
   canBack?: boolean;
+  /**
+   * The header is a LINE. Tightens the block and drops the status dot, for a
+   * screen whose subject is rendered below it as itself — the decision sheet,
+   * where everything the header used to narrate now lives one click behind
+   * "Why this?" (Chris, 2026-09-19: *"too much in the head/header as
+   * context … maybe it should be explorable discoverable if needed"*).
+   */
+  compact?: boolean;
 }) {
   const t = useTranslations('Review');
   const tInbox = useTranslations('Inbox');
@@ -106,7 +116,7 @@ export function ReviewHeader(props: {
   //
   // Chris, 2026-09-17: *"make this bar more concise or visual or… less text?,
   // but with discoverable hover/tooltip if helpful"*. So the grammar goes and
-  // the facts stay: "proposed by revenue-lead" is one fact wearing three words,
+  // the facts stay: "recommended by revenue-lead" is one fact wearing three words,
   // "Recommendation 65%" names the thing the whole page already is, and
   // "(n=9, 30d)" is the working behind the number. Each keeps its full sentence
   // in a tooltip — which is the reduction pass exactly: show the reading, put
@@ -115,15 +125,25 @@ export function ReviewHeader(props: {
   if (props.system) {
     meta.push(<span key="system" className="text-[12px] font-medium tracking-wide text-foreground/70 uppercase">{props.system}</span>);
   }
-  meta.push(
-    <span key="status" className="inline-flex items-center gap-1.5">
-      <span className={cn('size-1.5 rounded-full', RED_STATUSES.has(props.status) ? 'bg-red-500' : props.status === 'paused' || props.status === 'awaiting_review' ? 'bg-amber-500' : 'bg-emerald-500')} aria-hidden />
-      {STATUS_LABEL[props.status] ?? props.status}
-    </span>,
-  );
+  const waiting = props.status === 'paused' || props.status === 'awaiting_review' || props.status === 'awaiting_execution';
+  if (!props.compact || RED_STATUSES.has(props.status) || waiting) {
+    meta.push(
+      <span key="status" className="inline-flex items-center gap-1.5">
+        <span className={cn('size-1.5 rounded-full', RED_STATUSES.has(props.status) ? 'bg-red-500' : waiting ? 'bg-amber-500' : 'bg-emerald-500')} aria-hidden />
+        {STATUS_LABEL[props.status] ?? props.status}
+      </span>,
+    );
+  }
   if (props.proposedBy) {
     const agent = props.proposedBy.replace('agent:', '');
-    meta.push(<span key="by" title={`Proposed by ${agent}`}>{agent}</span>);
+    meta.push(
+      <Tooltip key="by">
+        <TooltipTrigger asChild>
+          <span>{agent}</span>
+        </TooltipTrigger>
+        <TooltipContent>{`Recommended by ${agent}`}</TooltipContent>
+      </Tooltip>,
+    );
   }
   if (props.confidence !== undefined) {
     // Never a bare score: the meter carries what the confidence is IN.
@@ -133,14 +153,14 @@ export function ReviewHeader(props: {
   if (props.alignment && alignmentRate !== null) {
     const a = props.alignment;
     meta.push(
-      <span
-        key="alignment"
-        className="tabular-nums"
-        data-testid="alignment-score"
-        title={`You have agreed with this agent ${Math.round(alignmentRate * 100)}% of the time — ${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind in the last ${a.window === 'all' ? 'all time' : a.window}`}
-      >
-        {`${Math.round(alignmentRate * 100)}% aligned`}
-      </span>,
+      <Tooltip key="alignment">
+        <TooltipTrigger asChild>
+          <span className="tabular-nums" data-testid="alignment-score">{`${Math.round(alignmentRate * 100)}% aligned`}</span>
+        </TooltipTrigger>
+        <TooltipContent>
+          {`You have agreed with this agent ${Math.round(alignmentRate * 100)}% of the time — ${a.n} decided recommendation${a.n === 1 ? '' : 's'} of this kind in the last ${a.window === 'all' ? 'all time' : a.window}`}
+        </TooltipContent>
+      </Tooltip>,
     );
   }
   if (suggestion) {
@@ -151,7 +171,7 @@ export function ReviewHeader(props: {
   }
 
   return (
-    <header className="mb-2 border-b border-rule pb-5" data-testid="review-header">
+    <header className={cn('border-b border-rule', props.compact ? 'pb-3' : 'mb-2 pb-5')} data-testid="review-header">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-[12px] text-muted-foreground">
         {crumbs.map((c, i) => (
           <span key={`${c.href ?? ''}|${c.label}`} className="flex min-w-0 items-center gap-1">
@@ -181,9 +201,9 @@ export function ReviewHeader(props: {
         own row; and the cluster is allowed to shrink, so its already-`truncate`d
         Up-next label truncates instead of pushing.
       */}
-      <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div className={cn('flex flex-wrap items-end justify-between gap-x-6 gap-y-3', props.compact ? 'mt-1.5' : 'mt-3')}>
         <div className="min-w-0 flex-1 basis-80">
-          <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.01em] text-balance">{title}</h1>
+          <h1 className={cn('leading-tight font-semibold tracking-[-0.01em] text-balance', props.compact ? 'text-[19px]' : 'text-[22px]')}>{title}</h1>
           {props.subtitle && <p className="mt-1 text-sm text-muted-foreground">{props.subtitle}</p>}
           {subject && (subline || subject.href) && (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -211,7 +231,7 @@ export function ReviewHeader(props: {
           {props.extra}
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] text-muted-foreground" data-testid="review-meta">
+      <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] text-muted-foreground', props.compact ? 'mt-1.5' : 'mt-3')} data-testid="review-meta">
         {meta.map((node, i) => (
           <span key={(node as { key: string }).key} className="inline-flex items-center gap-x-2">
             {node}

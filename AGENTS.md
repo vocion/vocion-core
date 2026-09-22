@@ -70,6 +70,8 @@ npm run dev:next            # Next.js only, against the Postgres from step 3
 ```
 
 `npm run workspace:check` is `workspace:apply --dry-run`: it validates and diffs without writing.
+It needs no database: with none reachable it still validates every manifest and reports what it
+would apply, with created/updated left `unknown` (this is how the deploy repos' PR check runs it).
 Run it before every apply. Each apply writes a `workspace_version` audit row, and every
 `tool_call` is stamped with the `workspace_sha`, so any output traces back to the exact authored
 files that produced it.

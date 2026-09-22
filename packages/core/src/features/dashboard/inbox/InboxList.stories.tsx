@@ -33,7 +33,7 @@ type Story = StoryObj<typeof InboxList>;
 function item(over: Partial<InboxItem> & Pick<InboxItem, 'key' | 'kind' | 'title'>): InboxItem {
   return {
     shape: 'single',
-    subline: 'Contoso Supply › hubspot.update › proposed by revenue-lead',
+    subline: 'Contoso Supply › hubspot.update › recommended by revenue-lead',
     agentSlug: 'revenue-lead',
     teamSlug: 'revenue',
     risk: null,
@@ -66,6 +66,8 @@ const INBOX: Inbox = {
     actionKinds: [{ id: 'hubspot.update', count: 2 }],
     agents: [{ slug: 'revenue-lead', count: 2 }, { slug: 'proposal-writer', count: 1 }],
   },
+  reclassified: [],
+  policyGaps: [],
 };
 
 export const Open: Story = {

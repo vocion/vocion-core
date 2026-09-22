@@ -13,6 +13,23 @@ describe('evaluateDocument', () => {
     expect(verificationChip(v, 3)).toBe('3 sheets · verified');
   });
 
+  it('names every class used with no rule, because each is a component drawn as a bare div', () => {
+    const v = evaluateDocument({ sheets: [sheet(1, 984)], pdfPages: 1, unresolvedAssets: [], undefinedClasses: ['ovcards', 'ovc', 'oht'] });
+
+    expect(v.ok).toBe(false);
+    expect(v.undefinedClasses).toEqual(['ovcards', 'ovc', 'oht']);
+    expect(v.issues[0]).toContain('3 classes used with no rule');
+    expect(v.issues[0]).toContain('ovcards, ovc, oht');
+    expect(verificationReceipt(v, { images: false })).toContain('ovcards');
+  });
+
+  it('carries an empty class list through without a word about it', () => {
+    const v = evaluateDocument({ sheets: [sheet(1, 984)], pdfPages: 1, unresolvedAssets: [] });
+
+    expect(v.undefinedClasses).toEqual([]);
+    expect(v.ok).toBe(true);
+  });
+
   it('names the sheet whose footer moved, and the overflow that moved it', () => {
     const v = evaluateDocument({ sheets: [sheet(1, 984), sheet(2, 984), sheet(3, 1052, 68)], pdfPages: 3, unresolvedAssets: [] });
 

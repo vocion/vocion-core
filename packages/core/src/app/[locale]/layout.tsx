@@ -4,7 +4,9 @@ import { setRequestLocale } from 'next-intl/server';
 import { ThemeProvider } from 'next-themes';
 import { Inter, Outfit } from 'next/font/google';
 import { notFound } from 'next/navigation';
+import { titlePrefix } from '@/libs/envLabel';
 import { routing } from '@/libs/I18nRouting';
+import { AppConfig } from '@/utils/AppConfig';
 import '@/styles/global.css';
 
 // v0.3 — typography stack ported from rev-ai.
@@ -30,7 +32,19 @@ const inter = Inter({
 // Icons are wired via the auto-discovered `app/icon.tsx` +
 // `app/apple-icon.tsx` files — they render the Vocion mark
 // dynamically at the right sizes. No static icons config needed.
-export const metadata: Metadata = {};
+/**
+ * Every page title carries the environment, when there is one to carry.
+ *
+ * `template` applies to any child route that sets a string title; `default`
+ * covers the ones that set none. In production `titlePrefix()` is empty and
+ * this is the same object it always was.
+ */
+export const metadata: Metadata = {
+  title: {
+    template: `${titlePrefix()}%s`,
+    default: `${titlePrefix()}${AppConfig.name}`,
+  },
+};
 
 export const viewport: Viewport = {
   width: 'device-width',

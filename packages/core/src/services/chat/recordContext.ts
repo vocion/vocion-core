@@ -15,6 +15,8 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   team: id => `/dashboard/teams/${encodeURIComponent(id)}`,
   mission: id => `/dashboard/missions/${encodeURIComponent(id)}`,
   mission_run: id => `/dashboard/missions/runs/${encodeURIComponent(id)}`,
+  // Skills and playbooks share one catalog and one page.
+  playbook: id => `/dashboard/skills/${encodeURIComponent(id)}`,
   object: id => (id.includes(':') ? undefined : `/dashboard/objects/${encodeURIComponent(id)}`),
   deal: () => undefined,
   worker_run: id => `/dashboard/team-report/${encodeURIComponent(id)}`,
@@ -22,6 +24,9 @@ const ROUTES: Record<RecordType, (id: string) => string | undefined> = {
   artifact: id => `/dashboard/artifacts/${encodeURIComponent(id)}`,
   document: id => `/dashboard/search/${encodeURIComponent(id)}`,
   lead: id => `/gtm/lead/${encodeURIComponent(id.split(':').pop() ?? id)}`,
+  // An outcome on the Work queue. The queue's own `rowLink` opens the same
+  // page, so a chip and a row lead to one place.
+  request: id => `/dashboard/p/feature/${encodeURIComponent(id)}`,
   // A `@page` tag points at wherever the person already is — no record route.
   page: () => undefined,
 };

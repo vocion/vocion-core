@@ -13,24 +13,21 @@ import { Link } from '@/libs/I18nNavigation';
 import { listCatalog, listUnhired } from '@/services/CatalogService';
 
 /**
- * Marketplace — the third tab of "Teams & agents", listing catalog entries
- * this workspace has not hired.
+ * Marketplace · Agents for hire — the second tab: the catalog roles this
+ * workspace has not hired yet. Hiring happens on the profile
+ * (`/dashboard/marketplace/<slug>`), where somebody has actually seen what
+ * they are hiring, so a card carries a role, its description and a link — no
+ * readiness badge and no counts of what an implementation still has to author,
+ * because browsing a catalog is reading.
  *
- * The org chart, the roster and who you could still hire are one thing seen
- * three ways, so this is a tab on `/dashboard/teams` rather than a page of
- * its own: one row in `dashboardNav.ts` gives the tab strip, the sidebar,
- * the palette and the breadcrumb, and they cannot disagree.
- *
- * A card carries a role, its description, and a link to the profile. That is
- * all. No readiness badge and no counts of what an implementation still has
- * to author — browsing a catalog is reading, and the profile page is where
- * the system prompt, the skills and the detail belong. Hiring happens there,
- * where somebody has actually seen what they are hiring.
+ * A static segment under `/dashboard/marketplace`, so it shadows the agent
+ * profile's `[slug]` — `catalog-reserved-segments.test.ts` pins that no
+ * catalog entry is ever slugged `agents`.
  */
 
 export const metadata: Metadata = { title: combinedPageTitle('/dashboard/marketplace') };
 
-export default async function MarketplacePage(props: {
+export default async function MarketplaceAgentsPage(props: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await props.params;
@@ -42,27 +39,27 @@ export default async function MarketplacePage(props: {
   // catalog" — two very different empty states that must not share a screen.
   const catalogSize = listCatalog().length;
 
-  return <MarketplaceScreen entries={entries} catalogSize={catalogSize} />;
+  return <AgentsForHireScreen entries={entries} catalogSize={catalogSize} />;
 }
 
 /**
  * Sync wrapper so the body can use `useTranslations` (RSC-safe); the async
  * page above only awaits data.
- * @param root0
+ * @param root0 - Props.
  * @param root0.entries - Catalog entries not yet hired.
  * @param root0.catalogSize - Total entries on disk, to tell the empty states apart.
  */
-function MarketplaceScreen({ entries, catalogSize }: { entries: CatalogEntry[]; catalogSize: number }) {
+function AgentsForHireScreen({ entries, catalogSize }: { entries: CatalogEntry[]; catalogSize: number }) {
   const t = useTranslations('Marketplace');
 
   return (
     <>
-      <CombinedPageHeader active="/dashboard/marketplace" description={t('title_bar_description')} />
+      <CombinedPageHeader active="/dashboard/marketplace" description={t('agents_tab_description')} />
 
       {entries.length === 0
         ? <EmptyState hasCatalog={catalogSize > 0} />
         : (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {entries.map(entry => <MarketplaceCard key={entry.slug} entry={entry} />)}
             </div>
           )}
@@ -73,7 +70,7 @@ function MarketplaceScreen({ entries, catalogSize }: { entries: CatalogEntry[]; 
 /**
  * One catalog entry. Same anatomy as the team card next door — hairline
  * border, accent dot, soft hover — rather than a second card style beside it.
- * @param root0
+ * @param root0 - Props.
  * @param root0.entry - The catalog entry to render.
  */
 function MarketplaceCard({ entry }: { entry: CatalogEntry }) {
@@ -118,7 +115,7 @@ function MarketplaceCard({ entry }: { entry: CatalogEntry }) {
 /**
  * Two genuinely different outcomes, never one blank screen: everything has
  * been hired, or this deployment carries no catalog at all.
- * @param root0
+ * @param root0 - Props.
  * @param root0.hasCatalog - Whether any entries exist on disk.
  */
 function EmptyState({ hasCatalog }: { hasCatalog: boolean }) {
@@ -126,7 +123,7 @@ function EmptyState({ hasCatalog }: { hasCatalog: boolean }) {
 
   if (!hasCatalog) {
     return (
-      <div className="mt-6 rounded-xl border border-dashed border-border px-5 py-6">
+      <div className="rounded-xl border border-dashed border-border px-5 py-6">
         <div className="text-sm font-semibold">{t('none_title')}</div>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t('none_body')}</p>
       </div>
@@ -134,7 +131,7 @@ function EmptyState({ hasCatalog }: { hasCatalog: boolean }) {
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-border/70 px-5 py-6">
+    <div className="rounded-xl border border-border/70 px-5 py-6">
       <div className="text-sm font-semibold">{t('empty_title')}</div>
       <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t('empty_body')}</p>
       <Link

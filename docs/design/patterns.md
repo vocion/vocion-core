@@ -136,11 +136,26 @@ not fork one locally.
   (a list of facts). Empty segments are dropped, so a missing fact leaves no
   dangling separator. One line, truncated.
 - **columns** — right-aligned `<Column>`s at the `COLUMN` widths, in a fixed
-  order per page, `tabular-nums`, hidden below `sm` unless `always`.
+  order per page, `tabular-nums`, hidden below `sm` unless `always`. Facts:
+  they sit inside the row link, so the whole row is one click target.
+- **columnsAside** — the same columns, for a row where one of them clicks
+  through to somewhere of its own (a chip that opens the document). They
+  render beside the link instead of inside it. Pass a row's WHOLE set here
+  when any one column is interactive, so the order down the list never
+  changes; the chip follows them out, so it is always columns-then-chip.
 - **chip** — the row's state, always visible.
 - **actions** — hover- and focus-revealed verbs. Always visible on touch.
   When a row both navigates and has actions, the link covers the record and
   the verbs sit beside it — never a button inside an anchor.
+  `actionsAlways` pins them visible for a row whose verb IS the point of the
+  row — a Proposals row with nothing drafted, where Draft is the only thing to
+  do. A list decides that by state, never per row, and the state is visible
+  beside it.
+
+The rule behind the last two: **the link covers the record; anything that
+clicks through to somewhere else sits beside it.** An anchor or a button
+inside an anchor is invalid HTML — the browser closes the outer link at that
+point and React's hydration fails on the mismatch.
 
 ### Header and filter anatomy
 
@@ -860,6 +875,16 @@ component.
   to talk about what you found is the link out.
 - **A preview is a place.** It lives in the URL (`?preview=<type>:<id>`), so it
   is linkable, survives a reload, and Back closes it.
+- **The in-page pane is the one exception, and it is narrow.** A pane that is
+  part of the page rather than the rail — the review sheet's context pane —
+  mounts `PreviewPane` directly with `doc` (content the page already assembled
+  on the server, so there is no round trip), `onClose` (its own local
+  selection, so the global `?preview=` is untouched and the rail does not paint
+  a second copy of the same record) and `compact` (drops Share and "Chat about
+  this", which do not fit a 288px column and would take the reader off the
+  decision). It is still the same anatomy and the same `back` affordance — one
+  preview component, two hosts. Anything that points at a record *elsewhere*
+  still goes through `EvidenceRefs` / `PreviewRef` and paints in the rail.
 
 ### Adding a type
 
@@ -890,6 +915,118 @@ Search (`SearchResults`) and Artifacts (`ArtifactLog`).
 
 ---
 
+# One artifact header, and one scroller per column
+
+Two rules about the surfaces that show ONE artifact — the preview pane beside a
+conversation, the artifact's own page, and the full-screen `/open` wrapper for a
+document. Both arrived on the same day, from the same review.
+
+## The header is one component; a surface omits a verb, it never redraws it
+
+`features/dashboard/artifacts/ArtifactHeader.tsx` owns three things and nothing
+else: **the title and kind/version line**, **the tab strip**, and **the action
+set**. Every surface wears it.
+
+```text
+┌ ArtifactHeader ───────────────────────────────────────────────────────┐
+│ Northwind — Proposal          DOCUMENT  v6 · Proposal writer · Sep 17  │
+│                            ⟨ save · history · chat · pdf · open ·     │
+│                              export · share · close ⟩                 │
+├───────────────────────────────────────────────────────────────────────┤
+│ [▣ Document] [</> HTML] [⛨ Findings ⑨]      Add to a folder · 5 sheets │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+Which verbs appear is a **pure rule**, `actionsFor(surface, artifact)` in
+`headerRules.ts`, and the omissions are the content of it:
+
+| | pane (beside a chat) | page (`/artifacts/<id>`) | `/open` |
+|---|---|---|---|
+| Open in chat | **no** — the pane IS a chat with this open beside it | yes | yes |
+| Close | yes | no — a page has no column to give back | no |
+| History / Save / Export / Share | yes | yes | no — a read of ONE version |
+| PDF / Open full screen | document only | document only | PDF only |
+
+**A surface that cannot support a verb omits it. It never renders a
+different-looking version of it** (design principle 6). The page had no way into
+a chat and the pane had a one-way HTML button precisely because each surface
+assembled its own row; one function answering the question for all three is what
+makes "the same vocabulary everywhere" checkable rather than asserted.
+
+### More than one view of one artifact is a tab strip, never a one-way button
+
+`tabsFor(artifact)` — also pure — gives a **document** three views of itself and
+every other kind none, because one view needs no chrome:
+
+- **Document** — the rendered sheets. The default.
+- **HTML** — the hand-edit view. It is a tab, so you can leave it.
+- **Findings** — the render-verify issues and the sceptical-buyer read, together,
+  with a count. **Amber only when something blocks**; an empty state when there
+  is nothing, because "nothing to answer" is a thing a person wants to check.
+
+`role="tablist"`, arrows and Home/End walk it, icon-led with the label above
+`@md` and a real `Tooltip` below it — never a native `title=`. The choice is
+remembered per artifact in `localStorage`, inside try/catch.
+
+**Where it came from.** Chris, 2026-09-18: *"I don't have any way to switch back
+to View from HTML. Can we turn that into an icon-y tab system"*, and *"11
+findings — i don't like that location. can we hide this in a tab icon like
+HTML."* The findings were two amber `<details>` blocks stacked above the
+document, pushing it down the pane and shouting at somebody who came to read it.
+
+### The meta line carries what you need BEFORE opening the document
+
+The sheet count and the verify verdict. That is all. The red-team state is the
+Findings badge; `PDF N pages` is the PDF action's tooltip. *"This is probably too
+much context to view at once, it's not more important than getting into the
+doc."*
+
+## The window never scrolls; one scroller per column
+
+The shell is exactly the viewport tall (`h-svh`, `AppShell`) and the **page
+gutter** is the scroller (`features/dashboard/PageWidth.tsx`). The sidebar, the
+top bar and every pane header stay put.
+
+A route that is a two-pane working surface declares itself in
+`features/navigation/pageWidth.ts` — `isViewportFitPath` beside `isFullBleedPath`
+— and then the gutter does not scroll either: the page lays itself out to the
+height it was given with `h-full`, and the scrolling happens inside its panes.
+One scroller per column:
+
+```text
+chat + artifact   conversation → MessageList scrolls
+                  document     → the document scrolls INSIDE its own iframe
+artifact page     the pane's body scrolls, or the document does
+every other page  the gutter scrolls. Once.
+```
+
+**A page never guesses at the chrome above it.** `h-[calc(100vh-6rem)]` against
+8rem of real chrome is what put a third scrollbar on the window and carried the
+whole shell with it; `h-full` is the height the shell measured. The guess is now
+impossible because there is nothing to guess.
+
+**Where it came from.** Chris, 2026-09-18: *"I've got ugly scroll in scroll for
+the doc"*, then *"scroll in scroll bug for chat / overall window too"* — three
+scrollbars at once on `/dashboard/chat/<id>?artifact=<id>` at 1920.
+
+## The document is the client's page; the app's chrome belongs to the app
+
+A rendered document may not carry the app's controls. The house framework kept
+emitting `<div class="actions"><a onclick="window.print()">⤓ PDF</a></div>` over
+the client's first sheet however often the skill said not to, and an agent
+eventually hand-patched a malformed variant of it. Asking again is the wrong
+lever: `stripDocumentChrome` (`libs/documents/sheets.ts`) removes it
+deterministically — before the engine verifies, before it stores, and again on
+the way out of `/api/artifacts/<id>/document.html` and into the pane's srcdoc, so
+rows written before the transform came along are clean too. Printing is the
+app's verb, beside the PDF the renderer already made.
+
+This is *structural over prompting* (`CLAUDE.md`) with a UI consequence: a
+required rendering behaviour that the prompt cannot guarantee is enforced in
+code.
+
+---
+
 # Everything stacked above a composer shares its column
 
 Context chips, queued messages, `@` tag chips, anchored-comment chips, the
@@ -897,3 +1034,39 @@ pasted-text chip. One padding rule, expressed in the composer container
 (`ChatComposer`'s `above` slot), never per child — a child that guesses at the
 inset is a child that ends up flush against the rail edge while the box beside
 it is inset.
+
+---
+
+# The composer bar is one control tall, and bottom-aligned
+
+Four things sit in that bar — `(+)`, the gauge, the text, the send button — and
+until 2026-09-19 they sat on four different optical centres, because the row
+bottom-aligned three different heights: a 32px ghost, a 36px send button and a
+24px box holding a 22.8px line. Measured at 1920: send at 27px from the top of
+the box, `(+)` and the gauge at 29px, the first line of text at 32.4px. Chris:
+*"tighten or clean up vertical alignment of elements in chat bar"*.
+
+**The rule, in `features/dashboard/chat/composerBar.ts`:** every control is
+`CONTROL_PX` (32px) tall, one line of text is exactly `CONTROL_PX` tall — a
+fixed 24px line box plus 4px above and below, so 14px and 16px text share a row
+— and the row keeps `items-end`.
+
+Bottom-aligned rather than centred, because the box grows DOWNWARD as it fills:
+the controls belong beside the line the person is typing, not floating at the
+middle of a paragraph. And because one line is exactly one control, *bottom-
+aligned* and *centred* are the same picture when the box is empty. Every
+control's centre is the last line's centre at every height (25px empty, 97px at
+four lines, on both surfaces and both widths).
+
+32px because that is already the repo's round-ghost control size
+(`PanelCloseButton`, and `(+)` and the gauge themselves); the send button
+joined them rather than the other way round, and stays the primary action by
+fill, not by being bigger. The box caps at eight whole lines so the cap never
+leaves half a line above the controls.
+
+**The touch target grows, not the control.** A control that grew to 44px on a
+phone would stop being one line tall and break the rule, so the hit area grows
+instead — a `pointer-coarse:` pseudo-element at `-inset-1.5` (32 + 6 + 6 = 44),
+with the row's gap opening to 12px there so two 44px targets sit side by side
+rather than overlapping. This is the one place that does NOT follow
+`min-h-11 sm:min-h-0`, and the reason is geometric.

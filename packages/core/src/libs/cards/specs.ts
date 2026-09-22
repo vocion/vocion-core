@@ -35,6 +35,27 @@ export type DataTableSpec = z.infer<typeof dataTableSpecSchema>;
 export const markdownSpecSchema = z.object({
   title: z.string().optional(),
   md: z.string().min(1).max(60_000),
+  /** One line the log and an index show under the title — a wiki page's summary. */
+  summary: z.string().max(200).optional(),
+  /**
+   * Where a page came from when a workspace repo seeded it (`wiki/<slug>.md`,
+   * `libs/workspace/wiki-pages.ts`). `sha` is the file's content hash as last
+   * applied and `version` the artifact version that apply wrote, so the next
+   * apply can tell "the file changed" from "someone edited the page in the
+   * app" without a second history. `managed: false` seeds once and never
+   * again; `orphanedAt` is set once when the file is gone and the page kept.
+   */
+  seed: z.object({
+    sha: z.string().min(1),
+    path: z.string().min(1),
+    appliedAt: z.string().min(1),
+    version: z.number().int().positive(),
+    managed: z.boolean(),
+    workspaceSha: z.string().optional(),
+    order: z.number().optional(),
+    tags: z.array(z.string()).optional(),
+    orphanedAt: z.string().optional(),
+  }).optional(),
 });
 export type MarkdownSpec = z.infer<typeof markdownSpecSchema>;
 
@@ -147,17 +168,78 @@ export const documentVerificationSchema = z.object({
   /** Served URL of the PDF the verification printed, when one was. */
   pdf: z.string().optional(),
   unresolvedAssets: z.array(z.string().max(300)).max(20).default([]),
+  /**
+   * Classes the markup uses that no rule in the document's own stylesheet
+   * defines — the components that render as bare `<div>`s
+   * (`libs/documents/classAudit.ts`).
+   */
+  undefinedClasses: z.array(z.string().max(80)).max(40).default([]),
+  /**
+   * Sheets carrying no component from the framework's declared vocabulary —
+   * the walls of text (`libs/documents/componentAudit.ts`). A REPORT, never a
+   * refusal: it is listed in the receipt and deliberately does not flip `ok`,
+   * because the spine allows a sheet to be prose when prose is right.
+   */
+  proseSheets: z.array(z.object({ n: z.number().int(), label: z.string().max(120) })).max(40).default([]),
   issues: z.array(z.string().max(300)).max(40).default([]),
   ok: z.boolean(),
 });
 export type DocumentVerification = z.infer<typeof documentVerificationSchema>;
+
+/** How hard a red-team finding pushes back: `block` is not sent. */
+export const DOCUMENT_FINDING_SEVERITIES = ['block', 'fix', 'consider'] as const;
+export type DocumentFindingSeverity = typeof DOCUMENT_FINDING_SEVERITIES[number];
+
+/** One thing a sceptical buyer would stop on, with the sheet and the edit that answers it. */
+export const documentRedTeamFindingSchema = z.object({
+  sheet: z.number().int().min(0),
+  severity: z.enum(DOCUMENT_FINDING_SEVERITIES),
+  /** The rubric rule it breaks, in a few words: "outcome promised". */
+  rule: z.string().min(1).max(80),
+  /** What a buyer would read, quoting the sheet where it helps. */
+  finding: z.string().min(1).max(400),
+  /** The edit that answers it. */
+  fix: z.string().min(1).max(300),
+});
+export type DocumentRedTeamFinding = z.infer<typeof documentRedTeamFindingSchema>;
+
+/**
+ * The red team a document carries, written the same way `verification` is:
+ * onto the spec of the version that was read, so "has THIS version been read
+ * as the buyer, and did it come back clean" is answerable from the row with
+ * no model call — which is what the export gate asks
+ * (`services/documents/exportGate.ts`).
+ *
+ * `version` is the artifact version whose HTML was read. Recording the read
+ * is itself a version, like a render-verify, so the row that carries the
+ * receipt is `version + 1`; the freshness test is therefore PRESENCE, not the
+ * number. `documentSpec()` only carries the receipt forward when the HTML did
+ * not change, so any edit drops it and the document is unread again.
+ */
+export const documentRedTeamSchema = z.object({
+  at: z.string(),
+  version: z.number().int().nonnegative(),
+  /** The model that read it, so a receipt can say who said so. */
+  model: z.string().max(120),
+  /** How many sheets were read. */
+  sheets: z.number().int().nonnegative(),
+  blocks: z.number().int().nonnegative(),
+  fixes: z.number().int().nonnegative(),
+  considers: z.number().int().nonnegative(),
+  /** The findings themselves, blocks first, capped so a spec stays a spec. */
+  findings: z.array(documentRedTeamFindingSchema).max(20).default([]),
+  /** What to keep, so the fixes do not erase it. */
+  keeps: z.string().max(400).optional(),
+});
+export type DocumentRedTeam = z.infer<typeof documentRedTeamSchema>;
 
 /**
  * A paginated, print-ready HTML document — US-Letter `.sheet`s that print to
  * the PDF a client reads. The HTML is self-contained (styles inline, assets as
  * data URIs); the engine (`libs/documents/`) renders, measures and prints it.
  * `sheets` is the count parsed at write time; `verification` is the last
- * render-verify pass over this exact version.
+ * render-verify pass over this exact version, and `redTeam` the last read of
+ * it as the sceptical buyer.
  */
 export const documentSpecSchema = z.object({
   title: z.string().optional(),
@@ -166,14 +248,39 @@ export const documentSpecSchema = z.object({
   /**
    * Which playbook shaped it — `proposal`, `scope`, `partnership-update`,
    * `email-copy`, `work-sample`… A tag the log filters on and a skill can
-   * name; free text so a workspace's playbooks need no core change.
+   * name; free text so a workspace's playbooks need no core change. It is
+   * also what says whether the document is client-facing, and so whether the
+   * export gate applies (`defaults.clientFacingPlaybooks`).
    */
   playbook: z.string().max(60).optional(),
   verification: documentVerificationSchema.optional(),
+  redTeam: documentRedTeamSchema.optional(),
 });
 export type DocumentSpec = z.infer<typeof documentSpecSchema>;
 
-export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document'] as const;
+/**
+ * A workspace mission's YAML, mirrored from its file so it edits like an
+ * artifact (`libs/workspace/source.ts`). The file is the source of truth; the
+ * applier keeps this in step, and a Save in the pane writes the FILE first.
+ */
+export const missionSpecSchema = z.object({
+  slug: z.string().min(1).max(120),
+  yaml: z.string().min(1).max(60_000),
+});
+export type MissionSourceSpec = z.infer<typeof missionSpecSchema>;
+
+/**
+ * A SKILL.md — a playbook or a skill — mirrored whole (frontmatter and body)
+ * from its workspace folder. `kind` says which folder; the page is the same.
+ */
+export const playbookSpecSchema = z.object({
+  slug: z.string().min(1).max(120),
+  kind: z.enum(['skill', 'playbook']),
+  md: z.string().min(1).max(200_000),
+});
+export type PlaybookSourceSpec = z.infer<typeof playbookSpecSchema>;
+
+export const ARTIFACT_KINDS = ['table', 'markdown', 'chart', 'record', 'link', 'file', 'sequence', 'document', 'mission', 'playbook'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /** Card slug per artifact kind — the `__card` the canvas/chat resolve with. */
@@ -186,6 +293,8 @@ export const CARD_SLUG_FOR_KIND: Record<ArtifactKind, string> = {
   file: 'link',
   sequence: 'sequence',
   document: 'document',
+  mission: 'mission',
+  playbook: 'playbook',
 };
 
 export const SPEC_SCHEMA_FOR_KIND = {
@@ -197,6 +306,8 @@ export const SPEC_SCHEMA_FOR_KIND = {
   file: fileSpecSchema,
   sequence: sequenceSpecSchema,
   document: documentSpecSchema,
+  mission: missionSpecSchema,
+  playbook: playbookSpecSchema,
 } as const;
 
 /**

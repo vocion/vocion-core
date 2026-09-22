@@ -69,12 +69,30 @@ export function DetailPage(props: {
             </span>
           ))}
         </nav>
+        {/*
+          The title and the controls share one wrapping flex line, and the
+          title's BASIS is what makes the wrap real.
+
+          `flex-1` alone means `flex-basis: 0`: an item with a zero basis has a
+          hypothetical main size of zero, never contributes to the line's
+          overflow, and so the line never wraps — while a `shrink-0` cluster
+          beside it takes every pixel it wants out of the title, down to its
+          `min-w-0` floor. That is how a 22px heading ends up 215px wide and
+          broken one phrase per line on a page with 800px spare. Neither a
+          `min-width` on the H1 nor a `max-width` on the cluster fixes it; they
+          only move where the squeeze lands.
+
+          So: the title gets a real basis (20rem), which is the width below
+          which the line is genuinely too tight and the controls should drop to
+          their own row; and the cluster may shrink, so its own truncating
+          labels truncate instead of pushing.
+        */}
         <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.01em] break-words">{title}</h1>
+          <div className="min-w-0 flex-1 basis-80">
+            <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.01em] text-balance">{title}</h1>
             {props.subtitle && <p className="mt-1 text-sm text-muted-foreground">{props.subtitle}</p>}
           </div>
-          {props.actions && <div className="flex shrink-0 items-center gap-2 text-[13px] text-muted-foreground">{props.actions}</div>}
+          {props.actions && <div className="flex min-w-0 shrink flex-wrap items-center gap-2 text-[13px] text-muted-foreground sm:flex-nowrap">{props.actions}</div>}
         </div>
         {props.meta}
       </header>
@@ -96,11 +114,15 @@ export function DetailPage(props: {
  * @param props.className
  */
 export function DetailColumns(props: { aside?: ReactNode; children: ReactNode; className?: string }) {
+  // `grow`: on a page that sets a min-height, the columns fill what is left of
+  // it, so the sticky bar lands at the bottom of the SCREEN instead of under
+  // whichever section happens to be open. On a page that sets none there is no
+  // free space to take, so it changes nothing.
   if (!props.aside) {
-    return <div data-pattern="detail-columns" className={cn('min-w-0', props.className)}>{props.children}</div>;
+    return <div data-pattern="detail-columns" className={cn('min-w-0 grow', props.className)}>{props.children}</div>;
   }
   return (
-    <div data-pattern="detail-columns" className={cn('@container grid gap-x-10 gap-y-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]', props.className)}>
+    <div data-pattern="detail-columns" className={cn('@container grid grow gap-x-10 gap-y-2 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]', props.className)}>
       <div className="min-w-0">{props.children}</div>
       {props.aside}
     </div>

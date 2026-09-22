@@ -1,0 +1,321 @@
+slug: request
+label: Request
+description: >-
+  The single intake noun. A bug report, a feature request filed on a product
+  site, a store review, a support email, a message in chat and an incident are
+  ONE object arriving on different channels — not five types — because the
+  factory's promise is made to the request, whatever door it came through:
+  within a week it is a shipped change, an honest written answer, or a link to
+  the request it duplicates. Everything downstream (triage, the task contract,
+  the merge ask, the reply) hangs off this record by id, which is what makes
+  "nobody asked for this" a checkable claim rather than a feeling.
+icon: inbox
+schema:
+  type: object
+  properties:
+    kind:
+      x-display: {label: Kind, format: badge, group: Triage, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
+      type: string
+      description: >-
+        What sort of thing was asked. `bug` — something promised does not work.
+        `gap` — something expected is missing. `idea` — something new. `incident`
+        — something is down or wrong for people right now. `question` — the
+        asker wants to know, not to change. Decides the default route: bugs and
+        incidents go to severity and a repo; ideas go to the twenty-percent test.
+      enum: [bug, gap, idea, incident, question]
+    channel:
+      x-display: {label: Channel, format: badge, group: Where it came from, tones: {site: info, store_review: warn, email: info, chat: info, github: info, dogfood: ok, internal: muted}}
+      type: string
+      description: The door it came through. Kept because the same request arrives differently by channel — a store review is public and terse, a dogfood note is trusted and specific — and the honest answer goes back the way it came.
+      enum: [site, store_review, email, chat, github, dogfood, internal]
+    product:
+      x-display: {label: Product, format: link, to: product, group: Where it came from}
+      type: string
+      description: Slug of the `product` record this is about. Every request belongs to a product; one that fits none is the first sign it is out of scope.
+    title:
+      x-display: {hidden: true}
+      type: string
+      description: One line, in the asker's terms where possible. The row on the backlog.
+    body:
+      x-display: {label: In their words, role: prose, order: 1}
+      type: string
+      description: The request as it arrived — the asker's own words, unedited. Triage summarises beside it, never instead of it.
+    askedBy:
+      x-display: {label: Asked by, group: Where it came from}
+      type: object
+      description: Who asked. Enough to answer them on their channel; nothing more is kept.
+      properties:
+        name: {type: string}
+        email: {type: string}
+        externalId: {type: string, description: 'Their id on the channel — a store reviewer id, a GitHub login, a chat user — so the reply lands where the request came from.'}
+    askedAt:
+      x-display: {label: Asked}
+      type: string
+      format: date-time
+      description: When they asked. The seven-day clock starts here, not when triage noticed.
+    evidence:
+      x-display: {label: Evidence, role: prose, format: steps, order: 3}
+      type: object
+      description: What the asker gave us to go on. Kept as links and artifact ids so the planner and the reviewer read the same thing the asker saw.
+      properties:
+        urls: {type: array, items: {type: string}}
+        videoUrl: {type: string}
+        screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+    surface:
+      x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
+      type: string
+      description: >-
+        What this change alters for a person, which is what decides whether a
+        visual is owed. `ui` — something they look at. `flow` — a path they
+        follow through the product. `data` / `infra` — the machine underneath,
+        which a person never sees. `none` — nothing user-facing. Set at triage;
+        for work that already shipped it can be read off the diff, since
+        `engineering_task.filesChanged` says which paths it touched.
+      enum: [ui, flow, data, infra, none]
+    visuals:
+      x-display: {label: Visuals, role: prose, format: steps, order: 4}
+      type: object
+      description: >-
+        What this outcome looks like — proposed before it is built, captured
+        after it ships. Core artifacts, never a second noun: an artifact is
+        already the thing that versions, previews and can be cited, so a
+        mockup is an artifact, a flow diagram is an artifact whose body is a
+        mermaid fence, and an after-shot is an image artifact.
+
+        A `ui` or `flow` outcome owes a `before` to be decided and an `after`
+        to be closed. `noVisualReason` is the recorded way out — a way out
+        that is written down, never a silent skip.
+      properties:
+        beforeArtifactIds: {type: array, items: {type: integer}, description: 'Mockups, flow and architecture diagrams — what we propose to build, so a decision is made against something a person can see.'}
+        afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
+        surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
+        noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
+    severity:
+      x-display: {label: Severity, format: badge, group: Triage, tones: {p1: bad, p2: warn, p3: muted}}
+      type: string
+      description: For bugs and incidents. `p1` — people cannot use what was promised, nothing waits overnight. `p2` — promised, broken, worked around. `p3` — wrong but tolerable. Not a priority score for ideas; an idea has value, not severity.
+      enum: [p1, p2, p3]
+    sizeClass:
+      x-display: {label: Size, format: badge, group: Triage, tones: {major: warn, minor: info, patch: muted}}
+      type: string
+      description: 'Size in release terms, not in effort: `major` — a new capability or product, which counts against the initiative limit of one in flight; `minor` — a feature within a product; `patch` — a fix. Decides which release class it rides in and how it is announced.'
+      enum: [major, minor, patch]
+    decisionCost:
+      x-display: {label: Decision minutes, group: Triage}
+      type: integer
+      description: >-
+        Minutes of a person's attention the decision this request will ask for
+        is estimated to take — the honest answer to a question, 1; a merge of a
+        docs change, 1; a merge of a logic change, 5; a pricing or architecture
+        call, 60. Summed across open asks against the daily decision budget by
+        the promoter, so ten small merges cost a coffee and ten architecture
+        asks cost a week.
+    state:
+      x-display: {label: State, format: badge, group: Triage, tones: {new: warn, triaged: info, in_scope: ok, out_of_scope: muted, building: info, shipped: ok, answered: muted}}
+      type: string
+      description: >-
+        Where it stands. `new` — arrived, unread. `triaged` — kind, product and
+        risk tagged, duplicate check done. `in_scope` — it is in the twenty
+        percent; a task will be written. `out_of_scope` — it will not be built,
+        and the honest answer says why. `building` — a task is dispatched.
+        `shipped` — the change merged. `answered` — the reply went back. Every
+        request ends in `shipped`, `answered`, or as a duplicate of one that did.
+      enum: [new, triaged, in_scope, out_of_scope, building, shipped, answered]
+    answer:
+      x-display: {label: The answer given, role: prose, order: 2}
+      type: string
+      description: The honest written answer, when the request will not be built or is a question — in the asker's terms, saying what was decided and why, never "we will consider it". Proposed as a gated reply; a person releases it.
+    answeredAt:
+      x-display: {label: Answered}
+      type: string
+      format: date-time
+      description: When the answer or the shipped change went back to the asker. The seven-day clock stops here.
+    tags:
+      x-display: {label: Tags, group: Triage}
+      type: array
+      description: >-
+        Feature tags, free strings — `onboarding`, `billing`, `search` — the
+        handle a person uses to ask "what has search cost us so far". A
+        request carries as many as fit; the Costs page groups by them, so a
+        request tagged twice is counted under both, and a total under a tag
+        is the cumulative spend on everything that carried it.
+      items: {type: string}
+    taskIds:
+      x-display: {label: Tasks, format: link, to: engineering_task}
+      type: array
+      description: The `engineering_task` records this became. Usually one; several when it spanned repositories.
+      items: {type: integer}
+    estimateCents:
+      x-display: {label: Estimated, format: money, group: Cost}
+      type: integer
+      description: ROLLED UP — the sum of `estimateCents` over the tasks whose `requestId` is this record, in cents. Recomputed by core when any of those tasks' cost is written; read `rollupsUpdatedAt` beside it.
+    actualCents:
+      x-display: {label: Actual, format: money, group: Cost}
+      type: integer
+      description: ROLLED UP — the sum of `actualCents` over the tasks whose `requestId` is this record, in cents. What this feature or bug has actually cost in model spend, every attempt included.
+    varianceCents:
+      x-display: {label: Variance, format: money, group: Cost}
+      type: integer
+      description: ROLLED UP — the sum of the tasks' `varianceCents`; negative is under the estimate.
+    taskCount:
+      x-display: {label: Tasks, group: Cost}
+      type: integer
+      description: ROLLED UP — how many tasks carry this request's id, whatever their status.
+    reworkCents:
+      x-display: {label: Rework, format: money, group: Cost}
+      type: integer
+      description: >-
+        ROLLED UP: the spend on this request's tasks that were `rejected` or
+        `abandoned`: money that produced no accepted outcome and had to be
+        discarded or repeated. A failed attempt that contributed nothing, an
+        implementation replaced by a later one, a retry that was not needed.
+        This is the honest measure of waste. Money spent investigating a
+        request that was then answered honestly is NOT rework, because holding the
+        line is a valid outcome, and the factory is not charged for good
+        judgement.
+    reworkTaskCount:
+      x-display: {label: Discarded attempts, group: Cost}
+      type: integer
+      description: ROLLED UP, how many of this request's tasks were `rejected` or `abandoned`. Zero on a request that has tasks means it was accepted first pass.
+    shippedAt:
+      x-display: {label: Shipped}
+      type: string
+      format: date-time
+      description: >-
+        ROLLED UP: the `releasedAt` of the EARLIEST release whose
+        `requestIds` names this request. There is no record of when a request
+        entered `shipped` (business objects keep no state history), so the
+        deploy that carried it is the honest ship moment. `askedAt` to here is
+        the cycle time the Performance page takes a median of; a request with
+        no release has no ship date and is left out of that median rather than
+        counted as instant.
+    rollupsUpdatedAt:
+      x-display: {label: Cost as of}
+      type: string
+      format: date-time
+      description: When the rolled-up figures above were last recomputed. Empty means no task for this request has had a run end yet.
+    duplicateOf:
+      x-display: {label: Duplicate of, format: link, to: request}
+      type: integer
+      description: The id of the open request this duplicates. Set by triage; the asker is told, and this record ends here.
+    dedupeKey:
+      x-display: {label: Dedupe key, format: mono, group: Where it came from}
+      type: string
+      description: A normalised handle triage computes — product plus the failing surface or the asked-for thing — so the third person reporting the same broken button is linked to the first rather than opening a third task.
+    # ---- What the Product manager adds. Triage tags what a request IS; the
+    # product manager tags who it serves, where it ranks, what was recommended
+    # and what a person decided — and every one of these is written on the
+    # request so the Backlog and Recommendations pages read it from the record.
+    theme:
+      x-display: {label: Theme, group: Triage}
+      type: string
+      description: The job this serves, in the product's own vocabulary — "export", "onboarding", "billing clarity". Set by the product manager's tag audit, not by triage; the handle a backlog is grouped and ranked by.
+    icp:
+      x-display: {label: Who asked, group: Where it came from}
+      type: string
+      description: Who this is for — the ideal customer profile it serves, in the words the product record uses for its people. Set by the product manager; a request that serves nobody the product is for ranks accordingly.
+    source:
+      x-display: {label: Source, format: link}
+      type: string
+      description: Who filed it, when it was not the asker on a channel. `product-manager` marks an idea from the weekly ideas pass, so the Recommendations page can count "ideas of ours" and the ranking can weigh an agent's idea as one source and zero askers.
+    releaseId:
+      x-display: {label: Shipped in, format: link, to: release}
+      type: integer
+      description: The `release` record that shipped this request — the link from an answered request to the deploy that answered it. Written when the request moves to `shipped`; a `shipped` request with no release is what the tag audit names.
+    priority:
+      x-display: {label: Priority, group: Ranking}
+      type: integer
+      description: 'Where it ranks, 0–100, against four inputs and nothing else: the product''s written promises, the twenty-percent test, how many real people asked (duplicates count) and analytics evidence when a source exists. Written by the product manager with its reasons beside it; never a severity, never an effort.'
+      minimum: 0
+      maximum: 100
+    priorityReason:
+      x-display: {label: Why that priority, role: prose, order: 4}
+      type: string
+      description: One to three sentences naming which of the four inputs moved the score and by how much — the promise kept, the count of askers, the analytics figure with its source and date. A priority without this is not written.
+    rankedAt:
+      x-display: {label: Ranked}
+      type: string
+      format: date-time
+      description: When the priority was last scored. Older than the last weekly review reads as stale, and the page says so by showing the date.
+    recommendedAt:
+      x-display: {label: Recommended}
+      type: string
+      format: date-time
+      description: When the product manager put this request in front of a person as a recommendation ask. Its presence is what puts the request on the Recommendations page.
+    recommendationBatch:
+      x-display: {label: Batch, format: mono, group: Ranking}
+      type: string
+      description: The ask group key the recommendation was filed under — `software-factory:batch/<date>` — so a batch reads as one thing on the page and the ten-then-pause rule can be checked from the record.
+    recommendedOutcome:
+      x-display: {label: Proposed, format: badge, group: Ranking, tones: {build: ok, answer: info, decline: warn, merge: muted}}
+      type: string
+      description: 'What the product manager proposed a person do with it: `build` (the planner writes a contract), `answer` (an honest reply, it will not be built), `decline` (the same, when the reason is the twenty-percent rule or a promise), `merge` (it duplicates an open request).'
+      enum: [build, answer, decline, merge]
+    recommendationState:
+      x-display: {label: Decision, format: badge, group: Ranking, tones: {proposed: warn, approved: ok, rejected: bad}}
+      type: string
+      description: '`proposed` — the ask is open and waiting on a person. `approved` — a person chose an outcome. `rejected` — a person said no; the request stays open and out of the next batch.'
+      enum: [proposed, approved, rejected]
+    decidedAt:
+      x-display: {label: Decided}
+      type: string
+      format: date-time
+      description: When the person decided the recommendation. The gap from `recommendedAt` to here is the decision latency the daily check reports.
+    decisionReason:
+      x-display: {label: Their reason, role: prose, order: 5}
+      type: string
+      description: The person's note on their decision, verbatim. On a rejection it is why, and it is quoted in the body if the request is ever recommended again on new evidence.
+    why:
+      x-display: {label: Why, format: badge, group: Why, tones: {user_request: ok, production_bug: bad, blocks_goal: warn, breaks_promise: bad, required_for_dogfood: warn, manual_toil: info, platform_leverage: info, factory_reliability: warn, observed_behaviour: muted}}
+      type: array
+      description: >-
+        Why this, why now. One or more reasons from a closed list, never a
+        number. A priority of 62 explains nothing; `user_request` plus
+        `required_for_dogfood` explains everything a person needs to argue
+        with. REQUIRED on every request triage touches: triage that cannot
+        name a reason has not understood the request, and the honest move is
+        to leave the request `new` and say what is missing rather than to
+        invent one. The list is closed so that "how much of this week went to
+        factory reliability" is answerable across records. Definitions live
+        beside the codes in `libs/workspace/reasonCodes.ts`.
+      items:
+        type: string
+        enum: [user_request, production_bug, blocks_goal, breaks_promise, required_for_dogfood, manual_toil, platform_leverage, factory_reliability, observed_behaviour]
+    whyNote:
+      x-display: {label: Why this, why now, role: prose, order: 6}
+      type: string
+      description: >-
+        The codes grounded in this record's own evidence, in one short line:
+        "3 user asks, dogfood blocker", "run 341 lost $11.86 of finished
+        work". Names the countable thing behind the code, not a restatement
+        of it: "user_request" is the code, "Chris and two dogfood users asked
+        on 2026-09-20" is the note. Written with `why` and read beside it.
+# What rolls up onto a request, and from where: the tasks that point at it.
+# Core recomputes these from every such task when one task's cost is written
+# (packages/core/src/services/objects/rollups.ts); the page reads them like
+# any other field.
+rollups:
+  - {field: estimateCents, from: {type: engineering_task, by: requestId}, sum: estimateCents}
+  - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
+  - {field: varianceCents, from: {type: engineering_task, by: requestId}, sum: varianceCents}
+  - {field: taskCount, from: {type: engineering_task, by: requestId}}
+  # Whether a worker is actually on it. `state: building` is a claim the
+  # request makes about itself; this counts the tasks that are moving, so the
+  # Work page can read a building request with nothing running as stopped
+  # without storing a second state that could disagree with the tasks.
+  - {field: runningTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [dispatched, running]}}
+  # Rework: the same tasks, narrowed to the ones that were thrown away. Money
+  # spent and then answered rather than shipped is NOT here, on purpose.
+  - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}
+  - {field: reworkTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [rejected, abandoned]}}
+  # When it shipped: the earliest release that names this request. The link
+  # runs the other way from the two above, because the release lists its requests.
+  - {field: shippedAt, from: {type: release, inList: requestIds}, min: releasedAt}
+classificationPrompt: >-
+  Given a message from any channel — a form on a product site, a store
+  review, an email, a chat message, a GitHub issue, a note from someone on the
+  team — decide whether it is a request the factory owes an answer to, and if
+  so which kind: bug, gap, idea, incident or question. Name the product it is
+  about and, for a bug or incident, a severity. Compute a dedupe key from the
+  product and the thing that is broken or asked for. Report a confidence and
+  the words you matched on; when the product is unclear, ask rather than file.

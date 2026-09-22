@@ -10,7 +10,7 @@ vi.mock('@/libs/DB');
 const { db } = await import('@/libs/DB');
 const { apiTokenSchema, sourceDekSchema } = await import('@/models/Schema');
 const { storePlatformKey } = await import('@/services/ApiTokenService');
-const { buildChatModel, buildChatModelForOrg, withPromptCache } = await import('./langchain');
+const { buildChatModel, buildChatModelForOrg } = await import('./langchain');
 const { getLLMClient, getLLMClientForOrg, resolveOrgProviderKey } = await import('./registry');
 
 /**
@@ -290,53 +290,5 @@ describe('buildChatModel', () => {
     process.env.VOCION_LLM_PROVIDER = 'cohere';
 
     expect(() => buildChatModel('main')).toThrow(/unknown llm provider/);
-  });
-});
-
-describe('withPromptCache', () => {
-  it('marks the last content block of the last message as ephemeral', () => {
-    const out = withPromptCache([
-      { role: 'system', content: 'you are helpful' },
-      { role: 'user', content: 'hello' },
-    ]);
-    const last = out[out.length - 1]!;
-
-    expect(Array.isArray(last.content)).toBe(true);
-
-    const blocks = last.content as unknown as Array<{ type: string; cache_control?: { type: string } }>;
-
-    expect(blocks[blocks.length - 1]?.cache_control).toEqual({ type: 'ephemeral' });
-  });
-
-  it('returns the input unchanged when the list is empty', () => {
-    const out = withPromptCache([]);
-
-    expect(out).toEqual([]);
-  });
-
-  it('does not mutate earlier messages', () => {
-    const out = withPromptCache([
-      { role: 'system', content: 'system prompt' },
-      { role: 'user', content: 'user message' },
-    ]);
-
-    expect(out[0]?.content).toBe('system prompt');
-  });
-
-  it('preserves an existing block array', () => {
-    const out = withPromptCache([
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'first' },
-          { type: 'text', text: 'second' },
-        ],
-      },
-    ]);
-    const blocks = out[0]!.content as Array<{ type: string; text: string; cache_control?: { type: string } }>;
-
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0]?.cache_control).toBeUndefined();
-    expect(blocks[1]?.cache_control).toEqual({ type: 'ephemeral' });
   });
 });

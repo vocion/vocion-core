@@ -41,4 +41,23 @@ describe('nurture slots', () => {
     expect(readNurtureSlotsConfig({ maxSlots: 3 })).toMatchObject({ maxSlots: 3, sequencePrefix: 'Personalized Nurture' });
     expect(readNurtureSlotsConfig({ subjectProperty: 'no-placeholder' })).toEqual(readNurtureSlotsConfig(undefined));
   });
+
+  it('carries a reviewer\'s formatting into the slot, unflattened', () => {
+    // The whole point of the editor: what a reviewer composed is what the
+    // ladder sends. Before this, the body was plain text and any formatting
+    // a reviewer wanted had nowhere to live.
+    const props = nurtureSlotProperties([
+      { subject: 'Your platform hires', body: '<p>Rowan, saw the <strong>hires</strong>.</p><ul><li>One</li><li>Two</li></ul>' },
+    ]);
+
+    expect(props.pn_email_1_body).toBe('<p>Rowan, saw the <strong>hires</strong>.</p><ul><li>One</li><li>Two</li></ul>');
+  });
+
+  it('never lets markup a body should not carry reach the contact', () => {
+    const props = nurtureSlotProperties([
+      { subject: 'A', body: '<p>Hi</p><script>fetch("//evil.test")</script><img src="x" onerror="go()">' },
+    ]);
+
+    expect(props.pn_email_1_body).toBe('<p>Hi</p>');
+  });
 });

@@ -1,9 +1,10 @@
 'use client';
 
 import type { GuidedSend, GuidedState } from './guidedFlow';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { useCallback, useEffect, useState } from 'react';
 import { SurfaceSection } from '@/components/ui/surface';
+import { isPollableRunId } from '@/features/dashboard/chat/useActionRunStatus';
 import { client } from '@/libs/Orpc';
 import { publishDraftRevision } from './draftRevision';
 import {
@@ -119,7 +120,7 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
     let cancelled = false;
     const check = async () => {
       try {
-        const res = await client.review.actionStatus({ id: run.id });
+        const res = await (isPollableRunId(run.id) ? client.review.actionStatus({ id: run.id }) : Promise.reject(new Error('not a run')));
         if (cancelled || res.status === 'pending' || res.status === 'executing') {
           return;
         }
@@ -245,7 +246,7 @@ export function useGuidedReview({ run, onDecided }: GuidedReviewProps) {
       // that someone else already decided this lead.
       let detail = 'This lead was decided elsewhere. Reload the page for its record.';
       try {
-        const res = await client.review.actionStatus({ id: run.id });
+        const res = await (isPollableRunId(run.id) ? client.review.actionStatus({ id: run.id }) : Promise.reject(new Error('not a run')));
         if (res.status !== 'pending' && res.decidedBy) {
           const verb = res.status === 'rejected' ? 'declined' : 'approved';
           const when = res.decidedAt ? ` on ${new Date(res.decidedAt).toLocaleString()}` : '';

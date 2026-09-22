@@ -1,20 +1,25 @@
 'use client';
 
 import type { TurnOutcome } from './queueReducer';
-import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, StreamingPhase, TraceNode } from './types';
-import type { PageContext } from '@/services/chat/pageContext';
+import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArtifact, ContextRef, ConversationAutonomy, HitlGatePayload, IndexedDocument, SelfUpdateReceipt, StreamingPhase, TraceNode, TurnModel } from './types';
+import type { ModelPrefs } from '@/libs/llm/modelPrefs';
+import type { RoutingDecision } from '@/services/agents/router';
+import type { PageContext, RecordRef } from '@/services/chat/pageContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
+import { mergeSelfUpdate } from '@/libs/actions/selfUpdate';
 import { deliverableFromRefs, isArtifactTag } from '@/libs/chat/deliverable';
 import { NO_AGENTS_MESSAGE } from '@/libs/chat/redact';
+import { DEFAULT_MODEL_PREFS, readModelPrefs } from '@/libs/llm/modelPrefs';
 import { client } from '@/libs/Orpc';
 import { uploadAttachments } from './attachmentUpload';
+import { DEFAULT_AUTONOMY } from './autonomyOptions';
 import { isIntentTag } from './composerTags';
 import { readRecommendedAction } from './recommendedAction';
 import { decideResume, readSessionConversation, writeSessionConversation } from './resumeRule';
 import { defaultAgentSlug, hasWorkspaceAgents, parseSearchCommand, routeTurn, SEARCH_ONLY_SLUG, workspaceChips } from './routing';
-import { failToolNode, finalizeTrace, mergeTraceNode } from './traceReducer';
+import { failToolNode, finalizeTrace, liveStepLabel, mergeTraceNode, noteToolProgress } from './traceReducer';
 import { useSendQueue } from './useSendQueue';
 import { describeToolCall } from './WorkTimeline';
 
@@ -96,9 +101,13 @@ const AUTONOMY_KEY = 'vocion:chat:autonomy';
 
 function readPreferredAutonomy(): ConversationAutonomy {
   try {
-    return localStorage.getItem(AUTONOMY_KEY) === 'act-within-bounds' ? 'act-within-bounds' : 'ask';
+    const stored = localStorage.getItem(AUTONOMY_KEY);
+    // Either rung the person chose stands; nothing stored means the default
+    // (done for you since 2026-09-18 — the old code read a missing value as
+    // 'ask' and every fresh thread vetoed the done-for-you policy).
+    return stored === 'ask' || stored === 'act-within-bounds' ? stored : DEFAULT_AUTONOMY;
   } catch {
-    return 'ask';
+    return DEFAULT_AUTONOMY;
   }
 }
 
@@ -123,6 +132,8 @@ type PersistedMessageRow = {
   feedbackNote?: string | null;
   /** Files attached to a user turn, as the conversations router resolves them. */
   attachments?: ChatAttachment[];
+  /** Artifacts the turn produced, as the conversations router resolves them — the chips. */
+  artifacts?: ChatMessageArtifact[];
 };
 
 /**
@@ -156,6 +167,7 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
+      ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
     };
   });
   return { messages, documents };
@@ -343,7 +355,11 @@ export function useChatSession({
   const [recentChats, setRecentChats] = useState<Array<{ id: number; title: string }>>([]);
   // How recommended actions behave in this thread (0094). Starts from the
   // person's last choice; a resumed thread brings its own.
-  const [autonomy, setAutonomyState] = useState<ConversationAutonomy>('ask');
+  const [autonomy, setAutonomyState] = useState<ConversationAutonomy>(DEFAULT_AUTONOMY);
+  // How strong a model, how much it thinks — per thread, like autonomy.
+  const [modelPrefs, setModelPrefsState] = useState<ModelPrefs>(DEFAULT_MODEL_PREFS);
+  const modelPrefsRef = useRef(modelPrefs);
+  modelPrefsRef.current = modelPrefs;
   // Records the person pointed this turn at with `@` — sent as `context_refs`
   // beside the message and cleared after the send.
   const [contextRefs, setContextRefs] = useState<ContextRef[]>([]);
@@ -491,6 +507,19 @@ export function useChatSession({
       return;
     }
     switch (evt.type) {
+      case 'routed': {
+        // The workspace chose the agent (`route: true`): attribute the turn to
+        // it the way an `@mention` does, and keep the reason on the message.
+        const routed = evt as unknown as { agent: { slug: string; name: string }; routing: RoutingDecision };
+        appendToLatestAgent(m => ({ ...m, agentSlug: routed.agent.slug, agentName: routed.agent.name, routing: routed.routing }));
+        return;
+      }
+      case 'run_meta': {
+        // Which model answers this turn — the footer's fact, never a guess.
+        const meta = evt as unknown as TurnModel & { type: 'run_meta' };
+        appendToLatestAgent(m => ({ ...m, model: { model: meta.model, provider: meta.provider, strength: meta.strength ?? 'balanced', thinking: meta.thinking ?? 'off' } }));
+        return;
+      }
       case 'thinking':
         setPhase('thinking');
         setActivity('Thinking…');
@@ -517,9 +546,30 @@ export function useChatSession({
           }
           node.anchor = textRunsRef.current;
         }
-        map.set(node.id, mergeTraceNode(map.get(node.id), node));
+        const merged = mergeTraceNode(map.get(node.id), node);
+        map.set(node.id, merged);
         traceDirtyRef.current = true;
-        setActivity(node.label);
+        setActivity(liveStepLabel(merged));
+        scheduleFlush();
+        return;
+      }
+      case 'step_progress': {
+        // A long call saying where it has got to — "sheet 7 of 12". It rides
+        // the step line that is already there; it never adds a row.
+        const name = String(evt.tool ?? 'tool');
+        const note = String(evt.note ?? '').trim();
+        if (!note) {
+          return;
+        }
+        const map = pendingTraceRef.current;
+        const next = noteToolProgress([...map.values()], name, note);
+        const touched = next.find(n => n.tool === name && n.progress === note);
+        if (!touched) {
+          return;
+        }
+        map.set(touched.id, touched);
+        traceDirtyRef.current = true;
+        setActivity(liveStepLabel(touched));
         scheduleFlush();
         return;
       }
@@ -606,6 +656,14 @@ export function useChatSession({
         });
         return;
       }
+      case 'record_created': {
+        // A room or proposal the turn just made opens beside the conversation
+        // (Chris, 2026-09-18: "maybe preview should open automatically").
+        flushDeltas();
+        const made = (evt as unknown as { record: { type: RecordRef['type']; id: string } }).record;
+        openPreview({ type: made.type, id: made.id }, null);
+        return;
+      }
       case 'documents': {
         flushDeltas();
         const docs = (evt.documents as IndexedDocument[]) ?? [];
@@ -684,6 +742,20 @@ export function useChatSession({
         // The newest artifact of the turn wins, so a turn that renders three
         // leaves the last one open rather than fighting over the panel.
         openPreview({ type: 'artifact', id: String(chip.id) }, null);
+        return;
+      }
+
+      case 'self_update': {
+        // The chip that says the system improved ITSELF during this turn. The
+        // same fold as the artifact chip — key by run id, so a proposal that
+        // is refreshed mid-turn leaves one entry at its latest state — except
+        // that these group into ONE chip rather than a row each.
+        const u = evt.selfUpdate as { runId?: unknown; noun?: unknown; target?: unknown; status?: unknown } | undefined;
+        if (!u || typeof u.runId !== 'number' || typeof u.noun !== 'string' || typeof u.target !== 'string') {
+          return;
+        }
+        const receipt = evt.selfUpdate as SelfUpdateReceipt;
+        appendToLatestAgent(m => ({ ...m, selfUpdates: mergeSelfUpdate(m.selfUpdates ?? [], receipt) }));
         return;
       }
 
@@ -1004,6 +1076,7 @@ export function useChatSession({
           setConversationId(storedId);
           writeSessionConversation(slug, storedId);
           setAutonomyState(readAutonomy(conv));
+          setModelPrefsState(readModelPrefs(conv));
           setMessages(hydrated);
           if (restoredDocs.length > 0) {
             setAllDocuments(restoredDocs);
@@ -1117,8 +1190,9 @@ export function useChatSession({
       try {
         const conv = await client.conversations.create({ agentSlug: agent.slug, ...(scopeRef ? { scopeRef } : {}) });
         setActiveConversation(agent.slug, conv.id);
-        if (autonomy !== 'ask') {
-          // The person's standing choice applies to the thread it just created.
+        if (autonomy !== DEFAULT_AUTONOMY) {
+          // The person's standing choice applies to the thread it just created
+          // (the row is born at the default; only a different rung needs writing).
           client.conversations.setAutonomy({ id: conv.id, autonomy }).catch((error) => {
             console.warn('useChatSession: could not persist the autonomy setting', error);
           });
@@ -1140,6 +1214,10 @@ export function useChatSession({
         body: JSON.stringify({
           message: text,
           agent_slug: turnAgent.slug,
+          // Nobody named an agent for this turn: let the workspace choose
+          // (`services/agents/router.ts`). The reply is attributed to whoever
+          // answers, exactly as an `@mention` is; the reason rides with it.
+          ...(!routed && !isSearchOnly ? { route: true } : {}),
           // The turn's deliverable contract (0102) — a typed field, decided
           // before the turn runs, not a judgement the model makes during it.
           deliverable,
@@ -1156,6 +1234,9 @@ export function useChatSession({
           // With a conversation attached the server replays its own
           // (authoritative) history and ignores this list.
           ...(activeConversationId !== null ? { conversation_id: activeConversationId } : {}),
+          // How strong a model, how much it thinks (`libs/llm/modelPrefs.ts`).
+          model_strength: modelPrefsRef.current.strength,
+          thinking_effort: modelPrefsRef.current.effort,
           conversation_history: messages
             .slice(-6)
             .filter(m => m.content.trim().length > 0)
@@ -1477,6 +1558,7 @@ export function useChatSession({
       }
       setActiveConversation(slug, id);
       setAutonomyState(readAutonomy(conv));
+      setModelPrefsState(readModelPrefs(conv));
       setMessages(hydrated);
       setAllDocuments(restoredDocs);
       setPendingHitl(null);
@@ -1506,6 +1588,17 @@ export function useChatSession({
     if (id !== null) {
       client.conversations.setAutonomy({ id, autonomy: next }).catch((error) => {
         console.warn('useChatSession: could not persist the autonomy setting', error);
+      });
+    }
+  }, []);
+
+  /** Change how strong a model answers this thread and how much it thinks — persisted on the conversation when one exists. */
+  const setModelPrefs = useCallback((next: ModelPrefs) => {
+    setModelPrefsState(next);
+    const id = conversationIdRef.current;
+    if (id !== null) {
+      client.conversations.setModel({ id, strength: next.strength, effort: next.effort }).catch((error) => {
+        console.warn('useChatSession: could not persist the model setting', error);
       });
     }
   }, []);
@@ -1644,6 +1737,9 @@ export function useChatSession({
     /** How recommended actions behave in this thread (0094). */
     autonomy,
     setAutonomy,
+    /** How strong a model answers this thread and how much it thinks (`libs/llm/modelPrefs.ts`). */
+    modelPrefs,
+    setModelPrefs,
     /** Thumb + note on an assistant turn, by persisted message id. */
     handleFeedback,
     /** Records the next message is about (`@` tags). */
@@ -1660,10 +1756,11 @@ export function useChatSession({
 }
 
 /**
- * The autonomy rung a persisted conversation carries, defaulting to `ask`.
+ * The autonomy rung a persisted conversation carries; a row that says nothing
+ * usable is at the default.
  * @param conv - A conversation row as the router returns it.
  */
 function readAutonomy(conv: unknown): ConversationAutonomy {
   const a = (conv as { autonomy?: unknown } | null)?.autonomy;
-  return a === 'act-within-bounds' ? 'act-within-bounds' : 'ask';
+  return a === 'ask' || a === 'act-within-bounds' ? a : DEFAULT_AUTONOMY;
 }

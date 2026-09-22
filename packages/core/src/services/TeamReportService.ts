@@ -38,6 +38,7 @@ import { actionRunSchema, agentBudgetSchema, agentSchema, projectSchema, teamSch
 import { scoresByAgentAndKey, splitAgentKey } from '@/services/alignment/AlignmentService';
 import { effectivePolicies } from '@/services/autonomy/AutonomyService';
 import { DEFAULT_RUNG, defaultRiskTier, rungAutomates, rungIndex } from '@/services/autonomy/rungs';
+import { agentScopedOnly } from '@/services/BudgetService';
 import { budgetVariance, costPerOutcomeCents, deriveHumanLoad, detectSetupState, emptyHumanLoadCounts, goalProgress, measureRange, primaryOutcome, readHumanLoad, readOutcomeChains, readTeamMeasures, sumHumanLoadCounts, teamsOnTarget } from '@/services/team-report';
 import { getWorkspaceLead, listTeams } from '@/services/TeamService';
 
@@ -442,7 +443,7 @@ export function buildTeamReport(input: {
       },
       models: modelsByAgent.get(a.slug) ?? [],
       budget: b
-        ? { period: b.period, currentCents: Number(b.currentCents ?? 0), currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit), softCentsLimit: b.softCentsLimit === null ? null : Number(b.softCentsLimit) }
+        ? { period: b.period, currentCents: Number(b.currentMicroCents ?? 0) / 1_000_000, currentTokens: Number(b.currentTokens ?? 0), hardCentsLimit: b.hardCentsLimit === null ? null : Number(b.hardCentsLimit), softCentsLimit: b.softCentsLimit === null ? null : Number(b.softCentsLimit) }
         : null,
     };
   };
@@ -587,7 +588,7 @@ export async function teamReport(orgId: string, window: ReportWindow = '7d', now
       model: workerRunSchema.model,
       runs: sql<number>`count(*)::int`,
     }).from(workerRunSchema).where(runWhere).groupBy(workerRunSchema.agentSlug, workerRunSchema.model),
-    db.select().from(agentBudgetSchema).where(eq(agentBudgetSchema.orgId, orgId)),
+    db.select().from(agentBudgetSchema).where(and(eq(agentBudgetSchema.orgId, orgId), agentScopedOnly())),
     // Owners come from TeamService so the inheritance rule (team-set vs
     // workspace default) is resolved in exactly one place.
     listTeams(orgId),

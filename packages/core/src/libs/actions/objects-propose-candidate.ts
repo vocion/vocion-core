@@ -293,7 +293,7 @@ function cardFieldOrder(
  * Human label for a field key the object type does not describe: `venueName` → `Venue Name`.
  * @param fieldName
  */
-function humanise(fieldName: string): string {
+export function humanise(fieldName: string): string {
   const spaced = fieldName
     .replace(/[_-]+/g, ' ')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -305,7 +305,7 @@ function humanise(fieldName: string): string {
  * Renderable one-line form of a field value. Objects and arrays flatten rather than print `[object Object]`.
  * @param value
  */
-function displayValue(value: unknown): string {
+export function displayValue(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -327,7 +327,7 @@ function hostLabel(url: string): string {
   return new URL(url).hostname.replace(/^www\./, '');
 }
 
-type ObjectTypeRow = {
+export type ObjectTypeRow = {
   id: number;
   slug: string;
   label: string;
@@ -355,10 +355,14 @@ export function forgetCachedObjectTypes(): void {
 /**
  * The org's definition of this object type, or null when the workspace has
  * not applied one yet.
+ *
+ * Exported for `objects.update_meta`, which validates a write against the
+ * same type the card is rendered from — one reader, one short memory, so the
+ * two actions never disagree about what a type declares.
  * @param orgId - The org the candidate belongs to.
  * @param slug - The object type slug from the input.
  */
-async function loadObjectType(orgId: string, slug: string): Promise<ObjectTypeRow | null> {
+export async function loadObjectType(orgId: string, slug: string): Promise<ObjectTypeRow | null> {
   const cacheKey = `${orgId}:${slug}`;
   const remembered = objectTypeCache.get(cacheKey);
   if (remembered && Date.now() - remembered.readAt < OBJECT_TYPE_CACHE_MS) {

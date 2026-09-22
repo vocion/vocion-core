@@ -1,7 +1,9 @@
 import type { ZodType } from 'zod';
-import type { ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
+import type { ActivatedPack, ComposedEntry, FolderEntry, PackRaw, RawEntry } from './compose';
 import type { Origin } from './merge';
-import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { LoadedPlugin } from './plugins';
+import type { AgentManifest, AutomationManifest, EvalDatasetManifest, LearningStepManifest, MissionManifest, ObjectTypeManifest, OperatingIntentManifest, PackManifest, PlaybookManifest, SourceManifest, TeamManifest, TrustManifest, VoiceManifest, WorkflowManifest, WorkspaceManifest } from './schemas';
+import type { LoadedWikiPage } from './wiki-pages';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
@@ -12,6 +14,7 @@ import { composeKind, resolveActivation } from './compose';
 import { assertAgentHierarchy } from './hierarchy';
 import { EXTENDS_CORE } from './merge';
 import { assertDoTargets, assertOwnership } from './ownership';
+import { resolvePlugins } from './plugins';
 import {
   AgentManifestSchema,
   AutomationManifestSchema,
@@ -19,6 +22,7 @@ import {
   LearningStepManifestSchema,
   MissionManifestSchema,
   ObjectTypeManifestSchema,
+  OperatingIntentManifestSchema,
   PackManifestSchema,
   PlaybookManifestSchema,
   SourceManifestSchema,
@@ -31,6 +35,7 @@ import {
 import { computeWorkspaceSha } from './sha';
 import { assertTeams } from './teams';
 import { readWorkspaceTextFile } from './template-vars';
+import { loadWikiPages } from './wiki-pages';
 
 export type LoadedAgent = AgentManifest & {
   resolvedSystemPrompt: string;
@@ -105,6 +110,19 @@ export type LoadedWorkspace = {
   manifest: WorkspaceManifest;
   /** The resolved base pack when `manifest.extends` is set, else null. */
   pack: LoadedPack | null;
+  /**
+   * The plugins `manifest.plugins` resolves to — dependencies included, in
+   * load order. Their resources are composed into the lists below with
+   * origin `core` (inherited), exactly like activated base defaults.
+   */
+  plugins: LoadedPlugin[];
+  /** Slugs of `plugins`, in the same order — what lands on `project.enabled_plugins`. */
+  enabledPlugins: string[];
+  /**
+   * `manifest.surfaces` plus every surface an enabled plugin declares,
+   * deduped and validated — what lands on `project.enabled_surfaces`.
+   */
+  effectiveSurfaces: string[];
   agents: LoadedAgent[];
   /** SKILL.md skill folders — the deepagents unit (kind: 'skill'). */
   skills: LoadedPlaybook[];
@@ -115,11 +133,22 @@ export type LoadedWorkspace = {
   trust: TrustManifest | null;
   /** The workspace's voice rules from voice.yaml, or null when unauthored. */
   voice: VoiceManifest | null;
+  /**
+   * The workspace's operating intent from operating-intent.yaml, or null when
+   * unauthored: what a person wants the factory to be doing now.
+   */
+  operatingIntent: OperatingIntentManifest | null;
   playbooks: LoadedPlaybook[];
   learningSteps: LoadedLearningStep[];
   evalDatasets: LoadedEvalDataset[];
   sources: LoadedSource[];
   teams: LoadedTeam[];
+  /**
+   * Wiki pages the workspace seeds from `wiki/<slug>.md` (`wiki-pages.ts`).
+   * Workspace files only — a plugin ships its wiki through its curator, not
+   * through files. Empty when the directory is absent.
+   */
+  wikiPages: LoadedWikiPage[];
   sha: string;
   sourcePath: string;
   fileCount: number;
@@ -136,16 +165,22 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   // rest of the load byte-for-byte identical to pre-007 behavior. When set, we
   // resolve + pin-check the pack here; composing its resources is a later step.
   const pack = manifest.extends ? loadPack(manifest.extends) : null;
+  // Plugins (workspace.yaml `plugins:`), dependency-closed and ordered. Each
+  // is a fully-active inherited layer composed over the base pack and under
+  // the workspace — see `plugins.ts` and {@link composeInherited}.
+  const plugins = resolvePlugins(manifest.plugins);
   const files: string[] = [];
 
-  // Base-pack compose (ticket 007). With no pack, `activated` is null and every
-  // composable kind reduces to "workspace files only, origin: workspace" — the
-  // byte-for-byte-unchanged path. With a pack, base defaults the workspace
-  // activated are merged in per-slug (see compose.ts).
+  // Base-pack compose (ticket 007). With no pack and no plugins, `layer` is
+  // null and every composable kind reduces to "workspace files only, origin:
+  // workspace" — the byte-for-byte-unchanged path. With a pack, base defaults
+  // the workspace activated are merged in per-slug (see compose.ts); a
+  // plugin's resources join that inherited layer, always active.
   const packRaw = pack ? loadPackRaw(pack) : null;
   const activated = packRaw ? resolveActivation(packRaw, manifest.use, manifest.disable) : null;
+  const layer = composeInherited(packRaw, activated, plugins, manifest.disable);
 
-  const agents = composeEntries('agent', join(abs, 'agents'), isYamlFile, packRaw?.agents, activated?.agents, files)
+  const agents = composeEntries('agent', join(abs, 'agents'), isYamlFile, layer?.full.agents, layer?.active.agents, files)
     .map((entry) => {
       const parsed = validateOrThrow(AgentManifestSchema, entry.raw, entry.sourceFile, 'agent');
       const resolvedSystemPrompt = resolvePromptField(entry.sourceFile, parsed.systemPromptFile, parsed.systemPrompt, files);
@@ -169,9 +204,9 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       `workspace ${abs} still has an operations/ directory — operations were removed; convert each to a skill folder under skills/<slug>/SKILL.md`,
     );
   }
-  const skills = composeFolders('skill', join(abs, 'skills'), pack, activated?.skills, packRaw?.skills, files);
+  const skills = composeFolders('skill', join(abs, 'skills'), layer?.active.skills, layer?.full.skills, files);
 
-  const objectTypes = composeEntries('object type', join(abs, 'objects'), isObjectFile, packRaw?.objectTypes, activated?.objectTypes, files)
+  const objectTypes = composeEntries('object type', join(abs, 'objects'), isObjectFile, layer?.full.objectTypes, layer?.active.objectTypes, files)
     .map((entry) => {
       const parsed = validateOrThrow(ObjectTypeManifestSchema, entry.raw, entry.sourceFile, 'objectType');
       const resolvedClassificationPrompt = parsed.classificationPromptFile || parsed.classificationPrompt
@@ -188,19 +223,21 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       return { ...parsed, sourceFile: file };
     });
 
-  const missions = composeEntries('mission', join(abs, 'missions'), isYamlFile, packRaw?.missions, activated?.missions, files)
+  const missions = composeEntries('mission', join(abs, 'missions'), isYamlFile, layer?.full.missions, layer?.active.missions, files)
     .map((entry) => {
       const parsed = validateOrThrow(MissionManifestSchema, entry.raw, entry.sourceFile, 'mission');
       return { ...parsed, sourceFile: entry.sourceFile, origin: entry.origin };
     });
 
   const trustPath = ['trust.yaml', 'trust.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
-  const trust: TrustManifest | null = trustPath
+  const workspaceTrust: TrustManifest | null = trustPath
     ? (() => {
         files.push(trustPath);
         return parseFile(trustPath, TrustManifestSchema, 'trust') as TrustManifest;
       })()
     : null;
+  const extras = loadPluginExtras(plugins);
+  const trust = mergeTrust(extras.trust, workspaceTrust);
 
   // Voice rules: one top-level file, same shape as trust.yaml. Absent means
   // the workspace inherits core's platform floor and nothing else.
@@ -212,23 +249,46 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       })()
     : null;
 
-  const automations = walkDir(join(abs, 'automations'))
-    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, AutomationManifestSchema, 'automation');
-      return { ...parsed, sourceFile: file };
-    });
+  // Operating intent: the person's standing instructions to the factory, one
+  // top-level file, same shape as trust.yaml and voice.yaml. Absent means the
+  // factory has been told nothing, which is not the same as being told
+  // "anything goes", and the agents say so rather than assuming.
+  const intentPath = ['operating-intent.yaml', 'operating-intent.yml'].map(n => join(abs, n)).find(existsSync) ?? null;
+  const operatingIntent: OperatingIntentManifest | null = intentPath
+    ? (() => {
+        files.push(intentPath);
+        return parseFile(intentPath, OperatingIntentManifestSchema, 'operating intent') as OperatingIntentManifest;
+      })()
+    : null;
 
-  const playbooks = composeFolders('playbook', join(abs, 'playbooks'), pack, activated?.playbooks, packRaw?.playbooks, files);
+  // Automations, teams and learning steps are not composable kinds (no deep
+  // merge): a plugin's file is appended, and a workspace file with the same
+  // slug replaces it outright — the same whole-file rule SKILL.md folders use.
+  const automations = inheritBy(
+    walkDir(join(abs, 'automations'))
+      .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+      .map((file) => {
+        files.push(file);
+        const parsed = parseFile(file, AutomationManifestSchema, 'automation');
+        return { ...parsed, sourceFile: file };
+      }),
+    extras.automations,
+    a => a.slug,
+  );
 
-  const learningSteps = walkDir(join(abs, 'learnings'))
-    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, LearningStepManifestSchema, 'learningStep');
-      return { ...parsed, sourceFile: file };
-    });
+  const playbooks = composeFolders('playbook', join(abs, 'playbooks'), layer?.active.playbooks, layer?.full.playbooks, files);
+
+  const learningSteps = inheritBy(
+    walkDir(join(abs, 'learnings'))
+      .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+      .map((file) => {
+        files.push(file);
+        const parsed = parseFile(file, LearningStepManifestSchema, 'learningStep');
+        return { ...parsed, sourceFile: file };
+      }),
+    extras.learningSteps,
+    l => l.name,
+  );
 
   const evalDatasets = walkDir(join(abs, 'evals'))
     .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
@@ -248,20 +308,21 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
 
   // Teams (F1): slug comes from the filename, so a team can't disagree
   // with its own path. teams/revenue-ops.yaml → slug "revenue-ops".
-  const teams = walkDir(join(abs, 'teams'))
-    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
-    .map((file) => {
-      files.push(file);
-      const parsed = parseFile(file, TeamManifestSchema, 'team');
-      const slug = basename(file, extname(file));
-      if (!/^[a-z][a-z0-9_-]*$/.test(slug)) {
-        throw new WorkspaceValidationError(file, 'team', [`filename "${slug}" is not a valid team slug (lowercase, start with a letter, letters/numbers/dashes/underscores)`]);
-      }
-      return { ...parsed, slug, sourceFile: file };
-    });
+  const teams = inheritBy(
+    walkDir(join(abs, 'teams'))
+      .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+      .map(file => loadTeam(file, files)),
+    extras.teams,
+    t => t.slug,
+  );
+
+  // Wiki pages seeded from the repo — read as written, validated, sha-tracked
+  // like any other workspace file. The applier turns them into artifacts.
+  const wikiPages = loadWikiPages(abs, files);
 
   // Surfaces name a core-registered route, never a URL — so an unknown id is
   // caught here at `workspace:check` instead of rendering a dead sidebar link.
+  // A plugin's surfaces join the workspace's; the error names the plugin.
   const unknownSurfaces = manifest.surfaces.filter(id => !isSurfaceId(id));
   if (unknownSurfaces.length > 0) {
     throw new WorkspaceValidationError(
@@ -270,6 +331,13 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
       unknownSurfaces.map(id => `unknown surface "${id}" — this core registers: ${SURFACE_IDS.join(', ')}`),
     );
   }
+  for (const plugin of plugins) {
+    const unknown = plugin.manifest.surfaces.filter(id => !isSurfaceId(id));
+    if (unknown.length > 0) {
+      throw new WorkspaceValidationError(join(plugin.sourcePath, 'plugin.yaml'), 'plugin manifest', unknown.map(id => `unknown surface "${id}" — this core registers: ${SURFACE_IDS.join(', ')}`));
+    }
+  }
+  const effectiveSurfaces = [...new Set([...manifest.surfaces, ...plugins.flatMap(p => p.manifest.surfaces)])];
 
   assertUniqueSlugs(agents, 'agent');
   assertAgentHierarchy(agents);
@@ -292,12 +360,18 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
   // `workspace_sha` still answers "exactly what ran" — a workspace on
   // core@1.0.0 and the same workspace on core@1.1.0 are distinguishable even
   // though not one workspace file changed. No pack → sha is unchanged.
+  // Same for plugins: each enabled plugin's version folds in, so turning one
+  // on, off, or shipping a new version of it is a new sha.
   const baseSha = computeWorkspaceSha(abs, files);
-  const sha = pack ? `${baseSha}+${pack.manifest.name}@${pack.manifest.version}` : baseSha;
+  const withPack = pack ? `${baseSha}+${pack.manifest.name}@${pack.manifest.version}` : baseSha;
+  const sha = plugins.reduce((acc, p) => `${acc}+${p.manifest.slug}@${p.manifest.version}`, withPack);
 
   return {
     manifest,
     pack,
+    plugins,
+    enabledPlugins: plugins.map(p => p.manifest.slug),
+    effectiveSurfaces,
     agents,
     skills,
     objectTypes,
@@ -306,11 +380,13 @@ export function loadWorkspace(contextPath: string): LoadedWorkspace {
     automations,
     trust,
     voice,
+    operatingIntent,
     playbooks,
     learningSteps,
     evalDatasets,
     sources,
     teams,
+    wikiPages,
     sha,
     sourcePath: abs,
     fileCount: files.length + 1,
@@ -475,22 +551,23 @@ function loadPackRaw(pack: LoadedPack): PackRaw {
  * {@link composeFolders} only for activated slugs.
  * @param root - pack directory
  * @param dirName - 'skills' or 'playbooks'
+ * @param label
  */
-function readPackFolders(root: string, dirName: 'skills' | 'playbooks'): Map<string, FolderEntry> {
+function readPackFolders(root: string, dirName: 'skills' | 'playbooks', label: string = 'base pack'): Map<string, FolderEntry> {
   const map = new Map<string, FolderEntry>();
   for (const file of walkDir(join(root, dirName)).filter(f => basename(f) === 'SKILL.md')) {
-    // Base pack, not a tenant file: no {{env.NAME}} substitution.
+    // Inherited layer, not a tenant file: no {{env.NAME}} substitution.
     const fm = parseFrontmatter(readFileSync(file, 'utf8'), file);
     const data = fm.data as { slug?: unknown; playbooks?: unknown } | null;
     const slug = typeof data?.slug === 'string' ? data.slug : '';
     if (!slug) {
-      throw new Error(`base pack ${dirName} SKILL.md has no slug: ${file}`);
+      throw new Error(`${label} ${dirName} SKILL.md has no slug: ${file}`);
     }
     if (map.has(slug)) {
-      throw new Error(`duplicate base ${dirName} slug "${slug}" in the core pack`);
+      throw new Error(`duplicate ${dirName} slug "${slug}" in the ${label}`);
     }
     const playbooks = Array.isArray(data?.playbooks) ? data.playbooks.filter((p): p is string => typeof p === 'string') : [];
-    map.set(slug, { slug, playbooks });
+    map.set(slug, { slug, playbooks, dir: dirname(file) });
   }
   return map;
 }
@@ -511,12 +588,10 @@ function readPackFolders(root: string, dirName: 'skills' | 'playbooks'): Map<str
 function composeFolders(
   kind: 'skill' | 'playbook',
   workspaceDir: string,
-  pack: LoadedPack | null,
   activatedSlugs: Set<string> | undefined,
   packEntries: Map<string, FolderEntry> | undefined,
   files: string[],
 ): LoadedPlaybook[] {
-  const packDir = pack ? join(pack.sourcePath, kind === 'skill' ? 'skills' : 'playbooks') : null;
   const out: LoadedPlaybook[] = [];
   const wsSlugs = new Set<string>();
 
@@ -525,9 +600,9 @@ function composeFolders(
     const loaded = loadPlaybook(file, kind, files);
     wsSlugs.add(loaded.slug);
     const isOverride = !!activatedSlugs?.has(loaded.slug);
-    if (isOverride && packDir) {
+    const baseFolder = packEntries?.get(loaded.slug)?.dir ?? null;
+    if (isOverride && baseFolder) {
       // Merge base siblings by path — workspace files win, base fills gaps.
-      const baseFolder = join(packDir, loaded.slug);
       const baseSiblings = walkDir(baseFolder)
         .filter(f => basename(f) !== 'SKILL.md' && !basename(f).startsWith('.'))
         .map(f => relative(baseFolder, f));
@@ -545,12 +620,13 @@ function composeFolders(
 
   // Activated base folders with no workspace twin mount as shipped.
   for (const slug of activatedSlugs ?? []) {
-    if (wsSlugs.has(slug) || !packDir) {
+    const dir = packEntries?.get(slug)?.dir;
+    if (wsSlugs.has(slug) || !dir) {
       continue;
     }
-    const file = join(packDir, slug, 'SKILL.md');
+    const file = join(dir, 'SKILL.md');
     if (!existsSync(file)) {
-      throw new Error(`base pack ${kind} "${slug}" is missing its SKILL.md at ${file}`);
+      throw new Error(`inherited ${kind} "${slug}" is missing its SKILL.md at ${file}`);
     }
     // Base files are not sha-tracked; the pinned pack version covers them.
     out.push({ ...loadPlaybook(file, kind, [], false), origin: 'core' });
@@ -559,11 +635,219 @@ function composeFolders(
   return out;
 }
 
+/**
+ * Read one team file. Slug comes from the filename (teams/<slug>.yaml), so a
+ * team cannot disagree with its own path.
+ * @param file - absolute path of the team YAML
+ * @param files - sha-tracking list; pass `null` for an inherited (plugin) file
+ */
+function loadTeam(file: string, files: string[] | null): LoadedTeam {
+  files?.push(file);
+  const parsed = files ? parseFile(file, TeamManifestSchema, 'team') : validateOrThrow(TeamManifestSchema, parseYaml(readFileSync(file, 'utf8')), file, 'team');
+  const slug = basename(file, extname(file));
+  if (!/^[a-z][a-z0-9_-]*$/.test(slug)) {
+    throw new WorkspaceValidationError(file, 'team', [`filename "${slug}" is not a valid team slug (lowercase, start with a letter, letters/numbers/dashes/underscores)`]);
+  }
+  return { ...parsed, slug, sourceFile: file };
+}
+
+/** The inherited layer the workspace composes over: every slug it ships (for collisions) and the active subset. */
+type InheritedLayer = { full: PackRaw; active: ActivatedPack };
+
+/**
+ * Fold the activated base pack and every enabled plugin into ONE inherited
+ * layer. Plugin resources are always active. A plugin may shadow a same-slug
+ * base default (the plugin is the more specific layer); two plugins shipping
+ * one slug is an authoring error. `disable:` applies to the merged result,
+ * so the escape hatch reaches a plugin's agent or skill as well.
+ *
+ * Null when there is neither a pack nor a plugin — the unchanged path.
+ * @param packRaw - the full base pack, or null
+ * @param activated - the pack's activated subset, or null
+ * @param plugins - enabled plugins, in load order
+ * @param disable - the workspace `disable:` selector
+ * @param disable.agents
+ * @param disable.skills
+ * @param disable.playbooks
+ */
+function composeInherited(
+  packRaw: PackRaw | null,
+  activated: ActivatedPack | null,
+  plugins: LoadedPlugin[],
+  disable?: { agents?: string[]; skills?: string[]; playbooks?: string[] },
+): InheritedLayer | null {
+  if (!packRaw && plugins.length === 0) {
+    return null;
+  }
+  const full: PackRaw = {
+    agents: new Map(packRaw?.agents ?? []),
+    objectTypes: new Map(packRaw?.objectTypes ?? []),
+    missions: new Map(packRaw?.missions ?? []),
+    skills: new Map(packRaw?.skills ?? []),
+    playbooks: new Map(packRaw?.playbooks ?? []),
+  };
+  const active: ActivatedPack = {
+    agents: new Map(activated?.agents ?? []),
+    objectTypes: new Map(activated?.objectTypes ?? []),
+    missions: new Map(activated?.missions ?? []),
+    skills: new Set(activated?.skills ?? []),
+    playbooks: new Set(activated?.playbooks ?? []),
+  };
+  const owner = new Map<string, string>(); // `${kind}:${slug}` → plugin slug, for the two-plugins error
+
+  for (const plugin of plugins) {
+    const raw = loadLayerRaw(plugin.sourcePath, `plugin "${plugin.manifest.slug}"`);
+    const take = <V>(kind: string, source: Map<string, V>, fullMap: Map<string, V>, activeSet: Map<string, V> | Set<string>) => {
+      for (const [slug, entry] of source) {
+        const key = `${kind}:${slug}`;
+        const prior = owner.get(key);
+        if (prior) {
+          throw new Error(`${kind} "${slug}" is shipped by both plugin "${prior}" and plugin "${plugin.manifest.slug}" — a slug belongs to one plugin`);
+        }
+        owner.set(key, plugin.manifest.slug);
+        fullMap.set(slug, entry);
+        if (activeSet instanceof Set) {
+          activeSet.add(slug);
+        } else {
+          activeSet.set(slug, entry);
+        }
+      }
+    };
+    take('agent', raw.agents, full.agents, active.agents);
+    take('object type', raw.objectTypes, full.objectTypes, active.objectTypes);
+    take('mission', raw.missions, full.missions, active.missions);
+    take('skill', raw.skills, full.skills, active.skills);
+    take('playbook', raw.playbooks, full.playbooks, active.playbooks);
+    // A plugin skill carries its attached playbooks, like an activated base skill.
+    for (const entry of raw.skills.values()) {
+      for (const pb of entry.playbooks) {
+        if (full.playbooks.has(pb)) {
+          active.playbooks.add(pb);
+        }
+      }
+    }
+  }
+
+  for (const slug of disable?.agents ?? []) {
+    active.agents.delete(slug);
+  }
+  for (const slug of disable?.skills ?? []) {
+    active.skills.delete(slug);
+  }
+  for (const slug of disable?.playbooks ?? []) {
+    active.playbooks.delete(slug);
+  }
+  return { full, active };
+}
+
+/**
+ * Read one inherited layer's composable kinds (base pack or plugin) into raw
+ * entries — prompt files inlined against the layer dir.
+ * @param root - the layer directory
+ * @param label - how the layer is named in errors
+ */
+function loadLayerRaw(root: string, label: string): PackRaw {
+  return {
+    agents: readPackKind(root, 'agents', isYamlFile, [{ file: 'systemPromptFile', inline: 'systemPrompt' }], label),
+    objectTypes: readPackKind(root, 'objects', isObjectFile, [{ file: 'classificationPromptFile', inline: 'classificationPrompt' }], label),
+    missions: readPackKind(root, 'missions', isYamlFile, [], label),
+    skills: readPackFolders(root, 'skills', label),
+    playbooks: readPackFolders(root, 'playbooks', label),
+  };
+}
+
+type PluginExtras = {
+  automations: LoadedAutomation[];
+  teams: LoadedTeam[];
+  learningSteps: LoadedLearningStep[];
+  trust: TrustManifest[];
+};
+
+/**
+ * The non-composable kinds a plugin ships: automations, teams, learning steps
+ * and trust rules. Read as shipped (no {{env}} substitution, not sha-tracked —
+ * the plugin version covers provenance). Two plugins shipping one automation or
+ * team slug is an error, like the composable kinds.
+ * @param plugins - enabled plugins, in load order
+ */
+function loadPluginExtras(plugins: LoadedPlugin[]): PluginExtras {
+  const out: PluginExtras = { automations: [], teams: [], learningSteps: [], trust: [] };
+  const seen = new Map<string, string>();
+  const claim = (kind: string, slug: string, plugin: string) => {
+    const key = `${kind}:${slug}`;
+    const prior = seen.get(key);
+    if (prior) {
+      throw new Error(`${kind} "${slug}" is shipped by both plugin "${prior}" and plugin "${plugin}" — a slug belongs to one plugin`);
+    }
+    seen.set(key, plugin);
+  };
+  for (const plugin of plugins) {
+    const root = plugin.sourcePath;
+    const name = plugin.manifest.slug;
+    for (const file of walkDir(join(root, 'automations')).filter(isYamlFile)) {
+      const parsed = validateOrThrow(AutomationManifestSchema, parseYaml(readFileSync(file, 'utf8')), file, 'automation');
+      claim('automation', parsed.slug, name);
+      out.automations.push({ ...parsed, sourceFile: file });
+    }
+    for (const file of walkDir(join(root, 'teams')).filter(isYamlFile)) {
+      const team = loadTeam(file, null);
+      claim('team', team.slug, name);
+      out.teams.push(team);
+    }
+    for (const file of walkDir(join(root, 'learnings')).filter(isYamlFile)) {
+      const parsed = validateOrThrow(LearningStepManifestSchema, parseYaml(readFileSync(file, 'utf8')), file, 'learningStep');
+      claim('learning step', parsed.name, name);
+      out.learningSteps.push({ ...parsed, sourceFile: file });
+    }
+    const trustFile = ['trust.yaml', 'trust.yml'].map(n => join(root, n)).find(existsSync);
+    if (trustFile) {
+      out.trust.push(validateOrThrow(TrustManifestSchema, parseYaml(readFileSync(trustFile, 'utf8')), trustFile, 'trust') as TrustManifest);
+    }
+  }
+  return out;
+}
+
+/**
+ * Workspace entries win over inherited ones with the same key; everything
+ * else is appended in load order. Whole-file replace, no merge.
+ * @param workspace - the workspace's own entries
+ * @param inherited - plugin entries, in load order
+ * @param keyOf - the identity to compare on (slug, or name for learning steps)
+ */
+function inheritBy<T>(workspace: T[], inherited: T[], keyOf: (t: T) => string): T[] {
+  const taken = new Set(workspace.map(keyOf));
+  return [...workspace, ...inherited.filter(t => !taken.has(keyOf(t)))];
+}
+
+/**
+ * Trust rules compose per action id: a plugin's rule stands unless the
+ * workspace's trust.yaml names the same action, in which case the workspace
+ * rule replaces it; risk tiers merge the same way. Null when nobody authored
+ * any — the unchanged path.
+ * @param inherited - plugin trust manifests, in load order
+ * @param workspace - the workspace's own trust.yaml, or null
+ */
+function mergeTrust(inherited: TrustManifest[], workspace: TrustManifest | null): TrustManifest | null {
+  if (inherited.length === 0) {
+    return workspace;
+  }
+  const rules = new Map<string, TrustManifest['rules'][number]>();
+  const risk: Record<string, 'low' | 'medium' | 'high'> = {};
+  for (const t of [...inherited, ...(workspace ? [workspace] : [])]) {
+    for (const rule of t.rules) {
+      rules.set(rule.action, rule);
+    }
+    Object.assign(risk, t.risk ?? {});
+  }
+  return { rules: [...rules.values()], ...(Object.keys(risk).length > 0 ? { risk } : {}) };
+}
+
 function readPackKind(
   root: string,
   dirName: string,
   matches: (f: string) => boolean,
   promptFields: Array<{ file: string; inline: string }>,
+  label: string = 'base pack',
 ): Map<string, RawEntry> {
   const map = new Map<string, RawEntry>();
   for (const file of walkDir(join(root, dirName)).filter(matches)) {
@@ -578,10 +862,10 @@ function readPackKind(
     }
     const slug = typeof raw.slug === 'string' ? raw.slug : '';
     if (!slug) {
-      throw new Error(`base pack ${dirName} file has no slug: ${file}`);
+      throw new Error(`${label} ${dirName} file has no slug: ${file}`);
     }
     if (map.has(slug)) {
-      throw new Error(`duplicate base ${dirName} slug "${slug}" in the core pack`);
+      throw new Error(`duplicate ${dirName} slug "${slug}" in the ${label}`);
     }
     map.set(slug, { slug, raw, sourceFile: file });
   }

@@ -1,9 +1,12 @@
 import type { TokenUsage } from '@/libs/pricing';
+import type { WORKER_RUN_COMPLETED, WORKER_RUN_FAILED, WorkerRunEndedPayload } from '@/services/EventService';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { workerRunSchema } from '@/models/Schema';
+import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from '@/models/Schema';
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
+import { recomputeRollups } from '@/services/objects/rollups';
+import { assertWorkspaceRunning } from '@/services/workspacePause';
 
 /**
  * WorkerRunService — the control plane for long-running agent runs that execute
@@ -21,6 +24,12 @@ import { chargeUsage, preflightCheck } from '@/services/BudgetService';
  * Vocion never hosts the worker and never sees its working state. Every write
  * here is scoped by orgId; every worker-side call must also present the
  * workerId that holds the lease.
+ *
+ * A run queued FOR A RECORD — `input.record = {type, id}`, an object of a type
+ * the org has applied — writes its cost onto that record when it ends
+ * ({@link writeBackRunCost}): the record IS the durable thing a person reads,
+ * the run is the lease underneath it, and what the work cost belongs on the
+ * record. Rollups the org's object types declare are recomputed from there.
  */
 
 export type WorkerRunStatus = 'queued' | 'running' | 'paused' | 'awaiting_review' | 'completed' | 'failed' | 'cancelled' | 'lost';
@@ -113,6 +122,10 @@ export async function createWorkerRun(opts: {
   kind?: WorkerRunKind;
   model?: string | null;
 }): Promise<WorkerRun> {
+  // Queueing is where a paused workspace stops a worker run: the queue is the
+  // factory's intake, and a run added to it while the switch is off would sit
+  // there waiting to start the moment someone resumed.
+  await assertWorkspaceRunning(opts.orgId, 'worker_run');
   const [row] = await db.insert(workerRunSchema).values({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -190,6 +203,12 @@ function capRemainingCents(run: WorkerRun): number | null {
  * @param opts.workerId
  */
 export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string }): Promise<{ run: WorkerRun; toolClaim: string }> {
+  // Claiming too, and this is the half that matters operationally: the
+  // Fargate worker polls, so refusing the claim is what actually stops work
+  // starting on runs that were queued before the switch was pulled. A worker
+  // that already HOLDS a lease is not touched — it finishes, reports, and its
+  // heartbeat, complete and fail endpoints stay open to it.
+  await assertWorkspaceRunning(opts.orgId, 'worker_run');
   const run = await mustGet(opts.orgId, opts.id);
   const now = new Date();
   const leaseLapsed = run.leaseExpiresAt !== null && run.leaseExpiresAt < now;
@@ -201,11 +220,11 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   if (!budget.ok) {
     await db.update(workerRunSchema).set({
       status: 'failed',
-      error: `Budget exceeded for agent "${run.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
+      error: `Budget exceeded for "${budget.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
       completedAt: now,
       updatedAt: now,
     }).where(eq(workerRunSchema.id, run.id));
-    throw new WorkerRunError('BUDGET_EXCEEDED', `Agent "${run.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
+    throw new WorkerRunError('BUDGET_EXCEEDED', `"${budget.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
   }
   const [updated] = await db.update(workerRunSchema).set({
     status: 'running',
@@ -227,7 +246,7 @@ export type HeartbeatInput = {
   cursor?: string;
   counts?: Record<string, number>;
   /** Usage since the last heartbeat. Charged to the agent's period budget; never double-report. */
-  usage?: { model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cents?: number };
+  usage?: { model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; cents?: number };
   langfuseTraceId?: string;
   failures?: { scope: string; message: string }[];
 };
@@ -275,7 +294,12 @@ export async function heartbeatWorkerRun(input: HeartbeatInput): Promise<Heartbe
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
   if (input.usage && tokens > 0) {
-    const usage: TokenUsage = { inputTokens: input.usage.inputTokens, outputTokens: input.usage.outputTokens, cacheReadTokens: input.usage.cacheReadTokens };
+    const usage: TokenUsage = {
+      inputTokens: input.usage.inputTokens,
+      outputTokens: input.usage.outputTokens,
+      cacheReadTokens: input.usage.cacheReadTokens,
+      cacheWriteTokens: input.usage.cacheWriteTokens,
+    };
     await chargeUsage({ orgId: run.orgId, agentSlug: run.agentSlug, model: input.usage.model, usage });
   }
   const r = updated!;
@@ -317,6 +341,8 @@ export async function completeWorkerRun(opts: { orgId: string; id: number; worke
     heartbeatAt: now,
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
+  await writeBackRunCost(updated!, now);
+  await announceEnded(updated!, 'worker_run.completed', updated!.summary ?? '');
   return updated!;
 }
 
@@ -344,7 +370,151 @@ export async function failWorkerRun(opts: { orgId: string; id: number; workerId:
     heartbeatAt: now,
     updatedAt: now,
   }).where(eq(workerRunSchema.id, run.id)).returning();
+  // A failed attempt still cost money, and the record's actual is the honest
+  // sum over every attempt it took.
+  await writeBackRunCost(updated!, now);
+  await announceEnded(updated!, 'worker_run.failed', opts.error);
   return updated!;
+}
+
+/**
+ * Raise the completion event for a run that just reached a terminal status,
+ * so a debrief can read the work while it is fresh. Fire-and-forget in
+ * effect: an event that cannot be recorded never fails the worker's own
+ * write, which already happened. Deduped on the run id (and the attempt for
+ * a failure, since a re-claimed run can fail again).
+ * @param run - The row as written.
+ * @param type - `worker_run.completed` | `worker_run.failed`.
+ * @param summary - The worker's account, or the error.
+ */
+async function announceEnded(run: WorkerRun, type: typeof WORKER_RUN_COMPLETED | typeof WORKER_RUN_FAILED, summary: string): Promise<void> {
+  const record = runRecord(run);
+  const payload: WorkerRunEndedPayload = {
+    workerRunId: run.id,
+    agentSlug: run.agentSlug,
+    kind: run.kind,
+    status: run.status,
+    summary: summary.slice(0, 500),
+    recordType: record?.type ?? null,
+    recordId: record?.id ?? null,
+    attempt: run.attempt,
+    cents: run.cents,
+    completedAt: (run.completedAt ?? new Date()).toISOString(),
+  };
+  try {
+    // Dynamic, like every other emitter: the bus imports the workflow and
+    // automation services, and this service must stay importable from both.
+    const { emitEvent } = await import('@/services/EventService');
+    await emitEvent({
+      orgId: run.orgId,
+      type,
+      payload,
+      dedupeKey: type === 'worker_run.failed' ? `${type}:${run.id}:${run.attempt}` : `${type}:${run.id}`,
+      invokedBy: `worker_run:${run.id}`,
+    });
+  } catch (error) {
+    console.warn(`[worker-run] could not raise ${type} for run ${run.id}`, error);
+  }
+}
+
+/**
+ * The record a run was queued for, when the creator named one:
+ * `input.record = {type: '<object type slug>', id: <object id>}`. Null for a
+ * run that was not queued against a record — most are not.
+ * @param run - The run.
+ */
+export function runRecord(run: Pick<WorkerRun, 'input'>): { type: string; id: number } | null {
+  const rec = (run.input as Record<string, unknown> | null)?.record;
+  if (!rec || typeof rec !== 'object') {
+    return null;
+  }
+  const { type, id } = rec as Record<string, unknown>;
+  const n = typeof id === 'number' ? id : Number(id);
+  return typeof type === 'string' && type !== '' && Number.isInteger(n) && n > 0 ? { type, id: n } : null;
+}
+
+/**
+ * What every run queued for this record has cost so far, in cents — summed
+ * over the rows rather than added to the record, so a retried terminal call
+ * lands the same figure and a task picked up three times is charged three
+ * times, once.
+ * @param orgId - Tenant.
+ * @param record - The record.
+ * @param record.type - Its object type slug.
+ * @param record.id - Its object id.
+ */
+async function centsSpentOn(orgId: string, record: { type: string; id: number }): Promise<number> {
+  const [row] = await db.select({ spent: sql<number>`coalesce(sum(${workerRunSchema.cents}), 0)::int` })
+    .from(workerRunSchema)
+    .where(and(
+      eq(workerRunSchema.orgId, orgId),
+      sql`${workerRunSchema.input} -> 'record' ->> 'type' = ${record.type}`,
+      sql`${workerRunSchema.input} -> 'record' ->> 'id' = ${String(record.id)}`,
+    ));
+  return row?.spent ?? 0;
+}
+
+/**
+ * A run ended: put what it cost on the record it ran for, then recompute the
+ * rollups that reach that record.
+ *
+ * Written on the record's metadata: `actualCents` (the sum over every run
+ * queued for it), `costUpdatedAt`, and — when the record carries an
+ * `estimateCents`, or failing that when the run had a per-run cap to stand in
+ * for one — `estimateCents` and `varianceCents` (actual minus estimate, so a
+ * negative number is under budget). Cents throughout; the page renders money.
+ *
+ * Best effort by design: the run's own row is already terminal, and a
+ * write-back that fails must not hand the worker a 500 for work it finished.
+ * The failure is logged with the run and the record.
+ * @param run - The terminal run.
+ * @param now - When it ended.
+ */
+async function writeBackRunCost(run: WorkerRun, now: Date): Promise<void> {
+  const record = runRecord(run);
+  if (!record) {
+    return;
+  }
+  try {
+    const type = await db.query.businessObjectTypeSchema.findFirst({ where: and(eq(businessObjectTypeSchema.orgId, run.orgId), eq(businessObjectTypeSchema.slug, record.type)) });
+    if (!type) {
+      return;
+    }
+    const object = await db.query.businessObjectSchema.findFirst({ where: and(eq(businessObjectSchema.orgId, run.orgId), eq(businessObjectSchema.typeId, type.id), eq(businessObjectSchema.id, record.id)) });
+    if (!object) {
+      return;
+    }
+    const spent = await centsSpentOn(run.orgId, record);
+    const meta = object.metadata ?? {};
+    const estimate = typeof meta.estimateCents === 'number' ? meta.estimateCents : run.capCents ?? undefined;
+    await db.update(businessObjectSchema).set({
+      metadata: {
+        ...meta,
+        actualCents: spent,
+        costUpdatedAt: now.toISOString(),
+        ...(estimate === undefined ? {} : { estimateCents: estimate, varianceCents: spent - estimate }),
+      },
+    }).where(eq(businessObjectSchema.id, object.id));
+    await recomputeRollups({ orgId: run.orgId, childType: record.type, childId: record.id, now });
+  } catch (err) {
+    warn('worker run cost write-back failed', { runId: run.id, record, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/**
+ * Warn through a dynamic import. `libs/Logger` has a top-level await, and
+ * this service sits in the Temporal worker's import chain (the reaper
+ * schedule), which tsx compiles as CommonJS — a static import would stop the
+ * worker from starting. Same approach as `libs/Langfuse.ts`;
+ * `scripts/temporal-worker.imports.test.ts` guards it.
+ * @param message - What happened, in plain words.
+ * @param properties - Identifiers and context worth keeping.
+ */
+function warn(message: string, properties: Record<string, unknown>): void {
+  import('@/libs/Logger')
+    .then(({ logger }) => logger.warn(message, properties))
+    // Nothing useful left to do if logging itself is broken.
+    .catch(() => {});
 }
 
 /**

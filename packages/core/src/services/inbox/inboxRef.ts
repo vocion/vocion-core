@@ -9,7 +9,8 @@
  *   proposal-123     an agent-proposed `action_run` awaiting a decision
  *   mission-5        a paused / awaiting-review `mission_run`
  *   workflow-3       a paused `workflow_run`
- *   worker-9         a paused, awaiting-review, failed or lost `worker_run`
+ *   worker-9         a paused or awaiting-review `worker_run`, or the run behind
+ *                    an escalated exception
  *   learning-7       a pending `learning_candidate`
  *
  * Pure functions, no I/O — the service builds hrefs with `inboxHref`, the

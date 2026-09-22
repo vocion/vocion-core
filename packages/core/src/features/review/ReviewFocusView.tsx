@@ -3,8 +3,9 @@
 import type { ReviewType } from './reviewQueueModel';
 import type { ReviewShortcut } from './reviewShortcuts';
 import type { UpNextEntry } from './UpNextMenu';
+import type { ActionRevision } from '@/libs/actions/revisions';
 import type { ReviewCard } from '@/libs/actions/types';
-import { AlarmClock, Bookmark, Check, Loader2, ShieldCheck, SkipForward, Sparkles, X } from 'lucide-react';
+import { AlarmClock, Check, Loader2, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { DECISION_VERBS } from '@/features/dashboard/inbox/decisionVerbs';
@@ -13,10 +14,10 @@ import { StickyActionBar } from '@/features/dashboard/StickyActionBar';
 import { EvidenceRefs } from '@/features/preview/EvidenceRefs';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { describeAction } from './describeAction';
-import { ReviewActionCard } from './ReviewActionCard';
 import { ReviewHeader } from './ReviewHeader';
 import { itemTitle, queuePosition, typeLabel } from './reviewQueueModel';
 import { SHORTCUTS } from './reviewShortcuts';
+import { ReviewSurface } from './ReviewSurface';
 import { TypeChips } from './TypeChips';
 import { UpNextMenu } from './UpNextMenu';
 
@@ -26,12 +27,12 @@ import { UpNextMenu } from './UpNextMenu';
  * story and the container (`features/dashboard/ReviewFocus.tsx`) stays about
  * data.
  *
- * Shape (Chris, 2026-09-15): breadcrumb + item title, one meta row, then the
- * item as hairline-divided sections with the decision in a sticky bar. No
- * outer card, no persistent Up-next rail. Since the two decision surfaces
- * became one, this is the `proposal` kind's detail on "Review queue": the
- * crumbs say so, the Up-next walks the filtered inbox, and the kind chips are
- * the list's job (pass `types` only where a standalone queue wants them).
+ * A proposal that carries a card IS `ReviewSurface` — crumbs, name, role and
+ * company, position, then the content as tabs with the decision in a sticky
+ * bar. This file is what sits around it: the queue's own controls (Back, Up
+ * next, the shortcut hint), the empty state, and the fallback for a run with
+ * no presenter behind it. The kind chips are the list's job (pass `types` only
+ * where a standalone queue wants them).
  */
 
 export type ActionRun = {
@@ -44,12 +45,25 @@ export type ActionRun = {
   proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze'; suggestedDecisionReason?: string } | null;
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
+  /** Which content items carry a check, by the hash of the copy approved. */
+  contentReview?: Record<string, { hash: string; at: string; by?: string }> | null;
+  /** The per-item history: what was proposed, what was asked, what was approved. */
+  revisions?: ActionRevision[] | null;
   error?: string | null;
   card?: ReviewCard;
   /** Alignment beside the confidence meter (server-computed, 30d) — earned autonomy (0099). */
   alignment?: { agreementRate: number | null; n: number; window: string } | null;
   /** The action's registered display name ("Enroll MQL in sequence"), when the loader knew it. */
   typeLabel?: string;
+  /** What the run recorded — a hand-off's `handoff` and `executed` blocks — for the lifecycle under Run details. */
+  result?: Record<string, unknown> | null;
+  decidedBy?: string | null;
+  decidedAt?: Date | string | null;
+  executedAt?: Date | string | null;
+  /** Who the queue routed it to, by name, when it did. */
+  assignee?: string | null;
+  /** Display names for the ids the run carries, resolved by the loader. */
+  people?: Record<string, string>;
 };
 
 // Re-exported so existing client importers are untouched; the definition is
@@ -62,7 +76,7 @@ export type ReviewFocusViewProps = {
   types?: readonly ReviewType[];
   activeTypes?: readonly string[];
   onChangeTypes?: (next: string[]) => void;
-  /** Breadcrumb override; defaults to Workspace › Review queue › Proposals › record. */
+  /** Breadcrumb override; defaults to Workspace › Review queue › Recommendations › record. */
   crumbs?: Array<{ label: string; href?: string }>;
   current: ActionRun | null;
   /** Index of `current` in the working queue, 0-based; -1 when unknown. */
@@ -75,8 +89,7 @@ export type ReviewFocusViewProps = {
   canBack: boolean;
   onBack: () => void;
   onSkip: () => void;
-  onSave: () => void;
-  onCardDecided: (outcome: 'approve' | 'reject' | 'snooze' | 'regenerate') => void;
+  onCardDecided: (outcome: 'approve' | 'reject' | 'done' | 'snooze' | 'regenerate') => void;
   onCardRegenerated: () => void;
   /** Generic (presenter-less) items: the editable working copy and the steer field. */
   edited: Record<string, string>;
@@ -137,7 +150,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
     const chosenLabel = chosen.length === 1 ? chosen[0]!.label : null;
     return (
       <div data-testid="review-focus">
-        <ReviewHeader crumbs={p.crumbs ?? decisionCrumbs('proposal')} title="Proposals" status="pending" />
+        <ReviewHeader crumbs={p.crumbs ?? decisionCrumbs('proposal')} title="Recommendations" status="pending" />
         {chips}
         <div className="px-2 py-16 text-center">
           <ShieldCheck className="mx-auto size-8 text-brand-amber-deep" aria-hidden />
@@ -146,7 +159,7 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {p.decided > 0 ? `${p.decided} handled this session. ` : ''}
-            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent proposals land on the review queue for your decision.'}
+            {activeTypes.length > 0 ? 'Other types are still waiting — clear the filter to see them.' : 'New agent recommendations land on the review queue for your decision.'}
           </p>
         </div>
       </div>
@@ -164,18 +177,62 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
   const longField = desc.isEmail ? 'body' : 'notes';
   const held = p.busy || p.steering;
 
+  // The flat template's title row carries the record and nothing else.
+  //
+  // It used to carry the queue controls too — position, Back, Up next and the
+  // shortcuts chip — and on a real queue that cluster is not small: Up next
+  // renders the whole next item's name ("Enroll Larry Chao (Baser Potential)
+  // in New Operational AI Inbound Sequence"), which took most of the row and
+  // squeezed a three-word heading into three wrapped lines. The controls were
+  // costing the thing they sat beside.
+  //
+  // Nothing is lost that a person cannot reach: `j` and `k` walk the queue,
+  // `?` opens the shortcut list, and the breadcrumb goes back to it. The
+  // legacy (non-card) header below keeps its own cluster, because that path
+  // has no tabs and the row has the room.
+
+  const help = p.showHelp && (
+    <ul className="hidden flex-wrap gap-x-5 gap-y-1 border-b border-rule py-2 text-[12px] text-muted-foreground sm:flex" data-testid="shortcuts-hint">
+      {SHORTCUTS.filter(s => s.action !== 'help').map(s => (
+        <li key={s.key} className="inline-flex items-center gap-1.5">
+          <kbd className="rounded border border-border px-1 font-mono">{s.key}</kbd>
+          {shortcutLabel[s.action as Exclude<ReviewShortcut, 'help'>]}
+        </li>
+      ))}
+    </ul>
+  );
+
+  // A proposal with a presenter behind it IS the flat template — one shell,
+  // whatever the object type, and the same shell the lead page mounts.
+  if (current.card) {
+    return (
+      <div data-testid="review-focus" className="relative">
+        {chips}
+        <ReviewSurface
+          run={{ ...current, card: current.card }}
+          crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
+          title={title}
+          subtitle={object?.subtitle}
+          beforeTabs={help}
+          barLabels={{ addField: t('add_feedback'), hideField: t('hide_feedback') }}
+          onDecided={p.onCardDecided}
+          onRegenerated={p.onCardRegenerated}
+        />
+      </div>
+    );
+  }
+
   return (
     <div data-testid="review-focus" className="relative">
       <ReviewHeader
         crumbs={p.crumbs ?? decisionCrumbs('proposal', record, object?.section)}
         title={title}
         subtitle={object?.subtitle}
-        subject={current.card?.subject}
-        system={current.card?.system ?? desc.system}
+        system={desc.system}
         status={current.status}
         proposedBy={current.invokedBy}
         confidence={current.proposal?.confidence}
-        confidenceSubject={current.card?.confidenceSubject ?? 'Recommendation'}
+        confidenceSubject="Recommendation"
         alignment={current.alignment}
         suggestion={current.proposal?.suggestedDecision}
         position={queuePosition(p.index, p.total)}
@@ -195,24 +252,11 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
           </button>
         )}
       />
-      {p.showHelp && (
-        <ul className="hidden flex-wrap gap-x-5 gap-y-1 border-b border-rule py-2 text-[12px] text-muted-foreground sm:flex" data-testid="shortcuts-hint">
-          {SHORTCUTS.filter(s => s.action !== 'help').map(s => (
-            <li key={s.key} className="inline-flex items-center gap-1.5">
-              <kbd className="rounded border border-border px-1 font-mono">{s.key}</kbd>
-              {shortcutLabel[s.action as Exclude<ReviewShortcut, 'help'>]}
-            </li>
-          ))}
-        </ul>
-      )}
+      {help}
       {chips}
 
       <div className="mt-2">
-        {current.card && (
-          <ReviewActionCard run={{ ...current, card: current.card }} presentation="page" onDecided={p.onCardDecided} onRegenerated={p.onCardRegenerated} />
-        )}
-
-        {!current.card && (
+        {(
           <div data-testid="review-generic">
             {current.proposal?.rationale && (
               <section className="border-b border-rule py-6">
@@ -281,8 +325,6 @@ export function ReviewFocusView(p: ReviewFocusViewProps) {
               secondary={[
                 { 'label': verb('reject').label, 'onClick': () => p.onDecide('reject'), 'disabled': held, 'icon': X, 'shortcut': verb('reject').shortcut, 'tone': 'danger', 'data-testid': 'decide-reject' },
                 { 'label': verb('snooze').label, 'onClick': p.onToggleSnooze, 'disabled': held, 'icon': AlarmClock, 'shortcut': verb('snooze').shortcut, 'data-testid': 'decide-snooze' },
-                { label: verb('save').label, onClick: p.onSave, disabled: held, icon: Bookmark },
-                { label: verb('skip').label, onClick: p.onSkip, disabled: held, icon: SkipForward, shortcut: verb('skip').shortcut },
               ]}
               aside={p.snoozeOpen && (
                 <div className="flex gap-1" role="group" aria-label="Snooze until">

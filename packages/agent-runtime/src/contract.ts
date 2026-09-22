@@ -86,7 +86,7 @@ export type AgentEvent
      * caller (vocion-core's runtime provider) can charge agent budgets.
      * Never forwarded to the browser.
      */
-    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
+    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 
 /* ------------------------------------------------------------------ */
 /* Invocation payload                                                  */
@@ -104,6 +104,18 @@ export type AgentDefinition = {
   subagents?: Array<{ name: string; description: string; systemPrompt: string }>;
   /** deepagents built-in tool names to withhold from the catalog. */
   excludeTools?: string[];
+  /**
+   * Whether to ask the vendor to cache this agent's prompt prefix.
+   *
+   * Absent means the runtime's own default, which is on. Core sends it only
+   * when the agent's `harness:` block said something, so an author who wrote
+   * `promptCache: false` — an agent whose prompt must not sit in a vendor's
+   * cache — is obeyed here as well as on the in-process loop. Without this
+   * field the only way to turn caching off for a runtime-hosted agent would be
+   * `VOCION_PROMPT_CACHE=0` on the whole runtime host, which is every agent it
+   * serves, not one. See `./promptCache.ts`.
+   */
+  promptCache?: boolean;
 };
 
 export type ToolCatalogEntry = {

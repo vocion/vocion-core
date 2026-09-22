@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { afterAll, describe, expect, it } from 'vitest';
 import { evaluateDocument } from './audit';
-import { closeRenderer, countPdfPagesByStructure, renderAvailable, renderDocument } from './render';
+import { closeRenderer, countPdfPagesByStructure, renderAvailable, renderDocument, renderNote } from './render';
 
 /**
  * Real Chromium. The framework's whole point is that the print CSS and the
@@ -90,5 +90,41 @@ describe.skipIf(!available.ok)('renderDocument (real Chromium)', () => {
     const r = await renderDocument(doc({ brokenImage: true }), { screenshots: false, pdf: false });
 
     expect(r.unresolvedAssets).toContain('assets/logo.png');
+  }, 60_000);
+});
+
+describe('what the render reports while it runs', () => {
+  /**
+   * Only the stages that really happen. Chromium lays the whole document out
+   * in one pass, so there is nothing per-sheet to report before `measured`;
+   * the screenshots after it are a real loop, one call per sheet, and the PDF
+   * print is one more pass. A note is a fact about the work, not an animation.
+   */
+  it('names each stage in words a person reads', () => {
+    expect(renderNote({ phase: 'measured', sheets: 12 })).toBe('measuring 12 sheets');
+    expect(renderNote({ phase: 'measured', sheets: 1 })).toBe('measuring 1 sheet');
+    expect(renderNote({ phase: 'screenshot', sheet: 7, sheets: 12 })).toBe('sheet 7 of 12');
+    expect(renderNote({ phase: 'pdf', sheets: 12 })).toBe('printing the PDF');
+  });
+});
+
+describe.skipIf(!available.ok)('a real render reports its real stages', () => {
+  afterAll(() => closeRenderer());
+
+  it('reports one note per sheet as it screenshots, then the PDF', async () => {
+    const notes: string[] = [];
+    await renderDocument(doc(), { screenshots: true, pdf: true, onProgress: p => notes.push(renderNote(p)) });
+
+    expect(notes[0]).toBe('measuring 3 sheets');
+    expect(notes).toEqual(expect.arrayContaining(['sheet 1 of 3', 'sheet 2 of 3', 'sheet 3 of 3']));
+    expect(notes.at(-1)).toBe('printing the PDF');
+  }, 60_000);
+
+  it('a throwing reporter never breaks the render', async () => {
+    const r = await renderDocument(doc(), { screenshots: false, pdf: false, onProgress: () => {
+      throw new Error('the person closed the tab');
+    } });
+
+    expect(r.sheets).toHaveLength(3);
   }, 60_000);
 });

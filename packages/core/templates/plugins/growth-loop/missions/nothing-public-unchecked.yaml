@@ -1,0 +1,32 @@
+slug: nothing-public-unchecked
+name: Nothing goes out that nobody checked
+description: >-
+  The standing responsibility of the Standards editor. Ungraded is not passed:
+  the failure mode this mission exists for is not a bad piece being approved, it
+  is a piece reaching a deadline unread and going out because nobody said no.
+goal: >-
+  Every deliverable that will be seen outside is read against its own brief
+  before it can be published — the do-not-claim list first, then every
+  acceptance line, then every claim against the evidence the brief carries, then
+  the staleness pin — and ends in one of three verdicts with at most three
+  ordered fixes and every unsupported claim quoted. A do-not-claim hit is a
+  rejection whatever else the read says. The round is recorded on every grade,
+  because the rate at which pieces pass on a first read is a fact about the
+  briefs, not about the producer.
+agent: standards-editor
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - No brief reaches `published` whose `gate.verdict` is anything but `publish`; one that did is named in the check as a breach, with when and by whom
+  - Every grade records the round, who or what read it, and — where a second model or vendor was used — which
+  - A deliverable that breaks any line of its brief's doNotClaim list is rejected on that alone, with the forbidden line and the offending sentence quoted, and the read stops there
+  - Every claim the brief's evidence does not hold up is quoted verbatim into unsupportedClaims; a citation that does not say what it was cited for counts as unsupported
+  - At most three fixes are returned, in order; a longer list is reported as "this is a rewrite" and goes back to the strategist as a brief problem
+  - An acceptance line that cannot be checked is recorded as a finding about the brief, so the next brief on that subject does not carry it
+  - Every claim of class comparative, performance or regulated gets the adversarial second read, and the grade says which model or vendor gave it
+  - Nothing is approved that could not be checked; "I could not establish this" is written as the finding rather than resolved in either direction
+desiredArtifacts:
+  - A grade on every deliverable, with verdict, round, fixes and unsupported claims quoted
+  - The weekly pattern line — what pieces failed on most, and which brief field would have prevented it
+  - The list of acceptance lines that could not be checked, for the strategist
+schedule: '0 12 * * 1-5'

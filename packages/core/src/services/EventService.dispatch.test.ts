@@ -22,6 +22,11 @@ vi.mock('@/services/AutomationService', () => ({
   fireAutomation: vi.fn(async () => ({ kind: 'mission_check', runId: 900, automationRunId: 501 })),
   beginAutomationFire: vi.fn(async () => PENDING),
   completeAutomationFire: vi.fn(async () => ({ kind: 'mission_check', runId: 900, automationRunId: 501 })),
+  // The guards, quiet: nothing recent, nothing refused. Their own behaviour
+  // is `EventService.loop.test.ts`.
+  countRecentEventFires: vi.fn(async () => 0),
+  recordSkippedFire: vi.fn(async () => 1),
+  scheduleCoalescedFire: vi.fn(async () => 'scheduled'),
 }));
 
 // `after` is Next's keep-alive past the response; captured so the test can run

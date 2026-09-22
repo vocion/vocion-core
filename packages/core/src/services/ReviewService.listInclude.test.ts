@@ -72,6 +72,18 @@ describe('listPendingPage include', () => {
     expect(item!.proposal).toMatchObject({ confidence: 0.82 });
   });
 
+  it('carries when the item entered the queue, without being asked', async () => {
+    const before = new Date();
+    await seedRun();
+    const page = await listPendingPage(ORG, { kind: 'action' });
+    const [item] = page.items;
+
+    // On the thin row on purpose: "how long has this been waiting" is the
+    // queue's own question, and no client should fetch a detail to ask it.
+    expect(item!.createdAt).toBeInstanceOf(Date);
+    expect(item!.createdAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 5000);
+  });
+
   it('leaves paging and totals exactly as they were', async () => {
     await seedRun();
     await seedRun();

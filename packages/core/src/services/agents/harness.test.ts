@@ -36,7 +36,7 @@ const { createDeepAgent } = await import('deepagents');
 const { db } = await import('@/libs/DB');
 const { agentSchema, projectSchema, teamSchema, tenantAccountSchema } = await import('@/models/Schema');
 const { buildChatModelForOrg } = await import('@/libs/llm');
-const { compileAgentForRequest, resetAgentRuntimeCache } = await import('@/services/agents/harness');
+const { compileAgentForRequest, initiativePromptNote, resetAgentRuntimeCache } = await import('@/services/agents/harness');
 
 const mockCreate = vi.mocked(createDeepAgent);
 
@@ -201,6 +201,36 @@ describe('workspace-lead chat graph (F1 slice 2)', () => {
 
     expect(names).toContain('gtm-lead');
     expect(graphOptions(1).systemPrompt).not.toContain('no lead yet');
+  });
+});
+
+describe('initiative in the system prompt', () => {
+  it('appends the high note for a high-initiative agent and the low note for a low one; normal says nothing', async () => {
+    await db.insert(agentSchema).values([
+      { orgId: ORG, slug: 'eager', name: 'Eager', systemPrompt: 'You research.', initiative: 'high' },
+      { orgId: ORG, slug: 'quiet', name: 'Quiet', systemPrompt: 'You curate.', initiative: 'low' },
+    ]);
+
+    await compile('eager');
+
+    expect(graphOptions(0).systemPrompt).toContain('INITIATIVE: high');
+    expect(graphOptions(0).systemPrompt).toContain('ONE concrete offer');
+
+    await compile('quiet');
+
+    expect(graphOptions(1).systemPrompt).toContain('INITIATIVE: low');
+    expect(graphOptions(1).systemPrompt).not.toContain('INITIATIVE: high');
+
+    // `revenue-lead` has no initiative column value: normal, and no note at all.
+    await compile('revenue-lead');
+
+    expect(graphOptions(2).systemPrompt).not.toContain('INITIATIVE:');
+  });
+
+  it('is the same sentence everywhere — one shape, authored once', () => {
+    expect(initiativePromptNote('normal')).toBe('');
+    expect(initiativePromptNote('high')).toMatch(/^INITIATIVE: high\./);
+    expect(initiativePromptNote('low')).toMatch(/^INITIATIVE: low\./);
   });
 });
 

@@ -29,13 +29,28 @@ export type LLMOptions = {
   temperature?: number;
   maxTokens?: number;
   responseFormat?: 'text' | 'json_object';
+  /**
+   * Ask the provider to cache the system prompt so repeated calls that share
+   * it are billed at the cache-read rate instead of the full input rate. On by
+   * default where the provider supports it; pass `false` for a prompt that
+   * must never sit in a provider's cache.
+   *
+   * A system prompt below the model's minimum cacheable length is simply not
+   * cached — the call still succeeds, and the usage numbers come back zero.
+   */
+  promptCache?: boolean;
 };
 
 export type LLMResponse = {
   content: string;
   usage?: {
+    /** Every input token billed, including any served from or written to cache. */
     inputTokens?: number;
     outputTokens?: number;
+    /** Input tokens served from the provider's prompt cache, billed at 0.1x. */
+    cacheReadTokens?: number;
+    /** Input tokens written to the provider's prompt cache, billed at 1.25x. */
+    cacheWriteTokens?: number;
   };
   finishReason?: string;
 };

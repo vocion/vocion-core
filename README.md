@@ -165,6 +165,8 @@ POST https://your-install/api/mcp
 Authorization: Bearer vcn_live_...
 ```
 
+`ask_workspace` sends a message to the workspace: the router picks the agent that handles it, one turn runs with that agent's tools and trust rules, and the reply comes back with the routing decision — see [agent tools → Asking the workspace](./docs/guides/agent-tools.md#asking-the-workspace).
+
 Full tool reference + the HTTP transport: [reference/mcp](https://vocion.ai/docs/reference/mcp).
 
 ## Control plane (REST + MCP)
@@ -247,6 +249,7 @@ grant trademark rights.
 - [`docs/object-model.md`](./docs/object-model.md) — where every object is authored, stored, executed, and shown
 - [`docs/workspace-pages.md`](./docs/workspace-pages.md) — tenant-defined dashboard pages
 - [`docs/deployment/`](./docs/deployment/) — multiple environments, parent-project pattern
+- [`docs/guides/prompt-caching.md`](./docs/guides/prompt-caching.md) — the prompt prefix of every agent turn is cached at the vendor, on by default, nothing to configure; read this for how to turn it off (per agent, per call site, or process-wide with `VOCION_PROMPT_CACHE=0`) and the one case where that is worth doing
 
 ## Contributing
 

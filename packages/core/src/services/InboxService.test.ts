@@ -13,7 +13,7 @@ vi.mock('@/services/FeedbackWorkerService', () => ({ enqueue: vi.fn(async () => 
 const { db } = await import('@/libs/DB');
 const { actionRunSchema, askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } = await import('@/models/Schema');
 const { upsertAsk, decideAsk, normaliseOptions } = await import('@/services/AskService');
-const { INBOX_KINDS, listInbox, listProposalQueue, needsYou, needsYouCount } = await import('@/services/InboxService');
+const { autonomyOffers, INBOX_KINDS, listInbox, listProposalQueue, needsYou, needsYouCount } = await import('@/services/InboxService');
 
 const ORG = 'org_inbox_test';
 const day = 24 * 60 * 60 * 1000;
@@ -77,7 +77,7 @@ describe('InboxService — one list, every kind tagged', () => {
     expect(inbox.items.map(i => i.title)).not.toContain('not mine');
   });
 
-  it('folds paused missions and workflows, waiting/failed worker runs and pending rule candidates into run + learning rows with kind-prefixed refs', async () => {
+  it('folds paused missions and workflows, waiting worker runs and pending rule candidates into run + learning rows with kind-prefixed refs', async () => {
     await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Weekly brief', brief: 'b', status: 'paused', pauseReason: 'needs a source', team: { lead: 'revenue-lead', members: [] } });
     await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Review me', brief: 'b', status: 'awaiting_review', team: { lead: 'revenue-lead', members: [] } });
     await db.insert(missionRunSchema).values({ orgId: ORG, title: 'Done brief', brief: 'b', status: 'completed', team: { lead: 'revenue-lead', members: [] } });
@@ -85,23 +85,55 @@ describe('InboxService — one list, every kind tagged', () => {
     await db.insert(workflowRunSchema).values({ orgId: ORG, workflowId: wf!.id, status: 'paused', pauseReason: 'approve step 2' });
     await db.insert(workflowRunSchema).values({ orgId: ORG, workflowId: wf!.id, status: 'completed' });
     await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'ceo', status: 'awaiting_review' });
-    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: 'budget' });
-    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'lost', updatedAt: new Date(Date.now() - 3 * day) });
     await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'ceo', status: 'completed' });
     await db.insert(learningCandidateSchema).values({ orgId: ORG, stepName: 'editorial', ruleText: 'Cite the file', status: 'pending' });
     await db.insert(learningCandidateSchema).values({ orgId: ORG, stepName: 'editorial', ruleText: 'Old', status: 'rejected' });
 
     const inbox = await needsYou(ORG);
 
-    expect(inbox.counts.run).toBe(5);
+    expect(inbox.counts.run).toBe(4);
     expect(inbox.counts.learning).toBe(1);
     expect(inbox.items.find(i => i.title === 'Weekly brief')).toMatchObject({ kind: 'run', agentSlug: 'revenue-lead', subline: 'needs a source', href: expect.stringMatching(/^\/dashboard\/inbox\/mission-\d+$/) });
     expect(inbox.items.find(i => i.title === 'Review me')).toMatchObject({ kind: 'run', status: 'awaiting_review' });
     expect(inbox.items.find(i => i.title.startsWith('Weekly digest'))).toMatchObject({ kind: 'run', subline: 'approve step 2', href: expect.stringMatching(/^\/dashboard\/inbox\/workflow-\d+$/) });
-    expect(inbox.items.filter(i => i.kind === 'run' && i.agentSlug === 'writer')).toHaveLength(1); // the 3-day-old lost run is outside the window
-    expect(inbox.items.find(i => i.kind === 'run' && i.agentSlug === 'writer')!.href).toMatch(/^\/dashboard\/inbox\/worker-\d+$/);
+    expect(inbox.items.find(i => i.kind === 'run' && i.agentSlug === 'ceo')!.href).toMatch(/^\/dashboard\/inbox\/worker-\d+$/);
     expect(inbox.items.find(i => i.kind === 'learning')).toMatchObject({ title: 'Cite the file', href: expect.stringMatching(/^\/dashboard\/inbox\/learning-\d+$/) });
     expect(await needsYouCount(ORG)).toBe(inbox.total);
+  });
+
+  it('does not list a plain failed or lost run, a failure is a log line, not a decision', async () => {
+    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: 'worker timed out after 300s', input: { taskId: 'T-1' } });
+    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'lost', input: { taskId: 'T-2' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.total).toBe(0);
+    expect(inbox.counts.exception).toBe(0);
+    expect(await needsYouCount(ORG)).toBe(0);
+  });
+
+  it('surfaces a third failure of one task as an exception carrying a recommendation', async () => {
+    for (const id of [1, 2, 3]) {
+      await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: `attempt ${id}: worker timed out after 300s`, input: { taskId: 'T-1' } });
+    }
+
+    const inbox = await needsYou(ORG);
+    const exception = inbox.items.find(i => i.kind === 'exception');
+
+    expect(inbox.items).toHaveLength(1);
+    expect(exception).toMatchObject({ agentSlug: 'writer', risk: 'high', href: expect.stringMatching(/^\/dashboard\/inbox\/worker-\d+$/) });
+    expect(exception!.contract!.recommendation).toBeTruthy();
+    expect(exception!.contract!.impactOfDelay).toBeTruthy();
+    expect(exception!.contract!.actions.length).toBeGreaterThan(1);
+    expect(await needsYouCount(ORG)).toBe(1);
+  });
+
+  it('escalates a failure class nothing retries on its first occurrence', async () => {
+    await db.insert(workerRunSchema).values({ orgId: ORG, agentSlug: 'writer', status: 'failed', error: 'the worker refused the contract', input: { taskId: 'T-9' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items.filter(i => i.kind === 'exception')).toHaveLength(1);
   });
 
   it('counts a decision sheet once on the badge, like the page does', async () => {
@@ -130,10 +162,10 @@ describe('InboxService — proposals', () => {
     const [first, second] = inbox.items; // oldest first
 
     // The record's NAME is the title, the count is a tag beside it, and the
-    // subline says what the proposals would DO — never the name a second time.
+    // subline says what the recommendations would DO — never the name a second time.
     // The href is escaped so the proxy cannot drop it (services/inbox/recordKey).
     expect(first).toMatchObject({ kind: 'proposal', shape: 'sheet', title: 'Northwind renewal', titleHint: 'Deal 7781', count: 2, amount: 48000, confidence: 0.6, href: '/dashboard/inbox/r/hubspot~3Adeals~3A7781' });
-    expect(first!.subline).toBe('1 field update · 1 next step › proposed by deal-desk');
+    expect(first!.subline).toBe('1 field update · 1 next step › recommended by deal-desk');
     expect(Date.now() - first!.at.getTime()).toBeGreaterThan(3.9 * day);
     expect(second).toMatchObject({ kind: 'proposal', shape: 'single', title: 'Enroll Jamie Smith (Contoso Supply) in MSP nurture', actionId: 'personalization.enroll', confidence: 0.88 });
     expect(second!.href).toBe(`/dashboard/inbox/proposal-${second!.reviewId}`);
@@ -201,5 +233,137 @@ describe('InboxService — proposals', () => {
     expect(decided.counts).toMatchObject({ ruling: 1, proposal: 1, learning: 1 });
     expect((await listInbox(ORG, { tab: 'decided', kinds: ['learning'] })).items).toHaveLength(1);
     expect(await needsYouCount(ORG)).toBe((await listInbox(ORG)).total);
+  });
+});
+
+describe('InboxService \u2014 the admission bar', () => {
+  it('keeps the decisions and sends the bookkeeping to the policy that covers it', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'recommendation', title: 'Build a two-pane admin panel for Send?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Admin panel vs. Stamp rename: which goes next?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'CRITICAL (check 10): 4 askers waiting 13+ hrs on notes ownership' } });
+    await db.insert(actionRunSchema).values([
+      { orgId: ORG, actionId: 'objects.update_meta', status: 'pending', invokedBy: 'agent:ranker', input: { objectType: 'request', objectId: '38', properties: { priority: '62' } }, proposal: {} },
+    ] as never);
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.total).toBe(1);
+    expect(inbox.items[0]!.title).toBe('Build a two-pane admin panel for Send?');
+    expect(await needsYouCount(ORG)).toBe(1);
+  });
+
+  it('folds the related question into the decision and says so on the row', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'recommendation', title: 'Build a two-pane admin panel for Send?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Admin panel vs. Stamp rename: which goes next?' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.total).toBe(1);
+    expect(inbox.items[0]!.count).toBe(2);
+    expect(inbox.items[0]!.detail).toBe('1 related question folded in');
+  });
+
+  it('accounts for everything it did not show, with the policy it ran under', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'CRITICAL (check 10): 4 askers waiting 13+ hrs on the release notes' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items).toEqual([]);
+    expect(inbox.reclassified).toHaveLength(2);
+    expect(inbox.policyGaps).toEqual([expect.objectContaining({ policy: 'release-notes-have-a-standing-owner', count: 2, chases: 1 })]);
+  });
+
+  it('never folds enroll cards into one row: every lead is its own decision, however alike the titles', async () => {
+    const now = Date.now();
+    await db.insert(actionRunSchema).values([1, 2, 3].map(n => ({
+      orgId: ORG,
+      actionId: 'personalization.enroll',
+      status: 'pending',
+      invokedBy: 'agent:personalization',
+      createdAt: new Date(now - n * 60_000),
+      input: { contactRef: `contacts:${n}`, contactName: `Lead ${n}`, companyName: `Company ${n}`, sequenceName: 'MSP nurture' },
+      proposal: { confidence: 0.8, agentSlug: 'personalization' },
+    })) as never);
+    await upsertAsk({ orgId: ORG, ask: { kind: 'recommendation', title: 'Build a two-pane admin panel for Send?' } });
+    await upsertAsk({ orgId: ORG, ask: { kind: 'ruling', title: 'Admin panel vs. Stamp rename: which goes next?' } });
+
+    const inbox = await needsYou(ORG);
+
+    expect(inbox.items.filter(i => i.actionId === 'personalization.enroll')).toHaveLength(3);
+    expect(inbox.items.filter(i => i.actionId === 'personalization.enroll').every(i => i.count === undefined)).toBe(true);
+
+    // The factory's own fold still holds beside them.
+    const asks = inbox.items.filter(i => i.kind !== 'proposal');
+
+    expect(asks).toHaveLength(1);
+    expect(asks[0]!.count).toBe(2);
+    expect(inbox.total).toBe(4);
+    expect(await needsYouCount(ORG)).toBe(4);
+  });
+
+  it('reports no reclassification on a tab that is not the open one', async () => {
+    await upsertAsk({ orgId: ORG, ask: { kind: 'approval', title: 'Own the release notes for the observability releases?' } });
+
+    expect((await listInbox(ORG, { tab: 'decided' })).reclassified).toEqual([]);
+  });
+});
+
+describe('InboxService \u2014 earning autonomy', () => {
+  it('offers to stop asking after three routine approvals accepted unchanged', async () => {
+    const now = Date.now();
+    await db.insert(actionRunSchema).values([0, 1, 2].map(i => ({
+      orgId: ORG,
+      actionId: 'notify.requester',
+      status: 'done',
+      invokedBy: 'agent:comms',
+      createdAt: new Date(now - (5 - i) * day),
+      decidedAt: new Date(now - (4 - i) * day),
+      decidedBy: 'user_chris',
+      executedAt: new Date(now - (4 - i) * day),
+      input: { to: 'asker@example.com', subject: 'Your gap is closed', body: 'x' },
+      proposal: {},
+    })) as never);
+
+    const { proposals } = await autonomyOffers(ORG);
+
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]!.count).toBe(3);
+    expect(proposals[0]!.choices.map(c => c.id)).toEqual(['allow-automatically', 'keep-asking']);
+  });
+
+  it('keeps asking when a person overruled the class, however many times they approved before', async () => {
+    const now = Date.now();
+    await db.insert(actionRunSchema).values([
+      ...[0, 1, 2].map(i => ({
+        orgId: ORG,
+        actionId: 'notify.requester',
+        status: 'done',
+        invokedBy: 'agent:comms',
+        createdAt: new Date(now - (6 - i) * day),
+        decidedAt: new Date(now - (5 - i) * day),
+        decidedBy: 'user_chris',
+        executedAt: new Date(now - (5 - i) * day),
+        input: { to: 'asker@example.com', subject: 'Your gap is closed', body: 'x' },
+        proposal: {},
+      })),
+      {
+        orgId: ORG,
+        actionId: 'notify.requester',
+        status: 'rejected',
+        invokedBy: 'agent:comms',
+        createdAt: new Date(now - 2 * day),
+        decidedAt: new Date(now - 1 * day),
+        decidedBy: 'user_chris',
+        input: { to: 'asker@example.com', subject: 'Not this one', body: 'x' },
+        proposal: {},
+      },
+    ] as never);
+
+    const { proposals, holds } = await autonomyOffers(ORG);
+
+    expect(proposals).toEqual([]);
+    expect(holds[0]!.reason).toBe('1 of 3 identical decisions so far.');
   });
 });

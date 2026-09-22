@@ -5,6 +5,7 @@ import type { KnowledgeDocumentDetail } from '@/services/SourceSyncService';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { inspectDocument } from '@/libs/documents/sheets';
+import { canOpenArtifact } from '@/libs/share/audience';
 import { artifactSchema, briefingSchema, conversationMessageSchema, conversationSchema, leadBriefSchema } from '@/models/Schema';
 import { findDocumentForCitation } from './documentRef';
 import { registerPreview } from './registry';
@@ -149,7 +150,46 @@ async function resolveCrmRecord(ref: RecordRef, ctx: { orgId: string; userId: st
 }
 
 registerPreview('deal', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
-registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveCrmRecord });
+
+/**
+ * An `object` ref is a business object first — a data room, since 2026-09-18
+ * the record a chat turn most often makes — and a HubSpot record otherwise.
+ * The room's preview is its status, cast, sources and open items, with the
+ * room page one click away.
+ * @param ref
+ * @param ctx
+ * @param ctx.orgId
+ * @param ctx.userId
+ */
+async function resolveObject(ref: RecordRef, ctx: { orgId: string; userId: string | null }): Promise<PreviewDoc | null> {
+  if (/^\d+$/.test(ref.id)) {
+    const { exportDataRoom, getDataRoom, roomHref } = await import('@/services/DataRoomService');
+    const room = await getDataRoom(ctx.orgId, Number.parseInt(ref.id, 10));
+    if (room) {
+      const md = (await exportDataRoom(ctx.orgId, room.id)) ?? '';
+      const cut = md.length > 6000;
+      return {
+        ref,
+        title: room.title,
+        sourceLabel: 'Data room',
+        kind: 'data_room',
+        subtitle: room.meta.status ?? undefined,
+        facts: [
+          room.meta.stage ? { label: 'Stage', value: room.meta.stage } : null,
+          room.meta.client ? { label: 'Client', value: room.meta.client } : null,
+          { label: 'Sources', value: String(room.meta.sources?.length ?? 0) },
+          { label: 'Cast', value: String(room.meta.cast?.length ?? 0) },
+        ].filter((f): f is { label: string; value: string } => f !== null),
+        body: cut ? md.slice(0, 6000) : md,
+        href: roomHref(room.id),
+        ...(cut ? { truncated: true } : {}),
+      };
+    }
+  }
+  return resolveCrmRecord(ref, ctx);
+}
+
+registerPreview('object', { sourceLabel: 'HubSpot', resolve: resolveObject });
 
 /**
  * What to show in the panel for an artifact whose body is STRUCTURE rather
@@ -206,12 +246,17 @@ registerPreview('artifact', {
       return null;
     }
     const [row] = await db
-      .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, spec: artifactSchema.spec, url: artifactSchema.url, folder: artifactSchema.folder, version: artifactSchema.currentVersion, updatedAt: artifactSchema.updatedAt, author: artifactSchema.lastAuthorId })
+      .select({ id: artifactSchema.id, title: artifactSchema.title, kind: artifactSchema.kind, spec: artifactSchema.spec, url: artifactSchema.url, folder: artifactSchema.folder, version: artifactSchema.currentVersion, updatedAt: artifactSchema.updatedAt, author: artifactSchema.lastAuthorId, shareAudience: artifactSchema.shareAudience, shareOwnerId: artifactSchema.shareOwnerId })
       .from(artifactSchema)
       .where(and(eq(artifactSchema.orgId, ctx.orgId), eq(artifactSchema.id, id)))
       .limit(1);
     if (!row) {
       return null;
+    }
+    // Shared with its owner only: the title is a fact of the workspace, the
+    // body is not (`libs/share/audience.ts`).
+    if (!canOpenArtifact({ audience: row.shareAudience, ownerId: row.shareOwnerId ?? null }, { userId: ctx.userId, isMember: true, hasToken: false })) {
+      return { ref, title: row.title, sourceLabel: 'Artifact', kind: row.kind, unresolved: { reason: 'Shared with its owner only. Ask them to widen the audience.', reference: `artifact ${row.id}` } };
     }
     const spec = row.spec as Record<string, unknown>;
     // `md` FIRST, because that is what every markdown artifact actually
@@ -228,6 +273,7 @@ registerPreview('artifact', {
       ref,
       title: row.title,
       sourceLabel: 'Artifact',
+      kind: row.kind,
       subtitle: row.folder ?? undefined,
       facts: facts(
         { label: 'Kind', value: row.kind },

@@ -1,7 +1,7 @@
 'use client';
 
 import type { useGuidedReview } from './GuidedReview';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 
 /**
  * What the rail says about a sequence it is NOT rendering.

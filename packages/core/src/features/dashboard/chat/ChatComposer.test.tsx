@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { ChatComposer } from './ChatComposer';
+import { COMPOSER_CONTROL, COMPOSER_MAX_PX, CONTROL_PX } from './composerBar';
 import { UserMessage } from './UserMessage';
 
 const LONG_PASTE = 'From: client@example.com\n'.repeat(40); // ~1000 chars
@@ -292,10 +293,15 @@ const TAG_SEARCH = async (q: string) =>
   [ARTIFACT_TAG_REF, PAGE_TAG_REF].filter(r => r.label.toLowerCase().includes(q.toLowerCase()));
 
 describe('ChatComposer @artifact and the (+) menu', () => {
-  it('has no (+) unless the surface offers something, so a bare composer is unchanged', async () => {
+  it('always has the (+): a bare composer offers only the shortcut reference from it', async () => {
     await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
 
-    expect(page.getByTestId('composer-attach').elements()).toHaveLength(0);
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    const options = page.getByRole('option');
+
+    expect(options.elements()).toHaveLength(1);
+    await expect.element(options.first()).toHaveTextContent('Shortcuts');
   });
 
   it('lists what can be pulled into the turn, with the tag each one types', async () => {
@@ -459,11 +465,15 @@ describe('attachments — files in the next turn', () => {
     await expect.element(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
-  it('the paperclip opens a file picker and hands the files over', async () => {
+  it('the (+) menu offers the file picker and hands the files over', async () => {
     const onAttachFiles = vi.fn();
     await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} onAttachFiles={onAttachFiles} />);
 
-    await expect.element(page.getByRole('button', { name: 'Attach a file' })).toBeInTheDocument();
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    await expect.element(page.getByRole('option', { name: /Attach a file/ })).toBeVisible();
+
+    await userEvent.keyboard('{Escape}');
 
     const input = page.getByTestId('composer-file-input');
     await input.upload(new File(['hello'], 'notes.txt', { type: 'text/plain' }));
@@ -481,6 +491,42 @@ describe('attachments — files in the next turn', () => {
   it('has no paperclip when the surface cannot take files', async () => {
     await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
 
-    expect(page.getByRole('button', { name: 'Attach a file' }).elements()).toHaveLength(0);
+    await userEvent.click(page.getByTestId('composer-attach'));
+
+    expect(page.getByRole('option', { name: /Attach a file/ }).elements()).toHaveLength(0);
+  });
+});
+
+describe('the bar has one alignment rule', () => {
+  it('every round control in the bar carries the one control token', async () => {
+    // Streaming with a draft is the fullest bar: (+), the stop ghost and the
+    // primary action are all mounted at once.
+    await render(<ChatComposer value="hi" onChange={() => {}} onSubmit={() => {}} onStop={() => {}} streaming />);
+
+    const form = (await page.getByRole('textbox').element()).closest('form')!;
+    const buttons = [...form.querySelectorAll('button')];
+
+    expect(buttons).toHaveLength(3);
+
+    for (const b of buttons) {
+      for (const cls of COMPOSER_CONTROL.split(' ')) {
+        expect(b.className, `${b.getAttribute('aria-label')} is missing ${cls}`).toContain(cls);
+      }
+    }
+  });
+
+  it('one line of text is exactly one control tall, and the row bottom-aligns', async () => {
+    await render(<ChatComposer value="" onChange={() => {}} onSubmit={() => {}} />);
+
+    const textarea = (await page.getByRole('textbox').element()) as HTMLTextAreaElement;
+    const form = textarea.closest('form')!;
+
+    // The row's rule: bottom-aligned, so the controls sit beside the LAST line.
+    expect(form.className).toContain('items-end');
+    // A 24px line box plus 4px above and below is one 32px control.
+    expect(textarea.className).toContain('leading-6');
+    expect(textarea.className).toContain('py-1');
+    expect(textarea.style.minHeight).toBe(`${CONTROL_PX}px`);
+    expect(textarea.style.maxHeight).toBe(`${COMPOSER_MAX_PX}px`);
   });
 });

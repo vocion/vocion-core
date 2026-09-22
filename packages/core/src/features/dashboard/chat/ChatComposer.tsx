@@ -1,12 +1,15 @@
 'use client';
 
+import type { ComposerMenuItem, ComposerMenuMode, ComposerMenuSetting } from './composerMenu';
 import type { QueuedMessage } from './queueReducer';
 import type { SlashCommand, SlashCommandAction } from './slashCommands';
 import type { ChatAttachment, ContextRef } from './types';
-import { ArrowUp, AtSign, Bot, CircleHelp, CornerDownLeft, FileText, Loader2, Paperclip, PencilLine, Plus, Slash, Square, Target, Users, X } from 'lucide-react';
-import { Popover as PopoverPrimitive } from 'radix-ui';
+import { ArrowUp, CornerDownLeft, FileText, Loader2, Plus, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DELIVERABLE_REF_TYPE } from '@/libs/chat/deliverable';
+import { COMPOSER_CONTROL, COMPOSER_MAX_PX, COMPOSER_ROW, CONTROL_PX } from './composerBar';
+import { buildComposerMenu, selectableItems, TAG_ICON } from './composerMenu';
+import { ComposerMenuPanel } from './ComposerMenuPanel';
 import { insertTagAt, INTENT_REF_TYPE, tagSlug } from './composerTags';
 import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashCommands';
 
@@ -17,8 +20,13 @@ import { matchSlashCommands, parseSlashCommand, slashQuery } from './slashComman
  * - rounded-2xl, `focus-within:ring-1` in the ring token at low alpha with a
  *   soft background shift (2026-09-15: it was a 4px amber halo plus a tinted
  *   drop shadow, which read as an error state)
- * - auto-resize textarea (24px → 220px)
- * - round send button, amber filled when enabled
+ * - auto-resize textarea, one 32px line → eight (`composerBar.ts`)
+ * - round send button, amber filled when enabled — the same 32px round target
+ *   as (+) and the gauge, because the bar has ONE control size
+ *
+ * The bar's vertical alignment is one rule, and it lives in `composerBar.ts`:
+ * every control is as tall as one line of text, and the row bottom-aligns, so
+ * the controls sit beside the line being typed at every height.
  *
  * Three quiet affordances ride along (agent-chat-surface.md §9):
  *   `@` tags a record (agent, team, mission, the page) the message is about,
@@ -83,6 +91,10 @@ export type ChatComposerProps = {
   commandHint?: string;
   /** Runs a slash command the surface owns (`/new`, `/history`); absent, a slash is text. */
   onCommand?: (action: SlashCommandAction) => void;
+  /** Per-thread settings the (+) menu offers as radio rows — the autonomy rung. */
+  settings?: ComposerMenuSetting[];
+  /** A setting row was picked. */
+  onSetting?: (settingId: string, optionId: string) => void;
   /** Messages typed during this turn, waiting for it to land. Oldest first. */
   queued?: QueuedMessage[];
   /** Enter while streaming — append to the queue rather than send. */
@@ -114,6 +126,12 @@ export type ChatComposerProps = {
    * rail edge while the box was inset).
    */
   above?: React.ReactNode;
+  /**
+   * The surface's per-conversation controls, hosted in the bar beside (+):
+   * model strength and thinking (`ModelControl`), and — once it moves out of
+   * the header — autonomy. One cluster, every surface.
+   */
+  controls?: React.ReactNode;
   /** Files attached to the next message — already uploaded; these are the chips. */
   attachments?: ChatAttachment[];
   /** An upload is in flight: a spinner chip, and Send waits for it. */
@@ -166,26 +184,13 @@ const VISIBLE_QUEUED = 3;
 /** Pastes at or above this length become a chip instead of flooding the box. */
 const PASTE_CHIP_THRESHOLD = 400;
 
-const TAG_ICON: Record<ContextRef['type'], typeof Bot> = {
-  agent: Bot,
-  team: Users,
-  mission: Target,
-  ask: AtSign,
-  object: AtSign,
-  briefing: AtSign,
-  deal: AtSign,
-  page: AtSign,
-  deliverable: FileText,
-  intent: PencilLine,
-};
-
 const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['Enter', 'Send — or queue, while it is answering'],
   ['⌘ / Ctrl + Enter', 'Stop the turn and send now'],
   ['Esc', 'Stop the turn (empty box)'],
   ['Shift + Enter', 'New line'],
   ['@', 'Tag an agent, team, mission or the page'],
-  ['Drop · paste · 📎', 'Attach an image, PDF or text file'],
+  ['(+) · drop · paste', 'Attach an image, PDF or text file'],
   ['@artifact', 'This turn ends in a document'],
   ['@change', 'This ask changes the draft in view'],
   ['/search …', 'Search only — no model in the loop'],
@@ -194,7 +199,7 @@ const SHORTCUTS: Array<[keys: string, what: string]> = [
   ['⌘ ⇧ L', 'Go to chat'],
   ['⌘ ⇧ H', 'All conversations'],
   ['⌘ J', 'Open or collapse the conversation'],
-  ['?', 'These shortcuts'],
+  ['? · /help · (+)', 'These shortcuts'],
 ];
 
 /**
@@ -238,6 +243,8 @@ export function ChatComposer({
   tagSearch,
   commandHint,
   onCommand,
+  settings = [],
+  onSetting,
   queued = [],
   onQueue,
   onDropQueued,
@@ -248,6 +255,7 @@ export function ChatComposer({
   copy,
   attachable = [],
   above,
+  controls,
   attachments = [],
   uploading = false,
   attachError,
@@ -269,8 +277,10 @@ export function ChatComposer({
   const words = { ...DEFAULT_COPY, ...copy };
   const [queuedExpanded, setQueuedExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [attachOpen, setAttachOpen] = useState(false);
+  // The one panel above the box (`composerMenu.ts`). `/` and `@` open it by
+  // typing; (+) and ? open it by button — that half is this state.
+  const [panel, setPanel] = useState<'plus' | 'help' | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   // Where the caret is, so a mention typed (or injected by `(+)`) in the
   // MIDDLE of a draft reads the same as one at the end. `null` = "wherever the
   // end is", which is what a fresh render and every non-interactive host see.
@@ -285,13 +295,39 @@ export function ChatComposer({
   const tagMatch = tagSearch ? /(?:^|\s)@([\w-]*)$/.exec(head) : null;
   const tagQuery = tagMatch ? tagMatch[1] ?? '' : null;
   const [tagHits, setTagHits] = useState<ContextRef[]>([]);
-  const [tagCursor, setTagCursor] = useState(0);
   // `/` alone at the start of the draft opens the command menu (`slashCommands.ts`).
   const slashQ = onCommand ? slashQuery(value) : null;
   const slashHits = slashQ !== null ? matchSlashCommands(slashQ) : [];
-  const [slashCursorRaw, setSlashCursor] = useState(0);
-  const slashCursor = Math.min(slashCursorRaw, Math.max(0, slashHits.length - 1));
+  // Which door is open, if any: typing wins over a button-opened panel.
+  const menuMode: ComposerMenuMode | null = slashQ !== null && slashHits.length > 0
+    ? 'slash'
+    : tagQuery !== null && tagHits.length > 0
+      ? 'tag'
+      : panel;
+  const sections = menuMode
+    ? buildComposerMenu({
+        mode: menuMode,
+        query: slashQ ?? '',
+        tagHits,
+        attachable,
+        canAttachFiles: canAttach,
+        commandsEnabled: Boolean(onCommand),
+        settings,
+        tagHint,
+        shortcuts: SHORTCUTS,
+        words: { commands: 'Commands', tag: 'Tag', attach: words.attach, attachFile: 'Attach a file', attachFileHint: 'Image, PDF or text', shortcuts: 'Shortcuts', shortcutsHint: 'Keys and commands', more: 'More' },
+      })
+    : [];
+  const menuItems = selectableItems(sections);
+  const [cursorRaw, setCursor] = useState(0);
+  const cursor = Math.min(cursorRaw, Math.max(0, menuItems.length - 1));
   const pickSlash = (cmd: SlashCommand) => {
+    if (cmd.action === 'help') {
+      // The shortcut reference lives in this same panel.
+      onChange('');
+      setPanel('help');
+      return;
+    }
     if (cmd.takesArgument) {
       // `/search` wants words after it: type the command, leave the caret after the space.
       const next = `/${cmd.name} `;
@@ -304,14 +340,30 @@ export function ChatComposer({
     onCommand?.(cmd.action);
   };
 
-  // Auto-resize the textarea to fit content (24 → 220 px).
+  // A click outside the composer closes a button-opened panel.
+  useEffect(() => {
+    if (panel === null) {
+      return;
+    }
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target instanceof Node && rootRef.current?.contains(e.target))) {
+        setPanel(null);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [panel]);
+
+  // Auto-resize the textarea to fit content — one control-tall line up to the
+  // eight-line cap, both from `composerBar.ts` so the floor stays exactly one
+  // line and the cap never leaves half a line above the controls.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) {
       return;
     }
     el.style.height = 'auto';
-    el.style.height = `${Math.min(220, Math.max(24, el.scrollHeight))}px`;
+    el.style.height = `${Math.min(COMPOSER_MAX_PX, Math.max(CONTROL_PX, el.scrollHeight))}px`;
     // A caret this component asked for lands only once the parent has echoed
     // the value back — controlled inputs reset the selection on re-render.
     const next = pendingCaretRef.current;
@@ -332,7 +384,7 @@ export function ChatComposer({
     tagSearch(tagQuery).then((hits) => {
       if (!cancelled) {
         setTagHits(hits.slice(0, 8));
-        setTagCursor(0);
+        setCursor(0);
       }
     }).catch(() => {
       if (!cancelled) {
@@ -377,57 +429,72 @@ export function ChatComposer({
     const next = insertTagAt(value, textareaRef.current?.selectionStart ?? caretAt, tagSlug(ref));
     moveCaret(next.caret);
     onChange(next.value);
-    setAttachOpen(false);
+    setPanel(null);
     textareaRef.current?.focus();
   };
 
+  /**
+   * One pick handler for every row the panel can hold, whichever door opened it.
+   * @param item
+   */
+  const pickItem = (item: ComposerMenuItem) => {
+    if (item.kind === 'command') {
+      setPanel(null);
+      pickSlash(item.command);
+      return;
+    }
+    if (item.kind === 'file') {
+      setPanel(null);
+      fileInputRef.current?.click();
+      return;
+    }
+    if (item.kind === 'help') {
+      setPanel('help');
+      return;
+    }
+    if (item.kind === 'setting') {
+      setPanel(null);
+      onSetting?.(item.settingId, item.optionId);
+      textareaRef.current?.focus();
+      return;
+    }
+    if (item.kind !== 'tag') {
+      return;
+    }
+    if (menuMode === 'tag') {
+      pickTag(item.ref);
+    } else {
+      insertTag(item.ref);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (slashQ !== null && slashHits.length > 0) {
+    if (menuMode && menuItems.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSlashCursor((slashCursor + 1) % slashHits.length);
+        setCursor((cursor + 1) % menuItems.length);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSlashCursor((slashCursor - 1 + slashHits.length) % slashHits.length);
+        setCursor((cursor - 1 + menuItems.length) % menuItems.length);
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        pickSlash(slashHits[slashCursor]!);
+        pickItem(menuItems[cursor]!);
         return;
       }
     }
-    if (tagQuery !== null && tagHits.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setTagCursor(c => (c + 1) % tagHits.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setTagCursor(c => (c - 1 + tagHits.length) % tagHits.length);
-        return;
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        pickTag(tagHits[tagCursor]!);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setTagHits([]);
-        return;
-      }
+    if (e.key === 'Escape' && menuMode) {
+      e.preventDefault();
+      setTagHits([]);
+      setPanel(null);
+      return;
     }
     if (e.key === '?' && value.trim().length === 0) {
       e.preventDefault();
-      setShortcutsOpen(v => !v);
-      return;
-    }
-    if (e.key === 'Escape' && shortcutsOpen) {
-      setShortcutsOpen(false);
+      setPanel(p => (p === 'help' ? null : 'help'));
       return;
     }
     // Esc on an empty box stops the turn (Claude Code's gesture). With text in
@@ -443,8 +510,7 @@ export function ChatComposer({
       // A command the surface owns never reaches the model.
       const command = onCommand ? parseSlashCommand(value) : null;
       if (command) {
-        onChange('');
-        onCommand!(command.action);
+        pickSlash(command);
         return;
       }
       const trimmedValue = value.trim();
@@ -496,8 +562,7 @@ export function ChatComposer({
     }
     const command = onCommand ? parseSlashCommand(value) : null;
     if (command) {
-      onChange('');
-      onCommand!(command.action);
+      pickSlash(command);
       return;
     }
     if (streaming && onQueue) {
@@ -509,58 +574,11 @@ export function ChatComposer({
 
   return (
     <div className="sticky bottom-0 z-10 bg-gradient-to-t from-background via-background to-transparent px-3 pt-3 pb-3 sm:px-6 sm:pt-4">
-      <div className="relative mx-auto max-w-3xl">
+      <div ref={rootRef} className="relative mx-auto max-w-3xl">
         {/* The surface's own stack — same column, same left edge as the box. */}
         {above}
-        {tagQuery !== null && tagHits.length > 0 && (
-          <ul role="listbox" aria-label="Tag a record" className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-full rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop)">
-            {tagHits.map((h, i) => {
-              const Icon = TAG_ICON[h.type];
-              return (
-                <li key={`${h.type}:${h.id}`} role="option" aria-selected={i === tagCursor}>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      pickTag(h);
-                    }}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${i === tagCursor ? 'bg-muted' : 'hover:bg-muted/60'}`}
-                  >
-                    <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate">{h.label}</span>
-                    {/* What picking it DOES, not what it is called internally.
-                        This printed the raw ref type, so the artifact tag
-                        offered itself as "DELIVERABLE" — a word from the
-                        contract, not from the person's problem. */}
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{tagHint(h)}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {slashQ !== null && slashHits.length > 0 && (
-          <ul role="listbox" aria-label="Commands" data-testid="slash-menu" className="absolute bottom-full left-0 z-20 mb-2 w-72 max-w-full rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop)">
-            {slashHits.map((c, i) => (
-              <li key={c.name} role="option" aria-selected={i === slashCursor}>
-                <button
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    pickSlash(c);
-                  }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${i === slashCursor ? 'bg-muted' : 'hover:bg-muted/60'}`}
-                >
-                  <Slash className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="font-medium">{`/${c.name}`}</span>
-                    <span className="ml-2 text-muted-foreground">{c.hint}</span>
-                  </span>
-                  {c.shortcut && <span className="shrink-0 text-[11px] tracking-widest text-muted-foreground">{c.shortcut}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
+        {menuMode && (
+          <ComposerMenuPanel mode={menuMode} sections={sections} cursor={cursor} onPick={pickItem} onHover={setCursor} />
         )}
         {queued.length > 0 && (
           <ul data-testid="queued-list" aria-label={words.queuedLabel} className="mb-1.5 flex flex-col gap-1">
@@ -678,214 +696,137 @@ export function ChatComposer({
             )}
           </div>
         )}
-        <PopoverPrimitive.Root open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
-          <PopoverPrimitive.Anchor asChild>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                submitPrimary();
-              }}
-              // Dropping a file onto the box attaches it. The counter survives
-              // the enter/leave pairs every child element fires.
-              onDragEnter={(e) => {
-                if (canAttach && e.dataTransfer.types.includes('Files')) {
-                  e.preventDefault();
-                  setDragDepth(d => d + 1);
-                }
-              }}
-              onDragOver={(e) => {
-                if (canAttach && e.dataTransfer.types.includes('Files')) {
-                  e.preventDefault();
-                }
-              }}
-              onDragLeave={() => setDragDepth(d => Math.max(0, d - 1))}
-              onDrop={(e) => {
-                if (!canAttach) {
-                  return;
-                }
-                e.preventDefault();
-                setDragDepth(0);
-                takeFiles(e.dataTransfer.files);
-              }}
-              data-dragging={dragDepth > 0 || undefined}
-              // Restrained focus: a 1px ring in the ring token at low alpha
-              // plus a soft ground shift. No halo, no thickened border.
-              className="flex items-end gap-1.5 rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint"
-            >
-              {/* 📎 — the pointer path to a file; drop and paste are the others. */}
-              {canAttach && (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    // Out of the accessibility tree: the paperclip is the control, and
-                    // a role query for the composer's textbox must find one element.
-                    aria-hidden
-                    tabIndex={-1}
-                    accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json,text/html,.md,.csv,.txt,.json"
-                    className="hidden"
-                    data-testid="composer-file-input"
-                    onChange={(e) => {
-                      takeFiles(e.target.files);
-                      e.target.value = '';
-                    }}
-                  />
-                  <button
-                    type="button"
-                    data-testid="composer-attach-file"
-                    aria-label="Attach a file"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground"
-                  >
-                    <Paperclip className="size-4" aria-hidden />
-                  </button>
-                </>
-              )}
-              {/*
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitPrimary();
+          }}
+          // Dropping a file onto the box attaches it. The counter survives
+          // the enter/leave pairs every child element fires.
+          onDragEnter={(e) => {
+            if (canAttach && e.dataTransfer.types.includes('Files')) {
+              e.preventDefault();
+              setDragDepth(d => d + 1);
+            }
+          }}
+          onDragOver={(e) => {
+            if (canAttach && e.dataTransfer.types.includes('Files')) {
+              e.preventDefault();
+            }
+          }}
+          onDragLeave={() => setDragDepth(d => Math.max(0, d - 1))}
+          onDrop={(e) => {
+            if (!canAttach) {
+              return;
+            }
+            e.preventDefault();
+            setDragDepth(0);
+            takeFiles(e.dataTransfer.files);
+          }}
+          data-dragging={dragDepth > 0 || undefined}
+          // Restrained focus: a 1px ring in the ring token at low alpha
+          // plus a soft ground shift. No halo, no thickened border.
+          className={`${COMPOSER_ROW} rounded-2xl border border-border bg-background px-3 py-2 shadow-xs transition-colors focus-within:bg-surface-soft focus-within:ring-1 focus-within:ring-ring/40 data-[dragging]:border-brand-amber/60 data-[dragging]:bg-brand-amber-tint`}
+        >
+          {/* The file input behind the (+) menu's "Attach a file" row; drop and paste are the other paths. */}
+          {canAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                // Out of the accessibility tree: the (+) menu row is the control, and
+                // a role query for the composer's textbox must find one element.
+                aria-hidden
+                tabIndex={-1}
+                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json,text/html,.md,.csv,.txt,.json"
+                className="hidden"
+                data-testid="composer-file-input"
+                onChange={(e) => {
+                  takeFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </>
+          )}
+          {/*
                 * (+) — "what can I bring into this turn". It inserts a tag and
                 * nothing else: no store, no event, no flag of its own. What
                 * the person ends up with is the chip they would have got by
-                * typing `@`. Same 32px round target and muted tone as the help
-                * mark on the other end of the box.
+                * typing `@`. The bar's one round target and muted tone, shared
+                * with the gauge and send (`composerBar.ts`).
                 */}
-              {attachable.length > 0 && (
-                <PopoverPrimitive.Root open={attachOpen} onOpenChange={setAttachOpen}>
-                  <PopoverPrimitive.Trigger
-                    data-testid="composer-attach"
-                    aria-label={words.attach}
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
-                  >
-                    <Plus className="size-4" aria-hidden />
-                  </PopoverPrimitive.Trigger>
-                  <PopoverPrimitive.Portal>
-                    <PopoverPrimitive.Content
-                      side="top"
-                      align="start"
-                      sideOffset={8}
-                      collisionPadding={8}
-                      onOpenAutoFocus={e => e.preventDefault()}
-                      className="z-50 w-[min(16rem,calc(100vw-1rem))] rounded-xl border border-border bg-background p-1 text-sm shadow-(--shadow-pop) outline-none"
-                    >
-                      <div className="px-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{words.attach}</div>
-                      <ul role="menu" aria-label={words.attach}>
-                        {attachable.map((ref) => {
-                          const Icon = TAG_ICON[ref.type];
-                          return (
-                            <li key={`${ref.type}:${ref.id}`} role="none">
-                              <button
-                                type="button"
-                                role="menuitem"
-                                data-testid="composer-attach-item"
-                                onClick={() => insertTag(ref)}
-                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
-                              >
-                                <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                                <span className="min-w-0 flex-1 truncate">{ref.label}</span>
-                                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{`@${tagSlug(ref)}`}</span>
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </PopoverPrimitive.Content>
-                  </PopoverPrimitive.Portal>
-                </PopoverPrimitive.Root>
-              )}
-              <textarea
-                ref={textareaRef}
-                data-agent-composer
-                value={value}
-                onChange={(e) => {
-                  setCaret(e.target.selectionStart);
-                  onChange(e.target.value);
-                }}
-                // Every caret move, however it happened (arrows, a click, a
-                // drag). Cheap: the box already re-renders on every keystroke.
-                onSelect={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder={streaming ? words.streamingPlaceholder : (placeholder ?? 'Ask anything…')}
-                rows={1}
-                // Never `disabled`: the box stays live for the whole turn, so
-                // Enter can queue and ⌘⏎ can jump the queue.
-                // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
-                // input under 16px. Compact 14px only from sm: up (no mobile zoom).
-                className="flex-1 resize-none border-0 bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70 sm:text-sm"
-                style={{ minHeight: 24, maxHeight: 220 }}
-              />
-              {tagSearch && (
-                <PopoverPrimitive.Trigger
-                  aria-label="Shortcuts"
-                  className="hidden size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground sm:flex"
-                >
-                  <CircleHelp className="size-4" aria-hidden />
-                </PopoverPrimitive.Trigger>
-              )}
-              {/*
+          {/* (+) — the one menu: add to the turn, the thread's settings,
+              commands, the shortcut reference (Chris, 2026-09-18: "just a (+)
+              left with menu, and a little gauge icon survives on the bar"). */}
+          <button
+            type="button"
+            data-testid="composer-attach"
+            aria-label={words.attach}
+            aria-expanded={panel === 'plus'}
+            onClick={() => setPanel(p => (p === 'plus' ? null : 'plus'))}
+            className={`${COMPOSER_CONTROL} text-muted-foreground/70 hover:bg-surface-hover hover:text-foreground aria-expanded:bg-surface-hover aria-expanded:text-foreground`}
+          >
+            <Plus className="size-4" aria-hidden />
+          </button>
+          {controls}
+          <textarea
+            ref={textareaRef}
+            data-agent-composer
+            value={value}
+            onChange={(e) => {
+              setCaret(e.target.selectionStart);
+              onChange(e.target.value);
+            }}
+            // Every caret move, however it happened (arrows, a click, a
+            // drag). Cheap: the box already re-renders on every keystroke.
+            onSelect={e => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={streaming ? words.streamingPlaceholder : (placeholder ?? 'Ask anything…')}
+            rows={1}
+            // Never `disabled`: the box stays live for the whole turn, so
+            // Enter can queue and ⌘⏎ can jump the queue.
+            // 16px on mobile: iOS Safari auto-zooms (and scroll-cuts) any focused
+            // input under 16px. Compact 14px only from sm: up (no mobile zoom).
+            // `leading-6` rather than a multiplier: the line box is 24px at
+            // both 16px and 14px, so one line is one control tall on every
+            // breakpoint and the row's centres do not move at `sm`.
+            className="flex-1 resize-none border-0 bg-transparent py-1 text-base leading-6 outline-none placeholder:text-muted-foreground/70 sm:text-sm"
+            style={{ minHeight: CONTROL_PX, maxHeight: COMPOSER_MAX_PX }}
+          />
+          {/*
                 * One primary action, still (#345). While streaming with an
                 * empty box it is Stop; the moment there is something to say it
                 * becomes Queue and Stop steps back to a quiet ghost beside it,
                 * because at that point the person's next move is their message,
                 * not the interrupt.
                 */}
-              {streaming && (
-                <button
-                  type="button"
-                  onClick={() => onStop?.()}
-                  className={sendEnabled
-                    ? 'flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground'
-                    : 'flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:border-brand-amber hover:text-brand-amber-deep'}
-                  aria-label="Stop generating"
-                >
-                  <Square className="size-3.5 fill-current" aria-hidden="true" />
-                </button>
-              )}
-              {(!streaming || sendEnabled) && (
-                <button
-                  type="submit"
-                  disabled={!sendEnabled}
-                  className={streaming
-                    ? 'flex size-9 shrink-0 items-center justify-center rounded-full border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep transition-colors hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50'
-                    : 'flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-amber text-white transition-colors hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50'}
-                  aria-label={streaming ? words.queueAction : 'Send message'}
-                >
-                  <ArrowUp className="size-[18px]" aria-hidden="true" />
-                </button>
-              )}
-            </form>
-          </PopoverPrimitive.Anchor>
-          <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-              role="dialog"
-              aria-label="Shortcuts"
-              side="top"
-              align="end"
-              sideOffset={8}
-              // Anchored on the composer and told how much room to keep, so
-              // it never renders past the rail's right edge or off a phone.
-              collisionPadding={8}
-              // The caret stays in the box: `?` is typed there, and the sheet
-              // is a reference, not a form.
-              onOpenAutoFocus={e => e.preventDefault()}
-              onCloseAutoFocus={e => e.preventDefault()}
-              className="z-50 w-[min(17rem,calc(100vw-1rem))] rounded-xl border border-border bg-background p-2 text-xs shadow-(--shadow-pop) outline-none"
+          {streaming && (
+            <button
+              type="button"
+              onClick={() => onStop?.()}
+              className={sendEnabled
+                ? `${COMPOSER_CONTROL} text-muted-foreground/70 hover:bg-surface-hover hover:text-foreground`
+                : `${COMPOSER_CONTROL} border border-border bg-background text-foreground hover:border-brand-amber hover:text-brand-amber-deep`}
+              aria-label="Stop generating"
             >
-              <div className="flex items-center justify-between px-1.5 pb-1 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-                Shortcuts
-                <PopoverPrimitive.Close aria-label="Close shortcuts" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-surface-hover">
-                  <X className="size-3" aria-hidden />
-                </PopoverPrimitive.Close>
-              </div>
-              {SHORTCUTS.map(([keys, what]) => (
-                <div key={keys} className="flex items-center justify-between gap-3 px-1.5 py-1">
-                  <span className="text-muted-foreground">{what}</span>
-                  <kbd className="shrink-0 rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px]">{keys}</kbd>
-                </div>
-              ))}
-            </PopoverPrimitive.Content>
-          </PopoverPrimitive.Portal>
-        </PopoverPrimitive.Root>
+              <Square className="size-3.5 fill-current" aria-hidden="true" />
+            </button>
+          )}
+          {(!streaming || sendEnabled) && (
+            <button
+              type="submit"
+              disabled={!sendEnabled}
+              className={streaming
+                ? `${COMPOSER_CONTROL} border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50`
+                : `${COMPOSER_CONTROL} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}
+              aria-label={streaming ? words.queueAction : 'Send message'}
+            >
+              <ArrowUp className="size-4" aria-hidden="true" />
+            </button>
+          )}
+        </form>
       </div>
     </div>
   );

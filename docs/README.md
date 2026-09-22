@@ -5,6 +5,7 @@
 - [**Product Design Manifesto**](./DESIGN-PRINCIPLES.md) — why Vocion exists and the bar every product decision is held to: outcomes over activity, accountability with an owner, automation that is earned, complexity hidden without hiding the truth. Ends with the twelve-question test.
 - [**Getting started — build an agent workforce from zero**](./getting-started.md) — the tutorial. Explains the configuration-driven model, then builds a complete workforce file by file, with a worked example of every entity type. Read this first.
 - [**Workspaces (workspace-as-code)**](./workspace.md) — what a workspace is, how to create one, how to author and apply changes, and how base packs layer underneath.
+- [**Plugins — capability you turn on**](./plugins.md) — `plugins: [wiki, data-rooms, proposals]`: a directory of agents, skills, pages, missions, automations, teams and trust rules that composes under the workspace like the base pack; the Plugins page and the chat both switch one on; how the three shipped plugins are built and how to write one.
 - [**Entity reference**](#entity-reference) — every authored file type, field by field.
 - [**Where an agent turn runs**](./agent-execution.md) — the loop, the model, and the AWS account, kept apart. Read it before touching `harness.runsOn`, `harness.modelProvider`, or anything named AgentCore. Includes what the `provider` → `runsOn` rename changes for an existing workspace (nothing, unless you want it to).
 - [**Object model**](./object-model.md) — the lookup table: where each object is authored, its schema symbol, its table, its runtime, its UI surface. Includes runtime-only objects (tool calls, runs, events).
@@ -26,7 +27,7 @@ icons, admin gating; the ⌘K palette and the breadcrumb read the same list).
 | | Pinned · Pages · surfaces | This person's pins; the workspace's own pages (`/dashboard/p/<slug>`) and saved canvases; surfaces the workspace switched on |
 | **Manage** | Team | Teams & agents `/dashboard/teams` (tab: Agents `/dashboard/agents`) · Missions `/dashboard/missions` · Workflows `/dashboard/workflows` · Automations `/dashboard/automation` |
 | | Knowledge | Connectors `/dashboard/connectors` · Objects `/dashboard/objects` · Learnings `/dashboard/learnings` · Context `/dashboard/workspace` |
-| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` |
+| | Build | Skills & tools `/dashboard/skills` (tabs: Tools `/dashboard/tools`, Vision models `/dashboard/models`) · Evals `/dashboard/evals` · Marketplace `/dashboard/marketplace` (plugins + agents for hire; `/dashboard/plugins` 308s here) |
 | | Insights | Team report `/dashboard/team-report` · Activity `/dashboard/activity` · Observability `/dashboard/observability` · Autonomy `/dashboard/autonomy` · Adoption `/dashboard/adoption` (admins) |
 | | Organization | Members `/dashboard/members` · Developers `/dashboard/developers` (MCP + REST endpoints, API credentials, docs) · System `/dashboard/admin` |
 | **You** | avatar menu | Profile `/dashboard/profile` |
@@ -41,7 +42,7 @@ default, and effect, plus a worked example and the rules the loader enforces.
 
 | Entity | Authored at | What it is |
 |---|---|---|
-| [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | The workspace's identity, defaults, lead, surfaces, and base-pack pin |
+| [Workspace manifest](./entities/workspace-manifest.md) | `workspace.yaml` | The workspace's identity, defaults, lead, surfaces, plugins, and base-pack pin |
 | [Base pack](./entities/base-pack.md) | `packages/core/templates/base/pack.yaml` | The reusable layer that loads underneath a workspace, and how activation and overrides work |
 | [Agent](./entities/agent.md) | `agents/<slug>.yaml` | An LLM orchestrator: prompt, hierarchy, what it may reach, harness settings |
 | [Team](./entities/team.md) | `teams/<slug>.yaml` | A group of agents under a lead, with an accountable human, a goal, and the KPIs it is graded on |
@@ -65,14 +66,18 @@ about them.
 ## Guides
 
 - [Agents in Slack](./guides/slack.md) — mention an agent in a channel, it answers in the thread.
+- [GitHub as an event source](./guides/github.md) — pull requests, checks, reviews, merges and failed deploy runs on the repositories a workspace lists become `pr.*` and `run.failed` events automations act on; the read-only token and its permissions, the payload shapes, dedupe keys that make a re-poll idempotent, the optional webhook at `/api/webhooks/github`, and an example `when: { event: pr.checks_completed, filter: { conclusion: failure } }`.
 - [Team performance](./guides/team-performance.md) — the measurement model behind `/dashboard/team-report`: measures with provenance (verified · observed · human-confirmed · agent-reported), what Vocion derives (attainment, trend, cost per outcome, human load), the setup state, evidence chains and outcome lineage.
+- [PostHog as a knowledge source](./guides/posthog.md) — one document per day of event counts, unique users, totals and error counts from a PostHog project, read with `search_knowledge` and summed with `posthog_event_counts`; the personal-key-not-project-token rule, what is and is not stored (aggregates only), and how the day window and checkpoint work.
 - [Web analytics as a measure source](./guides/web-analytics-measures.md) — read qualified traffic, users, conversions and signups from GA4 so an adoption number carries a **verified** chip instead of an agent's own count; the service-account role it needs, and why an unconfigured measure shows "not connected" rather than 0.
 - [Email](./guides/email.md) — outbound mail (Resend), the `daily-team-report` and `notify-asks` jobs, and a mailbox per workspace: mail `revenue@…` and the workspace lead answers in a threaded reply.
 - [Evals in Vocion](./guides/evals.md) — **start here.** What an eval is, the four kinds of test you can run and when to reach for each, a worked tutorial graded first by Vocion and then by AWS, how the grader plugs in so a third one could be added, where to read the results, and what to do when a number looks wrong.
 - [Evals graded by AWS AgentCore](./guides/agentcore-evals.md) — point a dataset at Amazon Bedrock AgentCore instead of Vocion's own judge: the IAM key it needs, the workspace YAML, which ground truth each evaluator level accepts, what costs tokens and what does not, and what AWS's refusal messages actually mean.
+- [Prompt caching](./guides/prompt-caching.md) — **nothing to configure; it is on.** The prefix of every agent turn is cached at the vendor by default: what that saves (measured at 7.2x on a warm turn; a cache read is 10% of the input rate **and** does not count toward the Bedrock tokens-per-day quota), the per-model minimum below which a prompt is ignored rather than charged, the one case where turning it off is worth it (an agent called less often than once every five minutes), how to read cache counts in Langfuse and CloudWatch, and the three levels of off switch.
 - [The model-upgrade test](./guides/model-upgrade-test.md) — run one role's eval dataset on today's model and a new release, compare on cost per passed case.
 - [Needs you — the one decision surface](./guides/needs-you.md) — every kind of thing waiting on a person (proposals, asks, stopped runs, suggested rules) in one list; the detail by kind, the verbs and keys, and how each decision feeds learning and autonomy. `/dashboard/review` forwards here.
 - [Acting from context](./guides/act-from-context.md) — structured page/record context on every turn, the `page_context` tool, `<AskAboutThis>`, opening the surface with intent, recommended-action status streaming back, and the `act-within-bounds` autonomy path.
+- [Agent tools that write](./guides/agent-tools.md) — every tool an agent has that changes something, and the action it rides: `propose_action` for connector writes, `file_ask` / `withdraw_ask` for a question to a person, `update_object` for a record's fields, the self-improvement tools; how each is gated, undone and switched off per agent.
 
 ## Deployment
 

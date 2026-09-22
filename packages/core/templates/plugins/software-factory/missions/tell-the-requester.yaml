@@ -1,0 +1,36 @@
+slug: tell-the-requester
+name: Every asker hears back
+description: >-
+  The loop-closing half of close-the-gap, kept separate so one can be graded
+  on speed and this one on reach. Not a one-off run: every two hours, what
+  shipped or was decided since last time goes back to the person who asked.
+goal: >-
+  Every shipped change and every honest "no" reaches the person who asked, on
+  the channel they used — the store reviewer in the store, the emailer by
+  mail, the GitHub issue on the issue. "Shipped" is read from the `release`
+  records: a release's `requestIds` are the people to tell, its
+  `announcedTo` are the people already told, and the difference is the loop
+  still open. A request is not closed until the asker has been told; the
+  reply is proposed, and a person releases it.
+agent: task-planner
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - A release that has notes and no announcement is the first item of every pass — the announcement is proposed from the notes, and the notes are a person's (notesSource human) before it is; a release with no notes gets them drafted first
+  - Every request in a release's requestIds and not yet in its announcedTo.requestIds, and every request whose answer was decided, has a reply proposed on its own channel within two hours of the release or the decision
+  - A reply about a shipped change names the release's version and what changed for the asker, and is not proposed while the release's healthAfter is down
+  - Every proposed reply is written for the asker in their own terms, states what changed or was decided and why, and names nothing that is still waiting on a person as done
+  - No request moves to `shipped` or `answered` before its reply was released; `answeredAt` is when they heard, not when we decided; the release's announcedTo.requestIds is written when the reply is released, and announcedAt when the announcement is
+  - Duplicates are told where the request they duplicate stands, once
+  - >-
+    One question asked about several releases is ONE decision sheet: every ask
+    that asks a person to own release notes carries the same `group_key`,
+    `software-factory:release-notes-ownership`, and a `group_title` naming the
+    question, so four releases waiting on one ruling cost a person one answer
+    rather than four screens
+desiredArtifacts:
+  - Release notes drafted per release that has none, for a person to own
+  - An announcement proposed per release with owned notes and no announcement
+  - A proposed reply per closed request, on its channel, for a person to release
+  - The two-hourly line — replies proposed, released, still waiting
+schedule: '0 */2 * * *'

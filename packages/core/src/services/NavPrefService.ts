@@ -63,3 +63,55 @@ export async function dismissNavPrompt(input: { orgId: string; userId: string; i
     .returning({ pins: userNavPrefSchema.pins, dismissed: userNavPrefSchema.dismissed });
   return { pins: row?.pins ?? [], dismissed: row?.dismissed ?? [input.id] };
 }
+
+/**
+ * When this person last opened this page, or null if they never have.
+ *
+ * Null is a real answer and callers must treat it as one: "since you last
+ * looked" has no meaning for a first visit, and substituting a default window
+ * without saying so tells a person their attention was remembered when it was
+ * not.
+ * @param input
+ * @param input.orgId
+ * @param input.userId
+ * @param input.slug - The page slug.
+ */
+export async function getPageLastSeen(input: { orgId: string; userId: string; slug: string }): Promise<Date | null> {
+  const [row] = await db
+    .select({ pageSeen: userNavPrefSchema.pageSeen })
+    .from(userNavPrefSchema)
+    .where(and(eq(userNavPrefSchema.orgId, input.orgId), eq(userNavPrefSchema.userId, input.userId)))
+    .limit(1);
+  const raw = row?.pageSeen?.[input.slug];
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const at = new Date(raw);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * Record that this person has now looked at this page, and return the stamp
+ * they had BEFORE this visit - which is what the page renders against, so a
+ * reload does not empty its own digest.
+ * @param input
+ * @param input.orgId
+ * @param input.userId
+ * @param input.slug - The page slug.
+ * @param input.at - The moment of this visit.
+ */
+export async function markPageSeen(input: { orgId: string; userId: string; slug: string; at: Date }): Promise<Date | null> {
+  const previous = await getPageLastSeen(input);
+  const patch = JSON.stringify({ [input.slug]: input.at.toISOString() });
+  await db
+    .insert(userNavPrefSchema)
+    .values({ orgId: input.orgId, userId: input.userId, pageSeen: { [input.slug]: input.at.toISOString() } })
+    .onConflictDoUpdate({
+      target: [userNavPrefSchema.orgId, userNavPrefSchema.userId],
+      set: {
+        pageSeen: sql`${userNavPrefSchema.pageSeen} || ${patch}::jsonb`,
+        updatedAt: new Date(),
+      },
+    });
+  return previous;
+}

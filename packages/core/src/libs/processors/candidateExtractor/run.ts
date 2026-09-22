@@ -118,7 +118,12 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   const notes: string[] = [];
   const today = calendarToday(config.timezone);
 
-  const metadata = (ctx.document.metadata ?? {}) as { jsonLd?: unknown[]; links?: PageLink[]; publishedUrls?: string[] };
+  const metadata = (ctx.document.metadata ?? {}) as {
+    jsonLd?: unknown[];
+    links?: PageLink[];
+    publishedUrls?: string[];
+    ogImage?: string;
+  };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
   const [known, rules, objectSchema] = await Promise.all([
@@ -164,8 +169,9 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   if (extraction.status === 'skipped') {
     counts[extraction.reason] = (counts[extraction.reason] ?? 0) + 1;
     pushScore({ traceId: extraction.traceId, name: 'extraction-ok', value: 0 });
-    ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: `extraction skipped: ${extraction.reason}` });
-    notes.push(`extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`);
+    const skipMessage = `extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`;
+    ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: skipMessage });
+    notes.push(skipMessage);
     return { produced: 0, skipped: 1, notes, counts };
   }
 
@@ -178,6 +184,11 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links: metadata.links,
     jsonLd: jsonLdBlocks,
     publishedUrls: metadata.publishedUrls,
+    // The document's own image. Not sent to the model: `extractFromHtml`
+    // already writes it as the first line of `content`, so restating it in its
+    // own block would buy the call nothing and cost it tokens. What it was
+    // missing is a stage that knows the document published it.
+    ogImage: metadata.ogImage,
     knownIds: known.ids,
     today,
   });

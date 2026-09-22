@@ -7,7 +7,7 @@ describe('combinedPage — tab deep-links', () => {
 
     expect(page.owner.url).toBe('/dashboard/teams');
     expect(page.active.url).toBe('/dashboard/agents');
-    expect(page.tabs.map(t => t.url)).toEqual(['/dashboard/teams', '/dashboard/agents', '/dashboard/marketplace']);
+    expect(page.tabs.map(t => t.url)).toEqual(['/dashboard/teams', '/dashboard/agents']);
   });
 
   it('resolves the owner url to the same page with the first tab active', () => {
@@ -27,5 +27,9 @@ describe('combinedPage — tab deep-links', () => {
     expect(combinedPageTitle('/dashboard/agents')).toBe('Agents · Teams & agents');
     expect(combinedPageTitle('/dashboard/models')).toBe('Vision models · Skills & tools');
     expect(combinedPageTitle('/dashboard/evals')).toBeUndefined();
+    // The Marketplace owns its OWN strip now — Plugins on its own URL, Agents
+    // for hire one segment down (Chris, 2026-09-18).
+    expect(combinedPageTitle('/dashboard/marketplace')).toBe('Marketplace');
+    expect(combinedPageTitle('/dashboard/marketplace/plugins')).toBe('Plugins · Marketplace');
   });
 });

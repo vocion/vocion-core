@@ -1,10 +1,11 @@
 'use client';
 
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
-import { Sparkles } from 'lucide-react';
+import { MessageSquareText, Pencil, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { openAgentSurface } from '@/features/dashboard/chat/agentSurface';
+import { SelectionToolbar } from '@/features/dashboard/chat/SelectionToolbar';
 import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { useSelectionWatcher } from './useSelectionWatcher';
 
@@ -13,9 +14,13 @@ import { useSelectionWatcher } from './useSelectionWatcher';
  *
  *  - a small button that opens the agent surface with this record as context
  *    (and, optionally, a prompt — "Do this: …" for a briefing bullet);
- *  - when `selectionRoot` is given, a floating "Ask Vocion" pill that appears
- *    over text the person highlights inside that root, and opens the surface
- *    with the passage quoted.
+ *  - when `selectionRoot` is given, the floating selection toolbar
+ *    (`SelectionToolbar`, the same one the document frame and the transcript
+ *    show) over text the person highlights inside that root: **Ask** opens the
+ *    surface with the passage quoted; **Change**, offered when `changeable`,
+ *    is Ask with the instruction pre-typed — "Change this: " — so "cut this"
+ *    or "make this about Q4" is one click plus the words, and the agent edits
+ *    the record through its write tool.
  *
  * Wherever the person is, the same call: a mounted dock claims it and
  * prefills; otherwise the person lands on the full-page chat with the same
@@ -29,7 +34,8 @@ import { useSelectionWatcher } from './useSelectionWatcher';
  * @param props.selectionRoot - CSS selector to watch for highlighted text.
  * @param props.fallbackContext - Long text for the no-surface fallback (e.g. the briefing body).
  * @param props.variant - 'button' (default) renders the pill button; 'icon' a compact icon-only control; 'none' only the selection watcher.
- * @param props.onSelect - When given, the selection pill hands the highlighted text to the caller instead of opening the surface.
+ * @param props.onSelect - When given, the selection toolbar's Ask hands the highlighted text to the caller instead of opening the surface.
+ * @param props.changeable - Offer "Change" beside "Ask" on a selection: the record can be edited in place by the agent.
  * @param props.className
  */
 export function AskAboutThis(props: {
@@ -42,6 +48,7 @@ export function AskAboutThis(props: {
   fallbackContext?: string;
   variant?: 'button' | 'icon' | 'none';
   onSelect?: (text: string) => void;
+  changeable?: boolean;
   className?: string;
 }) {
   const router = useRouter();
@@ -102,25 +109,42 @@ export function AskAboutThis(props: {
         </button>
       )}
       {mounted && hit && createPortal(
-        <div className="fixed z-50 -translate-x-1/2 -translate-y-full" style={{ left: hit.x, top: hit.y - 8 }}>
-          <button
-            type="button"
-            // mousedown, not click — click would collapse the selection first.
-            onMouseDown={(e) => {
-              e.preventDefault();
-              const text = hit.text;
-              clearHit();
-              if (props.onSelect) {
-                props.onSelect(text);
-                return;
-              }
-              open({ selection: text, prompt: props.prompt ?? '' });
-            }}
-            className="flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-lg transition hover:bg-muted"
-          >
-            <Sparkles className="size-3.5 text-primary" aria-hidden />
-            Ask Vocion
-          </button>
+        // The toolbar positions itself in its container's coordinates; a
+        // zero-height fixed strip across the viewport makes those the
+        // viewport's, which is what the selection watcher measured.
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0 [&>*]:pointer-events-auto">
+          <SelectionToolbar
+            x={hit.x}
+            y={hit.y}
+            width={window.innerWidth}
+            testId={props.record.type}
+            actions={[
+              {
+                label: 'Ask',
+                icon: MessageSquareText,
+                onClick: () => {
+                  const text = hit.text;
+                  clearHit();
+                  if (props.onSelect) {
+                    props.onSelect(text);
+                    return;
+                  }
+                  open({ selection: text, prompt: props.prompt ?? '' });
+                },
+              },
+              ...(props.changeable
+                ? [{
+                    label: 'Change',
+                    icon: Pencil,
+                    onClick: () => {
+                      const text = hit.text;
+                      clearHit();
+                      open({ selection: text, prompt: 'Change this: ' });
+                    },
+                  }]
+                : []),
+            ]}
+          />
         </div>,
         document.body,
       )}

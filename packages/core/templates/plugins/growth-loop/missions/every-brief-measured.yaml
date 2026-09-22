@@ -1,0 +1,33 @@
+slug: every-brief-measured
+name: Every brief ends in a reading
+description: >-
+  The standing responsibility of the Growth analyst. A brief that was published
+  and never read is the loop broken in the one place nobody notices, because
+  everything up to publication looks finished. This mission is the half of the
+  work that happens after the work.
+goal: >-
+  Every published brief has a reading by its due date, taken from the source its
+  own brief named and under the attribution model its own brief named, and a
+  verdict with the baseline, the window and the model beside it. A brief whose
+  measure has no source is closed `unmeasurable` with the missing instrument
+  named and what it would cost — never left open, and never given a proxy nobody
+  agreed to. No number is reported without the source it was read from and the
+  date it was read.
+agent: growth-analyst
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - No published brief is past `readAfterDays` without a reading or a written reason it could not be taken; the daily check names each one and how many days it is overdue
+  - Every reading carries the source it came from and the date it was taken; a figure not read this turn is not reported
+  - Every verdict names the reading, the baseline, the window and the attribution model, and is the model the brief itself named — not the one that flatters the result
+  - A movement inside normal variation is `no_effect`; normal variation is established before any movement is called a change, and the check says what it was established from
+  - A rate is never reported below the volume at which it means anything; the counts are reported instead, and the check says so
+  - Every `unmeasurable` verdict names the instrument that is missing and what it would cost to have it; the standing list of missing instruments is kept and does not shrink silently
+  - Cost is reported as the two figures core already holds — estimate and actual — never as a ratio the report computes across briefs
+  - A channel or theme with no reading is listed as unread with its reason, never omitted from the report
+desiredArtifacts:
+  - The reading and the verdict on every brief past its due date
+  - The overdue line per check — which briefs, how many days, and on what
+  - The standing missing-instrument list, with what each would unlock
+  - The cost-against-return read by theme and channel, with the readings that could not be taken named
+schedule: '0 13 * * 1-5'

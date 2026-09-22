@@ -1,6 +1,6 @@
 import type { DocEntry } from '@/libs/docs';
 import { ArrowLeft, ArrowRight, Pencil } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/libs/I18nNavigation';
 import { AppConfig } from '@/utils/AppConfig';
 
 type Props = {

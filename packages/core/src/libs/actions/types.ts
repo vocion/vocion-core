@@ -68,12 +68,42 @@ export type ReviewCard = {
    * is never drawn without one.
    */
   confidenceSubject?: string;
+  /**
+   * ONE plain sentence saying what approving does, for the decision header
+   * the shell draws above the tabs — "Register stampsend.com in Route 53 for
+   * the Stamp rename." Setting it is what opts a card into that header: the
+   * sentence, the `badges` beside it, and the recommendation said once as an
+   * inline line under them, so Run details need not repeat who recommended
+   * it, how sure they were, or what they suggest. Chris, 2026-09-20, on the
+   * first hand-off read from a phone: simpler and clearer.
+   */
+  headline?: string;
+  /**
+   * The facts a person checks before reading further, as short chips beside
+   * the headline: the system, whether it can be undone, what it costs, which
+   * account it touches. `warn` is for the one that should stop a thumb —
+   * Irreversible. Rendered only with a `headline`.
+   */
+  badges?: Array<{ label: string; tone?: 'default' | 'warn' }>;
+  /**
+   * Set by the hand-off presenter (`libs/actions/manual.ts`): the run is
+   * approved here and DONE elsewhere, by a person. The shell reads it to draw
+   * the lifecycle — Approve → a person runs the steps → Mark done — and to say
+   * who runs it; the verbs and the states themselves come from the run.
+   */
+  handoff?: { reversible: boolean };
   /** Who/what the item is about, e.g. the lead: name / role / company, deep-linked. */
   subject?: { name: string; role?: string; company?: string; href?: string };
   /** Where the item came from: source, campaign, MQL date. Labeled, no links. */
   provenance?: Array<{ label: string; value: string }>;
   /** The recommended action, front and center. `ref` names the thing approving acts on (e.g. the existing sequence it enrolls into). */
   recommendation?: { headline: string; detail?: string; ref?: string };
+  /**
+   * What the recommendation IS, as the meta row's label over it — "Sequence to
+   * enroll", "Record to update". Defaults to "Recommended action", so a
+   * presenter that says nothing still reads.
+   */
+  recommendationLabel?: string;
   /** Heading over the content zone, e.g. `Outreach · 3 sends` / `9 days`. */
   contentHeading?: { label: string; meta?: string };
   /** Typed payload the reviewer decides ON — rendered by the registered renderer for each item's `kind`. */
@@ -112,6 +142,8 @@ export type ReviewContent
     id: string;
     /** e.g. `Day 0`, numbered by position. */
     label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
     subject?: string;
     body: string;
   }
@@ -120,6 +152,8 @@ export type ReviewContent
     id: string;
     /** e.g. `Proposal v3 · 12 pages`. */
     label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
     href: string;
     format?: 'pdf';
     version?: string;
@@ -131,12 +165,54 @@ export type ReviewContent
     kind: 'image';
     id: string;
     label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
     /** Image URL — in-app (`/api/v1/s3/object?…`) or absolute. */
     url: string;
     caption?: string;
     /** Short finding lines rendered under the image. */
     findings?: string[];
+  }
+  | {
+    /**
+     * A block of text the reviewer reads as written — a recipe of commands,
+     * a release note, a config excerpt. Read-only: nothing here is copy a
+     * person vouches for line by line, so it never joins the walk.
+     */
+    kind: 'text';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    body: string;
+    /** Render in a monospace block with whitespace kept — commands, YAML, a diff. */
+    preformatted?: boolean;
+  }
+  | {
+    /**
+     * Numbered steps a person performs — the structured recipe of a hand-off.
+     * Each step says what to do in words; the command, when there is one, sits
+     * in its own monospace block with a copy button, and a link opens where
+     * the step happens. Read-only, like `text`: it never joins the walk.
+     */
+    kind: 'steps';
+    id: string;
+    label: string;
+    /** What the item's tab is called, when `label` is not what a tab should read. */
+    tabLabel?: string;
+    steps: Array<{ say: string; run?: string; url?: string }>;
   };
+
+/**
+ * What a regenerate pass is scoped to.
+ *
+ * `contentId` is the id of the single `ReviewContent` item the reviewer typed
+ * their instruction beside (`send-3`). Absent on a card with one body, which
+ * is every non-sequence action.
+ */
+export type RegenerateOptions = {
+  contentId?: string;
+};
 
 /** One reviewer edit to a content item, keyed by the item's `id`. */
 export type ReviewContentEdit = { id: string; subject?: string; body?: string };
@@ -152,8 +228,52 @@ export type Action<S extends z.ZodType = z.ZodType> = {
   grant: string;
   /** Touches the outside world → the autonomy gate can require approval. */
   external: boolean;
+  /**
+   * This kind changes what the SYSTEM knows about how to work — a rule it
+   * adopts from a correction, a standing preference it files — rather than
+   * the outside world or a customer's record.
+   *
+   * Declaring it puts the kind on the workspace's learning dial
+   * (`defaults.learningEagerness`, `libs/actions/eagerness.ts`): its default
+   * bar comes from how eager this workspace is to improve itself, instead of
+   * the platform's flat 0.8. A named threshold on a trust rule still wins.
+   *
+   * The class, not a special case: anything reversible whose only effect is
+   * on the system's own knowledge belongs here, and the next such noun costs
+   * this one line.
+   */
+  selfImproving?: boolean;
   /** Which source's vault credentials this action needs (e.g. `gmail`). */
   sourceSlug?: string;
+  /**
+   * A HAND-OFF: the execution is performed by a person or an external system
+   * after approval, never in this process. Approving one does not call
+   * `execute`; the run moves to `awaiting_execution` and stays on the queue
+   * until whoever did the work marks it done (`ActionService.completeAction`)
+   * or says it could not be done (a rejection). The trail — recommendation,
+   * decision, execution — lands on the same `action_run` every other kind
+   * writes, so a merge a person performed reads back beside a CRM update an
+   * agent performed.
+   *
+   * `reversible` is what "can be put back" means for a kind with no `undo`
+   * to declare: a pushed branch is deleted with one command, a deploy is
+   * not. It informs the ladder's default the way `undo` does for in-process
+   * kinds; it does not put an Undo button on the run.
+   *
+   * Build one with `libs/actions/manual.ts`, which owns the shared input
+   * shape (title, headline, summary, steps or recipe, cost, target, sources,
+   * evidence, externalRef) and the card.
+   */
+  manual?: { reversible?: boolean };
+  /**
+   * The id the trust ladder keys on for THIS input, when one action id serves
+   * several ledgers. A merge is one action with a `riskClass`, and merging
+   * docs is not the decision merging a schema is — so the rule, the risk tier
+   * and the evidence live under `git.merge.<riskClass>` while the proposal
+   * still names `git.merge`. Absent, the action id is the key. Must return a
+   * stable string for the same input; `libs/actions/policyKey.ts` applies it.
+   */
+  policyKeyFor?: (input: z.infer<S>) => string;
   /**
    * Canonical dedup key derived from the input. Applied when the proposer
    * passes none, so structurally-identical proposals collapse into one PENDING
@@ -268,7 +388,7 @@ export type Action<S extends z.ZodType = z.ZodType> = {
    * reviewer meets the regenerated version, never a duplicate. Declaring this
    * is what puts the Regenerate button on the card (`ReviewCard.canRegenerate`).
    */
-  regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string) => Promise<void>;
+  regenerate?: (ctx: ActionContext, input: z.infer<S>, runId: number, feedback: string, opts?: RegenerateOptions) => Promise<void>;
   /** Do the write. Returns a result object persisted on the action_run. */
   execute: (ctx: ActionContext, input: z.infer<S>) => Promise<Record<string, unknown>>;
   /**

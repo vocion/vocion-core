@@ -103,7 +103,7 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
       <div className="rounded-md border border-border p-4">
         <div className="mb-1 text-sm font-semibold">Confidence alignment</div>
         <p className="mb-2 text-xs text-muted-foreground">
-          The agent's stated confidence per proposal against what reviewers decided. An aligned agent knows what it doesn't know; the misalignment row is where the next learning candidate is hiding.
+          The agent's stated confidence per recommendation against what reviewers decided. An aligned agent knows what it doesn't know; the misalignment row is where the next learning candidate is hiding.
         </p>
         <table className="w-full text-sm">
           <tbody>
@@ -113,7 +113,7 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
                 <td className="py-2 pr-3 text-right tabular-nums">
                   {bucket.proposals}
                   {' '}
-                  proposal
+                  recommendation
                   {bucket.proposals === 1 ? '' : 's'}
                 </td>
                 <td className="py-2 text-right tabular-nums">
@@ -128,7 +128,7 @@ export function AgentDetailPanel(props: { agentSlug: string }) {
                   {' '}
                   {detail.confidenceAlignment.confidentRejectedLast7}
                   {' '}
-                  confident proposal
+                  confident recommendation
                   {detail.confidenceAlignment.confidentRejectedLast7 === 1 ? '' : 's'}
                   {' '}
                   rejected this week

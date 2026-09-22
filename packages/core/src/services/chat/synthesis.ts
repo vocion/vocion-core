@@ -5,7 +5,9 @@ import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModelForOrg } from '@/libs/llm';
+import { usageMetadataOf } from '@/libs/llm/usage';
 import { agentSchema, knowledgeDocumentSchema, knowledgeSourceSchema, missionSchema, playbookSchema } from '@/models/Schema';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { listBusinessObjects } from '@/services/BusinessObjectService';
 
 /**
@@ -469,12 +471,23 @@ async function synthesizeViaModel(input: SynthesisInput, orgId: string, agentSlu
     ? res.content
     : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
 
-  const usage = (res as unknown as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+  const usage = usageMetadataOf(res);
   generation.end({
     output: raw,
     usageDetails: usage
       ? cleanUsageDetails({ input: usage.input_tokens, output: usage.output_tokens })
       : undefined,
+  });
+  // Charged against the agent whose chips these are AND the chip-synthesis
+  // surface, so it shows up both in "what did this agent cost" and in "what
+  // does synthesis cost us". Never refused: the chips are drawn before the
+  // person has typed anything.
+  await chargeModelCall({
+    orgId,
+    agentSlug,
+    feature: FEATURES.CHIP_SYNTHESIS,
+    role: 'classifier',
+    response: res,
   });
 
   const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();

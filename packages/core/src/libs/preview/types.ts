@@ -37,6 +37,8 @@ export type PreviewDoc = {
   title: string;
   /** The chip: `Granola`, `Zoom`, `Gmail`, `HubSpot`, `Document`, … */
   sourceLabel: string;
+  /** For an artifact, its kind — so the panel can show the kind's icon. */
+  kind?: string;
   subtitle?: string;
   facts?: PreviewFact[];
   /** The readable content, plain text or markdown. */

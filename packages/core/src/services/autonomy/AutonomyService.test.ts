@@ -76,6 +76,24 @@ describe('effective policy and the list', () => {
     expect(e).toMatchObject({ rung: 'execute-with-approval', riskTier: 'low', minConfidence: 0.85, policy: null, trustRule: null });
   });
 
+  it('reads a derived key with no rows as its action: low for a record write, high for a merge', async () => {
+    // `objects.update_meta.request` is registered under no such id. The tier
+    // comes from `objects.update_meta` behind it; without that every object
+    // type nobody wrote a rule for would read as an unknown, high-risk kind
+    // and never run on its own.
+    const write = await svc.effectivePolicy(ORG, 'objects.update_meta.request');
+
+    expect(write.riskTier).toBe('low');
+    expect(write.rung).toBe('execute-with-approval');
+
+    const merge = await svc.effectivePolicy(ORG, 'git.merge.docs');
+
+    expect(merge.riskTier).toBe('high');
+
+    // A key that prefixes no registered action is what it always was.
+    expect((await svc.effectivePolicy(ORG, 'nothing.registered.here')).riskTier).toBe('high');
+  });
+
   it('reads an enabled trust rule with no policy row as Execute within bounds at the rule threshold', async () => {
     await db.insert(trustRuleSchema).values({ orgId: ORG, actionId: 'hubspot.update', threshold: 0.9, enabled: 'true' });
 

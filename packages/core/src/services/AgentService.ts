@@ -3,16 +3,23 @@ import type { HarnessTarget } from './agents/harnessTarget';
 import type { RawStreamEvent } from './agents/traceEmitter';
 import type { AgentEvent } from './agents/types';
 import type { Deliverable } from '@/libs/chat/deliverable';
+import type { LangfuseTurnUsage } from '@/libs/Langfuse';
+import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
+import { normalizeAnswerHtml } from '@/libs/chat/answerText';
+import { appendRecordLinks } from '@/libs/chat/recordLinks';
+import { stripScratch } from '@/libs/chat/scratch';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
-import { tokenCostCents } from '@/libs/pricing';
+import { modelForStrength } from '@/libs/llm/modelPrefs';
+import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
 import { composeArtifactWithModel, runDeliverableBackstop } from './agents/deliverableBackstop';
 import { normalizeHarnessTarget } from './agents/harnessTarget';
+import { labelStep } from './agents/stepLabeler';
 import { persistToolCall } from './agents/toolCallRecord';
 import { extractChunk, parseJsonArgs, toolErrorMessage, toolNodeId, toolOutputContent, toolResultStatus, TraceEmitter } from './agents/traceEmitter';
 
@@ -259,6 +266,10 @@ async function runOutOfProcess(
 ): Promise<{ response: string; traceId: string; toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>; usage?: RunUsage }> {
   const failures: TurnFailure[] = [];
   let held: Extract<AgentEvent, { type: 'done' }> | null = null;
+  // The other loops stream their answer as-is; a <scratch> block the model
+  // opened there is set aside at this seam, the same way the in-process loop
+  // does it, so no harness can put the model's thinking into the transcript.
+  const streamer = new AnswerStreamer();
   const gated = (event: AgentEvent): void => {
     if (event.type === 'tool_error') {
       failures.push({ tool: event.tool, message: event.message });
@@ -267,10 +278,27 @@ async function runOutOfProcess(
       held = event;
       return;
     }
+    if (event.type === 'response_delta') {
+      const { answer, thinking } = streamer.push(event.delta);
+      if (thinking) {
+        emit({ type: 'thinking_delta', delta: thinking });
+      }
+      if (answer) {
+        emit({ type: 'response_delta', delta: answer });
+      }
+      return;
+    }
     emit(event);
   };
 
   const result = await run(gated);
+  const tail = streamer.flush();
+  if (tail.thinking) {
+    emit({ type: 'thinking_delta', delta: tail.thinking });
+  }
+  if (tail.answer) {
+    emit({ type: 'response_delta', delta: tail.answer });
+  }
   const response = await applyTurnGuarantees({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -278,7 +306,7 @@ async function runOutOfProcess(
     conversationId: opts.conversationId,
     deliverable: opts.deliverable,
     request: opts.message,
-    response: result.response,
+    response: stripScratch(result.response),
     toolCalls: result.toolCalls,
     failures,
     // Delegation nesting is not visible across the transport (the other
@@ -393,13 +421,20 @@ export async function runAgentDeep(opts: {
    * an honest single path. Never cached — see `compileAgentForRequest`.
    */
   modelOverride?: import('./agents/harness').ModelOverride;
+  /**
+   * The conversation's model preferences (`libs/llm/modelPrefs.ts`): how
+   * strong a model, how much it thinks. Applied only on the in-process loop
+   * — never moving a turn off the harness the agent runs on — and only when
+   * they ask for something beyond the agent's own defaults.
+   */
+  modelPrefs?: import('@/libs/llm/modelPrefs').ModelPrefs;
 }): Promise<{
   response: string;
   traceId: string;
   toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
   /**
    * Token usage across every model turn of this run, priced by
-   * `tokenCostCents`. `model` is the id the provider reported on the last
+   * `tokenCostMicroCents`. `model` is the id the provider reported on the last
    * turn. Present on the in-process loop; the other harness targets report
    * usage through their own channels and leave this undefined.
    */
@@ -421,6 +456,9 @@ export async function runAgentDeep(opts: {
   // window in which it emits its `documents` event via ctx.emit).
   let activeSpecialist: string | null = null;
   const emittedCards: string[] = [];
+  // Records the turn made (a data room, a proposal) — linked at the end of the
+  // answer if the model forgot to (`appendRecordLinks`).
+  const createdRecords: import('@/services/chat/pageContext').RecordRef[] = [];
   const emit = (event: import('./agents/types').AgentEvent): void => {
     if (event.type === 'documents' && activeSpecialist) {
       for (const d of event.documents) {
@@ -431,6 +469,9 @@ export async function runAgentDeep(opts: {
     }
     if (event.type === 'recommended_action') {
       emittedCards.push(event.recommendation.label);
+    }
+    if (event.type === 'record_created') {
+      createdRecords.push(event.record);
     }
     recordedEvents.push(event);
     rawEmit(event);
@@ -448,7 +489,10 @@ export async function runAgentDeep(opts: {
   // is over its hard cap; otherwise proceed.
   const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
   if (!budgetCheck.ok) {
-    const message = `Budget exceeded for agent "${opts.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap on /dashboard/agents/${opts.agentSlug} or wait for the next period.`;
+    // Names the row that refused, not the agent that asked: since #279 the
+    // check also covers the workspace-wide cap, and "raise the cap on this
+    // agent" would send someone to a page that cannot fix it.
+    const message = `Budget exceeded for "${budgetCheck.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap under Budgets or wait for the next period.`;
     emit({ type: 'error', message });
     throw new Error(message);
   }
@@ -498,6 +542,14 @@ export async function runAgentDeep(opts: {
     return runOutOfProcess(opts, emit, run => runAgentOnAgentCoreHarness({ ...opts, onEvent: run }));
   }
 
+  // The person's per-thread choice of model and thinking, mapped onto the
+  // agent's own vendor. Nothing to do when they left both at the default.
+  // Dynamic imports, like the harness itself: the Temporal worker reaches
+  // this file and must never statically load the LLM module.
+  const { chatModelOptionsFor, chatModelOptionsWithOverride } = await import('./agents/harness');
+  const { resolvedModelId, resolvedModelIdFor, resolveProvider } = await import('@/libs/llm/langchain');
+  const modelOverride = opts.modelOverride ?? modelOverrideForPrefs(harness ?? {}, opts.modelPrefs, { provider: resolveProvider('main'), defaults: chatModelOptionsFor(harness ?? {}), modelFor: resolvedModelIdFor });
+
   // The graph and its tools are compiled for THIS turn, on this person's
   // context. Nothing here is shared with a turn running beside it — which is
   // what a shared, overwritten context cost us (harness.ts, issue #109).
@@ -514,7 +566,7 @@ export async function runAgentDeep(opts: {
       pageContext: opts.pageContext,
       timeZone: opts.timeZone,
     },
-    { modelOverride: opts.modelOverride },
+    { modelOverride },
   );
   const boundCtx = compiled.ctx;
 
@@ -530,7 +582,7 @@ export async function runAgentDeep(opts: {
   const failedDelegations: FailedDelegation[] = [];
 
   // What this run cost, summed over every model turn the callback sees.
-  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cents: 0, turns: 0 };
+  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
 
   // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
   const { handler: langfuseHandler, trace } = createLangfuseCallback({
@@ -541,16 +593,7 @@ export async function runAgentDeep(opts: {
     input: { message: opts.message },
     metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
     onTurnEnd: async (turn) => {
-      usage.turns += 1;
-      usage.model = turn.model;
-      usage.inputTokens += turn.inputTokens ?? 0;
-      usage.outputTokens += turn.outputTokens ?? 0;
-      usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
-      usage.cents += tokenCostCents(turn.model, {
-        inputTokens: turn.inputTokens,
-        outputTokens: turn.outputTokens,
-        cacheReadTokens: turn.cacheReadTokens,
-      });
+      addTurnToRunUsage(usage, turn);
       await chargeUsage({
         orgId: opts.orgId,
         agentSlug: opts.agentSlug,
@@ -559,6 +602,7 @@ export async function runAgentDeep(opts: {
           inputTokens: turn.inputTokens,
           outputTokens: turn.outputTokens,
           cacheReadTokens: turn.cacheReadTokens,
+          cacheWriteTokens: turn.cacheWriteTokens,
         },
       });
     },
@@ -568,6 +612,13 @@ export async function runAgentDeep(opts: {
   boundCtx.traceId = trace.id;
 
   emit({ type: 'thinking' });
+  {
+    // Say which model answers, so the turn can show it (principle 10).
+    const chosen = chatModelOptionsWithOverride(harness ?? {}, modelOverride);
+    const provider = chosen.provider ?? resolveProvider('main');
+    // The abstract levels are what the person sees; the concrete id is a detail they can expand.
+    emit({ type: 'run_meta', model: chosen.model ?? resolvedModelId('main'), provider, strength: opts.modelPrefs?.strength ?? 'balanced', thinking: opts.modelPrefs?.effort ?? 'off' });
+  }
 
   const initialFiles = await buildInitialFiles(opts.orgId, opts.agentSlug, { userId: opts.userId, missionSlug: opts.missionSlug });
 
@@ -625,11 +676,32 @@ export async function runAgentDeep(opts: {
   };
 
   // True streaming: the LEAD's answer streams live token-by-token via the
-  // AnswerStreamer, which strips a leading <scratch>…</scratch> block (routed
-  // to chain-of-thought) so raw data never dumps into the answer. No post-run
-  // buffering.
+  // AnswerStreamer, which strips every <scratch>…</scratch> block — leading
+  // or, since 2026-09-20, opened mid-reply after a tool call — and routes it
+  // to the trace as reasoning, so raw data never dumps into the answer. No
+  // post-run buffering.
   const answerStreamer = new AnswerStreamer();
   let answering = false;
+  // The lead's most recent model-turn namespace, so a scratch tail released
+  // at flush lands on the reasoning node of the turn that wrote it.
+  let leadNs = '';
+  const routeScratch = (scratch: string, closed: boolean): void => {
+    if (scratch) {
+      emit({ type: 'thinking_delta', delta: scratch });
+      for (const node of tracer.reasonDelta(leadNs, scratch)) {
+        emit(node);
+      }
+    }
+    if (closed) {
+      for (const node of tracer.closeReasoning()) {
+        emit(node);
+      }
+    }
+  };
+  // Step names from a cheap model (`stepLabeler.ts`), one job per tool
+  // start; each lands as a `trace_node` patch when it resolves. Awaited
+  // briefly at the end so the persisted trace carries the names too.
+  const labelJobs: Promise<void>[] = [];
 
   try {
     const stream = await compiled.graph.streamEvents(input as never, {
@@ -644,6 +716,24 @@ export async function runAgentDeep(opts: {
       const nodes = tracer.handle(ev);
       for (const node of nodes) {
         emit(node);
+      }
+      // "Composing render_document…" while a long tool call is still streaming.
+      for (const side of tracer.takeSideEvents()) {
+        emit(side);
+      }
+      if (ev.event === 'on_tool_start') {
+        for (const node of nodes) {
+          if (node.status === 'start' && tracer.wantsLabels(node.id)) {
+            const tool = ev.name ?? 'tool';
+            const args = parseJsonArgs(ev.data?.input);
+            labelJobs.push(labelStep({ orgId: opts.orgId, tool, args }).then((labels) => {
+              const patch = tracer.applyLabels(node.id, labels);
+              if (patch) {
+                emit(patch);
+              }
+            }).catch(() => {}));
+          }
+        }
       }
       // Track a delegate's active search so its emitted documents get attributed.
       if (ev.event === 'on_tool_start') {
@@ -691,10 +781,9 @@ export async function runAgentDeep(opts: {
             emit({ type: 'thinking_delta', delta: thinking });
           }
           if (isLead && text) {
-            const { answer, thinking: scratch } = answerStreamer.push(text);
-            if (scratch) {
-              emit({ type: 'thinking_delta', delta: scratch });
-            }
+            leadNs = nsFor(ev);
+            const { answer, thinking: scratch, closed } = answerStreamer.push(text);
+            routeScratch(scratch, closed);
             if (answer) {
               if (!answering) {
                 answering = true;
@@ -769,6 +858,12 @@ export async function runAgentDeep(opts: {
     // Note: per-actor citations ride on the `trace_node` events (so the trace
     // can show "found by <specialist>"); the Sources drawer keeps using the
     // richer `documents` event the search tool emits via ctx.emit.
+
+    // Give late step names a moment to land before the turn closes, so the
+    // persisted trace reads like the live one did. Never more than a beat.
+    if (labelJobs.length > 0) {
+      await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
+    }
   } catch (err) {
     const message = (err as Error).message ?? 'agent run failed';
     // The run died. Close anything still open as a FAILURE first, so the
@@ -796,16 +891,23 @@ export async function runAgentDeep(opts: {
     throw err;
   }
 
-  // Release any held-back tail (partial-tag boundary) from the streamer.
+  // Release any held-back tail (partial-tag boundary) from the streamer. A
+  // block still open here was cut off by the end of the stream: it is
+  // thinking to its last character, and its reasoning node closes with it.
   const tail = answerStreamer.flush();
-  if (tail.thinking) {
-    emit({ type: 'thinking_delta', delta: tail.thinking });
-  }
+  routeScratch(tail.thinking, true);
   if (tail.answer) {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
   }
-  finalText = finalText.trim();
+  finalText = normalizeAnswerHtml(finalText).trim();
+  if (createdRecords.length > 0) {
+    const linked = appendRecordLinks(finalText, createdRecords);
+    if (linked !== finalText) {
+      emit({ type: 'response_delta', delta: linked.slice(finalText.length) });
+      finalText = linked;
+    }
+  }
 
   // Card backstop (structural, workspace-opt-in): prompt compliance for
   // recommend_action proved unreliable — a long tool output (the daily brief)
@@ -897,9 +999,86 @@ export type RunUsage = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Input tokens the vendor served from its prompt cache, at 0.1x the rate. */
   cacheReadTokens: number;
-  /** USD cents via `tokenCostCents`; 0 for a model the price table does not know. */
+  /** Input tokens the vendor wrote into its prompt cache, at 1.25x the rate. */
+  cacheWriteTokens: number;
+  /**
+   * What the run cost in micro-cents (a millionth of a cent) — the exact
+   * number, summed as whole numbers over the run's turns.
+   */
+  microCents: number;
+  /**
+   * The same cost in USD cents, for reading. Derived from `microCents`, so it
+   * carries a fraction; 0 for a model the price table does not know.
+   */
   cents: number;
   /** Model turns — one per LLM call, so retries and tool loops count. */
   turns: number;
 };
+
+/**
+ * Fold one finished model turn into a run's running total, in place.
+ *
+ * Lives here rather than inside the callback that calls it so the arithmetic
+ * can be read and tested on its own — it decides what the run is charged, and
+ * every way of getting it wrong is silent:
+ *
+ *   - A cache read not counted is a saving nobody can see on the run.
+ *   - A cache write not counted undercharges the first turn of every run by
+ *     about a quarter, because a written prefix costs 1.25x plain input.
+ *   - `cents` is recomputed from the exact micro-cent total rather than added
+ *     up turn by turn: most cent amounts are not values a floating-point
+ *     number holds exactly, so accumulating them drifts over a long run.
+ *
+ * `model` is overwritten rather than merged; a run that switches models mid-way
+ * is named after its last turn, and each turn is still priced on its own model.
+ * @param usage - The run's running total, updated in place.
+ * @param turn - What the provider reported for the turn that just finished.
+ */
+export function addTurnToRunUsage(usage: RunUsage, turn: LangfuseTurnUsage): void {
+  usage.turns += 1;
+  usage.model = turn.model;
+  usage.inputTokens += turn.inputTokens ?? 0;
+  usage.outputTokens += turn.outputTokens ?? 0;
+  usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
+  usage.cacheWriteTokens += turn.cacheWriteTokens ?? 0;
+  usage.microCents += tokenCostMicroCents(turn.model, {
+    inputTokens: turn.inputTokens,
+    outputTokens: turn.outputTokens,
+    cacheReadTokens: turn.cacheReadTokens,
+    cacheWriteTokens: turn.cacheWriteTokens,
+  });
+  usage.cents = usage.microCents / 1_000_000;
+}
+
+/**
+ * The model override a conversation's preferences ask for, on the agent's
+ * own vendor — or undefined when they ask for nothing beyond its defaults.
+ * @param harness - The agent's harness block.
+ * @param prefs - The person's per-thread choice.
+ * @param env - The env's main provider, the agent's own model options, and the per-provider default lookup.
+ * @param env.provider
+ * @param env.defaults
+ * @param env.defaults.provider
+ * @param env.defaults.model
+ * @param env.modelFor
+ */
+function modelOverrideForPrefs(
+  harness: import('./agents/harness').HarnessModelConfig,
+  prefs: import('@/libs/llm/modelPrefs').ModelPrefs | undefined,
+  env: { provider: import('@/libs/llm/langchain').LangChainProvider; defaults: { provider?: import('@/libs/llm/langchain').LangChainProvider; model?: string }; modelFor: (role: 'main', provider: import('@/libs/llm/langchain').LangChainProvider) => string },
+): import('./agents/harness').ModelOverride | undefined {
+  void harness;
+  if (!prefs || (prefs.strength === 'balanced' && prefs.effort === 'off')) {
+    return undefined;
+  }
+  const provider = env.defaults.provider ?? env.provider;
+  // One server-side table maps a level to a model (`libs/llm/modelPrefs.ts`);
+  // a deployment can point a level elsewhere with VOCION_MODEL_<LEVEL>_<PROVIDER>
+  // (e.g. VOCION_MODEL_DEEP_ANTHROPIC) without touching the table or the UI,
+  // which never names a vendor.
+  const envModel = prefs.strength === 'balanced' ? undefined : process.env[`VOCION_MODEL_${prefs.strength.toUpperCase()}_${provider.toUpperCase()}`]?.trim();
+  const model = envModel || modelForStrength(provider, prefs.strength) || env.defaults.model || env.modelFor('main', provider);
+  return { model, provider, thinking: prefs.effort };
+}

@@ -9,20 +9,22 @@ Metacto is the seller. Every client in this sample is fictional (Northwind
 Logistics, Kestrel Capital…), per `libs/fixtures/realDataGuard.ts`.
 
 ```
-workspace.yaml
-agents/proposal-writer.yaml       the lead: writes and verifies documents
-skills/proposal-document/          the sheet framework, components, structure + language rules
-skills/data-rooms/                 filing, decision logs, status, open items
-objects/data_room/type.yaml        the room's shape and how material is matched to it
-brand.yaml + brand/                the seller's brand guide: palette tokens, logos, voice rules (read by get_brand)
+workspace.yaml                    plugins: [proposals]  — the whole capability, in one line
+brand.yaml + brand/               the seller's brand guide: palette tokens, logos, voice rules (read by get_brand)
 ```
 
-`surfaces: [proposals]` in `workspace.yaml` switches on the **Proposals** app
-under GTM (`/gtm/proposals`): every room at Proposal stage with its latest
-document and verify state, open items, and a Draft action that hands the room
-to the Proposal Writer. The app is registered in core
-(`features/navigation/surfaces.ts`, read model `services/proposals/board.ts`);
-the workspace only names it.
+Everything else comes from two **plugins** shipped in core
+(`packages/core/templates/plugins/`):
+
+| Plugin | Brings |
+|---|---|
+| `proposals` | the Proposal Writer, the `proposal-document` skill (framework, components, rules), the **Proposals** app under GTM, a weekly mission and the `proposals` team with its measures |
+| `data-rooms` (a dependency of `proposals`) | the `data_room` object type, the `data-rooms` skill, the Room keeper, a daily mission, the Data rooms sidebar row and the after-sync collector, the `data-rooms` team |
+
+A workspace overrides any of it by slug — `agents/proposal-writer.yaml` with
+`extends: core` to patch the writer, a same-slug `skills/…/SKILL.md` to
+replace a skill whole-file — and turns a plugin off by dropping it from the
+list. See `docs/plugins.md`.
 
 Apply it to a project:
 

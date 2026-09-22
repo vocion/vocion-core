@@ -1,8 +1,10 @@
 import type { LeadRow, LeadRunState } from './LeadDetail';
-import type { ReviewCardRun } from '@/features/review/ReviewActionCard';
+import type { ReviewCardRun } from '@/features/review/ReviewSurface';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
+import { canonicalBody } from '@/features/review/contentWalk';
+import { contentHash } from '@/libs/actions/contentHash';
 import { computeConfidenceDimensions, researchState, SIGNAL_STATE_LABEL } from '@/services/personalization/confidence';
 import { publishDraftRevision } from './draftRevision';
 import { LeadDetail } from './LeadDetail';
@@ -58,6 +60,21 @@ const PENDING_RUN: ReviewCardRun = {
     verbs: { approve: 'Enroll', reject: 'Decline' },
   },
 } as ReviewCardRun;
+
+/**
+ * The same run with both sends already approved.
+ *
+ * The lead page mounts the same shell, so it gets the per-send walk and its
+ * hold — which is the point (both surfaces, one operation). A test that is
+ * about something else therefore arrives past the walk rather than having its
+ * assertion weakened around it. `LeadDetail.walk` covers the hold itself.
+ */
+const WALKED_RUN: ReviewCardRun = {
+  ...PENDING_RUN,
+  contentReview: Object.fromEntries((PENDING_RUN.card.content ?? [])
+    .filter(i => i.kind === 'email')
+    .map(i => [i.id, { hash: contentHash(i.kind === 'email' ? i.subject : undefined, canonicalBody(i.kind === 'email' ? i.body : '')), at: '2026-09-18T12:00:00.000Z' }])),
+};
 
 const CLAIMS = [
   { text: 'Runs an iGaming marketing agency.', kind: 'Fact', source: 'https://tideline.example/about', date: '2026-08-30' },
@@ -120,7 +137,11 @@ describe('the lead workspace — three zones, three tabs', () => {
     await expect.element(page.getByRole('heading', { name: 'Rowan Pike' })).toBeVisible();
     await expect.element(page.getByRole('link', { name: 'Open in HubSpot ↗' })).toBeVisible();
     await expect.element(page.getByText('Paid social')).toBeVisible();
-    await expect.element(page.getByText('MQL Sep 1')).toBeVisible();
+    // The acquisition facts are label-over-value cells on the one meta row,
+    // not a middot line: the flat template reads them the same way on every
+    // object type.
+    await expect.element(page.getByTestId('review-meta').getByText('Became MQL')).toBeVisible();
+    await expect.element(page.getByTestId('review-meta').getByText('Sep 1', { exact: true })).toBeVisible();
     // A coverage STATE, never a percentage: the five dimensions grade how much
     // of the evidence we got, which is not a calibrated probability, and
     // quoting it as one claims a precision nothing behind it earns. The
@@ -189,8 +210,10 @@ describe('the lead workspace — three zones, three tabs', () => {
     await expect.element(page.getByText('Research confidence')).toBeVisible();
     expect(page.getByText('No public team size.').elements()).toHaveLength(1);
 
-    // CRM context is real, and it is under Evidence rather than in the brief.
-    expect(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.').elements()).toHaveLength(0);
+    // CRM context is real, and it belongs to Evidence rather than the brief —
+    // said once, in the dossier under the content, not repeated in the brief.
+    expect(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.').elements()).toHaveLength(1);
+    expect(page.getByTestId('evidence-pane').getByText('Enrolled in an automated nurture minutes after becoming an MQL.').elements()).toHaveLength(1);
   });
 
   it('shows engagement as UNAVAILABLE rather than as a low score', async () => {
@@ -212,12 +235,66 @@ describe('the lead workspace — three zones, three tabs', () => {
   it('puts the timeline, the claims and the run details under Evidence', async () => {
     await render(<LeadDetail lead={lead({ id: 88201, contactName: 'Rowan Pike' })} contactHref={null} runState={NO_RUN} />);
 
-    await page.getByRole('tab', { name: 'Evidence' }).click();
-
+    // Under the content, not behind a tab: the strip is what there is to
+    // review, and the evidence for it reads without a click.
     await expect.element(page.getByText('Enrolled in an automated nurture minutes after becoming an MQL.')).toBeVisible();
     await expect.element(page.getByText('Runs an iGaming marketing agency.')).toBeVisible();
-    await expect.element(page.getByText('Became MQL')).toBeVisible();
+    await expect.element(page.getByTestId('evidence-tab').getByText('Became MQL')).toBeVisible();
     await expect.element(page.getByText('Brief version')).toBeVisible();
+  });
+});
+
+describe('the per-send walk, on the lead page too', () => {
+  it('shows the same checks and the same count the queue does', async () => {
+    // The lead page mounts the SAME shell, so the walk arrives here without
+    // the page knowing about it — which is the whole point of one template.
+    const half = {
+      ...PENDING_RUN,
+      contentReview: { 'send-1': { hash: contentHash('The ebook you pulled', canonicalBody('One line on the ebook.')), at: '2026-09-18T12:00:00.000Z' } },
+    } as ReviewCardRun;
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: half }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('1 of 2 approved');
+    await expect.element(page.getByTestId('tab-check-send-1')).toBeVisible();
+  });
+
+  it('reads Approve here until the count is full, for the same reason', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
+      />,
+    );
+
+    const primary = page.getByTestId('decide-approve').element();
+
+    // One primary, and it is the walk: live, reading Approve, with the count
+    // over the tab row saying how far along it is.
+    expect(primary).not.toBeDisabled();
+    expect(primary.querySelector('span')?.textContent?.trim()).toBe('Approve');
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('0 of 2 approved');
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
+  });
+
+  it('becomes Enroll here once every send carries a check', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: WALKED_RUN }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('walk-count')).toHaveTextContent('2 of 2 approved');
+    await expect.element(page.getByTestId('decide-approve')).toBeEnabled();
+    expect(page.getByTestId('decide-approve').element().querySelector('span')?.textContent?.trim()).toBe('Enroll');
   });
 });
 
@@ -227,13 +304,17 @@ describe('the sequence state, resolved before an Enroll button', () => {
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
         contactHref={HUBSPOT}
-        runState={{ ...NO_RUN, run: PENDING_RUN }}
+        runState={{ ...NO_RUN, run: WALKED_RUN }}
       />,
     );
 
-    await expect.element(page.getByTestId('sequence-state-current')).toBeVisible();
-    await expect.element(page.getByTestId('sequence-state-transaction')).toHaveTextContent('Unenroll from MQL Auto-Nurture and enroll in Ebook Inbound Sequence.');
+    // The screen states what the CRM last observed, and then stops. It no
+    // longer spells out what approving will do (settled 2026-09-17): the
+    // sentence was removed and the held primary carries the reason instead,
+    // so a determinable transaction simply leaves Enroll live.
+    await expect.element(page.getByTestId('sequence-state-current')).toHaveTextContent('MQL Auto-Nurture');
     await expect.element(page.getByTestId('decide-approve')).toBeEnabled();
+    expect(page.getByTestId('primary-held').elements()).toHaveLength(0);
   });
 
   it('holds Enroll, and says why, when the data cannot say whether it adds or replaces', async () => {
@@ -251,10 +332,16 @@ describe('the sequence state, resolved before an Enroll button', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('sequence-state-held')).toBeVisible();
-    await expect.element(page.getByTestId('sequence-state-held')).toHaveTextContent(/replaces it or runs alongside it/);
-    await expect.element(page.getByTestId('decide-approve')).toBeDisabled();
-    expect(page.getByTestId('sequence-state-transaction').elements()).toHaveLength(0);
+    await expect.element(page.getByTestId('primary-held')).toHaveTextContent(/replaces it or runs alongside it/);
+
+    const approve = page.getByTestId('decide-approve').element();
+
+    expect(approve).toBeDisabled();
+    // The reason is reachable FROM the button, not only from the notice: a
+    // disabled control takes no pointer events, so the tooltip rides a
+    // wrapper and the same text is its accessible description.
+    expect(approve.closest('[title]')?.getAttribute('title')).toMatch(/replaces it or runs alongside it/);
+    expect(document.getElementById(approve.getAttribute('aria-describedby')!)?.textContent).toMatch(/replaces it or runs alongside it/);
   });
 
   it('holds Enroll when the CRM never said whether the contact is in a sequence at all', async () => {
@@ -351,7 +438,7 @@ describe('which tab the page opens on', () => {
       />,
     );
 
-    await expect.element(page.getByTestId('lead-tabs')).toBeVisible();
+    await expect.element(page.getByTestId('review-tabs')).toBeVisible();
     expect(page.getByTestId('brief-tab').elements()).toHaveLength(0);
   });
 
@@ -381,7 +468,7 @@ describe('which tab the page opens on', () => {
       />,
     );
 
-    const labels = await page.getByTestId('lead-tabs').element().textContent;
+    const labels = await page.getByTestId('review-tabs').element().textContent;
 
     expect(labels?.indexOf('Sequence')).toBeLessThan(labels?.indexOf('Brief') ?? -1);
   });
@@ -389,11 +476,13 @@ describe('which tab the page opens on', () => {
 
 describe('the sequence tab', () => {
   it('decides the SAME run the review queue does, with the same verbs', async () => {
+    // Walked, so the primary is the card's own verb rather than the walk's
+    // Approve — this is about the verbs the lead page decides WITH.
     await render(
       <LeadDetail
         lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
         contactHref={HUBSPOT}
-        runState={{ ...NO_RUN, run: PENDING_RUN }}
+        runState={{ ...NO_RUN, run: WALKED_RUN }}
       />,
     );
 
@@ -402,6 +491,33 @@ describe('the sequence tab', () => {
     await expect.element(page.getByRole('button', { name: 'Snooze' })).toBeVisible();
     // Feedback is optional on every verb: a fast no must not cost a note.
     await expect.element(page.getByRole('button', { name: 'Decline' })).toBeEnabled();
+  });
+
+  it('IS the review surface — one rendering path, not a second layout that agrees with it', async () => {
+    await render(
+      <LeadDetail
+        lead={lead({ id: 88201, contactName: 'Rowan Pike', reviewActionRunId: 501, recommendedSequence: NURTURE, currentSequence: REPLACE })}
+        contactHref={HUBSPOT}
+        runState={{ ...NO_RUN, run: PENDING_RUN }}
+      />,
+    );
+
+    // The shell's own parts, drawn by the shell: the hairline meta row, the
+    // tab strip, the sticky bar. A page that merely looked the same would
+    // carry none of them.
+    await expect.element(page.getByTestId('review-meta')).toBeVisible();
+    await expect.element(page.getByTestId('review-tabs')).toBeVisible();
+    await expect.element(page.getByTestId('sticky-action-bar')).toBeVisible();
+
+    // And the zones no object type can drop, built from the run rather than
+    // from anything the lead page passes. Off the strip now, still on the
+    // page: the strip is what there is to review.
+    const labels = [...page.getByTestId('review-tabs').element().querySelectorAll('[data-slot="tabs-trigger"]')].map(t => t.textContent);
+
+    expect(labels).not.toContain('Why');
+    expect(labels).not.toContain('Evidence');
+    await expect.element(page.getByTestId('why-pane')).toBeVisible();
+    await expect.element(page.getByTestId('evidence-pane')).toBeVisible();
   });
 
   it('a rewrite asked for in the conversation lands HERE, marked edited — the rail reports it, the record shows it', async () => {
@@ -414,8 +530,7 @@ describe('the sequence tab', () => {
       />,
     );
 
-    await page.getByRole('tab', { name: /Sequence/ }).click();
-
+    // Each send is its own tab now, and the first one opens.
     await expect.element(page.getByText('One line on the ebook.')).toBeVisible();
 
     publishDraftRevision({ runId: 501, contentId: 'send-1', body: 'A shorter line on the ebook.' });
@@ -434,7 +549,6 @@ describe('the sequence tab', () => {
       />,
     );
 
-    await page.getByRole('tab', { name: /Sequence/ }).click();
     publishDraftRevision({ runId: 999, contentId: 'send-1', body: 'not this lead' });
 
     expect(page.getByText('not this lead').elements()).toHaveLength(0);
@@ -450,8 +564,7 @@ describe('the sequence tab', () => {
       />,
     );
 
-    await page.getByRole('tab', { name: /Sequence/ }).click();
-
+    // The control sits beside the send it scopes to, in that send's own tab.
     await expect.element(page.getByRole('button', { name: 'Editing Send 1' })).toBeVisible();
   });
 
@@ -532,8 +645,6 @@ describe('what happened, when nothing is waiting', () => {
     );
 
     await expect.element(page.getByTestId('decision-line')).toHaveTextContent('Enrolled in Ebook Inbound Sequence by reviewer@example.com · Sep 1, 2026');
-
-    await page.getByRole('tab', { name: 'Evidence' }).click();
 
     await expect.element(page.getByText('Approved · brief')).toBeVisible();
     await expect.element(page.getByText('#11 · v3')).toBeVisible();

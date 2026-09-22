@@ -6,7 +6,10 @@
  * lock-step. New runtime, same events.
  */
 
+import type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
 import type { SuggestedDecision } from '@/libs/actions/suggestedDecision';
+
+export type { SelfUpdateReceipt };
 
 /* ------------------------------------------------------------------ */
 /* Event shape — what the SSE adapter emits over the wire             */
@@ -90,7 +93,7 @@ export type RecommendedActionPayload = {
 export type ArtifactPayload = {
   id: number;
   conversationId: number | null;
-  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document';
+  kind: 'table' | 'markdown' | 'chart' | 'record' | 'link' | 'file' | 'sequence' | 'document' | 'mission' | 'playbook';
   title: string;
   spec: Record<string, unknown>;
   url?: string | null;
@@ -110,6 +113,9 @@ export type ArtifactPayload = {
   version: number;
   authorKind: 'agent' | 'human' | 'system';
   authorId: string | null;
+  /** Who a share opens for (`libs/share/audience.ts`). Absent on payloads built before sharing existed. */
+  shareAudience?: 'me' | 'workspace' | 'anyone';
+  shareOwnerId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -172,8 +178,20 @@ export type TraceNodeEvent = {
   resultDetail?: string;
   /** Incremental text for `reason`/`progress` nodes; the renderer appends. */
   delta?: string;
+  /**
+   * Where a long call has got to, as a plain phrase — `sheet 7 of 12`. Shown
+   * on the running step line after its label, never as a second surface.
+   * Cleared when the step lands.
+   */
+  progress?: string;
   /** Output summary — a count or short synopsis. Never a raw dump. */
   result?: string;
+  /**
+   * Both tenses of the step's name, once known (`libs/chat/stepLabels.ts`):
+   * `label` is the one for the current status; a renderer that has the pair
+   * re-derives it when the status changes.
+   */
+  labels?: { running: string; done: string };
   /** For skills / drafts / delegates. */
   confidence?: number;
   /** Sources this node surfaced — bubbles up to the message-level "Grounded in". */
@@ -223,6 +241,16 @@ export type AgentEvent
      */
     | { type: 'artifact'; artifact: ArtifactPayload; pending?: boolean; delta?: string }
     | TraceNodeEvent
+    /**
+     * The system improved ITSELF during this turn — a wiki page, a mission's
+     * notes, a playbook, an agent's own instructions, a remembered rule, a
+     * capability. Rendered as one quiet chip under the turn that did it, with
+     * Undo on each entry; several in a turn group into that one chip rather
+     * than stacking. The payload is built by
+     * `libs/actions/selfUpdate.ts#selfUpdateReceipt`, so the chip, the
+     * Activity row and the review toast say the same words about the run.
+     */
+    | { type: 'self_update'; selfUpdate: SelfUpdateReceipt }
     | { type: 'hitl_gate'; gate: HitlGatePayload }
     /**
      * One tool call failed, reported by the BYOA artifact. Unlike `error` the
@@ -238,12 +266,42 @@ export type AgentEvent
      */
     | { type: 'tool_error'; tool: string; message: string; status?: number }
     /**
+     * A long tool call saying where it has got to: `render_document` is on
+     * sheet 7 of 12, `red_team_document` is reading 7 sheets. One step line,
+     * more information on it — "'working…' isn't much info" (Chris, twice,
+     * 2026-09-18).
+     *
+     * It carries no node id because a tool does not know its own: the client
+     * attaches the note to the in-flight step with this tool name, exactly
+     * the way `tool_error` closes one (`noteToolProgress` in
+     * `features/dashboard/chat/traceReducer.ts`). Advisory — a dropped or
+     * duplicated note only changes what the line said for a second, and the
+     * step's own start/done events remain the record.
+     *
+     * Only emit it from a loop that REALLY runs: a note is a fact about the
+     * work, not an animation.
+     */
+    | { type: 'step_progress'; tool: string; note: string }
+    /**
      * Approved learnings were mounted for this turn. Silent by design: the
      * chat transcript ignores it; the adoption surfaces (Phase 2 growing-
      * memory panel) are its consumers. `paths` lists the mounted memory
      * files (`/learnings/…`, later `/memories/…`).
      */
     | { type: 'memories_mounted'; paths: string[] }
+    /** Which model answers this turn, and how hard it thinks — shown on the turn (`libs/llm/modelPrefs.ts`). */
+    /** A tool made a record the person will want to open — a data room, a proposal. The client shows a chip and peeks it; the run links it in the answer. */
+    /** The model is writing a tool call — its name is known before the call completes; a long argument (a whole document) otherwise reads as 'Working'. */
+    | { type: 'composing'; tool: string }
+    | { type: 'record_created'; record: import('@/services/chat/pageContext').RecordRef }
+    | { type: 'run_meta'; model: string; provider: string; strength: 'fast' | 'balanced' | 'deep'; thinking: 'off' | 'low' | 'medium' | 'high' }
+    /**
+     * The workspace chose the agent for this turn because nobody named one
+     * (`services/agents/router.ts`). First frame of such a turn: the client
+     * attributes the reply to the chosen agent ("via Wiki researcher") and
+     * the decision — candidates, pick, reason — is on the message row.
+     */
+    | { type: 'routed'; routing: import('./router').RoutingDecision; agent: { slug: string; name: string } }
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
@@ -251,7 +309,7 @@ export type AgentEvent
      * token usage for budget charging. Consumed by the runtime provider,
      * never forwarded to the browser.
      */
-    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
+    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 
 /* ------------------------------------------------------------------ */
 /* Runtime context — what tool factories close over                    */
@@ -310,6 +368,12 @@ export type RuntimeContext = {
   delegations?: Map<string, string>;
   /** Object type slugs this agent can read. */
   objectTypeSlugs: string[];
+  /**
+   * Plugins the workspace has on (`project.enabled_plugins`), resolved once at
+   * graph build. Plugin-owned tool sets (wiki, data rooms) are present only
+   * when their plugin is; `list_capabilities` reads it to say what is off.
+   */
+  enabledPlugins?: string[];
   /** Per-agent retrieval tuning. */
   searchConfig: SearchConfig;
   /**
@@ -326,8 +390,12 @@ export type RuntimeContext = {
     /** Granted-only tools this agent receives (gated tools are absent unless named here). */
     grantTools?: string[];
     model?: string;
+    /** Cache this agent's prompt prefix at the vendor; unset means the process default (on). See `libs/llm/promptCache.ts`. */
+    promptCache?: boolean;
     /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
     recommendActionBackstop?: boolean;
+    /** Action kinds this agent earns trust for on its own ledger (`<kind>.<agent-slug>`); see the workspace schema. */
+    ownLedger?: string[];
   };
   /**
    * Side-channel for emitting structured events the LLM stream can't

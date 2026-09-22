@@ -40,6 +40,10 @@ describe('the ladder', () => {
     expect(defaultRiskTier('gmail.send')).toBe('medium');
     expect(defaultRiskTier('personalization.enroll')).toBe('medium');
     expect(defaultRiskTier('linkedin.post', true)).toBe('high');
+    // Reversible and internal, but a mission is a standing responsibility and a
+    // playbook is procedure every run reads: held at approval until promoted.
+    expect(defaultRiskTier('workspace.write_mission', false)).toBe('medium');
+    expect(defaultRiskTier('workspace.write_playbook', false)).toBe('medium');
     expect(defaultRiskTier('internal.note', false)).toBe('low');
   });
 });
