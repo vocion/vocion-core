@@ -128,25 +128,30 @@ describe('plugin pages', () => {
     expect(keys).not.toContain('priority');
   });
 
-  it('the software factory ships five surfaces, not ten, and buries the evidence', () => {
+  it('leads with three surfaces and buries the forensic ones under More', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
 
     expect(issues).toEqual([]);
-    // Business is what a person manages: the 60-second control plane, the
-    // products, the queue, the economics, and what a person wants next.
-    // Activity is evidence and lives under Advanced. The feature report and
-    // the releases detail are reached from a row rather than from the nav.
+    // The loop a person actually walks: what I own (Products), what is
+    // happening to it (Work), what reached production (Releases). Everything
+    // else is forensic — real, occasionally essential, and not where anybody
+    // starts — so it sits under More rather than competing for the same eye.
     expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'guide', 'performance', 'products', 'releases', 'work']);
-    expect(mine.filter(p => p.nav.section === 'Business' && !p.nav.hidden).map(p => p.slug)).toEqual(['factory', 'products', 'work', 'performance', 'guide']);
-    expect(mine.filter(p => p.nav.section === 'Advanced' && !p.nav.hidden).map(p => p.slug)).toEqual(['activity']);
-    expect(mine.filter(p => p.nav.hidden).map(p => p.slug).sort()).toEqual(['feature', 'releases']);
+    expect(mine.every(p => p.nav.section === 'Software factory')).toBe(true);
+    expect(mine.filter(p => !p.nav.hidden && !p.nav.secondary).map(p => p.slug)).toEqual(['products', 'work', 'releases']);
+    expect(mine.filter(p => p.nav.secondary).map(p => p.slug)).toEqual(['performance', 'factory', 'activity', 'guide']);
+    // Only the per-record report stays off the nav entirely: it is reached
+    // from the row that names it.
+    expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
+    // "Activity" is generic SaaS language; a factory log has a meaning here.
+    expect(mine.find(p => p.slug === 'activity')?.title).toBe('Factory log');
 
     // Guide is the fourth verb: what a person wants next. It is a row in
     // Business rather than an object list, because operating intent is a file
     // in the workspace and the core route at /dashboard/guide renders it.
-    expect(pages.find(p => p.slug === 'guide')).toMatchObject({ archetype: 'link', href: '/dashboard/guide', nav: { section: 'Business', order: 4 } });
+    expect(pages.find(p => p.slug === 'guide')).toMatchObject({ archetype: 'link', href: '/dashboard/guide', nav: { section: 'Software factory', order: 7, secondary: true } });
 
     // The pages that were merged away are gone, not hidden.
     for (const slug of ['backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
@@ -229,6 +234,38 @@ describe('plugin pages', () => {
     expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]);
   });
 
+  it('Products reads as a product card, not as a document', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const products = pages.find(p => p.slug === 'products');
+
+    // The page answers one question, and says so in one line rather than in a
+    // paragraph explaining itself.
+    expect(products?.description).toBe('How are my products doing?');
+
+    // EVERY field sits in the subtitle. A block draws its remaining fields as
+    // a definition list with an uppercase heading over each value — OUR
+    // PRICE, LAST SHIPPED, OPEN WORK — which asks a reader past five labels
+    // to reach five values, and filled a phone screen with two products.
+    const drawn = (products?.fields ?? []).filter(f => !f.detail).map(f => f.key);
+    const subtitle = products?.primary?.subtitle ?? [];
+
+    expect(subtitle).toEqual(['stage', 'health', 'owner', 'price', 'lastRelease', 'open']);
+
+    for (const key of drawn) {
+      expect(key === products?.primary?.field || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
+    }
+
+    // "Last shipped" is internal factory language; a person running a product
+    // says "last release", and the release is the thing they would open.
+    expect(drawn).toContain('lastRelease');
+    expect(drawn).not.toContain('lastShipped');
+
+    // Freshness is never primary card content. It is `detail`, and on a
+    // healthy row it is empty and the page drops it entirely.
+    expect((products?.fields ?? []).find(f => f.key === 'updated')?.detail).toBe(true);
+  });
+
   it('Products is the one product page, and says where its counters came from', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
@@ -238,12 +275,14 @@ describe('plugin pages', () => {
     // Products absorbed the portfolio and the Product board, which were two
     // weaker copies of one page.
     expect(products?.source).toEqual({ kind: 'objects', objectType: 'product' });
-    expect(products?.nav).toMatchObject({ section: 'Business', order: 1 });
+    expect(products?.nav).toMatchObject({ section: 'Software factory', order: 1, secondary: false });
     expect(readWorkspacePageContent(products!)).toContain('agent-maintained');
-    // Releases keeps the detail, off the nav, newest first.
+    // Releases came ON to the nav: what reached production, and what happened
+    // to it afterwards, is a question a person asks daily — it is not
+    // forensic. It is the one net-new top-level surface.
     expect(releases?.source).toEqual({ kind: 'objects', objectType: 'release' });
     expect(releases?.sort).toEqual({ field: 'meta.releasedAt', dir: 'desc' });
-    expect(releases?.nav.hidden).toBe(true);
+    expect(releases?.nav).toMatchObject({ section: 'Software factory', order: 3, hidden: false, secondary: false });
   });
 
   it('Performance leads with four numbers, and its cost figure reconciles against the count beside it', () => {

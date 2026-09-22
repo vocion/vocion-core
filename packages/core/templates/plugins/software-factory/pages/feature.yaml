@@ -37,7 +37,7 @@ slug: feature
 title: Feature report
 description: 'One request end to end: the ask, triage, the plan and who approved it, the contract, approvals, the runs, the change, QA evidence, the release, and what it cost against the estimate.'
 icon: file-clock
-nav: {section: Software factory, order: 2, hidden: true}
+nav: {section: Software factory, order: 8, hidden: true}
 archetype: report
 report:
   subject: request

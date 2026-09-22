@@ -761,7 +761,20 @@ export const PageManifestSchema = z.object({
     section: z.string().default('Workspace'),
     order: z.number().default(0),
     hidden: z.boolean().default(false),
-  }).default({ section: 'Workspace', order: 0, hidden: false }),
+    /**
+     * Sits under "More" rather than in the sidebar proper, however few pages
+     * a workspace has.
+     *
+     * Overflow alone could not express this. It hides the SEVENTH page and
+     * onwards, which is a statement about how much fits — not about what a
+     * person needs daily. A factory log, a cost ledger and a decisions
+     * archive are forensic: real, occasionally essential, and not where
+     * anybody starts. Hiding them behind a count meant a workspace with six
+     * pages showed all six with equal weight, and the hierarchy only appeared
+     * once somebody added a seventh.
+     */
+    secondary: z.boolean().default(false),
+  }).default({ section: 'Workspace', order: 0, hidden: false, secondary: false }),
   /**
    * `link` is a nav row, not a page: it pins an existing core route into the
    * manifest's section under its own label, and `/dashboard/p/<slug>`
@@ -826,7 +839,7 @@ export const PageManifestSchema = z.object({
    * knows what these records MEAN and is not a general expression language
    * on a page. A second one gets declared here when it exists.
    */
-  derive: z.enum(['workQueue']).optional(),
+  derive: z.enum(['workQueue', 'releaseOutcome']).optional(),
   filters: z.array(FilterSchema).optional(),
   /**
    * Named ways of looking at the same rows, chosen with `?view=<key>` and

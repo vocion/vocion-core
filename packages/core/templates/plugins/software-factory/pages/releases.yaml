@@ -14,7 +14,7 @@ slug: releases
 title: Releases
 description: Every deploy that reached people, with product, version, what it carried, the announcement line the public reads, what the post-deploy check said, and who has been told.
 icon: rocket
-nav: {section: Advanced, order: 2, hidden: true}
+nav: {section: Software factory, order: 3}
 archetype: list
 source: {kind: objects, objectType: release}
 sort: {field: meta.releasedAt, dir: desc}
@@ -26,14 +26,27 @@ stats:
   - {label: Unhealthy after, kind: countWhere, where: {field: meta.healthAfter, op: in, value: [down, degraded]}}
   - {label: Health unknown, kind: countWhere, where: {field: meta.healthAfter, op: eq, value: unknown}}
   - {label: Notes owned by a person, kind: countWhere, where: {field: meta.notesSource, op: eq, value: human}}
+# What production said, derived (`libs/workspace/releaseOutcome.ts`). The
+# derivation is where a release too young to judge reads "watching", one old
+# enough with nobody having looked reads "outcome not checked", and each
+# measure is stated against what it was BEFORE — because "share completion
+# 76%" says nothing and "91% → 76%" says the release broke something.
+derive: releaseOutcome
 primary:
   field: title
-  subtitle: [version, size, commit]
+  subtitle: [version, size, outcome, measures, health, released, commit]
 fields:
   - {key: title, label: Release}
   - {key: version, label: Version, from: meta.version, format: mono}
   - {key: size, label: Size, from: meta.sizeClass, format: badge, tones: {major: warn, minor: info, patch: muted}}
+  # Two different questions, and they are not the same one asked twice.
+  # `health` is the smoke test minutes after the swap: did the DEPLOY work.
+  # `outcome` is what production said once it had been live long enough to
+  # tell: did the CHANGE work. A release can be perfectly healthy and have
+  # cost fifteen points of a funnel.
   - {key: health, label: Health after, from: meta.healthAfter, format: badge, tones: {ok: ok, degraded: warn, down: bad, unknown: muted}}
+  - {key: outcome, label: Outcome, from: meta.outcomeLine, format: badge, tones: {validated: ok, regressed: bad, inconclusive: muted, watching: info, outcome not checked: warn}}
+  - {key: measures, label: What moved, from: meta.outcomeMeasures}
   - {key: released, label: Released, from: meta.releasedAt, format: date}
   - {key: deploy, label: Deploy run, from: meta.deployRunUrl, format: link, priority: 3}
   - {key: commit, label: Commit, from: meta.commitSha, format: mono}
