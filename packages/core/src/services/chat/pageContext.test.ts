@@ -103,7 +103,11 @@ describe('withPageContext', () => {
     expect(out).toContain('This page is about the briefing "Revenue Briefing — Mon" (/dashboard/briefings).');
     expect(out).toContain('I mentioned: deal "Northwind".');
     expect(out).toContain('> Northwind – $216K\n> stalling');
-    expect(out).toContain('`page_context` tool');
+    // The prose deliberately does NOT name the tool: handing a model the
+    // details and then pointing at a tool that returns the same details is
+    // what produced a turn that announced a lookup instead of answering.
+    expect(out).not.toContain('`page_context` tool');
+    expect(out).toContain('answer from it');
   });
 });
 
