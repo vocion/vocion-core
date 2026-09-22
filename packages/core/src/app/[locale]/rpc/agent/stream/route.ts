@@ -221,7 +221,7 @@ export async function POST(request: Request): Promise<Response> {
   // (refresh / phone lock) can replay what it missed and re-attach LIVE via
   // /rpc/agent/stream/resume. stream_meta tells the client its stream id.
   const streamId = crypto.randomUUID();
-  const buffered = openStream(streamId);
+  const buffered = openStream(streamId, { orgId, userId });
 
   // Multiplex the agent event stream + a 15s keepalive timer into one
   // ReadableStream. Whichever fires first gets written; on disconnect

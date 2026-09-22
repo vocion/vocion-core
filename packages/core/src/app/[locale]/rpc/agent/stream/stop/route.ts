@@ -27,9 +27,10 @@ export async function POST(request: Request): Promise<Response> {
   if (!streamId) {
     return new Response(JSON.stringify({ error: 'stream_id is required' }), { status: 400 });
   }
-  // A stop for a turn that already finished, or for a stream this process has
-  // swept, is not an error — the person's intent simply arrived too late to
-  // change anything. Say which happened so the client can stay quiet either way.
-  const marked = markStopped(streamId);
+  // A stop for a turn that already finished, for a stream this process has
+  // swept, or for somebody else's turn all answer the same way: nothing was
+  // stopped. Not an error — the first two are just late — and telling the
+  // three apart would say whether a given stream id belongs to someone.
+  const marked = markStopped(streamId, { orgId, userId });
   return new Response(JSON.stringify({ marked }), { headers: { 'Content-Type': 'application/json' } });
 }

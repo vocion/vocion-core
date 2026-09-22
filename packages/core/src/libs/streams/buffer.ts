@@ -31,6 +31,14 @@ type BufferedStream = {
    * share.
    */
   stopped: boolean;
+  /**
+   * Whose turn this is — the org and person the SSE route authenticated.
+   *
+   * A stream id is a v4 UUID and hard to guess, but "hard to guess" is not a
+   * permission: ids travel in logs, screenshots and bug reports. Anything that
+   * acts on somebody's running turn has to prove it belongs to them first.
+   */
+  owner: { orgId: string; userId: string };
 };
 
 const streams = new Map<string, BufferedStream>();
@@ -49,10 +57,13 @@ function sweep(): void {
 /**
  * Open a new buffered stream for a turn. Returns append/close bound to it.
  * @param id
+ * @param owner
+ * @param owner.orgId
+ * @param owner.userId
  */
-export function openStream(id: string): { append: (data: string) => void; close: () => void } {
+export function openStream(id: string, owner: { orgId: string; userId: string }): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false, owner };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -125,14 +136,18 @@ export function hasStream(id: string): boolean {
  * Record that the person stopped this turn on purpose.
  *
  * Called from `/rpc/agent/stream/stop` while the run is still going. Unknown
- * or expired ids are ignored: a stop that arrives after the turn already
- * finished has nothing left to describe.
+ * ids, expired ids and ids belonging to somebody else are all ignored the same
+ * way — a caller learns only that nothing was stopped, never whose turn it was.
  * @param id - The turn's stream id, as the first `stream_meta` frame gave it.
- * @returns True when a live stream was marked, false when there was none.
+ * @param by - Who is asking; must be the person the turn was started for.
+ * @param by.orgId
+ * @param by.userId
+ * @returns True when that person's live stream was marked, false otherwise.
  */
-export function markStopped(id: string): boolean {
+export function markStopped(id: string, by: { orgId: string; userId: string }): boolean {
   const s = streams.get(id);
-  if (!s) {
+  // Somebody else's turn is not theirs to end, however they came by the id.
+  if (!s || s.owner.orgId !== by.orgId || s.owner.userId !== by.userId) {
     return false;
   }
   s.stopped = true;

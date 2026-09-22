@@ -216,7 +216,7 @@ describe('agent stream route — the ending it writes down', () => {
       opts.onEvent?.({ type: 'response_delta', delta: 'Four deals closed' });
       // The person hits Stop while the turn is still running: the browser
       // aborts its fetch AND says so, which is what this marks.
-      markStopped(STOPPED_STREAM_ID);
+      markStopped(STOPPED_STREAM_ID, { orgId: ORG, userId: USER });
       return finishedRun;
     });
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
@@ -232,7 +232,7 @@ describe('agent stream route — the ending it writes down', () => {
   it('keeps a stopped turn in the history — the person read it and decided that was enough', async () => {
     vi.mocked(runAgentDeep).mockImplementation(async (opts) => {
       opts.onEvent?.({ type: 'response_delta', delta: 'Four deals closed' });
-      markStopped(STOPPED_STREAM_ID);
+      markStopped(STOPPED_STREAM_ID, { orgId: ORG, userId: USER });
       return finishedRun;
     });
     const conv = await createConversation({ orgId: ORG, agentSlug: 'revenue-lead', createdBy: USER });
