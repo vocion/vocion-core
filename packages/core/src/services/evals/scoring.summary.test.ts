@@ -3,7 +3,8 @@
  *
  * It is the number the dashboard leads with and the number `eval:run` turns
  * into an exit code, so which scores it is made of is not a detail. The rule:
- * a score counts only when it said pass or fail in those words.
+ * a score counts only when it said pass or fail — in those words, or as the 1
+ * or 0 of one of AWS's programmatic trajectory matchers.
  */
 
 import type { CaseTranscript } from './transcripts';
@@ -85,13 +86,64 @@ describe('summarizeProviderScores', () => {
     expect(summary.failed).toBe(0);
   });
 
-  it('reports zero rather than dividing by nothing when no score said pass or fail', () => {
+  it('reports no pass rate, not zero, when AWS rated every case on its own scale', () => {
+    // Zero reads as "everything failed" and fails every gate, so a dataset
+    // graded only by AWS's ratings would redden every build it ran in.
     const summary = summarizeProviderScores(
-      [score({ evaluatorSlug: 'Builtin.ToolSelectionAccuracy', label: 'Correct', value: 1 })],
+      [score({ evaluatorSlug: 'Builtin.Helpfulness', label: 'Very Helpful', value: 0.83 })],
       [transcript()],
     );
 
-    expect(summary.passRate).toBe(0);
+    expect(summary.passRate).toBeNull();
     expect(summary.passed).toBe(0);
+    expect(summary.scoresWithoutVerdict).toBe(1);
+  });
+
+  it('reports nothing scored when every evaluator errored', () => {
+    // The gate needs this apart from "rated but not gated": an outage that
+    // scored nothing must not pass the way an AWS-only dataset does.
+    const summary = summarizeProviderScores(
+      [score({ label: null, value: null, errorCode: 'ThrottlingException' })],
+      [transcript()],
+    );
+
+    expect(summary.passRate).toBeNull();
+    expect(summary.scoresWithoutVerdict).toBe(0);
+  });
+
+  it('counts a trajectory matcher that found the tools out of order as a failure', () => {
+    // AWS labels these `Correct` or `Incorrect`, not pass or fail, and
+    // leaving them out let a run that called propose_action before
+    // lookup_objects pass the dataset built to catch exactly that.
+    const summary = summarizeProviderScores(
+      [
+        score({ label: 'pass' }),
+        score({ evaluatorSlug: 'Builtin.TrajectoryInOrderMatch', label: 'Incorrect', value: 0, level: 'SESSION' }),
+      ],
+      [transcript()],
+    );
+
+    expect(summary.passed).toBe(1);
+    expect(summary.failed).toBe(1);
+    expect(summary.passRate).toBe(0.5);
+  });
+
+  it('counts a trajectory matcher that found the tools in order as a pass', () => {
+    const summary = summarizeProviderScores(
+      [score({ evaluatorSlug: 'Builtin.TrajectoryExactOrderMatch', label: 'Correct', value: 1, level: 'SESSION' })],
+      [transcript()],
+    );
+
+    expect(summary.passRate).toBe(1);
+  });
+
+  it('leaves a trajectory score between 0 and 1 out rather than guessing a threshold', () => {
+    const summary = summarizeProviderScores(
+      [score({ evaluatorSlug: 'Builtin.TrajectoryAnyOrderMatch', label: 'Partially Correct', value: 0.5, level: 'SESSION' })],
+      [transcript()],
+    );
+
+    expect(summary.passRate).toBeNull();
+    expect(summary.scoresWithoutVerdict).toBe(1);
   });
 });

@@ -348,6 +348,20 @@ describe('scoreChecks', () => {
     expect(scores).toEqual([]);
   });
 
+  it('gives two checks on the same argument different slugs', () => {
+    // "The key is there" and "the key is this exact list" are two rules. With
+    // one slug their score rows merged on every per-evaluator view, so a
+    // passing presence check hid a failing value check.
+    const run = proposalTranscript([proposal()]);
+    const isThere = runCheck(run, { toolCalledWith: { tool: 'propose_action', path: 'action_input.dedupOn', present: true } });
+    const isExact = runCheck(run, { toolCalledWith: { tool: 'propose_action', path: 'action_input.dedupOn', equals: ['title', 'startDate', 'venueName'] } });
+    const atMostOne = runCheck(run, { toolCallCount: { tool: 'propose_action', max: 1 } });
+    const exactlyOne = runCheck(run, { toolCallCount: { tool: 'propose_action', exactly: 1 } });
+
+    expect(isThere?.slug).not.toBe(isExact?.slug);
+    expect(atMostOne?.slug).not.toBe(exactlyOne?.slug);
+  });
+
   it('returns nothing for a case that authored no checks', () => {
     expect(scoreChecks(transcript())).toEqual([]);
   });

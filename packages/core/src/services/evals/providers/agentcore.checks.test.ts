@@ -78,7 +78,7 @@ describe('agentcore provider', () => {
     const slugs = scores.map(score => score.evaluatorSlug);
 
     expect(slugs).toContain('Builtin.TrajectoryInOrderMatch');
-    expect(slugs).toContain('check:toolCalledWith:propose_action.dedupOn');
+    expect(slugs).toContain('check:toolCalledWith:propose_action.dedupOn:equals=["title","startDate","venueName"]');
     expect(slugs).toContain('check:toolNotCalled:web_search');
     expect(scores.every(score => score.itemIndex === 0)).toBe(true);
   });
@@ -97,7 +97,7 @@ describe('agentcore provider', () => {
       transcripts: [broken],
     });
 
-    const dedupKeyScore = scores.find(score => score.evaluatorSlug === 'check:toolCalledWith:propose_action.dedupOn');
+    const dedupKeyScore = scores.find(score => score.evaluatorSlug === 'check:toolCalledWith:propose_action.dedupOn:equals=["title","startDate","venueName"]');
 
     expect(dedupKeyScore?.label).toBe('fail');
     expect(scores.find(score => score.evaluatorSlug === 'Builtin.TrajectoryInOrderMatch')?.label).toBe('Correct');

@@ -49,6 +49,24 @@ describe('evaluatePassGate', () => {
     expect(evaluatePassGate(0, 0).passed).toBe(true);
   });
 
+  it('passes a run AWS rated on its own scales, and says it was not gated', () => {
+    // No score said pass or fail, so there is no rate to hold a bar against.
+    // Failing it would redden every run of a ratings-only dataset forever.
+    const gate = evaluatePassGate(null, 0.6, 3);
+
+    expect(gate.passed).toBe(true);
+    expect(gate.summary).toContain('NOT GATED');
+  });
+
+  it('fails a run that scored nothing at all', () => {
+    // The silent "found no sessions" shape: no rate and no ratings either.
+    // That run measured nothing and must not read as green.
+    const gate = evaluatePassGate(null, 0.6, 0);
+
+    expect(gate.passed).toBe(false);
+    expect(gate.summary).toContain('nothing was scored');
+  });
+
   it('says which bar it used, so a surprising exit code can be read back', () => {
     expect(evaluatePassGate(0.7, 0.6).summary).toContain('set by the dataset');
     expect(evaluatePassGate(0.7, null).summary).toContain('runner default');

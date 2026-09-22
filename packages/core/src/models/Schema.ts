@@ -1829,7 +1829,14 @@ export const evalRunSchema = pgTable('eval_run', {
    */
   errorMessage: text('error_message'),
   metrics: jsonb('metrics').$type<{
-    passRate?: number;
+    /** Null when no score said pass or fail; see `scoresWithoutVerdict`. */
+    passRate?: number | null;
+    /**
+     * Scores that ran but gave no pass-or-fail verdict — AWS's ratings on
+     * their own scales. Tells a null pass rate that means "rated, not gated"
+     * apart from one that means "nothing was scored".
+     */
+    scoresWithoutVerdict?: number;
     toolCallCount?: number;
     medianLatencyMs?: number;
     failed?: number;

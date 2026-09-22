@@ -64,6 +64,43 @@ function caseResultIdFor(transcripts: CaseTranscript[], itemIndex: number | unde
 }
 
 /**
+ * AWS evaluators that compare tool names against `expectedTrajectory` with no
+ * model involved. AWS's guide describes each outcome as pass or fail, so their
+ * score is a verdict rather than a rating on a scale.
+ */
+const PROGRAMMATIC_TRAJECTORY_EVALUATORS = new Set([
+  'Builtin.TrajectoryExactOrderMatch',
+  'Builtin.TrajectoryInOrderMatch',
+  'Builtin.TrajectoryAnyOrderMatch',
+]);
+
+/**
+ * Whether one score said pass, said fail, or said neither.
+ *
+ * Our own checks and judge say `pass` or `fail` in words. AWS's trajectory
+ * matchers say it with a value of 1 or 0 and a label of their own choosing
+ * (`Correct`), and leaving them out made the one score a trajectory dataset
+ * exists for unable to fail it. Any other value from them is left out rather
+ * than guessed at, because a partial-credit trajectory score would need a
+ * threshold nobody has set.
+ * @param score - One score that did not error.
+ */
+export function verdictOf(score: ProviderScore): 'pass' | 'fail' | null {
+  if (score.label === 'pass' || score.label === 'fail') {
+    return score.label;
+  }
+  if (PROGRAMMATIC_TRAJECTORY_EVALUATORS.has(score.evaluatorSlug)) {
+    if (score.value === 1) {
+      return 'pass';
+    }
+    if (score.value === 0) {
+      return 'fail';
+    }
+  }
+  return null;
+}
+
+/**
  * Roll a provider's scores into the numbers the dashboard reads.
  *
  * Pass rate counts only scores that actually said pass or fail. An evaluator
@@ -81,13 +118,24 @@ function caseResultIdFor(transcripts: CaseTranscript[], itemIndex: number | unde
  * this one gates a build. Those scores still land as rows and still show on
  * the dashboard beside their evaluator's own scale; they just do not move a
  * number they cannot speak to.
+ *
+ * AWS's trajectory evaluators are the exception, and `verdictOf` holds it:
+ * they are programmatic matches that AWS documents as pass or fail, so their
+ * 0 or 1 is a verdict whatever word the label uses.
+ *
+ * When nothing said pass or fail the pass rate is null, not zero. Zero reads
+ * as "everything failed" and fails every gate; null says there was no verdict
+ * to count, and `scoresWithoutVerdict` says whether that is because AWS rated
+ * on its own scales or because nothing was scored at all.
  * @param scores - Everything this provider said.
  * @param transcripts - Used for latency and cost, which belong to the run.
  */
 export function summarizeProviderScores(scores: ProviderScore[], transcripts: CaseTranscript[]) {
-  const graded = scores.filter(score => !score.errorCode && (score.label === 'pass' || score.label === 'fail'));
-  const passed = graded.filter(score => score.label === 'pass').length;
-  const failed = graded.filter(score => score.label === 'fail').length;
+  const scored = scores.filter(score => !score.errorCode);
+  const verdicts = scored.map(verdictOf);
+  const passed = verdicts.filter(verdict => verdict === 'pass').length;
+  const failed = verdicts.filter(verdict => verdict === 'fail').length;
+  const graded = passed + failed;
 
   let judgeInputTokens = 0;
   let judgeOutputTokens = 0;
@@ -101,9 +149,10 @@ export function summarizeProviderScores(scores: ProviderScore[], transcripts: Ca
   const toolCallCount = transcripts.reduce((total, transcript) => total + transcript.trajectory.length, 0);
 
   return {
-    passRate: graded.length > 0 ? passed / graded.length : 0,
+    passRate: graded > 0 ? passed / graded : null,
     passed,
     failed,
+    scoresWithoutVerdict: scored.length - graded,
     toolCallCount,
     medianLatencyMs: median(latencies),
     totalCents: round4(agentCents),

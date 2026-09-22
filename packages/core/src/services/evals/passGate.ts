@@ -35,13 +35,37 @@ export type PassGate = {
  * A pass rate exactly on the bar passes: a threshold reads as "this much is
  * good enough", and failing the run that hit it precisely would make the
  * number mean something nobody wrote down.
- * @param passRate - The run's pass rate, 0 to 1.
+ *
+ * A null pass rate means no score said pass or fail. When scores did come back
+ * on AWS's own scales, the run is not gated and passes, saying so loudly: a
+ * dataset graded only by ratings has no verdict to hold a bar against, and
+ * failing it on every run would teach people to ignore the gate. When nothing
+ * came back at all, it fails, because a run that measured nothing — the silent
+ * "found no sessions" shape — must never read as green.
+ * @param passRate - The run's pass rate, 0 to 1, or null when nothing gave a verdict.
  * @param datasetThreshold - The bar the dataset named, or null for the default.
+ * @param scoresWithoutVerdict - Scores that ran but said neither pass nor fail.
  */
-export function evaluatePassGate(passRate: number, datasetThreshold: number | null | undefined): PassGate {
+export function evaluatePassGate(
+  passRate: number | null,
+  datasetThreshold: number | null | undefined,
+  scoresWithoutVerdict = 0,
+): PassGate {
   const threshold = datasetThreshold ?? DEFAULT_PASS_THRESHOLD;
-  const passed = passRate >= threshold;
   const source = datasetThreshold === null || datasetThreshold === undefined ? 'runner default' : 'set by the dataset';
+
+  if (passRate === null) {
+    const passed = scoresWithoutVerdict > 0;
+    return {
+      threshold,
+      passed,
+      summary: passed
+        ? `NOT GATED: ${scoresWithoutVerdict} score${scoresWithoutVerdict === 1 ? '' : 's'} came back on the evaluators' own scales and none said pass or fail, so there is nothing to hold the ${(threshold * 100).toFixed(1)}% bar against (${source})`
+        : `FAIL: nothing was scored, so the ${(threshold * 100).toFixed(1)}% bar cannot have been met (${source})`,
+    };
+  }
+
+  const passed = passRate >= threshold;
   return {
     threshold,
     passed,

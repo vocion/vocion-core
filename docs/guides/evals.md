@@ -515,6 +515,17 @@ a set spread across a dozen live websites will lose a case whenever one of them
 redesigns a page, and a gate that reddens a build for that is a gate people
 learn to ignore.
 
+The pass rate counts only scores that said pass or fail: our checks and judge,
+and AWS's three trajectory matchers, whose 1 or 0 is a verdict. AWS's ratings
+on their own scales (`Very Helpful`, `Mostly Correct`) are stored and shown but
+never counted. When no score gave a verdict, the pass rate is empty rather than
+zero, and the gate reads it two ways:
+
+- **Scores came back, none of them verdicts** — `NOT GATED`, exit 0. A dataset
+  graded only by ratings has nothing to hold a bar against.
+- **Nothing was scored at all** — `FAIL`, exit 1. A run that measured nothing
+  must never read as green.
+
 ### Step 5.4 — Read the result
 
 Open the run. For case one you will see something like:

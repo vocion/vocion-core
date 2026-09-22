@@ -244,11 +244,32 @@ function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition
 
 /**
  * A short, stable name for one argument check, used as its evaluator slug.
+ *
+ * Names what is asserted as well as where, because two checks on one path —
+ * "the key is there" and "the key is this exact list" — are two evaluators,
+ * and sharing a slug merged their rows on every per-evaluator view.
  * @param condition - The condition being described.
  */
 function describeArgumentCondition(condition: ToolArgumentCondition): string {
   const subject = condition.where ? `${condition.tool}[${condition.where.path}=${renderArgumentValue(condition.where.equals)}]` : condition.tool;
-  return condition.path ? `${subject}.${condition.path}` : subject;
+  const location = condition.path ? `${subject}.${condition.path}` : subject;
+  const predicates: string[] = [];
+  if (condition.present !== undefined) {
+    predicates.push(`present=${condition.present}`);
+  }
+  if (condition.equals !== undefined) {
+    predicates.push(`equals=${renderArgumentValue(condition.equals)}`);
+  }
+  if (condition.contains !== undefined) {
+    predicates.push(`contains=${condition.contains}`);
+  }
+  if (condition.subsetOf !== undefined) {
+    predicates.push(`subsetOf=${JSON.stringify(condition.subsetOf)}`);
+  }
+  if (condition.calls === 'some') {
+    predicates.push('calls=some');
+  }
+  return predicates.length > 0 ? `${location}:${predicates.join(',')}` : location;
 }
 
 /**
@@ -317,7 +338,14 @@ function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgument
 }
 
 function checkToolCallCount(transcript: CaseTranscript, condition: ToolCallCountCondition): CheckOutcome {
-  const slug = `check:toolCallCount:${condition.tool}`;
+  // The bounds are part of the name for the same reason an argument check's
+  // predicate is: "at most one" and "exactly one" on one tool are two checks.
+  const bounds = [
+    condition.exactly !== undefined ? `exactly=${condition.exactly}` : null,
+    condition.min !== undefined ? `min=${condition.min}` : null,
+    condition.max !== undefined ? `max=${condition.max}` : null,
+  ].filter(Boolean).join(',');
+  const slug = bounds ? `check:toolCallCount:${condition.tool}:${bounds}` : `check:toolCallCount:${condition.tool}`;
   const count = transcript.trajectory.filter(tool => tool === condition.tool).length;
   const wanted: string[] = [];
   let passed = true;

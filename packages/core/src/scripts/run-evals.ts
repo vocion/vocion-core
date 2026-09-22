@@ -165,11 +165,15 @@ async function main() {
     const result = await runDataset({ orgId, datasetSlug });
     console.log(`✓ eval_run #${result.runId} complete`);
     console.log(`   metrics: ${JSON.stringify(result.metrics, null, 2)}`);
-    const passRate = (result.metrics?.passRate ?? 0) as number;
-    // The dataset's own bar wins over the runner's. `evaluatePassGate` holds
-    // that rule, and its tests, because an exit code that decides whether a
-    // deploy goes ahead should not be the one piece of logic nothing checks.
-    const gate = evaluatePassGate(passRate, result.passThreshold);
+    // The dataset's own bar wins over the runner's, and a run with no verdict
+    // is told apart from one that failed. `evaluatePassGate` holds both rules,
+    // and their tests, because an exit code that decides whether a deploy goes
+    // ahead should not be the one piece of logic nothing checks.
+    const gate = evaluatePassGate(
+      result.metrics?.passRate ?? null,
+      result.passThreshold,
+      result.metrics?.scoresWithoutVerdict ?? 0,
+    );
     console.log(`   ${gate.summary}`);
     process.exit(gate.passed ? 0 : 1);
   }
