@@ -250,25 +250,53 @@ The whole vocabulary, and it is a closed list on purpose:
 
 The two that read arguments take a small block rather than a bare value:
 
+The same few shapes cover very different agents. A handful, each from a
+different kind of workspace:
+
 ```text
 checks:
-  # Every event proposal's dedup key is these three fields, in this order.
+  # Support: a refund question looks the order up by the number the customer gave.
+  - toolCalledWith: { tool: lookup_order, path: orderId, equals: "A-10442" }
+
+  # Sales: a deal update only ever moves the stage to one the pipeline defines.
   - toolCalledWith:
       tool: propose_action
-      where: { path: action_input.objectType, equals: event-candidate }
+      where:
+        - { path: action_id, equals: hubspot.update }
+        - { path: action_input.objectType, equals: deals }
+      path: action_input.properties.dealstage
+      subsetOf: [qualified, proposal_sent, negotiation, closed_won, closed_lost]
+
+  # Outreach: the agent drafts emails for a person to send, never sends them itself.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_id, equals: gmail.send }
+      path: action_input.draft
+      equals: true
+
+  # Recruiting: every applicant card names the role it is for.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: applicant }
+      path: action_input.fields.role
+      present: true
+
+  # Research: a company card is deduplicated on its domain, not its name.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: company }
       path: action_input.dedupOn
-      equals: [title, startDate, venueName]
-  # Every proposal says what it recommends, and why.
+      equals: [domain]
+
+  # Any workspace: every proposal says what it recommends.
   - toolCalledWith: { tool: propose_action, path: suggested_decision, present: true }
-  # Categories only ever come from the workspace's own list.
-  - toolCalledWith:
-      tool: propose_action
-      where: { path: action_input.objectType, equals: event-candidate }
-      path: action_input.fields.categories
-      subsetOf: [Live Music, Community, Kids]
-  # A correction refreshes the existing card instead of opening a second one.
+
+  # Any workspace: a correction refreshes the existing card instead of opening a second one.
   - toolCallCount: { tool: propose_action, max: 1 }
 ```
+
+The object types (`applicant`, `company`) and their fields are illustrations —
+yours come from your own workspace's `objects/` folder.
 
 `path` walks the arguments with dots and is optional — leave it out to test the
 whole argument object. Give one or more of `equals`, `contains`, `present` and
@@ -304,9 +332,11 @@ and nothing in the YAML tells you. Work it out in this order, outermost first:
    Langfuse trace: each tool call is there with the exact arguments the model
    sent. The run page itself lists tool names, not arguments.
 
-So `action_input.fields.startDate` reads: the `action_input` argument of
-`propose_action`, the `fields` of the candidate envelope, the `startDate`
-property of `event-candidate`.
+So `action_input.fields.role` reads: the `action_input` argument of
+`propose_action`, the `fields` of the candidate envelope, the `role` property
+of the `applicant` object type. A payload for another action has its own
+shape: `action_input.properties.dealstage` is the `properties` map that
+`hubspot.update` takes (`packages/core/src/libs/actions/hubspot-update.ts`).
 
 **Paths are checked before anything runs.** `workspace:apply`, and a parent
 repo's validation job that dry-runs it, refuse a `propose_action` check whose
@@ -322,11 +352,30 @@ should always double-check against a trace before blaming the agent.
 `path` against a day named relative to the run:
 
 ```text
-  # No proposed event is in the past, by the venue's clock.
+  # Sales: a deal's close date is never set in the past.
   - toolCalledWith:
       tool: propose_action
+      where: { path: action_id, equals: hubspot.update }
+      path: action_input.properties.closedate
+      onOrAfter: today
+      timezone: workspace
+
+  # Recruiting: an interview is booked within the next two weeks.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: interview }
+      path: action_input.fields.scheduledFor
+      onOrAfter: today
+      onOrBefore: in 2 weeks
+      timezone: America/Chicago
+
+  # Events: no proposed event is in the past, by the venue's own clock.
+  - toolCalledWith:
+      tool: propose_action
+      where: { path: action_input.objectType, equals: event-candidate }
       path: action_input.fields.startDate
       onOrAfter: today
+      timezoneFrom: action_input.fields.timezone
       timezone: America/New_York
 ```
 
@@ -349,19 +398,27 @@ value carrying an offset (`2026-09-22T21:30:00-04:00`) falls on. A bare day (`20
 is not a date — `next Friday`, a number — fails the check rather than passing.
 
 `where` narrows which calls the rule is about, and you will want it more often
-than it looks. One tool frequently files several kinds of thing — the example
-above proposes events and venues through the same `propose_action` — and a
-rule about one is simply false of the other. Without `where`, the event rule
-fails on every run that also proposed a venue, which reads as the agent being
-broken when it was doing exactly what it should.
+than it looks. One tool frequently files several kinds of thing — a sales
+agent updates deals and contacts through the same `propose_action`, a
+recruiting agent proposes applicants and interviews — and a rule about one is
+simply false of the other. Without `where`, the deal-stage rule fails on every
+run that also updated a contact, which reads as the agent being broken when it
+was doing exactly what it should.
 
 A filter is `{ path, equals }` or `{ path, present }`, and `where` takes one or
 a list, all of which must hold. `present: false` is how a rule steps around its
 one legitimate exception:
 
 ```text
-  # Single-date events only: a series refresh keeps its first, possibly past,
-  # startDate on purpose, and a series is the only proposal with a recurrence.
+  # Recruiting: a new applicant gets an interview in the future, but a
+  # rescheduled one keeps its original booking on record, and only a
+  # reschedule carries rescheduledFrom.
+  where:
+    - { path: action_input.objectType, equals: interview }
+    - { path: action_input.fields.rescheduledFrom, present: false }
+
+  # Events: a series refresh keeps its first, possibly past, startDate on
+  # purpose, and a series is the only proposal with a recurrence.
   where:
     - { path: action_input.objectType, equals: event-candidate }
     - { path: action_input.fields.recurrence, present: false }
@@ -371,8 +428,8 @@ A tool that was never called, or never called in a way `where` matched,
 **fails** by default: a rule about calls that never happened is not a rule
 anything kept, and an agent that silently stopped proposing anything is the
 regression most worth catching. Set `noCalls: pass` for the other shape of
-rule — "if it did this, it did it right" — such as a venue proposal a run only
-makes when the venue is new.
+rule — "if it did this, it did it right" — such as a contact update a sales
+run only makes when the email thread named a new stakeholder.
 
 | Pros | Cons |
 |---|---|
