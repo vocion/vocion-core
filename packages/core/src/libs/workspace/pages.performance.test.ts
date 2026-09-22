@@ -196,18 +196,19 @@ describe('performance: one window, obeyed', () => {
 });
 
 describe('performance: what the page says when it has nothing to say', () => {
-  it('reads zero rather than blank, NaN or a dash, for every stat it declares', () => {
+  it('reads a measured zero or "not enough yet" — never blank, NaN or a dash', () => {
     const empty: PageRow[] = [];
     const rendered = (manifest().stats ?? []).map(s => computeStat(empty, s, NOW));
 
     // Asserted as a property, not an ordered list: the page's stats change
     // shape as the reading is argued with, and a fixed array made every such
     // change look like a regression. What must hold is that NONE of them
-    // renders blank, NaN or a dash when there is nothing to count.
+    // renders blank, NaN or a dash when there is nothing to count — and that
+    // a figure with no samples behind it says so rather than claiming zero.
     expect(rendered).toHaveLength((manifest().stats ?? []).length);
 
     for (const figure of rendered) {
-      expect(figure).toMatch(/^\$?0(?:\.0+)?%?(?: ?(?:h|min))?$/);
+      expect(figure).toMatch(/^(?:not enough yet|\$?0(?:\.0+)?%?(?: ?(?:h|min))?)$/);
     }
 
     for (const value of rendered) {
@@ -228,10 +229,11 @@ describe('performance: cycle time is measured, never invented', () => {
     expect(computeStat(applyWindow(liveLikeRows(), manifest().window, 30, NOW), statNamed('Speed to release'), NOW)).toBe('2 h');
   });
 
-  it('is zero, not a guess, when nothing can be measured at all', () => {
+  it('says so, rather than guessing or claiming zero, when nothing can be measured', () => {
+    // A shipped request with neither date is not a release that took no time.
     const noDates = [row(1, { state: 'shipped', actualCents: 100 })];
 
-    expect(computeStat(noDates, statNamed('Speed to release'), NOW)).toBe('0 h');
+    expect(computeStat(noDates, statNamed('Speed to release'), NOW)).toBe('not enough yet');
   });
 
   it('will not count a ship that precedes its ask', () => {
