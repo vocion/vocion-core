@@ -14,7 +14,7 @@ slug: releases
 title: Releases
 description: Every deploy that reached people, with product, version, what it carried, the announcement line the public reads, what the post-deploy check said, and who has been told.
 icon: rocket
-nav: {section: Advanced, order: 2, hidden: true}
+nav: {section: Software factory, order: 3}
 archetype: list
 source: {kind: objects, objectType: release}
 sort: {field: meta.releasedAt, dir: desc}

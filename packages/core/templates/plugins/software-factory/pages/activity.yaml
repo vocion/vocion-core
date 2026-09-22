@@ -34,10 +34,10 @@
 # Live: a worker heartbeats every ~30s with its progress, its cost and a fresh
 # lease, so the page re-reads itself every 15s while it is open.
 slug: activity
-title: Activity
+title: Factory log
 description: Everything the factory did, grouped by the work it was doing, with what happened, what it cost, why anything failed and whether it recovered.
 icon: activity
-nav: {section: Advanced, order: 1}
+nav: {section: Software factory, order: 6, secondary: true}
 archetype: list
 source: {kind: workerRuns, kinds: [worker, lead, red-team], limit: 200}
 live: {every: 15}

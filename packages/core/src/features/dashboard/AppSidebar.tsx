@@ -71,6 +71,8 @@ const BRAND_NAME = process.env.NEXT_PUBLIC_BRAND_NAME || 'Vocion';
 
 /** Workspace-defined pages (libs/workspace/pages.ts), grouped for the nav. */
 export type WorkspaceNavPage = {
+  /** Sits under "More" however few pages there are (`nav.secondary`). */
+  secondary?: boolean;
   title: string;
   url: string;
   section: string;
@@ -196,6 +198,14 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
     [workspacePages],
   );
 
+  // Forensic pages sort last and the cut is made just above them, so they end
+  // up under "More" whatever the page count — while ordinary overflow still
+  // applies to everything before them.
+  const secondaryUrls = useMemo(
+    () => new Set(workspacePages.filter(p => p.secondary).map(p => p.url)),
+    [workspacePages],
+  );
+
   // Every MANAGE destination — pages and their tabs — so a pin to either resolves.
   const manageItems = useMemo<PinnableItem[]>(
     () => manageRoutes(viewer).map(r => ({ title: label(r), url: r.url, icon: r.icon, origin: 'manage' as const })),
@@ -218,6 +228,11 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
   const pinnable = useMemo(() => [...pageItems, ...manageItems], [pageItems, manageItems]);
   const pinned = applyPins(pinnable, prefs.pins);
   const unpinnedPages = withoutPins(pageItems, prefs.pins);
+  const pagesPrimaryFirst = useMemo(
+    () => [...unpinnedPages].sort((a, b) => Number(secondaryUrls.has(a.url)) - Number(secondaryUrls.has(b.url))),
+    [unpinnedPages, secondaryUrls],
+  );
+  const primaryPageCount = pagesPrimaryFirst.filter(i => !secondaryUrls.has(i.url)).length;
   const manageGroup = (section: { label: string; items: PinnableItem[] }) => (
     <PinnableNav
       key={section.label}
@@ -275,13 +290,19 @@ export const AppSidebar = ({ isAdmin = false, enabledPlugins, enabledSurfaces = 
                   />
                 )}
 
-                {/* PAGES — the workspace's own pages, seven then "More pages ›". */}
+                {/* PAGES — the workspace's own pages. A page that declared
+                    itself `nav.secondary` sits under "More" however few pages
+                    there are: a factory log, a cost ledger and a decisions
+                    archive are forensic, and hiding them behind a COUNT meant
+                    a six-page workspace showed all six with equal weight.
+                    They are sorted last and the cut is made just above them,
+                    so ordinary overflow still applies to everything else. */}
                 <PinnableNav
                   label={t('pages')}
-                  items={unpinnedPages}
+                  items={pagesPrimaryFirst}
                   pins={prefs.pins}
                   onTogglePin={prefs.togglePin}
-                  max={PAGES_MAX}
+                  max={Math.min(PAGES_MAX, primaryPageCount)}
                   {...pinLabels}
                 />
 

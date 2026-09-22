@@ -36,7 +36,7 @@ slug: performance
 title: Performance
 description: Whether the factory is getting faster, cheaper, better and less demanding of a person, in four numbers, then quality, then what autonomy is actually saving.
 icon: gauge
-nav: {section: Business, order: 3}
+nav: {section: Software factory, order: 4, secondary: true}
 archetype: list
 source: {kind: objects, objectType: request}
 sort: {field: meta.actualCents, dir: desc}

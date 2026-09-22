@@ -48,7 +48,7 @@ slug: products
 title: Products
 description: Every product, where it is in its life, whether it is healthy, what we charge against the incumbent, and what last shipped.
 icon: layout-dashboard
-nav: {section: Business, order: 1}
+nav: {section: Software factory, order: 1}
 archetype: list
 layout: block
 source: {kind: objects, objectType: product}

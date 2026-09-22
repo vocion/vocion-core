@@ -90,7 +90,7 @@ describe('the Factory page the software factory ships', () => {
 
     expect(issues).toEqual([]);
     expect(factory).toMatchObject({ archetype: 'overview', title: 'Factory', origin: 'plugin:software-factory' });
-    expect(factory?.nav).toMatchObject({ section: 'Business', order: 0, hidden: false });
+    expect(factory?.nav).toMatchObject({ section: 'Software factory', order: 5, secondary: true });
   });
 
   it('briefs in the order a person needs it, and asks for no worker runs', () => {

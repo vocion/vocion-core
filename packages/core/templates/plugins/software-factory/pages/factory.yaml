@@ -30,7 +30,7 @@ slug: factory
 title: Factory
 description: How the factory is doing, what needs you, what is being built, what is next, what changed, and what it is costing.
 icon: gauge
-nav: {section: Business, order: 0}
+nav: {section: Software factory, order: 5, secondary: true}
 archetype: overview
 panels:
   # 1. The read. Synthesised after every panel below is computed, from those

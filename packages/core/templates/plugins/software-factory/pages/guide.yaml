@@ -10,6 +10,6 @@ description: >-
   not do without asking, what it may spend, and the judgment it cannot derive
   from records.
 icon: compass
-nav: {section: Business, order: 4}
+nav: {section: Software factory, order: 7, secondary: true}
 archetype: link
 href: /dashboard/guide

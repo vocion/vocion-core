@@ -46,7 +46,7 @@ slug: work
 title: Work
 description: What is running, what is proposed, and what just landed.
 icon: list-checks
-nav: {section: Business, order: 2}
+nav: {section: Software factory, order: 2}
 archetype: list
 source: {kind: objects, objectType: request}
 # Seven states, three lanes, and every sentence on the row: see
