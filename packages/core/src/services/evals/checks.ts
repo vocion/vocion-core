@@ -418,12 +418,10 @@ function describeArgumentCondition(condition: ToolArgumentCondition): string {
   if (condition.onOrBefore !== undefined) {
     predicates.push(`onOrBefore=${condition.onOrBefore}`);
   }
-  if (condition.timezone !== undefined) {
-    predicates.push(`timezone=${condition.timezone}`);
-  }
-  if (condition.timezoneFrom !== undefined) {
-    predicates.push(`timezoneFrom=${condition.timezoneFrom}`);
-  }
+  // `timezone` and `timezoneFrom` stay out of the name on purpose. They say
+  // how a date rule is judged, not what it asserts, and a slug is the key a
+  // check's history hangs on: correcting a zone should not start the rule's
+  // trend line over as if it were a new check.
   if (condition.calls === 'some') {
     predicates.push('calls=some');
   }

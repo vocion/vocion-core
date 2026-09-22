@@ -340,7 +340,7 @@ refused when the workspace is applied.
 `timezone` is set on each check, because two date fields on one call can need
 different clocks: `utc` (the default), `local` (the machine running the check,
 which is UTC on the app servers), `workspace` (the workspace's
-`defaults.timezone`, UTC when it sets none), or an IANA name. `timezoneFrom`
+`defaults.timezone`; when it sets none, the server's `VOCION_TIMEZONE`, then UTC), or an IANA name. `timezoneFrom`
 reads the zone from the call itself instead — `action_input.fields.timezone`
 judges each event by its venue's clock — and falls back to `timezone` when the
 call names no real zone. The zone decides which day "today" is, and which day a

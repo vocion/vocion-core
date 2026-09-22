@@ -478,6 +478,16 @@ describe('scoreChecks', () => {
     expect(runCheck(tonight, check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(false);
   });
 
+  it('keeps a date check\'s slug when only its zone changes', () => {
+    // The zone is how the rule is judged. Changing it must not reset the
+    // rule's history by renaming it.
+    const run = proposalTranscript([proposal()]);
+    const utc = runCheck(run, { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'utc' } });
+    const venue = runCheck(run, { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'America/New_York', timezoneFrom: 'action_input.fields.timezone' } });
+
+    expect(venue?.slug).toBe(utc?.slug);
+  });
+
   it('returns nothing for a case that authored no checks', () => {
     expect(scoreChecks(transcript())).toEqual([]);
   });
