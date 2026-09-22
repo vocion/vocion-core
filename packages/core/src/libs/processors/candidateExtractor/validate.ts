@@ -106,6 +106,29 @@ function squashUrl(url: string): string {
 }
 
 /**
+ * The absolute form of a URL a document published as a path.
+ *
+ * A JSON feed states an entry's own page relatively (`"fullUrl": "/events/x"`),
+ * and the connector resolves that against the feed before declaring it, because
+ * the gate compares exactly and a path can never match. The model, however,
+ * reads the raw entry and hands the path straight back, so the gate refused a
+ * link the document plainly published. Resolving the candidate the same way the
+ * connector resolved the declaration is what lets the two spellings meet.
+ * @param value - What the model returned.
+ * @param baseUrl - The document's own address, for resolving against.
+ */
+function resolvedAgainst(value: string, baseUrl: string | undefined): string | undefined {
+  if (!baseUrl || /^[a-z][a-z0-9+.-]*:/i.test(value)) {
+    return undefined;
+  }
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Every URL the document itself published, the gate a model-returned URL has
  * to pass. Named apart from the `publishedUrls` option it reads, which is one
  * of its four inputs rather than the whole answer.
@@ -177,6 +200,8 @@ function documentUrls(
  * declared for itself, for the same gate.
  * @param opts.ogImage - `metadata.ogImage`, the image the document stated for
  * itself, for the same gate and for the fallback at the end of this file.
+ * @param opts.baseUrl - The document's own address, so a URL the model hands
+ * back as a path can be resolved before the gate compares it.
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
  */
@@ -188,6 +213,7 @@ export function validateRecords(opts: {
   jsonLd?: unknown[];
   publishedUrls?: string[];
   ogImage?: string;
+  baseUrl?: string;
   knownIds: Set<number>;
   today: string;
 }): ValidationOutput {
@@ -218,6 +244,12 @@ export function validateRecords(opts: {
     const squashed = squashUrl(url);
     if (urls.exact.has(squashed)) {
       return squashed;
+    }
+    // Same address, other spelling: the declaration was resolved, the answer
+    // was not. The resolved form is what gets stored, never the path.
+    const resolved = resolvedAgainst(squashed, opts.baseUrl);
+    if (resolved && urls.exact.has(resolved)) {
+      return resolved;
     }
     return urls.blob !== '' && urls.blob.includes(url) ? url : undefined;
   };
