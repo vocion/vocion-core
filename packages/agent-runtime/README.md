@@ -16,7 +16,7 @@ npm run dev -w @vocion/agent-runtime        # :8080
 # (AWS_PROFILE=metacto AWS_REGION=us-west-2 VOCION_MODEL_PROVIDER=bedrock)
 ```
 
-Then point core at it: agents with `harness: { provider: runtime }` in workspace YAML, or force fleet-wide with `VOCION_AGENT_PROVIDER=runtime`. E2E check: `npx dotenv -c -- tsx src/scripts/smoke-runtime.ts` (in packages/core, with Next dev + Postgres up).
+Then point core at it: agents with `harness: { provider: runtime }` in workspace YAML, or force fleet-wide with `VOCION_AGENT_PROVIDER=runtime`. Set the same uncommitted `VOCION_AGENT_RUNTIME_SECRET` in core and this process; local `POST /invocations` requires it as an `Authorization: Bearer ...` header. E2E check: `npx dotenv -c -- tsx src/scripts/smoke-runtime.ts` (in packages/core, with Next dev + Postgres up).
 
 ## Deploy to AgentCore (us-west-2)
 
@@ -26,7 +26,7 @@ ENV=dev AWS_PROFILE=metacto bash infra/agentcore/deploy-runtime.sh # bundle → 
 ENV=dev AWS_PROFILE=metacto bash infra/agentcore/smoke-invoke.sh   # toolless streamed-done assertion
 ```
 
-Core targets the deployed runtime when `VOCION_AGENT_RUNTIME_ARN` is set (SigV4 via the AWS SDK); unset, it uses `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`). **Deployed tool calls require a cloud-reachable core** (`VOCION_TOOL_ENDPOINT_URL`) — until vocion-core itself is deployed, cloud runs are loop+model only and tool calls fail gracefully as tool errors the model can see.
+Core targets the deployed runtime when `VOCION_AGENT_RUNTIME_ARN` is set (SigV4 via the AWS SDK); the AgentCore deployment explicitly uses `VOCION_AGENT_RUNTIME_AUTH_MODE=agentcore` because AgentCore authenticates the outer invocation. When unset, core uses `VOCION_AGENT_RUNTIME_URL` (default `http://localhost:8080`) and both sides require `VOCION_AGENT_RUNTIME_SECRET`. **Deployed tool calls require a cloud-reachable core** (`VOCION_TOOL_ENDPOINT_URL`) — until vocion-core itself is deployed, cloud runs are loop+model only and tool calls fail gracefully as tool errors the model can see.
 
 **Which AWS account pays for the tokens.** The invocation payload carries an `aws` block when the calling org has stored its own AWS access key: a short-lived STS session core minted from that key, which the Bedrock model client signs with, so inference is billed to the customer. No block means no override, and the client falls through to this process's own chain — the runtime execution role, or `AWS_BEARER_TOKEN_BEDROCK` — which is the platform's account. The session is per invocation and is read through a ref on every model request, so the cached graph never signs with a previous caller's credential.
 
@@ -37,6 +37,8 @@ Rollback: `update-agent-runtime` with any previous image tag in ECR (tags are `<
 | Var | Purpose |
 |---|---|
 | `PORT` | HTTP port (default 8080 — the AgentCore contract port) |
+| `VOCION_AGENT_RUNTIME_SECRET` | shared bearer secret required for local HTTP invocations; keep it out of the repository and configure the same value in core |
+| `VOCION_AGENT_RUNTIME_AUTH_MODE` | `secret` (default) for local HTTP; `agentcore` only for the managed AgentCore transport, whose outer SigV4 boundary authenticates requests |
 | `VOCION_MODEL_PROVIDER` | `anthropic` \| `bedrock` (default: anthropic if key present, else bedrock) |
 | `VOCION_LLM_MODEL_MAIN` | model id override |
 | `LANGFUSE_PUBLIC_KEY` / `SECRET_KEY` / `BASE_URL` | optional in-artifact tracing; degrades to usage-only when unset |
