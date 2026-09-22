@@ -694,6 +694,9 @@ describe('not started is a claim too', () => {
 
   it('still says not started when nothing was ever written', () => {
     expect(withRollup(0).state.label).toBe('Not started');
+  });
+});
+
 describe('the story, and the machinery behind it', () => {
   it('puts the ask, triage, contracts and approvals one level down, and keeps the rest in the story', () => {
     const report = assembleFeatureReport(input({}));
