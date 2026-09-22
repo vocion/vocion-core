@@ -365,7 +365,10 @@ function visualsOf(row: PageRow): { before: number; after: number; reason: strin
   return { before: count('beforeArtifactIds'), after: count('afterArtifactIds'), reason: note };
 }
 
-/** How many acceptance criteria a row carries, and how many are settled. */
+/**
+ * How many acceptance criteria a row carries, and how many are settled.
+ * @param row
+ */
 export function acceptanceOf(row: PageRow): { total: number; met: number; frozen: boolean } {
   const raw = meta(row).acceptance;
   const list = Array.isArray(raw) ? raw : [];
