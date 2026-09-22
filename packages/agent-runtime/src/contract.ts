@@ -101,6 +101,14 @@ export type AgentDefinition = {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /**
+   * Graph steps one turn may take, passed to deepagents as `recursionLimit`.
+   *
+   * Absent means deepagents' own default (10,000). Core sends it only when the
+   * agent's `harness:` block set `maxSteps` — see core's
+   * `services/agents/stepLimit.ts` for the unit and why there is no default.
+   */
+  maxSteps?: number;
   subagents?: Array<{ name: string; description: string; systemPrompt: string }>;
   /** deepagents built-in tool names to withhold from the catalog. */
   excludeTools?: string[];

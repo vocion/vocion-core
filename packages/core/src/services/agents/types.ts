@@ -386,6 +386,8 @@ export type RuntimeContext = {
     provider?: 'local' | 'agentcore' | 'runtime';
     interrupts?: string[];
     maxTokens?: number;
+    /** Graph steps one turn may take; unset keeps each provider's own backstop. See `stepLimit.ts`. */
+    maxSteps?: number;
     excludeTools?: string[];
     /** Granted-only tools this agent receives (gated tools are absent unless named here). */
     grantTools?: string[];

@@ -184,6 +184,8 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       model: hc.model,
       temperature: row.temperature ? Number(row.temperature) : undefined,
       maxTokens: hc.maxTokens,
+      // Absent when unset, so the runtime keeps deepagents' own limit.
+      ...(hc.maxSteps ? { maxSteps: hc.maxSteps } : {}),
       subagents: (row.subagents ?? []).map(s => ({
         name: s.name,
         description: s.description,
