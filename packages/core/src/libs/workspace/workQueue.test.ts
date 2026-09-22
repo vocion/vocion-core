@@ -1,6 +1,6 @@
 import type { PageRow } from './pageFields';
 import { describe, expect, it } from 'vitest';
-import { costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualGap, whyLine, workLine } from './workQueue';
+import { acceptanceLine, acceptanceOf, costLine, deriveWorkQueue, flagsOf, isBlocked, isProbeRow, laneOf, stateOf, visualGap, whyLine, workLine } from './workQueue';
 
 /**
  * The four-lane mapping, argued with here rather than in a browser.
@@ -259,6 +259,66 @@ describe('what a row cannot show', () => {
 
     expect(out[0]!.meta.laneNote).toContain('1 without a visual');
     expect(out.map(r => r.meta.visualGap)).toContain('no mock');
+  });
+});
+
+describe('the contract between a person and the factory', () => {
+  const crit = (statement: string, met?: boolean) => (met === undefined ? { statement } : { statement, met });
+
+  it('says how many criteria a proposal carries, so a person knows what they are agreeing to', () => {
+    const two = row(1, 'a', { state: 'new', acceptance: [crit('links resolve'), crit('sessions unaffected')] });
+
+    expect(acceptanceLine(two, 'proposed')).toBe('2 criteria');
+    expect(acceptanceLine(row(2, 'b', { state: 'new', acceptance: [crit('one thing')] }), 'proposed')).toBe('1 criterion');
+  });
+
+  it('reports a proposal with nothing written down, because that is not a contract', () => {
+    // "Done when it works" is not a contract: nobody can tell whether it was
+    // met. An outcome put in front of a person with nothing written is the
+    // gap, reported the way an unranked queue and a missing mockup already are.
+    expect(acceptanceLine(row(3, 'c', { state: 'new' }), 'proposed')).toBe('no criteria');
+    expect(acceptanceLine(row(4, 'd', { state: 'new', acceptance: [] }), 'proposed')).toBe('no criteria');
+  });
+
+  it('switches to how much holds once the work is running', () => {
+    // By then the question is no longer "what did we agree" but "how much of
+    // it is true".
+    const building = row(5, 'e', {
+      state: 'building',
+      acceptance: [crit('a', true), crit('b', true), crit('c')],
+    });
+
+    expect(acceptanceLine(building, 'progress')).toBe('2 of 3 met');
+    expect(acceptanceLine(building, 'done')).toBe('2 of 3 met');
+  });
+
+  it('says all of them when a finished item met every one', () => {
+    const done = row(6, 'f', { state: 'shipped', acceptance: [crit('a', true), crit('b', true)] });
+
+    expect(acceptanceLine(done, 'done')).toBe('all 2 met');
+  });
+
+  it('counts an unchecked criterion as unmet, never as met', () => {
+    // Absent is not false and it is certainly not true: nobody has looked.
+    const { total, met } = acceptanceOf(row(7, 'g', { acceptance: [crit('a', true), crit('b'), crit('c', false)] }));
+
+    expect(total).toBe(3);
+    expect(met).toBe(1);
+  });
+
+  it('knows whether the contract was frozen', () => {
+    expect(acceptanceOf(row(8, 'h', { acceptance: [crit('a')] })).frozen).toBe(false);
+    expect(acceptanceOf(row(9, 'i', { acceptance: [crit('a')], acceptanceFrozenAt: '2026-09-22T10:00:00Z' })).frozen).toBe(true);
+  });
+
+  it('asks nothing of work that is only being built with no contract recorded', () => {
+    expect(acceptanceLine(row(10, 'j', { state: 'building' }), 'progress')).toBeNull();
+  });
+
+  it('carries the line onto the row', () => {
+    const out = deriveWorkQueue([row(11, 'k', { state: 'new', acceptance: [crit('x')] })], { now: NOW });
+
+    expect(out[0]!.meta.acceptanceLine).toBe('1 criterion');
   });
 });
 
