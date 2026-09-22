@@ -22,6 +22,7 @@ import process from 'node:process';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from '@/libs/Auth';
 import { db } from '@/libs/DB';
+import { projectSlugProblem } from '@/libs/links';
 import { accountMembershipSchema, projectSchema, tenantAccountSchema, userSchema } from '@/models/Schema';
 
 type Args = {
@@ -50,12 +51,21 @@ const parseArgs = (): Args => {
     }
     return v;
   };
+  const projectSlug = get('project-slug');
+  // The slug becomes a path segment (`/w/<slug>/…`, docs/routing.md), so a
+  // reserved or malformed one would make the workspace unreachable. Say so
+  // here rather than at the reader's 404.
+  const problem = projectSlugProblem(projectSlug);
+  if (problem) {
+    console.error(`--project-slug "${projectSlug}" ${problem}`);
+    process.exit(2);
+  }
   return {
     email: get('email').toLowerCase(),
     password: get('password'),
     name: get('name', 'Demo User'),
     accountName: get('account-name'),
-    projectSlug: get('project-slug'),
+    projectSlug,
     projectName: get('project-name', map.get('account-name') ?? 'Default project'),
   };
 };

@@ -524,6 +524,21 @@ function splitFeed(page: FetchedPage): IngestDoc[] | null {
 }
 
 /**
+ * The one VEVENT property RFC 5545 defines as when the file was written rather
+ * than as anything about the event, so it is the one property a conformant
+ * exporter is free to change on a request that changed nothing.
+ *
+ * It is dropped before the block becomes document text because that text is
+ * what the ingest hashes to decide a document changed. Exporters that stamp it
+ * per export therefore hand every event a new hash on every fetch, and a
+ * pipeline that runs a model per changed document pays for every one of them to
+ * be read again and return what it returned yesterday. Nothing downstream reads
+ * it. `LAST-MODIFIED` and `SEQUENCE` stay: both say something about the event,
+ * and an exporter that moves those is reporting an edit.
+ */
+const ICS_EXPORT_STAMP = 'DTSTAMP';
+
+/**
  * Split an ICS body on `BEGIN:VEVENT` … `END:VEVENT`.
  *
  * A text split and nothing more: no TZID arithmetic, no RRULE expansion. Every
@@ -531,6 +546,9 @@ function splitFeed(page: FetchedPage): IngestDoc[] | null {
  * about the line rather than about the value, so reading one without unfolding
  * simply truncates it. A recurring event stays one document unless the feed
  * itself writes separate components with RECURRENCE-ID.
+ *
+ * The component is kept verbatim but for `ICS_EXPORT_STAMP`, which says when
+ * the file was written and would otherwise make a re-export read as an edit.
  * @param page - the fetched feed.
  */
 function splitIcs(page: FetchedPage): IngestDoc[] | null {
@@ -572,12 +590,12 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
       return null;
     }
     seen.add(externalId);
-    const published = icsPublishedUrls(block);
+    const published = icsPublishedUrls(block, page.url);
     docs.push({
       externalId,
       uri: externalId,
       title: icsValue(block, 'SUMMARY') || uid,
-      content: block.join('\n'),
+      content: withoutIcsProperty(block, ICS_EXPORT_STAMP).join('\n'),
       // Feed-wide headers say nothing about one event inside it.
       etag: null,
       lastModifiedAt: null,
@@ -606,6 +624,9 @@ const PUBLISHED_URL_CHAR_CAP = 2048;
 /** Properties whose value is a URL the entry publishes about itself. */
 const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
 
+/** A relative reference written as a path, never a bare word like `None`. */
+const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
+
 /**
  * The URLs a VEVENT publishes about itself: its own page, and its attachments.
  *
@@ -628,26 +649,62 @@ const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
  * past 140 characters, so a conformant feed splits its own event URL across
  * lines; read without unfolding it would arrive truncated.
  *
- * A relative value is dropped rather than resolved here. A calendar entry is
- * the one feed shape that travels: a VEVENT can be syndicated far from the
- * host that wrote it, so the feed URL is not reliably its base, and guessing
- * one is how a wrong link gets published. A JSON entry does not travel that
- * way, which is why `declaredUrls` does resolve.
+ * A relative value is resolved only for an event the feed's own host wrote. A
+ * calendar entry is the one feed shape that travels: a VEVENT can be syndicated
+ * far from the host that wrote it, so the feed URL is not always its base, and
+ * guessing one is how a wrong link gets published. The event's own absolute
+ * `URL` settles it: on the feed's origin, the event is native and a relative
+ * attachment means what the standard says, a path on that host; anywhere
+ * else, or absent, the relative value is dropped as before.
  * @param block - the VEVENT block's lines, as written in the feed.
+ * @param feedUrl - the URL the feed was fetched from.
  */
-function icsPublishedUrls(block: string[]): string[] {
+function icsPublishedUrls(block: string[], feedUrl: string): string[] {
+  // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a feed
+  // that ships inline base64 bytes on the first line and the poster URL on the
+  // second would otherwise lose the poster entirely.
+  const values = ICS_URL_PROPERTIES.flatMap(name => icsPublishedValues(block, name));
+  const base = icsNativeBase(block, feedUrl);
   const out: string[] = [];
-  for (const name of ICS_URL_PROPERTIES) {
-    // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a
-    // feed that ships inline base64 bytes on the first line and the poster URL
-    // on the second would otherwise lose the poster entirely.
-    for (const value of icsPublishedValues(block, name)) {
-      if (isFetchableUrl(value)) {
-        out.push(value);
+  for (const value of values) {
+    if (isFetchableUrl(value)) {
+      out.push(value);
+      continue;
+    }
+    if (base && ICS_RELATIVE_PATH_RE.test(value)) {
+      const resolved = absoluteUrl(value, base);
+      if (resolved && isFetchableUrl(resolved)) {
+        out.push(resolved);
       }
     }
   }
   return dedupe(out).slice(0, PUBLISHED_URL_CAP);
+}
+
+/**
+ * The feed URL, when the event says it was written on the feed's own origin.
+ * @param block - the VEVENT block's lines, as written in the feed.
+ * @param feedUrl - the URL the feed was fetched from.
+ */
+function icsNativeBase(block: string[], feedUrl: string): string | undefined {
+  const feedOrigin = originOf(feedUrl);
+  if (!feedOrigin) {
+    return undefined;
+  }
+  const native = icsPublishedValues(block, 'URL').some(value => isFetchableUrl(value) && originOf(value) === feedOrigin);
+  return native ? feedUrl : undefined;
+}
+
+/**
+ * The origin of a URL, or undefined when it is not one.
+ * @param value - an absolute URL.
+ */
+function originOf(value: string): string | undefined {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -725,6 +782,68 @@ const ICS_FOLD_RE = /^[ \t]/;
 type IcsProperty = { value: string; own: boolean; guessed: boolean };
 
 /**
+ * Where one property sits in the block: the line that names it and the span it
+ * occupies, its folded continuations included, `end` exclusive.
+ */
+type IcsLine = { property: string; colon: number; guessed: boolean; start: number; end: number };
+
+/**
+ * Split a block into its properties without reading any of them.
+ *
+ * One scan, because two callers need the same answer about where a property
+ * begins and ends: the value reader below, and the filter that drops a
+ * property before the block is hashed.
+ *
+ * A line with no colon to split on is left out entirely, so a caller that
+ * removes lines never removes one it could not parse. `guessed` covers the
+ * weaker case, a line whose quotes never closed: the name is still read from
+ * the text before the first `;`, which is why dropping such a line is safe
+ * while believing its value is not.
+ * @param lines - the block's lines, starting at its own `BEGIN:`.
+ */
+function icsLines(lines: string[]): IcsLine[] {
+  const out: IcsLine[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (ICS_FOLD_RE.test(line)) {
+      continue;
+    }
+    const { colon, guessed } = icsValueColon(line);
+    if (colon < 0) {
+      continue;
+    }
+    let end = i + 1;
+    while (end < lines.length && ICS_FOLD_RE.test(lines[end]!)) {
+      end += 1;
+    }
+    out.push({ property: line.slice(0, colon).split(';')[0]!.toUpperCase(), colon, guessed, start: i, end });
+  }
+  return out;
+}
+
+/**
+ * The block without one property, continuations and all.
+ *
+ * Matching is on the name alone, so `DTSTAMP;X-VENDOR=1:` and a lowercase
+ * `dtstamp:` go the same way as the plain form, which is what RFC 5545 means
+ * by a case-insensitive name carrying parameters.
+ * @param lines - the block's lines, starting at its own `BEGIN:`.
+ * @param name - the property name, uppercase.
+ */
+function withoutIcsProperty(lines: string[], name: string): string[] {
+  const drop = new Set<number>();
+  for (const span of icsLines(lines)) {
+    if (span.property !== name) {
+      continue;
+    }
+    for (let i = span.start; i < span.end; i += 1) {
+      drop.add(i);
+    }
+  }
+  return drop.size === 0 ? lines : lines.filter((_, i) => !drop.has(i));
+}
+
+/**
  * Every occurrence of one property in a VEVENT block, unfolded, each marked
  * with whether it is the event's own.
  *
@@ -747,16 +866,8 @@ function icsProperties(lines: string[], name: string): IcsProperty[] {
   // The block opens with its own `BEGIN:VEVENT`, so while only that is open the
   // properties are the event's; anything deeper belongs to a component inside.
   const open: string[] = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!;
-    if (ICS_FOLD_RE.test(line)) {
-      continue;
-    }
-    const { colon, guessed } = icsValueColon(line);
-    if (colon < 0) {
-      continue;
-    }
-    const property = line.slice(0, colon).split(';')[0]!.toUpperCase();
+  for (const { property, colon, guessed, start, end } of icsLines(lines)) {
+    const line = lines[start]!;
     if (property === 'BEGIN') {
       open.push(line.slice(colon + 1).trim().toUpperCase());
       continue;
@@ -771,7 +882,7 @@ function icsProperties(lines: string[], name: string): IcsProperty[] {
       continue;
     }
     let value = line.slice(colon + 1);
-    for (let j = i + 1; j < lines.length && ICS_FOLD_RE.test(lines[j]!); j += 1) {
+    for (let j = start + 1; j < end; j += 1) {
       value += lines[j]!.slice(1);
     }
     out.push({ value: value.trim(), own: open.length === 1, guessed });
@@ -914,6 +1025,109 @@ function feedEntries(page: FetchedPage): unknown[] | null {
 }
 
 /**
+ * Sentinels for the two kinds of break we add on purpose, so the whitespace
+ * pass can flatten the newlines that merely came from the source markup
+ * without flattening ours. They are private-use code points, which no real
+ * page has any business containing, and they are scrubbed out of the input
+ * first so neither a page nor a feed entry can smuggle one in.
+ */
+const PARAGRAPH_MARK = '';
+const LINE_MARK = '';
+const OWN_MARKS = /[]/g;
+const PARAGRAPH_MARK_RE = / ? ?/g;
+const LINE_MARK_RE = / ? ?/g;
+
+/** A string carrying markup rather than describing one. */
+const MARKUP_RE = /<[a-z!/][^>]*>/i;
+
+/**
+ * The window a millisecond timestamp falls in, 2001 to 2033. Narrow on purpose:
+ * it is what keeps a price, a count or an identifier from being read as a date
+ * however its key is spelled.
+ */
+const EPOCH_MS_MIN = 1_000_000_000_000;
+const EPOCH_MS_MAX = 2_000_000_000_000;
+
+/**
+ * The last word of a key that means the value is a moment in time.
+ *
+ * A word, not a suffix, because a suffix test on `at` or `on` also matches
+ * `format`, `season`, `location` and `lat`. `publishOn`, `created_at`,
+ * `startDate` and `endTime` all end on one of these; `duration` and `version`
+ * end on none.
+ */
+const TIME_WORDS = new Set(['at', 'on', 'date', 'time', 'timestamp']);
+
+/**
+ * Whether a key names a moment rather than a number.
+ * @param key - the key the value sat under.
+ */
+function namesATime(key: string): boolean {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s_\-.]+/);
+  return TIME_WORDS.has(words[words.length - 1] ?? '');
+}
+
+/**
+ * The text a markup string says, breaks kept.
+ *
+ * `body` is read rather than the root so a fragment that opens with a
+ * head-level tag does not fold that tag's text into the entry's prose, and the
+ * page's own break marks are scrubbed first so a feed cannot inject them.
+ * @param value - a string containing markup.
+ */
+function textFromMarkup(value: string): string {
+  const $ = load(value.replace(OWN_MARKS, ' '));
+  $('script,style,noscript').remove();
+  markBreaks($);
+  return collapse($('body').text());
+}
+
+/**
+ * One line of what a markup string says.
+ * @param value - a string that may contain markup.
+ */
+function plainText(value: string): string {
+  return MARKUP_RE.test(value) ? flatten(textFromMarkup(value)) : value;
+}
+
+/**
+ * The entry as it reads: markup reduced to the text it renders, a millisecond
+ * timestamp written as the instant it names.
+ *
+ * Applied to the text a document carries, never to the values its identity is
+ * read from. A feed's markup is the same prose rewritten by whatever built the
+ * page that morning — a stylesheet hash inside an attribute, an asset version,
+ * a wrapper class — so hashing it verbatim reports an edit on a request that
+ * changed nothing, and a pipeline that runs a model per changed document pays
+ * for every one. The rendered text is what actually changed or did not. It is
+ * also what a reader, human or model, was going to read anyway: an epoch
+ * integer is a date nobody can check, and the markup is several times the size
+ * of the words inside it.
+ * @param value - any JSON value from the entry.
+ * @param key - the key it sat under, where it had one.
+ */
+function readable(value: unknown, key?: string): unknown {
+  if (typeof value === 'string') {
+    return MARKUP_RE.test(value) ? textFromMarkup(value) : value;
+  }
+  if (typeof value === 'number') {
+    const isInstant = key !== undefined
+      && namesATime(key)
+      && Number.isInteger(value)
+      && value >= EPOCH_MS_MIN
+      && value <= EPOCH_MS_MAX;
+    return isInstant ? new Date(value).toISOString() : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(entry => readable(entry, key));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, readable(v, k)]));
+  }
+  return value;
+}
+
+/**
  * Split a feed's entries into one document each, keyed by the entry's own
  * identifier where it has one and by a hash of the entry where it does not,
  * never by its position in the array.
@@ -932,6 +1146,10 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
   const docs: IngestDoc[] = [];
   const seen = new Set<string>();
   for (const item of items) {
+    // The entry as written is what identity is read from: keying on the
+    // readable form would re-key every document of a feed that publishes no id
+    // of its own, and a moved key is not an update, it is a tombstone and a
+    // new document that costs another model call.
     const body = JSON.stringify(item) ?? 'null';
     const key = declaredKey(item) ?? createHash('sha256').update(body).digest('hex').slice(0, 16);
     const externalId = `${page.url}#${key}`;
@@ -940,11 +1158,12 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
     }
     seen.add(externalId);
     const published = declaredUrls(item, page.url);
+    const declared = declaredTitle(item);
     docs.push({
       externalId,
       uri: externalId,
-      title: declaredTitle(item) ?? key,
-      content: body,
+      title: declared === undefined ? key : plainText(declared),
+      content: JSON.stringify(readable(item)) ?? body,
       etag: null,
       lastModifiedAt: null,
       metadata: {
@@ -972,8 +1191,55 @@ const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
  * `imageUrl` is here because it is the extractor's own field name: an entry
  * that publishes its poster under the very key the pipeline reads it back out
  * of would otherwise lose it, which is the defect this whole list exists for.
+ *
+ * `localist_url` and `photo_url` are Localist's.
  */
-const ITEM_URL_FIELDS = ['url', 'link', 'fullUrl', 'image', 'imageUrl', 'thumbnail', 'assetUrl'] as const;
+const ITEM_URL_FIELDS = [
+  'url',
+  'link',
+  'fullUrl',
+  'localist_url',
+  'image',
+  'imageUrl',
+  'thumbnail',
+  'assetUrl',
+  'photo_url',
+] as const;
+
+/**
+ * A value with no `/`, `.` or `:` cannot be a link, whatever key it sits under.
+ * Localist writes the string "None" into `url`; resolving a bare word against
+ * the feed invents an address the document never published.
+ */
+const UNLINKABLE_VALUE_RE = /^[^/.:]*$/;
+
+/**
+ * The record an entry's links live on, unwrapping a single-key envelope.
+ *
+ * Read by `declaredUrls` only. The identity stays on the outer item: keying on
+ * an inner id would re-key every already-ingested document of such a feed, and
+ * Localist repeats an inner id across the instances of a recurring event, which
+ * `splitJsonArray` answers by abandoning the split for the whole file.
+ *
+ * The inner record has to carry a title, which is what separates an entry from
+ * a nested value: `{"image": {"url": …, "id": …}}` has an id and is still not
+ * an entry, and declaring its url would claim provenance one level down.
+ * @param item - one entry from the array.
+ */
+function entryFields(item: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(item)) {
+    return undefined;
+  }
+  const keys = Object.keys(item);
+  if (keys.length !== 1) {
+    return item;
+  }
+  const inner = item[keys[0]!];
+  if (!isRecord(inner)) {
+    return item;
+  }
+  return ITEM_TITLE_FIELDS.some(f => typeof inner[f] === 'string') ? inner : item;
+}
 
 /**
  * The item's own stable identifier, when it publishes one.
@@ -1029,18 +1295,22 @@ function declaredTitle(item: unknown): string | undefined {
  * @param baseUrl - the feed's own URL, which a relative value resolves against.
  */
 function declaredUrls(item: unknown, baseUrl: string): string[] {
-  if (!isRecord(item)) {
+  const fields = entryFields(item);
+  if (!fields) {
     return [];
   }
   const out: string[] = [];
   for (const field of ITEM_URL_FIELDS) {
-    const value = item[field];
+    const value = fields[field];
     if (typeof value !== 'string') {
       continue;
     }
     // Resolved against the feed's own URL, which is where the entry was
     // published. A base that will not parse leaves the value as written, and
     // a path that stays a path then fails the fetchable test below.
+    if (UNLINKABLE_VALUE_RE.test(value.trim())) {
+      continue;
+    }
     const url = absoluteUrl(value, baseUrl) ?? '';
     if (isFetchableUrl(url)) {
       out.push(url);
@@ -1319,19 +1589,6 @@ const CONTENT_LANDMARKS = new Set(['html', 'body', 'main', 'article']);
 /** Closing one of these ended a paragraph in the old stripper, and still does. */
 const BLOCK_SELECTOR = 'p, div, section, article, li, h1, h2, h3, h4, h5, h6';
 
-/**
- * Sentinels for the two kinds of break we add on purpose, so the whitespace
- * pass can flatten the newlines that merely came from the source markup
- * without flattening ours. They are private-use code points, which no real
- * page has any business containing, and they are scrubbed out of the input
- * first so a page cannot smuggle one in either.
- */
-const PARAGRAPH_MARK = '\uE000';
-const LINE_MARK = '\uE001';
-const OWN_MARKS = /[\uE000\uE001]/g;
-const PARAGRAPH_MARK_RE = / ?\uE000 ?/g;
-const LINE_MARK_RE = / ?\uE001 ?/g;
-
 /** JSON-LD can run to megabytes on a big listing page, so it gets a budget. */
 const JSON_LD_CHAR_CAP = 20_000;
 const JSON_LD_HEADING = 'Structured data (JSON-LD):';
@@ -1350,9 +1607,15 @@ const JSON_LD_TRUNCATED = '[structured data truncated]';
  *
  * `structure` is the same walk's structured half, the parsed JSON-LD, the
  * og:image and every URL the page published, kept instead of thrown away.
- * It is optional on the return type because the two callers both write
- * `{ title: undefined, content: raw }` for non-HTML bodies; `content` is
- * byte-identical to what this returned before `structure` existed.
+ * It is optional on the return type because the callers write
+ * `{ title: undefined, content: raw, structure: undefined }` for non-HTML
+ * bodies.
+ *
+ * The og:image is declared on `structure` and is deliberately absent from
+ * `content`. `content` is what the ingest hashes to decide a page changed, and
+ * plenty of sites version that URL by the day they served it, which turns an
+ * unchanged page into a changed document every morning. A reader that wants
+ * the image reads `structure.ogImage`, which is where it always was.
  * @param html - raw HTML as fetched
  * @param baseUrl - the URL the HTML came from, used to make hrefs and image
  * sources absolute. Relative URLs are left as written when it is omitted.
@@ -1386,9 +1649,6 @@ export function extractFromHtml(html: string, baseUrl?: string): { title?: strin
 
   const text = collapse($('body').text());
   const parts: string[] = [];
-  if (image) {
-    parts.push(`Image: ${image}`);
-  }
   if (text) {
     parts.push(text);
   }
@@ -1410,9 +1670,7 @@ export function extractFromHtml(html: string, baseUrl?: string): { title?: strin
     structure.links = published;
   }
 
-  // An image on its own is not content. Both callers read empty content as
-  // "nothing here" and skip the page, which is still the right call.
-  return { title, content: text || structured ? parts.join('\n\n') : '', structure };
+  return { title, content: parts.join('\n\n'), structure };
 }
 
 /**

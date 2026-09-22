@@ -46,6 +46,15 @@ describe('builtinBrowseProvider', () => {
     expect(page).toBeNull();
   });
 
+  it('still returns null when the only thing a page published was an image', async () => {
+    const html = '<html><head><meta property="og:image" content="/hero.jpg"></head><body><nav>Menu</nav></body></html>';
+    vi.stubGlobal('fetch', vi.fn(async () => htmlResponse(html)));
+
+    const page = await builtinBrowseProvider().fetchPage(PAGE_URL);
+
+    expect(page).toBeNull();
+  });
+
   it('throws with the status when the fetch fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 503 })));
 

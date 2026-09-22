@@ -792,7 +792,7 @@ export function ChatComposer({
             // `leading-6` rather than a multiplier: the line box is 24px at
             // both 16px and 14px, so one line is one control tall on every
             // breakpoint and the row's centres do not move at `sm`.
-            className="flex-1 resize-none border-0 bg-transparent py-1 text-base leading-6 outline-none placeholder:text-muted-foreground/70 sm:text-sm"
+            className="order-first w-full flex-1 resize-none border-0 bg-transparent py-1 text-base leading-6 outline-none placeholder:text-muted-foreground/70 sm:order-none sm:w-auto sm:text-sm"
             style={{ minHeight: CONTROL_PX, maxHeight: COMPOSER_MAX_PX }}
           />
           {/*
@@ -806,9 +806,9 @@ export function ChatComposer({
             <button
               type="button"
               onClick={() => onStop?.()}
-              className={sendEnabled
+              className={`ml-auto sm:ml-0 ${sendEnabled
                 ? `${COMPOSER_CONTROL} text-muted-foreground/70 hover:bg-surface-hover hover:text-foreground`
-                : `${COMPOSER_CONTROL} border border-border bg-background text-foreground hover:border-brand-amber hover:text-brand-amber-deep`}
+                : `${COMPOSER_CONTROL} border border-border bg-background text-foreground hover:border-brand-amber hover:text-brand-amber-deep`}`}
               aria-label="Stop generating"
             >
               <Square className="size-3.5 fill-current" aria-hidden="true" />
@@ -818,9 +818,9 @@ export function ChatComposer({
             <button
               type="submit"
               disabled={!sendEnabled}
-              className={streaming
+              className={`${streaming ? '' : 'ml-auto sm:ml-0'} ${streaming
                 ? `${COMPOSER_CONTROL} border border-brand-amber/60 bg-brand-amber-tint text-brand-amber-deep hover:border-brand-amber hover:bg-brand-amber hover:text-white disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground/50`
-                : `${COMPOSER_CONTROL} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}
+                : `${COMPOSER_CONTROL} bg-brand-amber text-white hover:bg-brand-amber-deep disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/50`}`}
               aria-label={streaming ? words.queueAction : 'Send message'}
             >
               <ArrowUp className="size-4" aria-hidden="true" />

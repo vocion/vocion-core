@@ -77,7 +77,38 @@ schema:
         e2e and the newest release's `healthAfter`. AGENT-MAINTAINED — set by
         the lead's `keep-the-board-honest` tick from evidence it can point at,
         never typed by hand, and read with `countersUpdatedAt` beside it.
-      enum: [ok, degraded, down, unknown]
+        LEFT EMPTY when nothing is watching the product: there is no
+        `unknown` health, because "unknown" is doubt about the product when
+        the doubt is ours. A product nothing checks has no health reading and
+        `healthSource` says so; the board reads "monitoring not connected",
+        which names what is missing and can be acted on.
+      enum: [ok, degraded, down]
+    healthSource:
+      x-display: {label: Health source, group: Counters}
+      type: string
+      description: >-
+        What is actually watching this product: "nightly e2e", "deploy
+        check", the monitor's name. AGENT-MAINTAINED by the lead's tick, and
+        the thing that makes `health` a reading rather than a guess. Empty
+        means nothing is connected, and every surface must say that instead
+        of printing a health state nobody observed.
+    healthCheckedAt:
+      x-display: {label: Health checked}
+      type: string
+      format: date-time
+      description: When `healthSource` last reported. AGENT-MAINTAINED by the lead's tick. A health with no check behind it is not a health.
+    lastShipped:
+      x-display: {label: Last shipped}
+      type: string
+      description: >-
+        The announcement line of the newest `release` for this product, in the
+        words the public reads, so what shipped and not how many. AGENT-MAINTAINED
+        by the lead's tick, read with `lastReleaseAt` beside it so the
+        portfolio says "Email sharing, yesterday" rather than "7 this month".
+    inFlight:
+      x-display: {label: Being worked on, group: Counters}
+      type: integer
+      description: How many of this product's open requests are in state `building` right now. AGENT-MAINTAINED by the lead's tick. Open work needs shape, how much is moving and whether any of it is urgent, because a bare count of ten can be a disaster or a healthy backlog.
     openRequests:
       x-display: {label: Open requests, group: Counters}
       type: integer
@@ -93,7 +124,7 @@ schema:
     medianDaysToShip:
       x-display: {label: Median days to ship, group: Counters}
       type: number
-      description: Median days from `request.askedAt` to the `releasedAt` of the release that closed it, over the last ninety days of closed requests for this product. AGENT-MAINTAINED — the tick computes it from the records; the team measure that sums a counts key cannot, which is why it lives here and reads as the agent's own figure.
+      description: 'Median days from `request.askedAt` to the `releasedAt` of the release that closed it, over the last ninety days of closed requests for this product. AGENT-MAINTAINED, so the tick computes it from the records; the team measure that sums a counts key cannot, which is why it lives here and reads as the agent''s own figure. LEFT EMPTY below three closed requests that each name the release that closed them, and LEFT EMPTY whenever the median would round to 0 days: a median over a corpus two days old is an artifact of when the factory started, and a confident 0 is worse than no figure. Checked against the live records on 2026-09-21: five of Send''s seven shipped requests could be measured at all and every one of them closed within fifteen hours of being asked, so the three-request floor was cleared and the figure was still 0. Days is the wrong unit for a factory this young, and the honest reading is the sentence, not the number.'
     lastReleaseAt:
       x-display: {label: Last release}
       type: string

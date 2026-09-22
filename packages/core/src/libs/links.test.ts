@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { appBaseUrl, workspaceRedirectPath, workspaceUrl } from './links';
+import { appBaseUrl, canonicalise, isReservedSegment, isWorkspacePath, parseWorkspacePath, projectSlugProblem, stripWorkspacePrefix, workspaceRedirectPath, workspaceUrl } from './links';
 
 const ORIGINAL = process.env.NEXT_PUBLIC_APP_URL;
 
@@ -68,5 +68,137 @@ describe('workspaceRedirectPath', () => {
     expect(workspaceRedirectPath({ segments: ['', 'evil.com'] })).toBe('/dashboard/evil.com');
     expect(workspaceRedirectPath({ segments: ['dashboard', '..', 'x'] })).toBe('/dashboard/../x'.replace('..', '..'));
     expect(workspaceRedirectPath({ segments: ['dashboard', 'a/b'] })).toBe('/dashboard/a%2Fb');
+  });
+});
+
+describe('parseWorkspacePath', () => {
+  it('reads the workspace and the page out of a canonical URL', () => {
+    expect(parseWorkspacePath('/w/northwind')).toEqual({ locale: '', slug: 'northwind', appPath: '/dashboard' });
+    expect(parseWorkspacePath('/w/northwind/dashboard/inbox')).toEqual({ locale: '', slug: 'northwind', appPath: '/dashboard/inbox' });
+    expect(parseWorkspacePath('/w/northwind/inbox')?.appPath).toBe('/dashboard/inbox');
+    expect(parseWorkspacePath('/w/northwind/gtm/discovery')?.appPath).toBe('/gtm/discovery');
+  });
+
+  it('keeps the locale prefix out of the app path', () => {
+    expect(parseWorkspacePath('/fr/w/northwind/inbox')).toEqual({ locale: 'fr', slug: 'northwind', appPath: '/dashboard/inbox' });
+  });
+
+  it('matches the slug case-insensitively and decodes it', () => {
+    expect(parseWorkspacePath('/w/Northwind/dashboard')?.slug).toBe('northwind');
+    expect(parseWorkspacePath('/w/north%20wind/dashboard')?.slug).toBe('north wind');
+  });
+
+  it('is null for anything that is not canonical', () => {
+    expect(parseWorkspacePath('/dashboard/inbox')).toBeNull();
+    expect(parseWorkspacePath('/w')).toBeNull();
+    expect(parseWorkspacePath('/w/')).toBeNull();
+    expect(parseWorkspacePath('/')).toBeNull();
+    expect(parseWorkspacePath('/fr/dashboard')).toBeNull();
+  });
+
+  it('refuses a reserved segment as a slug, so a route can never be shadowed', () => {
+    expect(parseWorkspacePath('/w/api/v1/records')).toBeNull();
+    expect(parseWorkspacePath('/w/dashboard/inbox')).toBeNull();
+    expect(parseWorkspacePath('/w/w/dashboard')).toBeNull();
+    expect(parseWorkspacePath('/w/en/dashboard')).toBeNull();
+  });
+
+  it('survives a malformed escape rather than throwing at the reader', () => {
+    expect(parseWorkspacePath('/w/%E0%A4%A/dashboard')?.slug).toBe('%e0%a4%a');
+  });
+});
+
+describe('stripWorkspacePrefix', () => {
+  it('leaves the app path — what active-nav matching and the switcher want', () => {
+    expect(stripWorkspacePrefix('/w/northwind/dashboard/inbox')).toBe('/dashboard/inbox');
+    expect(stripWorkspacePrefix('/w/northwind/dashboard/inbox?status=open#x')).toBe('/dashboard/inbox?status=open#x');
+    expect(stripWorkspacePrefix('/w/northwind')).toBe('/dashboard');
+  });
+
+  it('passes a path that is not canonical through untouched', () => {
+    expect(stripWorkspacePrefix('/dashboard/inbox')).toBe('/dashboard/inbox');
+    expect(stripWorkspacePrefix('/sign-in')).toBe('/sign-in');
+  });
+});
+
+describe('workspaceUrl, given a path that is already canonical', () => {
+  it('re-points it rather than nesting a second /w', () => {
+    expect(workspaceUrl('kestrel', '/w/northwind/dashboard/inbox')).toBe('/w/kestrel/dashboard/inbox');
+    expect(workspaceUrl('northwind', '/w/northwind/dashboard/inbox')).toBe('/w/northwind/dashboard/inbox');
+  });
+});
+
+describe('projectSlugProblem', () => {
+  it('accepts the slugs we ship', () => {
+    expect(projectSlugProblem('metacto-revenue')).toBeNull();
+    expect(projectSlugProblem('northwind')).toBeNull();
+    expect(projectSlugProblem('r2')).toBeNull();
+  });
+
+  it('names the rule a slug broke, for whoever typed it', () => {
+    expect(projectSlugProblem('Revenue')).toBe('must be lowercase');
+    expect(projectSlugProblem('a')).toContain('2–40 characters');
+    expect(projectSlugProblem('-revenue')).toContain('2–40 characters');
+    expect(projectSlugProblem('rev enue')).toContain('2–40 characters');
+    expect(projectSlugProblem('dashboard')).toContain('is reserved by the app');
+    expect(projectSlugProblem('gtm')).toContain('is reserved by the app');
+  });
+});
+
+describe('isReservedSegment', () => {
+  it('covers routes, surfaces and locales from their own registries', () => {
+    expect(isReservedSegment('api')).toBe(true);
+    expect(isReservedSegment('DASHBOARD')).toBe(true);
+    expect(isReservedSegment('gtm')).toBe(true);
+    expect(isReservedSegment('fr')).toBe(true);
+    expect(isReservedSegment('northwind')).toBe(false);
+  });
+});
+
+describe('isWorkspacePath', () => {
+  it('is true for the pages a workspace owns', () => {
+    expect(isWorkspacePath('/dashboard')).toBe(true);
+    expect(isWorkspacePath('/dashboard/inbox/42?x=1')).toBe(true);
+    expect(isWorkspacePath('/gtm/discovery')).toBe(true);
+    expect(isWorkspacePath('/fr/dashboard/inbox')).toBe(true);
+  });
+
+  it('is false for the transport, onboarding and the account-wide pages', () => {
+    expect(isWorkspacePath('/rpc/records')).toBe(false);
+    expect(isWorkspacePath('/onboarding')).toBe(false);
+    expect(isWorkspacePath('/api-docs')).toBe(false);
+    expect(isWorkspacePath('/sign-in')).toBe(false);
+    expect(isWorkspacePath('/')).toBe(false);
+  });
+});
+
+describe('canonicalise', () => {
+  it('prefixes an in-app workspace href with the active workspace', () => {
+    expect(canonicalise('/dashboard/inbox', 'northwind')).toBe('/w/northwind/dashboard/inbox');
+    expect(canonicalise('/dashboard/chat?prompt=hi', 'northwind')).toBe('/w/northwind/dashboard/chat?prompt=hi');
+    expect(canonicalise('/gtm/discovery', 'northwind')).toBe('/w/northwind/gtm/discovery');
+  });
+
+  it('leaves alone anything that is not an in-app workspace path', () => {
+    expect(canonicalise('/rpc/records', 'northwind')).toBe('/rpc/records');
+    expect(canonicalise('/onboarding', 'northwind')).toBe('/onboarding');
+    expect(canonicalise('https://example.com/dashboard', 'northwind')).toBe('https://example.com/dashboard');
+    expect(canonicalise('//example.com/dashboard', 'northwind')).toBe('//example.com/dashboard');
+    expect(canonicalise('mailto:someone@example.com', 'northwind')).toBe('mailto:someone@example.com');
+    expect(canonicalise('#top', 'northwind')).toBe('#top');
+    expect(canonicalise('dashboard/inbox', 'northwind')).toBe('dashboard/inbox');
+  });
+
+  it('leaves a locale-prefixed path to next-intl, which adds the locale after this', () => {
+    expect(canonicalise('/fr/dashboard/inbox', 'northwind')).toBe('/fr/dashboard/inbox');
+  });
+
+  it('is idempotent, and re-points a link already pointing elsewhere', () => {
+    expect(canonicalise('/w/northwind/dashboard/inbox', 'northwind')).toBe('/w/northwind/dashboard/inbox');
+    expect(canonicalise('/w/kestrel/dashboard/inbox', 'northwind')).toBe('/w/kestrel/dashboard/inbox');
+  });
+
+  it('degrades to the href as written when no workspace is in scope', () => {
+    expect(canonicalise('/dashboard/inbox', null)).toBe('/dashboard/inbox');
   });
 });

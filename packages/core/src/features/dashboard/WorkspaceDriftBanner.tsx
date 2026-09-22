@@ -82,15 +82,44 @@ export const WorkspaceDriftBanner = ({ onApplied = () => window.location.reload(
 
   return (
     <>
-      <div role="status" className="fixed inset-x-3 bottom-3 z-50 mx-auto flex max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/95 px-3 py-2 shadow-sm backdrop-blur sm:inset-x-4 sm:bottom-4">
-        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+      {/* ONLY the actionable notice floats.
+          A strip pinned to `bottom-3` at `z-50` sits exactly where every
+          surface puts its primary control, and it does not merely look
+          crowded: it EATS THE TAP. On a phone the chat composer's send
+          button is underneath this strip, and a probe retried the click
+          sixty times without ever reaching the button (2026-09-22). Chris
+          had already asked whether this banner was "an anti pattern or
+          footgun" — it was both.
+
+          So: a notice a person must ACT on (`apply`) still floats, because
+          it is the thing to do next, and it takes pointer events only on
+          its own controls. A notice that is merely true — this host mounts
+          another workspace, git is ahead of the deploy — has nowhere it
+          must be pressed, so it stops covering the product and sits in the
+          page flow where it can be read and scrolled past. */}
+      <div
+        role="status"
+        className={view.kind === 'apply'
+          ? 'pointer-events-none fixed inset-x-3 bottom-3 z-50 mx-auto flex max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/95 px-3 py-2 shadow-sm backdrop-blur sm:inset-x-4 sm:bottom-4 [&_a]:pointer-events-auto [&_button]:pointer-events-auto'
+          : 'mx-auto mb-3 flex w-full max-w-2xl items-center gap-3 rounded-md border border-border/70 bg-muted/60 px-3 py-2'}
+      >
+        {/* Wraps to two lines rather than truncating to one. `truncate` on a
+            phone cut every one of these after "The workspace mounted …",
+            which is the half that carries no information: the strip stayed on
+            screen, over the page, saying nothing.
+
+            And each now leads with the CONSEQUENCE rather than the mechanism.
+            "The workspace mounted on this host" is `WORKSPACE_PATH` internals;
+            what a reader needs is which content they are looking at, and
+            whether anything is waiting on them. */}
+        <p className="line-clamp-2 min-w-0 flex-1 text-xs text-muted-foreground">
           {view.kind === 'foreign' && (
             view.owner
-              ? `The workspace mounted on this host is ${view.owner.name}'s (${view.owner.slug}). This project is applied from git.`
-              : 'The workspace mounted on this host belongs to another project. This project is applied from git.'
+              ? `Showing content applied from git — this host mounts ${view.owner.slug}'s workspace.`
+              : 'Showing content applied from git — this host mounts another project.'
           )}
-          {view.kind === 'git' && 'Workspace files changed. This project is applied from git — the next deploy applies them.'}
-          {view.kind === 'apply' && `Workspace files changed — ${view.diff.changes} change${view.diff.changes === 1 ? '' : 's'} not yet applied.`}
+          {view.kind === 'git' && 'Workspace changed in git — the next deploy applies it.'}
+          {view.kind === 'apply' && `${view.diff.changes} workspace change${view.diff.changes === 1 ? '' : 's'} not applied yet.`}
         </p>
         {(view.kind === 'foreign' || view.kind === 'git') && (
           <Link href="/dashboard/workspace#versions" className="shrink-0 text-xs font-medium text-foreground hover:underline">

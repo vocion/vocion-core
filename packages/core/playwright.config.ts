@@ -81,6 +81,15 @@ export default defineConfig<ChromaticConfig>({
           // purpose: it encrypts test fixtures in a database that lives for the
           // length of one run. Never reuse it anywhere real.
           VOCION_CREDENTIAL_VAULT_KEY: process.env.VOCION_CREDENTIAL_VAULT_KEY ?? 'ZTJlLW9ubHktdmF1bHQta2V5LW5vdC1hLXNlY3JldCE=',
+          // The worker-run routes ship dark behind this flag, so the
+          // worker-run-usage project's requests would all answer 501 without
+          // it. Nothing else in the suite asserts the disabled behaviour.
+          VOCION_EXTERNAL_WORKERS: '1',
+          // Claiming a worker run mints a signed tool claim, and the signer
+          // refuses to run without a key. Fixed, throwaway and public on
+          // purpose, exactly like the vault key above: it signs claims in a
+          // database that lives for the length of one run. Never reuse it.
+          VOCION_TOOL_SIGNING_SECRET: process.env.VOCION_TOOL_SIGNING_SECRET ?? 'e2e-only-tool-signing-secret-not-a-real-key',
           PORT,
         },
       },
@@ -175,6 +184,22 @@ export default defineConfig<ChromaticConfig>({
           },
         ]
       : []),
+    // #114 — a turn that dies part-way: the fragment is kept, marked, and
+    // still marked after a reload. Needs the scripted model, which is the
+    // only way to make a run fail with text already on screen, so it is
+    // defined only when the server is running one.
+    // Run with: npm run e2e:chat-incomplete
+    ...(process.env.VOCION_LLM_PROVIDER === 'scripted'
+      ? [
+          {
+            name: 'chat-incomplete',
+            testDir: './e2e/chat-incomplete',
+            timeout: projectTimeout(180 * 1000, 120 * 1000),
+            retries: 0,
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]
+      : []),
     // The API credentials matrix (platforms, validation, expiry rules).
     // Self-seeding like `tour`: bootstraps its own admin on a fresh PGlite DB,
     // so no `setup` project dependency.
@@ -255,6 +280,16 @@ export default defineConfig<ChromaticConfig>({
     {
       name: 'reviews-approved-by-agent',
       testDir: './e2e/reviews-approved-by-agent',
+      timeout: 60 * 1000,
+    },
+    // LARK-261 — prompt-cache token counts reported by an external worker,
+    // over real HTTP against a real running app. No browser: uses the
+    // `request` fixture only, so it never depends on the `setup` project.
+    // Needs VOCION_EXTERNAL_WORKERS=1 on the server (set in webServer above).
+    // Run with: npx playwright test --project=worker-run-usage
+    {
+      name: 'worker-run-usage',
+      testDir: './e2e/worker-run-usage',
       timeout: 60 * 1000,
     },
     // #396 — the generated OpenAPI document, and the reference page that

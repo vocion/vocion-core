@@ -115,6 +115,10 @@ export const DEFAULT_RISK_TIER: Record<string, RiskTier> = {
   // until a workspace's trust.yaml promotes them.
   'workspace.write_mission': 'medium',
   'workspace.write_playbook': 'medium',
+  // The operating intent is the standing instruction every choosing agent
+  // reads, so a confident agent does not get to restate a person's own
+  // priorities for them. Medium, beside the other two.
+  'workspace.write_operating_intent': 'medium',
 };
 
 /**

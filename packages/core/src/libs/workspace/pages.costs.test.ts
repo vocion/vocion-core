@@ -24,20 +24,96 @@ describe('money', () => {
   it('a sum stat adds the field, and format: money renders it as dollars', () => {
     const rows = [row(1, { actualCents: 1200 }), row(2, { actualCents: 350 }), row(3, {})];
 
-    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money' })).toBe('$15.50');
-    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'number' })).toBe('1550');
+    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$15.50');
+    expect(computeStat(rows, { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'number', hideWhenZero: false })).toBe('1550');
     // An average is over the rows that carry the field — the third row is not a $0 feature.
-    expect(computeStat(rows, { label: 'Avg', kind: 'avg', field: 'meta.actualCents', format: 'money' })).toBe('$7.75');
-    expect(computeStat([], { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money' })).toBe('$0.00');
+    expect(computeStat(rows, { label: 'Avg', kind: 'avg', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$7.75');
+    expect(computeStat([], { label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$0.00');
   });
 
   it('the manifest accepts sum and money on a stat, and refuses a since with no window', () => {
     const base = { slug: 'costs', title: 'Costs', archetype: 'list', source: { kind: 'objects', objectType: 'request' } };
 
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money' }] }).success).toBe(true);
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'month' } }] }).success).toBe(true);
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'yesterday' } }] }).success).toBe(false);
-    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', format: 'euros' }] }).success).toBe(false);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', format: 'money', hideWhenZero: false }] }).success).toBe(true);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'month' }, hideWhenZero: false }] }).success).toBe(true);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', field: 'meta.actualCents', where: { field: 'meta.at', op: 'since', value: 'yesterday', hideWhenZero: false } }] }).success).toBe(false);
+    expect(PageManifestSchema.safeParse({ ...base, stats: [{ label: 'Spent', kind: 'sum', format: 'euros', hideWhenZero: false }] }).success).toBe(false);
+  });
+});
+
+describe('a ratio names both halves', () => {
+  const rows = [
+    row(1, { state: 'shipped', actualCents: 600, rework: 0 }),
+    row(2, { state: 'shipped', actualCents: 400, rework: 250 }),
+    row(3, { state: 'shipped' }),
+    row(4, { state: 'building', actualCents: 2000 }),
+  ];
+
+  it('divides by the size of the pool, not by how many of its rows carried a figure', () => {
+    const where = { field: 'meta.state', op: 'eq' as const, value: 'shipped' };
+
+    // Three shipped rows, $10.00 between them: $3.33 each. `avg` would say
+    // $5.00, because it drops the row with no figure out of its denominator
+    // while the count printed beside it keeps that row.
+    expect(computeStat(rows, { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', where, format: 'money', hideWhenZero: false })).toBe('$3.33');
+    expect(computeStat(rows, { label: 'Per outcome', kind: 'avg', field: 'meta.actualCents', where, format: 'money', hideWhenZero: false })).toBe('$5.00');
+    expect(computeStat(rows, { label: 'Outcomes', kind: 'countWhere', where, format: 'number', hideWhenZero: false })).toBe('3');
+  });
+
+  it('counts one pool against another when `of` names the denominator', () => {
+    expect(computeStat(rows, {
+      label: 'Clean',
+      kind: 'ratio',
+      where: [{ field: 'meta.state', op: 'eq', value: 'shipped' }, { field: 'meta.rework', op: 'lte', value: 0 }],
+      of: { field: 'meta.state', op: 'eq', value: 'shipped' },
+      format: 'percent',
+      hideWhenZero: false,
+    })).toBe('33.3%');
+  });
+
+  it('sums one field over another when `overField` names the denominator', () => {
+    expect(computeStat(rows, { label: 'Rework share', kind: 'ratio', field: 'meta.rework', overField: 'meta.actualCents', format: 'percent', hideWhenZero: false })).toBe('8.3%');
+  });
+
+  it('says there is not enough yet — never NaN, and never a zero it did not measure', () => {
+    // "$0.00 per outcome" over no outcomes is a claim, and a false one.
+    expect(computeStat([], { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('not enough yet');
+    expect(computeStat([], { label: 'Clean', kind: 'ratio', format: 'percent', hideWhenZero: false })).toBe('not enough yet');
+  });
+});
+
+describe('medianHours and missing', () => {
+  it('measures a row\'s two dates and ignores a row that lacks either', () => {
+    const rows = [
+      row(1, { from: '2026-09-20T00:00:00Z', to: '2026-09-20T01:00:00Z' }),
+      row(2, { from: '2026-09-20T00:00:00Z', to: '2026-09-20T05:00:00Z' }),
+      row(3, { from: '2026-09-20T00:00:00Z', to: '2026-09-20T09:00:00Z' }),
+      row(4, { from: '2026-09-20T00:00:00Z' }),
+      row(5, {}),
+    ];
+
+    expect(computeStat(rows, { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', suffix: ' h', format: 'number', hideWhenZero: false })).toBe('5 h');
+    // An even count averages the middle pair rather than picking a side.
+    expect(computeStat(rows.slice(0, 2), { label: 'Median', kind: 'medianHours', from: 'meta.from', field: 'meta.to', format: 'number', hideWhenZero: false })).toBe('3');
+  });
+
+  it('counts the rows a field is absent from, which `exists` cannot', () => {
+    const rows = [row(1, { decidedAt: '2026-09-20T00:00:00Z' }), row(2, {}), row(3, { decidedAt: '' })];
+
+    expect(computeStat(rows, { label: 'Decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'exists' }, format: 'number', hideWhenZero: false })).toBe('1');
+    expect(computeStat(rows, { label: 'Nobody decided', kind: 'countWhere', where: { field: 'meta.decidedAt', op: 'missing' }, format: 'number', hideWhenZero: false })).toBe('2');
+  });
+
+  it('takes several filters on one stat, every one of which a row must pass', () => {
+    const rows = [row(1, { state: 'shipped', tasks: 2 }), row(2, { state: 'shipped' }), row(3, { state: 'answered', tasks: 2 })];
+
+    expect(computeStat(rows, {
+      label: 'Shipped with work',
+      kind: 'countWhere',
+      where: [{ field: 'meta.state', op: 'eq', value: 'shipped' }, { field: 'meta.tasks', op: 'gte', value: 1 }],
+      format: 'number',
+      hideWhenZero: false,
+    })).toBe('1');
   });
 });
 
@@ -58,16 +134,16 @@ describe('since', () => {
     ];
 
     expect(applyFilter(rows, [{ field: 'meta.at', op: 'since', value: 'month' }], NOW).map(r => r.id)).toEqual([1]);
-    expect(computeStat([row(1, { at: '2026-09-02T00:00:00Z', cents: 100 }), row(2, { at: '2026-07-02T00:00:00Z', cents: 900 })], { label: 'This month', kind: 'sum', field: 'meta.cents', format: 'money', where: { field: 'meta.at', op: 'since', value: 'month' } }, NOW)).toBe('$1.00');
+    expect(computeStat([row(1, { at: '2026-09-02T00:00:00Z', cents: 100 }), row(2, { at: '2026-07-02T00:00:00Z', cents: 900 })], { label: 'This month', kind: 'sum', field: 'meta.cents', format: 'money', where: { field: 'meta.at', op: 'since', value: 'month' }, hideWhenZero: false }, NOW)).toBe('$1.00');
   });
 });
 
 describe('totals and groups', () => {
   it('sums the columns marked total, rendered as the column renders', () => {
     const fields = [
-      { key: 'title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false },
-      { key: 'actual', from: 'meta.actualCents', format: 'money' as const, total: true, priority: 1, hideWhenConstant: false },
-      { key: 'tasks', from: 'meta.taskCount', format: 'mono' as const, total: true, priority: 1, hideWhenConstant: false },
+      { key: 'title', format: 'text' as const, total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true },
+      { key: 'actual', from: 'meta.actualCents', format: 'money' as const, total: true, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true },
+      { key: 'tasks', from: 'meta.taskCount', format: 'mono' as const, total: true, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true },
     ];
     const rows = [row(1, { actualCents: 1000, taskCount: 2 }), row(2, { actualCents: 25, taskCount: 1 }), row(3, {})];
 
@@ -90,7 +166,7 @@ describe('totals and groups', () => {
       ['—', [3, 4]],
     ]);
     // The total under a tag is the cumulative spend on everything that carried it.
-    expect(computeTotals(groups[0]!.rows, [{ key: 'actual', from: 'meta.actualCents', format: 'money', total: true, priority: 1, hideWhenConstant: false }])).toEqual({ actual: '$1.50' });
+    expect(computeTotals(groups[0]!.rows, [{ key: 'actual', from: 'meta.actualCents', format: 'money', total: true, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true }])).toEqual({ actual: '$1.50' });
   });
 
   it('a scalar groups the way it always did', () => {

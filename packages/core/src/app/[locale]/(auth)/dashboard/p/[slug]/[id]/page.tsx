@@ -1,11 +1,9 @@
 import { setRequestLocale } from 'next-intl/server';
 import { notFound, redirect } from 'next/navigation';
 import { FeatureReportView } from '@/features/dashboard/factory/FeatureReportView';
-import { PluginPanel } from '@/features/dashboard/plugins/PluginPanel';
 import { TitleBar } from '@/features/dashboard/TitleBar';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { Link } from '@/libs/I18nNavigation';
-import { pagePlugin } from '@/libs/workspace/pages';
 import { loadFeatureReport } from '@/services/factory/featureReportData';
 import { readPageForOrg } from '@/services/PluginService';
 
@@ -45,15 +43,26 @@ export default async function WorkspaceReportPage(props: {
   }
 
   const report = await loadFeatureReport(orgId, recordId);
-  const ownedBy = pagePlugin(manifest);
 
   return (
     <>
+      {/* The WORK's own name and goal.
+          It read "Request 40 — One request end to end: the ask, triage, the
+          plan and who approved it, the contract, approvals, the runs, the
+          change, QA evidence, the release, and what it cost against the
+          estimate." That is documentation of the database, printed above every
+          piece of work, identical on all of them. Chris, 2026-09-22: *"That's
+          internal documentation explaining your database."* The subtitle is
+          now what this work is FOR, and falls back to nothing rather than to
+          boilerplate — a page with no goal recorded should look like one. */}
       <TitleBar
         title={report ? report.title : manifest.title}
-        description={report ? `Request ${report.requestId} — ${manifest.description ?? 'the whole story, in order.'}` : manifest.description}
+        description={report ? (report.goal ?? undefined) : manifest.description}
       />
-      {ownedBy && <PluginPanel orgId={orgId} slug={ownedBy} />}
+      {/* The workforce panel does NOT belong here. "5 measures · 4 agents · 14
+          skills" is configuration for the whole factory, shown above one piece
+          of work: "I clicked into one specific piece of work. Don't show me
+          workforce configuration." It lives on the plugin's own pages. */}
       {report
         ? <FeatureReportView report={report} />
         : (

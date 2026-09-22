@@ -282,6 +282,27 @@ export const projectSchema = pgTable(
      */
     goal: text('goal'),
     /**
+     * The workspace's operating intent (migration 0135): what a person wants
+     * the factory doing now: outcomes, priorities, constraints, budget,
+     * autonomy policy and product judgment. Authored as workspace-as-code in
+     * `operating-intent.yaml`, shape in `libs/workspace/schemas.ts`
+     * `OperatingIntentManifestSchema`, composed into the prompts of the agents
+     * that choose and prioritise work.
+     *
+     * NULL = the factory has been told nothing. That is deliberately not the
+     * same fact as an authored intent with empty lists, which is a person
+     * saying there are no constraints; the agents report the two differently.
+     */
+    operatingIntent: jsonb('operating_intent').$type<{
+      outcomes?: Array<{ statement: string; because?: string; by?: string }>;
+      priorities?: Array<{ statement: string; over?: string }>;
+      constraints?: Array<{ statement: string; because?: string }>;
+      budget?: { limitCents: number; window: 'day' | 'week' | 'month'; note?: string };
+      autonomy?: Array<{ actionClass: string; policy: 'unattended' | 'ask' | 'never'; because?: string }>;
+      productJudgment?: string[];
+      reviewedAt?: string;
+    }>(),
+    /**
      * The workspace's mailbox (migration 0097): the address people write to,
      * answered by the workspace lead. Authored as `mailbox:` in workspace.yaml;
      * default address `<slug>@<VOCION_MAIL_DOMAIN>`. Null/false = no mailbox.
@@ -698,6 +719,8 @@ export const agentSchema = pgTable(
       provider?: 'local' | 'agentcore' | 'runtime';
       interrupts?: string[];
       maxTokens?: number;
+      /** Graph steps one turn may take; unset keeps each provider's own backstop. See `services/agents/stepLimit.ts`. */
+      maxSteps?: number;
       /** Built-in tool names to withhold from this agent (e.g. propose_action for agents with no CRM writes). */
       excludeTools?: string[];
       /** Granted-only tool names to hand this agent (e.g. classify_call). Gated tools are absent unless named here. */
@@ -717,6 +740,13 @@ export const agentSchema = pgTable(
        * agent at one vendor without moving the whole deployment.
        */
       modelProvider?: 'anthropic' | 'openai' | 'bedrock';
+      /**
+       * Cache this agent's prompt prefix at the vendor. Unset means the
+       * process default (on), so this exists to turn caching OFF for one
+       * agent — a prompt that changes on every turn pays the 1.25x write
+       * rate for a cache nothing ever reads back. See `libs/llm/promptCache.ts`.
+       */
+      promptCache?: boolean;
     }>().default({}).notNull(),
     /**
      * agentcore provider only: ARN of the provisioned AgentCore harness.
@@ -1551,6 +1581,28 @@ export const conversationMessageSchema = pgTable('conversation_message', {
    * user messages (which don't produce a trace).
    */
   langfuseTraceId: text('langfuse_trace_id'),
+  /**
+   * How the turn ended — one of `services/chat/turnStatus.ts`'s values:
+   * `complete`, `incomplete`, `failed`, `refused`, `stopped`, `truncated`,
+   * `continued`. NULL means the row predates the vocabulary and is treated as
+   * `complete`, which is what those rows were.
+   *
+   * Free-form text rather than an enum on purpose: the vocabulary is young and
+   * a new ending should not need a migration. `TurnStatus` and the tests around
+   * it are what keep it honest.
+   *
+   * Three things read it — the notice under the turn, whether the text is
+   * replayed to the model next turn (`toHistoryTurns` drops `incomplete`,
+   * `failed` and `refused`), and any count of how turns are ending.
+   */
+  status: text('status'),
+  /**
+   * Why the turn ended that way, in the runtime's own words — "Budget exceeded
+   * for …", "socket hang up". NULL on an ordinary turn. Shown under the notice
+   * so a person reporting a broken turn can say what happened, and so the same
+   * turn reads the same way after a reload as it did live.
+   */
+  statusReason: text('status_reason'),
   /**
    * Agent's self-assessment of confidence for this turn — same enum as
    * skill_run.confidence. Nullable when the runtime doesn't expose a

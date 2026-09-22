@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
+import { ArrowLeftRight, Bell, LogOut, MessageSquareText, Monitor, Moon, Pause, Search, Settings2, Sun, User as UserIcon, Users as UsersIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
@@ -27,7 +27,8 @@ import { FeedbackDialog } from '@/features/dashboard/FeedbackButton';
 import { shouldTriggerFindHotkey } from '@/features/dashboard/nav/workspaceSwitch';
 import { openWorkspaceSwitcher } from '@/features/dashboard/nav/WorkspaceSwitcher';
 import { openManageView } from '@/features/dashboard/useNavView';
-import { WorkspacePauseButton } from '@/features/dashboard/WorkspaceOffSwitch';
+import { WorkspacePauseDialog } from '@/features/dashboard/WorkspaceOffSwitch';
+import { envLabel as readEnvLabel } from '@/libs/envLabel';
 import { Link } from '@/libs/I18nNavigation';
 import { buildInfo, versionLabel } from '@/libs/version';
 import { ShellBarActionsOutlet } from './ShellBarActions';
@@ -58,6 +59,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
   const tl = useTranslations('DashboardLayout');
   const user = session?.user;
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
   const initials = user?.name
     ?.split(' ')
     .map(p => p[0])
@@ -80,13 +82,42 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // `NEXT_PUBLIC_ENV_LABEL` is inlined at build time, so production ships
+  // this as a literal null and the branch disappears entirely.
+  const envLabel = readEnvLabel();
   const pct = usage && usage.capCents && usage.capCents > 0 ? Math.min(100, Math.round((usage.spentCents / usage.capCents) * 100)) : null;
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
   return (
-    <header className="sticky top-0 z-40 grid h-[60px] shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-3 border-b border-border/70 bg-background px-3 lg:px-6">
+    // FLEX below md, grid at md and up — and that difference is a bug fix, not
+    // a preference. The centre search is `hidden md:flex`, and a `display:none`
+    // element is not a grid item at all: below md the grid had three tracks and
+    // two items, so auto-placement put the ACTIONS in the middle `auto` track
+    // and left the trailing `1fr` empty. On a phone that drew the whole right
+    // group — pause, chat, avatar — ending around the middle of the bar with a
+    // third of the width blank beside it (Chris, 2026-09-22: "mobile header and
+    // nav still misaligned"). Flex has no tracks to mis-place into: left group,
+    // right group, edge to edge, whatever is hidden between them.
+    <header className="sticky top-0 z-40 flex h-[60px] shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 md:grid md:grid-cols-[1fr_minmax(0,auto)_1fr] lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
+        {/* WHICH INSTANCE THIS IS. The favicon and the page title already say
+            it, and neither survives a screenshot: a phone screenshot crops
+            the tab strip away entirely, so a preview screenshot and a
+            production screenshot were indistinguishable — which is how a dev
+            screen gets filed as a production bug, and how the reverse
+            happens, which is worse. It sits BEFORE the breadcrumb because it
+            qualifies everything after it, and it is absent in production, so
+            the presence of a badge always means something. */}
+        {envLabel !== null && (
+          <span
+            data-testid="env-badge"
+            aria-label={`This is the ${envLabel} instance, not production`}
+            className="shrink-0 rounded-md bg-amber-500 px-1.5 py-0.5 font-mono text-[10px] leading-none font-bold tracking-wide text-white uppercase"
+          >
+            {envLabel}
+          </span>
+        )}
         <Breadcrumb workspaceName={workspace?.name ?? null} />
       </div>
 
@@ -107,13 +138,6 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
       <div className="flex items-center justify-end gap-x-1 pr-0.5">
         {/* Page-owned controls (e.g. chat's New chat / Switch agent) land here. */}
         <ShellBarActionsOutlet />
-
-        {/* The workspace off switch. On the bar rather than on a settings
-            page because it is used in a hurry, from whatever page someone
-            happens to be on, phone included — and because a stop nobody can
-            find is not a stop. Once pulled, the banner below owns it and
-            this disappears: one control for the state, never two. */}
-        <WorkspacePauseButton canPause={canPauseWorkspace} />
 
         {/* Feedback and Docs left the bar on 2026-09-18 (Chris: "clean up this
             main header"): Feedback is a row in the account menu below, Docs
@@ -235,6 +259,18 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
               <MessageSquareText className="mr-2 size-4 text-muted-foreground" aria-hidden />
               Send feedback
             </DropdownMenuItem>
+            {/* The stop. It was a labelled button on the bar; on a phone that
+                put the widest word up there beside the workspace name, where
+                it read as something about the page rather than about the
+                workspace. It is a decision about the workspace, so it sits
+                with the workspace — and when it has been pulled, the banner
+                across every page is the loud half. */}
+            {canPauseWorkspace && (
+              <DropdownMenuItem onSelect={() => setPauseOpen(true)} data-testid="workspace-pause">
+                <Pause className="mr-2 size-4 text-muted-foreground" aria-hidden />
+                Pause workspace
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut({ callbackUrl: '/sign-in' })}>
               <LogOut className="mr-2 size-4" />
@@ -277,6 +313,7 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
           </DropdownMenuContent>
         </DropdownMenu>
         <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+        <WorkspacePauseDialog open={pauseOpen} onOpenChange={setPauseOpen} />
       </div>
     </header>
   );

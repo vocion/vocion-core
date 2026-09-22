@@ -249,6 +249,7 @@ grant trademark rights.
 - [`docs/object-model.md`](./docs/object-model.md) — where every object is authored, stored, executed, and shown
 - [`docs/workspace-pages.md`](./docs/workspace-pages.md) — tenant-defined dashboard pages
 - [`docs/deployment/`](./docs/deployment/) — multiple environments, parent-project pattern
+- [`docs/guides/prompt-caching.md`](./docs/guides/prompt-caching.md) — the prompt prefix of every agent turn is cached at the vendor, on by default, nothing to configure; read this for how to turn it off (per agent, per call site, or process-wide with `VOCION_PROMPT_CACHE=0`) and the one case where that is worth doing
 
 ## Contributing
 

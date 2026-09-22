@@ -37,17 +37,59 @@ the pages of the plugins it has on (`project.enabled_plugins`) and nothing of
 the folder's.
 
 A `list`/`queue` page composes: a stats row (`stats:`), a series strip
-(`series:`), grouping (`groupBy:`), filtering (`filters:`), sorting, per-field
-formats (`text|badge|score|date|mono|image|money|link|relative|progress`,
+(`series:`), grouping (`groupBy:`), filtering (`filters:`), named views
+(`views:`), sorting, per-field formats
+(`text|badge|score|date|mono|image|money|link|relative|progress|duration`,
 with badge tone maps), column totals (`total: true`), a `rowLink`
 click-through, and custom widgets.
 
-Stats are `count`, `countWhere`, `sum`, `avg`, `min`, `max` or `pctGte` over
-a field, optionally narrowed by a `where` filter, and render as a number or —
-with `format: money` — as dollars read from cents. Filters compare with `eq`,
-`neq`, `gte`, `lte`, `in`, `exists`, or `since`: `{field: meta.paidAt, op:
-since, value: month}` keeps the rows whose date is in this calendar month
-(`week`, `today` and `<n>d` are the other windows; UTC throughout).
+Stats are `count`, `countWhere`, `sum`, `avg`, `min`, `max`, `pctGte`,
+`ratio` or `medianHours` over a field, optionally narrowed by a `where`
+filter (one, or a list every row must pass), and render as a number, as
+dollars read from cents with `format: money`, or as a share with `format:
+percent`. Filters compare with `eq`, `neq`, `gte`, `lte`, `in`, `exists`,
+`missing`, or `since`: `{field: meta.paidAt, op: since, value: month}` keeps
+the rows whose date is in this calendar month (`week`, `today` and `<n>d` are
+the other windows; UTC throughout).
+
+**Print a ratio, not an average, next to a count.** `avg` divides by however
+many rows carried a figure, so a page that shows "9 outcomes" beside an
+average cost of the rows that had one prints a number a reader cannot
+reproduce by dividing. `ratio` names both halves: `field` summed over the
+rows `where` keeps, divided by `overField` summed over the rows `of` keeps,
+and `of` defaults to the same rows, so the denominator IS the count printed
+beside it. Omit `field` and the numerator is a count of rows, which with `of`
+and `format: percent` states a share of a population.
+
+```yaml
+- {label: Shipped outcomes, kind: countWhere, where: {field: meta.state, op: eq, value: shipped}}
+- {label: Cost per shipped outcome, kind: ratio, field: meta.actualCents, where: {field: meta.state, op: eq, value: shipped}, format: money}
+```
+
+`medianHours` measures one row's two dates (`from` is the start accessor and
+`field` the end) and takes the median in hours over the rows that carry
+both. A row missing either end is left out rather than counted as zero.
+
+A stat can carry a `group` (its section heading; ungrouped stats are the
+headline row, in order), a `note` (what it counts, rendered behind an
+information affordance rather than as a paragraph on the page), and
+`lifetime: true` to opt out of the page's window.
+
+**One window the whole page obeys.** `window: {field, options, default,
+label}` renders a row of links (`?days=30`, `?days=all`) and narrows the rows
+AND every stat that is not `lifetime`. `field` should be a date every row
+carries (`createdAt` is the safe one), because a row with no readable date
+is dropped from every finite window and appears only under "All time". A
+value the page does not offer falls back to the default, so a hand-typed URL
+cannot widen a figure past what the page says it shows.
+
+`methodologyFile` (default `<slug>.methodology.md`) renders collapsed under
+"How these numbers are computed", so the page's index communicates results
+and the method stays one click away.
+
+`hideWhenZero: true` on a stat leaves the figure off the page when it is zero,
+so a count of an exception appears when the exception happened and nowhere
+else ("0 lost" is a tile spent saying a thing did not happen).
 
 A field with `total: true` is summed under the table — under each group's
 table on a grouped page — as money for a `money` column and as a number
@@ -59,7 +101,7 @@ or an empty list, sits under "—".
 `series:` draws figures over time under the stats: one strip per entry, one
 column per bucket (`day`, `week` or `month`; `buckets` of them, oldest first,
 ending now), one row per measure (`sum`, `count` or `avg` of a field), each
-row bucketed by its `dateField`. A table rather than a chart — the figures
+row bucketed by its `dateField` and narrowed by the series' own `where`. A table rather than a chart, because the figures
 are the point.
 
 ```yaml
@@ -76,8 +118,38 @@ series:
 
 `relative` renders a timestamp as its distance from now ("12s ago", "in 4m")
 with the exact moment on hover; `progress` renders a worker's `{phase, note}`
-heartbeat object as "phase · note". A badge over a boolean `false` with no
-`'false'` tone renders as nothing, so an off flag is not a column of pills.
+heartbeat object as "phase · note"; `duration` reads an integer number of
+seconds as the length a person compares by ("18m 25s"). A badge over a boolean
+`false` with no `'false'` tone renders as nothing, so an off flag is not a
+column of pills.
+
+### `detail:` fields, and `views:`
+
+Two ways a page carries more than a row can hold.
+
+A field with `detail: true` is **evidence, not a column**. It is never drawn
+in the table and reads inside the row's own disclosure ("Evidence"), under its
+label, with empty fields left out rather than drawn as dashes. This is a
+different problem from `priority`, which drops a column the page would still
+like to show when the viewport will not allow it: a `detail` field is one the
+page does not want in the row at all. Activity declares twenty six fields and
+shows eleven; a heartbeat and a lease matter while a run is alive and are
+noise on a run that finished yesterday.
+
+`views:` are named ways of looking at the same page, chosen with `?view=<key>`
+and drawn as a switcher above the summary. A view with `filters` narrows this
+page's rows; a view with `href` is a different surface that belongs in the
+same row of tabs and navigates there. The first view declared is the default
+and has to be one of this page's own. A view never changes the `source`: a tab
+that quietly queried something else would make the summary above it mean a
+different thing per tab.
+
+```yaml
+views:
+  - {key: all, label: All, note: Everything, newest first.}
+  - {key: runs, label: Runs, filters: [{field: meta.kind, op: eq, value: worker}]}
+  - {key: releases, label: Releases, href: /dashboard/p/releases}
+```
 
 A `list`/`queue` page can also stay **live**: `live: {every: 15}` re-reads the
 rows and stats every 15 seconds while the tab is visible (bounded 5–120) and

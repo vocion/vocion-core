@@ -697,7 +697,8 @@ export const AgentManifestSchema = z.object({
    * our loop implements. Neither routes inference — a Bedrock call is a
    * direct Converse call in all three cases. `interrupts` lists skill/tool slugs that pause for
    * human approval (via the hitl_gate flow) before executing;
-   * `maxTokens` caps the model's output tokens; `excludeTools`
+   * `maxTokens` caps the model's output tokens; `maxSteps` stops a turn
+   * after that many steps; `excludeTools`
    * withholds built-in tools by name (e.g. `propose_action` for agents
    * that should have no CRM-write surface at all); `model` overrides the
    * model id; `modelProvider` overrides which vendor serves it.
@@ -739,6 +740,17 @@ export const AgentManifestSchema = z.object({
     provider: harnessTargetSchema.optional(),
     interrupts: z.array(z.string()).default([]),
     maxTokens: z.number().int().positive().optional(),
+    /**
+     * Stop one turn after this many steps. A step is a LangGraph graph step:
+     * one model call plus the tools it asked for is about two. The
+     * AWS-managed harness counts tool rounds instead and gets half.
+     *
+     * Optional rather than defaulted: an agent that says nothing keeps each
+     * provider's own backstop (deepagents' 10,000 steps, AgentCore's 12
+     * rounds). Set it to stop a loop sooner — see
+     * `services/agents/stepLimit.ts`.
+     */
+    maxSteps: z.number().int().positive().optional(),
     excludeTools: z.array(z.string()).default([]),
     /**
      * Granted-only tools this agent receives. Some built-ins (the discovery
@@ -749,6 +761,23 @@ export const AgentManifestSchema = z.object({
     grantTools: z.array(z.string()).default([]),
     model: z.string().optional(),
     modelProvider: z.enum(['anthropic', 'openai', 'bedrock']).optional(),
+    /**
+     * Ask the vendor to cache this agent's prompt prefix, or forbid it.
+     *
+     * On by default for Anthropic and Bedrock, so an author writes this only
+     * to say `false` — an agent whose system prompt or mounted files must not
+     * sit in a vendor's cache for the five minutes the TTL lasts. Setting it
+     * here beats the caller, because the person who wrote the agent is the one
+     * who knows what its prompt carries.
+     *
+     * Optional rather than defaulted so the stored row keeps saying nothing
+     * when the author said nothing: `VOCION_PROMPT_CACHE=0` and the process
+     * default both have to stay reachable, and a written-in `true` would make
+     * the kill switch look like it had been overruled per agent. See
+     * `libs/llm/promptCache.ts` for what caching buys and what silently will
+     * not cache.
+     */
+    promptCache: z.boolean().optional(),
     /**
      * Structural guarantee for A2UI action cards: when true and a turn ends
      * with ZERO recommend_action calls, the runtime runs a small follow-up
@@ -962,6 +991,101 @@ export const VoiceManifestSchema = z.object({
 });
 export type VoiceManifest = z.infer<typeof VoiceManifestSchema>;
 
+/**
+ * Operating intent, authored at workspace/<org>/operating-intent.yaml.
+ *
+ * The highest-leverage thing a person does is not approving individual work.
+ * It is saying what they want: what we are trying to achieve now, what beats
+ * what, what the factory may not do without asking, what it may spend, and
+ * which classes of action may proceed unattended.
+ *
+ * Workspace-as-code rather than a settings screen, for the same reason the
+ * playbooks are: it is versioned, it is diffable, a change to it is a commit
+ * with a reason on it, and the agents read the same file a person edits. A
+ * priority nobody can point at is not a priority.
+ *
+ * Applied onto `project.operating_intent` and composed into the system prompt
+ * of every agent in a workspace that states one
+ * (`services/agents/harness.ts`, `operatingIntentPromptNote`). A workspace
+ * that has authored nothing gets no section at all, because a section saying
+ * there are no constraints is a claim nobody made.
+ */
+export const OperatingIntentManifestSchema = z.object({
+  /**
+   * What we are trying to achieve now, most important first. One line each,
+   * stated as an outcome a person could later say yes or no to.
+   */
+  outcomes: z.array(z.object({
+    /** The outcome, in one line. */
+    statement: z.string().min(1),
+    /** Why it matters now, when that is not obvious from the statement. */
+    because: z.string().optional(),
+    /** When it is meant to be true by, as a plain date or a phrase like "this quarter". */
+    by: z.string().optional(),
+  })).default([]),
+  /**
+   * What beats what. Ordered, most important first: the list IS the ranking,
+   * so an agent choosing between two candidates reads down it rather than
+   * comparing two integers.
+   */
+  priorities: z.array(z.object({
+    /** The thing that is being ranked, in the workspace's own words. */
+    statement: z.string().min(1),
+    /** What it beats, when the comparison is the point ("reliability over a second product"). */
+    over: z.string().optional(),
+  })).default([]),
+  /**
+   * What the factory may NOT do without asking. Each is a refusal, not a
+   * preference: an agent that finds itself about to do one of these raises an
+   * ask and stops.
+   */
+  constraints: z.array(z.object({
+    /** The thing that must not happen unattended. */
+    statement: z.string().min(1),
+    /** Why, so the ask that quotes it can explain itself. */
+    because: z.string().optional(),
+  })).default([]),
+  /**
+   * Spend allowed without asking, per window. ADVISORY as of this version:
+   * it is composed into the prompts of the agents that choose work, and it is
+   * not enforced by the run budget. `services/autonomy` owns the enforced
+   * caps, and a figure here that disagrees with those caps does not override
+   * them.
+   */
+  budget: z.object({
+    /** The ceiling, in cents, for the window below. */
+    limitCents: z.number().int().min(0),
+    /** The window the ceiling applies to. */
+    window: z.enum(['day', 'week', 'month']),
+    /** What the ceiling covers and what it does not, in one line. */
+    note: z.string().optional(),
+  }).optional(),
+  /**
+   * Which classes of action may proceed unattended. Names action classes in
+   * the workspace's own words rather than registered action ids: the trust
+   * ladder (`trust.yaml`) is what actually gates an action, and this is the
+   * stated intent the ladder is supposed to express. Where the two disagree,
+   * the ladder wins and the disagreement is worth fixing.
+   */
+  autonomy: z.array(z.object({
+    /** The class of action, e.g. "routine releases", "answering a question". */
+    actionClass: z.string().min(1),
+    /** `unattended` proceeds; `ask` raises a decision; `never` does not happen. */
+    policy: z.enum(['unattended', 'ask', 'never']),
+    /** Why this class sits where it does. */
+    because: z.string().optional(),
+  })).default([]),
+  /**
+   * Product judgment the agents cannot derive from records: taste, standing
+   * calls, things that were tried and did not work, what "good" means here.
+   * Free prose, one note each.
+   */
+  productJudgment: z.array(z.string().min(1)).default([]),
+  /** When this was last reviewed by a person, so a stale intent reads as stale. */
+  reviewedAt: z.string().optional(),
+});
+export type OperatingIntentManifest = z.infer<typeof OperatingIntentManifestSchema>;
+
 export const AutomationManifestSchema = z.object({
   slug: SlugSchema,
   name: z.string().optional(),
@@ -1071,17 +1195,35 @@ const MetaKeySchema = z.string().regex(/^[a-z_]\w*$/i, {
 });
 
 /**
- * One figure this type carries that is COMPUTED from another type's rows —
- * the sum of a child field, or the count of children — rather than typed.
+ * Which of a parent's children one rollup counts. `field` is either `status`
+ * (the object's own column, which is where a task's `accepted`, `rejected`
+ * and `abandoned` live) or a metadata key. `in` lists the values that
+ * qualify. Omitted, every child counts, which is what the cost rollups want.
  *
- * The link runs one of two ways: `by` names the child's field that holds
+ * This is what lets one type carry two figures over the same children: a
+ * request's `actualCents` is every task it took, and its `reworkCents` is
+ * only the tasks that were thrown away.
+ */
+export const RollupWhereSchema = z.object({
+  field: MetaKeySchema,
+  in: z.array(z.string()).min(1),
+});
+
+/**
+ * One figure this type carries that is COMPUTED from another type's rows:
+ * the sum of a child field, the earliest of a child date, or the count of
+ * children, rather than typed.
+ *
+ * The link runs one of three ways: `by` names the child's field that holds
  * this record's id (`engineering_task.requestId` → `request`), `ids` names
- * this record's field that lists child ids (`release.taskIds`). Core
- * recomputes every rollup that reaches a child when that child's cost is
- * written back from a worker run (`services/objects/rollups.ts`), and stamps
- * `rollupsUpdatedAt` beside the figures; a page reads them like any other
- * metadata. Nothing here reaches the database schema — the declaration is
- * read from the type file at the moment it is needed, the way pages are.
+ * this record's field that lists child ids (`release.taskIds`), and `inList`
+ * names the child's field that LISTS this record's id (`release.requestIds`
+ * → `request`, which is how a request learns when it shipped). Core
+ * recomputes every rollup that reaches a child when that child is written,
+ * and stamps `rollupsUpdatedAt` beside the figures; a page reads them like
+ * any other metadata. Nothing here reaches the database schema; the
+ * declaration is read from the type file at the moment it is needed, the way
+ * pages are.
  */
 export const RollupSchema = z.object({
   /** The metadata key written on THIS type. */
@@ -1093,10 +1235,16 @@ export const RollupSchema = z.object({
     by: MetaKeySchema.optional(),
     /** This record's metadata key listing child ids. */
     ids: MetaKeySchema.optional(),
-  }).refine(l => (l.by !== undefined) !== (l.ids !== undefined), { message: 'a rollup link names exactly one of `by` (the child points here) or `ids` (this record lists its children)' }),
-  /** The child's metadata key to sum. Omitted, the rollup is a count of children. */
+    /** The child's metadata key whose list of ids contains this record's. */
+    inList: MetaKeySchema.optional(),
+  }).refine(l => [l.by, l.ids, l.inList].filter(v => v !== undefined).length === 1, { message: 'a rollup link names exactly one of `by` (the child points here), `ids` (this record lists its children) or `inList` (the child lists this record)' }),
+  /** The child's metadata key to sum. Omitted with no `min`, the rollup is a count of children. */
   sum: MetaKeySchema.optional(),
-});
+  /** The child's date key whose EARLIEST value is written, as an ISO string. */
+  min: MetaKeySchema.optional(),
+  /** Which children count; see {@link RollupWhereSchema}. */
+  where: RollupWhereSchema.optional(),
+}).refine(r => !(r.sum !== undefined && r.min !== undefined), { message: 'a rollup is a sum, a min or a count of children, not two of them' });
 export type Rollup = z.infer<typeof RollupSchema>;
 
 export const ObjectTypeManifestSchema = z.object({

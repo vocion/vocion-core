@@ -1,14 +1,26 @@
+import type { Grounds } from '@/services/inbox/admissionBar';
+import type { AutonomyHold, AutonomyProposal, SettledJudgment } from '@/services/inbox/autonomyProposal';
+import type { DecisionContract } from '@/services/inbox/decisionContract';
+import type { FailedRun } from '@/services/inbox/failureEscalation';
 import type { InboxRef } from '@/services/inbox/inboxRef';
 import type { InboxKind, InboxSort, InboxTab } from '@/services/inbox/kinds';
+import type { AgendaCandidate, PolicyGap, Reclassified } from '@/services/inbox/reviewAgenda';
 import type { ReviewRow } from '@/services/inbox/reviewRows';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { askSchema, learningCandidateSchema, missionRunSchema, workerRunSchema, workflowRunSchema, workflowSchema } from '@/models/Schema';
+import { admit } from '@/services/inbox/admissionBar';
+import { autonomyProposals } from '@/services/inbox/autonomyProposal';
 import { changeSummaryLine, summariseChanges } from '@/services/inbox/changeSummary';
+import { enrichmentLine } from '@/services/inbox/decisionTopic';
 import { humaniseActionId, recordTitle } from '@/services/inbox/describeActionRun';
+import { escalationsFrom } from '@/services/inbox/failureEscalation';
 import { inboxHref } from '@/services/inbox/inboxRef';
 import { INBOX_KINDS, kindForAsk } from '@/services/inbox/kinds';
+import { planApprovalRows } from '@/services/inbox/planApprovalRows';
+import { chainReAsks, chaseLine } from '@/services/inbox/reAskChain';
 import { askGroupHref, recordKeyOf, recordSheetHref } from '@/services/inbox/recordKey';
+import { reviewAgenda } from '@/services/inbox/reviewAgenda';
 import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
 
 /**
@@ -26,8 +38,12 @@ import { groupByRecord, listReviewRows } from '@/services/inbox/reviewRows';
  *                   an open `ask`; several under one group key are one sheet
  *                                                   → /dashboard/inbox/:id · /dashboard/inbox/g/:groupKey
  *   run             a paused / awaiting-review mission or workflow run, a
- *                   paused / awaiting / failed / lost worker run
+ *                   paused / awaiting-review worker run, things that WAIT on
+ *                   a person
  *                                                   → /dashboard/inbox/mission-:id · workflow-:id · worker-:id
+ *   exception       a failure the factory cannot recover from, as a decision
+ *                   with a recommendation (`services/inbox/failureEscalation.ts`)
+ *                                                   → /dashboard/inbox/worker-:id
  *   learning        a pending `learning_candidate` (a suggested rule)
  *                                                   → /dashboard/inbox/learning-:id
  *
@@ -93,6 +109,12 @@ export type InboxItem = {
   decidedBy?: string | null;
   /** Decided tab: the note that travelled with the decision. */
   note?: string | null;
+  /**
+   * What must be decided, what the system thinks, why, what waiting costs and
+   * the labelled choices, so the ROW is decision support rather than metadata
+   * about which agent asked (`services/inbox/decisionContract.ts`).
+   */
+  contract?: DecisionContract;
 };
 
 export type InboxFacets = {
@@ -116,6 +138,13 @@ export type InboxQuery = {
 
 export type Inbox = {
   items: InboxItem[];
+  /**
+   * Open tab only: everything the admission bar sent somewhere other than a
+   * person, with the reason. Review is auditable, not merely short.
+   */
+  reclassified: Reclassified<AgendaRow>[];
+  /** Open tab only: standing policies that produced rows they should have absorbed. */
+  policyGaps: PolicyGap[];
   /** Rows per kind on this tab — the chip counts. Counted before the kind filter, after the others. */
   counts: Record<InboxKind, number>;
   total: number;
@@ -124,7 +153,13 @@ export type Inbox = {
   facets: InboxFacets;
 };
 
-const RECENT_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * How far back the escalation rule looks for failures of the same task. A
+ * plain failure NEVER appears here, it is a log line, and the Factory log
+ * and the floor already show it (Chris, 2026-09-21). This window exists only
+ * so `escalationsFrom` can see a task's third attempt.
+ */
+const FAILURE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * One row from one proposal.
@@ -209,7 +244,9 @@ function proposalItems(rows: ReviewRow[], tab: InboxTab): InboxItem[] {
 
 /**
  * Open asks as rows — several open asks under one group_key are one decision
- * sheet, answered as a stepper; a group with one open ask is just an ask.
+ * sheet, answered as a stepper; a group with one open ask is just an ask; and
+ * an ask that exists only to chase an older open ask is folded into the ask it
+ * chases rather than given a row of its own (`services/inbox/reAskChain.ts`).
  * @param asks
  */
 function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
@@ -246,35 +283,147 @@ function askItems(asks: (typeof askSchema.$inferSelect)[]): InboxItem[] {
       count: group.length,
     });
   }
-  for (const a of standalone) {
+  for (const chain of chainReAsks(standalone)) {
+    const a = chain.root;
+    const chased = chaseLine(chain);
     rows.push({
       key: `ask:${a.id}`,
       kind: kindForAsk(a.kind),
       shape: 'single',
       ref: { kind: 'ask', id: a.id },
       title: a.title,
-      subline: [a.agentSlug ? `asked by ${a.agentSlug}` : null, a.teamSlug ? `team ${a.teamSlug}` : null].filter(Boolean).join(' › ') || undefined,
+      subline: [a.agentSlug ? `asked by ${a.agentSlug}` : null, a.teamSlug ? `team ${a.teamSlug}` : null, chased].filter(Boolean).join(' › ') || undefined,
       agentSlug: a.agentSlug,
       teamSlug: a.teamSlug,
-      risk: a.risk,
+      // Going unanswered is itself evidence of importance, so a chased
+      // decision takes the highest risk anyone attached to it. The chases
+      // stop being rows; they do not stop being signal.
+      risk: chain.chases.some(c => c.risk === 'high') || a.risk === 'high' ? 'high' : chain.chases.some(c => c.risk === 'medium') || a.risk === 'medium' ? 'medium' : a.risk,
       status: a.status,
       at: a.createdAt,
       href: inboxHref('ask', a.id),
       askId: a.id,
+      // The count is the rows this one replaced, so the page can say the
+      // question was asked eight times without printing it eight times.
+      count: chain.chases.length > 0 ? chain.chases.length + 1 : undefined,
     });
   }
   return rows;
 }
 
 /**
+ * The failures that became decisions. A plain failed or lost run produces
+ * NOTHING here: it is an operational event, and Review is not an event
+ * stream. Only a task the factory cannot recover, a third attempt, or a
+ * failure class with no retry policy, reaches a person, and then it arrives
+ * as a decision with a recommendation, what it blocks and what happens if it
+ * is ignored.
+ * @param runs - Failed and lost worker runs inside the lookback window.
+ */
+function exceptionItems(runs: FailedRun[]): InboxItem[] {
+  return escalationsFrom(runs).map((e): InboxItem => ({
+    key: e.key,
+    kind: 'exception',
+    shape: 'single',
+    ref: { kind: 'worker', id: e.runId },
+    title: e.contract.decision,
+    subline: [`${e.agentSlug}`, `${e.attempts} ${e.attempts === 1 ? 'attempt' : 'attempts'}`, e.trigger === 'no-retry-policy' ? 'no retry policy' : 'retries exhausted'].join(' › '),
+    agentSlug: e.agentSlug,
+    teamSlug: null,
+    risk: 'high',
+    status: 'exception',
+    at: e.at,
+    href: inboxHref('worker', e.runId),
+    detail: e.contract.recommendation ?? e.contract.recommendationWhyNot ?? undefined,
+    contract: e.contract,
+  }));
+}
+
+/**
+ * What a row DECLARES about itself at the admission bar, where the row's own
+ * title cannot say it.
+ *
+ * A plan waiting for approval is a direction decision: the work does not start
+ * until it is answered. A suggested rule is a policy decision by definition. An
+ * exception has already been through `failureEscalation`, which only escalates
+ * a failure class policy cannot resolve, and the answer sets that policy.
+ *
+ * Nothing here can rescue bookkeeping: `admit` checks the action-id rules
+ * first, so a declaration never buys a metadata update a place in Review.
+ * @param item
+ */
+function declaredGrounds(item: InboxItem): Grounds | null {
+  if (item.key.startsWith('plan:')) {
+    return 'direction';
+  }
+  if (item.kind === 'learning') {
+    return 'policy';
+  }
+  if (item.kind === 'exception') {
+    return 'policy';
+  }
+  return null;
+}
+
+/** An inbox row as the agenda sees it. */
+export type AgendaRow = InboxItem & AgendaCandidate;
+
+/**
+ * Actions whose proposals are one decision PER RECORD and never fold.
+ *
+ * The topic fold in `services/inbox/decisionTopic.ts` reads the title, and a
+ * per-lead card carries a constant one: every enroll proposal is "New MQL
+ * ready to enroll", so on 2026-09-22 about two hundred leads on the revenue
+ * inbox became a single row with nothing on it to say so. Each of those is a
+ * separate person and a separate send, so each is its own decision, whatever
+ * the title has in common with the next. They skip the agenda entirely; the
+ * bar would admit them anyway (an enroll reaches HubSpot, which is
+ * consequence), and skipping it keeps the fold from seeing them.
+ *
+ * This is the narrow fix. The durable one keys the fold on the SUBJECT a row
+ * is about rather than the words in its title, at which point this set goes.
+ */
+const UNFOLDED_ACTIONS: ReadonlySet<string> = new Set(['personalization.enroll']);
+
+/**
+ * The open tab, after the admission bar.
+ *
+ * What survives is one row per DECISION, not one per thing the factory is
+ * unsure about. A decision that absorbed related questions says so on the row
+ * and carries them underneath; everything else is accounted for in
+ * `reclassified`, so a short queue is a claim anyone can check rather than a
+ * filter nobody can see behind.
+ * @param rows - Every candidate row the factory produced.
+ */
+function admitted(rows: InboxItem[]): Pick<Inbox, 'items' | 'reclassified' | 'policyGaps'> {
+  const unfolded = rows.filter(r => r.actionId !== undefined && UNFOLDED_ACTIONS.has(r.actionId));
+  const agenda = reviewAgenda(rows.filter(r => !unfolded.includes(r)).map((item): AgendaRow => ({
+    ...item,
+    body: item.detail ?? item.subline ?? null,
+    grounds: declaredGrounds(item),
+  })));
+
+  const items = agenda.entries.map(({ topic }) => {
+    const folded = topic.members.length - 1 + topic.enrichments.length;
+    return {
+      ...topic.root,
+      // The count is what this one row replaced. It is the same promise the
+      // re-ask chain makes, one level up: the question is asked once.
+      ...(folded > 0 ? { count: (topic.root.count ?? 1) + folded, detail: enrichmentLine(topic) ?? topic.root.detail } : {}),
+    };
+  });
+  return { items: [...items, ...unfolded], reclassified: agenda.reclassified, policyGaps: agenda.policyGaps };
+}
+
+/**
  * Everything on the OPEN tab: asks, described + grouped proposals, paused or
- * awaiting-review missions and workflows, waiting / failed worker runs,
- * suggested rules.
+ * awaiting-review missions and workflows, waiting worker runs, unrecoverable
+ * failures as exceptions, suggested rules.
  * @param orgId
  */
 async function openItems(orgId: string): Promise<InboxItem[]> {
-  const since = new Date(Date.now() - RECENT_FAILURE_WINDOW_MS);
-  const [asks, actions, missions, workflows, waitingWorkers, failedWorkers, candidates] = await Promise.all([
+  const since = new Date(Date.now() - FAILURE_LOOKBACK_MS);
+  const [asks, actions, missions, workflows, waitingWorkers, failures, candidates] = await Promise.all([
     db.select().from(askSchema).where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open'))).orderBy(desc(askSchema.id)),
     listReviewRows(orgId, 'open'),
     db
@@ -291,7 +440,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       .from(workerRunSchema)
       .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['paused', 'awaiting_review']))),
     db
-      .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, error: workerRunSchema.error, at: workerRunSchema.updatedAt })
+      .select({ id: workerRunSchema.id, agentSlug: workerRunSchema.agentSlug, status: workerRunSchema.status, error: workerRunSchema.error, attempt: workerRunSchema.attempt, input: workerRunSchema.input, at: workerRunSchema.updatedAt })
       .from(workerRunSchema)
       .where(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since))),
     db
@@ -300,9 +449,12 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       .where(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending'))),
   ]);
 
+  const plans = await planApprovalRows(orgId);
+
   return [
     ...askItems(asks),
     ...proposalItems(actions, 'open'),
+    ...plans,
     ...missions.map((m): InboxItem => ({
       key: `mission:${m.id}`,
       kind: 'run',
@@ -345,20 +497,7 @@ async function openItems(orgId: string): Promise<InboxItem[]> {
       at: w.at,
       href: inboxHref('worker', w.id),
     })),
-    ...failedWorkers.map((w): InboxItem => ({
-      key: `worker:${w.id}`,
-      kind: 'run',
-      shape: 'single',
-      ref: { kind: 'worker', id: w.id },
-      title: `${w.agentSlug} — worker run #${w.id} ${w.status}`,
-      subline: w.error ?? (w.status === 'lost' ? 'Lease lapsed without a heartbeat' : 'Run failed'),
-      agentSlug: w.agentSlug,
-      teamSlug: null,
-      risk: 'medium',
-      status: w.status,
-      at: w.at,
-      href: inboxHref('worker', w.id),
-    })),
+    ...exceptionItems(failures),
     ...candidates.map((c): InboxItem => ({
       key: `learning:${c.id}`,
       kind: 'learning',
@@ -537,13 +676,14 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   // you clicked it (Chris, 2026-09-15: "decided counts show 0 when not
   // selected and 7 when selected") — a count on a tab is a promise about what
   // is behind it, so it cannot depend on which tab you are standing on.
-  const [open, snoozedRows, decidedRows, decidedAsks, decidedRules] = await Promise.all([
+  const [candidates, snoozedRows, decidedRows, decidedAsks, decidedRules] = await Promise.all([
     openItems(orgId),
     listReviewRows(orgId, 'snoozed'),
     listReviewRows(orgId, 'decided'),
     decidedAskItems(orgId),
     decidedLearningItems(orgId),
   ]);
+  const { items: open, reclassified, policyGaps } = admitted(candidates);
   const snoozed = proposalItems(snoozedRows, 'snoozed');
   const decided = [...proposalItems(decidedRows, 'decided'), ...decidedAsks, ...decidedRules];
   const tabs: Record<InboxTab, number> = { open: open.length, snoozed: snoozed.length, decided: decided.length };
@@ -561,7 +701,7 @@ export async function listInbox(orgId: string, query: InboxQuery = {}): Promise<
   }
   sortItems(items, tab === 'decided' ? (query.sort ?? 'newest') : (query.sort ?? 'oldest'));
 
-  return { items, counts, total: items.length, tabs, facets };
+  return { items, counts, total: items.length, tabs, facets, reclassified: tab === 'open' ? reclassified : [], policyGaps: tab === 'open' ? policyGaps : [] };
 }
 
 /**
@@ -602,26 +742,72 @@ export async function listProposalQueue(orgId: string, query: InboxQuery = {}): 
 }
 
 /**
- * How many rows the open tab shows — the sidebar badge. A decision sheet (asks
- * under one key, proposals about one record) counts once, as on the page.
+ * How many DECISIONS are waiting on a person: the sidebar badge.
+ *
+ * It is the agenda's own length, computed the same way the page computes it,
+ * because a count on a badge is a promise about what is behind it. The
+ * badge counted its own way once and told the truth only by coincidence; now
+ * there is one definition of "needs you", and it is the admission bar.
  * @param orgId
  */
 export async function needsYouCount(orgId: string): Promise<number> {
-  const since = new Date(Date.now() - RECENT_FAILURE_WINDOW_MS);
-  const count = (where: ReturnType<typeof and>, table: typeof missionRunSchema | typeof workerRunSchema | typeof learningCandidateSchema | typeof workflowRunSchema) =>
-    db.select({ n: sql<number>`count(*)::int` }).from(table).where(where).then(([r]) => r?.n ?? 0);
+  return admitted(await openItems(orgId)).items.length;
+}
 
-  const [asks, actions, missions, workflows, workers, failed, candidates] = await Promise.all([
-    db.select({ n: sql<number>`count(distinct coalesce(${askSchema.groupKey}, ${askSchema.id}::text))::int` })
+/**
+ * What the workforce has earned.
+ *
+ * After every decision the system asks itself whether the judgment was
+ * reusable, and this is where it answers out loud. Three identical, unedited,
+ * low-consequence decisions in a row stop being three satisfied log lines and
+ * become one offer: stop asking.
+ *
+ * Only classes a STANDING POLICY could safely cover are eligible, and that is
+ * decided by the same admission bar the queue uses: if `admit` would already
+ * have delegated or resolved the class, the consequence of getting it wrong is
+ * routine and reversible. Anything the bar puts in front of a person stays a
+ * decision however many times it has been approved, because being right five
+ * times about pricing is not a licence to change pricing unattended.
+ * @param orgId
+ */
+export async function autonomyOffers(orgId: string): Promise<{ proposals: AutonomyProposal[]; holds: AutonomyHold[] }> {
+  const [actions, asks] = await Promise.all([
+    listReviewRows(orgId, 'decided'),
+    db
+      .select()
       .from(askSchema)
-      .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open')))
-      .then(([r]) => r?.n ?? 0),
-    listReviewRows(orgId, 'open').then(rows => groupByRecord(rows).length),
-    count(and(eq(missionRunSchema.orgId, orgId), inArray(missionRunSchema.status, ['paused', 'awaiting_review'])), missionRunSchema),
-    count(and(eq(workflowRunSchema.orgId, orgId), eq(workflowRunSchema.status, 'paused')), workflowRunSchema),
-    count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['paused', 'awaiting_review'])), workerRunSchema),
-    count(and(eq(workerRunSchema.orgId, orgId), inArray(workerRunSchema.status, ['failed', 'lost']), gte(workerRunSchema.updatedAt, since)), workerRunSchema),
-    count(and(eq(learningCandidateSchema.orgId, orgId), eq(learningCandidateSchema.status, 'pending')), learningCandidateSchema),
+      .where(and(eq(askSchema.orgId, orgId), inArray(askSchema.status, ['approved', 'rejected'])))
+      .orderBy(desc(askSchema.decidedAt))
+      .limit(200),
   ]);
-  return asks + actions + missions + workflows + workers + failed + candidates;
+
+  const routine = (candidate: Parameters<typeof admit>[0]) => !admit(candidate).admitted;
+
+  const history: SettledJudgment[] = [];
+  for (const r of actions) {
+    if (r.status !== 'done' && r.status !== 'approved' && r.status !== 'rejected') {
+      continue;
+    }
+    history.push({
+      class: r.actionId,
+      label: `${humaniseActionId(r.actionId).toLowerCase()} actions`,
+      outcome: r.status === 'rejected' ? 'rejected' : 'approved',
+      // A note on a decision is a person saying "yes, but". That is a
+      // judgment that has not finished being a judgment.
+      edited: (r.note ?? '').trim() !== '',
+      consequence: { level: routine({ kind: 'proposal', title: r.described.title, actionId: r.actionId }) ? 'low' : 'medium', reversible: r.undoable === true || r.described.amount === null },
+      at: r.decidedAt ?? r.createdAt,
+    });
+  }
+  for (const a of asks) {
+    history.push({
+      class: `ask:${a.kind}`,
+      label: `${a.kind} questions`,
+      outcome: a.status === 'rejected' ? 'rejected' : 'approved',
+      edited: (a.decisionNote ?? '').trim() !== '' || a.followUp,
+      consequence: { level: routine({ kind: a.kind, title: a.title, body: a.body }) ? 'low' : 'medium', reversible: a.risk !== 'high' },
+      at: a.decidedAt ?? a.updatedAt,
+    });
+  }
+  return autonomyProposals(history);
 }

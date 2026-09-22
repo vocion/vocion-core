@@ -3,7 +3,7 @@ import type { PageField, PagePrimary, PageRow, PageRowAction, TableLayout } from
 import { Badge } from '@/components/ui/badge';
 import { LinkRow } from '@/features/dashboard/LinkRow';
 import { FieldValue } from '@/features/dashboard/pages/FieldValue';
-import { computeTotals, fieldAlign, interpolateHref, isEmptyValue, priorityClass, resolveField, tableLayout } from '@/libs/workspace/pageFields';
+import { computeTotals, fieldAlign, interpolateHref, isEmptyValue, priorityClass, resolveField, resolveRowActionHref, tableLayout } from '@/libs/workspace/pageFields';
 
 /**
  * One table of a list page's rows.
@@ -37,6 +37,45 @@ function ConstantLine({ constants }: { constants: TableLayout['constants'] }) {
         </span>
       ))}
     </p>
+  );
+}
+
+/**
+ * The evidence a row keeps out of its columns, one disclosure per row.
+ *
+ * Native `<details>`, so it costs no client JavaScript and a row that is
+ * being investigated opens where it sits rather than navigating away from
+ * the timeline it was read in. Empty fields are left out rather than drawn as
+ * dashes: a run that finished yesterday has no live lease, and a row of
+ * dashes is a worse answer than no row.
+ * @param root0 - Props.
+ * @param root0.row - The row.
+ * @param root0.details - The fields marked `detail`.
+ * @param root0.now - The instant a `relative` value is measured against.
+ * @param root0.links - Resolved record references, by key.
+ */
+function RowDetails({ row, details, now, links }: { row: PageRow; details: PageField[]; now: number; links?: LinkMap }) {
+  const present = details.filter(f => !isEmptyValue(resolveField(row, f.from ?? f.key)));
+  if (present.length === 0) {
+    return null;
+  }
+  return (
+    <details className="group/details mt-1" data-testid="row-details">
+      <summary className="cursor-pointer list-none text-xs text-muted-foreground underline-offset-2 hover:underline">
+        <span className="group-open/details:hidden">Evidence</span>
+        <span className="hidden group-open/details:inline">Hide evidence</span>
+      </summary>
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-l-2 border-border pl-3 text-xs">
+        {present.map(f => (
+          <div key={f.key} className="contents">
+            <dt className="text-muted-foreground">{f.label ?? f.key}</dt>
+            <dd className="min-w-0 break-words text-foreground">
+              <FieldValue row={row} field={f} now={now} links={links} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 
@@ -169,6 +208,7 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
                               ))}
                           </div>
                         )}
+                        <RowDetails row={row} details={layout.details} now={now} links={links} />
                       </td>
                     )
                   : null,
@@ -181,7 +221,7 @@ export function PageTable({ rows, fields, primary, rowLink, rowActions = [], now
                 // a click-through still reaches a second place; the anchor
                 // stops the row's own navigation (see LinkRow).
                 ...rowActions.map((a) => {
-                  const href = interpolateHref(row, a.href);
+                  const href = resolveRowActionHref(row, a.href);
                   return (
                     <td key={`__action-${a.label}`} className="px-2 py-2.5">
                       {href

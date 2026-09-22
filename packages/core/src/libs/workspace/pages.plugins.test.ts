@@ -54,59 +54,104 @@ describe('plugin pages', () => {
     expect(readWorkspacePageContent(guide!)).toContain('# How the wiki works');
   });
 
-  it('Work is one queue over the request noun, and the outcome is the row', () => {
+  it('Work is one queue over the request noun, read as four lanes', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const work = pages.find(p => p.slug === 'work');
 
     // Work replaced the Backlog, Recommendations and the Factory floor. Those
-    // were three views of one thing. The request is the row; the engineering
-    // tasks it spawned are COUNTED on it, and the chain of contract, runs,
-    // checks and pull request is one tap away on the report.
+    // were three views of one thing. The outcome is the row, and the seven
+    // internal states are read as the four lanes a person manages, by the
+    // named derivation rather than by the manifest.
     expect(issues).toEqual([]);
     expect(work?.origin).toBe('plugin:software-factory');
     expect(work?.archetype).toBe('list');
     expect(work?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(work?.groupBy).toBe('meta.state');
-    expect(work?.stats?.map(s => s.label)).toContain('Waiting on a person');
-    expect(work?.fields?.find(f => f.key === 'tasks')).toMatchObject({ from: 'meta.taskCount' });
-    expect(work?.rowLink).toBe('/dashboard/objects/{id}');
-    expect(work?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
-    // Declined requests are the archive, not the queue.
-    expect(work?.filters).toEqual([{ field: 'meta.state', op: 'neq', value: 'out_of_scope' }]);
+    expect(work?.derive).toBe('workQueue');
+    expect(work?.groupBy).toBe('meta.lane');
+    expect(work?.sort).toEqual({ field: 'meta.order', dir: 'asc' });
+    // The row IS the drill-down; the "Report" affordance beside it is gone.
+    expect(work?.rowLink).toBe('/dashboard/p/feature/{id}');
+    expect(work?.rowActions).toEqual([]);
   });
 
-  it('every Work row carries a reason from the closed list, never a bare priority', () => {
+  it('Work carries no figures on top, because each tab counts itself', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const work = pages.find(p => p.slug === 'work');
+
+    // The four-figure top line was three of the same numbers the tabs now
+    // carry, said twice, over a queue two of them had already summarised.
+    expect(work?.stats ?? []).toEqual([]);
+    expect(work?.groupsAs).toBe('tabs');
+    expect(work?.groupBy).toBe('meta.lane');
+    // Blocks, not a table: sixteen columns on a phone was a sideways scroll.
+    expect(work?.layout).toBe('block');
+  });
+
+  it('a Work row is about five things, and says why in words', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
     const work = pages.find(p => p.slug === 'work');
     const keys = work?.fields?.map(f => f.key) ?? [];
 
-    // A number like 62 explains nothing. `meta.why` is the closed list of
-    // reason codes and `meta.priorityReason` is the same judgement in a
-    // sentence. A request ranked before the codes existed shows an empty
-    // cell, which is honest; a number in its place would not be.
-    expect(keys).toContain('why');
-    expect(work?.fields?.find(f => f.key === 'why')).toMatchObject({ from: 'meta.why' });
-    expect(work?.fields?.find(f => f.key === 'reason')).toMatchObject({ from: 'meta.priorityReason' });
-    expect(keys).not.toContain('priority');
-    expect(work?.fields?.some(f => f.from === 'meta.priority')).toBe(false);
+    // The outcome, why it is here, what is happening to it, which product,
+    // what it costs. Plus the rank and the conditional facts, both of which
+    // draw nothing when there is nothing to say.
+    expect(keys).toEqual(['title', 'status', 'gap', 'unmet', 'contract', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
+    // Every field sits in the subtitle so the uppercase fact list never
+    // draws: five labels a person reads past to reach five values.
+    expect(work?.primary).toEqual({ field: 'title', subtitle: ['status', 'gap', 'unmet', 'contract', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
+
+    // Sixteen fields became these. The record's own vocabulary is gone.
+    // `status` is the derived badge — "Blocked", "Decide" — never the
+    // record's own `state`, which is where `triaged` and `in_scope` live.
+    for (const gone of ['state', 'decision', 'proposed', 'kind', 'severity', 'size', 'channel', 'tasks', 'estimate', 'actual', 'asked', 'decided', 'reason']) {
+      expect(keys).not.toContain(gone);
+    }
   });
 
-  it('the software factory ships five surfaces, not ten, and buries the evidence', () => {
+  it('every Work row carries a reason in human words, never a code and never a bare priority', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const work = pages.find(p => p.slug === 'work');
+    const keys = work?.fields?.map(f => f.key) ?? [];
+
+    // A number like 62 explains nothing, and neither does `manual_toil`. The
+    // codes are still the closed list underneath; the row reads the sentence
+    // the derivation built from them, and a row with no reason says nothing
+    // at all rather than "not recorded".
+    expect(keys).toContain('why');
+    expect(work?.fields?.find(f => f.key === 'why')).toMatchObject({ from: 'meta.whyLine' });
+    expect(work?.fields?.some(f => f.from === 'meta.why')).toBe(false);
+    expect(work?.fields?.some(f => f.from === 'meta.priority')).toBe(false);
+    expect(keys).not.toContain('priority');
+  });
+
+  it('leads with three surfaces and buries the forensic ones under More', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const mine = pages.filter(p => p.origin === 'plugin:software-factory');
 
     expect(issues).toEqual([]);
-    // Business is what a person manages: the 60-second control plane, the
-    // products, the queue, the economics. Activity is evidence and lives
-    // under Advanced. The feature report and the releases detail are reached
-    // from a row rather than from the nav.
-    expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'performance', 'products', 'releases', 'work']);
-    expect(mine.filter(p => p.nav.section === 'Business' && !p.nav.hidden).map(p => p.slug)).toEqual(['factory', 'products', 'work', 'performance']);
-    expect(mine.filter(p => p.nav.section === 'Advanced' && !p.nav.hidden).map(p => p.slug)).toEqual(['activity']);
-    expect(mine.filter(p => p.nav.hidden).map(p => p.slug).sort()).toEqual(['feature', 'releases']);
+    // The loop a person actually walks: what I own (Products), what is
+    // happening to it (Work), what reached production (Releases). Everything
+    // else is forensic — real, occasionally essential, and not where anybody
+    // starts — so it sits under More rather than competing for the same eye.
+    expect(mine.map(p => p.slug).sort()).toEqual(['activity', 'factory', 'feature', 'guide', 'performance', 'products', 'releases', 'work']);
+    expect(mine.every(p => p.nav.section === 'Software factory')).toBe(true);
+    expect(mine.filter(p => !p.nav.hidden && !p.nav.secondary).map(p => p.slug)).toEqual(['products', 'work', 'releases']);
+    expect(mine.filter(p => p.nav.secondary).map(p => p.slug)).toEqual(['performance', 'factory', 'activity', 'guide']);
+    // Only the per-record report stays off the nav entirely: it is reached
+    // from the row that names it.
+    expect(mine.filter(p => p.nav.hidden).map(p => p.slug)).toEqual(['feature']);
+    // "Activity" is generic SaaS language; a factory log has a meaning here.
+    expect(mine.find(p => p.slug === 'activity')?.title).toBe('Factory log');
+
+    // Guide is the fourth verb: what a person wants next. It is a row in
+    // Business rather than an object list, because operating intent is a file
+    // in the workspace and the core route at /dashboard/guide renders it.
+    expect(pages.find(p => p.slug === 'guide')).toMatchObject({ archetype: 'link', href: '/dashboard/guide', nav: { section: 'Software factory', order: 7, secondary: true } });
 
     // The pages that were merged away are gone, not hidden.
     for (const slug of ['backlog', 'recommendations', 'factory-floor', 'product-board', 'costs', 'factory-log', 'team-report', 'portfolio', 'changelog']) {
@@ -134,6 +179,93 @@ describe('plugin pages', () => {
     expect(fields.stop).toMatchObject({ from: 'meta.stopRequested', format: 'badge', tones: { true: 'warn' } });
   });
 
+  it('Activity splits the four facts one status column was carrying', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages, issues } = readWorkspacePages();
+    const activity = pages.find(p => p.slug === 'activity');
+    const fields = Object.fromEntries((activity?.fields ?? []).map(f => [f.key, f]));
+    const stats = Object.fromEntries((activity?.stats ?? []).map(st => [st.label, st]));
+
+    expect(issues).toEqual([]);
+    // Execution, verification, output and task disposition are four columns
+    // reading four accessors. The row that said "failed / complete / passed /
+    // opened" can no longer be written, because nothing on this page reads
+    // `status` as the answer to all four questions.
+    expect(fields.execution).toMatchObject({ from: 'meta.execution', format: 'badge' });
+    expect(fields.verification).toMatchObject({ from: 'meta.verification', format: 'badge' });
+    expect(fields.output).toMatchObject({ from: 'meta.output', format: 'badge' });
+    expect(fields.disposition).toMatchObject({ from: 'meta.disposition', format: 'badge' });
+    expect(fields.failureClass).toMatchObject({ from: 'meta.failureClass', format: 'badge' });
+    expect(fields.recovery).toMatchObject({ from: 'meta.recoveryNote' });
+    // The raw column is still reachable, as evidence inside the row.
+    expect(fields.rawStatus).toMatchObject({ from: 'status', detail: true });
+
+    // The unit is the task, not the run.
+    expect(activity?.groupBy).toBe('meta.taskKey');
+    // Default row: what happened, then result, recovery, cost, duration, PR, time.
+    expect(activity?.primary).toEqual({ field: 'headline', subtitle: ['execution', 'verification', 'output', 'failureClass', 'recovery'] });
+    expect((activity?.fields ?? []).filter(f => !f.detail).map(f => f.key))
+      .toEqual(['headline', 'execution', 'verification', 'output', 'disposition', 'failureClass', 'recovery', 'cents', 'duration', 'pr', 'created']);
+
+    // The number the old strip never reported, plus the one that beats it.
+    expect(Object.keys(stats)).toContain('Failed');
+    expect(stats.Failed).toMatchObject({ kind: 'countWhere', where: { field: 'meta.execution', op: 'eq', value: 'failed' } });
+    expect(stats.Recovered).toMatchObject({ where: { field: 'meta.recovery', op: 'in', value: ['retried', 'preserved'] } });
+    expect(stats.Unresolved).toMatchObject({ where: { field: 'meta.recovery', op: 'eq', value: 'unresolved' } });
+    expect(stats.Spend).toMatchObject({ kind: 'sum', field: 'meta.cents', format: 'money' });
+    expect(stats['Spend on unsuccessful attempts']).toMatchObject({ kind: 'sum', where: { field: 'meta.successful', op: 'eq', value: false } });
+    // "0 lost" is a tile spent saying a thing did not happen.
+    expect(stats.Lost).toMatchObject({ hideWhenZero: true });
+
+    // Every heartbeat-era field is evidence now, not a column.
+    for (const key of ['agent', 'model', 'tokens', 'heartbeat', 'lease', 'summary', 'progress']) {
+      expect(fields[key]).toMatchObject({ detail: true });
+    }
+
+    // Activity means activity: the timeline is the default, the run table is
+    // a view, and the surfaces that are genuinely other records say so.
+    expect((activity?.views ?? []).map(v => v.key)).toEqual(['all', 'runs', 'unresolved', 'contract', 'environment', 'verification', 'releases', 'decisions']);
+    expect(activity?.views?.[0]?.key).toBe('all');
+    expect(activity?.views?.[0]?.filters).toBeUndefined();
+    expect(activity?.views?.find(v => v.key === 'releases')).toMatchObject({ href: '/dashboard/p/releases' });
+
+    // Back to the outcome the run served: the report when the run named a
+    // request, the task record when it only named a task.
+    expect(activity?.rowActions).toEqual([{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]);
+  });
+
+  it('Products reads as a product card, not as a document', () => {
+    workspace('plugins: [software-factory]\n');
+    const { pages } = readWorkspacePages();
+    const products = pages.find(p => p.slug === 'products');
+
+    // The page answers one question, and says so in one line rather than in a
+    // paragraph explaining itself.
+    expect(products?.description).toBe('How are my products doing?');
+
+    // EVERY field sits in the subtitle. A block draws its remaining fields as
+    // a definition list with an uppercase heading over each value — OUR
+    // PRICE, LAST SHIPPED, OPEN WORK — which asks a reader past five labels
+    // to reach five values, and filled a phone screen with two products.
+    const drawn = (products?.fields ?? []).filter(f => !f.detail).map(f => f.key);
+    const subtitle = products?.primary?.subtitle ?? [];
+
+    expect(subtitle).toEqual(['stage', 'health', 'owner', 'price', 'lastRelease', 'open']);
+
+    for (const key of drawn) {
+      expect(key === products?.primary?.field || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
+    }
+
+    // "Last shipped" is internal factory language; a person running a product
+    // says "last release", and the release is the thing they would open.
+    expect(drawn).toContain('lastRelease');
+    expect(drawn).not.toContain('lastShipped');
+
+    // Freshness is never primary card content. It is `detail`, and on a
+    // healthy row it is empty and the page drops it entirely.
+    expect((products?.fields ?? []).find(f => f.key === 'updated')?.detail).toBe(true);
+  });
+
   it('Products is the one product page, and says where its counters came from', () => {
     workspace('plugins: [software-factory]\n');
     const { pages } = readWorkspacePages();
@@ -143,51 +275,78 @@ describe('plugin pages', () => {
     // Products absorbed the portfolio and the Product board, which were two
     // weaker copies of one page.
     expect(products?.source).toEqual({ kind: 'objects', objectType: 'product' });
-    expect(products?.nav).toMatchObject({ section: 'Business', order: 1 });
+    expect(products?.nav).toMatchObject({ section: 'Software factory', order: 1, secondary: false });
     expect(readWorkspacePageContent(products!)).toContain('agent-maintained');
-    // Releases keeps the detail, off the nav, newest first.
+    // Releases came ON to the nav: what reached production, and what happened
+    // to it afterwards, is a question a person asks daily — it is not
+    // forensic. It is the one net-new top-level surface.
     expect(releases?.source).toEqual({ kind: 'objects', objectType: 'release' });
     expect(releases?.sort).toEqual({ field: 'meta.releasedAt', dir: 'desc' });
-    expect(releases?.nav.hidden).toBe(true);
+    expect(releases?.nav).toMatchObject({ section: 'Software factory', order: 3, hidden: false, secondary: false });
   });
 
-  it('Performance leads with four numbers and never blends the two autonomy measures', () => {
+  it('Performance answers one question, in four numbers that each carry their direction', () => {
     workspace('plugins: [software-factory]\n');
     const { pages, issues } = readWorkspacePages();
     const perf = pages.find(p => p.slug === 'performance');
-    const fields = Object.fromEntries((perf?.fields ?? []).map(f => [f.key, f]));
-    const labels = (perf?.stats ?? []).map(s => s.label);
+    const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
+    const headline = (perf?.stats ?? []).filter(s => s.group === undefined).map(s => s.label);
 
     expect(issues).toEqual([]);
-    // Rows are requests; the figures are rolled up onto the record when a
-    // task's cost is written, so the page never computes across types.
     expect(perf?.source).toEqual({ kind: 'objects', objectType: 'request' });
-    expect(perf?.groupBy).toBe('meta.tags');
-    expect(fields.estimate).toMatchObject({ from: 'meta.estimateCents', format: 'money', total: true });
-    expect(fields.actual).toMatchObject({ from: 'meta.actualCents', format: 'money', total: true });
-    expect(fields.variance).toMatchObject({ from: 'meta.varianceCents', format: 'money', total: true });
+    // It is its figures. Listing the requests under them made it a second
+    // Backlog — the same rows, in a worse order, under headings that were not
+    // about them. The source stays, because the figures come from it.
+    expect(perf?.showRows).toBe(false);
+    expect(perf?.fields ?? []).toEqual([]);
 
-    // The four headline numbers come first, in order, before the evidence.
-    expect(labels.slice(0, 4)).toEqual([
-      'Spent this month',
-      'Accepted changes (requests shipped)',
-      'Cost per accepted change',
-      'Waste: spent, then answered instead of shipped',
+    // FOUR headline numbers: are we shipping faster, is quality holding, is
+    // it costing less, does it need less of me.
+    expect(headline).toEqual([
+      'Speed to release',
+      'Cost per release',
+      'Accepted first pass',
+      'Human time per release',
     ]);
 
-    // Work autonomy and human attention are named separately. "94%
-    // auto-completed" beside "32 need attention" creates questions, not
-    // confidence, so neither is averaged into the other.
-    expect(labels.filter(l => l.startsWith('Work autonomy:'))).toHaveLength(2);
-    expect(labels.filter(l => l.startsWith('Human attention:'))).toHaveLength(2);
-    expect(labels.some(l => /^Autonomy$/.test(l))).toBe(false);
+    // Every one of them carries its DIRECTION. A figure alone is nearly
+    // unreadable: "$1.28 per release" says almost nothing against "$1.28,
+    // down 38%".
+    for (const label of headline) {
+      expect(stats[label]?.compare).toBe('prior');
+      expect(stats[label]?.goodWhen).toBeDefined();
+    }
 
-    const stats = Object.fromEntries((perf?.stats ?? []).map(s => [s.label, s]));
+    // Which way is GOOD is declared, never inferred: cost falling is good and
+    // quality falling is not, and no arithmetic can tell them apart.
+    expect(stats['Cost per release']?.goodWhen).toBe('down');
+    expect(stats['Accepted first pass']?.goodWhen).toBe('up');
 
-    expect(stats['Spent this month']).toMatchObject({ kind: 'sum', where: { field: 'meta.rollupsUpdatedAt', op: 'since', value: 'month' } });
-    expect(stats['Average cost of a feature']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'in', value: ['gap', 'idea'] } });
-    expect(stats['Average cost of a bug']).toMatchObject({ kind: 'avg', format: 'money', where: { op: 'eq', value: 'bug' } });
-    expect(readWorkspacePageContent(perf!)).toContain('estimated');
+    // One canonical unit. A reader who divides any two figures gets a third,
+    // which is only true while they all count releases.
+    expect(stats['Cost per release']).toMatchObject({
+      kind: 'ratio',
+      field: 'meta.actualCents',
+      format: 'money',
+      where: { field: 'meta.state', op: 'eq', value: 'shipped' },
+    });
+    // "Outcome" is abstract AI language; release is software language. It is
+    // gone from every LABEL — the notes may still use the word in prose where
+    // they are describing something that is genuinely not a release.
+    expect((perf?.stats ?? []).map(s => s.label).join(' ')).not.toMatch(/outcome/i);
+
+    // An honest answer is not waste, and rework is still the figure that
+    // replaced it — now under Needs attention, hidden while it is zero.
+    expect(Object.keys(stats).some(l => /waste/i.test(l))).toBe(false);
+    expect(stats['Rework spend']).toMatchObject({ kind: 'sum', field: 'meta.reworkCents', format: 'money', hideWhenZero: true });
+    expect(stats['Defects reported']?.hideWhenZero).toBe(true);
+    expect(JSON.stringify(perf?.stats)).not.toContain('"value":"answered"');
+
+    // Every figure still says what it counts — as DATA the methodology page
+    // is written from, not as a paragraph under each tile.
+    for (const s of perf?.stats ?? []) {
+      expect(s.note, `${s.label} has no note`).toBeTruthy();
+    }
   });
 
   it('a workspace page with the same slug replaces the plugin\'s', () => {

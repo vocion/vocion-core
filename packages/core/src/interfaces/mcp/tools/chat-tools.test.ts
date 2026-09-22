@@ -284,6 +284,9 @@ describe('ask_workspace', () => {
       expect(before).toHaveLength(2);
       expect(before[1]!.content).toContain('Half an answer');
       expect(before[1]!.content).toContain('cut off');
+      // `truncated`, not failed: the turn is still running, and both halves
+      // are replayed to the model because together they are one answer (#114).
+      expect(before[1]!.status).toBe('truncated');
 
       finish();
       await vi.waitFor(async () => {
@@ -291,6 +294,7 @@ describe('ask_workspace', () => {
 
         expect(after).toHaveLength(3);
         expect(after[2]!.content).toBe(', and the other half.');
+        expect(after[2]!.status).toBe('continued');
       });
     } finally {
       vi.unstubAllEnvs();

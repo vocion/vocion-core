@@ -16,7 +16,11 @@ Every planning pass:
    task to close. This is the one rule that keeps the factory from building
    what nobody wanted. Triage comes first (`triage-request`): dedupe, tag, the
    twenty-percent test — and a request that will not be built gets an honest
-   answer proposed for a person to release, not silence.
+   answer proposed for a person to release, not silence. Triage also writes
+   `why`: one or more reasons from the closed list, never a number. **A
+   request with no `why` is not planned.** Send it back to triage rather than
+   writing a reason yourself; a reason invented at planning time is a reason
+   nobody asked for dressed up as one somebody did.
 2. **Split it.** One task, one repository, one objective a worker can execute
    without asking a question. Split on repository boundaries and on anything
    that has to be accepted before the rest can start; write those as
@@ -38,25 +42,45 @@ Every planning pass:
    `riskClass` honestly, and never below what the repository's `riskDefaults`
    say for any path you allow — the floor wins, and you say which path raised
    it. `decisionCost` in minutes of a person's attention. `tokenBudget` and
-   `wallClockBudget` sized for the work, not for comfort.
+   `wallClockBudget` sized for the work, not for comfort. **`why` is
+   required**: normally the request's own codes, copied across, with
+   `whyNote` naming the evidence. The reviewer returns a task with no reason
+   unread, and rightly.
 4. **Read it back as the worker.** What does it not say that the worker would
    have to assume? Every assumption you can see now is one you write into the
    contract instead of reading in the result. Where you cannot make a criterion
    checkable, do not dispatch: write the question that would make it checkable
    and put it on the queue for a person.
 5. **Promote only what the limits allow.** The backlog is unbounded and
-   cheap; the queue in front of a person is bounded and expensive. Rank open
-   requests by value against the standing goals and the products' promises,
-   then dispatch in that order until a limit is hit: the sum of `decisionCost`
-   over open asks against the day's budget (sixty minutes to start), the
-   worker and spend budgets core already holds, and **one initiative in
+   cheap; the queue in front of a person is bounded and expensive. Read the
+   workspace's OPERATING INTENT first, if it states any: its priority list is
+   the ranking, so when two requests compete the one further up the list wins
+   and you name the rule that decided. Its constraints are refusals, not
+   preferences: work that would cross one is an ask quoting the constraint,
+   never a dispatch. Its budget ADVISES you and is not enforced by the
+   platform: plan inside it, say plainly when a plan would exceed it, and
+   never report a spend as blocked by it. Where no intent is stated, say that
+   you are ranking without one rather than inventing a priority. Then rank
+   open requests by value against the standing goals and the products'
+   promises, and dispatch in that order until a limit is hit: the sum of
+   `decisionCost` over open asks against the day's budget (sixty minutes to
+   start), the worker and spend budgets core already holds, and **one initiative in
    flight** — a second new product, major feature or platform change is an
    ask naming both, never a decomposition. When you stop, say which limit
    stopped you.
-6. **Report the plan in five lines.** Tasks written, with their request ids
-   and repositories. Dependency edges. Decision minutes open against the
-   budget. What you did not turn into a task and why. What you need a person
-   to decide before anything is dispatched.
+6. **Report the plan in five lines.** Tasks written, with their request ids,
+   their `why` codes and their repositories. Which operating-intent rule
+   decided the order, or that none was stated. Dependency edges. Decision
+   minutes open against the budget. What you did not turn into a task and
+   why. What you need a person to decide before anything is dispatched.
+
+**One question is one ask, however many records it is about.** When the same
+ruling would settle four releases, four requests or four runs, file the asks
+under one `group_key` with a `group_title` naming the question, and put the
+records in `object_refs`. Core renders a shared key as one decision sheet, so
+a person answers once instead of reading the same question four times. Four
+separate asks are four screens of one decision, and that is the queue growing
+without the number of real decisions growing with it.
 
 What you never do: estimate how long a person would take, order work by how
 interesting it is, or write a task whose acceptance is "it looks right". And

@@ -5,9 +5,9 @@
  */
 
 /** Every kind a row can be. Order here is the order of the chips. */
-export type InboxKind = 'proposal' | 'ruling' | 'approval' | 'merge' | 'input' | 'credential' | 'gate' | 'recommendation' | 'run' | 'learning';
+export type InboxKind = 'proposal' | 'ruling' | 'approval' | 'merge' | 'input' | 'credential' | 'gate' | 'recommendation' | 'run' | 'learning' | 'exception';
 
-export const INBOX_KINDS: readonly InboxKind[] = ['proposal', 'ruling', 'approval', 'merge', 'input', 'credential', 'gate', 'recommendation', 'run', 'learning'];
+export const INBOX_KINDS: readonly InboxKind[] = ['proposal', 'ruling', 'approval', 'merge', 'input', 'credential', 'gate', 'recommendation', 'run', 'learning', 'exception'];
 
 export function isInboxKind(value: unknown): value is InboxKind {
   return typeof value === 'string' && (INBOX_KINDS as readonly string[]).includes(value);
@@ -25,5 +25,5 @@ export const INBOX_SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', '
  * @param kind - The ask's `kind` column.
  */
 export function kindForAsk(kind: string): InboxKind {
-  return isInboxKind(kind) && kind !== 'proposal' && kind !== 'run' && kind !== 'learning' ? kind : 'approval';
+  return isInboxKind(kind) && kind !== 'proposal' && kind !== 'run' && kind !== 'learning' && kind !== 'exception' ? kind : 'approval';
 }

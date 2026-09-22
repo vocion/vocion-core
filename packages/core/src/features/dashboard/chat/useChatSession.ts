@@ -5,6 +5,7 @@ import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArt
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
@@ -128,6 +129,10 @@ type PersistedMessageRow = {
   documentsJson: unknown;
   traceJson?: unknown;
   confidence: ChatMessage['confidence'];
+  /** How the turn ended (`services/chat/turnStatus.ts`); null on a row written before that vocabulary. */
+  status?: string | null;
+  /** Why it ended that way, in the runtime's own words; null on an ordinary turn. */
+  statusReason?: string | null;
   feedbackRating?: string | null;
   feedbackNote?: string | null;
   /** Files attached to a user turn, as the conversations router resolves them. */
@@ -166,6 +171,10 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
+      // How the turn ended has to survive the reload — a fragment looks like
+      // an answer otherwise, and a refusal looks like a fault (#114).
+      ...(row.status ? { status: row.status as TurnStatus } : {}),
+      ...(row.statusReason ? { statusReason: row.statusReason } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
       ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
     };
@@ -791,9 +800,24 @@ export function useChatSession({
         setActivity(null);
         const message = String(evt.message ?? 'error');
         lastRunIsTextRef.current = false;
+        // The turn stops here with whatever text already arrived. Marking it
+        // now means the live transcript says the same thing the reloaded one
+        // will — the server writes the row `incomplete` from the same event
+        // (#114).
+        //
+        // This used to add a tool run called "error" instead, which lit the
+        // tool-error badge: the person read "error failed" over a turn where
+        // no tool had failed, and after the notice landed they read the same
+        // failure twice in one bubble. The run is gone; the reason travels on
+        // the message.
+        // The server says which ending this is, in the same word it will store
+        // on the row; an older runtime that does not say reads as the ending
+        // this used to assume.
+        const ending = (evt.ending as TurnStatus | undefined) ?? 'incomplete';
         appendToLatestAgent(m => ({
           ...m,
-          runs: [...(m.runs ?? []), { type: 'tool', name: 'error', state: 'error', output: message }],
+          status: ending,
+          statusReason: message,
         }));
       }
     }
@@ -1331,9 +1355,16 @@ export function useChatSession({
           .map(run => run.text)
           .join('\n\n'),
         trace: aborted ? finalizeTrace(m.trace) : (m.trace ?? []),
+        // A turn that lost its connection is the same story as one whose run
+        // threw: unfinished, not a failed tool (#114). Stopping on purpose is
+        // neither, so an abort marks nothing.
+        // The connection died before any ending arrived from the server, so
+        // the client names one itself: text on screen means the answer stopped
+        // part-way, nothing on screen means the turn never got going. A
+        // deliberate stop is neither — `handleStop` has already marked it.
         ...(aborted
           ? {}
-          : { runs: [...(m.runs ?? []), { type: 'tool' as const, name: 'error', state: 'error' as const, output: (err as Error).message }] }),
+          : { status: (m.content || (m.runs ?? []).length > 0 ? 'incomplete' : 'failed') as TurnStatus, statusReason: (err as Error).message }),
       }));
     } finally {
       // NOTE: the stream stash is NOT cleared here — on a reload the fetch
@@ -1382,13 +1413,12 @@ export function useChatSession({
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
-  const handleStop = useCallback(() => {
+  const handleStop = useCallback(async () => {
     if (!streamingRef.current) {
       return;
     }
     streamingRef.current = false;
     stoppedControllerRef.current = abortRef.current;
-    abortRef.current?.abort();
     flushDeltas();
     // Close this turn's rows HERE rather than in the abort catch, so a
     // stop-and-send lands the tail on the turn that was stopped.
@@ -1399,13 +1429,43 @@ export function useChatSession({
         .map(run => run.text)
         .join('\n\n'),
       trace: finalizeTrace(m.trace),
+      // Marked live as well as stored, so the bubble says the same thing now
+      // as it will after a reload.
+      status: 'stopped' as const,
     }));
     setPhase('idle');
     setActivity(null);
     setTurnOutcome('stopped');
+    // Tell the server, and WAIT for it before aborting.
+    //
+    // Aborting only closes this browser's socket, which is exactly what a
+    // locked phone does — and that turn has to keep running so the person can
+    // come back to it. Stopping is a decision, so it is sent as one, and the
+    // row is stored `stopped` instead of `complete`.
+    //
+    // The wait is what makes the two agree. The run reaches its own end on its
+    // own schedule; if the stop were still in flight when it got there, the
+    // row would say `complete` while this bubble said `stopped`, and a reload
+    // would quietly rewrite what the person remembers doing. Everything above
+    // has already happened, so the screen is not waiting on this.
+    const streamId = streamStashRef.current?.streamId;
     // A stopped turn has nothing to resume.
     streamStashRef.current = null;
     writeStreamStash(null);
+    if (streamId) {
+      try {
+        await fetch('/rpc/agent/stream/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stream_id: streamId }),
+        });
+      } catch (error) {
+        // The turn still stops here, but the stored row will say `complete`
+        // and nobody will know why it looks cut short. Worth a line.
+        console.warn('useChatSession: the server was not told this turn was stopped', error);
+      }
+    }
+    abortRef.current?.abort();
   }, [flushDeltas, appendToLatestAgent]);
 
   /**

@@ -12,6 +12,7 @@ import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
 import { Link } from '@/libs/I18nNavigation';
+import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
@@ -116,6 +117,51 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
+/**
+ * What to tell the person about how this turn ended, when it owes them a reason.
+ *
+ * Three endings do: the answer broke mid-sentence, the turn never got going,
+ * or the workspace declined to run it. Each needs different words — "ask
+ * again" is useless advice for a spent budget — and every other ending needs
+ * no notice at all.
+ * @param status - How the turn ended, as stored on the row (#114).
+ * @returns The sentence to show, or null when this ending needs no notice.
+ */
+function turnEndingNotice(status: ChatMessage['status']): string | null {
+  if (!isFailure(status)) {
+    return null;
+  }
+  if (status === 'failed') {
+    return 'This turn did not run, so there is no answer above. Ask again.';
+  }
+  if (status === 'refused') {
+    return 'This turn was not run. Nothing is broken — something needs changing before this agent can answer.';
+  }
+  return 'This answer stopped partway through, so what you see above is unfinished. Ask again for a complete one.';
+}
+
+/**
+ * The quiet line under an ending that is nobody's fault.
+ *
+ * These three did what was asked: the person stopped the turn, or a surface
+ * split one answer across two messages. They need a marker so the short text
+ * above is not read as the whole story — not a warning.
+ * @param status - How the turn ended.
+ * @returns The line to show, or null when this ending needs no marker.
+ */
+function turnEndingMarker(status: ChatMessage['status']): string | null {
+  if (status === 'stopped') {
+    return 'You stopped this answer.';
+  }
+  if (status === 'truncated') {
+    return 'This answer was cut off at a time limit; the rest is in the next message.';
+  }
+  if (status === 'continued') {
+    return 'This is the rest of the answer above.';
+  }
+  return null;
+}
+
 export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
@@ -126,6 +172,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const erroredRun = runs.find(r => r.type === 'tool' && r.state === 'error');
   const erroredNode = (message.trace ?? []).find(n => n.status === 'error');
   const hasToolError = Boolean(erroredRun || erroredNode);
+  // How this turn ended, read once: an explanation when it owes one, a quiet
+  // line when it does not, nothing at all when it simply finished (#114).
+  const endingNotice = turnEndingNotice(message.status);
+  const endingMarker = turnEndingMarker(message.status);
   // WHAT failed, not just THAT something did.
   //
   // The badge was a way in to the trace, which is right — but it opened the
@@ -141,9 +191,21 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
     .toString()
     .replaceAll(/\s+/g, ' ')
     .trim();
+  // A GENERIC name is not a name. When the failure arrives with nothing but
+  // "Error" on it — a provider that refused the whole turn, a missing key, a
+  // network that went away — `${name} failed` renders as "error failed",
+  // which is two words that say the same nothing twice.
+  const namedFailure = !['a tool', 'error', 'failed', ''].includes(toolErrorName.trim().toLowerCase());
+  const failureLabel = namedFailure ? `${toolErrorName} failed` : 'This turn failed';
+  // Did the turn say ANYTHING? A tool that failed mid-answer leaves prose
+  // around it and the badge is rightly a way in. A turn that failed outright
+  // leaves an empty bubble, and then hiding the reason behind a tap means the
+  // screen's whole content is a red chip reading "failed" — on a phone, with
+  // no hover to fall back on. So the reason opens with it.
+  const turnSaidSomething = Boolean(message.content?.trim()) || runs.some(r => r.type === 'text' && r.text?.trim());
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
-  const [showError, setShowError] = useState(false);
+  const [showError, setShowError] = useState(hasToolError && !turnSaidSomething);
   // The turn in the order it happened: passages of prose with the work that
   // fell between them rendered at that point, not hoisted to the top
   // (`interleave.ts`). A message with a typed trace renders the trace only —
@@ -224,7 +286,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
             >
               <AlertCircle className="size-2.5 shrink-0" aria-hidden />
-              <span className="truncate">{toolErrorName === 'A tool' ? 'Tool error' : `${toolErrorName} failed`}</span>
+              <span className="truncate">{failureLabel}</span>
             </button>
           )}
         </div>
@@ -233,11 +295,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             data-testid="tool-error-detail"
             className="mt-2 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
           >
-            <div className="font-medium text-[var(--brand-fail)]">
-              {toolErrorName}
-              {' '}
-              failed
-            </div>
+            <div className="font-medium text-[var(--brand-fail)]">{failureLabel}</div>
             <p className="mt-1 break-words whitespace-pre-wrap text-muted-foreground">
               {toolErrorDetail || 'The tool reported a failure but returned no message. The full step is in the activity trace above.'}
             </p>
@@ -397,6 +455,38 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <SelfUpdateChips updates={message.selfUpdates!} />
           )}
         </div>
+        {/* How the turn ended, when that is not "it finished" (#114). Three
+            endings owe the person an explanation and get the notice below;
+            `stopped` and `truncated` are ordinary and get a quiet line; a
+            finished turn says nothing at all. A half-answer rendered like a
+            whole one is worse than no answer, and a refusal rendered as a
+            fault sends someone hunting a bug that is not there. */}
+        {endingNotice && (
+          <div
+            data-testid="incomplete-turn-notice"
+            role="status"
+            className="mt-2 flex items-start gap-1.5 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
+          >
+            <AlertCircle className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
+            <span>
+              {endingNotice}
+              {message.statusReason && (
+                <span className="mt-1 block text-foreground/60">
+                  {/* A refused turn was just told nothing is broken; calling the
+                      reason "what went wrong" would take that back. */}
+                  {message.status === 'refused' ? 'Why:' : 'What went wrong:'}
+                  {' '}
+                  {message.statusReason}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+        {endingMarker && (
+          <div data-testid="turn-ending-marker" className="mt-2 text-[12px] text-foreground/55">
+            {endingMarker}
+          </div>
+        )}
         {message.confidence && (
           <div className="mt-2 flex justify-end">
             <ConfidenceIndicator level={message.confidence} />

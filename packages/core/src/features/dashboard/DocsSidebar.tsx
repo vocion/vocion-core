@@ -1,5 +1,5 @@
 import type { DocEntry } from '@/libs/docs';
-import Link from 'next/link';
+import { Link } from '@/libs/I18nNavigation';
 import { DocsSearch } from './DocsSearch';
 
 type Props = {

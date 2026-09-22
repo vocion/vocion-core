@@ -54,6 +54,35 @@ function run(records: ReturnType<typeof record>[], config = configWith(), over: 
 }
 
 describe('candidate extractor validation', () => {
+  it('blesses a link the document published as a path', () => {
+    // A JSON feed states an entry's own page relatively. The connector resolves
+    // it before declaring it, because the gate compares exactly, but the model
+    // reads the raw entry and hands the path straight back.
+    const out = run([record({ sourceUrl: '/events/unruly-allies' })], configWith(), {
+      publishedUrls: ['https://www.vtciderlab.com/events/unruly-allies'],
+      baseUrl: 'https://www.vtciderlab.com/events?format=json-pretty',
+    });
+
+    expect(out.records[0]?.sourceUrl).toBe('https://www.vtciderlab.com/events/unruly-allies');
+  });
+
+  it('still refuses a path the document never published', () => {
+    const out = run([record({ sourceUrl: '/events/invented-by-the-model' })], configWith(), {
+      publishedUrls: ['https://www.vtciderlab.com/events/unruly-allies'],
+      baseUrl: 'https://www.vtciderlab.com/events?format=json-pretty',
+    });
+
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
+  });
+
+  it('keeps refusing a path when the document gave no base to resolve against', () => {
+    const out = run([record({ sourceUrl: '/events/unruly-allies' })], configWith(), {
+      publishedUrls: ['https://www.vtciderlab.com/events/unruly-allies'],
+    });
+
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
+  });
+
   it('fills in the source defaults before it checks the identity', () => {
     const config = configWith({ defaults: { venueName: 'Bellwater Hall', venueCity: 'Riverton' } });
 
@@ -215,6 +244,78 @@ describe('candidate extractor validation', () => {
 
     expect(out.records).toHaveLength(1);
     expect(out.records[0]?.sourceUrl).toBeUndefined();
+  });
+
+  it('accepts the image the document published for itself, which is in no link list', () => {
+    // A <meta> image is not an <a href>, so `collectLinks` never sees it and
+    // the gate used to drop every one a model read off the document's own
+    // text, the text `extractFromHtml` opens with that very URL.
+    const out = run([record({ imageUrl: 'https://bellwaterhall.example/og-card.png' })], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.records[0]?.issues).toEqual([]);
+  });
+
+  it('fills a missing image from the document\'s own, when the document described one record', () => {
+    const out = run([record()], configWith(), { ogImage: 'https://bellwaterhall.example/og-card.png' });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.records[0]?.issues.join(' ')).toContain('the document published for itself');
+    expect(out.counts.image_from_document).toBe(1);
+  });
+
+  it('leaves a document that published no image of its own exactly as it was', () => {
+    const out = run([record()]);
+
+    expect(out.records[0]?.imageUrl).toBeUndefined();
+    expect(out.records[0]?.issues).toEqual([]);
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('does not stamp the document\'s image on each record of a document that listed several', () => {
+    // An og:image describes the DOCUMENT. Where the document lists many
+    // records the image is the page's, and putting it on each one would state
+    // on every card something the document never said about any of them.
+    const out = run([record(), record({ fields: { title: 'Late Show' } })], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records.map(kept => kept.imageUrl)).toEqual([undefined, undefined]);
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('leaves an image the model read for the record rather than overwriting it', () => {
+    const out = run([record({ imageUrl: 'https://cdn.bellwaterhall.example/open-mic.jpg' })], configWith(), {
+      links: [{ url: 'https://cdn.bellwaterhall.example/open-mic.jpg', text: 'poster' }],
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://cdn.bellwaterhall.example/open-mic.jpg');
+    expect(out.counts.image_from_document).toBeUndefined();
+  });
+
+  it('still drops an invented image, and fills the gap with the one the document published', () => {
+    // The gate is not softened by having an og:image to fall back on: the
+    // invented URL goes and is reported, and what lands is a value the
+    // document itself stated.
+    const out = run([record({ imageUrl: 'https://evil.example/pwn.png' })], configWith(), {
+      ogImage: 'https://bellwaterhall.example/og-card.png',
+    });
+
+    expect(out.records[0]?.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    expect(out.records[0]?.issues.join(' ')).toContain('the image URL was not published by the document');
+  });
+
+  it('ignores a declared image that is not a string', () => {
+    // Cast out of a jsonb column, so the type is a claim. A number here would
+    // throw inside the gate and take the whole document with it.
+    for (const wrong of [42, null, { url: 'x' }, ['https://bellwaterhall.example/og-card.png']]) {
+      const out = run([record()], configWith(), { ogImage: wrong });
+
+      expect(out.records[0]?.imageUrl).toBeUndefined();
+    }
   });
 
   it('collapses two records the document listed twice', () => {

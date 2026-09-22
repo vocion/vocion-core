@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { afterEach, describe, expect, it } from 'vitest';
-import { interpolateHref, PageManifestSchema, readWorkspacePages } from './pages';
+import { interpolateHref, PageManifestSchema, readWorkspacePages, resolveRowActionHref } from './pages';
 
 // The `report` archetype and the row action that reaches it. What the
 // software factory's feature report needed from the page schema, and nothing
@@ -59,6 +59,33 @@ describe('row actions', () => {
     expect(PageManifestSchema.safeParse({ ...base, rowActions: [{ label: 'Report', href: '/dashboard/p/feature/{id}' }] }).success).toBe(true);
     expect(PageManifestSchema.safeParse({ ...base, rowActions: [{ label: 'Report' }] }).success).toBe(false);
   });
+
+  it('take an ordered fallback chain of hrefs, not just one', () => {
+    const base = { slug: 'activity', title: 'Activity', archetype: 'list', source: { kind: 'workerRuns' } };
+    const withChain = PageManifestSchema.safeParse({
+      ...base,
+      rowActions: [{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }],
+    });
+
+    expect(withChain.success).toBe(true);
+    expect(withChain.success && withChain.data.rowActions).toEqual([
+      { label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] },
+    ]);
+    expect(PageManifestSchema.safeParse({ ...base, rowActions: [{ label: 'Outcome', href: [] }] }).success).toBe(false);
+  });
+
+  it('resolve to the first candidate every token of which the row can fill, the run -> task -> request chain', () => {
+    const chain = ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'];
+
+    // The run named its request: land on the feature report.
+    expect(resolveRowActionHref(row(354, { requestId: 40, taskRecordId: 100 }), chain)).toBe('/dashboard/p/feature/40');
+    // The run named only a task with no request of its own (a probe): land
+    // on the task record instead of a report about nothing.
+    expect(resolveRowActionHref(row(354, { requestId: null, taskRecordId: 100 }), chain)).toBe('/dashboard/objects/100');
+    // The run named neither (no `input.record` at all): no candidate
+    // resolves, so nothing is drawn: a dead link is worse than no link.
+    expect(resolveRowActionHref(row(349, {}), chain)).toBeNull();
+  });
 });
 
 describe('the software factory declares the page rather than core hard-coding it', () => {
@@ -94,9 +121,16 @@ describe('the software factory declares the page rather than core hard-coding it
     // A report is about one record, so it is reached from a row, not the nav.
     expect(feature?.nav.hidden).toBe(true);
     // Work and Performance are both lists of requests, so both reach the
-    // same report by the request's own id. The report is the drill target
-    // from every surface that names a request.
-    expect(work?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
-    expect(performance?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
+    // same report by the request's own id. On Work the ROW is the drill
+    // target, because the thing it opens is the outcome the row names, and a
+    // second affordance beside it was never a second meaning.
+    expect(work?.rowLink).toBe('/dashboard/p/feature/{id}');
+    expect(work?.rowActions).toEqual([]);
+    // Performance stopped listing requests: it is its figures, and listing
+    // them under those figures made it a second Backlog. With no rows there
+    // is no row to reach a report from, which is why the drill target lives
+    // on Work — the page whose rows ARE the outcomes.
+    expect(performance?.showRows).toBe(false);
+    expect(performance?.rowActions ?? []).toEqual([]);
   });
 });

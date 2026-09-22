@@ -120,5 +120,29 @@ if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
   });
 }
 
-const nextConfig = configWithPlugins;
+/**
+ * Hosts allowed to load `/_next/*` in dev.
+ *
+ * Next dev refuses cross-origin requests for its own assets, and refuses them
+ * SILENTLY as far as the page is concerned: the server still renders, so a
+ * reader gets HTML — the `loading.tsx` shimmer, a chat shell — and then the
+ * client bundle never arrives, nothing hydrates, and the page sits on its
+ * loading state forever. Every button is dead, because the handler that would
+ * have run was never downloaded.
+ *
+ * That is what a tunnelled preview looks like from outside: the app appears
+ * to hang on a skeleton. So any host the dev server is reached through has to
+ * be named here. `VOCION_DEV_ORIGINS` (comma separated) covers a one-off
+ * tunnel; the permanent preview host is listed by default so reconnecting it
+ * needs no config at all.
+ */
+const devOrigins = [
+  'dev.agents.metacto.com',
+  ...(process.env.VOCION_DEV_ORIGINS ?? '')
+    .split(',')
+    .map(h => h.trim())
+    .filter(Boolean),
+];
+
+const nextConfig = { ...configWithPlugins, allowedDevOrigins: devOrigins };
 export default nextConfig;

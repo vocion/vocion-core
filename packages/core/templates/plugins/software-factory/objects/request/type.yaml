@@ -61,6 +61,69 @@ schema:
         urls: {type: array, items: {type: string}}
         videoUrl: {type: string}
         screenshotArtifactIds: {type: array, items: {type: integer}, description: 'Screenshots as core artifacts — versioned, previewable, one tap from the request.'}
+    surface:
+      x-display: {label: Surface, format: badge, group: Triage, tones: {ui: info, flow: info, data: muted, infra: muted, none: muted}}
+      type: string
+      description: >-
+        What this change alters for a person, which is what decides whether a
+        visual is owed. `ui` — something they look at. `flow` — a path they
+        follow through the product. `data` / `infra` — the machine underneath,
+        which a person never sees. `none` — nothing user-facing. Set at triage;
+        for work that already shipped it can be read off the diff, since
+        `engineering_task.filesChanged` says which paths it touched.
+      enum: [ui, flow, data, infra, none]
+    visuals:
+      x-display: {label: Visuals, role: prose, format: steps, order: 4}
+      type: object
+      description: >-
+        What this outcome looks like — proposed before it is built, captured
+        after it ships. Core artifacts, never a second noun: an artifact is
+        already the thing that versions, previews and can be cited, so a
+        mockup is an artifact, a flow diagram is an artifact whose body is a
+        mermaid fence, and an after-shot is an image artifact.
+
+        A `ui` or `flow` outcome owes a `before` to be decided and an `after`
+        to be closed. `noVisualReason` is the recorded way out — a way out
+        that is written down, never a silent skip.
+      properties:
+        beforeArtifactIds: {type: array, items: {type: integer}, description: 'Mockups, flow and architecture diagrams — what we propose to build, so a decision is made against something a person can see.'}
+        afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
+        surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
+        noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
+    acceptance:
+      x-display: {label: Acceptance criteria, role: prose, format: steps, order: 5}
+      type: array
+      description: >-
+        The contract between a person and the factory: what has to be true
+        before this is done. Written before the work starts, in the language
+        of the product rather than the implementation — "existing Send links
+        continue to resolve", not "update the redirect map".
+
+        This is what a person approves. "Done when it works" is not a
+        contract, because nobody can tell whether it was met; a criterion a
+        reader cannot check is the same as no criterion. Each one carries the
+        evidence that settled it, so a review reads as a list of claims with
+        proof attached rather than a diff to be trusted.
+
+        Frozen at approval (`acceptanceFrozenAt`). If the factory discovers
+        something that changes the contract materially it comes back rather
+        than silently reinterpreting the job.
+      items:
+        type: object
+        properties:
+          statement: {type: string, description: 'One thing that must be true, stated so a person can check it. Present tense, user-visible where possible.'}
+          met: {type: boolean, description: 'Whether it holds. Absent means nobody has checked yet, which is NOT the same as false.'}
+          evidenceUrl: {type: string, description: 'What settled it — a test run, a screenshot, a smoke check. A criterion marked met with no evidence is an assertion, not a proof.'}
+          checkedAt: {type: string, format: date-time}
+    acceptanceFrozenAt:
+      x-display: {label: Contract agreed, group: Triage}
+      type: string
+      format: date-time
+      description: >-
+        When the acceptance criteria stopped being a draft and became the
+        thing the factory is building against. Set at approval. A change after
+        this is a renegotiation and needs a person, which is what stops the
+        job being quietly reinterpreted mid-build.
     severity:
       x-display: {label: Severity, format: badge, group: Triage, tones: {p1: bad, p2: warn, p3: muted}}
       type: string
@@ -132,6 +195,34 @@ schema:
       x-display: {label: Tasks, group: Cost}
       type: integer
       description: ROLLED UP — how many tasks carry this request's id, whatever their status.
+    reworkCents:
+      x-display: {label: Rework, format: money, group: Cost}
+      type: integer
+      description: >-
+        ROLLED UP: the spend on this request's tasks that were `rejected` or
+        `abandoned`: money that produced no accepted outcome and had to be
+        discarded or repeated. A failed attempt that contributed nothing, an
+        implementation replaced by a later one, a retry that was not needed.
+        This is the honest measure of waste. Money spent investigating a
+        request that was then answered honestly is NOT rework, because holding the
+        line is a valid outcome, and the factory is not charged for good
+        judgement.
+    reworkTaskCount:
+      x-display: {label: Discarded attempts, group: Cost}
+      type: integer
+      description: ROLLED UP, how many of this request's tasks were `rejected` or `abandoned`. Zero on a request that has tasks means it was accepted first pass.
+    shippedAt:
+      x-display: {label: Shipped}
+      type: string
+      format: date-time
+      description: >-
+        ROLLED UP: the `releasedAt` of the EARLIEST release whose
+        `requestIds` names this request. There is no record of when a request
+        entered `shipped` (business objects keep no state history), so the
+        deploy that carried it is the honest ship moment. `askedAt` to here is
+        the cycle time the Performance page takes a median of; a request with
+        no release has no ship date and is left out of that median rather than
+        counted as instant.
     rollupsUpdatedAt:
       x-display: {label: Cost as of}
       type: string
@@ -208,6 +299,31 @@ schema:
       x-display: {label: Their reason, role: prose, order: 5}
       type: string
       description: The person's note on their decision, verbatim. On a rejection it is why, and it is quoted in the body if the request is ever recommended again on new evidence.
+    why:
+      x-display: {label: Why, format: badge, group: Why, tones: {user_request: ok, production_bug: bad, blocks_goal: warn, breaks_promise: bad, required_for_dogfood: warn, manual_toil: info, platform_leverage: info, factory_reliability: warn, observed_behaviour: muted}}
+      type: array
+      description: >-
+        Why this, why now. One or more reasons from a closed list, never a
+        number. A priority of 62 explains nothing; `user_request` plus
+        `required_for_dogfood` explains everything a person needs to argue
+        with. REQUIRED on every request triage touches: triage that cannot
+        name a reason has not understood the request, and the honest move is
+        to leave the request `new` and say what is missing rather than to
+        invent one. The list is closed so that "how much of this week went to
+        factory reliability" is answerable across records. Definitions live
+        beside the codes in `libs/workspace/reasonCodes.ts`.
+      items:
+        type: string
+        enum: [user_request, production_bug, blocks_goal, breaks_promise, required_for_dogfood, manual_toil, platform_leverage, factory_reliability, observed_behaviour]
+    whyNote:
+      x-display: {label: Why this, why now, role: prose, order: 6}
+      type: string
+      description: >-
+        The codes grounded in this record's own evidence, in one short line:
+        "3 user asks, dogfood blocker", "run 341 lost $11.86 of finished
+        work". Names the countable thing behind the code, not a restatement
+        of it: "user_request" is the code, "Chris and two dogfood users asked
+        on 2026-09-20" is the note. Written with `why` and read beside it.
 # What rolls up onto a request, and from where: the tasks that point at it.
 # Core recomputes these from every such task when one task's cost is written
 # (packages/core/src/services/objects/rollups.ts); the page reads them like
@@ -217,6 +333,18 @@ rollups:
   - {field: actualCents, from: {type: engineering_task, by: requestId}, sum: actualCents}
   - {field: varianceCents, from: {type: engineering_task, by: requestId}, sum: varianceCents}
   - {field: taskCount, from: {type: engineering_task, by: requestId}}
+  # Whether a worker is actually on it. `state: building` is a claim the
+  # request makes about itself; this counts the tasks that are moving, so the
+  # Work page can read a building request with nothing running as stopped
+  # without storing a second state that could disagree with the tasks.
+  - {field: runningTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [dispatched, running]}}
+  # Rework: the same tasks, narrowed to the ones that were thrown away. Money
+  # spent and then answered rather than shipped is NOT here, on purpose.
+  - {field: reworkCents, from: {type: engineering_task, by: requestId}, sum: actualCents, where: {field: status, in: [rejected, abandoned]}}
+  - {field: reworkTaskCount, from: {type: engineering_task, by: requestId}, where: {field: status, in: [rejected, abandoned]}}
+  # When it shipped: the earliest release that names this request. The link
+  # runs the other way from the two above, because the release lists its requests.
+  - {field: shippedAt, from: {type: release, inList: requestIds}, min: releasedAt}
 classificationPrompt: >-
   Given a message from any channel — a form on a product site, a store
   review, an email, a chat message, a GitHub issue, a note from someone on the

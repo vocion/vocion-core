@@ -96,3 +96,83 @@ describe('runAgentOnRuntime payload', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Re-seed the one agent row with a particular harness block.
+ * @param harnessConfig - What to store under `harness_config`.
+ */
+async function seedHarness(harnessConfig: Record<string, unknown>): Promise<void> {
+  await db.delete(agentSchema);
+  await db.insert(agentSchema).values({
+    orgId: ORG,
+    slug: 'sales-assistant',
+    name: 'Sales Assistant',
+    systemPrompt: 'Be helpful.',
+    harnessConfig,
+  } as never);
+}
+
+describe('runAgentOnRuntime and the prompt-cache switch', () => {
+  beforeEach(() => {
+    mintBedrockSessionForRuntime.mockResolvedValue(null);
+  });
+
+  it('carries an author\'s "do not cache this agent" across to the artifact', async () => {
+    // The artifact caches by default, so an agent whose prefix must not be
+    // cached is only honoured if this field actually travels. Dropped here,
+    // the agent keeps paying the 1.25x write rate on every turn and nothing
+    // says so.
+    await seedHarness({ modelProvider: 'bedrock', promptCache: false });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect((captured.payload().agent as Record<string, unknown>).promptCache).toBe(false);
+  });
+
+  it('leaves the field out when the author said nothing', async () => {
+    // Absent means "whatever the artifact's default is", which is on. Sending
+    // an explicit value here would freeze today's default into every payload.
+    await seedHarness({ modelProvider: 'bedrock' });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect('promptCache' in (captured.payload().agent as Record<string, unknown>)).toBe(false);
+  });
+
+  it('carries an explicit "yes, cache this one" too', async () => {
+    await seedHarness({ modelProvider: 'bedrock', promptCache: true });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect((captured.payload().agent as Record<string, unknown>).promptCache).toBe(true);
+  });
+});
+
+describe('runAgentOnRuntime and the step limit', () => {
+  beforeEach(() => {
+    mintBedrockSessionForRuntime.mockResolvedValue(null);
+  });
+
+  it('carries the agent\'s maxSteps to the artifact', async () => {
+    // Dropped here, a runtime-hosted agent runs to deepagents' 10,000 steps
+    // no matter what its author wrote.
+    await seedHarness({ modelProvider: 'bedrock', maxSteps: 200 });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect((captured.payload().agent as Record<string, unknown>).maxSteps).toBe(200);
+  });
+
+  it('leaves the field out when the author set none', async () => {
+    await seedHarness({ modelProvider: 'bedrock' });
+    const captured = captureInvocation();
+
+    await runAgentOnRuntime({ orgId: ORG, agentSlug: 'sales-assistant', message: 'hello' });
+
+    expect('maxSteps' in (captured.payload().agent as Record<string, unknown>)).toBe(false);
+  });
+});

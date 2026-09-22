@@ -118,7 +118,13 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   const notes: string[] = [];
   const today = calendarToday(config.timezone);
 
-  const metadata = (ctx.document.metadata ?? {}) as { jsonLd?: unknown[]; links?: PageLink[]; publishedUrls?: string[] };
+  const metadata = (ctx.document.metadata ?? {}) as {
+    jsonLd?: unknown[];
+    links?: PageLink[];
+    publishedUrls?: string[];
+    ogImage?: string;
+    feedUrl?: string;
+  };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
   const [known, rules, objectSchema] = await Promise.all([
@@ -139,6 +145,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     jsonLd: jsonLdBlocks.length > 0 ? JSON.stringify(jsonLdBlocks) : '',
     pageText: ctx.document.content,
     uri: ctx.document.uri,
+    ogImage: metadata.ogImage,
     maxInputTokens: ctx.budget.caps.maxInputTokensPerCall,
   });
   if (prompt.trimmed.length > 0) {
@@ -164,8 +171,9 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   if (extraction.status === 'skipped') {
     counts[extraction.reason] = (counts[extraction.reason] ?? 0) + 1;
     pushScore({ traceId: extraction.traceId, name: 'extraction-ok', value: 0 });
-    ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: `extraction skipped: ${extraction.reason}` });
-    notes.push(`extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`);
+    const skipMessage = `extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`;
+    ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: skipMessage });
+    notes.push(skipMessage);
     return { produced: 0, skipped: 1, notes, counts };
   }
 
@@ -178,6 +186,15 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links: metadata.links,
     jsonLd: jsonLdBlocks,
     publishedUrls: metadata.publishedUrls,
+    // The feed a split entry came from, and only that. An ICS event travels,
+    // so its feed is not reliably its base (see `splitIcs`), and an HTML page
+    // already resolves its own links in the connector.
+    baseUrl: metadata.feedUrl,
+    // The document's own image, declared to the gate so a model that returned
+    // it is believed. The same value is stated in the prompt above, because
+    // the connector keeps it out of `content`: that text is hashed to decide
+    // the document changed, and a dated image URL would change it daily.
+    ogImage: metadata.ogImage,
     knownIds: known.ids,
     today,
   });

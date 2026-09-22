@@ -303,13 +303,19 @@ export type AgentEvent
      */
     | { type: 'routed'; routing: import('./router').RoutingDecision; agent: { slug: string; name: string } }
     | { type: 'done'; response: string; traceId?: string }
-    | { type: 'error'; message: string }
+    /**
+     * The turn ended badly. `ending` says HOW, in the same words the row will
+     * be stored with (`services/chat/turnStatus.ts`) — so the live transcript
+     * and the reloaded one say the same thing. Absent from a runtime that
+     * predates the vocabulary, which reads as `incomplete`.
+     */
+    | { type: 'error'; message: string; ending?: import('@/services/chat/turnStatus').TurnStatus }
     /**
      * Runtime-internal (BYOA artifact → core provider): per-model-turn
      * token usage for budget charging. Consumed by the runtime provider,
      * never forwarded to the browser.
      */
-    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
+    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 
 /* ------------------------------------------------------------------ */
 /* Runtime context — what tool factories close over                    */
@@ -386,10 +392,14 @@ export type RuntimeContext = {
     provider?: 'local' | 'agentcore' | 'runtime';
     interrupts?: string[];
     maxTokens?: number;
+    /** Graph steps one turn may take; unset keeps each provider's own backstop. See `stepLimit.ts`. */
+    maxSteps?: number;
     excludeTools?: string[];
     /** Granted-only tools this agent receives (gated tools are absent unless named here). */
     grantTools?: string[];
     model?: string;
+    /** Cache this agent's prompt prefix at the vendor; unset means the process default (on). See `libs/llm/promptCache.ts`. */
+    promptCache?: boolean;
     /** Run the zero-card backstop pass after turns that emit no recommend_action (see workspace schema doc). */
     recommendActionBackstop?: boolean;
     /** Action kinds this agent earns trust for on its own ledger (`<kind>.<agent-slug>`); see the workspace schema. */

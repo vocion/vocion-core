@@ -1,8 +1,8 @@
 'use client';
 
 import { Search as SearchIcon, X } from 'lucide-react';
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from '@/libs/I18nNavigation';
 
 /**
  * DocsSearch — ⌘K (or `/`) search box backed by Pagefind.

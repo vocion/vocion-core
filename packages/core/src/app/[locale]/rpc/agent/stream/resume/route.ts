@@ -17,7 +17,11 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const id = url.searchParams.get('id') ?? '';
   const after = Number.parseInt(url.searchParams.get('after') ?? '0', 10) || 0;
-  if (!id || !hasStream(id)) {
+  // Unknown, expired and somebody else's all answer the same 404. The check
+  // is owner-scoped for exactly that reason: a 200 for a stream that exists
+  // but is not yours would confirm the id, which is the guess this whole
+  // ownership check exists to refuse.
+  if (!id || !hasStream(id, { orgId, userId })) {
     return new Response(JSON.stringify({ error: 'stream expired' }), { status: 404 });
   }
 
@@ -46,6 +50,7 @@ export async function GET(request: Request): Promise<Response> {
       };
       const detach = attachStream(
         id,
+        { orgId, userId },
         after,
         data => safeEnqueue(encoder.encode(`data: ${data}\n\n`)),
         finish,

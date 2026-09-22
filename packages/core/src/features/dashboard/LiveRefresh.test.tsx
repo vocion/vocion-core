@@ -6,6 +6,11 @@ import { LiveRefresh } from './LiveRefresh';
  * A live page re-reads itself on its interval while the tab is visible, says
  * so, and stops when the tab is hidden — a wall of hidden tabs must not keep
  * a database busy. Coming back re-reads at once.
+ *
+ * The state is asserted on `data-live` rather than on the text, because the
+ * text is the part that goes away on a phone: there the DOT carries the
+ * state, and elapsed seconds that change every second and are never acted on
+ * would be the least useful thing on the row.
  */
 
 const refresh = vi.fn();
@@ -30,7 +35,10 @@ describe('LiveRefresh', () => {
   it('says it is live and re-reads the page on its interval', async () => {
     const screen = await render(<LiveRefresh everyMs={60} />);
 
-    await expect.element(screen.getByRole('status')).toHaveTextContent(/^live · \d+s ago$/);
+    const pill = screen.getByTestId('live-refresh');
+
+    await expect.element(pill).toHaveAttribute('data-live', 'on');
+    await expect.element(pill).toHaveAttribute('aria-label', expect.stringContaining('Live'));
     expect(refresh).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(refresh.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2000 });
@@ -42,7 +50,7 @@ describe('LiveRefresh', () => {
 
     setVisibility('hidden');
 
-    await expect.element(screen.getByRole('status')).toHaveTextContent('paused');
+    await expect.element(screen.getByTestId('live-refresh')).toHaveAttribute('data-live', 'paused');
 
     const whileHidden = refresh.mock.calls.length;
     await new Promise(r => setTimeout(r, 250));
@@ -51,10 +59,21 @@ describe('LiveRefresh', () => {
 
     setVisibility('visible');
 
-    await expect.element(screen.getByRole('status')).toHaveTextContent(/^live/);
+    await expect.element(screen.getByTestId('live-refresh')).toHaveAttribute('data-live', 'on');
 
     // Away longer than the interval: the first read does not wait for the next tick.
     await vi.waitFor(() => expect(refresh.mock.calls.length).toBeGreaterThan(whileHidden), { timeout: 100 });
+  });
+
+  it('re-reads at once when a person taps it', async () => {
+    const screen = await render(<LiveRefresh everyMs={60_000} />);
+
+    // Long interval: nothing is due, so any read is the tap's doing.
+    expect(refresh).not.toHaveBeenCalled();
+
+    await screen.getByTestId('live-refresh').click();
+
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1), { timeout: 1000 });
   });
 
   it('clears its timers on unmount', async () => {

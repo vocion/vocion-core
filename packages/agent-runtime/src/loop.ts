@@ -17,6 +17,7 @@ import { loadHistory, memoryEnabled, retrieveLongTerm, saveTurn } from './memory
 import { createMemoryDigestMiddleware } from './memoryDigest.js';
 import { buildChatModel } from './model.js';
 import { readOnlyBackend } from './readOnlyBackend.js';
+import { stepLimitStreamConfig, turnFailureMessage } from './stepLimit.js';
 import { sessionIdFor, withSession } from './telemetry.js';
 import { buildTransportTools } from './tools.js';
 import { createRuntimeTrace } from './tracing.js';
@@ -158,6 +159,10 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     model: req.agent.model,
     temperature: req.agent.temperature,
     maxTokens: req.agent.maxTokens,
+    // Spread rather than passed straight through: `buildChatModel` defaults it
+    // to on, and an absent field in the request means "core said nothing",
+    // which has to stay distinguishable from an explicit false.
+    ...(req.agent.promptCache !== undefined ? { promptCache: req.agent.promptCache } : {}),
     readAwsSession: () => currentInvocationContext().awsSession,
   });
 
@@ -299,6 +304,7 @@ async function runTurn(
     const run = await entry.graph.streamEvents(input as never, {
       version: 'v3',
       callbacks: [trace.handler],
+      ...stepLimitStreamConfig(req.agent.maxSteps),
     } as never);
 
     await Promise.all([
@@ -366,7 +372,7 @@ async function runTurn(
 
     await run.output;
   } catch (err) {
-    const message = (err as Error).message ?? 'agent run failed';
+    const message = turnFailureMessage(err, req.agent.maxSteps);
     emit({ type: 'error', message });
     await trace.end({ error: message });
     throw err;

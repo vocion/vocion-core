@@ -25,11 +25,19 @@
 #   3. A contradiction is shown, not resolved. A run recorded `failed` whose
 #      pull request merged shows both facts and is flagged, because the
 #      worker's completion call can time out after the PR is already open.
+#
+# The plan stage sits between triage and the contract, because a plan reviewed
+# after the run is a record and not a gate. It reads `architecture_plan` records
+# and what each task recorded about its own plan. A plan that was offered and
+# declined renders as "plan skipped: <reason>" rather than as a blank: a blank
+# cannot be told apart from a step nobody took. A plan the rule required and
+# nobody wrote says so, and a plan approved after the first run started is shown
+# as a contradiction.
 slug: feature
 title: Feature report
-description: One request end to end — the ask, triage, the contract, approvals, the runs, the change, QA evidence, the release, and what it cost against the estimate.
+description: 'One request end to end: the ask, triage, the plan and who approved it, the contract, approvals, the runs, the change, QA evidence, the release, and what it cost against the estimate.'
 icon: file-clock
-nav: {section: Software factory, order: 2, hidden: true}
+nav: {section: Software factory, order: 8, hidden: true}
 archetype: report
 report:
   subject: request

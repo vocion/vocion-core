@@ -22,7 +22,7 @@ import { deriveHumanLoad, emptyHumanLoadCounts, foldHumanLoad, readHumanLoadRows
  * | digest     | the same objects, by created/updated stamp                   |
  * | active     | `business_object` outcomes, joined to their task objects     |
  * | next       | `business_object`, ordered by the manifest's `orderBy`       |
- * | needsYou   | `ask` (open) + `action_run` (pending)                        |
+ * | needsYou   | `ask` (open), collapsed by subject; `action_run` (pending)    |
  * | economics  | `business_object` money fields                               |
  * | autonomy   | the team report's human-load fold (`team-report/humanLoad`)  |
  *
@@ -140,6 +140,9 @@ async function readAsks(orgId: string, since: Date): Promise<OverviewAsk[]> {
       createdAt: askSchema.createdAt,
       decidedAt: askSchema.decidedAt,
       objectRefs: askSchema.objectRefs,
+      sourceRef: askSchema.sourceRef,
+      groupKey: askSchema.groupKey,
+      options: askSchema.options,
     })
     .from(askSchema)
     .where(and(eq(askSchema.orgId, orgId), gte(askSchema.createdAt, since)));
@@ -154,6 +157,9 @@ async function readAsks(orgId: string, since: Date): Promise<OverviewAsk[]> {
       createdAt: askSchema.createdAt,
       decidedAt: askSchema.decidedAt,
       objectRefs: askSchema.objectRefs,
+      sourceRef: askSchema.sourceRef,
+      groupKey: askSchema.groupKey,
+      options: askSchema.options,
     })
     .from(askSchema)
     .where(and(eq(askSchema.orgId, orgId), eq(askSchema.status, 'open')));
@@ -169,6 +175,9 @@ async function readAsks(orgId: string, since: Date): Promise<OverviewAsk[]> {
       createdAt: new Date(r.createdAt),
       decidedAt: r.decidedAt ? new Date(r.decidedAt) : null,
       objectRefs: r.objectRefs ?? [],
+      sourceRef: r.sourceRef ?? null,
+      groupKey: r.groupKey ?? null,
+      options: (r.options ?? []).map(o => ({ label: o.label, recommended: o.recommended === true })),
     });
   }
   return [...byId.values()];
@@ -179,7 +188,7 @@ async function readPendingProposals(orgId: string): Promise<OverviewProposal[]> 
     .select({ id: actionRunSchema.id, actionId: actionRunSchema.actionId, createdAt: actionRunSchema.createdAt })
     .from(actionRunSchema)
     .where(and(eq(actionRunSchema.orgId, orgId), eq(actionRunSchema.status, 'pending')));
-  return rows.map(r => ({ id: r.id, title: `Action · ${r.actionId}`, createdAt: new Date(r.createdAt) }));
+  return rows.map(r => ({ id: r.id, title: `Action · ${r.actionId}`, actionId: r.actionId, createdAt: new Date(r.createdAt) }));
 }
 
 /**

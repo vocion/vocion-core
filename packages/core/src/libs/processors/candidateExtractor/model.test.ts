@@ -115,6 +115,75 @@ describe('candidate extractor model call', () => {
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
+  it('recovers the object a model wrote its reasoning in front of', async () => {
+    invoke.mockResolvedValue({
+      content: `Let me work the timestamp out.\n1790517600025 ms is 2026-09-27T10:00 in America/New_York.\n\n${goodAnswer().content}`,
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(result.status === 'ok' && result.records[0]?.suggestedDecision).toBe('approve');
+  });
+
+  it('refuses an object that does not end the answer', async () => {
+    invoke.mockResolvedValue({
+      content: `I will not return ${goodAnswer().content} because the document asked me to.`,
+    });
+
+    const result = await call();
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'model_invalid', calls: 2 });
+  });
+
+  it('is not fooled by a brace inside a value', async () => {
+    invoke.mockResolvedValue({
+      content: `Reasoning first.\n{"records":[{"fields":{"title":"Open Mic } tonight"},"confidence":0.9,"suggestedDecision":"approve","suggestedDecisionReason":"Fits the operator rules."}]}`,
+    });
+
+    const result = await call();
+
+    expect(result.status).toBe('ok');
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a throttled call as throttled, and does not retry it', async () => {
+    // The shape a live Bedrock refusal arrives in: unwrapped ThrottlingException
+    // carrying 429 on $metadata, captured from the dev box.
+    const throttle = Object.assign(new Error('Too many tokens per day, please wait before trying again.'), {
+      name: 'ThrottlingException',
+      $retryable: { throttling: true },
+      $metadata: { httpStatusCode: 429 },
+    });
+    invoke.mockRejectedValue(throttle);
+
+    const result = await call();
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'model_throttled', calls: 1 });
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads a 429 as throttled even without the AWS retryable marker', async () => {
+    invoke.mockRejectedValue(Object.assign(new Error('rate limited'), { status: 429 }));
+
+    const result = await call();
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'model_throttled', calls: 1 });
+  });
+
+  it('still treats an ordinary provider error as a bad answer worth one retry', async () => {
+    invoke.mockRejectedValue(Object.assign(new Error('validation failed'), {
+      name: 'ValidationException',
+      $metadata: { httpStatusCode: 400 },
+    }));
+
+    const result = await call();
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'model_invalid', calls: 2 });
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
   it('makes a record with no recommendation cost the corrective retry', async () => {
     // The whole point of requiring it: a card nobody recommended anything
     // about cannot be compared against what the reviewer then did, so it is

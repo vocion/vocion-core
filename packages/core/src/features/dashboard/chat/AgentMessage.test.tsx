@@ -392,4 +392,160 @@ describe('a <scratch> block in a stored text run folds to "Thinking"', () => {
     await expect.element(page.getByText('Fifteen runs.')).toBeInTheDocument();
     expect(page.getByTestId('scratch-fold').query()).toBeNull();
   });
+
+  it('a turn that failed outright names itself and opens its reason', async () => {
+    // What Chris met on a phone: an empty bubble with a red chip reading
+    // "error failed" — the node's generic label glued to the word failed —
+    // and the reason a tap away with no hover to hint that there was one.
+    await render(
+      <AgentMessage
+        agentName="Send Lead"
+        conversationId={77}
+        timestamp={Date.parse('2026-09-22T18:07:00.000Z')}
+        message={{
+          id: 941,
+          role: 'assistant',
+          content: '',
+          runs: [],
+          trace: [{
+            id: 'n1',
+            actor: { id: 'lead', kind: 'lead' as const, name: 'Send Lead' },
+            kind: 'delegate' as const,
+            status: 'error' as const,
+            label: 'Error',
+            detail: 'no model credentials configured for this workspace',
+          }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('tool-error-badge')).toHaveTextContent('This turn failed');
+    // Open already: there is nothing else on screen to read.
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('no model credentials');
+  });
+});
+
+describe('AgentMessage — a turn that died part-way (#114)', () => {
+  it('says the answer is unfinished when the row is marked incomplete', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Four deals closed last month, worth',
+          status: 'incomplete',
+          statusReason: 'the model connection dropped mid-answer',
+          runs: [{ type: 'text', text: 'Four deals closed last month, worth' }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('incomplete-turn-notice')).toBeInTheDocument();
+    await expect.element(page.getByText(/stopped partway/)).toBeInTheDocument();
+    // What went wrong, in the runtime's words, so a person can report it.
+    await expect.element(page.getByText(/connection dropped mid-answer/)).toBeInTheDocument();
+    // And no tool-error badge: nothing here was a failing tool.
+    expect(page.getByTestId('tool-error-badge').elements()).toHaveLength(0);
+  });
+
+  it('says nothing on a turn that finished, so a healthy answer carries no warning', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Four deals closed last month.',
+          runs: [{ type: 'text', text: 'Four deals closed last month.' }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText(/Four deals closed/)).toBeInTheDocument();
+    expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
+
+  it('tells a person whose turn never ran that there is no answer above it', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', status: 'failed', statusReason: 'the model refused the request' }}
+      />,
+    );
+
+    // "Stopped partway through" would be describing nothing — there is no text.
+    await expect.element(page.getByText(/did not run/)).toBeInTheDocument();
+    expect(page.getByText(/stopped partway/).elements()).toHaveLength(0);
+  });
+
+  it('tells a person whose workspace declined the turn that nothing is broken', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: '',
+          status: 'refused',
+          statusReason: 'Budget exceeded for "revenue-lead" (monthly: 5100/5000). Raise the cap under Budgets or wait for the next period.',
+        }}
+      />,
+    );
+
+    // A spent budget is not a fault, and "ask again" is useless advice for it.
+    await expect.element(page.getByText(/Nothing is broken/)).toBeInTheDocument();
+    await expect.element(page.getByText(/Raise the cap under Budgets/)).toBeInTheDocument();
+    expect(page.getByText(/Ask again for a complete one/).elements()).toHaveLength(0);
+  });
+
+  it('marks a stopped turn quietly, because the person chose where it ended', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: 'Northwind renews in March and', status: 'stopped' }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('turn-ending-marker')).toBeInTheDocument();
+    await expect.element(page.getByText(/You stopped this answer/)).toBeInTheDocument();
+    // Not a failure: no alarm-coloured notice over a turn that did what was asked.
+    expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
+
+  it('says which message holds the rest, on the half that holds it', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '$1.4M across eleven deals.', status: 'continued' }}
+      />,
+    );
+
+    // Otherwise the second bubble reads as a new turn that started mid-sentence.
+    await expect.element(page.getByText(/the rest of the answer above/)).toBeInTheDocument();
+    expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
+
+  it('labels a refusal\'s reason without calling it a fault', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', status: 'refused', statusReason: 'Budget exceeded for "revenue-lead".' }}
+      />,
+    );
+
+    // The sentence above just said nothing is broken; "what went wrong" would
+    // take that straight back.
+    await expect.element(page.getByText(/Why:/)).toBeInTheDocument();
+    expect(page.getByText(/What went wrong/).elements()).toHaveLength(0);
+  });
+
+  it('says where the rest of a truncated answer went', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: 'The pipeline stands at', status: 'truncated' }}
+      />,
+    );
+
+    await expect.element(page.getByText(/cut off at a time limit/)).toBeInTheDocument();
+    expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
 });

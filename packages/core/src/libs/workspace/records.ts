@@ -142,6 +142,12 @@ export function declaredRecordFields(schema: unknown): RecordField[] {
       total: false,
       priority: 1,
       hideWhenConstant: false,
+      detail: false,
+      // A record page draws one record, so "no row can fill it" is a
+      // judgement one record cannot make. The field list here is the type's
+      // schema, and a property this record has not filled is still part of
+      // what the type says it has.
+      hideWhenEmpty: false,
       align: undefined,
       role,
       group: typeof d.group === 'string' ? d.group : 'Details',

@@ -148,7 +148,20 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
   return (
     // The shell IS the viewport: `h-svh` over `min-h-svh` is what stops the
     // window scrolling and carrying the sidebar and the top bar with it.
-    <SidebarProvider defaultOpen={defaultOpen} className="h-svh overflow-hidden">
+    // On a PHONE the document scrolls; from `md` up the shell is the viewport
+    // and the gutter scrolls inside it.
+    //
+    // The desktop rule earned itself: a fixed shell is what stops the sidebar,
+    // the top bar and every pane header drifting, and what killed the
+    // scroll-in-scroll bug. On a phone it costs more than it buys. There is no
+    // second pane to hold still, iOS never collapses its URL bar because the
+    // document never moves, and — the reason this changed — the operating
+    // system cannot screenshot what it cannot scroll: Safari's Full Page
+    // capture reads the DOCUMENT, so on every dashboard page it returned one
+    // viewport and grey below it (Chris, 2026-09-22, trying to send feedback:
+    // "This full screen capture doesn't work. FIX"). A person who cannot
+    // capture a page cannot report what is wrong with it.
+    <SidebarProvider defaultOpen={defaultOpen} className="min-h-svh md:h-svh md:overflow-hidden">
       {/* Airy pass (B-034b §3): the sidebar collapses to a 56px icon rail
           instead of sliding off-canvas; the rail toggle / ⌘B persist it. */}
       <AppSidebar
@@ -158,9 +171,9 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
         enabledSurfaces={enabledSurfaces.filter(id => !nav.claimedSurfaces.includes(id))}
         pluginNav={nav}
         needsYouCount={waiting}
-        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section }))}
+        workspacePages={pages.filter(p => !p.nav.hidden && !nav.claimedPages.includes(p.slug)).map(p => ({ title: p.title, url: p.href ?? `/dashboard/p/${p.slug}`, section: p.nav.section, secondary: p.nav.secondary }))}
       />
-      <SidebarInset className="min-h-0 overflow-hidden">
+      <SidebarInset className="md:min-h-0 md:overflow-hidden">
         <ShellBarActionsProvider>
           <AppSidebarHeader workspace={workspace} usage={usage} canPauseWorkspace={Boolean(orgId) && isAdmin && pause === null} />
 
@@ -178,7 +191,7 @@ export async function AppShell(props: { locale: string; children: React.ReactNod
               pages that mount their own scoped dock inside `children` are
               skipped by PageDock. */}
           <PageContextProvider>
-            <div className="flex min-h-0 flex-1 items-stretch">
+            <div className="flex items-stretch md:min-h-0 md:flex-1">
               {/* The page gutter and the reading-width cap are one owner now
                   (`PageWidth`): it knows the route, so it knows whether the
                   page is capped, and whether the gutter scrolls or the page

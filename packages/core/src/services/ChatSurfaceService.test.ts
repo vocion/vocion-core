@@ -1,4 +1,5 @@
 import type { ChatInbound, ChatSurfaceAdapter } from '@/libs/surfaces/types';
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -125,6 +126,19 @@ describe('handleInbound', () => {
     expect(first.outcome === 'replied' && second.outcome === 'replied' && second.conversationId).toBe(first.outcome === 'replied' ? first.conversationId : -1);
     // user + assistant from turn 1 are the history for turn 2
     expect(adapter.replies[1]!.text).toBe('history=2');
+  });
+
+  it('stores the reply as a finished turn, so a Slack answer is not a row nobody can read (#114)', async () => {
+    await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
+    const adapter = fakeAdapter();
+
+    const out = await svc.handleInbound(adapter, inbound, { runAgent: vi.fn(async () => ({ response: 'up 12%', traceId: 't', toolCalls: [] })) as never, preflight: vi.fn(async () => ({ ok: true as const })) });
+
+    const rows = await db.select().from(conversationMessageSchema).where(eq(conversationMessageSchema.conversationId, out.outcome === 'replied' ? out.conversationId : -1));
+    const assistant = rows.find(r => r.role === 'assistant');
+
+    expect(assistant?.content).toBe('up 12%');
+    expect(assistant?.status).toBe('complete');
   });
 
   it('replies as the binding persona when it has one, on the agent path and the budget path alike', async () => {

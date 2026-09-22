@@ -37,7 +37,7 @@ Streaming via `agent.streamEvents(input, { version: 'v3' })`. **This is a deepag
 ## Decisions locked by this ADR
 
 1. **Default models** (set in Phase 1's `buildChatModel` factory):
-   - `main` → `claude-sonnet-4-6` (prompt cache enabled where supported).
+   - `main` → `claude-sonnet-4-6`. Prompt caching is on by default on Anthropic and Bedrock: `buildChatModel` builds a chat model subclass that fills in the vendor's cache instruction on every call, so the system prompt, tool list and settled history are billed at the cache-read rate from the second turn of a run. See the [prompt caching guide](../guides/prompt-caching.md).
    - `classifier` → `claude-haiku-4-5-20251001`.
    - OpenAI provider remains available behind the role registry but is no longer the hardcoded default anywhere in `AgentService`.
 

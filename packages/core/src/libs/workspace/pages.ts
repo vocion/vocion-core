@@ -172,7 +172,29 @@ export function pagePlugin(page: Pick<LoadedPage, 'origin'>): string | null {
  * @param manifest
  */
 export function readWorkspacePageContent(manifest: LoadedPage): string | null {
-  const file = join(manifest.sourceDir, manifest.contentFile ?? `${manifest.slug}.md`);
+  return readPageFile(manifest, manifest.contentFile ?? `${manifest.slug}.md`);
+}
+
+/**
+ * The page's methodology prose (what "measured" means, what a definition
+ * excludes, why a figure is the figure), read beside the YAML the same way
+ * its intro is, and rendered collapsed rather than above the numbers.
+ * Absent when the page ships no such file, which most pages do not.
+ * @param manifest - The loaded page.
+ */
+export function readWorkspacePageMethodology(manifest: LoadedPage): string | null {
+  return readPageFile(manifest, manifest.methodologyFile ?? `${manifest.slug}.methodology.md`);
+}
+
+/**
+ * One file beside a page's YAML, through the workspace reader when the page
+ * came from a mounted workspace and straight off disk when a plugin shipped
+ * it.
+ * @param manifest - The loaded page.
+ * @param name - The file's name, relative to the page's directory.
+ */
+function readPageFile(manifest: LoadedPage, name: string): string | null {
+  const file = join(manifest.sourceDir, name);
   if (!existsSync(file)) {
     return null;
   }

@@ -42,3 +42,22 @@ describe('chatModelOptionsWithOverride', () => {
     expect(chatModelOptionsWithOverride({}, { model: 'gpt-6-astra', provider: 'bedrock' })).toEqual({ provider: 'bedrock', model: 'gpt-6-astra' });
   });
 });
+
+describe('chatModelOptionsWithOverride and prompt caching', () => {
+  it('keeps the agent\'s promptCache when the caller swaps the model', () => {
+    // The model-upgrade test and the eval runner both override the model for
+    // one compiled graph. An agent whose prompt must never be cached has to
+    // stay uncached through that swap — the override is about which model does
+    // the job, not about what its prompt may be used for.
+    expect(chatModelOptionsWithOverride(
+      { promptCache: false },
+      { model: 'claude-opus-5', provider: 'anthropic' },
+    )).toMatchObject({ promptCache: false, model: 'claude-opus-5', provider: 'anthropic' });
+  });
+
+  it('says nothing about caching when the agent said nothing', () => {
+    expect(chatModelOptionsWithOverride({}, { model: 'claude-opus-5', provider: 'anthropic' }))
+      .not
+      .toHaveProperty('promptCache');
+  });
+});

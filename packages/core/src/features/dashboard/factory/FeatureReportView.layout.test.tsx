@@ -81,6 +81,7 @@ function fixture(over: Partial<FeatureReportInput> = {}) {
       result: null,
       progress: { keptBranch: 'feat/room-pdf-export-with-a-deliberately-long-branch-name', prUrl: LONG_PR },
     }],
+    plans: [],
     asks: [],
     actionRuns: [],
     releases: [],
@@ -105,13 +106,13 @@ async function draw(report: ReturnType<typeof fixture>) {
 }
 
 describe('the feature report, drawn', () => {
-  it('reads top to bottom in the nine sections, in order', async () => {
+  it('reads top to bottom in the ten sections, in order, with the plan between triage and the contract', async () => {
     await page.viewport(1440, 900);
     await draw(fixture());
 
     const keys = [...document.querySelectorAll('[data-section]')].map(el => el.getAttribute('data-section'));
 
-    expect(keys).toEqual(['ask', 'triage', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    expect(keys).toEqual(['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
   });
 
   it('puts the newest timeline entry last', async () => {

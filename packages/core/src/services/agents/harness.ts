@@ -28,6 +28,7 @@
 import type { SubAgent } from 'deepagents';
 import type { RuntimeContext } from './types';
 import type { LangChainProvider } from '@/libs/llm';
+import type { OperatingIntentManifest } from '@/libs/workspace/schemas';
 import type { Initiative } from '@/services/agents/initiative';
 import { tool as makeTool } from '@langchain/core/tools';
 import { CompositeBackend, createDeepAgent, StateBackend, StoreBackend } from 'deepagents';
@@ -47,6 +48,7 @@ import { assembleAgentMemory } from '@/services/MemoryService';
 import { mountSkills } from '@/services/playbooks/mount';
 import { enabledPluginsForOrg } from '@/services/PluginService';
 import { mountWiki } from '@/services/wiki/WikiService';
+import { operatingIntentForOrg } from '@/services/workspace/OperatingIntentService';
 import { CLOCK_RULES } from './clockRules';
 import { deriveDelegationRoster } from './delegationRoster';
 import { createMemoryDigestMiddleware } from './memoryDigest';
@@ -89,6 +91,7 @@ export type HarnessModelConfig = {
   model?: string;
   modelProvider?: 'anthropic' | 'openai' | 'bedrock';
   maxTokens?: number;
+  promptCache?: boolean;
 };
 
 /**
@@ -114,18 +117,26 @@ export type HarnessModelConfig = {
  * agent fell back to the local loop — which `VOCION_DISABLE_AGENTCORE=1` does
  * routinely in dev — and every turn would fail on an unknown model. Naming the
  * provider is how an author says which vendor's id this is.
+ *
+ * `promptCache` is forwarded only when the author actually wrote it, and the
+ * test is `!== undefined` rather than truthiness, because the whole point of
+ * the field is to carry `false`. Leaving it out when the author said nothing
+ * is what keeps `VOCION_PROMPT_CACHE=0` and the on-by-default behaviour in
+ * `buildChatModel` reachable.
  * @param harnessConfig - The agent's harness block, or an empty object.
  */
 export function chatModelOptionsFor(harnessConfig: HarnessModelConfig): {
   provider?: LangChainProvider;
   model?: string;
   maxTokens?: number;
+  promptCache?: boolean;
 } {
   const provider = harnessConfig.modelProvider;
   return {
     ...(provider ? { provider } : {}),
     ...(provider && harnessConfig.model ? { model: harnessConfig.model } : {}),
     ...(harnessConfig.maxTokens ? { maxTokens: harnessConfig.maxTokens } : {}),
+    ...(harnessConfig.promptCache !== undefined ? { promptCache: harnessConfig.promptCache } : {}),
   };
 }
 
@@ -213,6 +224,10 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   // present only with their plugin, and the prompt names what is off. An apply
   // resets the graph cache, so a toggle reaches the next turn.
   const enabledPlugins = await enabledPluginsForOrg(orgId).catch(() => [] as string[]);
+  // The workspace's stated operating intent, once per graph, from the column
+  // the applier writes. `null` is "nobody has told this factory anything",
+  // which the note says out loud rather than treating as permission.
+  const operatingIntent = await operatingIntentForOrg(orgId).catch(() => null);
   const ctx: RuntimeContext = {
     orgId,
     timeZone: defaultTimeZone,
@@ -321,6 +336,17 @@ async function buildGraph(orgId: string, agentSlug: string, modelOverride?: Mode
   const initiativeNote = initiativePromptNote(readInitiative(row.initiative));
   if (initiativeNote) {
     systemPrompt = `${systemPrompt}\n\n${initiativeNote}`;
+  }
+
+  // OPERATING INTENT (CORE, all agents). What a person wants the factory
+  // doing, from `operating-intent.yaml` by way of `project.operating_intent`.
+  // An agent that chooses or ranks work reads this before it chooses; every
+  // other agent reads it as the standing context it is. Silent when the
+  // workspace has stated nothing, because an empty section would read as
+  // "there are no constraints", which is a different claim.
+  const intentNote = operatingIntentPromptNote(operatingIntent);
+  if (intentNote) {
+    systemPrompt = `${systemPrompt}\n\n${intentNote}`;
   }
 
   // Output discipline (CORE, all agents). The main model reliably PASTES raw
@@ -522,6 +548,60 @@ export function initiativePromptNote(initiative: Initiative): string {
     return 'INITIATIVE: low. Answer what was asked and stop. Do not volunteer follow-ups, offers or next steps unless the person asks for them; a person turned this agent down to keep it quiet.';
   }
   return '';
+}
+
+/**
+ * The paragraph that carries the workspace's operating intent into an agent's
+ * prompt, so a stated priority changes what gets picked up.
+ *
+ * Read honestly, which is the whole point of the section:
+ *
+ *  - `null` produces NOTHING. A workspace that has stated no intent has told
+ *    the factory nothing, and a section saying "no constraints" would be the
+ *    factory inventing permission it was never given.
+ *  - The priorities are ORDERED, and the order is the ranking. An agent
+ *    choosing between two candidates reads down the list rather than
+ *    comparing two integers, which is what makes "why this, why now"
+ *    answerable in a person's own words.
+ *  - The constraints are refusals, not preferences. An agent about to do one
+ *    raises an ask and stops.
+ *  - The budget ADVISES. It is composed here and it is not enforced:
+ *    `services/autonomy` and the run caps are what actually stop spending,
+ *    and a figure here that disagrees with those caps does not override them.
+ *    The line says so, because an agent told it has a hard limit when it does
+ *    not will report a limit that was never applied.
+ *  - The autonomy lines are the stated intent; `trust.yaml` is what gates an
+ *    action. Where the two disagree the ladder wins.
+ * @param intent - The applied intent, or null when the workspace stated none.
+ */
+export function operatingIntentPromptNote(intent: OperatingIntentManifest | null): string {
+  if (!intent) {
+    return '';
+  }
+  const lines: string[] = [];
+  if (intent.outcomes.length > 0) {
+    lines.push(`WHAT WE ARE TRYING TO ACHIEVE NOW, most important first: ${intent.outcomes.map(o => `${o.statement}${o.because ? ` (because ${o.because})` : ''}${o.by ? ` (by ${o.by})` : ''}`).join(' | ')}`);
+  }
+  if (intent.priorities.length > 0) {
+    lines.push(`WHAT BEATS WHAT, in order. This list IS the ranking: when two pieces of work compete, the one further up wins, and you say which rule decided it. ${intent.priorities.map((p, i) => `${i + 1}. ${p.statement}${p.over ? ` over ${p.over}` : ''}`).join(' ')}`);
+  }
+  if (intent.constraints.length > 0) {
+    lines.push(`WHAT YOU MAY NOT DO WITHOUT ASKING. These are refusals, not preferences: if you are about to do one, do not do it. Raise an ask that quotes the constraint and stop. ${intent.constraints.map(c => `${c.statement}${c.because ? ` (because ${c.because})` : ''}`).join(' | ')}`);
+  }
+  if (intent.budget) {
+    lines.push(`BUDGET STATED: $${(intent.budget.limitCents / 100).toFixed(2)} per ${intent.budget.window}.${intent.budget.note ? ` ${intent.budget.note}` : ''} This figure ADVISES you and is NOT enforced by the platform: the run caps and the autonomy service are what actually stop spending. Plan inside it, say when a plan would exceed it, and never tell a person a spend was blocked by it.`);
+  }
+  if (intent.autonomy.length > 0) {
+    lines.push(`AUTONOMY AS STATED: ${intent.autonomy.map(a => `${a.actionClass}: ${a.policy}${a.because ? ` (${a.because})` : ''}`).join(' | ')}. This is the intent; the trust ladder in trust.yaml is what actually gates an action. Where they disagree the ladder wins and the disagreement is worth reporting.`);
+  }
+  if (intent.productJudgment.length > 0) {
+    lines.push(`PRODUCT JUDGMENT you cannot derive from the records: ${intent.productJudgment.join(' | ')}`);
+  }
+  if (lines.length === 0) {
+    return '';
+  }
+  const reviewed = intent.reviewedAt ? ` Last reviewed by a person on ${intent.reviewedAt}; if that is old, say so rather than treating it as fresh.` : ' Nobody has recorded when this was last reviewed.';
+  return `OPERATING INTENT (the workspace's standing instructions, authored in operating-intent.yaml and readable at /dashboard/guide). Read this before you choose or rank work, and name the rule that decided when you report what you picked.${reviewed}\n${lines.join('\n')}`;
 }
 
 export function capabilitiesPromptNote(enabledPlugins: readonly string[]): string {

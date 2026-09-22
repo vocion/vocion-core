@@ -184,12 +184,19 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       model: hc.model,
       temperature: row.temperature ? Number(row.temperature) : undefined,
       maxTokens: hc.maxTokens,
+      // Absent when unset, so the runtime keeps deepagents' own limit.
+      ...(hc.maxSteps ? { maxSteps: hc.maxSteps } : {}),
       subagents: (row.subagents ?? []).map(s => ({
         name: s.name,
         description: s.description,
         systemPrompt: s.systemPrompt,
       })),
       excludeTools: hc.excludeTools,
+      // Sent only when the author wrote it. The runtime defaults to caching
+      // on, so an absent field means "nothing said" and a present `false`
+      // means an agent whose prompt must not be cached — the same distinction
+      // `chatModelOptionsFor` keeps on the in-process loop.
+      ...(hc.promptCache !== undefined ? { promptCache: hc.promptCache } : {}),
     },
     message: opts.message,
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
@@ -220,6 +227,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
           inputTokens: event.inputTokens,
           outputTokens: event.outputTokens,
           cacheReadTokens: event.cacheReadTokens,
+          cacheWriteTokens: event.cacheWriteTokens,
         },
       }).catch((err) => {
         // Charging is best-effort against the event stream — we never want a

@@ -39,6 +39,7 @@ Now: prompts are markdown, config is YAML, and every edit is reviewable like any
 <workspace-dir>/
 ├── workspace.yaml                # manifest: orgId, name, lead, defaults, base-pack pin, plugins
 ├── trust.yaml                    # which actions may auto-execute, above what confidence, at which rung / risk tier
+├── operating-intent.yaml         # what a person wants the factory doing: outcomes, what beats what, constraints, an ADVISORY budget, autonomy policy, product judgment (read at /dashboard/guide)
 ├── voice.yaml                    # banned constructions in outbound copy — the gate, not a suggestion (docs/guides/voice-rules.md)
 ├── agents/
 │   ├── <agent>.yaml              # agent metadata + refs
@@ -159,6 +160,7 @@ How a change becomes a version and a commit:
 |---|---|---|
 | A person, in the pane | `client.artifacts.update` → `WorkspaceSourceService.writeWorkspaceSource` | The text is validated through the real schema, the **file is written**, the whole workspace is loaded (a refused load puts the file back), a version lands on the mirror under the person's name, then the workspace is **applied** — a `workspace_version` row like any `workspace:apply`. Their workspace, their edit: not an action. |
 | An agent, from chat | `read_mission` / `read_playbook`, then `write_mission` / `write_playbook` → the `workspace.write_mission` / `workspace.write_playbook` actions | The whole file is proposed with a reason and a confidence. The Review card carries the **diff**. Both kinds start at **Execute with approval** (`DEFAULT_RISK_TIER` marks them `medium`); a workspace promotes them in `trust.yaml` once approvals have earned it. Approving runs the same write path; **Undo** restores the previous text as a new version. |
+| A person, on the Guide page | The editor at `/dashboard/guide` → `review.propose` → the `workspace.write_operating_intent` action | `operating-intent.yaml` is the one workspace file a page edits through the rail rather than in the pane, because it states DIRECTION: the card carries the diff and the person's reason, so a change of priorities lands as a decision somebody can point at later instead of a silent config write. `medium`, like the two above. **Undo** restores the previous text, or removes the file when the write created it. |
 | Restore, from the version menu | `client.artifacts.restore` → `restoreWorkspaceSource` | The old text is written **forward** — to the file and as a new head — so disk and history agree and neither rewinds. |
 | An MCP client | `workspace_write_mission`, `workspace_write_playbook` | The manifest-shaped door, in the exact shape of `workspace_write_skill`: write the file, apply, and — opt-in — commit. |
 

@@ -1,9 +1,10 @@
 'use client';
 
 import { MessageSquareText } from 'lucide-react';
-import { usePathname } from 'next/navigation';
+
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { usePathname } from '@/libs/I18nNavigation';
 
 type Status = 'idle' | 'sending' | 'sent' | 'error';
 

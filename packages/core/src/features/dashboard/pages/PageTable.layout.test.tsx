@@ -29,7 +29,7 @@ vi.mock('next/navigation', () => ({
 const { PageTable } = await import('./PageTable');
 
 function field(over: Partial<PageField> & Pick<PageField, 'key'>): PageField {
-  return { label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, ...over };
+  return { label: over.key, format: 'text', total: false, priority: 1, hideWhenConstant: false, detail: false, hideWhenEmpty: true, ...over };
 }
 
 /** The floor's fields, as templates/plugins/software-factory declares them. */
@@ -263,5 +263,187 @@ describe('row actions', () => {
     await expect.element(page.getByRole('table')).toBeInTheDocument();
 
     expect([...document.querySelectorAll('tbody a')].some(a => a.getAttribute('href')?.includes('/p/feature/'))).toBe(false);
+  });
+
+  it('falls back to the task record when the row named a task but no request of its own', async () => {
+    await page.viewport(1440, 900);
+    // A probe or a smoke test: the run has an engineering_task, but that
+    // task serves no request. The Outcome action lands on the task record
+    // instead of drawing no link at all.
+    const probe: PageRow = { ...ROWS[1]!, id: 100, meta: { ...ROWS[1]!.meta, requestId: undefined, taskRecordId: 100 } };
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable
+          rows={[probe]}
+          fields={FIELDS}
+          primary={PRIMARY}
+          rowActions={[{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]}
+          now={Date.parse('2026-09-14T00:00:00Z')}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    const hrefs = [...document.querySelectorAll('tbody a')].map(a => a.getAttribute('href'));
+
+    expect(hrefs).toContain('/dashboard/objects/100');
+    expect(hrefs.some(h => h?.includes('/p/feature/'))).toBe(false);
+  });
+
+  it('draws nothing when neither the request nor the task can be named, the way run 349 could not', async () => {
+    await page.viewport(1440, 900);
+    // The exact shape that reached production: no requestId, no
+    // taskRecordId (the run named no `input.record` at all).
+    const unresolvable: PageRow = { ...ROWS[1]!, id: 101, meta: { ...ROWS[1]!.meta, requestId: undefined, taskRecordId: undefined } };
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable
+          rows={[unresolvable]}
+          fields={FIELDS}
+          primary={PRIMARY}
+          rowActions={[{ label: 'Outcome', href: ['/dashboard/p/feature/{meta.requestId}', '/dashboard/objects/{meta.taskRecordId}'] }]}
+          now={Date.parse('2026-09-14T00:00:00Z')}
+        />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    expect([...document.querySelectorAll('tbody a')].length).toBe(0);
+  });
+});
+
+/**
+ * Activity's rows, which are the reason `detail` exists. The page carries
+ * twenty six declared fields and the row shows eleven of them; the other
+ * fifteen are evidence and read inside the row, where an investigator opens
+ * them without leaving the timeline.
+ */
+const ACTIVITY_FIELDS: PageField[] = [
+  field({ key: 'headline', label: 'What happened' }),
+  field({ key: 'execution', label: 'Execution', from: 'meta.execution', format: 'badge', tones: { completed: 'ok', failed: 'bad' } }),
+  field({ key: 'verification', label: 'Verification', from: 'meta.verification', format: 'badge', tones: { passed: 'ok', failed: 'bad', not_run: 'muted' } }),
+  field({ key: 'output', label: 'Output', from: 'meta.output', format: 'badge', tones: { pull_request: 'ok', work_preserved: 'warn' } }),
+  field({ key: 'recovery', label: 'Recovery', from: 'meta.recoveryNote' }),
+  field({ key: 'cents', label: 'Cost', from: 'meta.cents', format: 'money' }),
+  field({ key: 'duration', label: 'Duration', from: 'meta.durationSeconds', format: 'duration' }),
+  field({ key: 'agent', label: 'Agent', from: 'meta.agentSlug', format: 'mono', detail: true }),
+  field({ key: 'tokens', label: 'Tokens', from: 'meta.tokens', format: 'mono', detail: true }),
+  field({ key: 'heartbeat', label: 'Heartbeat', from: 'meta.heartbeatAt', format: 'relative', detail: true }),
+  field({ key: 'lease', label: 'Lease', from: 'meta.leaseExpiresAt', format: 'relative', detail: true }),
+  field({ key: 'summary', label: 'Worker\'s own report', from: 'meta.summary', detail: true }),
+];
+
+const ACTIVITY_PRIMARY = { field: 'headline', subtitle: ['execution', 'verification', 'output', 'recovery'] };
+
+const ACTIVITY_ROWS: PageRow[] = [
+  {
+    id: 344,
+    title: '1 file changed, work preserved on #13',
+    status: 'failed',
+    createdAt: new Date('2026-09-21T10:00:00Z'),
+    meta: {
+      headline: '1 file changed, work preserved on #13',
+      execution: 'completed',
+      verification: 'failed',
+      output: 'work_preserved',
+      recoveryNote: 'retried as attempt 2, accepted 2m later',
+      cents: 11,
+      durationSeconds: 185,
+      agentSlug: 'send-engineer',
+      tokens: 373_613,
+      summary: 'Task T-kept-work-smoke (docs): changed 1 file(s) inside allowed_paths, 0/1 checks passed.',
+    },
+  },
+  {
+    id: 346,
+    title: '1 file changed, 1/1 checks passed, #14',
+    status: 'completed',
+    createdAt: new Date('2026-09-21T10:04:00Z'),
+    meta: {
+      headline: '1 file changed, 1/1 checks passed, #14',
+      execution: 'completed',
+      verification: 'passed',
+      output: 'pull_request',
+      cents: 5,
+      durationSeconds: 20,
+      agentSlug: 'send-engineer',
+      tokens: 12_004,
+      summary: 'Task T-kept-work-smoke (docs): changed 1 file(s), 1/1 checks passed.',
+    },
+  },
+];
+
+describe('Activity, where the evidence is in the row rather than in the columns', () => {
+  it('draws the default row and keeps the forensic fields out of it', async () => {
+    await page.viewport(1440, 900);
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable rows={ACTIVITY_ROWS} fields={ACTIVITY_FIELDS} primary={ACTIVITY_PRIMARY} now={Date.parse('2026-09-21T11:00:00Z')} />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    const headers = [...document.querySelectorAll('thead th')].map(th => th.textContent?.trim());
+
+    expect(headers).toEqual(['What happened', 'Cost', 'Duration']);
+    // The agent, the tokens, the heartbeat and the lease are not columns and
+    // are not the subtitle either.
+    expect(headers).not.toContain('Tokens');
+    expect(headers).not.toContain('Heartbeat');
+    // A duration reads as the length a person compares, not as an integer.
+    expect(document.body.textContent).toContain('3m 5s');
+  });
+
+  it('opens the run\'s own evidence in place, and only the parts the run has', async () => {
+    await page.viewport(1440, 900);
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable rows={ACTIVITY_ROWS} fields={ACTIVITY_FIELDS} primary={ACTIVITY_PRIMARY} now={Date.parse('2026-09-21T11:00:00Z')} />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    const disclosures = [...document.querySelectorAll('[data-testid="row-details"]')];
+
+    expect(disclosures).toHaveLength(2);
+
+    const first = disclosures[0] as HTMLDetailsElement;
+
+    // Closed by default: the row is the row, and the evidence is one click in.
+    expect(first.open).toBe(false);
+
+    first.open = true;
+
+    const labels = [...first.querySelectorAll('dt')].map(dt => dt.textContent?.trim());
+
+    expect(labels).toEqual(['Agent', 'Tokens', 'Worker\'s own report']);
+    // A run that finished has no live heartbeat and no live lease, so the
+    // disclosure simply does not carry them rather than drawing two dashes.
+    expect(labels).not.toContain('Heartbeat');
+    expect(labels).not.toContain('Lease');
+    expect(first.textContent).toContain('Task T-kept-work-smoke');
+  });
+
+  it('says execution completed beside verification failed without contradicting itself', async () => {
+    await page.viewport(1440, 900);
+    render(
+      <div className="mx-auto max-w-[1200px] p-6">
+        <PageTable rows={[ACTIVITY_ROWS[0]!]} fields={ACTIVITY_FIELDS} primary={ACTIVITY_PRIMARY} now={Date.parse('2026-09-21T11:00:00Z')} />
+      </div>,
+    );
+
+    await expect.element(page.getByRole('table')).toBeInTheDocument();
+
+    const lead = document.querySelector('tbody td')!;
+    const line = lead.textContent ?? '';
+
+    expect(line).toContain('completed');
+    expect(line).toContain('failed');
+    expect(line).toContain('work_preserved');
+    expect(line).toContain('retried as attempt 2, accepted 2m later');
   });
 });

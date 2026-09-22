@@ -86,6 +86,44 @@ schema:
       type: array
       description: The artifacts behind `healthAfter` — the trace, the screenshot, the curl. Evidence one tap from the release row.
       items: {type: integer}
+    outcome:
+      x-display: {label: Outcome, role: prose, format: steps, order: 7}
+      type: object
+      description: >-
+        What production said about this release once it had been live long
+        enough to tell. NOT `healthAfter`, which is the smoke test minutes
+        after the swap — that answers "did the deploy work". This answers "did
+        the change work", which is a different question and usually a later
+        one.
+
+        Shipping is not the end of the loop. A factory that never looks back
+        cannot tell a release that helped from one that quietly cost 15% of a
+        funnel, and it is the looking back that turns an autonomous coding
+        tool into a factory.
+
+        Every measure carries its BEFORE. A number on its own is
+        uninterpretable — "share completion 76%" says nothing; "91% → 76%"
+        says the release broke something.
+      properties:
+        verdict:
+          type: string
+          description: '`validated` — it did what it was for. `regressed` — something got worse. `inconclusive` — the soak ran but nothing moved enough to say, which is an honest answer and not a failure. Absent means nobody has looked yet.'
+          enum: [validated, regressed, inconclusive]
+        checkedAt: {type: string, format: date-time, description: When the outcome was read. A verdict with no date cannot be told from a stale one.}
+        soakHours: {type: number, description: How long it was live before the reading was taken. A verdict from ten minutes after a deploy is a smoke test wearing a verdict.}
+        measures:
+          type: array
+          description: 'What moved, each with what it was before. A measure with no `before` is reported as unreadable rather than as flat.'
+          items:
+            type: object
+            properties:
+              label: {type: string}
+              before: {type: number}
+              after: {type: number}
+              unit: {type: string}
+              goodWhen: {type: string, enum: [up, down], description: 'Which direction is good. Errors falling is good and usage falling is not, and no arithmetic can tell them apart.'}
+        note: {type: string, description: 'One line a person would say: "no change in errors, share completion fell 15 points".'}
+        evidenceUrl: {type: string, description: 'The dashboard, query or trace the reading came from, so the verdict can be checked rather than trusted.'}
     notes:
       x-display: {label: Release notes, role: prose, order: 1}
       type: string

@@ -63,7 +63,7 @@ describe('the overview archetype', () => {
     expect(PageManifestSchema.safeParse({ ...base, panels: [{ kind: 'status', title: 'S', objectType: 'product', facts: facts(5) }] }).success).toBe(false);
   });
 
-  it('defaults the active list to seven outcomes and the digest to a 24 hour fallback', () => {
+  it('defaults the lists a person reads first to three, and the digest to a 24 hour fallback', () => {
     const parsed = PageManifestSchema.parse({
       ...base,
       panels: [
@@ -76,8 +76,9 @@ describe('the overview archetype', () => {
 
     expect(active).toMatchObject({ kind: 'active', limit: 7 });
     expect(digest).toMatchObject({ kind: 'digest', fallbackHours: 24 });
-    // The rank orders the queue; the reason comes from meta.why, not from it.
-    expect(next).toMatchObject({ kind: 'next', limit: 7, orderBy: 'meta.priority', noteFields: ['whyNote'] });
+    // Three, not seven: Next answers what the factory intends to spend effort
+    // on, which is a short answer. A ranked backlog is a different page.
+    expect(next).toMatchObject({ kind: 'next', limit: 3, orderBy: 'meta.priority', noteFields: ['whyNote'] });
   });
 });
 
@@ -89,14 +90,16 @@ describe('the Factory page the software factory ships', () => {
 
     expect(issues).toEqual([]);
     expect(factory).toMatchObject({ archetype: 'overview', title: 'Factory', origin: 'plugin:software-factory' });
-    expect(factory?.nav).toMatchObject({ section: 'Business', order: 0, hidden: false });
+    expect(factory?.nav).toMatchObject({ section: 'Software factory', order: 5, secondary: true });
   });
 
-  it('answers all six questions, in order, and asks for no worker runs', () => {
+  it('briefs in the order a person needs it, and asks for no worker runs', () => {
     workspace('plugins: [software-factory]\n');
     const factory = readWorkspacePages().pages.find(p => p.slug === 'factory');
 
-    expect(factory?.panels?.map(p => p.kind)).toEqual(['status', 'digest', 'active', 'next', 'needsYou', 'economics', 'autonomy']);
+    // Judgment first, then the two things blocked on a person, then the work.
+    // Seven things allegedly in flight do not outrank one decision waiting.
+    expect(factory?.panels?.map(p => p.kind)).toEqual(['judgment', 'needsYou', 'active', 'next', 'digest', 'status', 'economics', 'autonomy']);
 
     // Worker runs are evidence and live on Activity. Every record type any
     // panel names is a noun a person asked for or owns, never a run.
@@ -108,12 +111,14 @@ describe('the Factory page the software factory ships', () => {
   it('grounds each panel in a record type the plugin actually defines', () => {
     workspace('plugins: [software-factory]\n');
     const factory = readWorkspacePages().pages.find(p => p.slug === 'factory');
-    const [status, digest, active, next, , economics] = factory!.panels!;
+    const [, , active, next, digest, status, economics] = factory!.panels!;
 
-    expect(status).toMatchObject({ kind: 'status', objectType: 'product' });
+    expect(status).toMatchObject({ kind: 'status', objectType: 'product', healthField: 'meta.health' });
     expect(digest).toMatchObject({ kind: 'digest', rollups: [{ objectType: 'release', moneyField: 'meta.actualCents' }] });
-    expect(active).toMatchObject({ kind: 'active', objectType: 'request', tasks: { objectType: 'engineering_task', joinField: 'meta.requestId' } });
+    expect(active).toMatchObject({ kind: 'active', objectType: 'request', tasks: { objectType: 'engineering_task', joinField: 'meta.requestId', workingStatus: ['claimed', 'running'] } });
     expect(next).toMatchObject({ kind: 'next', objectType: 'request', noteFields: ['whyNote', 'priorityReason'] });
-    expect(economics).toMatchObject({ kind: 'economics', objectType: 'engineering_task', costField: 'meta.actualCents', wasteStatus: ['rejected', 'abandoned'] });
+    // Rework, never waste: a failed attempt can leave diagnostics, a preserved
+    // branch and a better next attempt.
+    expect(economics).toMatchObject({ kind: 'economics', objectType: 'engineering_task', costField: 'meta.actualCents', reworkStatus: ['rejected', 'abandoned'] });
   });
 });

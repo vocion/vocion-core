@@ -1,0 +1,16 @@
+-- 0135, the workspace's operating intent.
+--
+-- A person steering a factory does not want to approve each piece of work.
+-- They want to say what they are trying to achieve, what beats what, what the
+-- factory may not do without asking, what it may spend and which classes of
+-- action may run unattended. That statement is authored as workspace-as-code
+-- (`operating-intent.yaml`) so a change to it is a commit with a reason on it,
+-- and it lands here so the agents that choose work can read it without the
+-- filesystem.
+--
+-- One jsonb column, the same shape as `voice_rules` (0-something) and for the
+-- same reason: the file is the schema, the column is its applied form, and
+-- deleting the file clears the column. Nullable, no default: additive, no
+-- table rewrite, no lock. NULL means the factory has been told nothing, which
+-- the agents report as such rather than reading as "anything goes".
+ALTER TABLE "project" ADD COLUMN IF NOT EXISTS "operating_intent" jsonb;
