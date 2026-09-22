@@ -83,7 +83,7 @@ layout: block
 # muted line under it. Anything more about this outcome is on its own page.
 primary:
   field: title
-  subtitle: [status, flags, rank, detail, why, cost, product]
+  subtitle: [status, gap, flags, rank, detail, why, cost, product]
 fields:
   - {key: title, label: Outcome}
   # The badge, and the reason the lanes could be collapsed from four to
@@ -92,6 +92,12 @@ fields:
   # Blocked reads bad, an undecided recommendation reads warn, and work that
   # nobody has started is muted because it is not asking for anything yet.
   - {key: status, label: Status, from: meta.state, format: badge, tones: {Blocked: bad, Building: info, Decide: warn, Shipped: ok, Answered: muted, Queued: muted, Triaged: muted, In scope: muted, Not triaged: muted}}
+  # What this row cannot show. A `ui` or `flow` outcome owes a mockup before
+  # it is decided and an after-shot before it closes; the row says which is
+  # missing and the lane counts them, the same way it reports an unranked
+  # queue. Work nobody has classified claims nothing, so the gate stays quiet
+  # until `surface` says a picture is owed.
+  - {key: gap, label: Missing, from: meta.visualGap, format: badge, tones: {no mock: warn, no after: warn}}
   # Conditional facts. An empty list renders as nothing, not as a dash.
   - {key: flags, label: Flags, from: meta.flags}
   # What is happening, minus whatever the badge already said. A queued row's

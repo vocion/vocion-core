@@ -347,6 +347,65 @@ export function costLine(row: PageRow, lane: WorkLane): string | null {
 }
 
 /**
+ * The surfaces that owe a picture. A change to the machine underneath is not
+ * one a person can look at, so asking it for a mockup would be a gate nobody
+ * could pass and everybody would learn to route around.
+ */
+const VISUAL_SURFACES = new Set(['ui', 'flow']);
+
+/**
+ * What this outcome has to show for itself, counted.
+ * @param row
+ */
+function visualsOf(row: PageRow): { before: number; after: number; reason: string | null } {
+  const raw = meta(row).visuals;
+  const v = raw !== null && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const count = (k: string) => (Array.isArray(v[k]) ? (v[k] as unknown[]).length : 0);
+  const note = typeof v.noVisualReason === 'string' && v.noVisualReason.trim() !== '' ? v.noVisualReason.trim() : null;
+  return { before: count('beforeArtifactIds'), after: count('afterArtifactIds'), reason: note };
+}
+
+/**
+ * What this row cannot show, in the words the row would use.
+ *
+ * A decision about something a person will look at should be taken against
+ * something a person can look at, and work that shipped should be checkable
+ * against the running product. So a `ui` or `flow` outcome owes a mockup or a
+ * diagram before it is decided, and an after-shot before it is closed.
+ *
+ * The gap is DRAWN rather than enforced silently: the row says what is
+ * missing and the lane counts it, which is what this page already does with
+ * an unranked queue. A recorded `noVisualReason` closes it — a way out
+ * somebody wrote down, never a skip nobody noticed. An outcome nobody has
+ * classified reports that instead, because "we do not know whether this
+ * changes what a person sees" is its own missing fact.
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function visualGap(row: PageRow, lane: WorkLane): string | null {
+  if (lane === 'progress') {
+    return null;
+  }
+  // An outcome nobody has classified claims NO gap. Reporting one would put
+  // "surface not set" on every row the day this shipped, and a column where
+  // every entry is the same complaint reports nothing at all — the same
+  // argument this page already makes about "not recorded". Classifying is
+  // what the backfill does; a gap appears once we know a picture is owed.
+  const surface = str(row, 'surface');
+  if (surface === null || !VISUAL_SURFACES.has(surface)) {
+    return null;
+  }
+  const v = visualsOf(row);
+  if (v.reason !== null) {
+    return null;
+  }
+  if (lane === 'proposed') {
+    return v.before === 0 ? 'no mock' : null;
+  }
+  return v.after === 0 ? 'no after' : null;
+}
+
+/**
  * The conditional facts, which appear only when they are true. A flag the
  * lane heading already states is not repeated on the row.
  * @param row - The row.
@@ -396,14 +455,22 @@ function laneLabel(lane: WorkLane): string {
  * @param counts.queued - Rows nobody is waiting on a decision for.
  * @param counts.minutes - Decision minutes the lane is holding.
  * @param counts.blocked - Rows that have stopped.
+ * @param counts.noVisual - Rows that owe a picture and have none.
  */
-function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked: number; queued: number; minutes: number; blocked: number }): string | null {
+function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked: number; queued: number; minutes: number; blocked: number; noVisual: number }): string | null {
   const hidden = counts.total - counts.shown;
   if (lane === 'progress') {
     return counts.blocked > 0 ? `${counts.blocked} of ${counts.total} stopped` : null;
   }
   if (lane === 'done') {
-    return hidden > 0 ? `${hidden} more in Activity` : null;
+    const shipped: string[] = [];
+    if (counts.noVisual > 0) {
+      shipped.push(`${counts.noVisual} without an after`);
+    }
+    if (hidden > 0) {
+      shipped.push(`${hidden} more in Activity`);
+    }
+    return shipped.length > 0 ? shipped.join(' · ') : null;
   }
   const parts: string[] = [];
   if (counts.minutes > 0) {
@@ -411,6 +478,9 @@ function laneNote(lane: WorkLane, counts: { total: number; shown: number; ranked
   }
   if (counts.queued > 0 && counts.ranked === 0) {
     parts.push(`nothing ranked, no reason recorded on ${counts.queued}`);
+  }
+  if (counts.noVisual > 0) {
+    parts.push(`${counts.noVisual} without a visual`);
   }
   if (hidden > 0) {
     parts.push(`${hidden} more queued`);
@@ -523,6 +593,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
       shown: shown.length,
       ranked: ordered.filter(o => o.rank !== null).length,
       queued: ordered.filter(o => !isWaitingOnPerson(o.row)).length,
+      noVisual: ordered.filter(o => visualGap(o.row, lane) !== null).length,
       minutes: figures.waitingMinutes,
       blocked: figures.blockedCount,
     });
@@ -540,6 +611,7 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           order: laneIndex * 1000 + i,
           rank: rank === null ? undefined : String(rank),
           state,
+          visualGap: visualGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,
           workLine: workLine(row, lane, now) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,
