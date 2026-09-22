@@ -75,9 +75,10 @@ describe('a ratio names both halves', () => {
     expect(computeStat(rows, { label: 'Rework share', kind: 'ratio', field: 'meta.rework', overField: 'meta.actualCents', format: 'percent', hideWhenZero: false })).toBe('8.3%');
   });
 
-  it('is zero, not NaN, when the denominator is empty', () => {
-    expect(computeStat([], { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('$0.00');
-    expect(computeStat([], { label: 'Clean', kind: 'ratio', format: 'percent', hideWhenZero: false })).toBe('0%');
+  it('says there is not enough yet — never NaN, and never a zero it did not measure', () => {
+    // "$0.00 per outcome" over no outcomes is a claim, and a false one.
+    expect(computeStat([], { label: 'Per outcome', kind: 'ratio', field: 'meta.actualCents', format: 'money', hideWhenZero: false })).toBe('not enough yet');
+    expect(computeStat([], { label: 'Clean', kind: 'ratio', format: 'percent', hideWhenZero: false })).toBe('not enough yet');
   });
 });
 

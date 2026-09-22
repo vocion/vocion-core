@@ -1168,12 +1168,14 @@ function aggregate(kind: 'count' | 'sum' | 'avg' | 'min' | 'max', pool: PageRow[
       return pool.length;
     case 'sum':
       return nums.reduce((a, b) => a + b, 0);
+    // An average, a smallest and a largest of NOTHING are not zero. `count`
+    // and `sum` still are: nothing counted is none, nothing spent is £0.
     case 'avg':
-      return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+      return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : Number.NaN;
     case 'min':
-      return nums.length ? Math.min(...nums) : 0;
+      return nums.length ? Math.min(...nums) : Number.NaN;
     case 'max':
-      return nums.length ? Math.max(...nums) : 0;
+      return nums.length ? Math.max(...nums) : Number.NaN;
     default:
       return 0;
   }
@@ -1186,6 +1188,18 @@ function numbersOf(rows: PageRow[], field: string | undefined): number[] {
 }
 
 function renderFigure(value: number, format: 'number' | 'money' | 'percent', suffix = ''): string {
+  // NOTHING TO DIVIDE BY IS NOT ZERO.
+  //
+  // Performance led with `0 h`, `0 %` and `0 min` on a factory that had
+  // shipped one release, because a median of no samples and a ratio over a
+  // zero denominator both fell through to 0. Read plainly that page said the
+  // factory takes no time, accepts nothing and needs no one — three false
+  // claims, stated with the confidence of a measurement. A figure nobody can
+  // compute has to say so; "not enough yet" is checkable and a wrong zero is
+  // not (principle 10, and value 3: show your work).
+  if (!Number.isFinite(value)) {
+    return 'not enough yet';
+  }
   if (format === 'money') {
     return `${formatMoney(value)}${suffix}`;
   }
@@ -1197,13 +1211,13 @@ function renderFigure(value: number, format: 'number' | 'money' | 'percent', suf
 }
 
 /**
- * The median of these numbers, the even case averaged. Empty is 0, the same
- * answer every other aggregate gives an empty pool.
+ * The median of these numbers, the even case averaged. Empty is NaN — there is
+ * no middle of nothing, and {@link renderFigure} turns NaN into a sentence.
  * @param nums - The numbers, in any order.
  */
 function median(nums: number[]): number {
   if (nums.length === 0) {
-    return 0;
+    return Number.NaN;
   }
   const sorted = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -1269,7 +1283,7 @@ export function statValue(rows: PageRow[], stat: PageStat, now: Date = new Date(
       break;
     case 'pctGte': {
       const t = stat.threshold ?? 0;
-      value = nums.length ? (nums.filter(n => n >= t).length / nums.length) * 100 : 0;
+      value = nums.length ? (nums.filter(n => n >= t).length / nums.length) * 100 : Number.NaN;
       break;
     }
     case 'medianHours':
@@ -1281,7 +1295,7 @@ export function statValue(rows: PageRow[], stat: PageStat, now: Date = new Date(
       const denominator = stat.overField === undefined
         ? over.length
         : numbersOf(over, stat.overField).reduce((a, b) => a + b, 0);
-      value = denominator === 0 ? 0 : numerator / denominator;
+      value = denominator === 0 ? Number.NaN : numerator / denominator;
       break;
     }
     default:
