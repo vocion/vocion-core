@@ -19,13 +19,17 @@ import type { TokenUsage } from '@/libs/pricing';
 /**
  * Usage as LangChain normalises it onto a model response.
  *
- * `input_token_details.cache_read` is the prompt-cache hit count; providers
- * that do not cache simply omit it.
+ * `input_token_details.cache_read` is the prompt-cache hit count and
+ * `cache_creation` the write count; providers that do not cache simply omit
+ * them. `input_tokens` is the whole input side with both of those already
+ * inside it — LangChain's Bedrock adapter adds them back onto the uncached
+ * remainder Converse reports, so the number here means the same thing on both
+ * vendors.
  */
 export type LangChainUsageMetadata = {
   input_tokens?: number;
   output_tokens?: number;
-  input_token_details?: { cache_read?: number };
+  input_token_details?: { cache_read?: number; cache_creation?: number };
 };
 
 /**
@@ -54,6 +58,7 @@ export function tokenUsageOf(response: unknown): TokenUsage | null {
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,
     cacheReadTokens: usage.input_token_details?.cache_read,
+    cacheWriteTokens: usage.input_token_details?.cache_creation,
   };
 }
 

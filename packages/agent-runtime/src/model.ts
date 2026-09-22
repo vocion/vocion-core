@@ -20,6 +20,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { InvocationRequest } from './contract.js';
 
 import process from 'node:process';
+import { promptCacheAllowed } from './promptCache.js';
 
 /**
  * The credential shape AWS SDK clients accept, declared structurally rather
@@ -96,6 +97,12 @@ export async function buildChatModel(opts: {
   temperature?: number;
   maxTokens?: number;
   /**
+   * Ask the vendor to cache the prompt prefix on every call. On unless the
+   * caller says otherwise or `VOCION_PROMPT_CACHE=0` is set — see
+   * `./promptCache.ts` for what that saves and what silently will not cache.
+   */
+  promptCache?: boolean;
+  /**
    * Reads the AWS session of the invocation currently being served. Called on
    * every model request, not once at construction — see
    * `bedrockCredentialProvider`.
@@ -103,11 +110,16 @@ export async function buildChatModel(opts: {
   readAwsSession?: () => InvocationRequest['aws'];
 }): Promise<BaseChatModel> {
   const provider = resolveProvider();
+  // The cache instruction is a per-call option neither integration takes at
+  // construction, so the class carrying it is chosen here.
+  const caching = (opts.promptCache ?? true) && promptCacheAllowed();
 
   if (provider === 'anthropic') {
     const { ChatAnthropic } = await import('@langchain/anthropic');
+    const { CachingChatAnthropic } = await import('./promptCache.js');
+    const Anthropic = caching ? CachingChatAnthropic : ChatAnthropic;
     const model = opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? ANTHROPIC_DEFAULT;
-    return new ChatAnthropic({
+    return new Anthropic({
       model,
       ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),
       maxTokens: opts.maxTokens ?? 8192,
@@ -115,11 +127,13 @@ export async function buildChatModel(opts: {
   }
 
   const { ChatBedrockConverse } = await import('@langchain/aws');
+  const { CachingChatBedrockConverse } = await import('./promptCache.js');
+  const Bedrock = caching ? CachingChatBedrockConverse : ChatBedrockConverse;
   const credentials = opts.readAwsSession
     ? bedrockCredentialProvider(opts.readAwsSession)
     : undefined;
   const model = opts.model ?? process.env.VOCION_LLM_MODEL_MAIN ?? BEDROCK_DEFAULT;
-  return new ChatBedrockConverse({
+  return new Bedrock({
     model,
     // Same models, second transport: Bedrock refuses the same parameters.
     ...(anthropicOmitsSampling(model) || opts.temperature === undefined ? {} : { temperature: opts.temperature }),

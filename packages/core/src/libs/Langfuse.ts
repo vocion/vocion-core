@@ -6,6 +6,7 @@ import type { FeatureName } from './Langfuse/features';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { Langfuse } from 'langfuse';
 import { resolveLangfuseConfig } from './Langfuse/config';
+import { tokenUsageOf } from './llm/usage';
 
 /* ------------------------------------------------------------------ */
 /* Client — created on first use, never at import time                */
@@ -340,6 +341,7 @@ export type CreateLangfuseCallbackOptions = TraceFor & {
     inputTokens?: number;
     outputTokens?: number;
     cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   }) => void | Promise<void>;
 };
 
@@ -402,22 +404,35 @@ export function createLangfuseCallback(
       };
       const usage = llmOutput.tokenUsage;
       const anthropicUsage = llmOutput.usage;
+      // The message's own `usage_metadata` is the only shape every provider
+      // fills in — Bedrock returns no `llmOutput` at all on a non-streamed
+      // generation, so reading only the two shapes below left every Bedrock
+      // turn untraced and uncharged. Read the normalised one first and keep
+      // the others as the fallback.
+      const normalised = tokenUsageOf(firstGen?.message);
       // Langfuse v3: `usage` is deprecated; `usageDetails` is the free-
       // form numeric map their cost engine reads. Stamp the canonical
       // keys (`input`, `output`, `cache_read_input_tokens`) so Anthropic
       // prompt-caching bills correctly (~10x discount on cached input).
-      const usageDetails: Record<string, number> | undefined = usage
+      const usageDetails: Record<string, number> | undefined = normalised
         ? cleanUsageDetails({
-            input: usage.promptTokens,
-            output: usage.completionTokens,
+            input: normalised.inputTokens,
+            output: normalised.outputTokens,
+            cache_read_input_tokens: normalised.cacheReadTokens,
+            cache_creation_input_tokens: normalised.cacheWriteTokens,
           })
-        : anthropicUsage
+        : usage
           ? cleanUsageDetails({
-              input: anthropicUsage.input_tokens,
-              output: anthropicUsage.output_tokens,
-              cache_read_input_tokens: anthropicUsage.cache_read_input_tokens,
+              input: usage.promptTokens,
+              output: usage.completionTokens,
             })
-          : undefined;
+          : anthropicUsage
+            ? cleanUsageDetails({
+                input: anthropicUsage.input_tokens,
+                output: anthropicUsage.output_tokens,
+                cache_read_input_tokens: anthropicUsage.cache_read_input_tokens,
+              })
+            : undefined;
       gen.end({
         output: firstGen?.text ?? output.generations,
         usageDetails,
@@ -427,9 +442,10 @@ export function createLangfuseCallback(
         try {
           await opts.onTurnEnd({
             model: llmOutput.model ?? 'unknown',
-            inputTokens: usage?.promptTokens ?? anthropicUsage?.input_tokens,
-            outputTokens: usage?.completionTokens ?? anthropicUsage?.output_tokens,
-            cacheReadTokens: anthropicUsage?.cache_read_input_tokens,
+            inputTokens: normalised?.inputTokens ?? usage?.promptTokens ?? anthropicUsage?.input_tokens,
+            outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
+            cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,
+            cacheWriteTokens: normalised?.cacheWriteTokens,
           });
         } catch {
           /* never let the budget hook break the agent run */

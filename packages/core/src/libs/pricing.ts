@@ -6,10 +6,13 @@
  * Caller multiplies by `usage.input_tokens` / `usage.output_tokens`
  * and divides by 1e6 to get the cost of one model turn in cents.
  *
- * Cache reads (`cache_read_input_tokens`) are charged at the input
- * rate's cache-hit discount. Anthropic ships a 10x discount on cache
- * reads for prompt-cache-enabled prompts (see `withPromptCache` in
- * libs/llm/langchain.ts).
+ * Prompt caching splits the input side three ways. A cache read is
+ * charged at 0.1x the input rate (0.025x on Fable 5.1 and Mythos 5.1);
+ * a cache write at 1.25x for the five-minute TTL we send, and 2x for
+ * the one-hour one. Figures from Anthropic's prompt-caching page, read
+ * 2026-09-22:
+ * https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+ * See `libs/llm/promptCache.ts` for how the cache is asked for.
  *
  * Table keys are plain model names. Bedrock reports the same model
  * cards under decorated ids (`us.anthropic.claude-sonnet-4-6`), so
@@ -24,6 +27,12 @@ export type PricingTier = {
   outputCentsPerMillion: number;
   /** USD cents per 1M cache-read input tokens (Anthropic discount). */
   cacheReadCentsPerMillion?: number;
+  /**
+   * USD cents per 1M cache-WRITE input tokens. Unset means the vendor's
+   * standard five-minute multiplier, 1.25x input — set it only for a model
+   * that departs from that.
+   */
+  cacheWriteCentsPerMillion?: number;
 };
 
 /**
@@ -96,9 +105,25 @@ export const PRICING: Readonly<Record<string, Readonly<PricingTier>>> = {
 };
 
 export type TokenUsage = {
+  /**
+   * Every input token the call was billed for, cached ones included. That is
+   * the LangChain convention (`usage_metadata.input_tokens`), and it is NOT
+   * what a raw Bedrock Converse response means by `inputTokens` — Bedrock
+   * reports only the uncached remainder and expects the caller to add the two
+   * cache counts back. Anything reading a raw Converse response has to do that
+   * sum before filling this in.
+   */
   inputTokens?: number;
   outputTokens?: number;
+  /** Input tokens served from the vendor's prompt cache, billed at 0.1x. */
   cacheReadTokens?: number;
+  /**
+   * Input tokens written into the vendor's prompt cache, billed at 1.25x on
+   * the five-minute TTL. Counted separately because a cache write costs MORE
+   * than a plain input token, so folding it into `inputTokens` would quietly
+   * undercharge every first turn of every run.
+   */
+  cacheWriteTokens?: number;
 };
 
 /**
@@ -171,11 +196,20 @@ export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
     return 0;
   }
   const cacheRead = usage.cacheReadTokens ?? 0;
-  const inputBilledAtFullRate = Math.max(0, (usage.inputTokens ?? 0) - cacheRead);
+  const cacheWrite = usage.cacheWriteTokens ?? 0;
+  // `inputTokens` is the whole input side, cached tokens included, so the two
+  // cache counts come off it before the rest is charged at the plain rate.
+  // Clamped at zero because a provider that reports the three numbers some
+  // other way should charge too little rather than a negative amount.
+  const inputBilledAtFullRate = Math.max(0, (usage.inputTokens ?? 0) - cacheRead - cacheWrite);
   const input = inputBilledAtFullRate * tier.inputCentsPerMillion;
   const cache = cacheRead * (tier.cacheReadCentsPerMillion ?? tier.inputCentsPerMillion);
+  // 1.25x is the published five-minute cache-write multiplier, and five
+  // minutes is the TTL `libs/llm/promptCache.ts` asks for. A one-hour TTL
+  // would be 2x and needs its own rate before it is used anywhere.
+  const write = cacheWrite * (tier.cacheWriteCentsPerMillion ?? tier.inputCentsPerMillion * 1.25);
   const output = (usage.outputTokens ?? 0) * tier.outputCentsPerMillion;
-  return Math.round(input + cache + output);
+  return Math.round(input + cache + write + output);
 }
 
 /**

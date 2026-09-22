@@ -25,11 +25,22 @@ export function anthropicClient(client: Anthropic): LLMClient {
         : '';
       const system = systemMsgs.map(m => m.content).join('\n\n') + jsonHint;
 
+      // The system prompt is the part that repeats between calls, so it is
+      // sent as a block carrying `cache_control` rather than as a plain
+      // string. A prompt below the model's minimum cacheable length is simply
+      // not cached — the call succeeds either way — so this is safe to send on
+      // every request. See `./promptCache.ts` for the per-model minimums.
+      const systemText = system.trim();
+      const cachePrompt = opts.promptCache ?? true;
       const response = await client.messages.create({
         model: opts.model,
         max_tokens: opts.maxTokens ?? 2048,
         temperature: opts.temperature,
-        system: system.trim() || undefined,
+        system: systemText
+          ? (cachePrompt
+              ? [{ type: 'text' as const, text: systemText, cache_control: { type: 'ephemeral' as const } }]
+              : systemText)
+          : undefined,
         messages: chatMsgs,
       });
 
@@ -39,12 +50,19 @@ export function anthropicClient(client: Anthropic): LLMClient {
         .map(block => (block.type === 'text' ? block.text : ''))
         .join('');
 
+      // Anthropic reports `input_tokens` as the uncached remainder, with the
+      // cached counts alongside it, so they are added back to make
+      // `inputTokens` mean the whole input side as it does elsewhere here.
+      const cacheReadTokens = response.usage.cache_read_input_tokens ?? undefined;
+      const cacheWriteTokens = response.usage.cache_creation_input_tokens ?? undefined;
       return {
         content,
         finishReason: response.stop_reason ?? undefined,
         usage: {
-          inputTokens: response.usage.input_tokens,
+          inputTokens: response.usage.input_tokens + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0),
           outputTokens: response.usage.output_tokens,
+          cacheReadTokens,
+          cacheWriteTokens,
         },
       };
     },

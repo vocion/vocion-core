@@ -564,7 +564,7 @@ export async function runAgentDeep(opts: {
   const failedDelegations: FailedDelegation[] = [];
 
   // What this run cost, summed over every model turn the callback sees.
-  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, microCents: 0, cents: 0, turns: 0 };
+  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
 
   // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
   const { handler: langfuseHandler, trace } = createLangfuseCallback({
@@ -580,6 +580,7 @@ export async function runAgentDeep(opts: {
       usage.inputTokens += turn.inputTokens ?? 0;
       usage.outputTokens += turn.outputTokens ?? 0;
       usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
+      usage.cacheWriteTokens += turn.cacheWriteTokens ?? 0;
       // Summed in whole micro-cents, then divided once. Adding fractional
       // cents turn by turn drifts, because most of them are not values a
       // floating-point number can hold exactly; `cents` is recomputed from the
@@ -589,6 +590,7 @@ export async function runAgentDeep(opts: {
         inputTokens: turn.inputTokens,
         outputTokens: turn.outputTokens,
         cacheReadTokens: turn.cacheReadTokens,
+        cacheWriteTokens: turn.cacheWriteTokens,
       });
       usage.cents = usage.microCents / 1_000_000;
       await chargeUsage({
@@ -599,6 +601,7 @@ export async function runAgentDeep(opts: {
           inputTokens: turn.inputTokens,
           outputTokens: turn.outputTokens,
           cacheReadTokens: turn.cacheReadTokens,
+          cacheWriteTokens: turn.cacheWriteTokens,
         },
       });
     },
@@ -996,7 +999,10 @@ export type RunUsage = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Input tokens the vendor served from its prompt cache, at 0.1x the rate. */
   cacheReadTokens: number;
+  /** Input tokens the vendor wrote into its prompt cache, at 1.25x the rate. */
+  cacheWriteTokens: number;
   /**
    * What the run cost in micro-cents (a millionth of a cent) — the exact
    * number, summed as whole numbers over the run's turns.
