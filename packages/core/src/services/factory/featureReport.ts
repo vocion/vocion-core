@@ -183,6 +183,8 @@ export type ReportEntry = {
 /** A QA artifact as the gallery reads it. */
 export type ReportEvidence = {
   id: number;
+  /** The artifact's kind, so a gallery can draw a picture as a picture and a document as a document. */
+  kind: string;
   role: string;
   title: string;
   caption: string | null;
@@ -192,7 +194,7 @@ export type ReportEvidence = {
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
-export const REPORT_SECTION_KEYS = ['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
+export const REPORT_SECTION_KEYS = ['ask', 'triage', 'visuals', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
 
 /**
@@ -1029,6 +1031,7 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
     .filter((x): x is { a: ReportArtifact; role: QaEvidenceRole } => x.role !== null)
     .map(({ a, role }) => ({
       id: a.id,
+      kind: a.kind,
       role,
       title: a.title,
       caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? str(a.spec, 'summary'),
@@ -1644,6 +1647,82 @@ function buildAcceptance(request: ReportObject): ReportAcceptance {
   };
 }
 
+/** Surfaces a person can see, and therefore owes a picture of. */
+const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
+
+/** States that mean a person should expect to use the thing, so the after-shot is owed. */
+const DONE_LIKE: ReadonlySet<string> = new Set(['shipped', 'accepted', 'released', 'answered']);
+
+/**
+ * WHAT THIS LOOKS LIKE — proposed before it is built, captured after it ships.
+ *
+ * The request type has carried `visuals` since the evidence gate shipped, and
+ * nothing on this page has ever drawn it: a mockup could be filed against a
+ * request and never appear anywhere a person reads the work. So the field
+ * described a promise the product did not keep.
+ *
+ * Before and after are the same noun — a core artifact — because a mockup, a
+ * flow diagram and an after-shot are all things that version, preview and can
+ * be cited. They are separated by ROLE, not by type.
+ * @param request - The request record.
+ * @param artifacts - Every artifact gathered for this work.
+ */
+function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
+  const s = blank('visuals', 'What it looks like');
+  const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  const surface = str(request.meta, 'surface');
+  const surfaceUrl = str(visuals, 'surfaceUrl');
+  const noVisualReason = str(visuals, 'noVisualReason');
+  const ids = (key: string): Set<string> => {
+    const raw = visuals[key];
+    return new Set(Array.isArray(raw) ? raw.map(String) : []);
+  };
+  const before = ids('beforeArtifactIds');
+  const after = ids('afterArtifactIds');
+  // An artifact filed against the REQUEST is about the outcome; one filed
+  // against a task is about the change and belongs to QA.
+  const onRequest = artifacts.filter(a => a.recordType === 'object' && a.recordId === String(request.id));
+  const pick = (want: Set<string>, role: string): ReportEvidence[] => artifacts
+    .filter(a => want.has(String(a.id)) || (want.size === 0 && role === 'proposed' && onRequest.includes(a) && a.recordRole === 'proposal-visual'))
+    .map(a => ({
+      id: a.id,
+      kind: a.kind,
+      role,
+      title: a.title,
+      caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
+      url: `/dashboard/artifacts/${a.id}`,
+      at: a.createdAt,
+    }))
+    .sort((x, y) => x.at.getTime() - y.at.getTime());
+
+  s.evidence = [...pick(before, 'proposed'), ...pick(after, 'shipped')];
+  s.facts = [
+    { label: 'Where this is on the live product', value: surfaceUrl, href: surfaceUrl ?? undefined },
+    { label: 'Surface', value: surface },
+  ];
+
+  if (s.evidence.length === 0) {
+    if (noVisualReason !== null) {
+      s.absence = `Nothing to show, on purpose: ${noVisualReason}`;
+      return s;
+    }
+    // The gate, said as a reading rather than as a rule. A surface nobody can
+    // see owes nothing; one a person looks at owes a picture in both
+    // directions, and which one is missing depends on where the work is.
+    const done = DONE_LIKE.has(str(request.meta, 'state') ?? '');
+    s.absence = surface !== null && VISIBLE_SURFACES.has(surface)
+      ? done
+        ? 'Nothing shows what this looks like now. A change a person can see is not finished until somebody has looked at it — an after-shot from the running product, or a written reason there is nothing to show.'
+        : 'Nothing shows what this will look like. A mockup or a flow diagram is what a decision is made against; without one, approving this is approving a sentence.'
+      : 'No visual is owed: this work does not change anything a person looks at.';
+    return s;
+  }
+  if (before.size > 0 && after.size === 0 && DONE_LIKE.has(str(request.meta, 'state') ?? '')) {
+    s.flags.push('This was proposed with a visual and closed without one. What was agreed can be seen; what shipped cannot.');
+  }
+  return s;
+}
+
 /**
  * The summary strip: asked, shipped, elapsed, total cost, how many human
  * decisions and how many attempts. Six figures, each read off a record.
@@ -1709,6 +1788,7 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     sections: [
       askSection(input.request),
       triageSection(input.request),
+      visualsSection(input.request, input.artifacts),
       planSection(input.plans, input.tasks, runs.length > 0),
       contractSection(input.tasks),
       approvalsSection(input.asks, input.actionRuns, runs.length > 0),

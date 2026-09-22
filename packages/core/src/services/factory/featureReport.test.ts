@@ -203,10 +203,10 @@ function input(over: Partial<FeatureReportInput> = {}): FeatureReportInput {
 describe('the plan stage', () => {
   const noPlan = (over: Partial<ReportObject['meta']> = {}) => ({ ...task, meta: { ...task.meta, plan: undefined, ...over } });
 
-  it('sits between triage and the contract, because a plan reviewed after the run is a record and not a gate', () => {
+  it('comes after triage and before the contract, because a plan reviewed after the run is a record and not a gate', () => {
     const keys = assembleFeatureReport(input()).sections.map(s => s.key);
 
-    expect(keys.indexOf('plan')).toBe(keys.indexOf('triage') + 1);
+    expect(keys.indexOf('plan')).toBeGreaterThan(keys.indexOf('triage'));
     expect(keys.indexOf('plan')).toBe(keys.indexOf('contract') - 1);
   });
 
@@ -319,17 +319,20 @@ describe('the plan stage', () => {
 });
 
 describe('the sections', () => {
-  it('always renders all ten, in reading order, with the plan between triage and the contract', () => {
+  it('always renders every stage, in reading order, with what it looks like beside the triage that classified it', () => {
     const report = assembleFeatureReport(input());
 
     expect(report.sections.map(s => s.key)).toEqual([...REPORT_SECTION_KEYS]);
-    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'visuals', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
   });
 
   it('a complete feature has every stage present and none of them absent', () => {
     const report = assembleFeatureReport(input());
 
-    expect(report.sections.filter(s => s.absence !== null)).toEqual([]);
+    // Visuals is the exception the fixture cannot satisfy: the fixture's
+    // artifacts are QA evidence on a task, and a visual is filed against the
+    // request. A feature with no mockup is a real state, not a broken one.
+    expect(report.sections.filter(s => s.absence !== null && s.key !== 'visuals')).toEqual([]);
   });
 
   it('carries the ask in the asker\'s own words, with who asked and through which door', () => {
@@ -440,6 +443,8 @@ describe('QA evidence', () => {
     expect(qa.absence).toBeNull();
     expect(qa.evidence).toEqual([{
       id: 700,
+      // The kind rides along so a gallery can draw a picture as a picture.
+      kind: 'file',
       role: 'qa-screenshot',
       title: 'Share menu, PDF offered',
       caption: 'The share menu with the new PDF entry.',
@@ -814,5 +819,44 @@ describe('build reads as a story', () => {
     const build = report.sections.find(x => x.key === 'runs')!;
 
     expect(build.entries[0]!.title).toBe('Latest attempt · run 7');
+  });
+});
+
+describe('what it looks like', () => {
+  const art = (id: number, title: string) => ({ id, kind: 'markdown', title, recordType: 'object', recordId: '7', recordRole: 'proposal-visual', spec: {}, url: null, createdAt: new Date('2026-09-22T10:00:00Z') }) as never;
+  const req = (meta: Record<string, unknown>) => {
+    const base = input({});
+    return { ...base, request: { ...base.request, id: 7, meta: { ...base.request.meta, ...meta } } };
+  };
+  const visuals = (r: ReturnType<typeof req>) => assembleFeatureReport(r).sections.find(s => s.key === 'visuals')!;
+
+  it('draws a mockup filed against the request, which nothing on this page used to do', () => {
+    const s = visuals({ ...req({ surface: 'ui', visuals: { beforeArtifactIds: [91] } }), artifacts: [art(91, 'Proposed flow')] } as never);
+
+    expect(s.evidence.map(e => e.title)).toEqual(['Proposed flow']);
+    expect(s.evidence[0]!.url).toBe('/dashboard/artifacts/91');
+    expect(s.absence).toBeNull();
+  });
+
+  it('says a decision is being made against a sentence when a visible change has no mockup', () => {
+    expect(visuals(req({ surface: 'ui', state: 'triaged' })).absence).toMatch(/approving this is approving a sentence/);
+  });
+
+  it('asks for the after-shot once the work says it is done', () => {
+    expect(visuals(req({ surface: 'flow', state: 'shipped' })).absence).toMatch(/not finished until somebody has looked at it/);
+  });
+
+  it('owes nothing when the work changes nothing a person looks at', () => {
+    expect(visuals(req({ surface: 'infra', state: 'shipped' })).absence).toMatch(/No visual is owed/);
+  });
+
+  it('takes a written reason instead of a picture, because a recorded way out is not a silent skip', () => {
+    expect(visuals(req({ surface: 'ui', state: 'shipped', visuals: { noVisualReason: 'Text-only change.' } })).absence).toMatch(/on purpose: Text-only change/);
+  });
+
+  it('flags work that was proposed with a visual and closed without one', () => {
+    const s = visuals({ ...req({ surface: 'ui', state: 'shipped', visuals: { beforeArtifactIds: [91] } }), artifacts: [art(91, 'Proposed flow')] } as never);
+
+    expect(s.flags.join(' ')).toMatch(/What was agreed can be seen; what shipped cannot/);
   });
 });
