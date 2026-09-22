@@ -860,3 +860,25 @@ describe('what it looks like', () => {
     expect(s.flags.join(' ')).toMatch(/What was agreed can be seen; what shipped cannot/);
   });
 });
+
+describe('the plan speaking for itself', () => {
+  const planned = (meta: Record<string, unknown>) => {
+    const base = input({ tasks: [] });
+    const plan = { id: 9, title: 'A plan', status: 'proposed', createdAt: new Date('2026-09-22T10:00:00Z'), meta: { requestId: base.request.id, ...meta } } as never;
+    return assembleFeatureReport({ ...base, plans: [plan] }).sections.find(s => s.key === 'plan')!;
+  };
+
+  it('answers the rule question from the plan when no task has been contracted yet', () => {
+    // The rule reads allowed paths and estimates off the TASKS, and before a
+    // plan is approved there are none — so the page printed "not recorded"
+    // directly above a plan that says why it was required.
+    const s = planned({ ruleLevel: 'required', ruleTriggers: ['the estimate is $22, over the $10 threshold'] });
+
+    expect(s.facts.find(f => f.label === 'Was a plan required?')?.value).toMatch(/^Yes —/);
+    expect(s.lists.find(l => l.label === 'Why the plan says it was required')?.items).toEqual(['the estimate is $22, over the $10 threshold']);
+  });
+
+  it('says nothing rather than guessing when the plan recorded no level', () => {
+    expect(planned({}).facts.find(f => f.label === 'Was a plan required?')?.value).toBeNull();
+  });
+});
