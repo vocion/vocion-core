@@ -558,6 +558,73 @@ END:VCALENDAR`;
     expect(published[0]).toBe('https://cdn.venue.test/p0.png');
   });
 
+  it('resolves a relative attachment on an event the feed\'s own host wrote', async () => {
+    const native = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-20@venue.test
+SUMMARY:Gallery Talk
+URL:https://venue.test/event/gallery-talk/
+ATTACH;FMTTYPE=image/jpeg:/wp-content/uploads/2026/05/talk.jpg
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(native, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/event/gallery-talk/',
+      'https://venue.test/wp-content/uploads/2026/05/talk.jpg',
+    ]);
+  });
+
+  it('drops a relative attachment on an event syndicated from another host', async () => {
+    const syndicated = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-21@elsewhere.test
+SUMMARY:Touring Show
+URL:https://elsewhere.test/shows/touring-show/
+ATTACH;FMTTYPE=image/jpeg:/images/touring.jpg
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(syndicated, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://elsewhere.test/shows/touring-show/']);
+  });
+
+  it('drops a relative attachment when the event names no page of its own', async () => {
+    const anonymous = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-22@venue.test
+SUMMARY:No Page
+ATTACH;FMTTYPE=image/jpeg:/images/no-page.jpg
+ATTACH:None
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(anonymous, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toBeUndefined();
+  });
+
+  it('never resolves a bare word, even on a native event', async () => {
+    const bare = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-23@venue.test
+SUMMARY:Bare Word
+URL:https://venue.test/event/bare-word/
+ATTACH:None
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(bare, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://venue.test/event/bare-word/']);
+  });
+
   it('reads past a quoted parameter that would otherwise forge a URL', async () => {
     stubFetch(() => typed(QUOTED_TRAP_ICS, 'text/calendar'));
 
