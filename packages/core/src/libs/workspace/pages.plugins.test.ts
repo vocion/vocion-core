@@ -101,7 +101,7 @@ describe('plugin pages', () => {
     expect(keys).toEqual(['title', 'status', 'flags', 'detail', 'why', 'cost', 'product', 'rank']);
     // Every field sits in the subtitle so the uppercase fact list never
     // draws: five labels a person reads past to reach five values.
-    expect(work?.primary).toEqual({ field: 'title', subtitle: ['status', 'flags', 'detail', 'why', 'cost'] });
+    expect(work?.primary).toEqual({ field: 'title', subtitle: ['status', 'flags', 'rank', 'detail', 'why', 'cost', 'product'] });
 
     // Sixteen fields became these. The record's own vocabulary is gone.
     // `status` is the derived badge — "Blocked", "Decide" — never the

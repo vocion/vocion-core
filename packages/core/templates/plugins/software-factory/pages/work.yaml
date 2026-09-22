@@ -83,7 +83,7 @@ layout: block
 # muted line under it. Anything more about this outcome is on its own page.
 primary:
   field: title
-  subtitle: [status, flags, detail, why, cost]
+  subtitle: [status, flags, rank, detail, why, cost, product]
 fields:
   - {key: title, label: Outcome}
   # The badge, and the reason the lanes could be collapsed from four to
