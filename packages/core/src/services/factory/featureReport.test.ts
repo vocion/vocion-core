@@ -790,6 +790,9 @@ describe('the goal, when the body opens with a label', () => {
   it('still takes a real opening sentence', () => {
     expect(withBody('Launch as Stamp without breaking links. 1. Every screen shows Stamp.').goal)
       .toBe('Launch as Stamp without breaking links.');
+  });
+});
+
 describe('build reads as a story', () => {
   const run = (id: number, at: string) => ({ id, kind: 'worker', status: 'completed', attempt: null, agentSlug: 'eng', model: 'm', cents: 10, createdAt: new Date(at), claimedAt: new Date(at), completedAt: new Date(at), summary: null, error: null, meta: {} }) as never;
 
