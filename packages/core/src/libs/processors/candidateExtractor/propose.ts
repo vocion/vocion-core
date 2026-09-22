@@ -65,9 +65,13 @@ function log(level: 'info' | 'warn', message: string, properties: Record<string,
     .catch(() => {});
 }
 
+export const PROPOSAL_CAP_HIT_NOTE = 'the sync\'s proposal budget is spent, so the rest of this document was not proposed';
+
 export type ProposeOutput = {
   counts: Record<string, number>;
   notes: string[];
+  /** The sync's proposal budget ran out before every record was proposed. */
+  proposalCapHit: boolean;
 };
 
 /**
@@ -100,16 +104,18 @@ export async function proposeRecords(opts: {
     counts[key] = (counts[key] ?? 0) + by;
   };
   if (opts.records.length === 0) {
-    return { counts, notes };
+    return { counts, notes, proposalCapHit: false };
   }
 
   const { proposeAction } = await import('@/services/ActionService');
   const { addDocumentLink } = await import('@/services/BusinessObjectService');
   const { candidateObjectIdForRun } = await import('@/libs/actions/objects-propose-candidate');
 
+  let proposalCapHit = false;
   for (const record of opts.records) {
     if (!opts.budget.take('maxProposalsPerSync')) {
-      notes.push('the sync\'s proposal budget is spent, so the rest of this document was not proposed');
+      notes.push(PROPOSAL_CAP_HIT_NOTE);
+      proposalCapHit = true;
       break;
     }
 
@@ -244,5 +250,5 @@ export async function proposeRecords(opts: {
     }
   }
 
-  return { counts, notes };
+  return { counts, notes, proposalCapHit };
 }

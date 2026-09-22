@@ -15,7 +15,9 @@
  *     its own try/catch, counts failures under their own `processor` scope, and
  *     leaves `counts.errors`, which gates tombstoning and the watermark, alone.
  *   - **It only runs for the outcomes it asks for.** `runsOn` defaults to
- *     created and updated, so an unchanged document costs nothing.
+ *     created and updated, so an unchanged document costs nothing, unless
+ *     its last run did not finish: a `retry`, a throw or a timeout is run
+ *     again up to a cap.
  *   - **It spends from one shared budget.** Every processor invocation in a
  *     sync shares the same `SyncBudget`, because they run eight at a time.
  *
@@ -32,10 +34,13 @@ import type { IngestDoc, IngestResult } from '@/services/IngestionService';
 export type ProcessorRunsOn = IngestResult['status'];
 
 /**
- * What a processor runs for when it does not say. An unchanged document has
- * the same content it had last run, so re-processing it buys nothing.
+ * What a processor runs for when it does not say. A processor that also asks
+ * for `unchanged` runs on every document every sync, outside the retry cap.
  */
 export const DEFAULT_RUNS_ON: ProcessorRunsOn[] = ['created', 'updated'];
+
+/** Tries a document's processor gets on the same content before the runner gives up on it. */
+export const MAX_PROCESSOR_ATTEMPTS = 3;
 
 /**
  * Anything a processor wants to keep for the length of one sync, rather than
@@ -52,7 +57,8 @@ export type ProcessorSyncContext = {
  *
  * Deliberately narrower than the connector's event: there is no `error` kind.
  * A processor reports a failure by throwing (the runner counts it under
- * `processorErrors`) or by returning it in `skipped`; letting it emit an error
+ * `processorErrors` and retries the document), by returning `retry`, or by
+ * returning it in `skipped` when it should not be retried; letting it emit an error
  * event would put processor trouble into the run's ingest error total, which
  * is what decides whether documents get tombstoned.
  */
@@ -68,7 +74,7 @@ export type ProcessorRunContext<TConfig = unknown> = {
   sourceSlug: string;
   /** The document as the connector yielded it. */
   document: IngestDoc;
-  /** What ingesting it did, created, updated, or unchanged. */
+  /** What ingesting it did. A retried document arrives as `unchanged`. */
   outcome: IngestResult;
   /** This source's processor config, already parsed by `configSchema`. */
   config: TConfig;
@@ -98,6 +104,14 @@ export type ProcessorResult = {
    * `Record<string, number>`, so anything else cannot be stored.
    */
   counts?: Record<string, number>;
+  /**
+   * Set, alongside `skipped` if you like, when the document was not fully
+   * processed for a reason that may clear by the next sync; it is run again up
+   * to `MAX_PROCESSOR_ATTEMPTS` tries. `reason` is stored on the document,
+   * capped at 500 characters. `countsAsTry: false` when no work was spent, such
+   * as a refused call or a budget that ran out first. Unset for a deliberate skip.
+   */
+  retry?: { reason: string; countsAsTry: boolean };
 };
 
 export type DocumentProcessor<TConfig = unknown> = {
