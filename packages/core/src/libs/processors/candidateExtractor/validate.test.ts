@@ -54,6 +54,35 @@ function run(records: ReturnType<typeof record>[], config = configWith(), over: 
 }
 
 describe('candidate extractor validation', () => {
+  it('blesses a link the document published as a path', () => {
+    // A JSON feed states an entry's own page relatively. The connector resolves
+    // it before declaring it, because the gate compares exactly, but the model
+    // reads the raw entry and hands the path straight back.
+    const out = run([record({ sourceUrl: '/events/unruly-allies' })], configWith(), {
+      publishedUrls: ['https://www.vtciderlab.com/events/unruly-allies'],
+      baseUrl: 'https://www.vtciderlab.com/events?format=json-pretty',
+    });
+
+    expect(out.records[0]?.sourceUrl).toBe('https://www.vtciderlab.com/events/unruly-allies');
+  });
+
+  it('still refuses a path the document never published', () => {
+    const out = run([record({ sourceUrl: '/events/invented-by-the-model' })], configWith(), {
+      publishedUrls: ['https://www.vtciderlab.com/events/unruly-allies'],
+      baseUrl: 'https://www.vtciderlab.com/events?format=json-pretty',
+    });
+
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
+  });
+
+  it('keeps refusing a path when the document gave no base to resolve against', () => {
+    const out = run([record({ sourceUrl: '/events/unruly-allies' })], configWith(), {
+      publishedUrls: ['https://www.vtciderlab.com/events/unruly-allies'],
+    });
+
+    expect(out.records[0]?.sourceUrl).toBeUndefined();
+  });
+
   it('fills in the source defaults before it checks the identity', () => {
     const config = configWith({ defaults: { venueName: 'Bellwater Hall', venueCity: 'Riverton' } });
 

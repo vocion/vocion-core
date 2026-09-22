@@ -326,6 +326,42 @@ describe('candidate extractor, one document end to end', () => {
     expect(input.imageUrl).toBe('https://cdn.venue.test/poster.png');
   });
 
+  it('hands the feed URL to the gate, so a link returned as a path still lands', async () => {
+    // The third hand-off: the connector resolved its declaration, the model
+    // reads the raw entry and answers with the path. Without `baseUrl` on the
+    // options the two spellings never meet and the link is dropped silently.
+    const entry = {
+      externalId: 'https://venue.test/events.json#evt-1',
+      uri: 'https://venue.test/events.json#evt-1',
+      title: 'Poster Night',
+      content: '{"fullUrl":"/e/poster-night","title":"Poster Night"}',
+      metadata: {
+        contentType: 'application/json',
+        feedUrl: 'https://venue.test/events.json',
+        publishedUrls: ['https://venue.test/e/poster-night'],
+      },
+    };
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{
+          fields: { title: 'Poster Night', startDate: day(7), venueName: 'Bellwater Hall' },
+          confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'A public listing with its own date and venue.',
+          sourceUrl: '/e/poster-night',
+        }],
+      }),
+      usage_metadata: { input_tokens: 900, output_tokens: 120 },
+    });
+
+    await run(context({ document: entry }));
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const card = runs.find(row => (row.input as { title?: string }).title === 'Poster Night');
+
+    expect((card?.input as { sourceUrl?: string }).sourceUrl).toBe('https://venue.test/e/poster-night');
+  });
+
   it('puts the image the document published for itself on the one card it produced', async () => {
     // The other hand-off this file exists to cover. The connector has kept the
     // og:image since `pageMetadata.ts` was written and nothing downstream read

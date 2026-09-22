@@ -106,6 +106,23 @@ function squashUrl(url: string): string {
 }
 
 /**
+ * The absolute form of a path, resolved as the connector resolved its own
+ * declaration. A value with no `/`, `.` or `:` is a word, not a link.
+ * @param value - What the model returned.
+ * @param baseUrl - The document's own address.
+ */
+function resolvedAgainst(value: string, baseUrl: string | undefined): string | undefined {
+  if (!baseUrl || /^[a-z][a-z0-9+.-]*:/i.test(value) || /^[^/.:]*$/.test(value)) {
+    return undefined;
+  }
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Every URL the document itself published, the gate a model-returned URL has
  * to pass. Named apart from the `publishedUrls` option it reads, which is one
  * of its four inputs rather than the whole answer.
@@ -177,6 +194,8 @@ function documentUrls(
  * declared for itself, for the same gate.
  * @param opts.ogImage - `metadata.ogImage`, the image the document stated for
  * itself, for the same gate and for the fallback at the end of this file.
+ * @param opts.baseUrl - The document's own address, so a URL the model hands
+ * back as a path can be resolved before the gate compares it.
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
  */
@@ -188,6 +207,7 @@ export function validateRecords(opts: {
   jsonLd?: unknown[];
   publishedUrls?: string[];
   ogImage?: string;
+  baseUrl?: string;
   knownIds: Set<number>;
   today: string;
 }): ValidationOutput {
@@ -202,6 +222,7 @@ export function validateRecords(opts: {
   // claim; guarded here once for the two readers below, for the reason
   // `documentUrls` guards the declared list.
   const ogImage = typeof opts.ogImage === 'string' ? opts.ogImage : undefined;
+  const baseUrl = typeof opts.baseUrl === 'string' ? opts.baseUrl : undefined;
 
   const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls, ogImage);
   // Answers with the URL to store rather than with a yes, because the gate is
@@ -218,6 +239,12 @@ export function validateRecords(opts: {
     const squashed = squashUrl(url);
     if (urls.exact.has(squashed)) {
       return squashed;
+    }
+    // Same address, other spelling: the declaration was resolved, the answer
+    // was not. The resolved form is what gets stored, never the path.
+    const resolved = resolvedAgainst(squashed, baseUrl);
+    if (resolved && urls.exact.has(resolved)) {
+      return resolved;
     }
     return urls.blob !== '' && urls.blob.includes(url) ? url : undefined;
   };

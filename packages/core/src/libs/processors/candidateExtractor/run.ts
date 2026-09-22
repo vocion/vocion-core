@@ -123,6 +123,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links?: PageLink[];
     publishedUrls?: string[];
     ogImage?: string;
+    feedUrl?: string;
   };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
@@ -184,6 +185,10 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     links: metadata.links,
     jsonLd: jsonLdBlocks,
     publishedUrls: metadata.publishedUrls,
+    // The feed a split entry came from, and only that. An ICS event travels,
+    // so its feed is not reliably its base (see `splitIcs`), and an HTML page
+    // already resolves its own links in the connector.
+    baseUrl: metadata.feedUrl,
     // The document's own image. Not sent to the model: `extractFromHtml`
     // already writes it as the first line of `content`, so restating it in its
     // own block would buy the call nothing and cost it tokens. What it was

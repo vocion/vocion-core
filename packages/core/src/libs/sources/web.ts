@@ -972,8 +972,55 @@ const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
  * `imageUrl` is here because it is the extractor's own field name: an entry
  * that publishes its poster under the very key the pipeline reads it back out
  * of would otherwise lose it, which is the defect this whole list exists for.
+ *
+ * `localist_url` and `photo_url` are Localist's.
  */
-const ITEM_URL_FIELDS = ['url', 'link', 'fullUrl', 'image', 'imageUrl', 'thumbnail', 'assetUrl'] as const;
+const ITEM_URL_FIELDS = [
+  'url',
+  'link',
+  'fullUrl',
+  'localist_url',
+  'image',
+  'imageUrl',
+  'thumbnail',
+  'assetUrl',
+  'photo_url',
+] as const;
+
+/**
+ * A value with no `/`, `.` or `:` cannot be a link, whatever key it sits under.
+ * Localist writes the string "None" into `url`; resolving a bare word against
+ * the feed invents an address the document never published.
+ */
+const UNLINKABLE_VALUE_RE = /^[^/.:]*$/;
+
+/**
+ * The record an entry's links live on, unwrapping a single-key envelope.
+ *
+ * Read by `declaredUrls` only. The identity stays on the outer item: keying on
+ * an inner id would re-key every already-ingested document of such a feed, and
+ * Localist repeats an inner id across the instances of a recurring event, which
+ * `splitJsonArray` answers by abandoning the split for the whole file.
+ *
+ * The inner record has to carry a title, which is what separates an entry from
+ * a nested value: `{"image": {"url": …, "id": …}}` has an id and is still not
+ * an entry, and declaring its url would claim provenance one level down.
+ * @param item - one entry from the array.
+ */
+function entryFields(item: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(item)) {
+    return undefined;
+  }
+  const keys = Object.keys(item);
+  if (keys.length !== 1) {
+    return item;
+  }
+  const inner = item[keys[0]!];
+  if (!isRecord(inner)) {
+    return item;
+  }
+  return ITEM_TITLE_FIELDS.some(f => typeof inner[f] === 'string') ? inner : item;
+}
 
 /**
  * The item's own stable identifier, when it publishes one.
@@ -1029,18 +1076,22 @@ function declaredTitle(item: unknown): string | undefined {
  * @param baseUrl - the feed's own URL, which a relative value resolves against.
  */
 function declaredUrls(item: unknown, baseUrl: string): string[] {
-  if (!isRecord(item)) {
+  const fields = entryFields(item);
+  if (!fields) {
     return [];
   }
   const out: string[] = [];
   for (const field of ITEM_URL_FIELDS) {
-    const value = item[field];
+    const value = fields[field];
     if (typeof value !== 'string') {
       continue;
     }
     // Resolved against the feed's own URL, which is where the entry was
     // published. A base that will not parse leaves the value as written, and
     // a path that stays a path then fails the fetchable test below.
+    if (UNLINKABLE_VALUE_RE.test(value.trim())) {
+      continue;
+    }
     const url = absoluteUrl(value, baseUrl) ?? '';
     if (isFetchableUrl(url)) {
       out.push(url);
