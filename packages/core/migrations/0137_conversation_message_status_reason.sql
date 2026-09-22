@@ -1,0 +1,12 @@
+-- 0137 — why a turn ended the way it did.
+--
+-- `conversation_message.status` (0136) says HOW a turn ended; this says why,
+-- in the words the runtime used: "Budget exceeded for …", "socket hang up".
+-- Live turns already carried a reason on screen and lost it on reload, which
+-- left a person reading "the answer stopped partway" with no way to say what
+-- happened when they reported it (#114).
+--
+-- NULL on every ordinary turn and on every legacy row, so nothing needs
+-- backfilling. Nullable, no default: metadata-only, per CONVENTIONS.md rule 2.
+-- Hand-written; idempotent.
+ALTER TABLE "conversation_message" ADD COLUMN IF NOT EXISTS "status_reason" text;

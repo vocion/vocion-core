@@ -5,6 +5,7 @@ import type { AgentOption, AgentRun, ChatAttachment, ChatMessage, ChatMessageArt
 import type { ModelPrefs } from '@/libs/llm/modelPrefs';
 import type { RoutingDecision } from '@/services/agents/router';
 import type { PageContext, RecordRef } from '@/services/chat/pageContext';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openPreview } from '@/features/preview/previewState';
 import { useLastViewedConversation } from '@/hooks/useLastViewedConversation';
@@ -128,8 +129,10 @@ type PersistedMessageRow = {
   documentsJson: unknown;
   traceJson?: unknown;
   confidence: ChatMessage['confidence'];
-  /** `incomplete` when the turn died part-way; null on a turn that finished. */
+  /** How the turn ended (`services/chat/turnStatus.ts`); null on a row written before that vocabulary. */
   status?: string | null;
+  /** Why it ended that way, in the runtime's own words; null on an ordinary turn. */
+  statusReason?: string | null;
   feedbackRating?: string | null;
   feedbackNote?: string | null;
   /** Files attached to a user turn, as the conversations router resolves them. */
@@ -168,9 +171,10 @@ function hydrateTranscript(rows: PersistedMessageRow[]): { messages: ChatMessage
       ...(docs && docs.length > 0 ? { documents: docs } : {}),
       ...(trace && trace.length > 0 ? { trace } : {}),
       ...(row.confidence ? { confidence: row.confidence } : {}),
-      // A turn that failed mid-stream must still read as failed after a
-      // reload — the fragment it left behind looks like an answer otherwise.
-      ...(row.status === 'incomplete' ? { status: 'incomplete' as const } : {}),
+      // How the turn ended has to survive the reload — a fragment looks like
+      // an answer otherwise, and a refusal looks like a fault (#114).
+      ...(row.status ? { status: row.status as TurnStatus } : {}),
+      ...(row.statusReason ? { statusReason: row.statusReason } : {}),
       ...(row.attachments && row.attachments.length > 0 ? { attachments: row.attachments } : {}),
       ...(row.artifacts && row.artifacts.length > 0 ? { artifacts: row.artifacts } : {}),
     };
@@ -806,9 +810,13 @@ export function useChatSession({
         // no tool had failed, and after the notice landed they read the same
         // failure twice in one bubble. The run is gone; the reason travels on
         // the message.
+        // The server says which ending this is, in the same word it will store
+        // on the row; an older runtime that does not say reads as the ending
+        // this used to assume.
+        const ending = (evt.ending as TurnStatus | undefined) ?? 'incomplete';
         appendToLatestAgent(m => ({
           ...m,
-          status: 'incomplete' as const,
+          status: ending,
           statusReason: message,
         }));
       }
@@ -1350,9 +1358,13 @@ export function useChatSession({
         // A turn that lost its connection is the same story as one whose run
         // threw: unfinished, not a failed tool (#114). Stopping on purpose is
         // neither, so an abort marks nothing.
+        // The connection died before any ending arrived from the server, so
+        // the client names one itself: text on screen means the answer stopped
+        // part-way, nothing on screen means the turn never got going. A
+        // deliberate stop is neither — `handleStop` has already marked it.
         ...(aborted
           ? {}
-          : { status: 'incomplete' as const, statusReason: (err as Error).message }),
+          : { status: (m.content || (m.runs ?? []).length > 0 ? 'incomplete' : 'failed') as TurnStatus, statusReason: (err as Error).message }),
       }));
     } finally {
       // NOTE: the stream stash is NOT cleared here — on a reload the fetch
@@ -1407,6 +1419,23 @@ export function useChatSession({
     }
     streamingRef.current = false;
     stoppedControllerRef.current = abortRef.current;
+    // Tell the server BEFORE aborting. Aborting only closes the socket, which
+    // is exactly what a locked phone does, and that turn has to keep running
+    // so the person can come back to it. Stopping is a decision, so it is sent
+    // as one — the row is then stored `stopped` instead of `complete`, and the
+    // short answer reads as a choice rather than a fault (#114).
+    const streamId = streamStashRef.current?.streamId;
+    if (streamId) {
+      void fetch('/rpc/agent/stream/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stream_id: streamId }),
+      }).catch((error: unknown) => {
+        // Worth saying out loud: the turn still stops here, but the stored row
+        // will say `complete`, and nobody will know why it looks cut short.
+        console.warn('useChatSession: the server was not told this turn was stopped', error);
+      });
+    }
     abortRef.current?.abort();
     flushDeltas();
     // Close this turn's rows HERE rather than in the abort catch, so a
@@ -1418,6 +1447,9 @@ export function useChatSession({
         .map(run => run.text)
         .join('\n\n'),
       trace: finalizeTrace(m.trace),
+      // Marked live as well as stored, so the bubble says the same thing now
+      // as it will after a reload.
+      status: 'stopped' as const,
     }));
     setPhase('idle');
     setActivity(null);

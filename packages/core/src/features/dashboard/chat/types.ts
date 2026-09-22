@@ -7,6 +7,7 @@
  */
 
 import type { SelfUpdateReceipt } from '@/libs/actions/selfUpdate';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 
 export type IndexedDocument = {
   document_id: string;
@@ -229,17 +230,18 @@ export type ChatMessage = {
   /** Agent's self-assessment of this turn's confidence (N.2). Null when the runtime didn't expose a signal. */
   confidence?: 'confident' | 'uncertain' | 'speculative' | null;
   /**
-   * `incomplete` when the turn failed part-way through and what is shown is
-   * only the text that arrived before it died (#114). Absent on a turn that
-   * finished. The transcript marks it so a fragment is never read as the
-   * whole answer, and the server leaves it out of the model's history.
+   * How the turn ended (#114) — the vocabulary lives in
+   * `services/chat/turnStatus.ts`. Absent or `complete` on a healthy turn;
+   * `incomplete`, `failed` and `refused` each get their own notice and are
+   * left out of the model's history; `stopped`, `truncated` and `continued`
+   * are ordinary endings that only carry a quiet marker.
    */
-  status?: 'incomplete' | null;
+  status?: TurnStatus | null;
   /**
-   * Why the turn stopped, in the runtime's own words ("the model connection
-   * dropped mid-answer"). Live only — the transcript shows it under the
-   * notice so a person can say what happened when they report it. Not
-   * persisted, so a reloaded turn carries the notice without the reason.
+   * Why the turn ended that way, in the runtime's own words ("the model
+   * connection dropped mid-answer", "Budget exceeded for …"). Shown under the
+   * notice so a person can say what happened when they report it, and
+   * persisted since #114 so a reloaded turn still carries it.
    */
   statusReason?: string;
 };

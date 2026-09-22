@@ -318,7 +318,9 @@ export async function handleInboundEmail(meta: EmailInboundMeta, deps: EmailHand
       conversationHistory: history,
     });
     const text = result.response.trim() || '(no reply)';
-    await appendMessage({ orgId, conversationId, role: 'assistant', content: text });
+    // The reply went out, so the turn finished: say so rather than leaving a
+    // NULL that a reader has to guess at (#114).
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete' });
     let mailId: string | null = null;
     if (mailEnabled()) {
       const outId = outboundMessageId(domain);

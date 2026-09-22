@@ -321,7 +321,9 @@ export async function handleInbound(adapter: ChatSurfaceAdapter, inbound: ChatIn
       text = `${text}\n\n${gapSentence}`;
     }
 
-    await appendMessage({ orgId, conversationId, role: 'assistant', content: text });
+    // The reply went out, so the turn finished: say so rather than leaving a
+    // NULL that a reader has to guess at (#114).
+    await appendMessage({ orgId, conversationId, role: 'assistant', content: text, status: 'complete' });
     const posted = await adapter.reply(target, text);
     await recordSlackPost({
       orgId,

@@ -303,7 +303,13 @@ export type AgentEvent
      */
     | { type: 'routed'; routing: import('./router').RoutingDecision; agent: { slug: string; name: string } }
     | { type: 'done'; response: string; traceId?: string }
-    | { type: 'error'; message: string }
+    /**
+     * The turn ended badly. `ending` says HOW, in the same words the row will
+     * be stored with (`services/chat/turnStatus.ts`) — so the live transcript
+     * and the reloaded one say the same thing. Absent from a runtime that
+     * predates the vocabulary, which reads as `incomplete`.
+     */
+    | { type: 'error'; message: string; ending?: import('@/services/chat/turnStatus').TurnStatus }
     /**
      * Runtime-internal (BYOA artifact → core provider): per-model-turn
      * token usage for budget charging. Consumed by the runtime provider,

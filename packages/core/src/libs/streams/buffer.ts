@@ -20,6 +20,17 @@ type BufferedStream = {
   done: boolean;
   updatedAt: number;
   subscribers: Set<Subscriber>;
+  /**
+   * The person pressed Stop on this turn (#114).
+   *
+   * Stopping aborts the browser's fetch, which looks exactly like a phone
+   * locking or a tab refreshing — and those must NOT end the turn, because the
+   * run keeps going and the client comes back through `resume`. So the client
+   * says so out loud (`/rpc/agent/stream/stop`), and the flag lands here
+   * because this is already the per-turn state the route and the resume path
+   * share.
+   */
+  stopped: boolean;
 };
 
 const streams = new Map<string, BufferedStream>();
@@ -41,7 +52,7 @@ function sweep(): void {
  */
 export function openStream(id: string): { append: (data: string) => void; close: () => void } {
   sweep();
-  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set() };
+  const s: BufferedStream = { events: [], done: false, updatedAt: Date.now(), subscribers: new Set(), stopped: false };
   streams.set(id, s);
   return {
     append: (data: string) => {
@@ -108,4 +119,32 @@ export function attachStream(
 export function hasStream(id: string): boolean {
   sweep();
   return streams.has(id);
+}
+
+/**
+ * Record that the person stopped this turn on purpose.
+ *
+ * Called from `/rpc/agent/stream/stop` while the run is still going. Unknown
+ * or expired ids are ignored: a stop that arrives after the turn already
+ * finished has nothing left to describe.
+ * @param id - The turn's stream id, as the first `stream_meta` frame gave it.
+ * @returns True when a live stream was marked, false when there was none.
+ */
+export function markStopped(id: string): boolean {
+  const s = streams.get(id);
+  if (!s) {
+    return false;
+  }
+  s.stopped = true;
+  s.updatedAt = Date.now();
+  return true;
+}
+
+/**
+ * Did the person stop this turn?
+ * @param id - The turn's stream id.
+ * @returns True only when a stop was recorded for a stream still in memory.
+ */
+export function wasStopped(id: string): boolean {
+  return streams.get(id)?.stopped === true;
 }

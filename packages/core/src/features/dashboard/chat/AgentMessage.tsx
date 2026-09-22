@@ -116,6 +116,29 @@ function citeLinkify(text: string): string {
   return text.replace(/\[(\d{1,3})\](?!\(|:)/g, (_m, n: string) => `[${n}](vocion-cite:${n})`);
 }
 
+/**
+ * What to tell the person about how this turn ended, when it owes them a reason.
+ *
+ * Three endings do: the answer broke mid-sentence, the turn never got going,
+ * or the workspace declined to run it. Each needs different words — "ask
+ * again" is useless advice for a spent budget — and every other ending needs
+ * no notice at all.
+ * @param status - How the turn ended, as stored on the row (#114).
+ * @returns The sentence to show, or null when this ending needs no notice.
+ */
+function turnEndingNotice(status: ChatMessage['status']): string | null {
+  if (status === 'incomplete') {
+    return 'This answer stopped partway through, so what you see above is unfinished. Ask again for a complete one.';
+  }
+  if (status === 'failed') {
+    return 'This turn did not run, so there is no answer above. Ask again.';
+  }
+  if (status === 'refused') {
+    return 'This turn was not run. Nothing is broken — something needs changing before this agent can answer.';
+  }
+  return null;
+}
+
 export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources, onCitationClick, streaming = false, activity, onFeedback, autonomy = 'ask', via, viaReason, onOpenArtifact, conversationId }: AgentMessageProps) => {
   const elapsed = useElapsed(streaming);
   const runs: AgentRun[] = message.runs
@@ -397,10 +420,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             <SelfUpdateChips updates={message.selfUpdates!} />
           )}
         </div>
-        {/* The turn died before it finished, and this is the text that made it
-            out. Saying so under the fragment is the whole point of #114: a
-            half-answer rendered like a whole one is worse than no answer. */}
-        {message.status === 'incomplete' && (
+        {/* How the turn ended, when that is not "it finished" (#114). Three
+            endings owe the person an explanation and get the notice below;
+            `stopped` and `truncated` are ordinary and get a quiet line; a
+            finished turn says nothing at all. A half-answer rendered like a
+            whole one is worse than no answer, and a refusal rendered as a
+            fault sends someone hunting a bug that is not there. */}
+        {turnEndingNotice(message.status) && (
           <div
             data-testid="incomplete-turn-notice"
             role="status"
@@ -408,8 +434,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           >
             <AlertCircle className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
             <span>
-              This answer stopped partway through, so what you see above is unfinished.
-              Ask again for a complete one.
+              {turnEndingNotice(message.status)}
               {message.statusReason && (
                 <span className="mt-1 block text-foreground/60">
                   What went wrong:
@@ -418,6 +443,13 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
                 </span>
               )}
             </span>
+          </div>
+        )}
+        {(message.status === 'stopped' || message.status === 'truncated') && (
+          <div data-testid="turn-ending-marker" className="mt-2 text-[12px] text-foreground/55">
+            {message.status === 'stopped'
+              ? 'You stopped this answer.'
+              : 'This surface cut the answer off at its time limit; the rest is in the next message.'}
           </div>
         )}
         {message.confidence && (

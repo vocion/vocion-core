@@ -363,19 +363,27 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
     const partial = collector.finalise();
     const seconds = Math.round(limit / 1000);
     const cutNote = `_(cut off at the ${seconds}-second limit for this surface; the rest of the answer lands in this conversation when the turn finishes.)_`;
-    const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: partial.text ? `${partial.text}\n\n${cutNote}` : cutNote, runs: partial.runs, documents: partial.documents, trace: partial.trace });
+    // `truncated`, not failed: the turn is still running and the rest lands in
+    // this conversation as a `continued` row. Both halves are replayed to the
+    // model, because between them they are one whole answer (#114).
+    const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: partial.text ? `${partial.text}\n\n${cutNote}` : cutNote, runs: partial.runs, documents: partial.documents, trace: partial.trace, status: 'truncated', statusReason: `cut off at the ${seconds}-second limit for this surface` });
     void run
       .then(async (result) => {
         await Promise.allSettled(pending);
         const full = collector.finalise().text || result.response;
         const rest = full.startsWith(partial.text) ? full.slice(partial.text.length).trim() : full.trim();
         if (rest) {
-          await appendMessage({ orgId, conversationId, role: 'assistant', content: rest });
+          await appendMessage({ orgId, conversationId, role: 'assistant', content: rest, status: 'continued' });
         }
       })
       .catch(async (error: unknown) => {
         const reason = error instanceof Error ? error.message : String(error);
-        await appendMessage({ orgId, conversationId, role: 'assistant', content: `_(the turn failed after the cut: ${reason})_` }).catch(() => {});
+        // The half already shown stays `truncated` and stays in history; this
+        // row says the rest never came, and is kept out of history because
+        // there is no answer in it to replay.
+        await appendMessage({ orgId, conversationId, role: 'assistant', content: `_(the turn failed after the cut: ${reason})_`, status: 'failed', statusReason: reason }).catch((error: unknown) => {
+          console.warn('ask_workspace: could not write the turn-failed-after-the-cut row', { conversationId }, error);
+        });
       });
     return { ...base, reply: partial.text, truncated: true, turnId: turn.id, traceId, actions: await actionsFor(orgId, projectSlug, filed) };
   }
@@ -383,7 +391,7 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
   await Promise.allSettled(pending);
   const { text, runs, documents, trace } = collector.finalise();
   const reply = text || outcome.response;
-  const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: reply, runs, documents, trace });
+  const turn = await appendMessage({ orgId, conversationId, role: 'assistant', content: reply, runs, documents, trace, status: 'complete' });
   return { ...base, reply, truncated: false, turnId: turn.id, traceId: outcome.traceId || traceId, actions: await actionsFor(orgId, projectSlug, filed) };
 }
 

@@ -9,11 +9,13 @@
  */
 
 import type { PageContext } from '@/services/chat/pageContext';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { formatDateTime } from '@/libs/time/zone';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
+import { isDroppedFromHistory } from '@/services/chat/turnStatus';
 import { enqueue } from '@/services/FeedbackWorkerService';
 
 const DEFAULT_TITLE = 'New conversation';
@@ -218,11 +220,14 @@ export async function appendMessage(opts: {
   /** How the workspace chose this message's agent, when nobody named one (`services/agents/router.ts`). */
   routing?: import('@/services/agents/router').RoutingDecision | null;
   /**
-   * `incomplete` when the turn failed part-way and this is the text collected
-   * before it died; omitted (NULL) for a turn that finished. An incomplete row
-   * is shown as a failed turn and kept out of the model's history.
+   * How the turn ended (`services/chat/turnStatus.ts`). Omitted means NULL,
+   * which reads as a finished turn — the shape every row written before this
+   * vocabulary has. What it changes: the notice under the turn, and whether
+   * the text is replayed to the model on the next turn.
    */
-  status?: 'incomplete' | null;
+  status?: TurnStatus | null;
+  /** Why it ended that way, in the runtime's own words. Only meaningful beside a `status` that owes an explanation. */
+  statusReason?: string | null;
 }) {
   const conv = await getConversation({ orgId: opts.orgId, id: opts.conversationId });
   if (!conv) {
@@ -245,6 +250,7 @@ export async function appendMessage(opts: {
       traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
       routingJson: opts.routing ?? null,
       status: opts.status ?? null,
+      statusReason: opts.statusReason ?? null,
     })
     .returning();
 
@@ -275,7 +281,7 @@ const HISTORY_STAMP_GAP_MS = 6 * 60 * 60 * 1000;
  * Render persisted messages as the {role, content} list the agent
  * expects in its history. Tool runs are intentionally dropped —
  * they're UI ornaments only. (See rev-ai's to_history_turns.)
- * Messages marked `incomplete` — turns that failed part-way — are dropped too.
+ * Turns that ended badly are dropped too — see `isDroppedFromHistory`.
  * @param messages - Persisted rows, oldest first; `createdAt` enables the sent-time stamp.
  * @param opts - Options.
  * @param opts.timeZone - The person's zone for the stamps; absent, no stamps.
@@ -296,12 +302,14 @@ export function toHistoryTurns(messages: Array<{
     if (!m.content.trim()) {
       continue;
     }
-    // A turn that died part-way is dropped, not replayed. Its text stops
+    // Some endings are not replayed. A turn that died part-way stops
     // mid-thought — sometimes mid-word — and handing that back as something
     // the agent said lets a half-formed statement harden into fact over the
-    // rest of the thread (issue #114). The person still sees the row, marked
-    // as failed; the model starts the next turn without it.
-    if (m.status === 'incomplete') {
+    // rest of the thread (issue #114); a turn that was refused or never ran
+    // has nothing to hand back. A turn the PERSON stopped is replayed: they
+    // read it and decided that was enough. The person still sees every one of
+    // these rows; the model starts the next turn without some of them.
+    if (isDroppedFromHistory(m.status)) {
       continue;
     }
     if (m.role !== 'user' && m.role !== 'assistant') {

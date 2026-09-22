@@ -1,0 +1,69 @@
+/**
+ * How an assistant turn ended (#114).
+ *
+ * `conversation_message.status` used to hold one value, `incomplete`, and NULL
+ * for everything else — which meant NULL was standing in for *finished*, *the
+ * person pressed Stop*, *a surface cut it off at a time limit*, *the budget
+ * was spent* and *this row is the back half of a split answer*, all rendered
+ * the same way and all replayed to the model the same way. This is the
+ * vocabulary that replaced it.
+ *
+ * Three things read a status, and they want different answers, so each value
+ * below is defined by what it changes:
+ *   - what the person reads under the turn (`AgentMessage`),
+ *   - whether the text is replayed to the model next turn (`toHistoryTurns`),
+ *   - what a count of failed turns means.
+ *
+ * NULL is still legal and means "written before this vocabulary existed".
+ * Legacy rows are treated as `complete`, which is what they were.
+ */
+
+/** Every way an assistant turn can end. */
+export type TurnStatus
+  /** The turn ran to the end and the answer is whole. */
+  = | 'complete'
+  /** The run threw with text already streamed: what is stored stops mid-thought. */
+    | 'incomplete'
+  /** The run threw before it said anything: the row exists so the turn does not vanish, but it holds nothing. */
+    | 'failed'
+  /** The turn was never attempted — budget spent, policy said no. Not a fault, and not something asking again will fix. */
+    | 'refused'
+  /** The person pressed Stop. The text is short because they chose that, not because anything broke. */
+    | 'stopped'
+  /** A surface cut the turn off at its own time limit (the MCP `ask_workspace` tool). The rest arrives as a `continued` row. */
+    | 'truncated'
+  /** The rest of an answer whose first half was `truncated` — one turn, two rows. */
+    | 'continued';
+
+/**
+ * Statuses whose text is NOT handed back to the model as history.
+ *
+ * The test is not "did something go wrong" but "would replaying this teach the
+ * model something false". A sentence that stops mid-word reads as a finished
+ * thought once it is in the history; a turn that never ran has no text worth
+ * replaying; a refusal is about the workspace, not the conversation. A turn
+ * the person stopped on purpose is NOT here: they read it and decided that was
+ * enough, which makes it part of the conversation.
+ */
+const DROPPED_FROM_HISTORY = new Set<TurnStatus>(['incomplete', 'failed', 'refused']);
+
+/**
+ * Should this row's text be left out of the history the next turn replays?
+ * @param status - The row's stored status; NULL/unknown means a legacy row, which is treated as complete.
+ * @returns True when the text must not be replayed to the model.
+ */
+export function isDroppedFromHistory(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && DROPPED_FROM_HISTORY.has(status as TurnStatus);
+}
+
+/**
+ * Did this turn end in a way the person should be told about?
+ *
+ * `stopped`, `truncated` and `continued` are ordinary endings with their own
+ * quiet markers; `complete` and a legacy NULL say nothing at all.
+ * @param status - The row's stored status.
+ * @returns True for the endings that need an explanation, not just a marker.
+ */
+export function isFailure(status: string | null | undefined): boolean {
+  return status === 'incomplete' || status === 'failed' || status === 'refused';
+}

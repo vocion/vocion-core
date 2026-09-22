@@ -15,9 +15,11 @@
 
 import type { AgentEvent } from '@/services/agents/types';
 import type { CollectedDoc } from '@/services/chat/runCollector';
+import type { TurnStatus } from '@/services/chat/turnStatus';
 import { clerkAuth as auth } from '@/libs/Auth';
-import { openStream } from '@/libs/streams/buffer';
+import { openStream, wasStopped } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
+import { isTurnRefusal } from '@/services/agents/turnRefusal';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
@@ -227,9 +229,13 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
-      // Set when the run throws, so the persisted assistant row can be marked
-      // as a turn that never finished rather than passing as a whole answer.
-      let failed = false;
+      // How this turn ended, decided as it ends and stored on the row (#114).
+      // `complete` until something says otherwise; the catch below and the
+      // person's Stop are the two things that say otherwise.
+      let ending: TurnStatus = 'complete';
+      // Why it ended that way, in the runtime's own words — persisted beside
+      // the status so a reloaded turn can still say what happened.
+      let endingReason: string | null = null;
       const safeEnqueue = (chunk: Uint8Array) => {
         if (!closed) {
           try {
@@ -330,8 +336,23 @@ export async function POST(request: Request): Promise<Response> {
         // call — the provider SDKs take a retry option (`libs/llm/langchain.ts`
         // builds every model and passes none today), which re-sends the
         // request before a single token is spoken and never replays a tool.
-        failed = true;
-        sendEvent({ type: 'error', message: m });
+        // Three different endings reach this one catch, and they are not the
+        // same thing to the person reading the transcript:
+        //   - refused: the workspace declined to run the turn at all (a spent
+        //     budget). Nothing broke, and asking again will not help until a
+        //     setting changes.
+        //   - incomplete: the run threw with text already on screen. What is
+        //     stored stops mid-thought.
+        //   - failed: the run threw before it said anything, so the row exists
+        //     only so the turn does not vanish on reload.
+        const spoken = collector?.finalise() ?? { text: '', runs: [] };
+        if (isTurnRefusal(err)) {
+          ending = 'refused';
+        } else {
+          ending = spoken.text || spoken.runs.length > 0 ? 'incomplete' : 'failed';
+        }
+        endingReason = m;
+        sendEvent({ type: 'error', message: m, ending });
       } finally {
         clearInterval(keepaliveTimer);
         await Promise.allSettled(pending);
@@ -356,11 +377,20 @@ export async function POST(request: Request): Promise<Response> {
         // Persist the assistant turn now that the stream is closing.
         if (collector && conversationId !== null) {
           const { text, runs, documents, trace } = collector.finalise();
+          // The person pressed Stop: the answer is short because they chose
+          // that, not because anything broke. Read here rather than from the
+          // socket closing, because a locked phone closes the socket too and
+          // that turn must keep going (`/rpc/agent/stream/stop`). A run that
+          // threw keeps its own ending — a turn does not stop being broken
+          // because someone gave up on it.
+          if (ending === 'complete' && wasStopped(streamId)) {
+            ending = 'stopped';
+          }
           // A turn that threw before it spoke has nothing to show, but it still
           // happened: without a row the whole turn disappears on reload and the
           // person is left looking at their own question with no answer and no
           // explanation. So a failed turn is always written, empty or not.
-          if (text || runs.length > 0 || failed) {
+          if (text || runs.length > 0 || ending !== 'complete') {
             try {
               const msg = await appendMessage({
                 orgId,
@@ -370,7 +400,8 @@ export async function POST(request: Request): Promise<Response> {
                 runs,
                 documents,
                 trace,
-                ...(failed ? { status: 'incomplete' as const } : {}),
+                status: ending,
+                ...(endingReason ? { statusReason: endingReason } : {}),
               });
               const touched = collector.touchedArtifactIds;
               if (touched.length > 0) {
@@ -401,10 +432,10 @@ export async function POST(request: Request): Promise<Response> {
             } catch (error) {
               // Usually the conversation was deleted while the turn ran, which
               // is nothing to report. Anything else means the person's answer
-              // is on their screen and nowhere else — and, for a failed turn,
+              // is on their screen and nowhere else — and, for a turn that ended badly,
               // that the transcript says "unfinished" now and will say nothing
               // at all after a reload. Say so in the log either way.
-              console.warn('agent stream: could not persist the assistant turn', { conversationId, failed }, error);
+              console.warn('agent stream: could not persist the assistant turn', { conversationId, ending }, error);
             }
           }
         }
