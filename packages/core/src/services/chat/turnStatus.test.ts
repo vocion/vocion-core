@@ -6,7 +6,7 @@
  * later: which endings are kept out of history, and which ones are failures.
  */
 import { describe, expect, it } from 'vitest';
-import { isDroppedFromHistory, isFailure, isTurnStatus, TURN_STATUSES } from './turnStatus';
+import { isDroppedFromHistory, isFailure, isTurnStatus, stoppedShort, TURN_STATUSES } from './turnStatus';
 
 describe('isDroppedFromHistory', () => {
   it('drops the endings whose text would teach the model something false', () => {
@@ -77,5 +77,30 @@ describe('isTurnStatus', () => {
     const dropped = TURN_STATUSES.filter(s => isDroppedFromHistory(s));
 
     expect(dropped).toEqual(failures);
+  });
+});
+
+describe('a turn that did work and never answered', () => {
+  it('is a failure the person is told about, and is not replayed as history', () => {
+    expect(isFailure('stalled')).toBe(true);
+    // Replaying "Reading" as if it were an answer teaches the model that was
+    // an acceptable turn.
+    expect(isDroppedFromHistory('stalled')).toBe(true);
+    expect(isTurnStatus('stalled')).toBe(true);
+  });
+
+  it('catches tool work with no answer', () => {
+    expect(stoppedShort({ text: 'Reading', toolCalls: 3 })).toBe(true);
+    expect(stoppedShort({ text: 'I\'ll check what that page is.', toolCalls: 1 })).toBe(true);
+  });
+
+  it('does not catch a short answer to a short question', () => {
+    // The check is a length against tool work, never a search for words like
+    // "let me" — that would be wrong on "Yes, it merged." every time.
+    expect(stoppedShort({ text: 'Yes — PR #16 merged on Sunday.', toolCalls: 0 })).toBe(false);
+  });
+
+  it('does not catch a turn that answered at length', () => {
+    expect(stoppedShort({ text: 'a'.repeat(200), toolCalls: 5 })).toBe(false);
   });
 });

@@ -891,12 +891,24 @@ function approvalsSection(asks: ReportAsk[], actionRuns: ReportActionRun[], hasR
  * @param mergedPrs - Pull requests the records say merged, for the contradiction flag.
  */
 function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSection {
-  const s = blank('runs', 'The runs');
+  // BUILD, not "the runs" — and newest first.
+  //
+  // Five attempts at one rename drew as five equal rows in the order they
+  // happened, so the one that matters — the last one, the one that decided
+  // whether this work stands — was at the bottom, under four that had already
+  // been superseded. Chris, 2026-09-22: *"Translate that into a build story…
+  // the fact that the factory needed five attempts can be interesting; the
+  // contents of every failed contract are forensic."*
+  //
+  // So the latest attempt leads and says it is the latest; the earlier ones
+  // follow, numbered and named as superseded, which is what they are.
+  const s = blank('runs', 'Build');
   if (runs.length === 0) {
-    s.absence = 'No worker run is recorded against this work.';
+    s.absence = 'Nothing has been built yet — no worker run is recorded against this work.';
     return s;
   }
-  s.entries = runs.map((run) => {
+  const newestFirst = [...runs].reverse();
+  s.entries = newestFirst.map((run, index) => {
     const change = runChange(run);
     const ms = runDuration(run);
     const failed = TERMINAL_BAD.has(run.status);
@@ -924,7 +936,9 @@ function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSec
     }
     return {
       key: `run-${run.id}`,
-      title: `Run ${run.id} · ${run.kind}`,
+      title: index === 0
+        ? `Latest attempt · run ${run.id}`
+        : `Earlier attempt ${newestFirst.length - index} of ${newestFirst.length} · run ${run.id}, superseded`,
       status: run.status,
       tone: statusTone(run.status),
       at: runAt(run),

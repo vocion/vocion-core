@@ -404,7 +404,7 @@ describe('a stage that did not happen says so', () => {
     const report = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
 
     expect(section(report, 'contract').absence).toBe('No task contract was written for this request; nothing was dispatched.');
-    expect(section(report, 'runs').absence).toBe('No worker run is recorded against this work.');
+    expect(section(report, 'runs').absence).toBe('Nothing has been built yet — no worker run is recorded against this work.');
     expect(section(report, 'change').absence).toBe('No pull request is recorded for this work.');
     expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
   });
@@ -790,5 +790,26 @@ describe('the goal, when the body opens with a label', () => {
   it('still takes a real opening sentence', () => {
     expect(withBody('Launch as Stamp without breaking links. 1. Every screen shows Stamp.').goal)
       .toBe('Launch as Stamp without breaking links.');
+describe('build reads as a story', () => {
+  const run = (id: number, at: string) => ({ id, kind: 'worker', status: 'completed', attempt: null, agentSlug: 'eng', model: 'm', cents: 10, createdAt: new Date(at), claimedAt: new Date(at), completedAt: new Date(at), summary: null, error: null, meta: {} }) as never;
+
+  it('leads with the latest attempt and names the rest as superseded', () => {
+    // Five equal rows in the order they happened put the attempt that decided
+    // the work at the bottom, under four already superseded.
+    const report = assembleFeatureReport(input({ workerRuns: [run(1, '2026-09-20T10:00:00Z'), run(2, '2026-09-20T11:00:00Z'), run(3, '2026-09-20T12:00:00Z')] }));
+    const build = report.sections.find(x => x.key === 'runs')!;
+
+    expect(build.title).toBe('Build');
+    expect(build.entries[0]!.title).toContain('Latest attempt');
+    expect(build.entries[0]!.title).toContain('run 3');
+    expect(build.entries[1]!.title).toContain('superseded');
+    expect(build.entries).toHaveLength(3);
+  });
+
+  it('does not call a single run an attempt among others', () => {
+    const report = assembleFeatureReport(input({ workerRuns: [run(7, '2026-09-20T10:00:00Z')] }));
+    const build = report.sections.find(x => x.key === 'runs')!;
+
+    expect(build.entries[0]!.title).toBe('Latest attempt · run 7');
   });
 });
