@@ -13,6 +13,16 @@
       "match": "who owns northwind",
       "steps": [],
       "reply": "Pat Reyes owns Northwind, and the retainer renews in March."
+    },
+    {
+      "match": "what is the pipeline",
+      "steps": [],
+      "reply": "The pipeline stands at $1.4M across eleven deals.",
+      "fails": {
+        "after": "The pipeline stands at",
+        "reason": "socket hang up",
+        "once": true
+      }
     }
   ],
   "fallback": "This scripted model has no line for that message."

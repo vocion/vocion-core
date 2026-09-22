@@ -60,4 +60,27 @@ describe('the scripted model\'s mid-stream failure', () => {
     expect(spoken.text).toBe('Pat owns it.');
     expect(spoken.error).toBeNull();
   });
+
+  it('fails only the first play when the line is marked `once`, which is the turn the server recovers', async () => {
+    const recoverable = {
+      turns: [
+        {
+          match: 'what is the pipeline',
+          steps: [],
+          reply: 'The pipeline stands at $1.4M across eleven deals.',
+          fails: { after: 'The pipeline stands at', reason: 'socket hang up', once: true },
+        },
+      ],
+      fallback: 'no line for that',
+    };
+    // A second model instance, because a retried turn really does run on one:
+    // the route calls the runtime again from the top.
+    const first = await speak(new ScriptedChatModel({ script: recoverable, baseDir: '.' }), 'what is the pipeline?');
+    const second = await speak(new ScriptedChatModel({ script: recoverable, baseDir: '.' }), 'what is the pipeline?');
+
+    expect(first.text).toBe('The pipeline stands at');
+    expect(first.error).toBe('socket hang up');
+    expect(second.text).toBe('The pipeline stands at $1.4M across eleven deals.');
+    expect(second.error).toBeNull();
+  });
 });

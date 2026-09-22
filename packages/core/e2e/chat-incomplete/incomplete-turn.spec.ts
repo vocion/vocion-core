@@ -10,6 +10,11 @@ import { ADMIN, seedChatWorkspace } from './support/seed';
  * of a run that loses its model with text already on screen. Everything else
  * is real: the SSE route, the row it writes, the reload, the next turn.
  *
+ * Two endings, one script. The first line's failure is permanent — its reason
+ * is one the server does not retry — so the turn stays unfinished. The second
+ * line fails `once` with a dropped socket, which the server does retry, so the
+ * person sees a whole answer and never learns the first attempt existed.
+ *
  * What this guards is the thing a unit test cannot see end to end: after a
  * reload the fragment is still there AND still marked, so a half answer is
  * never read as a whole one; and the turn after it carries on normally
@@ -90,4 +95,30 @@ test('a turn that fails mid-answer keeps its text, says it is unfinished, and su
 
   await expect(page.getByText('Pat Reyes owns Northwind').last()).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('incomplete-turn-notice')).toHaveCount(1);
+});
+
+test('a turn that loses its connection is run again, and the person reads one whole answer', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/dashboard/chat');
+
+  await say(page, 'what is the pipeline?');
+
+  // The first attempt dies after "The pipeline stands at"; the second says
+  // everything. What must never appear is the two spliced together.
+  await expect(page.getByText('The pipeline stands at $1.4M across eleven deals.').last()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByRole('button', { name: 'Stop generating' })).toBeHidden({ timeout: 60_000 });
+  await expect(page.getByTestId('incomplete-turn-notice')).toHaveCount(0);
+
+  // And the saved row is the recovered answer, not the fragment — a reload is
+  // the only way to read what was actually written down.
+  await expect.poll(
+    async () => {
+      await page.reload();
+      await page.getByText('The pipeline stands at').last().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      return page.getByText('The pipeline stands at $1.4M across eleven deals.').count();
+    },
+    { timeout: 120_000, message: 'the reloaded transcript never showed the recovered answer' },
+  ).toBeGreaterThan(0);
+
+  await expect(page.getByTestId('incomplete-turn-notice')).toHaveCount(0);
 });

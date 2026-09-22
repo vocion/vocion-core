@@ -790,6 +790,36 @@ export function useChatSession({
         setPhase('idle');
         setActivity(null);
         return;
+      case 'turn_retry': {
+        // The turn lost its model part-way and the server is running it again
+        // from the top (#114). Everything on screen belongs to the attempt
+        // that died: keeping it would splice two half-answers into one bubble,
+        // and the pending deltas are flushed nowhere — they are dropped, not
+        // written. The bubble empties, the rail says why, and the second
+        // attempt fills it as if it were the first.
+        if (flushFrameRef.current !== null) {
+          cancelAnimationFrame(flushFrameRef.current);
+          flushFrameRef.current = null;
+        }
+        pendingResponseRef.current = '';
+        pendingThinkingRef.current = '';
+        pendingTraceRef.current = new Map();
+        traceDirtyRef.current = false;
+        textRunsRef.current = 0;
+        lastRunIsTextRef.current = false;
+        setPhase('thinking');
+        setActivity('The connection dropped — starting the answer again…');
+        appendToLatestAgent(m => ({
+          ...m,
+          content: '',
+          runs: [],
+          trace: [],
+          thinkingText: '',
+          status: null,
+          statusReason: '',
+        }));
+        return;
+      }
       case 'error': {
         flushDeltas();
         setPhase('idle');
