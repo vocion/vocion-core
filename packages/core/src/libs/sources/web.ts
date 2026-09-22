@@ -973,12 +973,7 @@ const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
  * that publishes its poster under the very key the pipeline reads it back out
  * of would otherwise lose it, which is the defect this whole list exists for.
  *
- * `localist_url` and `photo_url` are Localist's, and they are here for a
- * sharper reason than completeness: a Localist entry also carries a `url` key
- * whose value is the STRING "None". It is a string, so it is read; it is not a
- * URL, so it is dropped; and the entry then declares nothing at all, which
- * reads from the outside as a feed that publishes no links. It publishes them
- * under its own names.
+ * `localist_url` and `photo_url` are Localist's.
  */
 const ITEM_URL_FIELDS = [
   'url',
@@ -993,24 +988,23 @@ const ITEM_URL_FIELDS = [
 ] as const;
 
 /**
- * Whether a feed value is shaped like a link at all: a scheme, a protocol
- * relative prefix, or a path. A bare word is a word, and resolving it would
- * invent a URL rather than read one.
+ * A value with no `/`, `.` or `:` cannot be a link, whatever key it sits under.
+ * Localist writes the string "None" into `url`; resolving a bare word against
+ * the feed invents an address the document never published.
  */
-const LINKISH_VALUE_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\.{0,2}\/)/i;
+const UNLINKABLE_VALUE_RE = /^[^/.:]*$/;
 
 /**
- * The record an entry's own fields actually live on.
+ * The record an entry's links live on, unwrapping a single-key envelope.
  *
- * A feed may wrap each entry in a single-key envelope naming its type, which
- * Localist does: the array is `events`, and every element is `{ "event": {…} }`.
- * Reading declarations off the envelope finds nothing, so the entry looks like
- * it publishes no link, no key and no title while publishing all three one
- * level down.
+ * Read by `declaredUrls` only. The identity stays on the outer item: keying on
+ * an inner id would re-key every already-ingested document of such a feed, and
+ * Localist repeats an inner id across the instances of a recurring event, which
+ * `splitJsonArray` answers by abandoning the split for the whole file.
  *
- * Only a lone key is unwrapped, and only when its value is itself a record.
- * An entry with two keys is an entry, not an envelope, and unwrapping on any
- * looser rule would start reading a nested object as if it were the entry.
+ * The inner record has to carry a title, which is what separates an entry from
+ * a nested value: `{"image": {"url": …, "id": …}}` has an id and is still not
+ * an entry, and declaring its url would claim provenance one level down.
  * @param item - one entry from the array.
  */
 function entryFields(item: unknown): Record<string, unknown> | undefined {
@@ -1018,13 +1012,14 @@ function entryFields(item: unknown): Record<string, unknown> | undefined {
     return undefined;
   }
   const keys = Object.keys(item);
-  if (keys.length === 1) {
-    const inner = item[keys[0]!];
-    if (isRecord(inner)) {
-      return inner;
-    }
+  if (keys.length !== 1) {
+    return item;
   }
-  return item;
+  const inner = item[keys[0]!];
+  if (!isRecord(inner)) {
+    return item;
+  }
+  return ITEM_TITLE_FIELDS.some(f => typeof inner[f] === 'string') ? inner : item;
 }
 
 /**
@@ -1032,12 +1027,11 @@ function entryFields(item: unknown): Record<string, unknown> | undefined {
  * @param item - one entry from the array.
  */
 function declaredKey(item: unknown): string | undefined {
-  const fields = entryFields(item);
-  if (!fields) {
+  if (!isRecord(item)) {
     return undefined;
   }
   for (const field of ITEM_KEY_FIELDS) {
-    const value = fields[field];
+    const value = item[field];
     if (typeof value === 'string' && value.trim()) {
       return value.trim();
     }
@@ -1053,12 +1047,11 @@ function declaredKey(item: unknown): string | undefined {
  * @param item - one entry from the array.
  */
 function declaredTitle(item: unknown): string | undefined {
-  const fields = entryFields(item);
-  if (!fields) {
+  if (!isRecord(item)) {
     return undefined;
   }
   for (const field of ITEM_TITLE_FIELDS) {
-    const value = fields[field];
+    const value = item[field];
     if (typeof value === 'string' && value.trim()) {
       return flatten(value);
     }
@@ -1096,12 +1089,7 @@ function declaredUrls(item: unknown, baseUrl: string): string[] {
     // Resolved against the feed's own URL, which is where the entry was
     // published. A base that will not parse leaves the value as written, and
     // a path that stays a path then fails the fetchable test below.
-    //
-    // Only a value shaped like a link is resolved. Localist writes the string
-    // "None" into its `url` key, and resolving a bare word against the feed
-    // produces `…/api/2/None`, which is fetchable, absolute, and a link the
-    // document never published. The gate would then bless it.
-    if (!LINKISH_VALUE_RE.test(value)) {
+    if (UNLINKABLE_VALUE_RE.test(value.trim())) {
       continue;
     }
     const url = absoluteUrl(value, baseUrl) ?? '';

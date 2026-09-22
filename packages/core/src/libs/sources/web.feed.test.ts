@@ -367,33 +367,6 @@ describe('the ICS per-event split', () => {
     ]);
   });
 
-  it('declares the links a Localist entry publishes under its own names', async () => {
-    // Localist ships a `url` key whose value is the string "None". It is a
-    // string so it is read, it is not a URL so it is dropped, and the entry
-    // then declares nothing: a feed that looks like it publishes no links
-    // while publishing them under `localist_url` and `photo_url`.
-    const items = {
-      events: [{
-        event: {
-          id: 1,
-          title: 'Random Chats About Statistics',
-          url: 'None',
-          urlname: 'random-chats-about-statistics',
-          localist_url: 'https://events.test/event/random-chats-about-statistics',
-          photo_url: 'https://images.test/photos/1/huge/a.jpg',
-        },
-      }],
-    };
-    stubFetch(() => Response.json(items));
-
-    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
-
-    expect(docs[0]?.metadata?.publishedUrls).toEqual([
-      'https://events.test/event/random-chats-about-statistics',
-      'https://images.test/photos/1/huge/a.jpg',
-    ]);
-  });
-
   it('omits the key when a component publishes nothing fetchable', async () => {
     stubFetch(() => typed(PUBLISHED_URLS_ICS, 'text/calendar'));
 
@@ -519,6 +492,66 @@ describe('the ICS per-event split', () => {
 });
 
 describe('the JSON per-event split', () => {
+  it('reads an enveloped entry\'s links from inside the envelope', async () => {
+    const items = { events: [{ event: {
+      id: 1,
+      title: 'Random Chats About Statistics',
+      url: 'None',
+      localist_url: 'https://events.test/event/random-chats',
+      photo_url: 'https://images.test/photos/1.jpg',
+    } }] };
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://events.test/event/random-chats',
+      'https://images.test/photos/1.jpg',
+    ]);
+  });
+
+  it('keeps an enveloped entry keyed on its own content, not on the inner id', async () => {
+    // Localist repeats an inner id across the instances of a recurring event:
+    // eight of a hundred on the live feed. Keying on it would collide, and a
+    // collision abandons the split for the whole file.
+    const items = { events: [
+      { event: { id: 7, title: 'Weekly Yoga', localist_url: 'https://events.test/event/yoga-1' } },
+      { event: { id: 7, title: 'Weekly Yoga', localist_url: 'https://events.test/event/yoga-2' } },
+    ] };
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs).toHaveLength(2);
+    expect(docs[0]?.externalId).not.toEqual(docs[1]?.externalId);
+  });
+
+  it('leaves a nested object alone when it is not an entry envelope', async () => {
+    // One key holding a record is not enough: `image` is the publisher's shape,
+    // and reading it would declare a nested value as the entry's own.
+    const items = [
+      { image: { url: 'https://cdn.test/a.jpg', id: 'img-1' } },
+      { image: { url: 'https://cdn.test/b.jpg', id: 'img-2' } },
+    ];
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://events.test/api/2/events'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toBeUndefined();
+  });
+
+  it('declares a link an entry published as a bare relative path', async () => {
+    const items = [{ id: 'a1', fullUrl: 'events/opening-night', image: 'photos/a.jpg' }];
+    stubFetch(() => Response.json(items));
+
+    const { docs } = await run({ urls: ['https://venue.test/events.json'] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual([
+      'https://venue.test/events/opening-night',
+      'https://venue.test/photos/a.jpg',
+    ]);
+  });
+
   it('keys each item by @id, id or slug', async () => {
     const items = [
       { '@id': 'https://venue.test/e/1', 'name': 'One' },

@@ -106,19 +106,13 @@ function squashUrl(url: string): string {
 }
 
 /**
- * The absolute form of a URL a document published as a path.
- *
- * A JSON feed states an entry's own page relatively (`"fullUrl": "/events/x"`),
- * and the connector resolves that against the feed before declaring it, because
- * the gate compares exactly and a path can never match. The model, however,
- * reads the raw entry and hands the path straight back, so the gate refused a
- * link the document plainly published. Resolving the candidate the same way the
- * connector resolved the declaration is what lets the two spellings meet.
+ * The absolute form of a path, resolved as the connector resolved its own
+ * declaration. A value with no `/`, `.` or `:` is a word, not a link.
  * @param value - What the model returned.
- * @param baseUrl - The document's own address, for resolving against.
+ * @param baseUrl - The document's own address.
  */
 function resolvedAgainst(value: string, baseUrl: string | undefined): string | undefined {
-  if (!baseUrl || /^[a-z][a-z0-9+.-]*:/i.test(value)) {
+  if (!baseUrl || /^[a-z][a-z0-9+.-]*:/i.test(value) || /^[^/.:]*$/.test(value)) {
     return undefined;
   }
   try {
@@ -228,6 +222,7 @@ export function validateRecords(opts: {
   // claim; guarded here once for the two readers below, for the reason
   // `documentUrls` guards the declared list.
   const ogImage = typeof opts.ogImage === 'string' ? opts.ogImage : undefined;
+  const baseUrl = typeof opts.baseUrl === 'string' ? opts.baseUrl : undefined;
 
   const urls = documentUrls(opts.links, opts.jsonLd, opts.publishedUrls, ogImage);
   // Answers with the URL to store rather than with a yes, because the gate is
@@ -247,7 +242,7 @@ export function validateRecords(opts: {
     }
     // Same address, other spelling: the declaration was resolved, the answer
     // was not. The resolved form is what gets stored, never the path.
-    const resolved = resolvedAgainst(squashed, opts.baseUrl);
+    const resolved = resolvedAgainst(squashed, baseUrl);
     if (resolved && urls.exact.has(resolved)) {
       return resolved;
     }
