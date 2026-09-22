@@ -1,9 +1,15 @@
 import { ImageResponse } from 'next/og';
+import { envLabel } from '@/libs/envLabel';
 
 export const size = { width: 32, height: 32 };
 export const contentType = 'image/png';
 
 /**
+ * In a non-production environment it becomes the LABEL on amber instead of
+ * the mark. A preview tab and a production tab are otherwise identical, which
+ * is how a bug gets filed against the wrong one — and the favicon is the only
+ * part of a tab that survives being narrowed to nothing.
+ *
  * Dynamic favicon — the Vocion governed-path V mark, mono-white on Vocion Ink,
  * matching vocion.ai's `app/icon.tsx`. One colour at 32px for crispness; the
  * gradient rails belong to larger sizes (see `apple-icon.tsx`). Served as
@@ -11,6 +17,31 @@ export const contentType = 'image/png';
  * request App Router icons.
  */
 export default function Icon() {
+  const label = envLabel();
+  if (label !== null) {
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#B45309',
+            color: '#FFFFFF',
+            borderRadius: 7,
+            fontSize: label.length > 3 ? 13 : 16,
+            fontWeight: 700,
+            letterSpacing: -0.5,
+          }}
+        >
+          {label}
+        </div>
+      ),
+      { ...size },
+    );
+  }
   return new ImageResponse(
     (
       <div
