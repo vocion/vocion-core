@@ -29,7 +29,7 @@ describe('toolCalledWith date bounds in a manifest', () => {
     for (const onOrAfter of ['today', 'Yesterday', '3 days ago', 'in 2 weeks', 'last month', '2026-09-01']) {
       expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter })).success).toBe(true);
     }
-    for (const timezone of ['utc', 'UTC', 'local', 'America/New_York']) {
+    for (const timezone of ['utc', 'UTC', 'local', 'workspace', 'America/New_York']) {
       expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: 'today', timezone })).success).toBe(true);
     }
   });
@@ -78,6 +78,10 @@ describe('toolCalledWith date bounds in a manifest', () => {
   it('refuses a fixed day that does not exist and a count past a century', () => {
     expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: '2026-02-30' })).success).toBe(false);
     expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: '99999999 years ago' })).success).toBe(false);
+  });
+
+  it('accepts a zone read from the call', () => {
+    expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: 'today', timezoneFrom: 'action_input.fields.timezone', timezone: 'workspace' })).success).toBe(true);
   });
 
   it('still refuses a check that names a zone and asserts nothing', () => {

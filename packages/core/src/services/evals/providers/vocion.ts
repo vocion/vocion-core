@@ -14,10 +14,12 @@
  * with no AWS sees no provider filter at all rather than an empty one.
  */
 
+import type { CheckClock } from '../checks';
 import type { CaseTranscript } from '../transcripts';
 import type { ProviderScore } from '../types';
 import type { EvalScoreProvider, ProviderAvailability, ScoreRequest } from './types';
 import { mapWithConcurrency } from '@/libs/concurrency';
+import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { scoreChecks } from '../checks';
 import { DEFAULT_CASE_CONCURRENCY } from '../transcripts';
 import { judgeTranscript } from './vocionJudge';
@@ -27,6 +29,8 @@ type JudgeJob = {
   orgId: string;
   datasetSlug: string;
   transcript: CaseTranscript;
+  /** Shared by every case in the run, so they agree on what today is. */
+  clock: CheckClock;
 };
 
 /**
@@ -39,7 +43,7 @@ type JudgeJob = {
  * @param job - The case and the context the judge needs.
  */
 async function scoreOneCase(job: JudgeJob): Promise<ProviderScore[]> {
-  const { transcript } = job;
+  const { transcript, clock } = job;
   if (transcript.errored) {
     return [{
       evaluatorSlug: 'vocion:judge',
@@ -70,7 +74,7 @@ async function scoreOneCase(job: JudgeJob): Promise<ProviderScore[]> {
       explanation: judgement.rationale,
       itemIndex: transcript.itemIndex,
     },
-    ...scoreChecks(transcript),
+    ...scoreChecks(transcript, clock),
   ];
 }
 
@@ -79,10 +83,12 @@ async function isAvailable(): Promise<ProviderAvailability> {
 }
 
 async function score(request: ScoreRequest): Promise<ProviderScore[]> {
+  const clock: CheckClock = { now: new Date(), workspaceTimeZone: await workspaceTimeZone(request.orgId) };
   const jobs: JudgeJob[] = request.transcripts.map(transcript => ({
     orgId: request.orgId,
     datasetSlug: request.datasetSlug,
     transcript,
+    clock,
   }));
   const perCase = await mapWithConcurrency(jobs, DEFAULT_CASE_CONCURRENCY, scoreOneCase);
   return perCase.flat();

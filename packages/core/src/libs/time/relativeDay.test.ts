@@ -235,6 +235,14 @@ describe('isDayZone and resolveDayZone', () => {
     expect(resolveDayZone('UTC')).toBe('UTC');
   });
 
+  it('reads workspace as the zone the caller resolved for the workspace', () => {
+    expect(isDayZone('workspace')).toBe(true);
+    expect(resolveDayZone('workspace', 'America/New_York')).toBe('America/New_York');
+    expect(resolveDayZone('Workspace', 'Asia/Tokyo')).toBe('Asia/Tokyo');
+    // A caller with no workspace to ask gets UTC, never a guess.
+    expect(resolveDayZone('workspace')).toBe('UTC');
+  });
+
   it('passes an IANA name through unchanged', () => {
     expect(resolveDayZone('America/New_York')).toBe('America/New_York');
   });

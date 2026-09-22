@@ -1333,7 +1333,8 @@ const EvalCheckSchema = z.union([
       subsetOf: z.array(z.string()).optional().describe('every element at the path must be one of these'),
       onOrAfter: z.string().refine(isRelativeDay, { message: 'onOrAfter must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or after this day, resolved when the check runs'),
       onOrBefore: z.string().refine(isRelativeDay, { message: 'onOrBefore must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or before this day, resolved when the check runs'),
-      timezone: z.string().refine(isDayZone, { message: 'timezone must be utc, local, or an IANA zone like America/New_York' }).optional().describe('which zone "today" is in for onOrAfter and onOrBefore; utc by default'),
+      timezone: z.string().refine(isDayZone, { message: 'timezone must be utc, local, workspace, or an IANA zone like America/New_York' }).optional().describe('which zone "today" is in for onOrAfter and onOrBefore; utc by default'),
+      timezoneFrom: z.string().min(1).optional().describe('dot path into the same call naming its zone, e.g. action_input.fields.timezone; timezone applies when the call names none'),
       calls: z.enum(['every', 'some']).optional().describe('how many of the tool\'s calls must match; every by default'),
     }).refine(
       condition => condition.equals !== undefined

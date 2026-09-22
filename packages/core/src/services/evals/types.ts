@@ -124,9 +124,16 @@ export type ToolArgumentCondition = {
   onOrBefore?: string;
   /**
    * Which zone "today" is in: `utc` (the default), `local` (the machine
-   * running the check), or an IANA name like `America/New_York`.
+   * running the check), `workspace` (the workspace's `defaults.timezone`),
+   * or an IANA name like `America/New_York`.
    */
   timezone?: string;
+  /**
+   * A dot path into the same call whose value names the zone, such as an
+   * event's `action_input.fields.timezone`, so each record is judged by its
+   * own clock. When the call holds no real zone there, `timezone` applies.
+   */
+  timezoneFrom?: string;
   /** How many of the tool's calls must satisfy the predicates. Default `every`. */
   calls?: 'every' | 'some';
 };

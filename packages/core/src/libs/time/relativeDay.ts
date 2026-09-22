@@ -19,6 +19,7 @@ import { dayKey, DEFAULT_TIME_ZONE, isValidTimeZone } from './zone';
 /** The zone words a manifest may use besides an IANA name like `America/New_York`. */
 const UTC_WORD = 'utc';
 const LOCAL_WORD = 'local';
+const WORKSPACE_WORD = 'workspace';
 
 const UNIT_PATTERN = '(day|week|month|year)s?';
 const AGO = new RegExp(`^(\\d+) ${UNIT_PATTERN} ago$`);
@@ -109,23 +110,26 @@ export function isRelativeDay(phrase: string): boolean {
 }
 
 /**
- * Whether a manifest's zone is usable: `utc`, `local`, or an IANA name.
+ * Whether a manifest's zone is usable: `utc`, `local`, `workspace`, or an
+ * IANA name.
  * @param zone - What the manifest wrote.
  */
 export function isDayZone(zone: string): boolean {
   const normalized = zone.trim().toLowerCase();
-  return normalized === UTC_WORD || normalized === LOCAL_WORD || isValidTimeZone(zone);
+  return normalized === UTC_WORD || normalized === LOCAL_WORD || normalized === WORKSPACE_WORD || isValidTimeZone(zone);
 }
 
 /**
  * The IANA zone a manifest's zone word stands for.
  *
  * `local` is the zone of the machine running the check. The app servers run
- * in UTC, so on them `local` and `utc` agree; a workspace that cares which
- * day it is at the venue should name the zone outright.
- * @param zone - `utc`, `local`, or an IANA name; omitted means UTC.
+ * in UTC, so on them `local` and `utc` agree. `workspace` is the workspace's
+ * own `defaults.timezone`, the zone the rest of the product already uses for
+ * schedules and missions, and usually the one a rule about "today" means.
+ * @param zone - `utc`, `local`, `workspace`, or an IANA name; omitted means UTC.
+ * @param workspaceZone - The workspace's zone, already resolved by the caller.
  */
-export function resolveDayZone(zone: string | undefined): string {
+export function resolveDayZone(zone: string | undefined, workspaceZone: string = DEFAULT_TIME_ZONE): string {
   if (!zone) {
     return DEFAULT_TIME_ZONE;
   }
@@ -135,6 +139,9 @@ export function resolveDayZone(zone: string | undefined): string {
   }
   if (normalized === LOCAL_WORD) {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }
+  if (normalized === WORKSPACE_WORD) {
+    return workspaceZone;
   }
   return zone;
 }

@@ -28,6 +28,7 @@ import process from 'node:process';
 import { BedrockAgentCoreClient, EvaluateCommand } from '@aws-sdk/client-bedrock-agentcore';
 import { mapWithConcurrency } from '@/libs/concurrency';
 import { bedrockRegion } from '@/libs/llm/bedrockCredentials';
+import { workspaceTimeZone } from '@/libs/time/workspaceTimeZone';
 import { resolveAwsCredentials } from '@/services/ApiTokenService';
 import { scoreChecks } from '../checks';
 import { evalCaseSessionId } from '../sessionIds';
@@ -317,7 +318,10 @@ async function score(request: ScoreRequest): Promise<ProviderScore[]> {
   // a suggested decision. Refusing them on an AgentCore dataset meant a team
   // had to pick between AWS's evaluators and any assertion about what the
   // agent actually passed to a tool.
-  const checkScores = request.transcripts.flatMap(transcript => scoreChecks(transcript));
+  // Read the clock and the workspace's zone once, so every case in the run
+  // agrees on what today is for `timezone: workspace`.
+  const clock = { now: new Date(), workspaceTimeZone: await workspaceTimeZone(request.orgId) };
+  const checkScores = request.transcripts.flatMap(transcript => scoreChecks(transcript, clock));
   return [...scores.flat(), ...checkScores];
 }
 

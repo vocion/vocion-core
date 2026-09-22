@@ -370,9 +370,9 @@ describe('scoreChecks', () => {
     const upcoming = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22' } } })]);
     const past = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-21' } } })]);
 
-    expect(runCheck(upcoming, check, now)?.passed).toBe(true);
+    expect(runCheck(upcoming, check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(true);
 
-    const outcome = runCheck(past, check, now);
+    const outcome = runCheck(past, check, { now, workspaceTimeZone: 'UTC' });
 
     expect(outcome?.passed).toBe(false);
     expect(outcome?.explanation).toContain('2026-09-21');
@@ -387,14 +387,14 @@ describe('scoreChecks', () => {
     const eastern: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'America/New_York' } };
     const utc: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'utc' } };
 
-    expect(runCheck(tonight, eastern, now)?.passed).toBe(true);
-    expect(runCheck(tonight, utc, now)?.passed).toBe(false);
+    expect(runCheck(tonight, eastern, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(true);
+    expect(runCheck(tonight, utc, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(false);
   });
 
   it('fails a date argument that is not a date instead of passing it', () => {
     const now = new Date('2026-09-22T16:00:00Z');
     const vague = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: 'next Friday' } } })]);
-    const outcome = runCheck(vague, { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today' } }, now);
+    const outcome = runCheck(vague, { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today' } }, { now, workspaceTimeZone: 'UTC' });
 
     expect(outcome?.passed).toBe(false);
     expect(outcome?.explanation).toContain('not a date');
@@ -406,7 +406,7 @@ describe('scoreChecks', () => {
     const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', onOrBefore: 'next year' } };
     const typoYear = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2062-09-26' } } })]);
 
-    expect(runCheck(typoYear, check, now)?.passed).toBe(false);
+    expect(runCheck(typoYear, check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(false);
   });
 
   it('steps around a series refresh, whose first startDate may be in the past on purpose', () => {
@@ -431,8 +431,8 @@ describe('scoreChecks', () => {
     const seriesRefresh = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-01', recurrence: 'every Tuesday through 2026-10-27' } } });
     const pastSingle = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-01', recurrence: '' } } });
 
-    expect(runCheck(proposalTranscript([seriesRefresh]), check, now)?.passed).toBe(true);
-    expect(runCheck(proposalTranscript([seriesRefresh, pastSingle]), check, now)?.passed).toBe(false);
+    expect(runCheck(proposalTranscript([seriesRefresh]), check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(true);
+    expect(runCheck(proposalTranscript([seriesRefresh, pastSingle]), check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(false);
   });
 
   it('names every filter in the slug, so a filtered and an unfiltered rule stay apart', () => {
@@ -442,6 +442,40 @@ describe('scoreChecks', () => {
 
     expect(filtered?.slug).toContain('recurrence present=false');
     expect(filtered?.slug).not.toBe(plain?.slug);
+  });
+
+  it('judges each event by the zone it carries when timezoneFrom points at one', () => {
+    // Two venues, one run, 1:30am UTC on Sept 23. It is still the 22nd in
+    // Vermont and already the 23rd in Tokyo, so the same startDate is today
+    // for one and yesterday for the other.
+    const now = new Date('2026-09-23T01:30:00Z');
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezoneFrom: 'action_input.fields.timezone', timezone: 'utc' } };
+    const vermont = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22', timezone: 'America/New_York' } } });
+    const tokyo = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22', timezone: 'Asia/Tokyo' } } });
+
+    expect(runCheck(proposalTranscript([vermont]), check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(true);
+    expect(runCheck(proposalTranscript([tokyo]), check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(false);
+  });
+
+  it('falls back to the check\'s own timezone when the call names no real zone', () => {
+    // A missing or made-up zone must not silently become UTC-or-whatever; it
+    // becomes the rule the author wrote.
+    const now = new Date('2026-09-23T01:30:00Z');
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezoneFrom: 'action_input.fields.timezone', timezone: 'America/New_York' } };
+    const noZone = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22' } } });
+    const badZone = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22', timezone: 'Vermont' } } });
+
+    expect(runCheck(proposalTranscript([noZone]), check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(true);
+    expect(runCheck(proposalTranscript([badZone]), check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(true);
+  });
+
+  it('reads timezone: workspace as the workspace\'s own zone', () => {
+    const now = new Date('2026-09-23T01:30:00Z');
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'workspace' } };
+    const tonight = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22' } } })]);
+
+    expect(runCheck(tonight, check, { now, workspaceTimeZone: 'America/New_York' })?.passed).toBe(true);
+    expect(runCheck(tonight, check, { now, workspaceTimeZone: 'UTC' })?.passed).toBe(false);
   });
 
   it('returns nothing for a case that authored no checks', () => {

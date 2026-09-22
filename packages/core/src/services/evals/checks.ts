@@ -22,6 +22,25 @@
 import type { CaseTranscript, ToolCallRecord } from './transcripts';
 import type { EvalCheck, ProviderScore, ToolArgumentCondition, ToolCallCountCondition, ToolCallFilter } from './types';
 import { calendarDayOf, resolveDayZone, resolveRelativeDay } from '@/libs/time/relativeDay';
+import { DEFAULT_TIME_ZONE, isValidTimeZone } from '@/libs/time/zone';
+
+/**
+ * What a date bound needs to know about the run, beyond the transcript.
+ *
+ * `now` is read once per scoring pass so every check on a case agrees on what
+ * today is. `workspaceTimeZone` is what `timezone: workspace` means; a caller
+ * that has an org resolves it with `workspaceTimeZone(orgId)`, and a caller
+ * that does not gets UTC.
+ */
+export type CheckClock = {
+  now: Date;
+  workspaceTimeZone: string;
+};
+
+/** The real clock and UTC, for a caller with no workspace to ask. */
+function defaultClock(): CheckClock {
+  return { now: new Date(), workspaceTimeZone: DEFAULT_TIME_ZONE };
+}
 
 /** What one operator decided, before it becomes a score row. */
 type CheckOutcome = {
@@ -284,25 +303,47 @@ function subsetFailure(argument: ResolvedArgument, allowedValues: string[]): str
 }
 
 /**
+ * The zone one call's date bounds are judged in.
+ *
+ * `timezoneFrom` wins when the call itself names a real zone at that path —
+ * an event carrying its venue's `timezone` is judged by the venue's clock.
+ * When the call names none, or names something that is not a zone, the
+ * check's own `timezone` answers instead, so a missing field falls back to a
+ * rule someone wrote rather than to a guess.
+ * @param call - The call being checked.
+ * @param condition - The check naming `timezone` and, optionally, `timezoneFrom`.
+ * @param clock - The run's clock, carrying the workspace's zone for `workspace`.
+ */
+function zoneForCall(call: ToolCallRecord, condition: ToolArgumentCondition, clock: CheckClock): string {
+  if (condition.timezoneFrom) {
+    const { found, value } = resolveArgumentPath(call.input, condition.timezoneFrom);
+    if (found && isValidTimeZone(value)) {
+      return value;
+    }
+  }
+  return resolveDayZone(condition.timezone, clock.workspaceTimeZone);
+}
+
+/**
  * Why the value's day fell outside a relative bound, or null when it held.
  *
- * The bound is resolved at `now`, so `today` is the day the run happens. A
- * value that holds no readable date fails rather than passing, because "the
- * agent sent `next Friday`" is a broken argument, not a date in range.
+ * The bound is resolved at the run's `now`, so `today` is the day the run
+ * happens. A value that holds no readable date fails rather than passing,
+ * because "the agent sent `next Friday`" is a broken argument, not a date in
+ * range.
  * @param argument - What was at the path.
  * @param bound - `today`, `3 days ago`, `2026-09-01`, and so on.
  * @param side - Whether the value must be on or after the bound, or on or before it.
- * @param timezone - `utc`, `local`, or an IANA zone, as the manifest wrote it.
+ * @param zone - The IANA zone this call is judged in, already resolved.
  * @param now - The clock the check runs against.
  */
 function dayBoundFailure(
   argument: ResolvedArgument,
   bound: string,
   side: 'onOrAfter' | 'onOrBefore',
-  timezone: string | undefined,
+  zone: string,
   now: Date,
 ): string | null {
-  const zone = resolveDayZone(timezone);
   const boundDay = resolveRelativeDay(bound, zone, now);
   const valueDay = argument.found ? calendarDayOf(argument.value, zone) : null;
   if (valueDay === null) {
@@ -325,9 +366,9 @@ function dayBoundFailure(
  * and the first failure is the one reported.
  * @param call - One tool call the agent made.
  * @param condition - What the case said those arguments must look like.
- * @param now - The clock relative days resolve against.
+ * @param clock - The run's clock and the workspace's zone, for date bounds.
  */
-function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition, now: Date): { ok: boolean; reason: string } {
+function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition, clock: CheckClock): { ok: boolean; reason: string } {
   const { found, value } = resolveArgumentPath(call.input, condition.path);
   const argument: ResolvedArgument = {
     found,
@@ -340,8 +381,8 @@ function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition
       ?? (condition.equals !== undefined ? equalsFailure(argument, condition.equals) : null)
       ?? (condition.contains !== undefined ? containsFailure(argument, condition.contains) : null)
       ?? (condition.subsetOf !== undefined ? subsetFailure(argument, condition.subsetOf) : null)
-      ?? (condition.onOrAfter !== undefined ? dayBoundFailure(argument, condition.onOrAfter, 'onOrAfter', condition.timezone, now) : null)
-      ?? (condition.onOrBefore !== undefined ? dayBoundFailure(argument, condition.onOrBefore, 'onOrBefore', condition.timezone, now) : null);
+      ?? (condition.onOrAfter !== undefined ? dayBoundFailure(argument, condition.onOrAfter, 'onOrAfter', zoneForCall(call, condition, clock), clock.now) : null)
+      ?? (condition.onOrBefore !== undefined ? dayBoundFailure(argument, condition.onOrBefore, 'onOrBefore', zoneForCall(call, condition, clock), clock.now) : null);
 
   return failure === null ? { ok: true, reason: '' } : { ok: false, reason: failure };
 }
@@ -379,6 +420,9 @@ function describeArgumentCondition(condition: ToolArgumentCondition): string {
   }
   if (condition.timezone !== undefined) {
     predicates.push(`timezone=${condition.timezone}`);
+  }
+  if (condition.timezoneFrom !== undefined) {
+    predicates.push(`timezoneFrom=${condition.timezoneFrom}`);
   }
   if (condition.calls === 'some') {
     predicates.push('calls=some');
@@ -448,7 +492,7 @@ function describeCallFilter(filter: ToolCallFilter): string {
   return parts.join(',');
 }
 
-function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition, now: Date): CheckOutcome {
+function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition, clock: CheckClock): CheckOutcome {
   const slug = `check:toolCalledWith:${describeArgumentCondition(condition)}`;
   const calls = callsUnderTest(transcript, condition);
 
@@ -471,7 +515,7 @@ function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgument
     };
   }
 
-  const results = calls.map(call => argumentsSatisfy(call, condition, now));
+  const results = calls.map(call => argumentsSatisfy(call, condition, clock));
   const failures = results.filter(result => !result.ok);
   const wantsEvery = (condition.calls ?? 'every') === 'every';
   const passed = wantsEvery ? failures.length === 0 : failures.length < results.length;
@@ -552,10 +596,10 @@ function describeTrajectory(transcript: CaseTranscript): string {
  * key this build has never heard of.
  * @param transcript - What the case actually did.
  * @param check - The single-key object the manifest authored.
- * @param now - The clock relative days like `today` resolve against; the
- *   real one unless a test pins it.
+ * @param clock - When the check runs and the workspace's zone; the real
+ *   clock and UTC unless the caller knows better or a test pins them.
  */
-export function runCheck(transcript: CaseTranscript, check: EvalCheck, now: Date = new Date()): CheckOutcome | null {
+export function runCheck(transcript: CaseTranscript, check: EvalCheck, clock: CheckClock = defaultClock()): CheckOutcome | null {
   if ('toolCalled' in check) {
     return checkToolCalled(transcript, check.toolCalled);
   }
@@ -563,7 +607,7 @@ export function runCheck(transcript: CaseTranscript, check: EvalCheck, now: Date
     return checkToolNotCalled(transcript, check.toolNotCalled);
   }
   if ('toolCalledWith' in check) {
-    return checkToolCalledWith(transcript, check.toolCalledWith, now);
+    return checkToolCalledWith(transcript, check.toolCalledWith, clock);
   }
   if ('toolCallCount' in check) {
     return checkToolCallCount(transcript, check.toolCallCount);
@@ -594,17 +638,17 @@ export function runCheck(transcript: CaseTranscript, check: EvalCheck, now: Date
  * tool" is true of a crashed run and says nothing about the agent's behaviour,
  * so reporting it as a failed check would be noise dressed up as a finding.
  * @param transcript - What the case actually did.
- * @param now - The clock relative days resolve against, read once so every
- *   check on the case agrees on what today is.
+ * @param clock - When the check runs and the workspace's zone, read once so
+ *   every check on the case agrees on what today is.
  */
-export function scoreChecks(transcript: CaseTranscript, now: Date = new Date()): ProviderScore[] {
+export function scoreChecks(transcript: CaseTranscript, clock: CheckClock = defaultClock()): ProviderScore[] {
   if (transcript.errored) {
     return [];
   }
   const checks = transcript.item.checks ?? [];
   const scores: ProviderScore[] = [];
   for (const check of checks) {
-    const outcome = runCheck(transcript, check, now);
+    const outcome = runCheck(transcript, check, clock);
     if (!outcome) {
       continue;
     }

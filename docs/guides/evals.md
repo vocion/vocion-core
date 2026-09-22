@@ -296,9 +296,12 @@ refused when the workspace is applied.
 
 `timezone` is set on each check, because two date fields on one call can need
 different clocks: `utc` (the default), `local` (the machine running the check,
-which is UTC on the app servers), or an IANA name. It decides which day "today"
-is, and which day a value carrying an offset (`2026-09-22T21:30:00-04:00`)
-falls on. A bare day (`2026-09-22`) or a wall-clock time with no offset
+which is UTC on the app servers), `workspace` (the workspace's
+`defaults.timezone`, UTC when it sets none), or an IANA name. `timezoneFrom`
+reads the zone from the call itself instead — `action_input.fields.timezone`
+judges each event by its venue's clock — and falls back to `timezone` when the
+call names no real zone. The zone decides which day "today" is, and which day a
+value carrying an offset (`2026-09-22T21:30:00-04:00`) falls on. A bare day (`2026-09-22`) or a wall-clock time with no offset
 (`2026-09-22T19:30`) already names its day and is read as written. A value that
 is not a date — `next Friday`, a number — fails the check rather than passing.
 
