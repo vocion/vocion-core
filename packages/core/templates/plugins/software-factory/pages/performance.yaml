@@ -34,91 +34,126 @@
 # and cost by agent are one click away on Activity.
 slug: performance
 title: Performance
-description: Whether the factory is getting faster, cheaper, better and less demanding of a person, in four numbers, then quality, then what autonomy is actually saving.
+description: Is the factory getting better?
 icon: gauge
 nav: {section: Software factory, order: 4, secondary: true}
 archetype: list
 source: {kind: objects, objectType: request}
-sort: {field: meta.actualCents, dir: desc}
-# Outcome, not tag: every request sits in exactly one group, so the totals
-# under the groups add up to the totals on top.
-groupBy: meta.state
-# `createdAt` and not a metadata date: every request has one, so no figure on
-# this page is quietly computed over a different set of rows than the one
-# beside it. The window is a COHORT, the requests that arrived inside it,
-# which is what makes "cost per shipped outcome" comparable period to period.
+# This page IS its figures. It used to list every request under them, which
+# made it a second Backlog — the same rows, in a worse order, under headings
+# that were not about them. The records live on Backlog and Factory log; this
+# page links out to them.
+showRows: false
+# `createdAt` and not a metadata date: every request has one, so no figure is
+# quietly computed over a different set of rows than the one beside it. The
+# window is a COHORT — the requests that arrived inside it — which is what
+# makes a figure comparable with the same figure one period earlier.
 window:
   field: createdAt
-  label: Requests that arrived in the last
+  label: Last
   options: [7, 30, 90]
   default: 30
+# THE FOUR. Are we shipping faster, is quality holding, is it costing less,
+# does it need less of me.
+#
+# Every one carries its DIRECTION, because the absolute number is nearly
+# unreadable on its own: "$1.28 per release" says almost nothing next to
+# "$1.28, down 38%". `goodWhen` is declared rather than inferred — cost
+# falling is good and quality falling is not, and no arithmetic can tell them
+# apart.
+#
+# The unit is a RELEASE, everywhere. "Outcome" is abstract AI language;
+# release is software language, and one canonical denominator is what lets a
+# reader divide any two of these figures and get a third.
 stats:
-  # ---- The four. Output, speed, economics, human load. ----
-  - label: Shipped outcomes
-    kind: countWhere
-    where: {field: meta.state, op: eq, value: shipped}
-    note: Requests that reached a merged, released change in this window. The denominator of the cost figure beside it is this same number.
-  - label: Ask to ship, median
+  - label: Speed to release
     kind: medianHours
     from: meta.askedAt
     field: meta.shippedAt
     suffix: ' h'
-    note: Hours from when a person asked to when the release that carried it went out, middle value. A request with no ask date or no release is left out of the median rather than counted as instant, so this is the median of the requests that can be measured, not of all of them.
-  - label: Cost per shipped outcome
+    compare: prior
+    goodWhen: down
+    note: Hours from when a person asked to when the release carrying it went out, middle value. A request with no ask date or no release is left out of the median rather than counted as instant.
+  - label: Cost per release
     kind: ratio
     field: meta.actualCents
     where: {field: meta.state, op: eq, value: shipped}
     format: money
-    note: All model spend measured on shipped requests, divided by how many shipped. Every shipped request is in the denominator, including one that cost nothing measurable. Spend on work still in flight is not in the numerator; it is in the "building" group below.
-  - label: Decision minutes asked of a person
-    kind: sum
-    field: meta.decisionCost
-    suffix: ' min'
-    note: The minutes of attention the decisions on this window's requests were estimated to take, summed. An honest answer is one minute; an architecture call is sixty.
-  # ---- Quality. A cheap factory that ships poor work is not performing. ----
+    compare: prior
+    goodWhen: down
+    note: All model spend measured on released requests, divided by how many were released. Spend on work still in flight is not in the numerator.
   - label: Accepted first pass
-    group: Quality
     kind: ratio
     where: [{field: meta.state, op: eq, value: shipped}, {field: meta.taskCount, op: gte, value: 1}, {field: meta.reworkTaskCount, op: lte, value: 0}]
     of: [{field: meta.state, op: eq, value: shipped}, {field: meta.taskCount, op: gte, value: 1}]
     format: percent
-    note: Of the shipped requests that took at least one task, the share where no task was rejected or abandoned. A request that shipped without a task is in neither half, because there was no implementation to accept.
+    compare: prior
+    goodWhen: up
+    note: Of the released requests that took at least one task, the share where no task was rejected or abandoned. A request released without a task is in neither half, because there was no implementation to accept.
+  - label: Human time per release
+    kind: ratio
+    field: meta.decisionCost
+    where: {field: meta.state, op: eq, value: shipped}
+    suffix: ' min'
+    compare: prior
+    goodWhen: down
+    note: The minutes of attention the decisions on released requests were estimated to take, divided by how many were released. An honest answer is one minute; an architecture call is sixty.
+  # ---- What the factory did without a person. Squatch's whole promise is
+  # how much software this can produce without consuming an engineering team,
+  # so it is stated as a share, not as three raw counters a reader has to
+  # divide in their head.
+  - label: Released without you
+    group: Human involvement
+    kind: ratio
+    where: [{field: meta.state, op: in, value: [shipped, answered]}, {field: meta.decidedAt, op: missing}]
+    of: {field: meta.state, op: in, value: [shipped, answered]}
+    format: percent
+    compare: prior
+    goodWhen: up
+    note: Of everything that reached a release or an honest answer, the share that got there without anyone being asked to decide.
+  - label: Waiting on you now
+    group: Human involvement
+    kind: countWhere
+    where: {field: meta.recommendationState, op: eq, value: proposed}
+    lifetime: true
+    note: Recommendations put in front of a person and not yet decided. This is the queue autonomy is meant to shrink, and it is a live count rather than a windowed one.
+  - label: Releases
+    group: Human involvement
+    kind: countWhere
+    where: {field: meta.state, op: eq, value: shipped}
+    compare: prior
+    note: Requests that reached a merged, released change in this window. This is the denominator every per-release figure above divides by.
+  # ---- Needs attention. These are EXCEPTIONS, and each is hidden when it is
+  # zero: a page that prints "0 defects" and "$0.00 rework" every week teaches a
+  # reader to skip the row, which is exactly where a real one would then hide.
   - label: Rework spend
-    group: Quality
+    group: Needs attention
     kind: sum
     field: meta.reworkCents
     format: money
-    note: Spend that produced no accepted outcome and had to be discarded or repeated, such as a failed attempt that contributed nothing, an abandoned implementation, an unnecessary retry, an implementation rejected and replaced. Money spent investigating a request that was then answered honestly is NOT here; holding the line is a valid outcome.
+    hideWhenZero: true
+    compare: prior
+    goodWhen: down
+    note: Spend that produced no accepted outcome and had to be discarded or repeated — a failed attempt that contributed nothing, an abandoned implementation, an implementation rejected and replaced. Money spent investigating a request that was then answered honestly is NOT here; holding the line is a valid outcome.
   - label: Defects reported
-    group: Quality
+    group: Needs attention
     kind: countWhere
     where: {field: meta.kind, op: in, value: [bug, incident]}
-    note: Requests filed as a bug or an incident in this window, meaning something already shipped did not work. It counts the report, not its severity, and it cannot say which release introduced the fault, because nothing links a bug back to one.
-  # ---- Autonomy as a business effect, not a blended percentage. ----
-  - label: Outcomes reached with no human decision
-    group: What autonomy saved
-    kind: countWhere
-    where: [{field: meta.state, op: in, value: [shipped, answered]}, {field: meta.decidedAt, op: missing}]
-    note: Requests that reached a shipped change or an honest answer without anyone being asked to decide anything.
-  - label: Outcomes that needed one
-    group: What autonomy saved
-    kind: countWhere
-    where: [{field: meta.state, op: in, value: [shipped, answered]}, {field: meta.decidedAt, op: exists}]
-    note: Requests that reached an outcome, but only after a person decided something. An approval accepted unchanged is the candidate for raising this agent's autonomy next.
-  - label: Still waiting on a person
-    group: What autonomy saved
-    kind: countWhere
-    where: {field: meta.recommendationState, op: eq, value: proposed}
-    note: Recommendations put in front of a person and not yet decided. This is the queue autonomy is meant to shrink.
+    hideWhenZero: true
+    compare: prior
+    goodWhen: down
+    note: Requests filed as a bug or an incident in this window, meaning something already released did not work. It counts the report, not its severity, and it cannot say which release introduced the fault, because nothing links a bug back to one.
+# One chart, not a spreadsheet. A table of Aug 3 / Aug 10 / Aug 17 running
+# horizontally is desktop-report UI and unreadable on a phone.
 series:
-  - label: Shipped outcomes per week
+  - label: Releases per week
     dateField: meta.shippedAt
     where: {field: meta.state, op: eq, value: shipped}
     bucket: week
     buckets: 8
     measures:
-      - {label: Shipped, field: meta.actualCents, kind: count}
-  - label: Spend on what shipped, per week
+      - {label: Released, field: meta.actualCents, kind: count}
+  - label: Cost per week
     dateField: meta.shippedAt
     where: {field: meta.state, op: eq, value: shipped}
     bucket: week
@@ -126,21 +161,3 @@ series:
     format: money
     measures:
       - {label: Spent, field: meta.actualCents, kind: sum}
-primary:
-  field: title
-  subtitle: [kind, tags]
-fields:
-  - {key: title, label: Request}
-  - {key: kind, label: Kind, from: meta.kind, format: badge, tones: {bug: bad, incident: bad, gap: warn, idea: info, question: muted}}
-  - {key: product, label: Product, from: meta.product, format: link, to: product, hideWhenConstant: true}
-  - {key: tags, label: Tags, from: meta.tags, priority: 3}
-  - {key: estimate, label: Estimated, from: meta.estimateCents, format: money, total: true, priority: 2}
-  - {key: actual, label: Actual, from: meta.actualCents, format: money, total: true}
-  - {key: rework, label: Rework, from: meta.reworkCents, format: money, total: true}
-  - {key: tasks, label: Tasks, from: meta.taskCount, format: mono, align: right, priority: 3}
-  - {key: asked, label: Asked, from: meta.askedAt, format: date, priority: 2}
-  - {key: shipped, label: Shipped, from: meta.shippedAt, format: date, priority: 2}
-rowLink: /dashboard/objects/{id}
-# Every row here is a request, so every row reaches its own report.
-rowActions:
-  - {label: Report, href: '/dashboard/p/feature/{id}'}

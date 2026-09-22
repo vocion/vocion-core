@@ -126,6 +126,11 @@ describe('the software factory declares the page rather than core hard-coding it
     // second affordance beside it was never a second meaning.
     expect(work?.rowLink).toBe('/dashboard/p/feature/{id}');
     expect(work?.rowActions).toEqual([]);
-    expect(performance?.rowActions).toEqual([{ label: 'Report', href: '/dashboard/p/feature/{id}' }]);
+    // Performance stopped listing requests: it is its figures, and listing
+    // them under those figures made it a second Backlog. With no rows there
+    // is no row to reach a report from, which is why the drill target lives
+    // on Work — the page whose rows ARE the outcomes.
+    expect(performance?.showRows).toBe(false);
+    expect(performance?.rowActions ?? []).toEqual([]);
   });
 });
