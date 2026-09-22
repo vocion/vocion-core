@@ -51,6 +51,8 @@ export function PinnableNav(props: {
   unpinLabel: string;
   reorderable?: boolean;
 }) {
+  // `isMobile` comes from the sidebar's own context: at this width the
+  // sidebar IS a sheet, which is exactly when a flyout has nowhere to fly to.
   const { toggleSidebar, isMobile } = useSidebar();
   const pathname = usePathname();
   const [dragging, setDragging] = useState<string | null>(null);
@@ -157,7 +159,18 @@ export function PinnableNav(props: {
                     <span>{props.moreLabel}</span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent side="right" align="start" className="w-64 shadow-(--shadow-pop)">
+                {/* On a phone the sidebar is a sheet that already fills most
+                    of the screen, so a 16rem menu opening to its RIGHT is
+                    clipped by the viewport — its items were unreadable and
+                    barely tappable. It drops BELOW the trigger there, inside
+                    the sheet, and never exceeds the screen at any width.
+                    `collisionPadding` keeps it off the edges when it flips. */}
+                <DropdownMenuContent
+                  side={isMobile ? 'bottom' : 'right'}
+                  align="start"
+                  collisionPadding={12}
+                  className="w-[min(16rem,calc(100vw-2rem))] shadow-(--shadow-pop)"
+                >
                   {more.map(item => (
                     <DropdownMenuItem key={item.url} asChild className="group/more flex items-center gap-2 pr-1">
                       <div>
