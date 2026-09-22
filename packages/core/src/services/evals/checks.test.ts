@@ -409,6 +409,41 @@ describe('scoreChecks', () => {
     expect(runCheck(typoYear, check, now)?.passed).toBe(false);
   });
 
+  it('steps around a series refresh, whose first startDate may be in the past on purpose', () => {
+    // deduplicate-event tells the agent to refresh a series card with its
+    // first startDate "even when that day has passed". A series is the only
+    // event proposal carrying a recurrence, so filtering on it keeps the rule
+    // for single dates without punishing the refresh.
+    const now = new Date('2026-10-05T16:00:00Z');
+    const check: EvalCheck = {
+      toolCalledWith: {
+        tool: 'propose_action',
+        where: [
+          { path: 'action_input.objectType', equals: 'event-candidate' },
+          { path: 'action_input.fields.recurrence', present: false },
+        ],
+        noCalls: 'pass',
+        path: 'action_input.fields.startDate',
+        onOrAfter: 'today',
+        timezone: 'America/New_York',
+      },
+    };
+    const seriesRefresh = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-01', recurrence: 'every Tuesday through 2026-10-27' } } });
+    const pastSingle = proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-01', recurrence: '' } } });
+
+    expect(runCheck(proposalTranscript([seriesRefresh]), check, now)?.passed).toBe(true);
+    expect(runCheck(proposalTranscript([seriesRefresh, pastSingle]), check, now)?.passed).toBe(false);
+  });
+
+  it('names every filter in the slug, so a filtered and an unfiltered rule stay apart', () => {
+    const run = proposalTranscript([proposal()]);
+    const plain = runCheck(run, { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today' } });
+    const filtered = runCheck(run, { toolCalledWith: { tool: 'propose_action', where: { path: 'action_input.fields.recurrence', present: false }, path: 'action_input.fields.startDate', onOrAfter: 'today' } });
+
+    expect(filtered?.slug).toContain('recurrence present=false');
+    expect(filtered?.slug).not.toBe(plain?.slug);
+  });
+
   it('returns nothing for a case that authored no checks', () => {
     expect(scoreChecks(transcript())).toEqual([]);
   });

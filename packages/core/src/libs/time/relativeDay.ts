@@ -27,6 +27,15 @@ const ABSOLUTE_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 type Unit = 'day' | 'week' | 'month' | 'year';
 
+/**
+ * The furthest a counted phrase may reach, about a century either way.
+ *
+ * A bound far past that is a typo, and an unbounded one breaks the arithmetic:
+ * `99999999 years ago` is a year Date cannot hold, so `toISOString` throws in
+ * the middle of scoring instead of the manifest being refused at apply.
+ */
+const MAX_AMOUNT: Record<Unit, number> = { day: 36_600, week: 5_220, month: 1_200, year: 100 };
+
 /** A relative day, reduced to "move this many units from today". */
 type DayOffset = { amount: number; unit: Unit };
 
@@ -54,13 +63,37 @@ function parseOffset(phrase: string): DayOffset | null {
   }
   const ago = AGO.exec(phrase);
   if (ago) {
-    return { amount: -Number.parseInt(ago[1]!, 10), unit: ago[2] as Unit };
+    return boundedOffset(-1, ago[1]!, ago[2] as Unit);
   }
   const ahead = AHEAD.exec(phrase);
   if (ahead) {
-    return { amount: Number.parseInt(ahead[1]!, 10), unit: ahead[2] as Unit };
+    return boundedOffset(1, ahead[1]!, ahead[2] as Unit);
   }
   return null;
+}
+
+/**
+ * A counted offset, or null when the count reaches past `MAX_AMOUNT`.
+ * @param direction - -1 for "ago", 1 for "in".
+ * @param digits - The count as written.
+ * @param unit - What is being counted.
+ */
+function boundedOffset(direction: -1 | 1, digits: string, unit: Unit): DayOffset | null {
+  const amount = Number.parseInt(digits, 10);
+  return amount <= MAX_AMOUNT[unit] ? { amount: direction * amount, unit } : null;
+}
+
+/**
+ * Whether `YYYY-MM-DD` names a day that exists.
+ *
+ * `2026-02-30` has the right shape and is not a day: Date rolls it into
+ * March, and refuses `2026-13-01` outright, so a round trip that comes back
+ * as the same day is what tells a real one apart.
+ * @param day - Text already known to have the `YYYY-MM-DD` shape.
+ */
+function isRealDay(day: string): boolean {
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(day);
 }
 
 /**
@@ -69,7 +102,10 @@ function parseOffset(phrase: string): DayOffset | null {
  */
 export function isRelativeDay(phrase: string): boolean {
   const normalized = phrase.trim().toLowerCase();
-  return ABSOLUTE_DAY.test(normalized) || parseOffset(normalized) !== null;
+  if (ABSOLUTE_DAY.test(normalized)) {
+    return isRealDay(normalized);
+  }
+  return parseOffset(normalized) !== null;
 }
 
 /**
@@ -136,6 +172,9 @@ function shiftDay(day: string, offset: DayOffset): string {
 export function resolveRelativeDay(phrase: string, timeZone: string, now: Date): string {
   const normalized = phrase.trim().toLowerCase();
   if (ABSOLUTE_DAY.test(normalized)) {
+    if (!isRealDay(normalized)) {
+      throw new Error(`Not a day on any calendar: "${phrase}"`);
+    }
     return normalized;
   }
   const offset = parseOffset(normalized);
@@ -163,12 +202,8 @@ export function calendarDayOf(value: unknown, timeZone: string): string | null {
   const text = value.trim();
   const wallClock = /^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/.exec(text);
   if (wallClock) {
-    // `2026-02-30` matches the pattern and is not a day: Date rolls it into
-    // March, and refuses `2026-13-01` outright, so a round trip that comes
-    // back as the same day is what tells a real one apart.
     const day = wallClock[1]!;
-    const parsed = new Date(`${day}T00:00:00Z`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(day) ? day : null;
+    return isRealDay(day) ? day : null;
   }
   const instant = new Date(text);
   if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/.test(text) && !Number.isNaN(instant.getTime())) {

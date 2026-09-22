@@ -1289,6 +1289,21 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
 /**
+ * One `where` filter on a `toolCalledWith` check. `present: false` exists so
+ * a rule can step around the one legitimate exception to it — a series
+ * refresh, which is the only event proposal carrying a `recurrence`, keeps
+ * its first `startDate` even when that day has passed.
+ */
+const ToolCallFilterSchema = z.object({
+  path: z.string(),
+  equals: z.unknown().optional(),
+  present: z.boolean().optional(),
+}).refine(
+  filter => filter.equals !== undefined || filter.present !== undefined,
+  { message: 'a where filter needs equals or present — otherwise it matches every call' },
+);
+
+/**
  * One deterministic check we run ourselves.
  *
  * A closed list, deliberately. Arbitrary code in a manifest would need a
@@ -1309,10 +1324,7 @@ const EvalCheckSchema = z.union([
      */
     toolCalledWith: z.object({
       tool: z.string(),
-      where: z.object({
-        path: z.string(),
-        equals: z.unknown(),
-      }).optional().describe('only the calls whose value at this path equals this — one tool often files several kinds of thing'),
+      where: z.union([ToolCallFilterSchema, z.array(ToolCallFilterSchema).min(1)]).optional().describe('only the calls matching this filter, or every filter in a list — one tool often files several kinds of thing'),
       noCalls: z.enum(['fail', 'pass']).optional().describe('what no matching call means; fail by default'),
       path: z.string().optional().describe('dot path into the arguments, e.g. action_input.dedupOn'),
       equals: z.unknown().optional(),

@@ -179,6 +179,35 @@ describe('isRelativeDay', () => {
   });
 });
 
+describe('refusing bounds the runner could not use', () => {
+  it('refuses a fixed day that is not on any calendar', () => {
+    // Shape-only validation let `2026-02-30` through apply, to be compared as
+    // text against real days on every run.
+    for (const day of ['2026-02-30', '2026-02-29', '2026-13-01', '2026-00-10', '2026-04-31']) {
+      expect(isRelativeDay(day)).toBe(false);
+      expect(() => resolveRelativeDay(day, 'UTC', MIDDAY)).toThrow('Not a day');
+    }
+
+    expect(isRelativeDay('2028-02-29')).toBe(true);
+  });
+
+  it('refuses a count too large for a date to hold', () => {
+    // `99999999 years ago` used to pass apply and then throw a RangeError from
+    // toISOString in the middle of scoring the case.
+    for (const phrase of ['99999999 years ago', 'in 101 years', '1201 months ago', 'in 36601 days', '5221 weeks ago']) {
+      expect(isRelativeDay(phrase)).toBe(false);
+      expect(() => resolveRelativeDay(phrase, 'UTC', MIDDAY)).toThrow();
+    }
+  });
+
+  it('accepts counts right up to about a century', () => {
+    for (const phrase of ['100 years ago', 'in 1200 months', '36600 days ago', 'in 5220 weeks']) {
+      expect(isRelativeDay(phrase)).toBe(true);
+      expect(resolveRelativeDay(phrase, 'UTC', MIDDAY)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+});
+
 describe('isDayZone and resolveDayZone', () => {
   afterEach(() => {
     vi.restoreAllMocks();

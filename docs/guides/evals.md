@@ -309,6 +309,18 @@ rule about one is simply false of the other. Without `where`, the event rule
 fails on every run that also proposed a venue, which reads as the agent being
 broken when it was doing exactly what it should.
 
+A filter is `{ path, equals }` or `{ path, present }`, and `where` takes one or
+a list, all of which must hold. `present: false` is how a rule steps around its
+one legitimate exception:
+
+```text
+  # Single-date events only: a series refresh keeps its first, possibly past,
+  # startDate on purpose, and a series is the only proposal with a recurrence.
+  where:
+    - { path: action_input.objectType, equals: event-candidate }
+    - { path: action_input.fields.recurrence, present: false }
+```
+
 A tool that was never called, or never called in a way `where` matched,
 **fails** by default: a rule about calls that never happened is not a rule
 anything kept, and an agent that silently stopped proposing anything is the

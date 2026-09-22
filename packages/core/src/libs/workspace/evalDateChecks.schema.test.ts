@@ -62,6 +62,24 @@ describe('toolCalledWith date bounds in a manifest', () => {
     expect(JSON.stringify(result.error?.issues)).toContain('timezone must be');
   });
 
+  it('accepts a list of where filters, including one on absence', () => {
+    const where = [{ path: 'action_input.objectType', equals: 'event-candidate' }, { path: 'action_input.fields.recurrence', present: false }];
+
+    expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: 'today', where })).success).toBe(true);
+  });
+
+  it('refuses a where filter that would match every call', () => {
+    const result = EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: 'today', where: { path: 'action_input.fields.recurrence' } }));
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain('needs equals or present');
+  });
+
+  it('refuses a fixed day that does not exist and a count past a century', () => {
+    expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: '2026-02-30' })).success).toBe(false);
+    expect(EvalDatasetManifestSchema.safeParse(datasetWith({ onOrAfter: '99999999 years ago' })).success).toBe(false);
+  });
+
   it('still refuses a check that names a zone and asserts nothing', () => {
     // A zone alone is not a rule.
     expect(EvalDatasetManifestSchema.safeParse(datasetWith({ timezone: 'utc' })).success).toBe(false);

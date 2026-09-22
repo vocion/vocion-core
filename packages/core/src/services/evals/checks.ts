@@ -20,7 +20,7 @@
  */
 
 import type { CaseTranscript, ToolCallRecord } from './transcripts';
-import type { EvalCheck, ProviderScore, ToolArgumentCondition, ToolCallCountCondition } from './types';
+import type { EvalCheck, ProviderScore, ToolArgumentCondition, ToolCallCountCondition, ToolCallFilter } from './types';
 import { calendarDayOf, resolveDayZone, resolveRelativeDay } from '@/libs/time/relativeDay';
 
 /** What one operator decided, before it becomes a score row. */
@@ -198,6 +198,21 @@ type ResolvedArgument = {
 };
 
 /**
+ * Whether a path holds something anyone could act on.
+ *
+ * A key that is present and holds nothing is not a value: an argument
+ * serialised as `undefined`, an empty string or a null all mean the agent
+ * left it out, whatever the shape of the object says. Shared by the
+ * `present` predicate and by a `where` filter, so "has a recurrence" means
+ * the same thing in both.
+ * @param found - Whether the path existed.
+ * @param value - What was at it.
+ */
+function holdsAValue(found: boolean, value: unknown): boolean {
+  return found && value !== null && value !== undefined && value !== '';
+}
+
+/**
  * Why the value's presence broke the rule, or null when it held.
  *
  * A key that is present and holds nothing is not a value anyone can act on:
@@ -208,8 +223,7 @@ type ResolvedArgument = {
  */
 function presenceFailure(argument: ResolvedArgument, present: boolean): string | null {
   const { found, value, where } = argument;
-  const isThere = found && value !== null && value !== undefined && value !== '';
-  if (isThere === present) {
+  if (holdsAValue(found, value) === present) {
     return null;
   }
   return present ? `${where} was missing` : `${where} was set to ${renderArgumentValue(value)}`;
@@ -341,7 +355,8 @@ function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition
  * @param condition - The condition being described.
  */
 function describeArgumentCondition(condition: ToolArgumentCondition): string {
-  const subject = condition.where ? `${condition.tool}[${condition.where.path}=${renderArgumentValue(condition.where.equals)}]` : condition.tool;
+  const filters = callFilters(condition);
+  const subject = filters.length > 0 ? `${condition.tool}[${filters.map(describeCallFilter).join(',')}]` : condition.tool;
   const location = condition.path ? `${subject}.${condition.path}` : subject;
   const predicates: string[] = [];
   if (condition.present !== undefined) {
@@ -381,15 +396,56 @@ function describeArgumentCondition(condition: ToolArgumentCondition): string {
  * @param condition - The condition naming the tool and, optionally, the subset.
  */
 function callsUnderTest(transcript: CaseTranscript, condition: ToolArgumentCondition): ToolCallRecord[] {
-  const byName = transcript.toolCalls.filter(call => call.tool === condition.tool);
+  const filters = callFilters(condition);
+  return transcript.toolCalls.filter(call => call.tool === condition.tool && filters.every(filter => callMatchesFilter(call, filter)));
+}
+
+/**
+ * A condition's `where`, always as a list. One filter or several are both
+ * allowed in YAML; every one has to hold for a call to be under test.
+ * @param condition - The condition naming the filters, if any.
+ */
+function callFilters(condition: ToolArgumentCondition): ToolCallFilter[] {
   if (!condition.where) {
-    return byName;
+    return [];
   }
-  const { path, equals } = condition.where;
-  return byName.filter((call) => {
-    const { found, value } = resolveArgumentPath(call.input, path);
-    return found && deepEquals(value, equals);
-  });
+  return Array.isArray(condition.where) ? condition.where : [condition.where];
+}
+
+/**
+ * Whether one call passes one `where` filter.
+ *
+ * `present: false` is what lets a rule step around a legitimate exception:
+ * a series refresh keeps its first, possibly past, `startDate` on purpose,
+ * and it is the one kind of event proposal that carries a `recurrence`.
+ * @param call - One call to the tool.
+ * @param filter - A path and either the value it must equal or whether it must hold one.
+ */
+function callMatchesFilter(call: ToolCallRecord, filter: ToolCallFilter): boolean {
+  const { found, value } = resolveArgumentPath(call.input, filter.path);
+  if (filter.equals !== undefined && !(found && deepEquals(value, filter.equals))) {
+    return false;
+  }
+  if (filter.present !== undefined && holdsAValue(found, value) !== filter.present) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * One filter as text, for a slug and for the sentence a check writes. A
+ * lone `equals` filter keeps the `path=value` shape slugs have always had.
+ * @param filter - The filter being described.
+ */
+function describeCallFilter(filter: ToolCallFilter): string {
+  const parts: string[] = [];
+  if (filter.equals !== undefined) {
+    parts.push(`${filter.path}=${renderArgumentValue(filter.equals)}`);
+  }
+  if (filter.present !== undefined) {
+    parts.push(`${filter.path} present=${filter.present}`);
+  }
+  return parts.join(',');
 }
 
 function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition, now: Date): CheckOutcome {
@@ -404,7 +460,8 @@ function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgument
   // legitimately does not happen on every run.
   if (calls.length === 0) {
     const passed = condition.noCalls === 'pass';
-    const subject = condition.where ? `${condition.tool} matching ${condition.where.path} = ${renderArgumentValue(condition.where.equals)}` : condition.tool;
+    const filters = callFilters(condition);
+    const subject = filters.length > 0 ? `${condition.tool} matching ${filters.map(describeCallFilter).join(' and ')}` : condition.tool;
     return {
       slug,
       passed,

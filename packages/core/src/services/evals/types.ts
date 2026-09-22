@@ -53,6 +53,17 @@ export type EvalCheck
     | { turnsUnder: number };
 
 /**
+ * One narrowing of which calls a rule is about: the value at `path` equals
+ * `equals`, or holds a value (`present: true`) or does not (`present: false`).
+ * A list of them all have to hold.
+ */
+export type ToolCallFilter = {
+  path: string;
+  equals?: unknown;
+  present?: boolean;
+};
+
+/**
  * What one tool call's arguments have to look like.
  *
  * The tool name and the output text were the only things a check could read
@@ -84,7 +95,7 @@ export type ToolArgumentCondition = {
    * way to say which calls a rule is about, the rule fails on every call it
    * was never meant to describe.
    */
-  where?: { path: string; equals: unknown };
+  where?: ToolCallFilter | ToolCallFilter[];
   /**
    * What it means when no call matched: `fail`, the default, because a rule
    * about calls that never happened is not a rule anything kept and an agent
