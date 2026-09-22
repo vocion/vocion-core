@@ -53,7 +53,7 @@ describe('the shipped catalogue', () => {
     const factory = pluginContents(loadPlugin('software-factory'));
 
     expect(factory.agents).toEqual(['change-reviewer', 'product-manager', 'task-engineer', 'task-planner']);
-    expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
+    expect(factory.skills).toEqual(['ideate-from-evidence', 'rank-the-backlog', 'recommend-in-batches', 'review-against-contract', 'surface-an-ask-as-a-card', 'triage-request', 'write-architecture-plan', 'write-release-notes', 'write-task-contract']);
     expect(factory.playbooks).toEqual(['designing-a-surface', 'house-voice', 'naming-the-work', 'the-twenty-percent', 'verify-against-reality', 'written-promises']);
     expect(factory.objectTypes).toEqual(['architecture_plan', 'engineering_task', 'product', 'release', 'repo', 'request']);
     expect(factory.missions).toEqual(['close-the-gap', 'green-every-night', 'half-of-incumbent', 'keep-it-running', 'keep-the-board-honest', 'no-open-p1', 'product-debrief', 'product-review', 'prove-the-contract', 'stand-up-product', 'tell-the-requester']);
@@ -366,12 +366,12 @@ describe('loadWorkspace with the software factory', () => {
     expect(pm?.origin).toBe('core');
     expect(pm?.team).toBe('software-factory');
     expect(pm?.harness?.runsOn).toBeUndefined();
-    expect(pm?.skills).toEqual(['rank-the-backlog', 'recommend-in-batches', 'ideate-from-evidence']);
+    expect(pm?.skills).toEqual(['rank-the-backlog', 'recommend-in-batches', 'ideate-from-evidence', 'surface-an-ask-as-a-card']);
     expect(pm?.objectTypes).toEqual(['request', 'product', 'release', 'engineering_task', 'repo']);
     expect(pm?.resolvedSystemPrompt).toContain('Only when one of the plugin\'s automations fires');
     expect(pm?.resolvedSystemPrompt).toContain('ten, then pause');
 
-    for (const slug of ['rank-the-backlog', 'recommend-in-batches', 'ideate-from-evidence']) {
+    for (const slug of ['rank-the-backlog', 'recommend-in-batches', 'ideate-from-evidence', 'surface-an-ask-as-a-card']) {
       expect(ws.skills.find(s => s.slug === slug)?.playbooks).toEqual(['the-twenty-percent', 'written-promises']);
     }
 
