@@ -15,11 +15,9 @@
 
 import type { AgentEvent } from '@/services/agents/types';
 import type { CollectedDoc } from '@/services/chat/runCollector';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { clerkAuth as auth } from '@/libs/Auth';
 import { openStream } from '@/libs/streams/buffer';
 import { track } from '@/services/adoption/track';
-import { isTransientRunFailure, MAX_TURN_ATTEMPTS, RETRY_DELAY_MS } from '@/services/agents/turnRetry';
 import { listAgents, runAgentDeep } from '@/services/AgentService';
 import { claimAttachments, listArtifactsByIds, listAttachmentsByMessage, stampArtifactsWithMessage } from '@/services/ArtifactService';
 import { historyMarker, loadedFromArtifact } from '@/services/chat/attachments';
@@ -34,22 +32,6 @@ import {
 } from '@/services/ConversationService';
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
-
-// Event types that mean work has left this process: a tool ran, a document or
-// artifact exists, a recommendation was filed, a record was created, the agent
-// updated itself, a person was asked to approve something. Any one of them
-// makes the turn unrepeatable — see the retry in POST (#114).
-const WORLD_CHANGING_EVENTS = new Set<AgentEvent['type']>([
-  'tool_start',
-  'tool_end',
-  'tool_error',
-  'skill_result',
-  'artifact',
-  'recommended_action',
-  'record_created',
-  'self_update',
-  'hitl_gate',
-]);
 
 export async function POST(request: Request): Promise<Response> {
   const { userId, orgId } = await auth();
@@ -230,9 +212,7 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // Reassigned when a turn is retried: the fragment the first attempt
-  // collected belongs to an attempt that no longer exists (#114).
-  let collector = conversationId !== null ? new RunCollector() : null;
+  const collector = conversationId !== null ? new RunCollector() : null;
   const encoder = new TextEncoder();
 
   // Resumable stream: buffer every event of this turn so a client that drops
@@ -250,11 +230,6 @@ export async function POST(request: Request): Promise<Response> {
       // Set when the run throws, so the persisted assistant row can be marked
       // as a turn that never finished rather than passing as a whole answer.
       let failed = false;
-      // Set the moment this turn does anything the world might remember — a
-      // tool call, an artifact, a filed recommendation, a created record. From
-      // then on the turn is never retried: running it again would do that work
-      // twice (#114).
-      let changedSomething = false;
       const safeEnqueue = (chunk: Uint8Array) => {
         if (!closed) {
           try {
@@ -266,9 +241,6 @@ export async function POST(request: Request): Promise<Response> {
       };
 
       const writeEvent = (event: AgentEvent) => {
-        if (WORLD_CHANGING_EVENTS.has(event.type)) {
-          changedSomething = true;
-        }
         buffered.append(JSON.stringify(event));
         // Tee certain events into the RunCollector for persistence.
         if (collector) {
@@ -321,53 +293,45 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       try {
-        // One retry, and only when a second attempt could plausibly work (#114).
+        await runAgentDeep({
+          allowedSourceSlugs,
+          orgId,
+          agentSlug,
+          message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
+          userId,
+          conversationId: conversationId ?? undefined,
+          conversationHistory,
+          pageContext: pageContext ?? undefined,
+          timeZone,
+          ...(deliverable ? { deliverable } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
+          modelPrefs,
+          onEvent: sendEvent,
+        });
+      } catch (err) {
+        const m = (err as Error).message ?? 'agent error';
+        // The turn died here. Whatever text the collector holds is a fragment,
+        // and the row written below says so — `status: 'incomplete'` (#114).
         //
-        // Which failures qualify is `services/agents/turnRetry.ts` — a dropped
-        // socket or a busy provider, never a refused request. The other half of
-        // the decision is here: a turn that already ran a tool is never replayed,
-        // because nothing in the tool registry says whether a tool writes
-        // anything, and sending the same email twice is worse than one turn the
-        // person can retry themselves.
-        for (let attempt = 1; attempt <= MAX_TURN_ATTEMPTS; attempt += 1) {
-          try {
-            await runAgentDeep({
-              allowedSourceSlugs,
-              orgId,
-              agentSlug,
-              message: withPageContext(messageForModel, pageContext, contextRefs, grounding.text),
-              userId,
-              conversationId: conversationId ?? undefined,
-              conversationHistory,
-              pageContext: pageContext ?? undefined,
-              timeZone,
-              ...(deliverable ? { deliverable } : {}),
-              ...(attachments.length > 0 ? { attachments } : {}),
-              modelPrefs,
-              onEvent: sendEvent,
-            });
-            break;
-          } catch (err) {
-            const m = (err as Error).message ?? 'agent error';
-            const worthAnotherTry = attempt < MAX_TURN_ATTEMPTS && !changedSomething && isTransientRunFailure(err);
-            if (!worthAnotherTry) {
-              // The turn died here. Whatever text the collector holds is a
-              // fragment, and the row written below says so — `status:
-              // 'incomplete'` (#114).
-              failed = true;
-              sendEvent({ type: 'error', message: m });
-              break;
-            }
-            // Start the turn over. The client drops the half-answer on
-            // `turn_retry`, and the collector that would have persisted it is
-            // replaced — so a retried turn leaves one row behind, not two, and
-            // the text in it is the attempt that actually finished.
-            console.warn('agent stream: the turn lost its model, trying once more', { conversationId, attempt, reason: m });
-            sendEvent({ type: 'turn_retry', reason: m });
-            collector = conversationId !== null ? new RunCollector() : null;
-            await sleep(RETRY_DELAY_MS);
-          }
-        }
+        // The turn is NOT run again, on purpose, even when the failure is a
+        // dropped socket that a second attempt would survive. Retrying means
+        // replaying the whole turn — same message, same tools, a model with no
+        // memory of what the first attempt already did — and the only thing
+        // this route can check before replaying is the event stream: did a
+        // `tool_start` go past, an `artifact`, a `record_created`. That makes
+        // safety rest on every side effect announcing itself as an event,
+        // which nothing in the types or the tests enforces across the three
+        // harness targets. One tool that writes without emitting, or one
+        // provider path that stops forwarding, and a retry sends the same
+        // email twice. A person can ask again knowing what already happened;
+        // this route cannot.
+        //
+        // If a retry is ever worth it, the safe place is inside one model
+        // call — the provider SDKs take a retry option (`libs/llm/langchain.ts`
+        // builds every model and passes none today), which re-sends the
+        // request before a single token is spoken and never replays a tool.
+        failed = true;
+        sendEvent({ type: 'error', message: m });
       } finally {
         clearInterval(keepaliveTimer);
         await Promise.allSettled(pending);

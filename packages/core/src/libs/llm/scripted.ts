@@ -65,13 +65,6 @@ const StepSchema = z.object({
 const FailureSchema = z.object({
   after: z.string().default(''),
   reason: z.string().default('the scripted model was told to fail here'),
-  /**
-   * Fail the FIRST time this line is played and answer normally ever after —
-   * the shape of a turn the server retries and recovers (#114). Without it a
-   * scripted failure is permanent, which is the other half of the story: a
-   * turn nobody can rescue.
-   */
-  once: z.boolean().optional(),
 });
 const TurnSchema = z.object({
   match: z.string().min(1),
@@ -85,9 +78,6 @@ export const ScriptSchema = z.object({
 });
 export type Script = z.infer<typeof ScriptSchema>;
 export type ScriptTurn = z.infer<typeof TurnSchema>;
-
-/** Lines whose `once` failure has already been spent, by `match`. Process-wide — see `failureFor`. */
-const playedFailures = new Set<string>();
 
 /**
  * Resolve `{ "$file": "…" }` markers to file contents, relative to `baseDir`.
@@ -254,17 +244,6 @@ export class ScriptedChatModel extends BaseChatModel {
     const turn = matchTurn(this.script, human);
     if (!turn?.fails || turn.steps[toolResults]) {
       return null;
-    }
-    if (turn.fails.once === true) {
-      // A retried turn runs on a NEW model instance — the route calls the
-      // runtime again from the top — so "has this line already failed once"
-      // cannot live on `this`. It lives with the process, which for a scripted
-      // model is one test server; a spec that wants the line to fail again
-      // starts a new server, exactly as it already does for a new script.
-      if (playedFailures.has(turn.match)) {
-        return null;
-      }
-      playedFailures.add(turn.match);
     }
     return turn.fails;
   }

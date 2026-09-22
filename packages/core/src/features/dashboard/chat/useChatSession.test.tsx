@@ -499,46 +499,4 @@ describe('useChatSession', () => {
     // which is what used to light the tool-error badge beside the notice.
     expect((assistant.runs ?? []).filter(r => r.type === 'tool' && r.state === 'error')).toHaveLength(0);
   });
-
-  /**
-   * When the server retries a turn it starts the answer over (#114). The
-   * half-answer on screen belongs to an attempt that no longer exists, so
-   * leaving it there would splice two beginnings into one bubble — the person
-   * would read "Four deals closed last month, worthFour deals closed last
-   * month: $216K." and have no way to tell which half was real.
-   */
-  it('clears the half-answer when the server says it is starting the turn again', async () => {
-    vi.mocked(client.chatWidget.getState).mockResolvedValue(null);
-    vi.mocked(client.conversations.create).mockResolvedValue({ id: 42 } as never);
-    const encoder = new TextEncoder();
-    const frames = [
-      'data: {"type":"response_delta","delta":"Four deals closed last month, worth"}\n\n',
-      'data: {"type":"turn_retry","reason":"socket hang up"}\n\n',
-      'data: {"type":"response_delta","delta":"Four deals closed last month: $216K."}\n\n',
-      'data: {"type":"done","response":"Four deals closed last month: $216K."}\n\n',
-    ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      body: new ReadableStream<Uint8Array>({
-        start(controller) {
-          for (const f of frames) {
-            controller.enqueue(encoder.encode(f));
-          }
-          controller.close();
-        },
-      }),
-    }));
-
-    const { result } = await renderHook(() => useChatSession({ agents: AGENTS }));
-    await vi.waitFor(() => expect(result.current.booted).toBe(true));
-    await result.current.sendMessage('how many deals closed?');
-
-    await vi.waitFor(() => expect(result.current.messages).toHaveLength(2));
-    const assistant = result.current.messages[1]!;
-
-    expect(assistant.content).toBe('Four deals closed last month: $216K.');
-    // The turn recovered, so nothing about it reads as failed.
-    expect(assistant.status).toBeFalsy();
-    expect(assistant.statusReason).toBeFalsy();
-  });
 });

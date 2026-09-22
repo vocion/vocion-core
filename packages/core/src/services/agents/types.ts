@@ -305,14 +305,6 @@ export type AgentEvent
     | { type: 'done'; response: string; traceId?: string }
     | { type: 'error'; message: string }
     /**
-     * The turn lost its model part-way and is being run again from the top
-     * (#114). Sent at most once per turn, and only when nothing had happened
-     * that a second attempt would repeat — no tool had run, nothing was
-     * written. The client drops the half-answer it is holding; `reason` is
-     * what went wrong the first time, for the rail to show while it waits.
-     */
-    | { type: 'turn_retry'; reason: string }
-    /**
      * Runtime-internal (BYOA artifact → core provider): per-model-turn
      * token usage for budget charging. Consumed by the runtime provider,
      * never forwarded to the browser.
