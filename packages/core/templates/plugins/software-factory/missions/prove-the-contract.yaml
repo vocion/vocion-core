@@ -1,0 +1,30 @@
+slug: prove-the-contract
+name: Every criterion is proven, or it is named as unproven
+description: >-
+  The standing responsibility for the contract a person approved — not a
+  one-off review. Acceptance criteria are what a person agreed to before the
+  work started; this is the check that each one is actually settled by
+  evidence somebody can open, rather than asserted by whoever wrote the
+  summary.
+goal: >-
+  Every acceptance criterion on a finished outcome is either PROVEN — with a
+  link a person can open in one move that shows it holding — or named as
+  unproven, with what is missing. A criterion marked met with no evidence is
+  an assertion and is reported as one. The review never invents a criterion
+  that was not in the approved contract, and never quietly drops one that
+  was: a contract that changed during the build is a renegotiation, and it
+  says so rather than reconciling itself.
+agent: change-reviewer
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every criterion in the frozen contract appears in the review, in the order it was agreed, including any the implementation ignored
+  - A criterion reported as met names the evidence that settles it — a check run, a test, a screenshot, a smoke result — as a link, not as a description of one
+  - A criterion marked met in the record but carrying no evidence is reported as UNPROVEN rather than as met, and the difference is stated
+  - A criterion nobody checked is reported as unchecked, never as failed and never as passed; absent is not false
+  - A criterion in the record that was not in the frozen contract is reported as added after approval, naming when the contract was frozen
+  - A criterion in the frozen contract that is missing from the record is reported as dropped after approval, rather than silently omitted
+  - The review states the count it is claiming — "4 of 6 proven" — so a reader can check the arithmetic against the list beneath it
+  - Where nothing was frozen, the review says the contract was never agreed and stops, rather than inventing criteria to grade against
+desiredArtifacts:
+  - 'The contract review: each criterion, proven or not, with the link that settles it or the reason it could not be settled'
