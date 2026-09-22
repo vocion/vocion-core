@@ -131,7 +131,18 @@ async function routeWorkspace(request: NextRequest, ctx: { origin: string; userI
     // The route tree is `app/[locale]/…`, so the rewrite carries the locale
     // next-intl would otherwise have added.
     const locale = canonical.locale || routing.defaultLocale;
-    const target = new URL(`/${locale}${canonical.appPath}${request.nextUrl.search}`, ctx.origin);
+    // The rewrite target is built on the server's OWN origin, never on the
+    // public one. `publicOrigin` is browser-facing (https and the public host;
+    // behind Caddy the app itself is reached as plain http), so a target built
+    // from it is a *different* origin, and a cross-origin `NextResponse.rewrite`
+    // is not an internal rewrite at all: Next turns it into an outbound HTTP
+    // request. That request re-enters this proxy as a bare `/dashboard/…`,
+    // collects the canonicalising 307 below, and Next hands that 307 back to
+    // the browser, which is then redirected to the URL it just asked for. That
+    // is ERR_TOO_MANY_REDIRECTS, signed in only, and it is why `proxy.test.ts`
+    // walks the chain. Redirects use the public origin because a browser has to
+    // reach it; rewrites never do.
+    const target = new URL(`/${locale}${canonical.appPath}${request.nextUrl.search}`, request.nextUrl.origin);
     const headers = new Headers(request.headers);
     headers.set(WORKSPACE_HEADER.projectId, project.id);
     headers.set(WORKSPACE_HEADER.slug, project.slug);

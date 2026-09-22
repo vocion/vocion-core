@@ -23,8 +23,11 @@ const mockActive = vi.mocked(activeWorkspaceForUser);
 
 const WORKFORCE = { id: 'proj-workforce', slug: 'vocion-workforce', name: 'Vocion Workforce', description: null, agentCount: 3 };
 
+/** The origin the Next server itself answers on, behind the public one. */
+const SERVER_ORIGIN = 'http://0.0.0.0:3000';
+
 function request(path: string, init?: { method?: string; cookie?: string }) {
-  return new NextRequest(`http://0.0.0.0:3000${path}`, {
+  return new NextRequest(`${SERVER_ORIGIN}${path}`, {
     method: init?.method ?? 'GET',
     headers: {
       'x-forwarded-host': 'agents.example.com',
@@ -51,7 +54,7 @@ describe('a canonical /w/<slug>/… URL', () => {
     const res = await proxy(request('/w/vocion-workforce/dashboard/inbox?status=open'));
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('x-middleware-rewrite')).toBe('https://agents.example.com/en/dashboard/inbox?status=open');
+    expect(res.headers.get('x-middleware-rewrite')).toBe(`${SERVER_ORIGIN}/en/dashboard/inbox?status=open`);
   });
 
   it('carries the resolved project to the page, which is what makes the URL beat the cookie', async () => {
@@ -76,13 +79,13 @@ describe('a canonical /w/<slug>/… URL', () => {
   it('accepts a bare page name and a registered surface, and keeps a non-default locale', async () => {
     await expect(proxy(request('/w/vocion-workforce/inbox')).then(r => r.headers.get('x-middleware-rewrite')))
       .resolves
-      .toBe('https://agents.example.com/en/dashboard/inbox');
+      .toBe(`${SERVER_ORIGIN}/en/dashboard/inbox`);
     await expect(proxy(request('/w/vocion-workforce/gtm/discovery')).then(r => r.headers.get('x-middleware-rewrite')))
       .resolves
-      .toBe('https://agents.example.com/en/gtm/discovery');
+      .toBe(`${SERVER_ORIGIN}/en/gtm/discovery`);
     await expect(proxy(request('/fr/w/vocion-workforce/inbox')).then(r => r.headers.get('x-middleware-rewrite')))
       .resolves
-      .toBe('https://agents.example.com/fr/dashboard/inbox');
+      .toBe(`${SERVER_ORIGIN}/fr/dashboard/inbox`);
   });
 
   it('404s an unknown slug and one on another account alike — the reader learns nothing either way', async () => {
@@ -144,6 +147,98 @@ describe('a bare /dashboard/… URL', () => {
     expect(res.headers.get('location')).toBeNull();
     expect(res.headers.get('x-i18n')).toBeNull();
     expect(mockAuth).not.toHaveBeenCalled();
+  });
+});
+
+describe('the chain a signed-in reader actually walks', () => {
+  /**
+   * Follow a URL the way a browser and the server really do, so a cycle shows
+   * up as a cycle instead of hiding behind a passing one-hop assertion.
+   *
+   * A 3xx is followed the way a browser follows it. A rewrite is followed only
+   * when its target is NOT on the server's own origin, because a cross-origin
+   * `NextResponse.rewrite` is not an internal rewrite: Next turns it into an
+   * outbound HTTP request, that request arrives back at this same proxy, and
+   * whatever it answers with is what the browser is handed.
+   * @param start - The pathname the reader asked for.
+   * @param limit - How many hops before we call it a loop.
+   */
+  async function walk(start: string, limit = 8): Promise<{ visited: string[]; ended: 'rendered' | 'rewritten' | 'looping' }> {
+    const visited: string[] = [];
+    let path = start;
+    for (let hop = 0; hop < limit; hop++) {
+      if (visited.includes(path)) {
+        return { visited: [...visited, path], ended: 'looping' };
+      }
+      visited.push(path);
+      const res = await proxy(request(path));
+      const rewrite = res.headers.get('x-middleware-rewrite');
+      if (rewrite) {
+        const url = new URL(rewrite);
+        if (url.origin === SERVER_ORIGIN) {
+          return { visited, ended: 'rewritten' };
+        }
+        path = `${url.pathname}${url.search}`;
+        continue;
+      }
+      const location = res.headers.get('location');
+      if (location) {
+        const url = new URL(location);
+        path = `${url.pathname}${url.search}`;
+        continue;
+      }
+      return { visited, ended: 'rendered' };
+    }
+    return { visited, ended: 'looping' };
+  }
+
+  it('rewrites on the server\'s own origin, because a cross-origin rewrite is an outbound request and not a rewrite', async () => {
+    const res = await proxy(request('/en/w/vocion-workforce/dashboard/p/factory'));
+
+    expect(new URL(res.headers.get('x-middleware-rewrite') ?? '').origin).toBe(SERVER_ORIGIN);
+  });
+
+  it('serves the locale-prefixed canonical URL in one hop, the URL that looped in production', async () => {
+    await expect(walk('/en/w/vocion-workforce/dashboard/p/factory')).resolves.toEqual({
+      visited: ['/en/w/vocion-workforce/dashboard/p/factory'],
+      ended: 'rewritten',
+    });
+  });
+
+  it('settles every other shape a reader can arrive by, and settles it quickly', async () => {
+    for (const start of [
+      '/w/vocion-workforce/dashboard/inbox',
+      '/dashboard/p/factory?tab=runs',
+      '/en/dashboard/p/factory',
+      '/fr/w/vocion-workforce/inbox',
+      '/fr/dashboard/inbox',
+      '/w/vocion-workforce/gtm/discovery',
+    ]) {
+      const { visited, ended } = await walk(start);
+
+      expect(ended, start).toBe('rewritten');
+      expect(visited.length, start).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('stops on a workspace the reader may not have, rather than bouncing them', async () => {
+    for (const start of ['/w/someone-elses/dashboard', '/en/w/no-such-workspace/dashboard/inbox']) {
+      const res = await proxy(request(start));
+
+      expect(res.status, start).toBe(404);
+    }
+  });
+
+  it('sends a signed-out reader to sign-in and stops there', async () => {
+    mockAuth.mockResolvedValue(null as never);
+
+    const { visited, ended } = await walk('/en/w/vocion-workforce/dashboard/p/factory');
+
+    expect(ended).toBe('rendered');
+    expect(visited).toEqual([
+      '/en/w/vocion-workforce/dashboard/p/factory',
+      '/en/sign-in?callbackUrl=https%3A%2F%2Fagents.example.com%2Fen%2Fw%2Fvocion-workforce%2Fdashboard%2Fp%2Ffactory',
+    ]);
   });
 });
 
