@@ -28,3 +28,13 @@ describe('the composer bar\'s alignment rule', () => {
     expect(COMPOSER_ROW).toContain('pointer-coarse:gap-3');
   });
 });
+
+describe('the row on a phone', () => {
+  it('wraps, so the box owns the first line and the controls the second', () => {
+    // Side by side the message box got about two thirds of a 430px line and
+    // grew upward from the bottom edge, which drew the placeholder floating
+    // above two buttons pinned to the floor of a tall empty rectangle.
+    expect(COMPOSER_ROW).toContain('flex-wrap');
+    expect(COMPOSER_ROW).toContain('sm:flex-nowrap');
+  });
+});

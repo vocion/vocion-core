@@ -88,7 +88,16 @@ export const AppSidebarHeader = ({ workspace = null, usage = null, canPauseWorks
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
   return (
-    <header className="sticky top-0 z-40 grid h-[60px] shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-3 border-b border-border/70 bg-background px-3 lg:px-6">
+    // FLEX below md, grid at md and up — and that difference is a bug fix, not
+    // a preference. The centre search is `hidden md:flex`, and a `display:none`
+    // element is not a grid item at all: below md the grid had three tracks and
+    // two items, so auto-placement put the ACTIONS in the middle `auto` track
+    // and left the trailing `1fr` empty. On a phone that drew the whole right
+    // group — pause, chat, avatar — ending around the middle of the bar with a
+    // third of the width blank beside it (Chris, 2026-09-22: "mobile header and
+    // nav still misaligned"). Flex has no tracks to mis-place into: left group,
+    // right group, edge to edge, whatever is hidden between them.
+    <header className="sticky top-0 z-40 flex h-[60px] shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-background px-3 md:grid md:grid-cols-[1fr_minmax(0,auto)_1fr] lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <SidebarTrigger className="-ml-1 size-11 text-muted-foreground sm:size-8" />
         {/* WHICH INSTANCE THIS IS. The favicon and the page title already say

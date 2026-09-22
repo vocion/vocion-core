@@ -46,5 +46,15 @@ export const COMPOSER_MAX_PX = LINE_PX * 8 + LINE_INSET_PX * 2;
  */
 export const COMPOSER_CONTROL = 'relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none pointer-coarse:before:absolute pointer-coarse:before:-inset-1.5 pointer-coarse:before:content-[\'\']';
 
-/** The row itself: one alignment rule, symmetric padding, touch-safe gaps. */
-export const COMPOSER_ROW = 'flex items-end gap-1.5 pointer-coarse:gap-3';
+/**
+ * The row itself: one alignment rule, symmetric padding, touch-safe gaps.
+ *
+ * It WRAPS below `sm`, which is the whole mobile layout: the box takes the
+ * first line on its own and the controls sit on a second line beneath it.
+ * Side by side, a phone gave the message about two thirds of a 430px line
+ * and the box grew upward from the bottom, so the placeholder floated above
+ * two buttons pinned to the floor of a tall empty rounded rectangle — which
+ * read as a broken control rather than a text field. Full width is also the
+ * shape every messaging app on the device already uses.
+ */
+export const COMPOSER_ROW = 'flex flex-wrap items-end gap-1.5 pointer-coarse:gap-3 sm:flex-nowrap';
