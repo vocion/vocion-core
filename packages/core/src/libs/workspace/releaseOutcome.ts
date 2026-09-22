@@ -35,7 +35,11 @@ function releasedAt(row: PageRow): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Hours since a release went out, or null when it carries no date. */
+/**
+ * Hours since a release went out, or null when it carries no date.
+ * @param row
+ * @param now
+ */
 export function hoursLive(row: PageRow, now: Date): number | null {
   const at = releasedAt(row);
   return at === null ? null : (now.getTime() - at.getTime()) / 3_600_000;
@@ -92,7 +96,10 @@ export function measureLine(m: Measure): string {
   return `${label} ${m.before}${unit} → ${m.after}${unit} ${arrow}${judged}`;
 }
 
-/** Every measure on a release, as the lines a row would print. */
+/**
+ * Every measure on a release, as the lines a row would print.
+ * @param row
+ */
 export function measureLines(row: PageRow): string[] {
   const raw = outcomeOf(row).measures;
   return (Array.isArray(raw) ? raw : []).map(m => measureLine((m ?? {}) as Measure));

@@ -251,6 +251,7 @@ describe('plugin pages', () => {
     const subtitle = products?.primary?.subtitle ?? [];
 
     expect(subtitle).toEqual(['stage', 'health', 'owner', 'price', 'lastRelease', 'open']);
+
     for (const key of drawn) {
       expect(key === products?.primary?.field || subtitle.includes(key), `${key} is not in the subtitle`).toBe(true);
     }

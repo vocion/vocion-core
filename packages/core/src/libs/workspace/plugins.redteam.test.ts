@@ -52,7 +52,11 @@ const REAL_EVENTS = new Set([
 
 const GATES = ['contract-red-team-proposal', 'contract-red-team-change', 'contract-red-team-evidence'];
 
-/** A `when.event` may name one event or several; both have to be real. */
+/**
+ * A `when.event` may name one event or several; both have to be real.
+ * @param when
+ * @param when.event
+ */
 function eventsOf(when: { event?: string | string[] }): string[] {
   const e = when.event;
   return e === undefined ? [] : Array.isArray(e) ? e : [e];
@@ -74,6 +78,7 @@ describe('the contract red-team gates', () => {
       const events = eventsOf(a.when);
 
       expect(events.length, `${a.slug} fires on no event`).toBeGreaterThan(0);
+
       for (const e of events) {
         expect(REAL_EVENTS.has(e), `${a.slug} fires on "${e}", which nothing raises`).toBe(true);
       }
@@ -94,6 +99,7 @@ describe('the contract red-team gates', () => {
     for (const a of factoryWorkspace().automations.filter(a => GATES.includes(a.slug))) {
       expect(a.do.checkMission).toBe('prove-the-contract');
     }
+
     expect(factoryWorkspace().missions.map(m => m.slug)).toContain('prove-the-contract');
   });
 
