@@ -664,6 +664,44 @@ END:VCALENDAR`;
     expect(docs[0]?.metadata?.publishedUrls).toBeUndefined();
   });
 
+  it('declares the RFC 7986 IMAGE property, and drops an inline one', async () => {
+    const image = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-32@venue.test
+SUMMARY:Standard Image
+IMAGE;VALUE=URI;DISPLAY=BADGE:https://cdn.venue.test/std.png
+IMAGE;VALUE=BINARY;ENCODING=BASE64:R0lGODlhAQABAIAAAAAAAP
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(image, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://cdn.venue.test/std.png']);
+  });
+
+  it('reads a vendor image only when the event wrote it, once, and not a credit or alt text', async () => {
+    const mixed = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:evt-33@venue.test
+SUMMARY:Mixed
+ATTACH;FMTTYPE=image/jpeg:https://cdn.venue.test/same.jpg
+X-TKF-FEATURED-IMAGE:https://cdn.venue.test/same.jpg
+X-IMAGE-CREDIT-URL:https://photographer.test/portfolio
+X-IMAGE-ALT-TEXT:https://alt.test/a
+BEGIN:VALARM
+ACTION:DISPLAY
+X-WP-IMAGES-URL:https://cdn.venue.test/alarm.png
+END:VALARM
+END:VEVENT
+END:VCALENDAR`;
+    stubFetch(() => typed(mixed, 'text/calendar'));
+
+    const { docs } = await run({ urls: [ICS_URL] });
+
+    expect(docs[0]?.metadata?.publishedUrls).toEqual(['https://cdn.venue.test/same.jpg']);
+  });
+
   it('reads past a quoted parameter that would otherwise forge a URL', async () => {
     stubFetch(() => typed(QUOTED_TRAP_ICS, 'text/calendar'));
 
