@@ -1056,23 +1056,39 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
   const runCents = runs.reduce((a, r) => a + (r.cents ?? 0), 0);
   const taskEstimates = tasks.map(t => num(t.meta, 'estimateCents')).filter((n): n is number => n !== null);
   const taskActuals = tasks.map(t => num(t.meta, 'actualCents')).filter((n): n is number => n !== null);
-  const estimateCents = taskEstimates.length > 0
-    ? taskEstimates.reduce((a, b) => a + b, 0)
-    : num(request.meta, 'estimateCents');
+  // THE WORK'S OWN ESTIMATE FIRST.
+  //
+  // Summing the task contracts was the only source, and when one piece of
+  // work is attempted five times that sums five estimates for one job: the
+  // Stamp rename read "$85 estimated" against "$24.12 actual", a 72% saving
+  // that never existed. Chris, 2026-09-22: *"You need one immutable
+  // work-level estimate before execution if you want meaningful
+  // estimate-vs-actual. Do not derive it retrospectively by adding
+  // attempt-level estimates."*
+  const workEstimate = num(request.meta, 'estimateCents');
+  const summed = taskEstimates.length > 0 ? taskEstimates.reduce((a, b) => a + b, 0) : null;
+  const estimateCents = workEstimate ?? summed;
+  // A sum over more than one attempt is not an estimate of this work, so it
+  // is reported and never divided into. A single contract is the work.
+  const comparable = workEstimate !== null || taskEstimates.length === 1;
   const actualCents = taskActuals.length > 0
     ? taskActuals.reduce((a, b) => a + b, 0)
     : runs.length > 0 ? runCents : num(request.meta, 'actualCents');
   return {
     estimateCents,
     actualCents,
-    varianceCents: estimateCents === null || actualCents === null ? null : actualCents - estimateCents,
-    variancePct: estimateCents === null || actualCents === null || estimateCents === 0
+    varianceCents: !comparable || estimateCents === null || actualCents === null ? null : actualCents - estimateCents,
+    variancePct: !comparable || estimateCents === null || actualCents === null || estimateCents === 0
       ? null
       : Math.round(((actualCents - estimateCents) / estimateCents) * 100),
     runCents,
-    estimateSource: taskEstimates.length > 0
-      ? `summed over ${taskEstimates.length} task contract${taskEstimates.length === 1 ? '' : 's'}`
-      : num(request.meta, 'estimateCents') === null ? 'nobody estimated this' : 'the request rollup',
+    estimateSource: workEstimate !== null
+      ? 'estimated for this work before it started'
+      : summed === null
+        ? 'nobody estimated this'
+        : taskEstimates.length === 1
+          ? 'the one task contract written for it'
+          : `added up from ${taskEstimates.length} attempt contracts — not an estimate of this work, so it is not compared against`,
     actualSource: taskActuals.length > 0
       ? `summed over ${taskActuals.length} task${taskActuals.length === 1 ? '' : 's'}`
       : runs.length > 0 ? `summed over ${runs.length} worker run${runs.length === 1 ? '' : 's'}` : 'nothing has been charged',

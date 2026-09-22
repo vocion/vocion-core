@@ -645,3 +645,33 @@ describe('a zero is a claim', () => {
     expect(report.summary.humanDecisions).toBe(0);
   });
 });
+
+describe('what this piece of work cost', () => {
+  const req = (meta: Record<string, unknown>) => ({ ...input({}).request, meta: { ...input({}).request.meta, ...meta } });
+  const task = (estimate: number) => ({ id: 1, title: 't', status: 'accepted', meta: { estimateCents: estimate }, createdAt: new Date() }) as never;
+
+  it('will not compare against a sum of attempt contracts', () => {
+    // Five attempts at one rename summed to $85 and read as a 72% saving
+    // against $24.12 actually spent. The sum is reported; nothing divides by it.
+    const line = moneyLine(req({ estimateCents: null }), [task(1700), task(1700), task(1700), task(1700), task(1700)], []);
+
+    expect(line.estimateCents).toBe(8500);
+    expect(line.varianceCents).toBeNull();
+    expect(line.variancePct).toBeNull();
+    expect(line.estimateSource).toContain('not an estimate of this work');
+  });
+
+  it('compares against the work\'s own estimate when one was written before it started', () => {
+    const line = moneyLine(req({ estimateCents: 2000, actualCents: 2412 }), [task(1700), task(1700)], []);
+
+    expect(line.estimateCents).toBe(2000);
+    expect(line.varianceCents).toBe(412);
+    expect(line.estimateSource).toContain('before it started');
+  });
+
+  it('compares against a single contract, because one contract is the work', () => {
+    const line = moneyLine(req({ estimateCents: null, actualCents: 1500 }), [task(1700)], []);
+
+    expect(line.varianceCents).toBe(-200);
+  });
+});
