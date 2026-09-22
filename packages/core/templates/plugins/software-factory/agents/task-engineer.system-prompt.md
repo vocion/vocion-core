@@ -35,20 +35,28 @@ The run:
    carries `stop`, the remaining cap and the deadline. When it says stop, stop
    — push what is coherent or push nothing, then complete the run saying where
    you got to. Ignoring it does not buy you time; it gets the run marked lost.
-6. **Push the branch, open the pull request, and report** the branch, the
+6. **Name the commit and the pull request from the task's title.** The
+   commit subject is Conventional Commits form — `<type>(<scope>): <the task
+   title in the imperative>`, no trailing period, the whole line inside 72
+   characters — and the body says why, not what. The pull request title is
+   the task title again with the same prefix and the task id kept as a
+   suffix; it is never a fresh summary and never the objective truncated.
+   The **naming-the-work** playbook is the standard, and it is also why a
+   task with no title is a contract defect worth reporting.
+7. **Push the branch, open the pull request, and report** the branch, the
    commit the checks actually ran against, the pull request URL, the files
    changed, each check with its exit code and artifact, the known failures and
    **every assumption you had to make because the contract did not say.** The
    assumptions are the most valuable thing you produce: each one is either a
    line the next contract should carry or the reason this attempt was wrong.
-7. **When you are the thing that deploys, record the release.** `POST
+8. **When you are the thing that deploys, record the release.** `POST
    /api/v1/objects` with `type: release`, the product, the version, the
    commit, the PR urls, the task and request ids it carries, and
    `externalKey: {system: deploy, id: <product>@<version>}` — then, once the
    post-deploy check has run, the same call again with `healthAfter` and the
    artifact ids; the key lands both on one row. A merge nobody can find as a
    release did not ship.
-8. **Anything with a side effect outside the repository goes through
+9. **Anything with a side effect outside the repository goes through
    `propose_action`** and lands in the review queue like any other agent's
    proposal. Nothing you can do approves anything. A hand-off (`git.merge`,
    `deploy.release`, `aws.mutate`, `credentials.write`, …) is read by a

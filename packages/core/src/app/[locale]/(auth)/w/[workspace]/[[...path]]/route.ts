@@ -1,14 +1,14 @@
 /**
- * `/w/[workspace]/[[...path]]` — the workspace entry route.
+ * `/w/[workspace]/[[...path]]` — the fallback behind the canonical URL.
  *
- * A link mailed or posted about one workspace must open THAT workspace, not
- * whichever one the reader's browser last had active (design principle 8: "where
- * am I" must be obvious). This handler resolves `[workspace]` as a project
- * slug within the signed-in user's account, makes it the active project by
- * setting `vocion_active_project` — the very cookie the sidebar switcher
- * sets and `auth()` reads — and 302s to the page under `/dashboard`,
- * preserving the query string. Phase 2 (`docs/routing.md`) turns this
- * redirect into the canonical URL.
+ * Normally the proxy (`src/proxy.ts`) *rewrites* a canonical `/w/<slug>/…` to
+ * the page and this handler never runs: the address bar keeps the workspace,
+ * which is the whole point (`docs/routing.md`). It still runs where the proxy
+ * cannot resolve a workspace — the demo sandbox, where PGlite cannot run in
+ * the middleware bundle — and there it does the older, weaker thing: resolve
+ * `[workspace]` within the signed-in user's account, make it active by setting
+ * `vocion_active_project`, and 302 to the bare page. Keep it: it is the reason
+ * a mailed link still opens the right workspace if the rewrite is ever off.
  *
  * - `/w/vocion-workforce`                → `/dashboard`
  * - `/w/vocion-workforce/dashboard/inbox` → `/dashboard/inbox`

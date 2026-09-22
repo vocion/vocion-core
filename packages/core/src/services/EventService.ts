@@ -12,12 +12,13 @@
  * workflow engine's job (Temporal); this is the fan-out.
  */
 
-import type { CausalChain } from '@/services/automations/fireGuards';
+import type { CausalChain, SkipReason } from '@/services/automations/fireGuards';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { eventLogSchema, workflowSchema } from '@/models/Schema';
 import { eventFireCeiling, selfTriggerReason } from '@/services/automations/fireGuards';
 import { startWorkflow } from '@/services/WorkflowService';
+import { readWorkspacePauseWithName, refusalMessage } from '@/services/workspacePause';
 
 export type EmitEventInput = {
   orgId: string;
@@ -217,7 +218,7 @@ export type EmitEventResult = {
   deduped: boolean;
   triggered: Array<{ slug: string; runId: number }>;
   /** Automations that matched and were refused by a guard, with the `skipped` run row that says why. */
-  skipped: Array<{ slug: string; automationRunId: number; reason: 'self_trigger' | 'rate_limited' }>;
+  skipped: Array<{ slug: string; automationRunId: number; reason: SkipReason }>;
 };
 
 /**
@@ -390,7 +391,12 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
 
   const triggered: Array<{ slug: string; runId: number }> = [];
   const skipped: EmitEventResult['skipped'] = [];
-  for (const w of matches) {
+  // The workspace's off switch, read once per event rather than once per
+  // subscriber. While it is held, the event is still RECORDED — a worker that
+  // was already running finishes and reports, and its completion belongs in
+  // the log — but it raises nothing: the fire is what a pause refuses.
+  const workspacePause = await readWorkspacePauseWithName(input.orgId);
+  for (const w of workspacePause ? [] : matches) {
     try {
       const run = await startWorkflow({
         orgId: input.orgId,
@@ -431,6 +437,21 @@ export async function emitEvent(input: EmitEventInput): Promise<EmitEventResult>
     // not as a refused-fire row per event, which would bury the log while a
     // busy event type is held. The pause itself is already on the record.
     if (a.status !== 'active' || a.pausedAt || !subscribesTo(a.whenConfig.event, input.type) || !matchesFilter(payload, a.whenConfig.filter)) {
+      continue;
+    }
+    if (workspacePause) {
+      // A refused match, written down. Unlike the per-automation pause above
+      // — which is skipped silently, because the pause is already on that
+      // automation's record — a workspace pause leaves no row on any
+      // automation at all, so without this the log for the whole afternoon
+      // would simply be empty and nobody could tell a stop from an outage.
+      const detail = refusalMessage(workspacePause, 'automation_fire');
+      const skipId = await recordSkippedFire(input.orgId, a.slug, {
+        event: input.type,
+        payload,
+        result: { kind: 'skipped', reason: 'workspace_paused', detail, event: input.type, causedBy },
+      });
+      skipped.push({ slug: a.slug, automationRunId: skipId, reason: 'workspace_paused' });
       continue;
     }
     // A low-initiative agent does not debrief (`agent.initiative`): its

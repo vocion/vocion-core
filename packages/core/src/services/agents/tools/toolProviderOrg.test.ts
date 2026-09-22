@@ -42,6 +42,20 @@ vi.mock('@/libs/tools/artifacts/store', () => ({
   saveArtifact: (input: unknown) => saveArtifact(input),
 }));
 
+/**
+ * Budgets are somebody else's tests.
+ *
+ * The code under test pre-flights the org's spend cap and charges what the call
+ * cost, which reaches the database handle and so the whole environment. That
+ * behaviour has its own coverage in `BudgetService.pglite.test.ts`; here it
+ * would only stand between these assertions and the question they ask, which is
+ * which key the call went out on.
+ */
+vi.mock('@/services/BudgetService', () => ({
+  preflightCheck: async () => ({ ok: true }),
+  chargeUsage: async () => {},
+}));
+
 const { webSearchTool } = await import('./webSearch');
 const { fetchUrlTool } = await import('./fetchUrl');
 const { crawlSiteTool } = await import('./crawlSite');

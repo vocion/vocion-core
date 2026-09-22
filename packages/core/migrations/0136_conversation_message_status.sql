@@ -1,0 +1,12 @@
+-- 0136 — a turn that died part-way says so.
+--
+-- When an agent run threw mid-stream the route still wrote the partial text
+-- as an ordinary assistant message: the transcript rendered half an answer as
+-- if it were the whole one, and the next turn replayed that cut-off sentence
+-- to the model as established context (issue #114).
+--
+-- `conversation_message.status` is `incomplete` on a turn persisted from the
+-- error path and NULL on every other row — legacy rows included, so nothing
+-- needs backfilling. Nullable, no default: metadata-only, per CONVENTIONS.md
+-- rule 2. Hand-written; idempotent.
+ALTER TABLE "conversation_message" ADD COLUMN IF NOT EXISTS "status" text;

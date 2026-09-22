@@ -7,6 +7,7 @@
 import type { RuntimeContext } from '../types';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
+import { FEATURES } from '@/libs/Langfuse/features';
 import { saveArtifact } from '@/libs/tools/artifacts/store';
 import { getImageProvider } from '@/libs/tools/image/registry';
 import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '@/libs/tools/types';
@@ -16,8 +17,34 @@ export function generateImageTool(ctx: RuntimeContext) {
     async (args) => {
       const { prompt, size } = args;
       try {
+        // One of two paid calls a hard cap is allowed to refuse, and the reason
+        // is the price: an image costs a multiple of a text completion, and an
+        // agent loop can mint them one after another. Refusing returns a
+        // sentence the agent can act on rather than throwing, so the turn
+        // continues without the picture instead of failing outright.
+        // Imported here rather than at the top of the file: `BudgetService`
+        // reaches the database handle, which validates the whole environment at
+        // import, and the tool registry is loaded by tests that configure none.
+        const { chargeUsage, preflightCheck } = await import('@/services/BudgetService');
+        const budget = await preflightCheck({
+          orgId: ctx.orgId,
+          agentSlug: ctx.agentSlug,
+          feature: FEATURES.TOOL_IMAGE,
+        });
+        if (!budget.ok) {
+          return `Image generation was refused: this workspace is over its ${budget.reason === 'hard_cents_exceeded' ? 'spend' : 'token'} cap for "${budget.agentSlug}" (${budget.reason === 'hard_cents_exceeded' ? budget.current.toFixed(2) : budget.current}/${budget.limit}). An admin can raise it under Budgets, or it resets next period.`;
+        }
         const provider = getImageProvider();
-        const { png } = await provider.generate(prompt, { size, orgId: ctx.orgId });
+        const { png, model, usage } = await provider.generate(prompt, { size, orgId: ctx.orgId });
+        if (usage) {
+          await chargeUsage({
+            orgId: ctx.orgId,
+            agentSlug: ctx.agentSlug,
+            feature: FEATURES.TOOL_IMAGE,
+            model,
+            usage,
+          });
+        }
         const artifact = await saveArtifact({
           orgId: ctx.orgId,
           data: png,

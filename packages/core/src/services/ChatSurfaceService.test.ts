@@ -136,7 +136,7 @@ describe('handleInbound', () => {
 
     expect(adapter.replies[0]).toEqual({ channelId: 'C1', threadRef: '100.1', ...persona, text: 'up 12%' });
 
-    await svc.handleInbound(adapter, inbound, { runAgent: vi.fn() as never, preflight: vi.fn(async () => ({ ok: false as const, reason: 'hard_cents_exceeded' as const, limit: 100, current: 150 })) });
+    await svc.handleInbound(adapter, inbound, { runAgent: vi.fn() as never, preflight: vi.fn(async () => ({ ok: false as const, reason: 'hard_cents_exceeded' as const, scope: 'agent' as const, agentSlug: 'support', limit: 100, current: 150 })) });
 
     expect(adapter.replies[1]).toMatchObject(persona);
   });
@@ -175,7 +175,7 @@ describe('handleInbound', () => {
     await svc.createBinding({ orgId: ORG, surface: 'slack', teamId: 'T1', channelId: 'C1', agentSlug: 'revenue-lead' });
     const adapter = fakeAdapter();
     const runAgent = vi.fn();
-    const out = await svc.handleInbound(adapter, inbound, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: false as const, reason: 'hard_cents_exceeded' as const, limit: 100, current: 150 })) });
+    const out = await svc.handleInbound(adapter, inbound, { runAgent: runAgent as never, preflight: vi.fn(async () => ({ ok: false as const, reason: 'hard_cents_exceeded' as const, scope: 'agent' as const, agentSlug: 'support', limit: 100, current: 150 })) });
 
     expect(out).toEqual({ outcome: 'over_budget', agentSlug: 'revenue-lead' });
     expect(runAgent).not.toHaveBeenCalled();

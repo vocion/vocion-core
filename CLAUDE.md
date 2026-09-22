@@ -256,7 +256,31 @@ Still never auto-committed: a person adopts or rejects every candidate at `/dash
 
 - `npm run eval:run -- --dataset <slug>` — run a context-authored dataset through the agent and score each case via an LLM judge. CI exits non-zero if pass-rate < 0.8.
 - `npm run eval:upgrade -- --dataset <slug> --baseline <model> --candidate <model>` — the model-upgrade test: the same dataset on two models, same judge, compared on **cost per passed case** (`services/evals/modelUpgradeTest.ts`, `POST /api/v1/evals/:slug/model-upgrade-test`, "Compare models" on `/dashboard/evals/<slug>`). Every eval case stores its token usage and cost (`eval_case_result.usage`); a run that named a model stamps it on `eval_run.model`. See `docs/guides/model-upgrade-test.md`. Cost reads 0 for a model missing from `libs/pricing.ts` — price it first.
-- `agent_budget` table caps per-period token + dollar spend per agent. Pre-flight refusal in `runAgentDeep` when over the hard cap. Opt-in: no row → no enforcement.
+- `agent_budget` caps per-period token + dollar spend, and since #279 it covers
+  **everything an org spends on a model**, not just agent turns. One row is one
+  scope: an agent's slug, `platform:all` (the workspace's whole spend — this is
+  the row an org-wide cap goes on), or `platform:<feature>` for a non-agent
+  surface such as `platform:retrieval.embed`. Every charge lands on its own
+  scope AND on `platform:all`, so sum one or the other, never both.
+- **Every paid model call charges.** Embeddings, rerank, the review queue's
+  rewrite, transcript classification, chip synthesis, feedback classification
+  and dedupe, skill turns, the eval judge and `generate_image` all call
+  `chargeUsage` — most of them through `services/budget/chargeModelCall.ts`,
+  which reads usage off the LangChain response and prices it by the model id
+  the response reports rather than the role the trace span was named after.
+  A new paid call site that does not charge is a bug.
+- **Recording is universal; refusing is not.** A hard cap refuses only ingest-time
+  embedding (`SourceSyncService` stops the run cleanly and leaves the watermark
+  alone) and image generation. Rerank skips itself over a cap and returns the
+  first-stage ranking; query embedding and the small classifier calls are
+  charged and always proceed. The reasoning is in `BudgetService`'s docstring —
+  read it before adding a refusal.
+- **Usage is recorded even with no cap set.** A charge creates the row it lands
+  on, so "what did this workspace spend" is answerable; budgets stay opt-in in
+  the sense that matters, which is that nothing is refused without a limit.
+- Spend accumulates in `current_micro_cents` and floors into `current_cents`.
+  An embedding batch costs a fraction of a cent, and rounding each one up
+  billed a $1 sync as $10.
 
 ## Observability
 

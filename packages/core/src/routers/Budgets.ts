@@ -13,6 +13,15 @@ export const get = os
     return getBudget({ orgId, agentSlug: input.agentSlug, period: input.period });
   });
 
+/**
+ * Set the caps on one budget row.
+ *
+ * `agentSlug` is an agent's slug, or one of the reserved scopes
+ * `BudgetService` owns: `platform:all` for a cap over everything this
+ * workspace spends, `platform:<feature>` for one non-agent surface such as
+ * `platform:retrieval.embed`. The workspace-wide cap is the one that makes
+ * `agent_budget` a spend control rather than a per-agent allowance.
+ */
 export const upsert = os
   .input(z.object({
     agentSlug: z.string(),

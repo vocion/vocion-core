@@ -107,6 +107,10 @@
     {
       "name": "workflows",
       "description": "Endpoints under /api/v1/workflows."
+    },
+    {
+      "name": "workspace",
+      "description": "Endpoints under /api/v1/workspace."
     }
   ],
   "components": {
@@ -6389,6 +6393,143 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/workspace": {
+      "get": {
+        "operationId": "get_workspace",
+        "summary": "what this workspace is, and whether it is running.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "what this workspace is, and whether it is running.\n\n`paused` is the whole reason this endpoint exists: the off switch has to be\nreadable by whatever is about to ask the workspace to do something, so a\nworker or an outside caller can say \"the factory is stopped\" instead of\ndiscovering it one refusal at a time. It is `null` when the workspace is\nrunning, and `{ by, at, note }` when someone has pulled the switch.\n\n`refuses` names what a pause holds and `allows` what it does not, so the\nlist a client shows never drifts from the list the guard enforces.\n\nAuth: tenant API token or dashboard session. Any authenticated caller may\nread this — it is a fact about the workspace they are already in."
+      }
+    },
+    "/api/v1/workspace/pause": {
+      "post": {
+        "operationId": "post_workspace_pause",
+        "summary": "the whole factory's off switch.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "the whole factory's off switch.\n\nOne call stops everything this workspace does by itself: every automation\nfire (scheduled or event, recorded as a `skipped` run with reason\n`workspace_paused`), every mission run, every worker run queued or claimed,\nand every gated action that is not a hand-off. Chat with an agent stays\nopen — a person talking is not the factory working — and a worker already\nholding a lease finishes and reports rather than being killed.\n\nIt does NOT touch per-automation pauses. An automation someone paused last\nweek is still paused after a resume, because a workspace pause never wrote\nto it. That is why this is a separate column rather than a bulk edit.\n\nThe `note` is required: it is the line everyone else in the workspace reads\non every page until the switch is lifted, so \"stopped, no reason given\" is\nnot a state this allows.\n\nNeeds an owner or PM (a tenant token carries its role; a `['*']` grant\npasses too). Pausing a workspace that is already paused answers 409 with\nthe current state, so a second operator learns the first got there.\n\n**Requires the `pause_workspace` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "x-required-capability": [
+          "pause_workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/resume": {
+      "post": {
+        "operationId": "post_workspace_resume",
+        "summary": "lift the workspace pause.",
+        "tags": [
+          "workspace"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but not allowed to do this. Codes: `FORBIDDEN`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "lift the workspace pause.\n\nEverything comes back exactly as it was: schedules fire on their next tick,\nevent automations match again, worker runs may be claimed, gated actions\nexecute. Every automation a person paused individually is still paused,\nuntouched — nothing was saved on the way in, so nothing can be lost on the\nway out.\n\n`lifted` names whose hold this was and what their note said, because the\nperson resuming is usually not the person who stopped it.\n\nNeeds an owner or PM. Resuming a workspace that is not paused answers 409.\n\n**Requires the `pause_workspace` capability.** A token without it is refused with 403, and so is a member whose role does not carry it.\n\nThis endpoint passes service failures — a conflict, a budget stop, a missing record — through the shared error mapper, so it can answer with statuses beyond the ones listed below. The envelope is the same either way.",
+        "x-required-capability": [
+          "pause_workspace"
+        ]
       }
     }
   }

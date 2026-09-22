@@ -686,7 +686,12 @@ describe('Regenerate, tiered (the fast path)', () => {
     expect(lead?.regenerateNote).toContain('contradicts the brief');
     expect(lead?.reviewActionRunId).toBe(proposed.runId);
 
-    const events = await db.select().from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG));
+    // `artifact.*` is filtered out the way the draft test above already
+    // does it: an artifact save from an earlier case emits without being
+    // awaited, so whether it has landed by now is a matter of scheduling and
+    // not of this behaviour.
+    const events = (await db.select().from(eventLogSchema).where(eq(eventLogSchema.orgId, ORG)))
+      .filter(e => !e.type.startsWith('artifact.'));
 
     expect(events).toHaveLength(1);
     expect(events[0]!.type).toBe('personalization.brief_regenerate_requested');

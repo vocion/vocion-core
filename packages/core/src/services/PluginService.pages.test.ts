@@ -55,10 +55,10 @@ afterEach(() => {
 
 describe('readPageForOrg', () => {
   it('finds a page from a plugin only the project turned on', async () => {
-    const floor = await readPageForOrg('factory-floor', FACTORY_ORG);
+    const work = await readPageForOrg('work', FACTORY_ORG);
 
-    expect(floor?.origin).toBe('plugin:software-factory');
-    expect(floor?.archetype).toBe('list');
+    expect(work?.origin).toBe('plugin:software-factory');
+    expect(work?.archetype).toBe('list');
   });
 
   it('shows the mounted folder\'s pages — its own and its plugins\' — to the project the folder belongs to', async () => {
@@ -71,11 +71,11 @@ describe('readPageForOrg', () => {
     // own plugins' pages are its to see.
     expect(await readPageForOrg('wiki', FACTORY_ORG)).toBeNull();
     expect(await readPageForOrg('ours', FACTORY_ORG)).toBeNull();
-    expect((await readPageForOrg('factory-floor', FACTORY_ORG))?.origin).toBe('plugin:software-factory');
+    expect((await readPageForOrg('work', FACTORY_ORG))?.origin).toBe('plugin:software-factory');
   });
 
   it('hides a plugin page from a project that has not turned the plugin on', async () => {
-    expect(await readPageForOrg('factory-floor', PLAIN_ORG)).toBeNull();
-    expect(await readPageForOrg('factory-floor', 'proj_pages_no_row')).toBeNull();
+    expect(await readPageForOrg('work', PLAIN_ORG)).toBeNull();
+    expect(await readPageForOrg('work', 'proj_pages_no_row')).toBeNull();
   });
 });

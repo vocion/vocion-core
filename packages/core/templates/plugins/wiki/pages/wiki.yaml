@@ -12,10 +12,16 @@ sort: {field: meta.updatedAt, dir: desc}
 stats:
   - {label: Pages, kind: count}
   - {label: Written by agents, kind: countWhere, where: {field: meta.lastAuthorKind, op: eq, value: agent}}
+# The page leads; its first paragraph reads under the title rather than
+# fighting it for a column, and the version and who wrote it last drop
+# first on a narrow screen.
+primary:
+  field: title
+  subtitle: [summary]
 fields:
   - {key: title, label: Page}
   - {key: summary, label: Summary, from: meta.summary}
-  - {key: version, label: Version, from: meta.version, format: mono}
-  - {key: author, label: Last by, from: meta.lastAuthorKind, format: badge, tones: {agent: info, human: ok, system: muted}}
+  - {key: version, label: Version, from: meta.version, format: mono, align: right, priority: 3}
+  - {key: author, label: Last by, from: meta.lastAuthorKind, format: badge, tones: {agent: info, human: ok, system: muted}, priority: 2}
   - {key: updated, label: Updated, from: meta.updatedAt, format: date}
 rowLink: /dashboard/artifacts/{id}

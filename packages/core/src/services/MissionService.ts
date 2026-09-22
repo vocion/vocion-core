@@ -16,6 +16,7 @@ import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
 import { executeMissionRun } from './missions/runtime';
+import { assertWorkspaceRunning } from './workspacePause';
 
 export type MissionRunSummary = typeof missionRunSchema.$inferSelect;
 
@@ -40,6 +41,8 @@ export function getMissionRun(runId: number, orgId: string) {
  * mission's runs — used by the `/api/v1/missions/:slug/runs` read route so
  * a caller only sees the runs of the mission it asked about, not every run
  * in the org.
+ * `id` breaks ties, which `createdAt` has whenever two runs are written in
+ * the same instant.
  * @param orgId
  * @param opts
  * @param opts.status
@@ -54,7 +57,7 @@ export function listMissionRuns(orgId: string, opts: { status?: string; limit?: 
   if (opts.missionId !== undefined) {
     conditions.push(eq(missionRunSchema.missionId, opts.missionId));
   }
-  return db.select().from(missionRunSchema).where(and(...conditions)).orderBy(desc(missionRunSchema.createdAt)).limit(opts.limit ?? 50);
+  return db.select().from(missionRunSchema).where(and(...conditions)).orderBy(desc(missionRunSchema.createdAt), desc(missionRunSchema.id)).limit(opts.limit ?? 50);
 }
 
 /** One row of the operator's run list — enough to find a runaway, not the plan. */
@@ -299,6 +302,11 @@ export async function startMission(opts: {
    */
   causedBy?: CausalChain | null;
 }): Promise<MissionRunSummary> {
+  // The workspace off switch, before the planner and before any model call:
+  // a mission run IS the factory working, whoever asked for it — the API, MCP
+  // `mission_start`, an automation's check, or a chat turn that reached for
+  // one. The refusal carries the pause note, so the person asking reads why.
+  await assertWorkspaceRunning(opts.orgId, 'mission_run');
   let team = opts.team;
   let goal: string | undefined;
   let missionId: number | undefined;

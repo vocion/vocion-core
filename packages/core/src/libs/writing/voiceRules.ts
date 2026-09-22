@@ -23,7 +23,7 @@
  */
 
 import { z } from 'zod';
-import { emailBodyText } from './emailBody';
+import { emailBodyText } from './emailBodyShape';
 
 /** One banned construction, with the reason a reader can argue with. */
 export type VoiceRule = {

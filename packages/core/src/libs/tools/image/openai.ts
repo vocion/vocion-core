@@ -41,7 +41,13 @@ export function openaiImageProvider(): ImageProvider {
       if (!b64) {
         throw new Error('image provider returned no image data');
       }
-      return { png: Buffer.from(b64, 'base64') };
+      return {
+        png: Buffer.from(b64, 'base64'),
+        model,
+        usage: res.usage
+          ? { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens }
+          : undefined,
+      };
     },
   };
 }

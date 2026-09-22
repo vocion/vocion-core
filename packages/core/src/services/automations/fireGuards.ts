@@ -51,8 +51,16 @@ export const RATE_LIMIT_WINDOW_MS = 10 * 60_000;
  */
 export const DEFAULT_MAX_FIRES_PER_10M = 6;
 
-/** The reasons a fire is refused, as the `skipped` run row records them. */
-export type SkipReason = 'self_trigger' | 'rate_limited';
+/**
+ * The reasons a fire is refused, as the `skipped` run row records them.
+ *
+ * `workspace_paused` is the third and the broadest: a person pulled the
+ * workspace's off switch (`services/workspacePause.ts`), so nothing the
+ * factory does by itself starts. It is written down like the other two,
+ * because "why did nothing run all afternoon" is answered from this log or
+ * from nowhere.
+ */
+export type SkipReason = 'self_trigger' | 'rate_limited' | 'workspace_paused';
 
 /**
  * Prepend this fire to the chain that led to it.

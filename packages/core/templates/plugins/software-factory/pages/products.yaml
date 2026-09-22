@@ -1,0 +1,103 @@
+# Products. The portfolio board, and the simplest page in the factory.
+#
+# The test it is built to pass: could a person understand the state of every
+# Squatch product while walking from their desk to the kitchen? That rules out
+# most of what a board wants to become. Six facts per product: what it is,
+# where it is in its life, whether it is healthy, who answers for it, what we
+# charge against the incumbent, what last shipped and what is still owed. And
+# nothing else above them.
+#
+# What used to be here and is not any more, and why:
+#
+# - Seven summary cards over two products. A summary earns its place by saving
+#   the reader from reading the rows; over two rows it saves nobody anything.
+#   `statsMinRows` brings them back when the portfolio is worth summarising.
+# - "Median days to ship". The records do not link a request to the release
+#   that closed it, and the whole corpus is days old, so the figure was 0, an
+#   artifact of when the factory started, read as a claim about how fast we
+#   are. The tick leaves it empty below three properly closed requests.
+# - "Shipped this month". A count is the Performance question. What a person
+#   wants from a portfolio is WHAT shipped, so the row carries the newest
+#   release's announcement line with when it shipped under it.
+# - A revenue column, headed "Revenue (no source yet)". No verified revenue
+#   source exists, so no row could fill it, and a column of dashes advertised
+#   the gap once per row in the width a fact could have used. It is not
+#   declared here. Core's `hideWhenEmpty` is the general form of the same
+#   rule, on by default, so the day a field here stops being fillable the
+#   board loses it without anyone editing this file, and the day revenue is
+#   recorded the field can be declared and will appear on its own.
+# - Four pricing columns. Ours, theirs, their name and the date are ONE fact.
+#   `format: compare` draws it as one, with the date on hover.
+# - "(agent-maintained)" on six labels. Provenance in the furniture. It is in
+#   the type schema and behind "About this data"; the board is where it is
+#   read, not where it is explained.
+# - "Counters as of" on every row. Freshness is not news until it stops being
+#   fresh: `staleAfterHours` draws it only on a row that has gone stale, and
+#   while every row is current the field is empty everywhere and disappears.
+#
+# The counters are still AGENT-MAINTAINED: a page's stats compute over their
+# own rows, so a count across requests or releases per product cannot be a
+# page stat. The lead's `keep-the-board-honest` tick recomputes them each
+# morning.
+#
+# Rows here are products, not requests, so there is no Report action: the
+# feature report takes a request id, and a link a row cannot fill is worse
+# than no link. The drill from a product is its own record, and from there
+# the requests that name it.
+slug: products
+title: Products
+description: Every product, where it is in its life, whether it is healthy, what we charge against the incumbent, and what last shipped.
+icon: layout-dashboard
+nav: {section: Business, order: 1}
+archetype: list
+layout: block
+source: {kind: objects, objectType: product}
+sort: {field: meta.stage, dir: asc}
+# Drawn once the portfolio is big enough that reading every row is the slower
+# way to answer these. At two products the rows already say all of it.
+statsMinRows: 8
+stats:
+  - {label: Products, kind: count}
+  - {label: Live, kind: countWhere, where: {field: meta.stage, op: eq, value: live}}
+  - {label: In dogfood, kind: countWhere, where: {field: meta.stage, op: eq, value: dogfood}}
+  - {label: Down or degraded, kind: countWhere, where: {field: meta.health, op: in, value: [down, degraded]}}
+primary:
+  field: title
+  subtitle: [stage, health, owner]
+fields:
+  - {key: title, label: Product}
+  - {key: stage, label: Stage, from: meta.stage, format: badge, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
+  # `source` is what keeps a degraded product and an unmonitored one from
+  # reading the same. With nothing checking it, the row says "monitoring not
+  # connected", which names our gap, instead of "unknown", which sounds like
+  # doubt about the product.
+  - key: health
+    label: Health
+    from: meta.health
+    format: badge
+    tones: {ok: ok, degraded: warn, down: bad}
+    source: {from: [meta.healthSource, meta.healthCheckedAt], absentLabel: monitoring not connected}
+  - {key: owner, label: Accountable, from: meta.accountableUser}
+  # Core to the thesis, so it is the one place on the row that keeps detail
+  # and the one that carries visual weight.
+  - key: price
+    label: Our price
+    from: meta.ourPrice
+    format: compare
+    beside: {from: meta.incumbent.listPrice, labelFrom: meta.incumbent.name, checkedFrom: meta.incumbent.checkedOn}
+  - key: lastShipped
+    label: Last shipped
+    from: meta.lastShipped
+    caption: {from: meta.lastReleaseAt, format: relative}
+  - key: open
+    label: Open work
+    from: meta.openRequests
+    format: workload
+    workload: {noun: open request, inFlightFrom: meta.inFlight, urgentFrom: meta.p1Open, urgentLabel: urgent}
+  # Only on a row whose figures have gone stale, and when none have, the
+  # field is empty on every row and the page drops it.
+  - {key: updated, label: Counters last recomputed, from: meta.countersUpdatedAt, format: relative, staleAfterHours: 24}
+# No app and site columns. Where a product lives is not one of the six things
+# a person walking to the kitchen needs; it is on the product record, one tap
+# away, with everything else about it.
+rowLink: /dashboard/objects/{id}

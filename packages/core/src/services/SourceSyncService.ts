@@ -43,6 +43,7 @@ import { DEFAULT_RUNS_ON } from '@/libs/processors/types';
 import { processorRefOf } from '@/libs/sources/processor';
 import { getConnector } from '@/libs/sources/registry';
 import { knowledgeChunkSchema, knowledgeDocumentSchema, knowledgeSourceSchema, sourceSyncCheckpointSchema } from '@/models/Schema';
+import { BudgetExceededError } from '@/services/BudgetService';
 import {
   deleteDocumentsGoneFromSource,
   ensureSource,
@@ -954,6 +955,19 @@ export async function runSync(opts: {
   // what the source holds, so we must not delete anything on the strength of it.
   let connectorFailureCount = 0;
 
+  // The first budget refusal a document hit, if any.
+  //
+  // Every other document failure is counted and stepped over — one malformed
+  // file must not stop a sync. A hard spend cap is the opposite: the next
+  // document would be refused for the same reason, and the one after that, so
+  // carrying on only burns through the connector's pages producing a run that
+  // is one long error list. Recorded here and re-thrown from the loop below,
+  // which stops the run through the ordinary failure path: in-flight documents
+  // finish, the checkpoint records `failed` with this message, and the
+  // watermark stays put so a re-run after the cap is raised picks up where this
+  // one stopped.
+  let budgetRefusal: Error | null = null;
+
   /**
    * Start ingesting one document, and keep track of it until it finishes.
    *
@@ -1015,6 +1029,9 @@ export async function runSync(opts: {
         result.errors += 1;
         seenButNotSavedExternalIds.add(doc.externalId);
         result.firstError ??= error instanceof Error ? error.message : String(error);
+        if (error instanceof BudgetExceededError) {
+          budgetRefusal ??= error;
+        }
         // The counter alone loses the reason. Log it — a run full of rate-limit
         // failures and a run full of malformed documents need different fixes.
         log('warn', 'could not save a document during sync', {
@@ -1059,6 +1076,11 @@ export async function runSync(opts: {
       // An edit to this source stops the run here rather than letting it write
       // documents the new settings no longer ask for.
       await stopIfSuperseded();
+      // A spend cap refused a document. Stop the run rather than asking the
+      // connector for another page that would be refused the same way.
+      if (budgetRefusal) {
+        throw budgetRefusal;
+      }
       if (handledExternalIds.has(doc.externalId)) {
         // Already ingested this document in this run — see handledExternalIds.
         reportProgress({

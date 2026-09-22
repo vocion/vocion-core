@@ -14,6 +14,8 @@ import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel } from '@/libs/llm';
+import { usageMetadataOf } from '@/libs/llm/usage';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 
 const ClassificationZ = z.object({
   bucket: z.enum(['edit', 'rule', 'both', 'ignore']),
@@ -126,10 +128,7 @@ export async function classifyComment(opts: {
     ? res.content
     : (Array.isArray(res.content) ? res.content.map(c => (c as { text?: string }).text ?? '').join('') : '');
 
-  // Anthropic / OpenAI surface usage on response_metadata.usage with
-  // varying field names; the LangChain wrapper normalises to
-  // `usage_metadata` on the message.
-  const usage = (res as unknown as { usage_metadata?: { input_tokens?: number; output_tokens?: number; input_token_details?: { cache_read?: number } } }).usage_metadata;
+  const usage = usageMetadataOf(res);
   generation.end({
     output: raw,
     usageDetails: usage
@@ -139,6 +138,15 @@ export async function classifyComment(opts: {
           cache_read_input_tokens: usage.input_token_details?.cache_read,
         })
       : undefined,
+  });
+  // Charged, never refused. This runs in the background worker behind a
+  // comment somebody already left; refusing it would drop their feedback on
+  // the floor for a Haiku call. A job with no org on its row charges nothing.
+  await chargeModelCall({
+    orgId: opts.orgId,
+    feature: FEATURES.FEEDBACK_CLASSIFY,
+    role: 'classifier',
+    response: res,
   });
 
   // Strip code fences if the model returned ```json … ```.

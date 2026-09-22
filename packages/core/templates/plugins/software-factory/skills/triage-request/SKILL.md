@@ -48,6 +48,20 @@ one), and stop.
 
 ## Tag it
 
+- **`why`** and **`whyNote`**, REQUIRED, and the first thing you write. One
+  or more reasons from the closed list, never a number: `user_request`,
+  `production_bug`, `blocks_goal`, `breaks_promise`, `required_for_dogfood`,
+  `manual_toil`, `platform_leverage`, `factory_reliability`,
+  `observed_behaviour`. A priority of 62 explains nothing; `user_request` plus
+  `required_for_dogfood` explains everything a person needs in order to argue
+  with you. `whyNote` grounds the codes in this record's own evidence in one
+  short line, naming the countable thing behind the code: not "it is a user
+  request" but "Chris and two dogfood users asked on 2026-09-20".
+  **If you cannot name a reason from the evidence on the record, you have not
+  understood the request.** Leave it `new`, say what evidence is missing, and
+  do not tag it. An invented reason is worse than a blank one, because the
+  whole value of the field is that a person can trust it. Never derive a
+  reason from a request's status, its age or its title.
 - **`kind`** — bug, gap, idea, incident, question. Be literal: something
   promised that does not work is a bug even when the asker calls it a feature
   request.
@@ -76,8 +90,9 @@ the standing goals?** Value is measured
 against the product's promises and the workspace goal, not against how easy it
 is or how nicely it was asked.
 
-- **Yes** → `state: in_scope`. Hand to the planner with the request id; the
-  planner writes the contract, never you.
+- **Yes** → `state: in_scope`. Hand to the planner with the request id AND
+  its `why`; the planner writes the contract, never you, and the task inherits
+  the reason.
 - **No** → `state: out_of_scope`. Draft the honest answer.
 - **Cannot tell** → it is a question for a person, with the request, your
   reading and the two ways it could go. Do not park it as `triaged` and move
@@ -100,6 +115,8 @@ it in mail. Never say a reply was sent that is still waiting on a person.
 
 ## The receipt
 
-One line per request triaged: id, kind, product, the outcome (task / answer /
-duplicate of #n), and the decision cost. Then one line for anything you could
-not place and why.
+One line per request triaged: id, `why` codes, kind, product, the outcome
+(task / answer / duplicate of #n), and the decision cost. Then one line for
+anything you could not place and why, and a separate count of the requests you
+left untagged because the evidence named no reason. That count is a real
+number a person should see, not a failure to hide.

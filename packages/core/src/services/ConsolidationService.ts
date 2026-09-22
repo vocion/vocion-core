@@ -34,8 +34,10 @@ import { db } from '@/libs/DB';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel } from '@/libs/llm';
+import { usageMetadataOf } from '@/libs/llm/usage';
 import { MEMORY_STORE_NAMESPACE } from '@/libs/memory/store';
 import { learningCandidateSchema, memoryNamespaceSchema, memorySchema } from '@/models/Schema';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { recordProposedRule } from '@/services/feedback/ruleRecorder';
 import { createCandidate } from '@/services/LearningCandidateService';
 import { getNamespace, listEpisodes, listNamespaces, similarity } from '@/services/MemoryService';
@@ -135,10 +137,18 @@ async function judged<T>(opts: { orgId: string; name: string; system: string; us
     if (process.env.VOCION_DEBUG_CONSOLIDATION) {
       console.error(`[consolidation:${opts.name}] raw model output:\n${raw}`);
     }
-    const usage = (res as unknown as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata;
+    const usage = usageMetadataOf(res);
     generation.end({
       output: raw,
       usageDetails: usage ? cleanUsageDetails({ input: usage.input_tokens, output: usage.output_tokens }) : undefined,
+    });
+    // Charged, never refused: consolidation is a background sweep, and a half
+    // consolidated set of learnings is worse than a slightly larger bill.
+    await chargeModelCall({
+      orgId: opts.orgId,
+      feature: FEATURES.FEEDBACK_CLASSIFY,
+      role: 'classifier',
+      response: res,
     });
     const stripped = raw.replace(/^```(?:json)?\s*|\s*```$/gm, '').trim();
     // Haiku sometimes appends prose after the JSON; take the outermost object.

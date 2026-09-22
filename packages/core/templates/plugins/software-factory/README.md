@@ -197,7 +197,9 @@ feature within a product), `patch` (a fix) — in release terms, not effort.
   and lease, the PR one tap away), and **Team report** (a link row seating
   the core spend report beside the log). The floor and the log are live:
   they re-read themselves every 15 seconds while open, so work in flight is
-  seen as it happens, not as of page load.
+  seen as it happens, not as of page load. Every row on the Backlog and the
+  Factory floor also carries a **Report** action, which opens that request's
+  **feature report** — see below.
 - The **software-factory** team, graded on tasks a person accepted, requests
   answered inside a week, recommendations a person decided, pull requests
   opened (the worker's own count, shown as the weakest provenance) and worker
@@ -294,6 +296,92 @@ stop at running within bounds; `major` and `promise` are `high` and never
 earn it. Core does not yet register these actions, so today every class is a
 person's answer; the rules set the bar and the autonomy page shows it.
 
+## The feature report — one request, end to end
+
+The records were always all there, and all linked. A feature that shipped
+leaves a trail across seven of them: the `request` that asked for it, the
+`engineering_task` that contracted it, every `worker_run` that attempted it,
+the `ask` and `action_run` rows a person decided, the artifacts that prove it
+works, and the `release` that carried it to people. Each has a page. None of
+them had the story, so answering *what happened with this?* meant seven tabs
+and a guess about who approved anything.
+
+`pages/feature.yaml` is the answer: the `report` archetype over the `request`
+noun, at **`/dashboard/p/feature/<requestId>`**, reached from the **Report**
+action on any Backlog or Factory floor row. It is off the nav on purpose —
+a report is about ONE request, so it is entered from a row, not from a list
+of reports.
+
+It opens with six figures — **asked, shipped, elapsed, total cost, human
+decisions, attempts** — then a **vertical timeline, oldest first so the
+newest entry is last**, each entry stamped with its time and, where money was
+spent, its cost. Under it, nine sections in reading order:
+
+| section | what it carries |
+|---|---|
+| The ask | the request in the asker's own words, who asked, when, through which channel, and any evidence they attached |
+| Triage | kind, state, severity, size, risk floor, decision cost, priority and the twenty-percent verdict with its reason |
+| The contract | per task: the objective, allowed paths, acceptance criteria, required checks, risk class and the estimate |
+| Approvals | every `ask` and hand-off `action_run` tied to this work — who decided, when, and the note |
+| The runs | every attempt: agent, attempt number, status, duration, cost, each check pass or fail, and on a failure the kept branch and draft pull request |
+| The change | the pull request, its title, its checks, the merge commit and the files it touched |
+| QA evidence | a gallery of the artifacts attached to the task, with captions |
+| The release | the notes, the announcement, when it shipped and to which surface |
+| Estimate against actual | the estimate, the actual, the variance both ways, and what the runs actually charged |
+
+**Three rules, and they are the point of the page.**
+
+1. **A stage that did not happen says so.** Every section renders. One with
+   nothing in it carries a sentence naming the absence — *"No release carries
+   this task"*, *"No task contract was written for this request; nothing was
+   dispatched"*, *"No person approved this; it ran under earned autonomy"* (and,
+   when nothing ran either, *"Nothing about this work was ever put in front of
+   a person"*). The absence is the finding; hiding the section would hide it.
+2. **No stage is inferred from another.** A merged pull request does not make
+   a run successful. A shipped release does not make a task accepted. A
+   passing check is not QA evidence.
+3. **A contradiction is shown, not resolved.** A run recorded `failed` whose
+   pull request merged is banded across the top with both facts and the
+   reason they can both be true — the worker's completion call can time out
+   after the pull request is already open. The same band carries a task
+   rollup that disagrees with what the runs charged, an accepted task with no
+   pull request, and a release carrying work no task accepted. Nothing on it
+   is reconciled for you.
+
+The whole thing reads in one column at 390px; a measured test holds it there.
+
+### QA evidence — the slot, and the shape a worker must post
+
+Nothing fills this slot today, which is exactly why it is not hidden: the
+section says *"No QA evidence was captured for this task"* on every feature,
+and that sentence is a finding about the factory.
+
+Evidence is an ordinary core **artifact**, attached to the
+`engineering_task` it proves:
+
+```
+recordType: 'object'                  # business objects are `object` records
+recordId:   '<engineering_task id>'
+recordRole: 'qa-screenshot' | 'qa-video' | 'qa-report'
+kind:       'file' | 'link' | 'markdown'
+title:      'Checkout, empty cart'    # the heading in the gallery
+spec:       { url, filename, contentType, bytes }   # kind: file
+            { href, title, description }            # kind: link
+            { md }                                  # kind: markdown
+```
+
+`recordRole` carries the marker rather than `kind`, because `artifact.kind`
+is a closed core enum and a worker cannot add `qa-screenshot` to it. A worker
+that writes the marker into `spec.kind` instead is still read, so the
+convention can tighten later without dropping evidence already posted. A
+screenshot with a URL draws itself; a video or a report is a labelled link;
+`spec.caption` is the line beneath it. Several artifacts may share a role —
+a gallery is the point.
+
+This is distinct from the task's `verification` entries, which are the
+*merge* evidence a reviewer decides on. Verification proves a check ran; QA
+evidence shows a person what the change looks like.
+
 ## The throttle — three WIP limits, metered by decision cost
 
 The backlog is unbounded and cheap. The queue in front of a person is bounded
@@ -322,6 +410,16 @@ budget or a WIP field, so the 60-minute budget and the initiative limit are
 written into the missions' goals and success criteria and into the planner's
 skill as convention the ledger is graded against. A `decisionCost` on the ask
 itself and a mission-level budget are named as core follow-ups below.
+
+**The whole factory has one switch.** *Pause workspace* in the top bar stops
+everything this plugin does by itself — every automation fire, every mission
+run, every worker run queued or claimed, and every gated action that is not a
+hand-off a person performs — in one click, with a note everyone else reads on
+every page until it is lifted. Chat with an agent stays open, a worker already
+mid-run finishes and reports, and automations someone paused individually stay
+paused when the workspace resumes. `POST /api/v1/workspace/pause { note }` and
+`workspace_pause` over MCP do the same from a terminal. See
+[the off switch](../../../../../docs/entities/workspace-manifest.md#the-off-switch--pausing-the-whole-workspace).
 
 ## What it costs
 

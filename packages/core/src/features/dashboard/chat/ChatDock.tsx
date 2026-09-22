@@ -812,19 +812,34 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
     return null;
   }
 
-  const edgeTab = (
-    <button
-      type="button"
-      onClick={() => setCollapsedPersisted(false)}
-      aria-label={t('open_rail')}
-      title={t('open_rail')}
-      data-testid="rail-edge-tab"
-      className="fixed top-1/2 right-0 z-40 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-xl border border-r-0 border-border bg-background px-1.5 py-3 text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
-    >
-      <MessageSquare className="size-4" aria-hidden="true" />
-      <span className="text-[10px] font-medium tracking-wide [writing-mode:vertical-rl]">Chat</span>
-    </button>
-  );
+  // The edge tab is a POINTER affordance, and it exists only where there is
+  // room for it. On a phone it sat over the page's right edge at the vertical
+  // centre — across a table's last column, a row's cost, the thing the reader
+  // was trying to read — and it was a second door to a room the titlebar
+  // already opens: `AgentSurfaceButton` is in the header on every page
+  // (principle 6, two surfaces doing one job is a defect). So below the
+  // breakpoint the rail collapses to nothing and the header keeps the entry
+  // point, which is also what makes the sheet feel like a mobile surface
+  // rather than a desktop rail squeezed onto a phone.
+  const edgeTab = narrow
+    ? null
+    : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setCollapsedPersisted(false)}
+              aria-label={t('open_rail')}
+              data-testid="rail-edge-tab"
+              className="fixed top-1/2 right-0 z-40 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-xl border border-r-0 border-border bg-background px-1.5 py-3 text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground"
+            >
+              <MessageSquare className="size-4" aria-hidden="true" />
+              <span className="text-[10px] font-medium tracking-wide [writing-mode:vertical-rl]">Chat</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('open_rail')}</TooltipContent>
+        </Tooltip>
+      );
 
   // The resize handle on the column's left edge (§9): drag, or arrow keys
   // when focused. One width for the column, never one per pane.

@@ -774,9 +774,26 @@ function apiRunOf(state: SourceSyncState): ApiSourceRun {
 /* ------------------------------------------------------------------ */
 
 export type ApiAgentBudget = {
+  /**
+   * What the row budgets: an agent's slug, or a reserved platform scope —
+   * `platform:all` for the workspace's whole spend and `platform:<feature>`
+   * for one non-agent surface.
+   */
   agentSlug: string;
+  /** The surface a `platform:<feature>` row rolls up; null on the others. */
+  feature: string | null;
   period: string;
   currentTokens: number;
+  /**
+   * Spend this period in micro-cents — a millionth of a cent. The exact
+   * number, and a whole one, so a consumer adding rows up gets the same total
+   * the product charged.
+   */
+  currentMicroCents: number;
+  /**
+   * The same spend in cents, for reading. Carries a fraction: a rerank that
+   * cost a fifth of a cent reads as 0.2.
+   */
   currentCents: number;
   softTokenLimit: number | null;
   softCentsLimit: number | null;
@@ -786,23 +803,32 @@ export type ApiAgentBudget = {
 };
 
 /**
- * Every agent budget row for the caller's org, limits included.
+ * Every budget row for the caller's org, limits included — agent rows and the
+ * platform scopes alike.
  *
- * Read-only to the caller, but not a pure read: `listAgentBudgets` rolls the
- * period boundary as it goes (idempotently), so the counters returned are the
- * ACTIVE period's rather than a stale one's. The dashboard's observability page
+ * Read-only to the caller, but not a pure read: the listing rolls the period
+ * boundary as it goes (idempotently), so the counters returned are the ACTIVE
+ * period's rather than a stale one's. The dashboard's observability page
  * renders cents totals only; the limit columns are the half an operator needs
  * to answer "would this run be refused?", and there was no API surface at all.
+ *
+ * Platform rows are included deliberately: since #279 they are where embedding,
+ * rerank and image spend lands, and an operator asking what a workspace costs
+ * would get the wrong number without them. Sum `platform:all` OR the agent
+ * rows, never both — every charge lands on `platform:all` as well as its own
+ * scope.
  * @param caller
  */
 export async function apiListAgentBudgets(caller: ApiCaller): Promise<{ budgets: ApiAgentBudget[] }> {
-  const { listAgentBudgets } = await import('@/services/BudgetService');
-  const rows = await listAgentBudgets(caller.orgId);
+  const { listAllBudgets } = await import('@/services/BudgetService');
+  const rows = await listAllBudgets(caller.orgId);
   return {
     budgets: rows.map(r => ({
       agentSlug: r.agentSlug,
+      feature: r.feature,
       period: r.period,
       currentTokens: r.currentTokens,
+      currentMicroCents: r.currentMicroCents,
       currentCents: r.currentCents,
       softTokenLimit: r.softTokenLimit,
       softCentsLimit: r.softCentsLimit,

@@ -282,6 +282,27 @@ export const projectSchema = pgTable(
      */
     goal: text('goal'),
     /**
+     * The workspace's operating intent (migration 0135): what a person wants
+     * the factory doing now: outcomes, priorities, constraints, budget,
+     * autonomy policy and product judgment. Authored as workspace-as-code in
+     * `operating-intent.yaml`, shape in `libs/workspace/schemas.ts`
+     * `OperatingIntentManifestSchema`, composed into the prompts of the agents
+     * that choose and prioritise work.
+     *
+     * NULL = the factory has been told nothing. That is deliberately not the
+     * same fact as an authored intent with empty lists, which is a person
+     * saying there are no constraints; the agents report the two differently.
+     */
+    operatingIntent: jsonb('operating_intent').$type<{
+      outcomes?: Array<{ statement: string; because?: string; by?: string }>;
+      priorities?: Array<{ statement: string; over?: string }>;
+      constraints?: Array<{ statement: string; because?: string }>;
+      budget?: { limitCents: number; window: 'day' | 'week' | 'month'; note?: string };
+      autonomy?: Array<{ actionClass: string; policy: 'unattended' | 'ask' | 'never'; because?: string }>;
+      productJudgment?: string[];
+      reviewedAt?: string;
+    }>(),
+    /**
      * The workspace's mailbox (migration 0097): the address people write to,
      * answered by the workspace lead. Authored as `mailbox:` in workspace.yaml;
      * default address `<slug>@<VOCION_MAIL_DOMAIN>`. Null/false = no mailbox.
@@ -294,6 +315,26 @@ export const projectSchema = pgTable(
      * briefings, mail — and the fallback when a turn arrives without one.
      */
     timeZone: text('time_zone'),
+    /**
+     * The workspace's off switch (migration 0132) — a person's hold on
+     * everything the factory does by itself: automation fires, mission runs,
+     * worker runs, and gated actions that are not a hand-off. Chat with an
+     * agent stays open; a turn that tries one of those is refused with this
+     * note. `services/workspacePause.ts` is the one guard every caller uses.
+     *
+     * A DIFFERENT fact from `automation.paused_at`, and that is the point: a
+     * workspace pause writes no automation row, so resuming the workspace
+     * restores exactly the per-automation state that was there before. An
+     * automation someone paused last Tuesday is still paused afterwards,
+     * because nothing touched it.
+     *
+     * NULL = running. `pausedBy` is the `user.id`, or `token:<id>` when an
+     * API token placed the hold; the name is resolved when shown. Never
+     * written by `workspace:apply` — a deploy does not lift a person's stop.
+     */
+    pausedAt: timestamp('paused_at', { mode: 'date' }),
+    pausedBy: text('paused_by'),
+    pausedNote: text('paused_note'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1645,6 +1686,12 @@ export const userNavPrefSchema = pgTable(
     userId: text('user_id').notNull(),
     pins: jsonb('pins').$type<string[]>().default([]).notNull(),
     dismissed: jsonb('dismissed').$type<string[]>().default([]).notNull(),
+    /**
+     * Page slug -> ISO instant this person last opened that page. Absent slug
+     * means never opened, and a surface that says "since you last looked"
+     * must say so rather than substitute a window. Migration 0133.
+     */
+    pageSeen: jsonb('page_seen').$type<Record<string, string>>().default({}).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1838,7 +1885,7 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
   latencyMs: integer('latency_ms'),
   /**
    * What this one case cost: the agent run's token usage priced by
-   * `tokenCostCents`, plus how many model turns and tool calls it took.
+   * `tokenCostMicroCents`, plus how many model turns and tool calls it took.
    * NULL on rows written before the column existed and on errored cases.
    */
   usage: jsonb('usage').$type<{
@@ -2191,13 +2238,48 @@ export const agentBudgetSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /**
+     * What the row budgets. Either an agent's slug, or one of the reserved
+     * platform scopes `platform:all` (everything this org spent) and
+     * `platform:<feature>` (one non-agent surface, e.g.
+     * `platform:retrieval.embed`). `BudgetService` owns the spelling — see
+     * `ORG_SCOPE_SLUG` and `featureScopeSlug` there.
+     *
+     * The scope rides in this column rather than in a column of its own
+     * because the unique index below is what makes a charge atomic, and
+     * widening a unique index on a populated table is an expand-and-contract
+     * migration (migrations/CONVENTIONS.md §2) rather than a one-line change.
+     */
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * The Langfuse feature dimension this row rolls up, for a
+     * `platform:<feature>` row — null on an agent row and on `platform:all`.
+     * A typed label to group by, so a report never has to parse the slug.
+     */
+    feature: text('feature'),
     /** daily | monthly */
     period: text('period').default('daily').notNull(),
     /** Tokens consumed in the current period (sum of input + output). */
     currentTokens: bigint('current_tokens', { mode: 'number' }).default(0).notNull(),
-    /** Dollars (in USD cents to keep math integer-safe). */
-    currentCents: bigint('current_cents', { mode: 'number' }).default(0).notNull(),
+    /**
+     * Spend in the current period, in micro-cents — a millionth of a cent.
+     *
+     * The only money column, and a whole number, so a charge is exact and so
+     * is every sum of charges. Charging moved from one call per agent turn to
+     * one call per embedding batch, and a batch of chunks costs a fraction of
+     * a cent: counting in whole cents rounded a tenth of a cent up to one on
+     * every batch and billed a $1 sync as $10.
+     *
+     * Cents for reading are divided out of this at the point of display.
+     * There used to be a `current_cents` column holding that division, and it
+     * was removed: it was a second copy of the same money that could disagree
+     * with this one, and because it was floored per row, the agents' cents
+     * never added up to the workspace's. The database column outlives this
+     * line by one release — nothing reads or writes it now, and a later
+     * migration drops it (see `migrations/CONVENTIONS.md`, expand and
+     * contract).
+     */
+    currentMicroCents: bigint('current_micro_cents', { mode: 'number' }).default(0).notNull(),
     /** Soft cap — warn but don't refuse. */
     softTokenLimit: bigint('soft_token_limit', { mode: 'number' }),
     softCentsLimit: bigint('soft_cents_limit', { mode: 'number' }),
