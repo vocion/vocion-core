@@ -1,4 +1,4 @@
-import type { FeatureReport, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
+import type { FeatureReport, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
 import { StatusPill } from '@/components/ui/status-pill';
 import { formatStamp, money } from '@/services/factory/featureReport';
@@ -261,6 +261,66 @@ function StickyAction({ state }: { state: ReportState }) {
 }
 
 /**
+ * DONE WHEN — the contract, high on the page.
+ *
+ * This is what a person is looking at when they ask how close it is, and it
+ * used to be several screens down inside the per-task contracts, drawn once
+ * per attempt. Unchecked is drawn as unchecked, never as failed: nobody has
+ * looked is a different fact from it does not hold, and collapsing the two is
+ * how a page starts lying about a contract.
+ * @param props
+ * @param props.acceptance - The criteria and the count.
+ */
+function DoneWhen({ acceptance }: { acceptance: ReportAcceptance }) {
+  if (acceptance.total === 0) {
+    return (
+      <section id="report-acceptance" className="rounded-lg border border-dashed border-border p-3">
+        <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Done when</h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Nothing says what done means for this work. Until somebody writes it, there is no way to tell whether it was delivered — only whether it ran.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section id="report-acceptance" className="rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">Done when</h2>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          {acceptance.met}
+          {' of '}
+          {acceptance.total}
+          {acceptance.frozenAt === null ? ' · still a draft' : ''}
+        </span>
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {acceptance.items.map(item => (
+          <li key={item.statement} className="flex items-start gap-2 text-sm">
+            <span
+              aria-hidden
+              className={`mt-[3px] inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border text-[9px] leading-none ${
+                item.met === true
+                  ? 'border-brand-ok bg-brand-ok text-white'
+                  : 'border-border text-transparent'
+              }`}
+            >
+              ✓
+            </span>
+            <span className={`min-w-0 break-words ${item.met === true ? 'text-muted-foreground' : 'text-foreground'}`}>
+              {item.statement}
+              {item.met === null && <span className="ml-1.5 text-xs text-muted-foreground">not checked</span>}
+              {item.evidenceUrl !== null && (
+                <a href={item.evidenceUrl} className="ml-1.5 text-xs text-muted-foreground underline hover:text-foreground">evidence</a>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
  * Six figures across the top: asked, shipped, elapsed, what it cost, how
  * many times a person decided, how many attempts it took.
  * @param props - The report.
@@ -332,6 +392,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
     <div className="max-w-3xl space-y-6 overflow-x-hidden">
       <StateHeader state={report.state} />
+      <DoneWhen acceptance={report.acceptance} />
       <SummaryStrip report={report} />
 
       {report.contradictions.length > 0 && (
@@ -344,9 +405,22 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         </section>
       )}
 
-      <section>
+      {/* THE STORY, in the order a person follows it: what we are going to
+          make, what was built, the evidence, what remains, what it cost. The
+          machinery that produced it — the original ask, the triage figures,
+          the per-task contracts, the approval records — is all still here,
+          one level down, where it is traceable without being in the way. */}
+      <div className="space-y-5">
+        {report.sections.filter(x => x.group === 'story').map(section => <Section key={section.key} section={section} />)}
+      </div>
+
+      {/* HISTORY, at the bottom. The timeline is genuinely useful and it was
+          the second thing on the page, which made the database the
+          protagonist. The work is the protagonist; this is what happened to
+          it, for a reader who has got that far and wants it. */}
+      <section className="border-t border-border pt-5">
         <h2 className="mb-3 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-          In order
+          History
           <span className="ml-2 font-normal tracking-normal normal-case">
             {report.timeline.length}
             {' entries, newest last'}
@@ -355,9 +429,17 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
         <Timeline report={report} />
       </section>
 
-      <div className="space-y-5">
-        {report.sections.map(section => <Section key={section.key} section={section} />)}
-      </div>
+      {report.sections.some(x => x.group === 'detail') && (
+        <details id="report-technical" className="border-t border-border pt-5">
+          <summary className="cursor-pointer list-none text-sm font-medium text-muted-foreground hover:text-foreground">
+            Technical details
+            <span className="ml-2 text-xs font-normal">the ask as written, triage, the contracts, the approval records</span>
+          </summary>
+          <div className="mt-4 space-y-5">
+            {report.sections.filter(x => x.group === 'detail').map(section => <Section key={section.key} section={section} />)}
+          </div>
+        </details>
+      )}
 
       <StickyAction state={report.state} />
 
