@@ -17,11 +17,14 @@ import { HistoryPopover } from './HistoryPopover';
  * it; no autonomy rung — that moved into the input bar with the model control.
  * @param props
  * @param props.onNewChat - Start a fresh thread on this surface (and focus the box).
+ * @param props.onCopy
  * @param props.history - The conversations dropdown's data, or null when the surface has no history (a scoped rail).
  * @param props.compact - Force the ⋯ menu (the rail's phone sheet); undefined = decided by viewport width.
  */
-export function ChatHeaderActions({ onNewChat, history, compact }: {
+export function ChatHeaderActions({ onNewChat, onCopy, history, compact }: {
   onNewChat: () => void;
+  /** Build the thread as plain text, on demand. Null on a surface with nothing to copy. */
+  onCopy?: (() => string) | null;
   history: { recent: HistoryHit[]; currentId: number | null; onPick: (id: number) => void; search: (q: string) => Promise<HistoryHit[]> } | null;
   compact?: boolean;
 }) {
@@ -48,7 +51,7 @@ export function ChatHeaderActions({ onNewChat, history, compact }: {
         {history && <HistoryPopover recent={history.recent} currentId={history.currentId} onPick={history.onPick} search={history.search} />}
       </span>
       <span className={menu}>
-        <ChatMenu onNewChat={onNewChat} />
+        <ChatMenu onNewChat={onNewChat} onCopy={onCopy} />
       </span>
     </div>
   );

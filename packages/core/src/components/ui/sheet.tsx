@@ -47,9 +47,12 @@ function SheetContent({
   className,
   children,
   side = 'right',
+  closeClassName,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: 'top' | 'right' | 'bottom' | 'left';
+  /** Reposition the close control — for a sheet that opens with its own header row. */
+  closeClassName?: string;
 }) {
   return (
     <SheetPortal>
@@ -71,7 +74,12 @@ function SheetContent({
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary">
+        {/* `closeClassName` lets a sheet whose first row is its own header put
+            this on that row's baseline. Without it the close is pinned to the
+            sheet's top corner, and a sheet that opens with a grabber above a
+            48px header drew the X a clear 24px above the controls beside it
+            (Chris, 2026-09-22: "some alignment issues in chat head"). */}
+        <SheetPrimitive.Close className={cn('absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary', closeClassName)}>
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

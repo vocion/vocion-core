@@ -45,6 +45,7 @@ import {
 } from './railState';
 import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { useComposerTags } from './tagSearch';
+import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 
@@ -602,6 +603,7 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             The rung moved into the input bar beside the model control. */}
         <ChatHeaderActions
           onNewChat={session.handleNewChat}
+          onCopy={session.messages.length > 0 ? () => transcriptOf(session.messages, session.workspaceName) : null}
           history={scopeRef
             ? null
             : {
@@ -898,6 +900,10 @@ function ChatDockInner({ agents, scopeRef, scopeLabel, pageContext, defaultColla
             <SheetContent
               side="bottom"
               className="flex h-[88vh] w-full flex-col gap-0 rounded-t-2xl p-0"
+              // The grabber (16px) then a 48px header row puts that row's
+              // centre at 40px; the close belongs on it, beside the ⋯ menu,
+              // not in the sheet's corner 24px above everything it sits with.
+              closeClassName="top-10 right-3 -translate-y-1/2"
               aria-label={ariaLabel}
             >
               {/* The grabber. It is not a control — the sheet is dismissed by
