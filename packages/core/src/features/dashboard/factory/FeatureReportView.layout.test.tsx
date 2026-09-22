@@ -117,9 +117,9 @@ describe('the feature report, drawn', () => {
 
     const keys = [...document.querySelectorAll('[data-section]')].map(el => el.getAttribute('data-section'));
 
-    expect(keys).toEqual(['plan', 'runs', 'change', 'qa', 'release', 'money', 'ask', 'triage', 'contract', 'approvals']);
+    expect(keys).toEqual(['visuals', 'plan', 'runs', 'change', 'qa', 'release', 'money', 'ask', 'triage', 'contract', 'approvals']);
     // Nothing was dropped on the way.
-    expect(keys).toHaveLength(10);
+    expect(keys).toHaveLength(11);
 
     // And the four that moved are inside the disclosure, not merely after it.
     const technical = document.querySelector('#report-technical')!;

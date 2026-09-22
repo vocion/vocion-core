@@ -134,30 +134,59 @@ function Entry({ entry }: { entry: ReportEntry }) {
  * @param props - The evidence.
  * @param props.items - The artifacts.
  */
+/** What the tile says when there is no picture to draw — the artifact's own kind, not "report". */
+const KIND_WORD: Record<string, string> = {
+  markdown: 'a document',
+  chart: 'a chart',
+  table: 'a table',
+  sequence: 'a sequence',
+  document: 'a document',
+  link: 'a link',
+  file: 'a file',
+  record: 'a record',
+};
+
+/** What this evidence is FOR, in the reader's words rather than the field's. */
+const ROLE_WORD: Record<string, string> = {
+  'proposed': 'Proposed',
+  'shipped': 'After',
+  'qa-screenshot': 'Screenshot',
+  'qa-video': 'Video',
+  'qa-report': 'Report',
+};
+
 function Gallery({ items }: { items: ReportEvidence[] }) {
   return (
     <ul className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map(item => (
-        <li key={item.id} className="min-w-0 overflow-hidden rounded-lg border border-border">
-          {item.role === 'qa-screenshot' && item.url
-            ? <img src={item.url} alt={item.caption ?? item.title} loading="lazy" className="block aspect-video w-full object-cover" />
-            : (
-                <div className="flex aspect-video w-full items-center justify-center bg-muted/40 text-xs text-muted-foreground">
-                  {item.role === 'qa-video' ? 'video' : 'report'}
-                </div>
-              )}
-          <div className="p-2.5">
-            <p className="text-sm font-medium break-words">{item.title}</p>
-            <p className="mt-0.5 text-xs break-words text-muted-foreground">{item.caption ?? 'No caption was posted with this artifact.'}</p>
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-              {item.role}
-              {' · '}
-              {formatStamp(item.at)}
-            </p>
-            {item.url && <a href={item.url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs break-all underline underline-offset-2">Open</a>}
-          </div>
-        </li>
-      ))}
+      {items.map((item) => {
+        // A picture is drawn as a picture. Everything else says what it is and
+        // opens where it renders — a grey square labelled "report" told a
+        // reader nothing about a flow diagram sitting behind it.
+        const isImage = item.role === 'qa-screenshot' || item.kind === 'image';
+        const proposed = item.role === 'proposed';
+        return (
+          <li key={item.id} className={`min-w-0 overflow-hidden rounded-lg border ${proposed ? 'border-dashed border-border' : 'border-border'}`}>
+            {isImage && item.url
+              ? <img src={item.url} alt={item.caption ?? item.title} loading="lazy" className="block aspect-video w-full object-cover" />
+              : (
+                  <div className="flex aspect-video w-full flex-col items-center justify-center gap-1 bg-surface-soft px-3 text-center">
+                    <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
+                    <span className="text-xs text-muted-foreground">{KIND_WORD[item.kind] ?? item.kind}</span>
+                  </div>
+                )}
+            <div className="p-2.5">
+              <p className="text-sm font-medium break-words">{item.title}</p>
+              <p className="mt-0.5 text-xs break-words text-muted-foreground">{item.caption ?? 'No caption was posted with this artifact.'}</p>
+              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                {ROLE_WORD[item.role] ?? item.role}
+                {' · '}
+                {formatStamp(item.at)}
+              </p>
+              {item.url && <a href={item.url} className="mt-1 inline-block text-xs break-all underline underline-offset-2">Open it</a>}
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }
