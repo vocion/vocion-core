@@ -406,13 +406,13 @@ describe('a stage that did not happen says so', () => {
     expect(section(report, 'contract').absence).toBe('No task contract was written for this request; nothing was dispatched.');
     expect(section(report, 'runs').absence).toBe('No worker run is recorded against this work.');
     expect(section(report, 'change').absence).toBe('No pull request is recorded for this work.');
-    expect(section(report, 'release').absence).toBe('No release carries this task.');
+    expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
   });
 
   it('a task with no release says no release carries it, and does not infer one from the merged PR', () => {
     const report = assembleFeatureReport(input({ releases: [] }));
 
-    expect(section(report, 'release').absence).toBe('No release carries this task.');
+    expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
     expect(section(report, 'change').absence).toBeNull();
     expect(report.summary.shippedAt).toBeNull();
     expect(report.summary.elapsedOpen).toBe(true);
@@ -451,15 +451,18 @@ describe('QA evidence', () => {
   it('says plainly that none was captured rather than hiding the section', () => {
     const qa = section(assembleFeatureReport(input({ artifacts: [] })), 'qa');
 
-    expect(qa.absence).toBe('No QA evidence was captured for this task.');
-    expect(qa.flags[0]).toContain('recordRole: qa-screenshot | qa-video | qa-report');
+    expect(qa.absence).toBe('Not ready for review — nobody has looked at this running yet.');
+    // It names what a person owes, not what the column is called: the old
+    // line printed the artifact's recordRole enum at a reader.
+    expect(qa.checks.map(c => c.name)).toContain('A shot of it working, on a phone');
+    expect(qa.checks.every(c => c.passed === null)).toBe(true);
   });
 
   it('ignores an artifact on the task that is not QA evidence', () => {
     const brief: ReportArtifact = { ...screenshot, id: 701, recordRole: 'brief', spec: {} };
     const qa = section(assembleFeatureReport(input({ artifacts: [brief] })), 'qa');
 
-    expect(qa.absence).toBe('No QA evidence was captured for this task.');
+    expect(qa.absence).toBe('Not ready for review — nobody has looked at this running yet.');
   });
 
   it('reads the marker off recordRole, or off spec.kind when a worker wrote it there', () => {
