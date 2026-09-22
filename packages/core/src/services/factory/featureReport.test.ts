@@ -771,3 +771,24 @@ describe('what this piece of work cost', () => {
     expect(line.varianceCents).toBe(-200);
   });
 });
+
+describe('the goal, when the body opens with a label', () => {
+  const withBody = (body: string) => {
+    const base = input({});
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body } } });
+  };
+
+  it('says nothing rather than printing a label with a stray numeral', () => {
+    // The real body on the Stamp rename. Its first full stop is inside "1.",
+    // so the sentence rule kept it and the subtitle read
+    // "Acceptance criteria — each one a person can check: 1."
+    const report = withBody('Acceptance criteria — each one a person can check: 1. Every screen shows Stamp. 2. Old links resolve.');
+
+    expect(report.goal).toBeNull();
+  });
+
+  it('still takes a real opening sentence', () => {
+    expect(withBody('Launch as Stamp without breaking links. 1. Every screen shows Stamp.').goal)
+      .toBe('Launch as Stamp without breaking links.');
+  });
+});

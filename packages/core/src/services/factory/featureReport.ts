@@ -1574,7 +1574,18 @@ function goalOf(request: ReportObject): string | null {
   // lowercase letter.
   const cut = oneLine.search(/\.\s+[A-Z0-9]/);
   const first = cut === -1 ? oneLine : oneLine.slice(0, cut + 1);
-  return first.length > 180 ? `${first.slice(0, 179).trimEnd()}…` : first;
+  // A body that opens "Acceptance criteria — each one a person can check: 1.
+  // Every screen…" has its first full stop INSIDE the list marker, so the
+  // sentence rule above kept the "1." and the goal read
+  // "…each one a person can check: 1." — a label with a stray numeral glued
+  // to it. Drop a trailing enumeration marker, and if what is left is a
+  // colon-terminated label rather than a sentence, say nothing: a label is
+  // not a goal, and an empty subtitle is more honest than a broken one.
+  const trimmed = first.replace(/\s*\d+\.$/, '').trim();
+  if (trimmed === '' || trimmed.endsWith(':')) {
+    return null;
+  }
+  return trimmed.length > 180 ? `${trimmed.slice(0, 179).trimEnd()}…` : trimmed;
 }
 
 /**
