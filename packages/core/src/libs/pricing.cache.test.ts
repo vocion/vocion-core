@@ -99,6 +99,15 @@ describe('tokenCostMicroCents when a provider reports the split oddly', () => {
     expect(cost).toBeGreaterThanOrEqual(0);
   });
 
+  it('charges the cache portions even when inputTokens is missing entirely', () => {
+    // A provider that reports the cache counts and nothing else. Treating the
+    // absent `inputTokens` as zero is right — there is no full-rate remainder
+    // to charge — but the cached tokens still cost money and must not vanish.
+    const cost = tokenCostMicroCents(MODEL, { cacheReadTokens: 1_000, cacheWriteTokens: 1_000 });
+
+    expect(cost).toBe(1_000 * TIER.cacheReadCentsPerMillion! + 1_000 * TIER.inputCentsPerMillion * 1.25);
+  });
+
   it('still costs 0 for a model that is not priced', () => {
     expect(tokenCostMicroCents('some-unlisted-model', { inputTokens: 1_000_000, cacheWriteTokens: 500_000 })).toBe(0);
   });

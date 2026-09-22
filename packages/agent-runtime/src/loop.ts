@@ -158,6 +158,10 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
     model: req.agent.model,
     temperature: req.agent.temperature,
     maxTokens: req.agent.maxTokens,
+    // Spread rather than passed straight through: `buildChatModel` defaults it
+    // to on, and an absent field in the request means "core said nothing",
+    // which has to stay distinguishable from an explicit false.
+    ...(req.agent.promptCache !== undefined ? { promptCache: req.agent.promptCache } : {}),
     readAwsSession: () => currentInvocationContext().awsSession,
   });
 

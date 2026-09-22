@@ -330,19 +330,30 @@ export function traceFor(opts: TraceFor): TraceLike {
 type GenerationLike = ReturnType<TraceLike['generation']>;
 type SpanLike = ReturnType<TraceLike['span']>;
 
+/**
+ * What one finished model turn reported, as `onTurnEnd` receives it.
+ *
+ * Every count is optional because providers disagree about which ones they
+ * fill in: only the normalised `usage_metadata` shape carries the cache
+ * numbers, and a provider with no prompt cache sends neither. `inputTokens`
+ * means the WHOLE input side, cached tokens included — readers that hand back
+ * the uncached remainder have to add the cache counts back before reporting.
+ */
+export type LangfuseTurnUsage = {
+  model: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+};
+
 export type CreateLangfuseCallbackOptions = TraceFor & {
   /**
    * Optional per-turn usage hook. Called from `handleLLMEnd` with the
    * model + token usage so callers (e.g. BudgetService) can charge
    * budgets without intercepting the LangChain runnable directly.
    */
-  onTurnEnd?: (turn: {
-    model: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    cacheWriteTokens?: number;
-  }) => void | Promise<void>;
+  onTurnEnd?: (turn: LangfuseTurnUsage) => void | Promise<void>;
 };
 
 export type LangfuseCallback = {
@@ -400,10 +411,21 @@ export function createLangfuseCallback(
         model?: string;
         tokenUsage?: { promptTokens?: number; completionTokens?: number };
         // Anthropic surfaces usage on llmOutput.usage with cache fields.
-        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number };
+        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
       };
       const usage = llmOutput.tokenUsage;
       const anthropicUsage = llmOutput.usage;
+      // Anthropic reports `input_tokens` as the UNCACHED remainder, so the two
+      // cache counts are added back before this is used as `inputTokens`.
+      // Everything downstream — `tokenCostMicroCents` above all — takes
+      // `inputTokens` to mean the whole input side and subtracts the cache
+      // counts off it again; reading the raw remainder here would subtract
+      // them twice, clamp at zero, and undercharge every cached turn.
+      const anthropicInputTokens = anthropicUsage?.input_tokens === undefined
+        ? undefined
+        : anthropicUsage.input_tokens
+          + (anthropicUsage.cache_read_input_tokens ?? 0)
+          + (anthropicUsage.cache_creation_input_tokens ?? 0);
       // The message's own `usage_metadata` is the only shape every provider
       // fills in — Bedrock returns no `llmOutput` at all on a non-streamed
       // generation, so reading only the two shapes below left every Bedrock
@@ -428,9 +450,10 @@ export function createLangfuseCallback(
             })
           : anthropicUsage
             ? cleanUsageDetails({
-                input: anthropicUsage.input_tokens,
+                input: anthropicInputTokens,
                 output: anthropicUsage.output_tokens,
                 cache_read_input_tokens: anthropicUsage.cache_read_input_tokens,
+                cache_creation_input_tokens: anthropicUsage.cache_creation_input_tokens,
               })
             : undefined;
       gen.end({
@@ -442,10 +465,10 @@ export function createLangfuseCallback(
         try {
           await opts.onTurnEnd({
             model: llmOutput.model ?? 'unknown',
-            inputTokens: normalised?.inputTokens ?? usage?.promptTokens ?? anthropicUsage?.input_tokens,
+            inputTokens: normalised?.inputTokens ?? usage?.promptTokens ?? anthropicInputTokens,
             outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
             cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,
-            cacheWriteTokens: normalised?.cacheWriteTokens,
+            cacheWriteTokens: normalised?.cacheWriteTokens ?? anthropicUsage?.cache_creation_input_tokens,
           });
         } catch {
           /* never let the budget hook break the agent run */

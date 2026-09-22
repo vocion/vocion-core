@@ -41,6 +41,13 @@
  * call site of ours to pass the option at. Hence a subclass: it fills the
  * option in on the way through when the caller left it out.
  *
+ * Note that this is a DIFFERENT mechanism from the one the raw adapters use.
+ * `libs/llm/anthropic.ts` and `libs/llm/bedrock.ts` talk to the vendor SDKs
+ * directly and mark their own system block, because they build the request
+ * themselves. Here the request is built inside LangChain, so the instruction
+ * has to travel as the call option LangChain knows how to place. Both are
+ * correct for their path; do not "fix" one to match the other.
+ *
  * All three entry points are overridden. `_streamChatModelEvents` is easy to
  * miss and is the one the agent actually runs — `BaseChatModel.stream()` picks
  * it over `_streamResponseChunks` whenever the caller attached a chat-model

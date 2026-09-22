@@ -207,6 +207,13 @@ export function tokenCostMicroCents(model: string, usage: TokenUsage): number {
   // 1.25x is the published five-minute cache-write multiplier, and five
   // minutes is the TTL `libs/llm/promptCache.ts` asks for. A one-hour TTL
   // would be 2x and needs its own rate before it is used anywhere.
+  //
+  // It is an Anthropic and Bedrock figure, and it is applied here to any tier
+  // that does not name its own rate — OpenAI rows included. That is harmless
+  // today only because no OpenAI path fills in `cacheWriteTokens`: OpenAI
+  // caches automatically and bills no write premium. A provider that starts
+  // reporting writes and does not charge 1.25x for them needs its own
+  // `cacheWriteCentsPerMillion` before it is priced through here.
   const write = cacheWrite * (tier.cacheWriteCentsPerMillion ?? tier.inputCentsPerMillion * 1.25);
   const output = (usage.outputTokens ?? 0) * tier.outputCentsPerMillion;
   return Math.round(input + cache + write + output);

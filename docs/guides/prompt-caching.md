@@ -87,8 +87,12 @@ Bedrock reports `inputTokens` as the **uncached remainder only**. The whole inpu
 before filling in `TokenUsage`, so `usage.inputTokens` means the same thing everywhere in
 this codebase: every input token the call was billed for, cached ones included.
 
-- **Langfuse** (`/dashboard/observability`, or the Langfuse UI) stamps
-  `cache_read_input_tokens` and `cache_creation_input_tokens` on every generation.
+- **Langfuse's own UI** (http://localhost:3200, reached from the deep links on
+  `/dashboard/observability`) stamps `cache_read_input_tokens` and
+  `cache_creation_input_tokens` on every generation. This is the only place the
+  read/write split is visible: `/dashboard/observability` itself shows spend,
+  runs and active agents, with the cache discount already folded into the spend
+  figure rather than broken out.
 - **`TokenUsage`** carries `cacheReadTokens` and `cacheWriteTokens`; `RunUsage` sums both
   per turn and hands them to the cost calculation and to `chargeUsage`.
 - **CloudWatch**, for the Bedrock-side truth: `CacheReadInputTokenCount` and

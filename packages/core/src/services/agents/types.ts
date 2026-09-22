@@ -309,7 +309,7 @@ export type AgentEvent
      * token usage for budget charging. Consumed by the runtime provider,
      * never forwarded to the browser.
      */
-    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
+    | { type: 'usage'; model: string; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 
 /* ------------------------------------------------------------------ */
 /* Runtime context — what tool factories close over                    */

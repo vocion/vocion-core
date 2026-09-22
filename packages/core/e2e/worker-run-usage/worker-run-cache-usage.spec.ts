@@ -20,11 +20,14 @@ import { expect, test } from '@playwright/test';
  * simply does not copy `cacheWriteTokens` out of the body looks fine, returns
  * 200, and undercharges every cold turn by about 25%.
  *
- * Three agents so three budget rows, one per shape:
- *   - `cache-cold`  — a turn that WROTE its prefix (billed at 1.25x input)
- *   - `cache-warm`  — a turn that READ its prefix back (billed at 0.1x)
- *   - `cache-none`  — the same tokens with nothing cached
- * The order of what they were charged is the assertion: cold > none > warm.
+ * Every test invents its own agent slugs, so every comparison is between two
+ * budget rows that test created. Nothing here depends on file order, and
+ * running one test with `--grep` gives the same answer as running all of them.
+ *
+ * The three shapes compared, always against each other within one test:
+ *   - a turn that WROTE its prefix (billed at 1.25x input)
+ *   - a turn that READ its prefix back (billed at 0.1x)
+ *   - the same tokens with nothing cached
  *
  * Uses Playwright's `request` fixture only — no `page`, no browser launch —
  * since every assertion is on a JSON response body.
@@ -56,9 +59,17 @@ const INPUT_TOKENS = 10_000;
 const PREFIX_TOKENS = 8_000;
 const OUTPUT_TOKENS = 500;
 
-const COLD_AGENT = 'e2e-cache-cold';
-const WARM_AGENT = 'e2e-cache-warm';
-const PLAIN_AGENT = 'e2e-cache-none';
+/**
+ * Each test invents its own agent slugs, so each gets its own budget rows and
+ * no test depends on what another test charged. Running one spec with
+ * `--grep`, or reordering the file, has to give the same answer as running the
+ * whole project.
+ */
+let slugCounter = 0;
+function freshAgentSlug(what: string): string {
+  slugCounter += 1;
+  return `e2e-cache-${what}-${slugCounter}`;
+}
 
 function seedFixtures(): SeedFixtures {
   // Through `dotenv -c` so the script sees .env.local, same as every other
@@ -102,11 +113,13 @@ function authHeader(): { authorization: string } {
  * @param usage - The cache split to report for this turn.
  * @param usage.cacheReadTokens - Prefix tokens served from the vendor's cache.
  * @param usage.cacheWriteTokens - Prefix tokens written into the vendor's cache.
+ * @param via - Which of the two reporting routes to use.
  */
 async function runOneTurn(
   request: APIRequestContext,
   agentSlug: string,
   usage: { cacheReadTokens?: number; cacheWriteTokens?: number },
+  via: 'heartbeat' | 'checkpoint' = 'heartbeat',
 ): Promise<{ runId: number }> {
   const created = await request.post('/api/v1/worker-runs', {
     headers: authHeader(),
@@ -124,10 +137,14 @@ async function runOneTurn(
 
   expect(claimed.status(), await claimed.text()).toBe(200);
 
-  const beat = await request.post(`/api/v1/worker-runs/${run.id}/heartbeat`, {
+  const beat = await request.post(`/api/v1/worker-runs/${run.id}/${via}`, {
     headers: authHeader(),
     data: {
       workerId: 'e2e-worker',
+      // The checkpoint route requires a cursor; the heartbeat route ignores
+      // one. Sending it on both keeps the two calls otherwise identical, which
+      // is what makes them comparable.
+      cursor: 'page-1',
       usage: { model: MODEL, inputTokens: INPUT_TOKENS, outputTokens: OUTPUT_TOKENS, ...usage },
     },
   });
@@ -135,6 +152,26 @@ async function runOneTurn(
   expect(beat.status(), await beat.text()).toBe(200);
 
   return { runId: run.id };
+}
+
+/**
+ * Micro-cents one turn of the given shape costs, on an agent of its own.
+ * @param request - Playwright's request fixture.
+ * @param what - Short label, so the generated agent slug says what it was.
+ * @param usage - The cache split to report for the turn.
+ * @param usage.cacheReadTokens - Prefix tokens served from the vendor's cache.
+ * @param usage.cacheWriteTokens - Prefix tokens written into the vendor's cache.
+ * @param via - Which of the two reporting routes to use.
+ */
+async function costOfOneTurn(
+  request: APIRequestContext,
+  what: string,
+  usage: { cacheReadTokens?: number; cacheWriteTokens?: number },
+  via: 'heartbeat' | 'checkpoint' = 'heartbeat',
+): Promise<number> {
+  const agentSlug = freshAgentSlug(what);
+  await runOneTurn(request, agentSlug, usage, via);
+  return chargedMicroCents(request, agentSlug);
 }
 
 /**
@@ -177,11 +214,8 @@ async function chargedMicroCents(request: APIRequestContext, agentSlug: string):
 
 test.describe('prompt-cache token counts reported by an external worker', () => {
   test('a turn that wrote its prefix costs more than one that cached nothing', async ({ request }) => {
-    await runOneTurn(request, COLD_AGENT, { cacheWriteTokens: PREFIX_TOKENS });
-    await runOneTurn(request, PLAIN_AGENT, {});
-
-    const cold = await chargedMicroCents(request, COLD_AGENT);
-    const plain = await chargedMicroCents(request, PLAIN_AGENT);
+    const cold = await costOfOneTurn(request, 'cold', { cacheWriteTokens: PREFIX_TOKENS });
+    const plain = await costOfOneTurn(request, 'plain', {});
 
     // A cache write is billed at 1.25x input. If the route dropped
     // `cacheWriteTokens`, these two would be equal.
@@ -189,19 +223,27 @@ test.describe('prompt-cache token counts reported by an external worker', () => 
   });
 
   test('a turn that read its prefix back costs a fraction of one that cached nothing', async ({ request }) => {
-    await runOneTurn(request, WARM_AGENT, { cacheReadTokens: PREFIX_TOKENS });
-
-    const warm = await chargedMicroCents(request, WARM_AGENT);
-    const plain = await chargedMicroCents(request, PLAIN_AGENT);
+    const warm = await costOfOneTurn(request, 'warm', { cacheReadTokens: PREFIX_TOKENS });
+    const plain = await costOfOneTurn(request, 'plain', {});
 
     expect(warm).toBeLessThan(plain);
+  });
+
+  test('the checkpoint route charges a cache write the same way the heartbeat route does', async ({ request }) => {
+    // Same body, the other route. The two read the usage object with separate
+    // copies of the same code, so a field added to one and missed on the other
+    // is exactly the mistake this catches.
+    const cold = await costOfOneTurn(request, 'cold-checkpoint', { cacheWriteTokens: PREFIX_TOKENS }, 'checkpoint');
+    const plain = await costOfOneTurn(request, 'plain-checkpoint', {}, 'checkpoint');
+
+    expect(cold).toBeGreaterThan(plain);
   });
 
   test('cached tokens still count against the token cap', async ({ request }) => {
     // Money changes when a prefix is cached; the token count does not. A
     // cached token is still a token the model read, and the simpler token cap
     // has to keep binding.
-    const { runId } = await runOneTurn(request, WARM_AGENT, { cacheReadTokens: PREFIX_TOKENS });
+    const { runId } = await runOneTurn(request, freshAgentSlug('cap'), { cacheReadTokens: PREFIX_TOKENS });
 
     expect(await recordedTokens(request, runId)).toBe(INPUT_TOKENS + OUTPUT_TOKENS);
   });
@@ -209,7 +251,7 @@ test.describe('prompt-cache token counts reported by an external worker', () => 
   test('a body with no cache counts at all is still accepted', async ({ request }) => {
     // Older workers, and the in-process loop, report the two fields they
     // always did. The route must not start requiring the new ones.
-    const { runId } = await runOneTurn(request, PLAIN_AGENT, {});
+    const { runId } = await runOneTurn(request, freshAgentSlug('legacy'), {});
 
     expect(await recordedTokens(request, runId)).toBe(INPUT_TOKENS + OUTPUT_TOKENS);
   });
