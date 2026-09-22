@@ -103,6 +103,19 @@ export type ToolArgumentCondition = {
   present?: boolean;
   /** Every element of the value at `path` must be one of these. */
   subsetOf?: string[];
+  /**
+   * The value at `path` must fall on or after this calendar day: `today`,
+   * `yesterday`, `last week`, `3 days ago`, `in 2 weeks`, or `YYYY-MM-DD`.
+   * Resolved when the check runs, so `today` means the day of the run.
+   */
+  onOrAfter?: string;
+  /** The value at `path` must fall on or before this calendar day. Same words as `onOrAfter`. */
+  onOrBefore?: string;
+  /**
+   * Which zone "today" is in: `utc` (the default), `local` (the machine
+   * running the check), or an IANA name like `America/New_York`.
+   */
+  timezone?: string;
   /** How many of the tool's calls must satisfy the predicates. Default `every`. */
   calls?: 'every' | 'some';
 };

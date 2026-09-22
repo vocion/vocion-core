@@ -21,6 +21,7 @@
 
 import type { CaseTranscript, ToolCallRecord } from './transcripts';
 import type { EvalCheck, ProviderScore, ToolArgumentCondition, ToolCallCountCondition } from './types';
+import { calendarDayOf, resolveDayZone, resolveRelativeDay } from '@/libs/time/relativeDay';
 
 /** What one operator decided, before it becomes a score row. */
 type CheckOutcome = {
@@ -186,60 +187,149 @@ function renderArgumentValue(value: unknown): string {
 }
 
 /**
+ * What was found at a condition's path in one call, plus the name a failure
+ * sentence uses for it. Each predicate below reads the same three facts.
+ */
+type ResolvedArgument = {
+  found: boolean;
+  value: unknown;
+  /** `propose_action.action_input.dedupOn`, or `propose_action arguments`. */
+  where: string;
+};
+
+/**
+ * Why the value's presence broke the rule, or null when it held.
+ *
+ * A key that is present and holds nothing is not a value anyone can act on:
+ * an argument serialised as `undefined`, an empty string or a null all mean
+ * the agent left it out, whatever the shape of the object says.
+ * @param argument - What was at the path.
+ * @param present - Whether the case wanted it there.
+ */
+function presenceFailure(argument: ResolvedArgument, present: boolean): string | null {
+  const { found, value, where } = argument;
+  const isThere = found && value !== null && value !== undefined && value !== '';
+  if (isThere === present) {
+    return null;
+  }
+  return present ? `${where} was missing` : `${where} was set to ${renderArgumentValue(value)}`;
+}
+
+/**
+ * Why the value did not equal the authored one, or null when it did.
+ * @param argument - What was at the path.
+ * @param expected - The value the case authored.
+ */
+function equalsFailure(argument: ResolvedArgument, expected: unknown): string | null {
+  const { found, value, where } = argument;
+  if (found && deepEquals(value, expected)) {
+    return null;
+  }
+  return `${where} was ${renderArgumentValue(value)}, expected ${renderArgumentValue(expected)}`;
+}
+
+/**
+ * Why the value's text did not contain the needle, or null when it did.
+ * @param argument - What was at the path.
+ * @param needle - The text the case said must appear.
+ */
+function containsFailure(argument: ResolvedArgument, needle: string): string | null {
+  const { found, value, where } = argument;
+  if (found && renderArgumentValue(value).includes(needle)) {
+    return null;
+  }
+  return `${where} was ${renderArgumentValue(value)}, which does not contain "${needle}"`;
+}
+
+/**
+ * Why the value held something outside the allowed list, or null when every
+ * element was allowed.
+ *
+ * `subsetOf` asks whether every element is allowed, so a value that is not a
+ * list has no elements to ask about. Stringifying it and comparing that would
+ * answer a different question, and answer it wrong: a comma-joined string
+ * would fail as one long value, and an object would be compared as
+ * "[object Object]".
+ * @param argument - What was at the path.
+ * @param allowedValues - The values the case allows.
+ */
+function subsetFailure(argument: ResolvedArgument, allowedValues: string[]): string | null {
+  const { found, value, where } = argument;
+  if (!found) {
+    return `${where} was missing, so nothing could be compared against the allowed values`;
+  }
+  if (!Array.isArray(value)) {
+    return `${where} was ${renderArgumentValue(value)}, which is not a list, so its values cannot be checked against the allowed ones`;
+  }
+  const allowed = new Set(allowedValues);
+  const strays = value.filter(item => !allowed.has(String(item)));
+  if (strays.length === 0) {
+    return null;
+  }
+  return `${where} held ${strays.map(renderArgumentValue).join(', ')}, which ${strays.length === 1 ? 'is' : 'are'} not in the allowed values`;
+}
+
+/**
+ * Why the value's day fell outside a relative bound, or null when it held.
+ *
+ * The bound is resolved at `now`, so `today` is the day the run happens. A
+ * value that holds no readable date fails rather than passing, because "the
+ * agent sent `next Friday`" is a broken argument, not a date in range.
+ * @param argument - What was at the path.
+ * @param bound - `today`, `3 days ago`, `2026-09-01`, and so on.
+ * @param side - Whether the value must be on or after the bound, or on or before it.
+ * @param timezone - `utc`, `local`, or an IANA zone, as the manifest wrote it.
+ * @param now - The clock the check runs against.
+ */
+function dayBoundFailure(
+  argument: ResolvedArgument,
+  bound: string,
+  side: 'onOrAfter' | 'onOrBefore',
+  timezone: string | undefined,
+  now: Date,
+): string | null {
+  const zone = resolveDayZone(timezone);
+  const boundDay = resolveRelativeDay(bound, zone, now);
+  const valueDay = argument.found ? calendarDayOf(argument.value, zone) : null;
+  if (valueDay === null) {
+    return `${argument.where} was ${renderArgumentValue(argument.value)}, which is not a date, so it cannot be ${side === 'onOrAfter' ? 'on or after' : 'on or before'} ${bound}`;
+  }
+  // Both are `YYYY-MM-DD`, so comparing the text compares the days.
+  const holds = side === 'onOrAfter' ? valueDay >= boundDay : valueDay <= boundDay;
+  if (holds) {
+    return null;
+  }
+  return `${argument.where} was ${valueDay}, which is ${side === 'onOrAfter' ? 'before' : 'after'} ${bound} (${boundDay} in ${zone})`;
+}
+
+/**
  * Decide whether one call's arguments satisfy the case's predicates.
  *
  * Hands back the reason it failed rather than a bare false, so the score row
  * can name which predicate went wrong on which call instead of leaving the
- * reader to guess between four of them.
+ * reader to guess between four of them. Predicates are tried in a fixed order
+ * and the first failure is the one reported.
  * @param call - One tool call the agent made.
  * @param condition - What the case said those arguments must look like.
+ * @param now - The clock relative days resolve against.
  */
-function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition): { ok: boolean; reason: string } {
+function argumentsSatisfy(call: ToolCallRecord, condition: ToolArgumentCondition, now: Date): { ok: boolean; reason: string } {
   const { found, value } = resolveArgumentPath(call.input, condition.path);
-  const where = condition.path ? `${condition.tool}.${condition.path}` : `${condition.tool} arguments`;
+  const argument: ResolvedArgument = {
+    found,
+    value,
+    where: condition.path ? `${condition.tool}.${condition.path}` : `${condition.tool} arguments`,
+  };
 
-  if (condition.present !== undefined) {
-    // A key that is present and holds nothing is not a value anyone can act
-    // on: an argument serialised as `undefined`, an empty string or a null
-    // all mean the agent left it out, whatever the shape of the object says.
-    const isThere = found && value !== null && value !== undefined && value !== '';
-    if (isThere !== condition.present) {
-      return {
-        ok: false,
-        reason: condition.present
-          ? `${where} was missing`
-          : `${where} was set to ${renderArgumentValue(value)}`,
-      };
-    }
-  }
-  if (condition.equals !== undefined && (!found || !deepEquals(value, condition.equals))) {
-    return { ok: false, reason: `${where} was ${renderArgumentValue(value)}, expected ${renderArgumentValue(condition.equals)}` };
-  }
-  if (condition.contains !== undefined && (!found || !renderArgumentValue(value).includes(condition.contains))) {
-    return { ok: false, reason: `${where} was ${renderArgumentValue(value)}, which does not contain "${condition.contains}"` };
-  }
-  if (condition.subsetOf !== undefined) {
-    if (!found) {
-      return { ok: false, reason: `${where} was missing, so nothing could be compared against the allowed values` };
-    }
-    // `subsetOf` asks whether every element is allowed, so a value that is
-    // not a list has no elements to ask about. Stringifying it and comparing
-    // that would answer a different question, and answer it wrong: a
-    // comma-joined string would fail as one long value, and an object would
-    // be compared as "[object Object]".
-    if (!Array.isArray(value)) {
-      return { ok: false, reason: `${where} was ${renderArgumentValue(value)}, which is not a list, so its values cannot be checked against the allowed ones` };
-    }
-    const allowed = new Set(condition.subsetOf);
-    const strays = value.filter(item => !allowed.has(String(item)));
-    if (strays.length > 0) {
-      return {
-        ok: false,
-        reason: `${where} held ${strays.map(renderArgumentValue).join(', ')}, which ${strays.length === 1 ? 'is' : 'are'} not in the allowed values`,
-      };
-    }
-  }
-  return { ok: true, reason: '' };
+  const failure
+    = (condition.present !== undefined ? presenceFailure(argument, condition.present) : null)
+      ?? (condition.equals !== undefined ? equalsFailure(argument, condition.equals) : null)
+      ?? (condition.contains !== undefined ? containsFailure(argument, condition.contains) : null)
+      ?? (condition.subsetOf !== undefined ? subsetFailure(argument, condition.subsetOf) : null)
+      ?? (condition.onOrAfter !== undefined ? dayBoundFailure(argument, condition.onOrAfter, 'onOrAfter', condition.timezone, now) : null)
+      ?? (condition.onOrBefore !== undefined ? dayBoundFailure(argument, condition.onOrBefore, 'onOrBefore', condition.timezone, now) : null);
+
+  return failure === null ? { ok: true, reason: '' } : { ok: false, reason: failure };
 }
 
 /**
@@ -265,6 +355,15 @@ function describeArgumentCondition(condition: ToolArgumentCondition): string {
   }
   if (condition.subsetOf !== undefined) {
     predicates.push(`subsetOf=${JSON.stringify(condition.subsetOf)}`);
+  }
+  if (condition.onOrAfter !== undefined) {
+    predicates.push(`onOrAfter=${condition.onOrAfter}`);
+  }
+  if (condition.onOrBefore !== undefined) {
+    predicates.push(`onOrBefore=${condition.onOrBefore}`);
+  }
+  if (condition.timezone !== undefined) {
+    predicates.push(`timezone=${condition.timezone}`);
   }
   if (condition.calls === 'some') {
     predicates.push('calls=some');
@@ -293,7 +392,7 @@ function callsUnderTest(transcript: CaseTranscript, condition: ToolArgumentCondi
   });
 }
 
-function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition): CheckOutcome {
+function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgumentCondition, now: Date): CheckOutcome {
   const slug = `check:toolCalledWith:${describeArgumentCondition(condition)}`;
   const calls = callsUnderTest(transcript, condition);
 
@@ -315,7 +414,7 @@ function checkToolCalledWith(transcript: CaseTranscript, condition: ToolArgument
     };
   }
 
-  const results = calls.map(call => argumentsSatisfy(call, condition));
+  const results = calls.map(call => argumentsSatisfy(call, condition, now));
   const failures = results.filter(result => !result.ok);
   const wantsEvery = (condition.calls ?? 'every') === 'every';
   const passed = wantsEvery ? failures.length === 0 : failures.length < results.length;
@@ -396,8 +495,10 @@ function describeTrajectory(transcript: CaseTranscript): string {
  * key this build has never heard of.
  * @param transcript - What the case actually did.
  * @param check - The single-key object the manifest authored.
+ * @param now - The clock relative days like `today` resolve against; the
+ *   real one unless a test pins it.
  */
-export function runCheck(transcript: CaseTranscript, check: EvalCheck): CheckOutcome | null {
+export function runCheck(transcript: CaseTranscript, check: EvalCheck, now: Date = new Date()): CheckOutcome | null {
   if ('toolCalled' in check) {
     return checkToolCalled(transcript, check.toolCalled);
   }
@@ -405,7 +506,7 @@ export function runCheck(transcript: CaseTranscript, check: EvalCheck): CheckOut
     return checkToolNotCalled(transcript, check.toolNotCalled);
   }
   if ('toolCalledWith' in check) {
-    return checkToolCalledWith(transcript, check.toolCalledWith);
+    return checkToolCalledWith(transcript, check.toolCalledWith, now);
   }
   if ('toolCallCount' in check) {
     return checkToolCallCount(transcript, check.toolCallCount);
@@ -436,15 +537,17 @@ export function runCheck(transcript: CaseTranscript, check: EvalCheck): CheckOut
  * tool" is true of a crashed run and says nothing about the agent's behaviour,
  * so reporting it as a failed check would be noise dressed up as a finding.
  * @param transcript - What the case actually did.
+ * @param now - The clock relative days resolve against, read once so every
+ *   check on the case agrees on what today is.
  */
-export function scoreChecks(transcript: CaseTranscript): ProviderScore[] {
+export function scoreChecks(transcript: CaseTranscript, now: Date = new Date()): ProviderScore[] {
   if (transcript.errored) {
     return [];
   }
   const checks = transcript.item.checks ?? [];
   const scores: ProviderScore[] = [];
   for (const check of checks) {
-    const outcome = runCheck(transcript, check);
+    const outcome = runCheck(transcript, check, now);
     if (!outcome) {
       continue;
     }

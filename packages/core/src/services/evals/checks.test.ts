@@ -362,6 +362,53 @@ describe('scoreChecks', () => {
     expect(atMostOne?.slug).not.toBe(exactlyOne?.slug);
   });
 
+  it('fails a proposal whose day is before today, with today resolved when the check runs', () => {
+    // Playbook: only upcoming events reach the queue. The listing's contents
+    // roll over, so the rule has to be relative to the run, not a fixed date.
+    const now = new Date('2026-09-22T16:00:00Z');
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'America/New_York' } };
+    const upcoming = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22' } } })]);
+    const past = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-21' } } })]);
+
+    expect(runCheck(upcoming, check, now)?.passed).toBe(true);
+
+    const outcome = runCheck(past, check, now);
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('2026-09-21');
+  });
+
+  it('lets two date fields on one call use different zones', () => {
+    // At 9:30pm Eastern it is already tomorrow in UTC. The venue-local day
+    // holds against Eastern "today"; the same day fails against UTC's, which
+    // is why the zone sits on each check rather than on the dataset.
+    const now = new Date('2026-09-23T01:30:00Z');
+    const tonight = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2026-09-22' } } })]);
+    const eastern: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'America/New_York' } };
+    const utc: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', timezone: 'utc' } };
+
+    expect(runCheck(tonight, eastern, now)?.passed).toBe(true);
+    expect(runCheck(tonight, utc, now)?.passed).toBe(false);
+  });
+
+  it('fails a date argument that is not a date instead of passing it', () => {
+    const now = new Date('2026-09-22T16:00:00Z');
+    const vague = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: 'next Friday' } } })]);
+    const outcome = runCheck(vague, { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today' } }, now);
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('not a date');
+  });
+
+  it('holds a window with both bounds', () => {
+    // "Nothing more than a year out" is how a mis-parsed year shows up.
+    const now = new Date('2026-09-22T16:00:00Z');
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'action_input.fields.startDate', onOrAfter: 'today', onOrBefore: 'next year' } };
+    const typoYear = proposalTranscript([proposal({ action_input: { objectType: 'event-candidate', fields: { startDate: '2062-09-26' } } })]);
+
+    expect(runCheck(typoYear, check, now)?.passed).toBe(false);
+  });
+
   it('returns nothing for a case that authored no checks', () => {
     expect(scoreChecks(transcript())).toEqual([]);
   });

@@ -275,6 +275,33 @@ whole argument object. Give one or more of `equals`, `contains`, `present` and
 `subsetOf`, and all of them have to hold. `calls` says how many of the tool's
 calls must satisfy them: `every`, the default, or `some`.
 
+**Dates** take `onOrAfter` and `onOrBefore`, which compare the calendar day at
+`path` against a day named relative to the run:
+
+```text
+  # No proposed event is in the past, by the venue's clock.
+  - toolCalledWith:
+      tool: propose_action
+      path: action_input.fields.startDate
+      onOrAfter: today
+      timezone: America/New_York
+```
+
+The day words are `today`, `yesterday`, `tomorrow`, `last` or `next` followed
+by `week`, `month` or `year`, `N days|weeks|months|years ago`, `in N
+days|weeks|months|years`, or a fixed `YYYY-MM-DD`. They resolve when the check
+runs, so `today` is the day of the run, and a month move clamps to the last
+real day (a month before March 31 is the end of February). Anything else is
+refused when the workspace is applied.
+
+`timezone` is set on each check, because two date fields on one call can need
+different clocks: `utc` (the default), `local` (the machine running the check,
+which is UTC on the app servers), or an IANA name. It decides which day "today"
+is, and which day a value carrying an offset (`2026-09-22T21:30:00-04:00`)
+falls on. A bare day (`2026-09-22`) or a wall-clock time with no offset
+(`2026-09-22T19:30`) already names its day and is read as written. A value that
+is not a date — `next Friday`, a number — fails the check rather than passing.
+
 `where` narrows which calls the rule is about, and you will want it more often
 than it looks. One tool frequently files several kinds of thing — the example
 above proposes events and venues through the same `propose_action` — and a

@@ -1,6 +1,7 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { agentSkillsNameError } from '@/libs/skills/name';
+import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
@@ -1170,13 +1171,18 @@ const EvalCheckSchema = z.union([
       contains: z.string().optional(),
       present: z.boolean().optional(),
       subsetOf: z.array(z.string()).optional().describe('every element at the path must be one of these'),
+      onOrAfter: z.string().refine(isRelativeDay, { message: 'onOrAfter must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or after this day, resolved when the check runs'),
+      onOrBefore: z.string().refine(isRelativeDay, { message: 'onOrBefore must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or before this day, resolved when the check runs'),
+      timezone: z.string().refine(isDayZone, { message: 'timezone must be utc, local, or an IANA zone like America/New_York' }).optional().describe('which zone "today" is in for onOrAfter and onOrBefore; utc by default'),
       calls: z.enum(['every', 'some']).optional().describe('how many of the tool\'s calls must match; every by default'),
     }).refine(
       condition => condition.equals !== undefined
         || condition.contains !== undefined
         || condition.present !== undefined
-        || condition.subsetOf !== undefined,
-      { message: 'toolCalledWith needs one of equals, contains, present or subsetOf — otherwise it asserts nothing' },
+        || condition.subsetOf !== undefined
+        || condition.onOrAfter !== undefined
+        || condition.onOrBefore !== undefined,
+      { message: 'toolCalledWith needs one of equals, contains, present, subsetOf, onOrAfter or onOrBefore — otherwise it asserts nothing' },
     ),
   }),
   z.object({
