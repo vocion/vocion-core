@@ -392,4 +392,35 @@ describe('a <scratch> block in a stored text run folds to "Thinking"', () => {
     await expect.element(page.getByText('Fifteen runs.')).toBeInTheDocument();
     expect(page.getByTestId('scratch-fold').query()).toBeNull();
   });
+
+  it('a turn that failed outright names itself and opens its reason', async () => {
+    // What Chris met on a phone: an empty bubble with a red chip reading
+    // "error failed" — the node's generic label glued to the word failed —
+    // and the reason a tap away with no hover to hint that there was one.
+    await render(
+      <AgentMessage
+        agentName="Send Lead"
+        conversationId={77}
+        timestamp={Date.parse('2026-09-22T18:07:00.000Z')}
+        message={{
+          id: 941,
+          role: 'assistant',
+          content: '',
+          runs: [],
+          trace: [{
+            id: 'n1',
+            actor: { id: 'lead', kind: 'lead' as const, name: 'Send Lead' },
+            kind: 'delegate' as const,
+            status: 'error' as const,
+            label: 'Error',
+            detail: 'no model credentials configured for this workspace',
+          }],
+        }}
+      />,
+    );
+
+    await expect.element(page.getByTestId('tool-error-badge')).toHaveTextContent('This turn failed');
+    // Open already: there is nothing else on screen to read.
+    await expect.element(page.getByTestId('tool-error-detail')).toHaveTextContent('no model credentials');
+  });
 });

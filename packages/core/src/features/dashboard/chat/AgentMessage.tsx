@@ -141,9 +141,21 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
     .toString()
     .replaceAll(/\s+/g, ' ')
     .trim();
+  // A GENERIC name is not a name. When the failure arrives with nothing but
+  // "Error" on it — a provider that refused the whole turn, a missing key, a
+  // network that went away — `${name} failed` renders as "error failed",
+  // which is two words that say the same nothing twice.
+  const namedFailure = !['a tool', 'error', 'failed', ''].includes(toolErrorName.trim().toLowerCase());
+  const failureLabel = namedFailure ? `${toolErrorName} failed` : 'This turn failed';
+  // Did the turn say ANYTHING? A tool that failed mid-answer leaves prose
+  // around it and the badge is rightly a way in. A turn that failed outright
+  // leaves an empty bubble, and then hiding the reason behind a tap means the
+  // screen's whole content is a red chip reading "failed" — on a phone, with
+  // no hover to fall back on. So the reason opens with it.
+  const turnSaidSomething = Boolean(message.content?.trim()) || runs.some(r => r.type === 'text' && r.text?.trim());
   // Bumped by the badge; the work timeline opens to the failed step on change.
   const [inspect, setInspect] = useState(0);
-  const [showError, setShowError] = useState(false);
+  const [showError, setShowError] = useState(hasToolError && !turnSaidSomething);
   // The turn in the order it happened: passages of prose with the work that
   // fell between them rendered at that point, not hoisted to the top
   // (`interleave.ts`). A message with a typed trace renders the trace only —
@@ -224,7 +236,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
               className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/40 px-2 py-0.5 text-[10px] tracking-normal text-[var(--brand-fail)] normal-case transition hover:bg-[var(--brand-fail-bg)]"
             >
               <AlertCircle className="size-2.5 shrink-0" aria-hidden />
-              <span className="truncate">{toolErrorName === 'A tool' ? 'Tool error' : `${toolErrorName} failed`}</span>
+              <span className="truncate">{failureLabel}</span>
             </button>
           )}
         </div>
@@ -233,11 +245,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             data-testid="tool-error-detail"
             className="mt-2 rounded-md border border-[var(--brand-fail)]/30 bg-[var(--brand-fail-bg)]/30 px-3 py-2 text-[12px] text-foreground/90"
           >
-            <div className="font-medium text-[var(--brand-fail)]">
-              {toolErrorName}
-              {' '}
-              failed
-            </div>
+            <div className="font-medium text-[var(--brand-fail)]">{failureLabel}</div>
             <p className="mt-1 break-words whitespace-pre-wrap text-muted-foreground">
               {toolErrorDetail || 'The tool reported a failure but returned no message. The full step is in the activity trace above.'}
             </p>
