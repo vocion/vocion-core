@@ -208,21 +208,36 @@ export async function listMessages(opts: { orgId: string; conversationId: number
 /**
  * The status to actually store, guarding the column against a word no reader knows.
  *
- * Every reader treats an unrecognised status as an ordinary finished turn — no
- * notice, replayed as history, counted as healthy — so a typo would be wrong
- * quietly and forever. The row is still written, because the person's answer
- * matters more than the label on it, and the warning names the value so
- * whoever added it finds out the first time they run it.
+ * Every agent turn written from here on carries a status, so that reading one
+ * is the same question every time instead of "is this NULL because the turn
+ * finished, or because whoever wrote it forgot?". A caller that says nothing
+ * means the ordinary case, `complete` — the statuses that matter are the ones
+ * somebody chose deliberately.
+ *
+ * A person's own message gets NULL, because status describes how an agent's
+ * turn ended and a person's message does not end: they pressed enter and it
+ * was said. NULL also remains on every row written before this vocabulary
+ * existed, and every reader treats it as an ordinary finished turn, which is
+ * what those rows almost always were.
+ *
+ * A word outside the vocabulary is stored as `complete` with a warning naming
+ * it, because a typo would otherwise be wrong quietly and forever — and the
+ * row is still written either way, since the person's answer matters more than
+ * the label on it.
  * @param status - What the caller asked for.
- * @returns The status, or null when it is not one this product knows.
+ * @param role - Who the message is from; only an assistant turn takes a status.
+ * @returns The status to write into the column.
  */
-function storableStatus(status: TurnStatus | null | undefined): TurnStatus | null {
-  if (status === null || status === undefined) {
+function storableStatus(status: TurnStatus | null | undefined, role: 'user' | 'assistant'): TurnStatus | null {
+  if (role === 'user') {
     return null;
   }
+  if (status === null || status === undefined) {
+    return 'complete';
+  }
   if (!isTurnStatus(status)) {
-    console.warn('appendMessage: refusing to store an unknown turn status; the row is written without one', { status });
-    return null;
+    console.warn('appendMessage: unknown turn status, storing it as complete', { status });
+    return 'complete';
   }
   return status;
 }
@@ -242,10 +257,10 @@ export async function appendMessage(opts: {
   /** How the workspace chose this message's agent, when nobody named one (`services/agents/router.ts`). */
   routing?: import('@/services/agents/router').RoutingDecision | null;
   /**
-   * How the turn ended (`services/chat/turnStatus.ts`). Omitted means NULL,
-   * which reads as a finished turn — the shape every row written before this
-   * vocabulary has. What it changes: the notice under the turn, and whether
-   * the text is replayed to the model on the next turn.
+   * How an assistant turn ended (`services/chat/turnStatus.ts`). Omitted means
+   * `complete`; a `user` message is stored without one whatever is passed.
+   * What it changes: the notice under the turn, and whether the text is
+   * replayed to the model on the next turn.
    */
   status?: TurnStatus | null;
   /** Why it ended that way, in the runtime's own words. Only meaningful beside a `status` that owes an explanation. */
@@ -271,7 +286,7 @@ export async function appendMessage(opts: {
       documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
       traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
       routingJson: opts.routing ?? null,
-      status: storableStatus(opts.status),
+      status: storableStatus(opts.status, opts.role),
       statusReason: opts.statusReason ?? null,
     })
     .returning();

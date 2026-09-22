@@ -14,8 +14,11 @@
  *   - whether the text is replayed to the model next turn (`toHistoryTurns`),
  *   - what a count of failed turns means.
  *
- * NULL is still legal and means "written before this vocabulary existed".
- * Legacy rows are treated as `complete`, which is what they were.
+ * Every agent turn written from here on carries one of these — `appendMessage`
+ * fills in `complete` when a caller names nothing. NULL means one of the two
+ * rows that never had an ending to record: a message a person typed, or an
+ * agent turn written before this vocabulary existed. Both read as `complete`,
+ * which is what the old ones were.
  */
 
 /**
