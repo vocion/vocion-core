@@ -1,0 +1,47 @@
+# Gate 3 of 3 — the evidence, before anything is called done.
+#
+# Fires on `pr.checks_completed` with a successful conclusion: the machine is
+# satisfied, which is exactly the moment a person is most likely to accept a
+# claim without opening it. Green checks are not evidence that a criterion
+# holds; they are evidence that the tests that exist passed.
+#
+# The structural half of this gate is already in code (`contractGap` on the
+# Work row: a finished outcome with unchecked or failed criteria says so, and
+# cannot be argued out of it). This is the judgement half — whether the
+# evidence attached actually settles the thing it is attached to.
+#
+# Loop safety: a check event from the forge, not one this run raises. Ceiling
+# kept low for the same reason as gate 2.
+slug: contract-red-team-evidence
+name: Green checks are not the same as a proven contract
+description: >-
+  When every check on a factory pull request has passed, the change reviewer
+  reads each acceptance criterion against the evidence attached to it: is this
+  link actually proof of this claim, or is it a passing test that happens to
+  sit nearby. Reports every criterion it cannot settle.
+status: active
+agent: change-reviewer
+when:
+  event: pr.checks_completed
+  filter:
+    conclusion: success
+  maxFiresPer10m: 4
+do:
+  checkMission: prove-the-contract
+  prompt: >-
+    Every check passed on {{repo}}#{{number}} ({{url}}), branch {{branch}}.
+
+    Read each acceptance criterion on the request this branch belongs to, with
+    the evidence recorded against it. For each one, answer a single question:
+    does this evidence show THIS criterion holding, to someone who did not
+    write it?
+
+    A passing check is not evidence for a criterion it does not exercise. A
+    screenshot of the wrong state is not evidence. A criterion marked met with
+    no link is an assertion, and must be reported as unproven.
+
+    State the count you are claiming — "4 of 6 proven" — so a reader can check
+    it against your own list.
+
+    Every criterion you cannot settle is the finding. Say what evidence would
+    settle it.

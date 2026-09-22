@@ -90,6 +90,40 @@ schema:
         afterArtifactIds: {type: array, items: {type: integer}, description: 'What shipped, captured from the running product. GIF and video later; a still is enough to close.'}
         surfaceUrl: {type: string, description: 'Where on the live product this can be seen — and, once it has shipped, where the after-shot was captured. One link, because they are the same place, and a shot nobody can check against the real thing is decoration.'}
         noVisualReason: {type: string, description: 'Why this user-facing change carries no visual. Recorded rather than assumed, so the gap is a decision somebody made and not an omission nobody noticed.'}
+    acceptance:
+      x-display: {label: Acceptance criteria, role: prose, format: steps, order: 5}
+      type: array
+      description: >-
+        The contract between a person and the factory: what has to be true
+        before this is done. Written before the work starts, in the language
+        of the product rather than the implementation — "existing Send links
+        continue to resolve", not "update the redirect map".
+
+        This is what a person approves. "Done when it works" is not a
+        contract, because nobody can tell whether it was met; a criterion a
+        reader cannot check is the same as no criterion. Each one carries the
+        evidence that settled it, so a review reads as a list of claims with
+        proof attached rather than a diff to be trusted.
+
+        Frozen at approval (`acceptanceFrozenAt`). If the factory discovers
+        something that changes the contract materially it comes back rather
+        than silently reinterpreting the job.
+      items:
+        type: object
+        properties:
+          statement: {type: string, description: 'One thing that must be true, stated so a person can check it. Present tense, user-visible where possible.'}
+          met: {type: boolean, description: 'Whether it holds. Absent means nobody has checked yet, which is NOT the same as false.'}
+          evidenceUrl: {type: string, description: 'What settled it — a test run, a screenshot, a smoke check. A criterion marked met with no evidence is an assertion, not a proof.'}
+          checkedAt: {type: string, format: date-time}
+    acceptanceFrozenAt:
+      x-display: {label: Contract agreed, group: Triage}
+      type: string
+      format: date-time
+      description: >-
+        When the acceptance criteria stopped being a draft and became the
+        thing the factory is building against. Set at approval. A change after
+        this is a renegotiation and needs a person, which is what stops the
+        job being quietly reinterpreted mid-build.
     severity:
       x-display: {label: Severity, format: badge, group: Triage, tones: {p1: bad, p2: warn, p3: muted}}
       type: string

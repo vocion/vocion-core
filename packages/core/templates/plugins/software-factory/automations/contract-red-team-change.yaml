@@ -1,0 +1,43 @@
+# Gate 2 of 3 — the change, against the contract that was frozen.
+#
+# Fires on `pr.opened` for a factory branch: the work exists and is asking to
+# be reviewed. This is the gate that catches a build which quietly reinterpreted
+# the job — the failure `acceptanceFrozenAt` exists to make visible.
+#
+# Loop safety: a pull-request event, not one this automation's own run raises.
+# The ceiling is lower than triage's because a factory branch opening a PR is
+# a rarer event than a triage batch, so a burst here is more likely to be a
+# symptom than a workload.
+slug: contract-red-team-change
+name: A change that reinterpreted the job is caught before QA
+description: >-
+  When a factory branch opens a pull request, the change reviewer reads the
+  diff against the contract frozen at approval: does it do what was agreed,
+  does it do something that was not, and did it drop a criterion. A build that
+  changed the job is a renegotiation and needs a person.
+status: active
+agent: change-reviewer
+when:
+  event: pr.opened
+  filter:
+    branchPrefix: factory/
+  maxFiresPer10m: 4
+do:
+  checkMission: prove-the-contract
+  prompt: >-
+    Pull request {{repo}}#{{number}} ({{url}}) opened on branch {{branch}}.
+
+    Find the request this branch belongs to and read the acceptance criteria as
+    they were FROZEN at approval (`acceptanceFrozenAt`). Compare the diff with
+    that contract.
+
+    Say three things. Which criteria this change appears to satisfy, and what in
+    the diff satisfies them. What this change does that no criterion asked for.
+    And which criteria it does not touch at all.
+
+    Do not mark anything proven here — nothing has been verified yet, and a
+    passing check is not evidence a criterion holds. This gate is about scope,
+    not proof.
+
+    If the contract was never frozen, say so and stop: there is nothing to
+    compare against, and that absence is the finding.

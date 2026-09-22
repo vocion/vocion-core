@@ -1,0 +1,44 @@
+# Gate 1 of 3 — the contract itself, before anyone agrees to it.
+#
+# Fires on `request.triaged`: the moment a request has been understood well
+# enough to be put in front of a person, and BEFORE it is approved. What it
+# red-teams is the acceptance criteria — not the work, which does not exist
+# yet — because a contract nobody can check is the cheapest thing in the
+# factory to fix and the most expensive thing to discover at QA.
+#
+# Loop safety: it fires on a request event, never on its own run's event, so
+# `fireGuards` rule 1 (an automation never fires on its own run's event,
+# tracked through `mission_run.caused_by`) already holds. The ceiling is
+# declared explicitly rather than inherited: triage can land in bursts when a
+# batch is worked, and six per ten minutes is the default that the 2026-09-20
+# runaway was measured against, not a number chosen for this automation.
+slug: contract-red-team-proposal
+name: A contract nobody can check is caught before it is agreed
+description: >-
+  When a request is triaged, the change reviewer reads its acceptance criteria
+  as a sceptic: is each one something a person could actually check, does the
+  set of them cover the stated goal, and is anything in there that is really
+  an implementation instruction rather than an outcome. Reports what it would
+  not be able to prove later.
+status: active
+agent: change-reviewer
+when:
+  event: request.triaged
+  maxFiresPer10m: 6
+do:
+  checkMission: prove-the-contract
+  prompt: >-
+    Request {{id}} has just been triaged and is about to be put in front of a
+    person. Read its acceptance criteria as the reviewer who will later have to
+    PROVE each one.
+
+    For each criterion say whether it is checkable — could you, later, produce a
+    link that shows it holding? Name the evidence you would expect. A criterion
+    like "done when it works" is not checkable and must be reported as such.
+
+    Then say what the set as a whole does not cover, against the request's own
+    goal and body. Do not write the criteria for them; report what is missing
+    and why it matters.
+
+    If the request carries NO acceptance criteria, say exactly that and stop.
+    Do not invent them: what a person approves has to be what a person wrote.

@@ -366,6 +366,75 @@ function visualsOf(row: PageRow): { before: number; after: number; reason: strin
 }
 
 /**
+ * How many acceptance criteria a row carries, and how many are settled.
+ * @param row
+ */
+export function acceptanceOf(row: PageRow): { total: number; met: number; frozen: boolean } {
+  const raw = meta(row).acceptance;
+  const list = Array.isArray(raw) ? raw : [];
+  const met = list.filter(c => c !== null && typeof c === 'object' && (c as Record<string, unknown>).met === true).length;
+  return { total: list.length, met, frozen: str(row, 'acceptanceFrozenAt') !== null };
+}
+
+/**
+ * What a person is being asked to agree to, or the fact that nothing has been
+ * written down yet.
+ *
+ * Acceptance criteria are the contract: what has to be true before this is
+ * done, written before the work starts, in the language of the product. "Done
+ * when it works" is not a contract, because nobody can tell whether it was
+ * met — so an outcome put in front of a person with nothing written is the
+ * gap this reports, and it reports it the same way the page already reports
+ * an unranked queue and a missing mockup.
+ *
+ * A row already being built says how far the contract has been settled
+ * instead, because by then the question is no longer "what did we agree" but
+ * "how much of it holds".
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function acceptanceLine(row: PageRow, lane: WorkLane): string | null {
+  const { total, met } = acceptanceOf(row);
+  if (lane === 'proposed') {
+    return total === 0 ? 'no criteria' : `${total} ${total === 1 ? 'criterion' : 'criteria'}`;
+  }
+  if (lane === 'progress' && total > 0) {
+    return `${met} of ${total} met`;
+  }
+  if (lane === 'done' && total > 0) {
+    return met === total ? `all ${total} met` : `${met} of ${total} met`;
+  }
+  return null;
+}
+
+/**
+ * A finished outcome whose contract does not hold.
+ *
+ * This is the QA gate, and it is STRUCTURAL rather than a prompt. A request
+ * that reached `shipped` with criteria nobody checked, or criteria that
+ * failed, is not done — it is a claim. Stating that in code means it cannot
+ * be argued away by a model having a confident day, which is the whole reason
+ * the criteria carry evidence in the first place.
+ *
+ * An outcome with no criteria at all is NOT reported here: that gap belongs
+ * to the proposal, where {@link acceptanceLine} already reports it as "no
+ * criteria". Reporting it twice would put the same complaint on a row at both
+ * ends of its life.
+ * @param row - The row.
+ * @param lane - The lane it landed in.
+ */
+export function contractGap(row: PageRow, lane: WorkLane): string | null {
+  if (lane !== 'done') {
+    return null;
+  }
+  const { total, met } = acceptanceOf(row);
+  if (total === 0 || met === total) {
+    return null;
+  }
+  return `${total - met} of ${total} unmet`;
+}
+
+/**
  * What this row cannot show, in the words the row would use.
  *
  * A decision about something a person will look at should be taken against
@@ -612,6 +681,8 @@ export function deriveWorkQueue(rows: PageRow[], options: WorkQueueOptions = {})
           rank: rank === null ? undefined : String(rank),
           state,
           visualGap: visualGap(row, lane) ?? undefined,
+          acceptanceLine: acceptanceLine(row, lane) ?? undefined,
+          contractGap: contractGap(row, lane) ?? undefined,
           whyLine: whyLine(row) ?? undefined,
           workLine: workLine(row, lane, now) ?? undefined,
           costLine: costLine(row, lane) ?? undefined,
