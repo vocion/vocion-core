@@ -89,20 +89,31 @@ export function openStream(id: string, owner: { orgId: string; userId: string })
 /**
  * Attach to a stream: replay everything buffered so far (from `after`, a
  * 0-based count of events the client already has), then live events until
- * done. Returns null when the stream is unknown/expired.
- * @param id
- * @param after
- * @param onEvent
- * @param onDone
+ * done.
+ *
+ * Returns null when the stream is unknown, expired, or belongs to somebody
+ * else — all three the same way, because a caller must not be able to learn
+ * that a given stream id exists. A buffered stream holds the whole text of
+ * someone's conversation, so `by` is a permission check, not a formality: the
+ * id alone is not authority to read it.
+ * @param id - The stream id.
+ * @param by - Who is asking; must be the person the turn was started for.
+ * @param by.orgId
+ * @param by.userId
+ * @param after - How many events the client already has.
+ * @param onEvent - Called with each event, replayed then live.
+ * @param onDone - Called once the turn finishes.
+ * @returns A detach function, or null when there is nothing this person may attach to.
  */
 export function attachStream(
   id: string,
+  by: { orgId: string; userId: string },
   after: number,
   onEvent: (data: string) => void,
   onDone: () => void,
 ): (() => void) | null {
   const s = streams.get(id);
-  if (!s) {
+  if (!s || s.owner.orgId !== by.orgId || s.owner.userId !== by.userId) {
     return null;
   }
   for (let i = Math.max(0, after); i < s.events.length; i++) {

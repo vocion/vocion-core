@@ -17,6 +17,10 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const id = url.searchParams.get('id') ?? '';
   const after = Number.parseInt(url.searchParams.get('after') ?? '0', 10) || 0;
+  // Known-or-not is checked here only to answer quickly; whether this person
+  // may READ it is `attachStream`'s call below, and a stream belonging to
+  // somebody else detaches immediately with nothing replayed. Both answer
+  // "stream expired", so an id is never confirmed to exist.
   if (!id || !hasStream(id)) {
     return new Response(JSON.stringify({ error: 'stream expired' }), { status: 404 });
   }
@@ -46,6 +50,7 @@ export async function GET(request: Request): Promise<Response> {
       };
       const detach = attachStream(
         id,
+        { orgId, userId },
         after,
         data => safeEnqueue(encoder.encode(`data: ${data}\n\n`)),
         finish,
