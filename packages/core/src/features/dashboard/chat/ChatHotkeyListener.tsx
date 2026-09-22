@@ -1,7 +1,7 @@
 'use client';
 
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { focusAgentComposer, requestAgentSurface } from './agentSurface';
 import { isChatPage, matchChatHotkey } from './chatHotkeys';
 

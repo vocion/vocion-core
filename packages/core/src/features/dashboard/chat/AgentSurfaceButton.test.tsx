@@ -4,12 +4,14 @@ import { page, userEvent } from 'vitest/browser';
 
 const mockPush = vi.fn();
 const mockUsePathname = vi.fn(() => '/gtm/lead/88201');
-// The component navigates through the wrapper, not next/navigation: that is
-// what keeps the workspace in the URL (libs/I18nNavigation.ts).
-vi.mock('@/libs/I18nNavigation', () => ({
-  usePathname: () => mockUsePathname(),
-  useRouter: () => ({ push: mockPush }),
-}));
+vi.mock('next/navigation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/navigation')>();
+  return {
+    ...actual,
+    usePathname: () => mockUsePathname(),
+    useRouter: () => ({ push: mockPush }),
+  };
+});
 
 const { AgentSurfaceButton } = await import('./AgentSurfaceButton');
 const { AGENT_SURFACE_EVENT } = await import('./agentSurface');

@@ -2,7 +2,7 @@
 
 import type { PinnableItem } from './navPins';
 import { ChevronRight, GripVertical, Pin, PinOff } from 'lucide-react';
-
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -14,7 +14,7 @@ import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, Side
 import { useSidebar } from '@/components/ui/useSidebar';
 import { isNavItemActive } from '@/features/dashboard/isNavItemActive';
 import { NavPendingIcon } from '@/features/dashboard/NavPendingIcon';
-import { Link, usePathname } from '@/libs/I18nNavigation';
+import { Link } from '@/libs/I18nNavigation';
 import { splitOverflow } from './navPins';
 
 const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));

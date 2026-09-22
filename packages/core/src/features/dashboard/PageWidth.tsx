@@ -31,9 +31,9 @@
  * for free.
  */
 
+import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { isFullBleedPath, isViewportFitPath, READING_WIDTH_CLASS } from '@/features/navigation/pageWidth';
-import { usePathname } from '@/libs/I18nNavigation';
 import { cn } from '@/utils/Helpers';
 
 /**

@@ -1,8 +1,7 @@
 'use client';
 
 import { MessageCircle } from 'lucide-react';
-
-import { usePathname, useRouter } from '@/libs/I18nNavigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { requestAgentSurface } from './agentSurface';
 import { useDockOpen } from './dockState';
 

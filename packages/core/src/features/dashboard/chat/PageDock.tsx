@@ -1,10 +1,9 @@
 'use client';
 
 import type { AgentOption } from './types';
-
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { usePageRecord } from '@/features/dashboard/context/PageContextProvider';
-import { usePathname } from '@/libs/I18nNavigation';
 import { ChatDock } from './ChatDock';
 import { parseConversationParam } from './resumeRule';
 

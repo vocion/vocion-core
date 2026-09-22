@@ -4,12 +4,11 @@ import bcrypt from 'bcrypt';
 import { and, eq } from 'drizzle-orm';
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { cookies, headers } from 'next/headers';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { accountMembershipSchema, authAccountSchema, projectSchema, sessionSchema, userSchema, verificationTokenSchema } from '@/models/Schema';
 import { ACTIVE_PROJECT_COOKIE } from './activeProject';
 import { db } from './DB';
-import { WORKSPACE_HEADER } from './links';
 
 /**
  * auth.js (next-auth v5) configuration. This is the default auth backend
@@ -17,11 +16,11 @@ import { WORKSPACE_HEADER } from './links';
  * (toggled via VOCION_AUTH_PROVIDER=clerk; not yet wired in this commit).
  *
  * Tenancy: every session carries a `projectId` — the currently-active
- * project for that user. The canonical URL decides it (`/w/<slug>/…`,
- * resolved by `src/proxy.ts` and forwarded as a request header); the
- * `vocion_active_project` cookie is the fallback for a bare `/dashboard/…`
- * URL and for the first project picked at sign-in. See
- * `resolveTenancyForUser` below and `libs/activeProject.ts`.
+ * project for that user. For self-hosted "team mode" (1 tenant_account)
+ * we pick the user's first project on sign-in. Switching projects flips
+ * a `vocion_active_project` cookie that the JWT callback honors on next
+ * issue. The cookie is written by the `/w/[workspace]` entry route (and the
+ * sidebar switcher, which navigates through it) — see `libs/activeProject.ts`.
  */
 
 const credentialsSchema = z.object({
@@ -142,20 +141,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 });
 
 /**
- * Find the user's current tenant + active project. Self-hosted: each user
- * belongs to exactly one tenant_account; the active project is, in order:
- *
- * 1. the one the **URL** names — `/w/<slug>/…`, resolved by the proxy and
- *    forwarded as `WORKSPACE_HEADER.projectId` (`src/proxy.ts`). The URL wins
- *    so two tabs on two workspaces both stay right, and a refresh cannot
- *    resolve a record against whichever workspace was switched to last.
- * 2. the one the `vocion_active_project` cookie names — "last active", which
- *    is all a bare `/dashboard/…` URL has to go on.
- * 3. the first project on the account.
- *
- * Both 1 and 2 are candidates only: each is accepted just when the project
- * belongs to this user's account, so neither a forged header nor an edited
- * cookie reaches another tenant's data.
+ * Find the user's current tenant + active project. Self-hosted: each
+ * user belongs to exactly one tenant_account; the active project is
+ * whichever the `vocion_active_project` cookie names (if the user has
+ * access to it), else the first project on the account.
  * @param userId
  */
 async function resolveTenancyForUser(userId: string): Promise<{
@@ -176,26 +165,16 @@ async function resolveTenancyForUser(userId: string): Promise<{
     return { accountId: null, projectId: null, role: null };
   }
 
-  // The URL first, then "last active". `headers()` and `cookies()` are
-  // available in Route Handlers, Server Actions and Server Components — the
-  // JWT and session callbacks run in one of those contexts; both throw
-  // outside a request scope (a script, the worker), where the first project
-  // is the only sensible answer.
+  // Honor `vocion_active_project` cookie when the named project belongs to
+  // the user's account. `cookies()` is available in both Route Handlers and
+  // Server Actions — the JWT callback runs in one of those contexts.
   let requestedId: string | undefined;
   try {
-    const hdrs = await headers();
-    requestedId = hdrs.get(WORKSPACE_HEADER.projectId)?.trim() || undefined;
+    const jar = await cookies();
+    requestedId = jar.get(ACTIVE_PROJECT_COOKIE)?.value;
   } catch {
-    // Not in a request scope — fall through.
-  }
-  if (!requestedId) {
-    try {
-      const jar = await cookies();
-      requestedId = jar.get(ACTIVE_PROJECT_COOKIE)?.value;
-    } catch {
-      // cookies() throws when called outside a request scope; fall through
-      // to the default first-project selection.
-    }
+    // cookies() throws when called outside a request scope; fall through
+    // to the default first-project selection.
   }
 
   if (requestedId) {

@@ -2,10 +2,9 @@
  * Projects (workspaces) as a signed-in user may see them.
  *
  * One tenant_account owns the projects; a user reaches them through their
- * account membership. The sidebar switcher (`routers/Projects.ts`) and the
- * proxy that resolves `/w/<slug>/…` (`src/proxy.ts`) both ask "may this user
- * make that project active?" here, so the two cannot drift apart on the
- * membership rule.
+ * account membership. Both the sidebar switcher (`routers/Projects.ts`) and
+ * the `/w/[workspace]` entry route resolve "may this user make that project
+ * active?" here, so the two cannot drift apart on the membership rule.
  */
 
 import { and, eq, sql } from 'drizzle-orm';
@@ -102,44 +101,6 @@ export async function resolveProjectForUser(userId: string, selector: { id: stri
     .where(and(eq(projectSchema.accountId, accountId), match))
     .limit(1);
   return project ?? null;
-}
-
-/**
- * The workspace a bare `/dashboard/…` request belongs to, for the redirect
- * that makes every URL canonical (`src/proxy.ts`).
- *
- * "Last active" is the `vocion_active_project` cookie when it names a project
- * on the user's account; otherwise the account's first project — the same
- * order `resolveTenancyForUser` uses, so the redirect can never send a reader
- * to a workspace the page would then resolve differently. Null when the user
- * has no workspace at all (onboarding), which the caller reads as "leave the
- * URL alone".
- * @param userId - Auth.js user id.
- * @param preferredProjectId - `project.id` from the cookie, if any.
- */
-export async function activeWorkspaceForUser(userId: string, preferredProjectId?: string | null): Promise<{ id: string; accountId: string; slug: string } | null> {
-  const accountId = await accountIdForUser(userId);
-  if (!accountId) {
-    return null;
-  }
-  const columns = { id: projectSchema.id, slug: projectSchema.slug };
-  const preferred = preferredProjectId?.trim();
-  if (preferred) {
-    const [chosen] = await db
-      .select(columns)
-      .from(projectSchema)
-      .where(and(eq(projectSchema.id, preferred), eq(projectSchema.accountId, accountId)))
-      .limit(1);
-    if (chosen) {
-      return { ...chosen, accountId };
-    }
-  }
-  const [first] = await db
-    .select(columns)
-    .from(projectSchema)
-    .where(eq(projectSchema.accountId, accountId))
-    .limit(1);
-  return first ? { ...first, accountId } : null;
 }
 
 /**
