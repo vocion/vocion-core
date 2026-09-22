@@ -214,8 +214,10 @@ export async function executeMissionRun(runId: number, orgId: string): Promise<s
  * Raise `mission_run.completed` for a run this loop just settled as
  * completed — once, because `settleRun` said this call was the one that
  * wrote it. A check-mode run (an automation's mission check) says so in
- * `mode`, so a debrief automation can filter it out and never fire on its
- * own check; `automation_run.completed` is the event for those. A failure
+ * `mode`, so a debrief automation can filter it out; the chain of fires
+ * behind the run rides along too, so the automation that started it is
+ * refused by the matcher whether or not the debrief filtered
+ * (`services/automations/fireGuards.ts`). A failure
  * to record the event is logged and never re-labels the run.
  * @param run - The run row as it was read at the start of the loop.
  * @param missionSlug - The template's slug, when the run has one.
@@ -243,6 +245,9 @@ async function announceCompleted(run: typeof missionRunSchema.$inferSelect, miss
       payload,
       dedupeKey: `${MISSION_RUN_COMPLETED}:${run.id}`,
       invokedBy: `mission_run:${run.id}`,
+      // The fires behind this run ride the event, so the automation whose
+      // check this was is skipped by the matcher rather than fired again.
+      causedBy: run.causedBy?.map((link, i) => (i === 0 ? { ...link, missionRunId: run.id } : link)) ?? null,
     });
   } catch (error) {
     log('warn', 'mission run completed but its event could not be raised', { runId: run.id, orgId: run.orgId, error: (error as Error).message ?? 'unknown error' });

@@ -32,6 +32,8 @@ import { z } from 'zod';
 import { cleanUsageDetails, traceFor } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { buildChatModel } from '@/libs/llm';
+import { usageMetadataOf } from '@/libs/llm/usage';
+import { chargeModelCall } from '@/services/budget/chargeModelCall';
 import { similarity } from '@/services/MemoryService';
 
 /**
@@ -154,7 +156,7 @@ export async function findDuplicateRule(opts: {
     raw = typeof res.content === 'string'
       ? res.content
       : (Array.isArray(res.content) ? res.content.map(part => (part as { text?: string }).text ?? '').join('') : '');
-    const usage = (res as unknown as { usage_metadata?: { input_tokens?: number; output_tokens?: number; input_token_details?: { cache_read?: number } } }).usage_metadata;
+    const usage = usageMetadataOf(res);
     generation.end({
       output: raw,
       usageDetails: usage
@@ -164,6 +166,13 @@ export async function findDuplicateRule(opts: {
             cache_read_input_tokens: usage.input_token_details?.cache_read,
           })
         : undefined,
+    });
+    // Charged, never refused — same reasoning as the classifier this follows.
+    await chargeModelCall({
+      orgId: opts.orgId,
+      feature: FEATURES.FEEDBACK_DEDUPE,
+      role: 'classifier',
+      response: res,
     });
   } catch (error) {
     console.error(`[duplicateDetection] duplicate check failed for step "${opts.stepName}"; treating the rule as new`, error);

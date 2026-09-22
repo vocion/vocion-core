@@ -1,0 +1,118 @@
+# Where this loop's action kinds start on the autonomy ladder, and why. Ordered
+# by what is on the other side of a mistake, not by how often the action is
+# taken.
+#
+# THE TIERS decide what evidence a promotion takes
+# (`services/autonomy/rungs.ts` TIER_RULES):
+#   low    — n≥20,  90%, no rejection in 14d,           ceiling autonomous
+#   medium — n≥40,  95%, no high-confidence reject 30d, ceiling execute-within-bounds
+#   high   — never earns past execute-with-approval
+#
+# A note on "forbidden": the ladder has no such rung. `execute-with-approval`
+# with `enabled: false` is the most restrictive bar that still describes what
+# happens — the agent proposes, a person decides, only then does anything run —
+# and `autoApproveAbove: 1` means even a confidence of 1.0 releases nothing if
+# a workspace later flips `enabled` without thinking. `risk: high` is what makes
+# "never" true on the ladder itself.
+rules:
+  # THE HIRE. An agent adding a teammate is the sharpest thing in this plugin,
+  # and it is deliberately NOT on the learning-eagerness dial: that dial is
+  # calibrated for "an agent read a sentence nobody meant", and this changes
+  # what the system can DO rather than what it knows. It is reversible — undo
+  # removes the agent, its budget row and the team the hire created — so it
+  # could technically earn its way up; `medium` is what caps that at running
+  # within bounds, so autonomous is never on offer for a hire on any ledger.
+  #
+  # Two structural bounds sit UNDER this rule and hold whatever the rung says,
+  # because they are in the action rather than in the ladder: the daily
+  # allowance is a required input, and the proposal is refused outright when the
+  # workspace has already spent its committed allowance for the period or when
+  # the allowance asked for exceeds what is unspent. A promoted rung would still
+  # be refused by both.
+  - action: team.hire_agent
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+
+  # THE LOOP'S OWN RECORD. Writing a rank, a state, a gate verdict, a reading or
+  # a cost onto a brief is the work, and holding a person in front of every one
+  # would buy no safety at all — the previous values ride the run, so undo is a
+  # click. 0.9 rather than the platform's 0.8, because a brief carries a verdict
+  # somebody will quote months later and a low-confidence write is better read
+  # by a person than corrected afterwards.
+  - action: objects.update_meta.growth_brief
+    autoApproveAbove: 0.9
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+
+  # ASKING. The loop puts two things in front of a person — a decision on
+  # something public, and a hire — and both are asks. Filing one is reversible
+  # (undo withdraws it while it is open) and it is how the loop reaches somebody
+  # at all, so it runs on its own at the platform's bar.
+  - action: ask.file
+    autoApproveAbove: 0.8
+    enabled: true
+    rung: execute-within-bounds
+    risk: low
+
+  # PUBLISHING. `release.announce` is core's registered kind for publishing text
+  # under the company's name — a post, a changelog entry, a customer email — and
+  # it is the one this loop's deliverables go out through. It cannot be unsent,
+  # so it is asked every time, at the medium tier: it may one day earn its way
+  # to running within bounds once the ledger shows people releasing copy
+  # unchanged, because the words are the agent's and a person can read fifty of
+  # them in an afternoon.
+  - action: release.announce
+    autoApproveAbove: 0.95
+    enabled: false
+    rung: execute-with-approval
+    risk: medium
+
+  # NOT HERE: `notify.requester`. When a brief answers a `request`, the reply to
+  # the asker belongs to the plugin that owns that noun, and repeating its rule
+  # here would be two plugins holding one bar — the duplication this plugin
+  # spent its design arguing against. With `software-factory` off there is no
+  # requester to notify, because there is no request.
+
+  # THE CLAIM GATE, stated ahead of the mechanism. Core registers no
+  # `growth.publish` action today, so the decision to release a deliverable is
+  # an ASK a person answers and these rules bind to nothing yet. They are
+  # written anyway, for the same reason `software-factory` writes its
+  # `product.authorize.*` rules before core registers them: the bar is a
+  # decision this plugin has made, the autonomy page shows it, and the day core
+  # registers `growth.publish` with a `policyKeyFor(claimClass)` — the follow-up
+  # named in the README, on the model of `git.merge.<riskClass>` — nothing here
+  # changes.
+  #
+  # `descriptive` and `instructional` are `low`: a wrong one is a correction on
+  # a page people read but do not rely on, so they may earn their way up.
+  # `comparative` and `performance` are where a retraction is public and about
+  # somebody else, or about a number we put our name to. `regulated` is a
+  # person's, whatever any ledger says.
+  - action: growth.publish.descriptive
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: low
+  - action: growth.publish.instructional
+    autoApproveAbove: 0.9
+    enabled: false
+    rung: execute-with-approval
+    risk: low
+  - action: growth.publish.comparative
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: growth.publish.performance
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high
+  - action: growth.publish.regulated
+    autoApproveAbove: 1
+    enabled: false
+    rung: execute-with-approval
+    risk: high

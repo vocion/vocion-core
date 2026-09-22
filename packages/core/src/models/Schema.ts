@@ -282,6 +282,27 @@ export const projectSchema = pgTable(
      */
     goal: text('goal'),
     /**
+     * The workspace's operating intent (migration 0135): what a person wants
+     * the factory doing now: outcomes, priorities, constraints, budget,
+     * autonomy policy and product judgment. Authored as workspace-as-code in
+     * `operating-intent.yaml`, shape in `libs/workspace/schemas.ts`
+     * `OperatingIntentManifestSchema`, composed into the prompts of the agents
+     * that choose and prioritise work.
+     *
+     * NULL = the factory has been told nothing. That is deliberately not the
+     * same fact as an authored intent with empty lists, which is a person
+     * saying there are no constraints; the agents report the two differently.
+     */
+    operatingIntent: jsonb('operating_intent').$type<{
+      outcomes?: Array<{ statement: string; because?: string; by?: string }>;
+      priorities?: Array<{ statement: string; over?: string }>;
+      constraints?: Array<{ statement: string; because?: string }>;
+      budget?: { limitCents: number; window: 'day' | 'week' | 'month'; note?: string };
+      autonomy?: Array<{ actionClass: string; policy: 'unattended' | 'ask' | 'never'; because?: string }>;
+      productJudgment?: string[];
+      reviewedAt?: string;
+    }>(),
+    /**
      * The workspace's mailbox (migration 0097): the address people write to,
      * answered by the workspace lead. Authored as `mailbox:` in workspace.yaml;
      * default address `<slug>@<VOCION_MAIL_DOMAIN>`. Null/false = no mailbox.
@@ -294,6 +315,26 @@ export const projectSchema = pgTable(
      * briefings, mail — and the fallback when a turn arrives without one.
      */
     timeZone: text('time_zone'),
+    /**
+     * The workspace's off switch (migration 0132) — a person's hold on
+     * everything the factory does by itself: automation fires, mission runs,
+     * worker runs, and gated actions that are not a hand-off. Chat with an
+     * agent stays open; a turn that tries one of those is refused with this
+     * note. `services/workspacePause.ts` is the one guard every caller uses.
+     *
+     * A DIFFERENT fact from `automation.paused_at`, and that is the point: a
+     * workspace pause writes no automation row, so resuming the workspace
+     * restores exactly the per-automation state that was there before. An
+     * automation someone paused last Tuesday is still paused afterwards,
+     * because nothing touched it.
+     *
+     * NULL = running. `pausedBy` is the `user.id`, or `token:<id>` when an
+     * API token placed the hold; the name is resolved when shown. Never
+     * written by `workspace:apply` — a deploy does not lift a person's stop.
+     */
+    pausedAt: timestamp('paused_at', { mode: 'date' }),
+    pausedBy: text('paused_by'),
+    pausedNote: text('paused_note'),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -955,9 +996,13 @@ export const automationSchema = pgTable(
     description: text('description'),
     /** `active` | `disabled` */
     status: text('status').default('active'),
-    /** `{schedule: '<cron UTC>'}` or `{event: '<type>', filter?: {...}}`. */
-    /** `{schedule: cron}` | `{event: type | [types], filter?}` — an array fires on any of the named types. */
-    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown> }>().notNull(),
+    /**
+     * `{schedule: cron}` | `{event: type | [types], filter?, maxFiresPer10m?}` —
+     * an array fires on any of the named types. `maxFiresPer10m` is the
+     * event-when's ceiling (default 6, `services/automations/fireGuards.ts`):
+     * fires beyond it in a ten-minute window are held and coalesced into one.
+     */
+    whenConfig: jsonb('when_config').$type<{ schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number }>().notNull(),
     /** `{workflow: '<slug>', input?}` | `{checkMission: '<slug>', prompt?}` (prompt = the authored execution orders for each check) | `{job: '<name>', input?}` (built-in server job). */
     doConfig: jsonb('do_config').$type<{ workflow?: string; checkMission?: string; job?: string; prompt?: string; input?: Record<string, unknown> }>().notNull(),
     /** Owning agent slug. Nullable — `checkMission` inherits the owner from its mission; `job`/`workflow` set it here so the schedule rolls up to an agent. */
@@ -992,7 +1037,7 @@ export const automationRunSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** The automation's slug — not an FK, so a run survives the automation being removed. */
     slug: text('slug').notNull(),
-    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job' — or 'control' for a person's pause/resume, recorded here so the log holds the whole history. */
+    /** Which do-type dispatched: 'workflow' | 'mission_check' | 'job' — or 'control' for a person's pause/resume and 'skipped' for a fire the matcher refused (its own run's event, or the rate ceiling), recorded here so the log holds the whole history. */
     kind: text('kind').notNull(),
     /** 'running' | 'ok' | 'error'. */
     status: text('status').default('running').notNull(),
@@ -1213,6 +1258,13 @@ export const missionRunSchema = pgTable('mission_run', {
   /** Workspace SHA active when the run started — stamped for audit. */
   workspaceSha: text('workspace_sha'),
   createdBy: text('created_by'),
+  /**
+   * The automation fires that led to this run, newest first — the check that
+   * started it, then whatever started that. Null for a run a person or the
+   * planner started. Rides every event the run raises, so an automation is
+   * never fired by its own run's residue (`services/automations/fireGuards.ts`).
+   */
+  causedBy: jsonb('caused_by').$type<Array<{ automationSlug: string; automationRunId?: number; missionRunId?: number }>>(),
   rating: text('rating'),
   feedbackNote: text('feedback_note'),
   feedbackBy: text('feedback_by'),
@@ -1623,6 +1675,12 @@ export const userNavPrefSchema = pgTable(
     userId: text('user_id').notNull(),
     pins: jsonb('pins').$type<string[]>().default([]).notNull(),
     dismissed: jsonb('dismissed').$type<string[]>().default([]).notNull(),
+    /**
+     * Page slug -> ISO instant this person last opened that page. Absent slug
+     * means never opened, and a surface that says "since you last looked"
+     * must say so rather than substitute a window. Migration 0133.
+     */
+    pageSeen: jsonb('page_seen').$type<Record<string, string>>().default({}).notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
       .$onUpdate(() => new Date())
@@ -1816,7 +1874,7 @@ export const evalCaseResultSchema = pgTable('eval_case_result', {
   latencyMs: integer('latency_ms'),
   /**
    * What this one case cost: the agent run's token usage priced by
-   * `tokenCostCents`, plus how many model turns and tool calls it took.
+   * `tokenCostMicroCents`, plus how many model turns and tool calls it took.
    * NULL on rows written before the column existed and on errored cases.
    */
   usage: jsonb('usage').$type<{
@@ -2169,13 +2227,48 @@ export const agentBudgetSchema = pgTable(
     orgId: text('org_id').notNull(),
     /** Phase 1: nullable for backfill; will be set NOT NULL once data migrates. */
     projectId: text('project_id').references(() => projectSchema.id, { onDelete: 'cascade' }),
+    /**
+     * What the row budgets. Either an agent's slug, or one of the reserved
+     * platform scopes `platform:all` (everything this org spent) and
+     * `platform:<feature>` (one non-agent surface, e.g.
+     * `platform:retrieval.embed`). `BudgetService` owns the spelling — see
+     * `ORG_SCOPE_SLUG` and `featureScopeSlug` there.
+     *
+     * The scope rides in this column rather than in a column of its own
+     * because the unique index below is what makes a charge atomic, and
+     * widening a unique index on a populated table is an expand-and-contract
+     * migration (migrations/CONVENTIONS.md §2) rather than a one-line change.
+     */
     agentSlug: text('agent_slug').notNull(),
+    /**
+     * The Langfuse feature dimension this row rolls up, for a
+     * `platform:<feature>` row — null on an agent row and on `platform:all`.
+     * A typed label to group by, so a report never has to parse the slug.
+     */
+    feature: text('feature'),
     /** daily | monthly */
     period: text('period').default('daily').notNull(),
     /** Tokens consumed in the current period (sum of input + output). */
     currentTokens: bigint('current_tokens', { mode: 'number' }).default(0).notNull(),
-    /** Dollars (in USD cents to keep math integer-safe). */
-    currentCents: bigint('current_cents', { mode: 'number' }).default(0).notNull(),
+    /**
+     * Spend in the current period, in micro-cents — a millionth of a cent.
+     *
+     * The only money column, and a whole number, so a charge is exact and so
+     * is every sum of charges. Charging moved from one call per agent turn to
+     * one call per embedding batch, and a batch of chunks costs a fraction of
+     * a cent: counting in whole cents rounded a tenth of a cent up to one on
+     * every batch and billed a $1 sync as $10.
+     *
+     * Cents for reading are divided out of this at the point of display.
+     * There used to be a `current_cents` column holding that division, and it
+     * was removed: it was a second copy of the same money that could disagree
+     * with this one, and because it was floored per row, the agents' cents
+     * never added up to the workspace's. The database column outlives this
+     * line by one release — nothing reads or writes it now, and a later
+     * migration drops it (see `migrations/CONVENTIONS.md`, expand and
+     * contract).
+     */
+    currentMicroCents: bigint('current_micro_cents', { mode: 'number' }).default(0).notNull(),
     /** Soft cap — warn but don't refuse. */
     softTokenLimit: bigint('soft_token_limit', { mode: 'number' }),
     softCentsLimit: bigint('soft_cents_limit', { mode: 'number' }),
@@ -3398,6 +3491,8 @@ export const eventLogSchema = pgTable(
     /** What this event started — `[{ slug, runId }]`. */
     triggered: jsonb('triggered').$type<Array<{ slug: string; runId: number }>>().default([]).notNull(),
     invokedBy: text('invoked_by'),
+    /** The automation fires whose work raised this event, newest first. Null when no automation was behind it. */
+    causedBy: jsonb('caused_by').$type<Array<{ automationSlug: string; automationRunId?: number; missionRunId?: number }>>(),
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
   },
   table => [

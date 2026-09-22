@@ -1,0 +1,35 @@
+slug: what-gets-briefed
+name: What gets briefed is decided by what worked
+description: >-
+  The standing responsibility of the Growth lead — not a one-off run. Every
+  check reads the demand map and the verdicts already in, ranks, and promotes
+  only what the three limits allow. The `growth-weekly-plan` and
+  `growth-stop-what-fails` automations are how, when and why it is checked.
+goal: >-
+  Nothing is briefed because somebody asked last, and nothing is promoted past
+  the limits. Every brief in `drafted` or `ready` carries a rank with its reason
+  and the date it was scored, against the demand it answers, the verdicts of the
+  closest closed briefs, and its expected cost — and against nothing else. The
+  sum of `decisionCost` over briefs waiting on a person stays under the day's
+  budget; at most one brief whose claim class is comparative, performance or
+  regulated is in flight; spend is read from the budgets core holds and never
+  from a second ledger. A theme or channel whose closed briefs came back
+  `no_effect` twice is not briefed again without new evidence, and the drop is
+  written where the next pass will read it.
+agent: growth-lead
+autonomyPolicy:
+  level: 2
+successCriteria:
+  - Every brief in drafted or ready carries a rank, a reason naming which of the three inputs moved it, and a date; a brief nobody can give a reason for is left unranked and shown as unranked rather than guessed
+  - The reason cites the verdict of at least one closed brief in the same theme or channel, with its date, whenever one exists — a rank that ignores what already happened is not a rank
+  - The sum of decisionCost over briefs waiting on a person stays under the day's budget; when promoting another would exceed it the brief waits and the check names the limit that held it
+  - At most one brief whose claimClass is comparative, performance or regulated is in flight at a time; a second is an ask naming both, never a decomposition
+  - Every spend figure in the report was read from the budgets this turn; no second ledger of cost is kept anywhere in this mission
+  - A theme or channel with two `no_effect` verdicts is dropped, named in the check with both verdicts and their dates, and not briefed again without new evidence
+  - Every brief has one owner; a brief with no owner for two weeks is named in the check as a gap with what it has cost, whether or not a hire is proposed
+  - Nothing is published by this mission and nothing is hired by it; a hire is an ask a person decides
+desiredArtifacts:
+  - The ranked list per theme, with the reason and the date on each record
+  - The five-line plan per check — promoted, waiting and on which limit, stuck and on whom, stopped and why, what needs a person
+  - The standing gap list — briefs with no owner, how long, and what the wait has cost
+schedule: '0 14 * * 1'

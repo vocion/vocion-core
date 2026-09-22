@@ -922,6 +922,10 @@ async function applyWorkspaceLeadConfig(
   // and deleting the file clears it, dropping the workspace back to core's
   // platform floor.
   const voiceRules = loaded.voice ?? null;
+  // operating-intent.yaml, declarative like the rest: the whole file lands on
+  // the column and deleting the file clears it, which is a person telling the
+  // factory nothing rather than telling it everything is allowed.
+  const operatingIntent = loaded.operatingIntent ?? null;
 
   const [project] = mode.offline
     ? [undefined]
@@ -938,6 +942,7 @@ async function applyWorkspaceLeadConfig(
           clientFacingPlaybooks: projectSchema.clientFacingPlaybooks,
           learningEagerness: projectSchema.learningEagerness,
           voiceRules: projectSchema.voiceRules,
+          operatingIntent: projectSchema.operatingIntent,
           timeZone: projectSchema.timeZone,
           goal: projectSchema.goal,
           mailboxAddress: projectSchema.mailboxAddress,
@@ -972,7 +977,7 @@ async function applyWorkspaceLeadConfig(
     if (mode.offline) {
       return;
     }
-    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || voiceRules !== null || goal !== null || mailboxEnabled) {
+    if (lead !== null || loaded.manifest.accountableUser !== undefined || enabledSurfaces.length > 0 || enabledPlugins.length > 0 || embeddingConfig !== null || regenerateSkills !== null || clientFacingPlaybooks !== null || learningEagerness !== null || voiceRules !== null || operatingIntent !== null || goal !== null || mailboxEnabled) {
       console.warn(`[workspace:apply] no project row matches org "${orgId}" — workspace lead/accountableUser/surfaces/embedding defaults NOT applied. Pass --project <id|slug> so they land on a real project.`);
     }
     return;
@@ -996,6 +1001,8 @@ async function applyWorkspaceLeadConfig(
     = JSON.stringify(project.clientFacingPlaybooks ?? null) === JSON.stringify(clientFacingPlaybooks);
   const voiceUnchanged
     = JSON.stringify(project.voiceRules ?? null) === JSON.stringify(voiceRules);
+  const operatingIntentUnchanged
+    = JSON.stringify(project.operatingIntent ?? null) === JSON.stringify(operatingIntent);
 
   if (
     (project.leadAgentSlug ?? null) === lead
@@ -1007,6 +1014,7 @@ async function applyWorkspaceLeadConfig(
     && clientFacingUnchanged
     && (project.learningEagerness ?? null) === learningEagerness
     && voiceUnchanged
+    && operatingIntentUnchanged
     && (project.goal ?? null) === goal
     && (project.timeZone ?? null) === timeZone
     && project.mailboxEnabled === mailboxEnabled
@@ -1017,7 +1025,7 @@ async function applyWorkspaceLeadConfig(
   if (!mode.dryRun) {
     await db
       .update(projectSchema)
-      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, goal, timeZone, mailboxEnabled, mailboxAddress })
+      .set({ leadAgentSlug: lead, accountableUserId, enabledSurfaces, enabledPlugins, embeddingConfig, regenerateSkills, clientFacingPlaybooks, learningEagerness, voiceRules, operatingIntent, goal, timeZone, mailboxEnabled, mailboxAddress })
       .where(eq(projectSchema.id, project.id));
   }
 }
@@ -1141,7 +1149,7 @@ async function upsertAutomation(orgId: string, automation: LoadedAutomation, mod
     name: automation.name ?? automation.slug,
     description: automation.description ?? null,
     status: automation.status,
-    whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown> },
+    whenConfig: automation.when as { schedule?: string; event?: string | string[]; filter?: Record<string, unknown>; maxFiresPer10m?: number },
     doConfig: automation.do as { workflow?: string; checkMission?: string; job?: string; input?: Record<string, unknown> },
     ownerAgentSlug: automation.agent ?? null,
   };

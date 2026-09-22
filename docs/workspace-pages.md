@@ -26,6 +26,8 @@ Every page derives from a core page shape rather than inventing one:
 | `list` | the objects/type list page | `objects` \| `skillRuns` \| `documents` |
 | `queue` | the proposal list (read-only; decisions stay on Needs you, `/dashboard/inbox`) | `skillRuns` |
 | `markdown` | the docs page | a sibling `.md` file |
+| `report` | one record's whole story, at `/dashboard/p/<slug>/<id>` | the records that tell it |
+| `overview` | an ordered list of typed panels - the control plane | the records the panels name, plus decisions and the human-load fold |
 
 A deployment can host several projects on one mounted `WORKSPACE_PATH`. That
 folder's own `pages/` (and its plugins' pages) list only for the project the
@@ -35,17 +37,59 @@ the pages of the plugins it has on (`project.enabled_plugins`) and nothing of
 the folder's.
 
 A `list`/`queue` page composes: a stats row (`stats:`), a series strip
-(`series:`), grouping (`groupBy:`), filtering (`filters:`), sorting, per-field
-formats (`text|badge|score|date|mono|image|money|link|relative|progress`,
+(`series:`), grouping (`groupBy:`), filtering (`filters:`), named views
+(`views:`), sorting, per-field formats
+(`text|badge|score|date|mono|image|money|link|relative|progress|duration`,
 with badge tone maps), column totals (`total: true`), a `rowLink`
 click-through, and custom widgets.
 
-Stats are `count`, `countWhere`, `sum`, `avg`, `min`, `max` or `pctGte` over
-a field, optionally narrowed by a `where` filter, and render as a number or —
-with `format: money` — as dollars read from cents. Filters compare with `eq`,
-`neq`, `gte`, `lte`, `in`, `exists`, or `since`: `{field: meta.paidAt, op:
-since, value: month}` keeps the rows whose date is in this calendar month
-(`week`, `today` and `<n>d` are the other windows; UTC throughout).
+Stats are `count`, `countWhere`, `sum`, `avg`, `min`, `max`, `pctGte`,
+`ratio` or `medianHours` over a field, optionally narrowed by a `where`
+filter (one, or a list every row must pass), and render as a number, as
+dollars read from cents with `format: money`, or as a share with `format:
+percent`. Filters compare with `eq`, `neq`, `gte`, `lte`, `in`, `exists`,
+`missing`, or `since`: `{field: meta.paidAt, op: since, value: month}` keeps
+the rows whose date is in this calendar month (`week`, `today` and `<n>d` are
+the other windows; UTC throughout).
+
+**Print a ratio, not an average, next to a count.** `avg` divides by however
+many rows carried a figure, so a page that shows "9 outcomes" beside an
+average cost of the rows that had one prints a number a reader cannot
+reproduce by dividing. `ratio` names both halves: `field` summed over the
+rows `where` keeps, divided by `overField` summed over the rows `of` keeps,
+and `of` defaults to the same rows, so the denominator IS the count printed
+beside it. Omit `field` and the numerator is a count of rows, which with `of`
+and `format: percent` states a share of a population.
+
+```yaml
+- {label: Shipped outcomes, kind: countWhere, where: {field: meta.state, op: eq, value: shipped}}
+- {label: Cost per shipped outcome, kind: ratio, field: meta.actualCents, where: {field: meta.state, op: eq, value: shipped}, format: money}
+```
+
+`medianHours` measures one row's two dates (`from` is the start accessor and
+`field` the end) and takes the median in hours over the rows that carry
+both. A row missing either end is left out rather than counted as zero.
+
+A stat can carry a `group` (its section heading; ungrouped stats are the
+headline row, in order), a `note` (what it counts, rendered behind an
+information affordance rather than as a paragraph on the page), and
+`lifetime: true` to opt out of the page's window.
+
+**One window the whole page obeys.** `window: {field, options, default,
+label}` renders a row of links (`?days=30`, `?days=all`) and narrows the rows
+AND every stat that is not `lifetime`. `field` should be a date every row
+carries (`createdAt` is the safe one), because a row with no readable date
+is dropped from every finite window and appears only under "All time". A
+value the page does not offer falls back to the default, so a hand-typed URL
+cannot widen a figure past what the page says it shows.
+
+`methodologyFile` (default `<slug>.methodology.md`) renders collapsed under
+"How these numbers are computed", so the page's index communicates results
+and the method stays one click away.
+
+`hideWhenZero: true` on a stat leaves the figure off the page when it is zero,
+so a count of an exception appears when the exception happened and nowhere
+else ("0 lost" is a tile spent saying a thing did not happen).
 
 A field with `total: true` is summed under the table — under each group's
 table on a grouped page — as money for a `money` column and as a number
@@ -57,7 +101,7 @@ or an empty list, sits under "—".
 `series:` draws figures over time under the stats: one strip per entry, one
 column per bucket (`day`, `week` or `month`; `buckets` of them, oldest first,
 ending now), one row per measure (`sum`, `count` or `avg` of a field), each
-row bucketed by its `dateField`. A table rather than a chart — the figures
+row bucketed by its `dateField` and narrowed by the series' own `where`. A table rather than a chart, because the figures
 are the point.
 
 ```yaml
@@ -74,8 +118,38 @@ series:
 
 `relative` renders a timestamp as its distance from now ("12s ago", "in 4m")
 with the exact moment on hover; `progress` renders a worker's `{phase, note}`
-heartbeat object as "phase · note". A badge over a boolean `false` with no
-`'false'` tone renders as nothing, so an off flag is not a column of pills.
+heartbeat object as "phase · note"; `duration` reads an integer number of
+seconds as the length a person compares by ("18m 25s"). A badge over a boolean
+`false` with no `'false'` tone renders as nothing, so an off flag is not a
+column of pills.
+
+### `detail:` fields, and `views:`
+
+Two ways a page carries more than a row can hold.
+
+A field with `detail: true` is **evidence, not a column**. It is never drawn
+in the table and reads inside the row's own disclosure ("Evidence"), under its
+label, with empty fields left out rather than drawn as dashes. This is a
+different problem from `priority`, which drops a column the page would still
+like to show when the viewport will not allow it: a `detail` field is one the
+page does not want in the row at all. Activity declares twenty six fields and
+shows eleven; a heartbeat and a lease matter while a run is alive and are
+noise on a run that finished yesterday.
+
+`views:` are named ways of looking at the same page, chosen with `?view=<key>`
+and drawn as a switcher above the summary. A view with `filters` narrows this
+page's rows; a view with `href` is a different surface that belongs in the
+same row of tabs and navigates there. The first view declared is the default
+and has to be one of this page's own. A view never changes the `source`: a tab
+that quietly queried something else would make the summary above it mean a
+different thing per tab.
+
+```yaml
+views:
+  - {key: all, label: All, note: Everything, newest first.}
+  - {key: runs, label: Runs, filters: [{field: meta.kind, op: eq, value: worker}]}
+  - {key: releases, label: Releases, href: /dashboard/p/releases}
+```
 
 A `list`/`queue` page can also stay **live**: `live: {every: 15}` re-reads the
 rows and stats every 15 seconds while the tab is visible (bounded 5–120) and
@@ -112,6 +186,140 @@ rowLink: /dashboard/objects/{id}
 Field accessors: `title`, `status`, `createdAt`, `id`, or `meta.<dot.path>`
 into the row's JSON (object `metadata`, parsed skill-run `output`, document
 `metadata`).
+
+`rowLink` and each entry in `rowActions` interpolate `{...}` tokens from the
+row with the same accessors, so a row of one noun can reach a page about
+another: the Backlog's rows are requests and link with `{id}`, the Factory
+floor's rows are tasks and link with `{meta.requestId}`. A row that cannot
+fill a token draws no link for it — a dead link is worse than no link. Values
+are URL-escaped.
+
+## The `overview` archetype
+
+An overview is **the page a person opens before they have decided what to look
+at**. It answers six questions above the fold - what is true, what changed
+since I last looked, what is in flight, what is next and why, what needs me,
+and is it worth what it costs - and then gets out of the way. Everything else
+on the nav is drill-down.
+
+It is an ordered list of typed `panels`, each computed server-side
+(`services/factory/overview.ts` assembles, `overviewData.ts` reads):
+
+| panel | what it computes |
+|---|---|
+| `status` | one row per record of a type: a headline and up to four inline facts, where a fact is either a field or a count of records pointing back at this one |
+| `digest` | change since a timestamp: arrivals, named transitions, roll-ups (a count and a sum, never a list) and decisions that arrived |
+| `active` | outcomes in flight, capped at `limit` (7), each with "4/5 tasks complete" and what it is waiting on |
+| `next` | the queue, ordered by `orderBy` and explained by `meta.why` - see below |
+| `needsYou` | open decisions, the minutes they estimate, and how many block work |
+| `economics` | spend in the window, accepted changes, cost per accepted change, waste |
+| `autonomy` | work autonomy AND, separately, what it cost a person |
+
+Three rules hold the page up, and they are the point of the archetype.
+
+**A figure the records cannot support is not drawn.** It becomes a gap: the
+measure's name and the reason it is not measurable, in the place the number
+would have been. "Not measurable, because no open decision names the record it
+is holding up" is a finding about the factory. A number invented to fill the
+space is not.
+
+**"Since you last looked" is per viewer, and says when it is guessing.** The
+stamp lives on `user_nav_pref.page_seen` (page slug to ISO instant, migration
+0133) and is read before the visit is recorded, so a reload does not empty the
+digest it just drew. A person who has never opened the page reads a fixed
+window under a heading that says so, never one dressed up as their own memory.
+
+**Work autonomy and human interruption are never blended.** "94%
+auto-completed" beside "32 need attention" creates questions, not confidence.
+The panel draws them as two groups under two headings, and names the second
+for what it is.
+
+### Why this, why now
+
+Every row in a `next` panel carries a reason from a closed list
+(`libs/workspace/reasonCodes.ts`), read from `meta.why` on the record:
+
+`user_request` · `production_bug` · `blocks_goal` · `breaks_promise` ·
+`required_for_dogfood` · `manual_toil` · `platform_leverage` ·
+`factory_reliability` · `observed_behaviour`
+
+They render as phrases - "a person asked for it · it blocks a goal" - never as
+a priority integer. `orderBy` decides the ORDER and is never drawn: a ranking
+is not an answer to "why this". `meta.whyNote` (or any key a page names in
+`noteFields`) adds one sentence of prose beside the codes, and prose alone is
+labelled as a note so it cannot be mistaken for a code. A record with no codes
+says "no reason recorded". Nothing is inferred from status, title or rank.
+
+## The `report` archetype
+
+A report is **one record's whole story on one page**, in order, and it takes
+the record's id in the path: `/dashboard/p/<slug>/<id>`. The bare
+`/dashboard/p/<slug>` says so and points at the list the report is reached
+from.
+
+```yaml
+slug: feature
+title: Feature report
+nav: {section: Software factory, order: 2, hidden: true}
+archetype: report
+report:
+  subject: request
+```
+
+`subject` is an enum of one (`request`) on purpose. A report is not a generic
+record dump — it is an assembly that knows what a request's story IS and
+which records tell each part, and that assembly is code
+(`services/factory/featureReport.ts`). A second subject means a second
+assembly; it gets declared here when it exists rather than pretended at now.
+
+The request report renders nine sections in reading order — **the ask,
+triage, the contract, approvals, the runs, the change, QA evidence, the
+release, estimate against actual** — over a summary strip (asked, shipped,
+elapsed, total cost, human decisions, attempts) and a vertical timeline,
+oldest first so the newest entry is last, every entry stamped with its time
+and, where money was spent, its cost.
+
+Three rules the assembly holds to, and they are the point of the archetype:
+
+1. **A stage that did not happen says so.** Every section renders; one with
+   nothing in it carries a sentence naming what is absent — "No release
+   carries this task", "No QA evidence was captured for this task", "No
+   person approved this; it ran under earned autonomy". The absence is the
+   finding, and hiding the section would hide it.
+2. **No stage is inferred from another.** A merged pull request does not make
+   a run successful. A shipped release does not make a task accepted. A
+   passing check is not QA evidence.
+3. **A contradiction is shown, not resolved.** A run recorded `failed` whose
+   pull request merged shows both facts and is flagged, because that is a
+   real defect — a worker's completion call can time out after its pull
+   request is already open — and picking a winner would hide it.
+
+### QA evidence, and the shape a worker must post
+
+Evidence is an ordinary **artifact** (principle 7 — map onto the nouns we
+have), attached to the `engineering_task` it proves:
+
+```
+recordType: 'object'                  # business objects are `object` records
+recordId:   '<engineering_task id>'
+recordRole: 'qa-screenshot' | 'qa-video' | 'qa-report'
+kind:       'file' | 'link' | 'markdown'
+title:      'Checkout, empty cart'    # the caption heading in the gallery
+spec:       { url, filename, contentType, bytes }   # kind: file
+            { href, title, description }            # kind: link
+            { md }                                  # kind: markdown
+```
+
+`recordRole` carries the marker rather than `kind` because `artifact.kind` is
+a closed core enum (`libs/cards/specs.ts`) and a worker cannot add
+`qa-screenshot` to it. A worker that writes the marker into `spec.kind`
+instead is still read, so the convention can tighten later without dropping
+evidence already posted. A screenshot with a `url` draws itself; a video or a
+report is a link that says what it is; `spec.caption` (or `description`, or
+`summary`) is the line under it.
+
+Nothing posts this yet. That is why the empty state names the gap instead of
+collapsing.
 
 ## Custom widgets
 

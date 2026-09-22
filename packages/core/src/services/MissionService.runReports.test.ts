@@ -36,6 +36,7 @@ async function makeRun(opts: {
   status?: string;
   error?: string | null;
   createdBy?: string;
+  createdAt?: Date;
   tasks?: Array<{ id: string; title: string; status: string; output?: string; error?: string }>;
 }): Promise<number> {
   const [row] = await db
@@ -48,6 +49,7 @@ async function makeRun(opts: {
       status: opts.status ?? 'completed',
       error: opts.error ?? null,
       createdBy: opts.createdBy ?? 'user_drew',
+      ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
       team: { lead: 'event-ingestion-lead', members: [] },
       plan: {
         tasks: (opts.tasks ?? [{ id: 't1', title: 'Task one', ownerAgentSlug: 'event-ingestion-lead', type: 'action', status: 'completed' }]) as never,
@@ -211,6 +213,17 @@ describe('listMissionRunReportsForMission', () => {
     expect(reports!.map(r => r.id)).toEqual([newerRunId, olderRunId]);
     expect(reports!.every(r => r.missionSlug === 'larkfield-event-ingestion')).toBe(true);
     expect(reports![0]!.plan.tasks[0]!.output).toBe('found 5, refreshed 2, failed 1');
+  });
+
+  it('still lists newest first when two runs share a created_at', async () => {
+    const sameInstant = new Date('2026-01-01T00:00:00.000Z');
+    const missionId = await makeMission('back-to-back-runs');
+    const olderRunId = await makeRun({ missionId, createdAt: sameInstant });
+    const newerRunId = await makeRun({ missionId, createdAt: sameInstant });
+
+    const reports = await listMissionRunReportsForMission(ORG, 'back-to-back-runs', 50);
+
+    expect(reports!.map(r => r.id)).toEqual([newerRunId, olderRunId]);
   });
 
   it('clamps to the requested limit', async () => {

@@ -7,11 +7,12 @@ import process from 'node:process';
 import { and, eq } from 'drizzle-orm';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { appendRecordLinks } from '@/libs/chat/recordLinks';
+import { stripScratch } from '@/libs/chat/scratch';
 import { db } from '@/libs/DB';
 import { flushTraces } from '@/libs/Langfuse';
 import { FEATURES } from '@/libs/Langfuse/features';
 import { modelForStrength } from '@/libs/llm/modelPrefs';
-import { tokenCostCents } from '@/libs/pricing';
+import { tokenCostMicroCents } from '@/libs/pricing';
 import { clockLine, DEFAULT_TIME_ZONE } from '@/libs/time/zone';
 import { agentSchema } from '@/models/Schema';
 import { AnswerStreamer } from './agents/answerStream';
@@ -264,6 +265,10 @@ async function runOutOfProcess(
 ): Promise<{ response: string; traceId: string; toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>; usage?: RunUsage }> {
   const failures: TurnFailure[] = [];
   let held: Extract<AgentEvent, { type: 'done' }> | null = null;
+  // The other loops stream their answer as-is; a <scratch> block the model
+  // opened there is set aside at this seam, the same way the in-process loop
+  // does it, so no harness can put the model's thinking into the transcript.
+  const streamer = new AnswerStreamer();
   const gated = (event: AgentEvent): void => {
     if (event.type === 'tool_error') {
       failures.push({ tool: event.tool, message: event.message });
@@ -272,10 +277,27 @@ async function runOutOfProcess(
       held = event;
       return;
     }
+    if (event.type === 'response_delta') {
+      const { answer, thinking } = streamer.push(event.delta);
+      if (thinking) {
+        emit({ type: 'thinking_delta', delta: thinking });
+      }
+      if (answer) {
+        emit({ type: 'response_delta', delta: answer });
+      }
+      return;
+    }
     emit(event);
   };
 
   const result = await run(gated);
+  const tail = streamer.flush();
+  if (tail.thinking) {
+    emit({ type: 'thinking_delta', delta: tail.thinking });
+  }
+  if (tail.answer) {
+    emit({ type: 'response_delta', delta: tail.answer });
+  }
   const response = await applyTurnGuarantees({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -283,7 +305,7 @@ async function runOutOfProcess(
     conversationId: opts.conversationId,
     deliverable: opts.deliverable,
     request: opts.message,
-    response: result.response,
+    response: stripScratch(result.response),
     toolCalls: result.toolCalls,
     failures,
     // Delegation nesting is not visible across the transport (the other
@@ -411,7 +433,7 @@ export async function runAgentDeep(opts: {
   toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
   /**
    * Token usage across every model turn of this run, priced by
-   * `tokenCostCents`. `model` is the id the provider reported on the last
+   * `tokenCostMicroCents`. `model` is the id the provider reported on the last
    * turn. Present on the in-process loop; the other harness targets report
    * usage through their own channels and leave this undefined.
    */
@@ -466,7 +488,10 @@ export async function runAgentDeep(opts: {
   // is over its hard cap; otherwise proceed.
   const budgetCheck = await preflightCheck({ orgId: opts.orgId, agentSlug: opts.agentSlug });
   if (!budgetCheck.ok) {
-    const message = `Budget exceeded for agent "${opts.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap on /dashboard/agents/${opts.agentSlug} or wait for the next period.`;
+    // Names the row that refused, not the agent that asked: since #279 the
+    // check also covers the workspace-wide cap, and "raise the cap on this
+    // agent" would send someone to a page that cannot fix it.
+    const message = `Budget exceeded for "${budgetCheck.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap under Budgets or wait for the next period.`;
     emit({ type: 'error', message });
     throw new Error(message);
   }
@@ -539,7 +564,7 @@ export async function runAgentDeep(opts: {
   const failedDelegations: FailedDelegation[] = [];
 
   // What this run cost, summed over every model turn the callback sees.
-  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cents: 0, turns: 0 };
+  const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, microCents: 0, cents: 0, turns: 0 };
 
   // Langfuse trace via the v0.2 BaseCallbackHandler adapter.
   const { handler: langfuseHandler, trace } = createLangfuseCallback({
@@ -555,11 +580,17 @@ export async function runAgentDeep(opts: {
       usage.inputTokens += turn.inputTokens ?? 0;
       usage.outputTokens += turn.outputTokens ?? 0;
       usage.cacheReadTokens += turn.cacheReadTokens ?? 0;
-      usage.cents += tokenCostCents(turn.model, {
+      // Summed in whole micro-cents, then divided once. Adding fractional
+      // cents turn by turn drifts, because most of them are not values a
+      // floating-point number can hold exactly; `cents` is recomputed from the
+      // exact total each time rather than accumulated, so it is right to read
+      // at any point in the run.
+      usage.microCents += tokenCostMicroCents(turn.model, {
         inputTokens: turn.inputTokens,
         outputTokens: turn.outputTokens,
         cacheReadTokens: turn.cacheReadTokens,
       });
+      usage.cents = usage.microCents / 1_000_000;
       await chargeUsage({
         orgId: opts.orgId,
         agentSlug: opts.agentSlug,
@@ -641,11 +672,28 @@ export async function runAgentDeep(opts: {
   };
 
   // True streaming: the LEAD's answer streams live token-by-token via the
-  // AnswerStreamer, which strips a leading <scratch>…</scratch> block (routed
-  // to chain-of-thought) so raw data never dumps into the answer. No post-run
-  // buffering.
+  // AnswerStreamer, which strips every <scratch>…</scratch> block — leading
+  // or, since 2026-09-20, opened mid-reply after a tool call — and routes it
+  // to the trace as reasoning, so raw data never dumps into the answer. No
+  // post-run buffering.
   const answerStreamer = new AnswerStreamer();
   let answering = false;
+  // The lead's most recent model-turn namespace, so a scratch tail released
+  // at flush lands on the reasoning node of the turn that wrote it.
+  let leadNs = '';
+  const routeScratch = (scratch: string, closed: boolean): void => {
+    if (scratch) {
+      emit({ type: 'thinking_delta', delta: scratch });
+      for (const node of tracer.reasonDelta(leadNs, scratch)) {
+        emit(node);
+      }
+    }
+    if (closed) {
+      for (const node of tracer.closeReasoning()) {
+        emit(node);
+      }
+    }
+  };
   // Step names from a cheap model (`stepLabeler.ts`), one job per tool
   // start; each lands as a `trace_node` patch when it resolves. Awaited
   // briefly at the end so the persisted trace carries the names too.
@@ -729,10 +777,9 @@ export async function runAgentDeep(opts: {
             emit({ type: 'thinking_delta', delta: thinking });
           }
           if (isLead && text) {
-            const { answer, thinking: scratch } = answerStreamer.push(text);
-            if (scratch) {
-              emit({ type: 'thinking_delta', delta: scratch });
-            }
+            leadNs = nsFor(ev);
+            const { answer, thinking: scratch, closed } = answerStreamer.push(text);
+            routeScratch(scratch, closed);
             if (answer) {
               if (!answering) {
                 answering = true;
@@ -840,11 +887,11 @@ export async function runAgentDeep(opts: {
     throw err;
   }
 
-  // Release any held-back tail (partial-tag boundary) from the streamer.
+  // Release any held-back tail (partial-tag boundary) from the streamer. A
+  // block still open here was cut off by the end of the stream: it is
+  // thinking to its last character, and its reasoning node closes with it.
   const tail = answerStreamer.flush();
-  if (tail.thinking) {
-    emit({ type: 'thinking_delta', delta: tail.thinking });
-  }
+  routeScratch(tail.thinking, true);
   if (tail.answer) {
     finalText += tail.answer;
     emit({ type: 'response_delta', delta: tail.answer });
@@ -950,7 +997,15 @@ export type RunUsage = {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
-  /** USD cents via `tokenCostCents`; 0 for a model the price table does not know. */
+  /**
+   * What the run cost in micro-cents (a millionth of a cent) — the exact
+   * number, summed as whole numbers over the run's turns.
+   */
+  microCents: number;
+  /**
+   * The same cost in USD cents, for reading. Derived from `microCents`, so it
+   * carries a fraction; 0 for a model the price table does not know.
+   */
   cents: number;
   /** Model turns — one per LLM call, so retries and tool loops count. */
   turns: number;

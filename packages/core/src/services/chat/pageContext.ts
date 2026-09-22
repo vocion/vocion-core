@@ -40,6 +40,13 @@ export const RECORD_TYPES = [
   'document',
   /** A researched lead brief (`lead_brief`), the GTM review queue's unit. */
   'lead',
+  /**
+   * An outcome on the Work queue — what the factory owes, is building, or
+   * shipped. Without it the Work page could hand chat only its path and
+   * title, so "deprioritise the admin panel one" had nothing to bind to and
+   * the composer's `@tag` could not name a row.
+   */
+  'request',
   // The composer can tag the page itself (`@page`).
   'page',
 ] as const;

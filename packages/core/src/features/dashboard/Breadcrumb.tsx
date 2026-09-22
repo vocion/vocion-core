@@ -1,10 +1,10 @@
 'use client';
 
 import { ChevronRight } from 'lucide-react';
-import { usePathname } from 'next/navigation';
+
 import { useSyncExternalStore } from 'react';
 import { buildCrumbs } from '@/features/dashboard/breadcrumbModel';
-import { Link } from '@/libs/I18nNavigation';
+import { Link, usePathname } from '@/libs/I18nNavigation';
 
 /**
  * Shell-bar breadcrumb (B-034b §3): workspace › section › record. Registered

@@ -8,7 +8,7 @@ which base pack (if any) the workspace builds on.
 |---|---|
 | **Path** | `workspace.yaml` (or `workspace.yml`) at the workspace root |
 | **Schema** | `WorkspaceManifestSchema` — `packages/core/src/libs/workspace/schemas.ts` |
-| **Applied to** | `project` (lead, goal, surfaces, plugins, mailbox) + a `workspace_version` audit row |
+| **Applied to** | `project` (lead, goal, surfaces, plugins, mailbox) + a `workspace_version` audit row. Never the pause columns — see [the off switch](#the-off-switch--pausing-the-whole-workspace) |
 | **Layering** | Not composable — the manifest is always the workspace's own |
 
 ## Fields
@@ -143,6 +143,76 @@ the rest of the dry run.
 **The summary line.** `workspace:apply` prints
 `wikiPages  created=… updated=… unchanged=… kept(human-edited)=…`; the same
 counts land on the `workspace_version` row and in `workspace_apply` over MCP.
+
+## The off switch — pausing the whole workspace
+
+A workspace has one control that stops everything it does by itself, and it
+is **not** authored in `workspace.yaml`. It is an operator's act, held on the
+`project` row (`paused_at`, `paused_by`, `paused_note`, migration 0132) and
+never written by an apply — the same shape, and the same rule, as an
+[automation's pause](./automation.md#pausing-and-resuming).
+
+Real work demanded it on 2026-09-21: stopping the Squatch factory meant
+twenty `POST /api/v1/automations/:slug/pause` calls, typed by hand, by
+someone who had to know every slug first. They worked, and they still left
+mission runs, worker runs and gated actions going.
+
+| | |
+|---|---|
+| **Who can** | An owner or PM (dashboard admin). Any member may pause one automation; holding the whole workspace is heavier, so it is admin-gated. |
+| **Where it is** | The top bar, on **every** authenticated page: *Pause workspace*, one click from wherever a person is, labelled at phone width too. Not on `/dashboard/workspace` — that is the Context map, an overview someone opens on purpose, and a stop nobody can find is not a stop. |
+| **What is recorded** | `paused_at`, `paused_by` (the `user.id`, or `token:<id>` when an API token placed it) and `paused_note` on the project row. The note is **required** everywhere: it is the line everyone else reads on every page until the hold is lifted. |
+| **What is shown** | A banner across the top of every page in the workspace: "This workspace is paused. *note*" and "Paused by *name* *when*", plus what is refused and what is still running. A Resume button beside it for an admin; everyone else reads the name and knows who to ask. |
+| **Surface** | `client.workspace.pauseState()` / `.pause({ note })` / `.resume()`. A pause on a paused workspace (or a resume on a running one) answers `CONFLICT` — the state on screen is stale. |
+| **Over the API** | `POST /api/v1/workspace/pause` `{ note }` and `POST /api/v1/workspace/resume`. Owner or PM (a `['*']` grant passes). 409 (`WORKSPACE_STATE`) when the state already is what was asked. `GET /api/v1/workspace` reads `paused`, plus `refuses` and `allows` so a client's copy of the list cannot drift from the guard's. |
+| **Over MCP** | `workspace_pause { note }` and `workspace_resume` — the same service path, the row naming the MCP identity. |
+
+### What it refuses
+
+One guard, `services/workspacePause.ts` → `assertWorkspaceRunning`, asked by
+four callers and no others. Every refusal happens **before any model call**,
+so a stopped workspace spends nothing.
+
+| Refused | Where the guard is asked | What the caller sees |
+|---|---|---|
+| Every automation fire, scheduled or event | `beginAutomationFire`, and `emitEvent` before it dispatches | A `skipped` `automation_run`, `reason: workspace_paused`, carrying the note — so "why did nothing run all afternoon" is answered from the run log rather than from nowhere |
+| Starting a mission run — API, MCP `mission_start`, chat, an automation's check | `startMission`, before the planner | `WORKSPACE_PAUSED` with the note |
+| Queueing or claiming a worker run | `createWorkerRun` and `claimWorkerRun` | `WORKSPACE_PAUSED`. The claim is the half that matters: the Fargate worker polls, so refusing it is what stops work starting on runs queued before the switch |
+| Executing a gated action | `ActionService.executeAction` | `WORKSPACE_PAUSED`, with the `action_run` left exactly where the approver left it |
+
+### What it allows, and why
+
+**Chat with an agent stays available. This is the judgement call.** A person
+talking is not the factory working, and the first thing anyone does after
+pulling the switch is ask what just happened — so taking chat away would take
+away the tool for understanding the thing that made them stop. If that turn
+then tries to start a mission, queue a worker run or execute a gated action,
+the guard refuses it with the pause note: the refusal lands where the work
+would have started, not on the conversation.
+
+**A worker already mid-run is not killed.** It finishes, heartbeats, and
+reports; `heartbeat`, `complete` and `fail` stay open to a worker holding a
+lease. Its completion events are still written to `event_log` — a completion
+that happened happened — and they raise **no** automation, because the fire
+is what a pause refuses.
+
+**A hand-off action is still released.** `libs/actions/manual.ts` kinds — a
+merge, a deploy, a credential — execute nothing; they hand a person a list of
+steps. A person working by hand is not the factory.
+
+### What it does not touch
+
+**Per-automation pauses.** A workspace pause writes to no automation row, so
+resuming restores exactly what was there before: two debriefs someone paused
+last week are still paused, and nothing else is. Nothing is snapshotted on the
+way in, which is precisely why nothing can be lost on the way out. That is the
+reason this is a separate fact rather than a bulk edit of every automation —
+there is no honest way to tell the ones a blanket stop paused from the ones a
+person paused for their own reasons.
+
+**An apply.** `workspace:apply` names every project column it writes and the
+three pause columns are not among them. A deploy does not lift a person's
+stop, the same rule #494 set for automations.
 
 ## Rules
 

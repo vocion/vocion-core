@@ -14,6 +14,12 @@ import { fireAutomation } from '@/services/AutomationService';
 export type FireAutomationActivityInput = {
   orgId: string;
   slug: string;
+  /**
+   * The one fire that stands in for the event fires the ceiling held back
+   * (`when.maxFiresPer10m`). Started by `scheduleCoalescedFire` after the
+   * window; absent on a schedule fire.
+   */
+  coalesce?: boolean;
 };
 
 /** How often the activity reports it is still alive. Well inside the 5-minute heartbeat timeout. */
@@ -41,7 +47,11 @@ export async function fireAutomationActivity(
   }
 
   try {
-    return await fireAutomation(input.orgId, input.slug, { invokedBy: `automation:${input.slug}` });
+    return input.coalesce
+      // `event:` so the ceiling counts it as the event fire it is; the
+      // `coalesced` suffix so the log tells it from the fires it replaced.
+      ? await fireAutomation(input.orgId, input.slug, { invokedBy: 'event:coalesced', coalesce: true })
+      : await fireAutomation(input.orgId, input.slug, { invokedBy: `automation:${input.slug}` });
   } finally {
     if (heartbeat) {
       clearInterval(heartbeat);

@@ -1,0 +1,111 @@
+name: Growth loop
+description: >-
+  Turns evidence that somebody wanted something into work that gets made, gets
+  checked, gets published and then gets JUDGED BY A READING taken after the
+  fact. Five seats, one team: Demand (the strategist — the map and the brief),
+  Production (the producer — the deliverable and nothing else), Quality (the
+  editor — fit to publish, against the brief and nothing else), Measurement (the
+  analyst — the reading, the verdict and what it cost), and Growth (the lead —
+  what is promoted, inside what limits, and the only seat that may propose a
+  teammate). Design is declared empty below rather than missing. Graded on what
+  the work moved and what it cost to move it — never on how much was published.
+goal: Every brief ends in a reading with a verdict a person can check, and what gets briefed next is decided by those verdicts rather than by whoever asked last.
+lead: growth-lead
+# No accountableUser: inherits the workspace default. A plugin cannot know who
+# is accountable for what a deployment says in public — the workspace names the
+# person (`accountableUser:` in workspace.yaml, or on this file with
+# `extends: core`).
+#
+# THE SEATS. The team schema has no discipline field and the org chart shows an
+# agent's name and icon, so each agent carries its discipline in its `eyebrow`
+# ("Growth loop · Quality") and in the first word of its description; this block
+# is the roster a person reads to know who does what.
+#
+#   Demand        demand-strategist  the demand map and the brief — the claim,
+#                                    the do-not-claim list, the measure; writes
+#                                    no deliverable
+#   Production    content-producer   one brief into one deliverable, as an
+#                                    artifact; publishes nothing, grades nothing
+#   Quality       standards-editor   fit to publish, against the brief and
+#                                    nothing else; publishes nothing
+#   Measurement   growth-analyst     the reading on the day it is due, the
+#                                    verdict, and cost against return
+#   Growth        growth-lead        what is promoted and inside what limits;
+#                                    the only seat that may propose a hire, and
+#                                    it hires nothing — a person decides
+#   Design        (no agent)         the seat is empty, on purpose and visibly:
+#                                    nothing here reads a brief for what it
+#                                    should LOOK like, so every deliverable is
+#                                    words until a workspace seats somebody.
+measures:
+  # THE OUTCOME. Briefs whose reading came back `worked` — not briefs published,
+  # not pieces made. Agent-reported, and the report says so: the analyst is
+  # counting the verdicts it wrote itself, which is the weakest provenance on
+  # this list and the honest label for it.
+  - key: briefs_that_worked
+    label: Briefs that moved their number
+    dimension: outcome
+    target: 4
+    baseline: 0
+    unit: briefs
+    window: 30d
+    source: {kind: agent-reported, counts: briefsWorked}
+  # The measurement discipline itself, and the thing that rots first. A brief
+  # published and never read is the loop broken in the one place nobody
+  # notices, so it is graded as a quality measure rather than buried in a note.
+  - key: readings_taken_on_time
+    label: Readings taken by their due date
+    dimension: quality
+    target: 8
+    baseline: 0
+    unit: readings
+    window: 30d
+    source: {kind: agent-reported, counts: readingsOnTime}
+  # The gate, read at the point that says something about the BRIEF rather than
+  # the producer: how often a piece was fit to publish on the first read. A
+  # falling number is almost always a brief field that stopped being filled in.
+  - key: first_read_publishable
+    label: Fit to publish on the first read
+    dimension: quality
+    target: 7
+    baseline: 2
+    unit: pieces
+    window: 30d
+    source: {kind: agent-reported, counts: gateFirstReadPublish}
+  # What a person actually decided. Human-confirmed by construction — the
+  # decision on the ask IS the evidence — and it covers both of the decisions
+  # this loop puts in front of somebody: releasing something public, and adding
+  # a teammate.
+  - key: decisions_taken
+    label: Decisions a person took
+    dimension: velocity
+    target: 12
+    baseline: 0
+    unit: decisions
+    window: 30d
+    source: {kind: human-confirmed, askKinds: [approval, gate, recommendation]}
+  # What the deliverables themselves are, counted from the rows Vocion keeps
+  # rather than from anybody's report. Deliberately beside the outcome rather
+  # than instead of it: pieces published that moved nothing is exactly the
+  # failure this pair makes visible.
+  - key: deliverables_made
+    label: Deliverables produced
+    dimension: velocity
+    target: 10
+    baseline: 0
+    unit: artifacts
+    window: 30d
+    source: {kind: observed, rows: artifacts, where: {folder: growth}}
+  # Total spend on the loop in the window. Cost per brief that worked is DERIVED
+  # by the report from this and `briefs_that_worked` — a ratio is never authored,
+  # because a measure that summed per-brief costs would be arithmetic nobody can
+  # check.
+  - key: growth_cents
+    label: Growth spend
+    dimension: economics
+    target: 4000
+    baseline: 12000
+    unit: cents
+    window: 30d
+    direction: lower
+    source: {kind: agent-reported, counts: centsSpent}

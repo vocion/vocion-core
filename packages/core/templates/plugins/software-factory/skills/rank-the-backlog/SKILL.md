@@ -30,6 +30,15 @@ could wait.
 
 ## The four inputs, and nothing else
 
+0. **Before the four: the workspace's operating intent, when it states one.**
+   Its priority list is a person's own ranking, and it settles a tie the four
+   inputs leave open, and it overrules them when they disagree, because a
+   score is an argument and the list is an instruction. Name the rule that
+   moved a request. Its constraints are refusals: a request that would cross
+   one does not rank, it becomes an ask quoting the constraint. Its budget
+   advises and is not enforced, so never report a request as blocked by it.
+   Where no intent is stated, say you are ranking without one.
+
 1. **The product's promises** (`product.promises`, plus the four in the
    `written-promises` playbook). A request that would *keep* a promise people
    are currently finding broken ranks first. A request that would *strain* one
@@ -49,6 +58,11 @@ could wait.
    figure, its source and the date in the reason. If no such source exists,
    the reason says "no analytics source" and the score rests on the other
    three; never quote what such a source "usually" shows.
+
+The request's `why` is not a fifth input and does not raise a score: it is the
+record of what triage believed, and you audit it against the same evidence you
+rank on. A request with no `why` is not ranked at all: report it as untagged
+and send it back to triage rather than scoring something nobody can justify.
 
 Effort, how interesting the work is, who asked, and how nicely they asked are
 not inputs. `decisionCost` is not an input either — it meters the batch, it

@@ -486,6 +486,37 @@ export class TraceEmitter {
     return this.sideEvents.splice(0, this.sideEvents.length);
   }
 
+  /**
+   * A piece of the model's reasoning for the model turn at `ns` — extended
+   * thinking from the stream, or a `<scratch>` block the answer streamer set
+   * aside (`answerStream.ts`). Both are the same thing to the reader: what
+   * the agent thought before it said something, folded to one line. One
+   * reason node per actor per model turn; ns for a model turn is
+   * "model_request:<id>" (lead) or "tools:<taskId>|model_request:<id>".
+   * @param ns - The event's checkpoint namespace.
+   * @param delta - The reasoning text to append.
+   */
+  reasonDelta(ns: string, delta: string): TraceNodeEvent[] {
+    const actor = this.actorFor(ns);
+    const modelSeg = ns.split('|').pop() ?? ns;
+    const id = `reason:${modelSeg}`;
+    const parentId = taskIdOf(ns);
+    const first = !this.openReason.has(id);
+    if (first) {
+      this.openReason.set(id, { actor, parentId });
+    }
+    return [{
+      type: 'trace_node',
+      id,
+      parentId,
+      actor,
+      kind: 'reason',
+      status: first ? 'start' : 'progress',
+      label: labelFor('reason', 'progress', ''),
+      delta,
+    }];
+  }
+
   closeReasoning(): TraceNodeEvent[] {
     const out: TraceNodeEvent[] = [];
     for (const [id, { actor, parentId }] of this.openReason) {
@@ -570,26 +601,7 @@ export class TraceEmitter {
         if (!thinking) {
           return [];
         }
-        // One reason node per actor per model turn. ns for a model turn is
-        // "model_request:<id>" (lead) or "tools:<taskId>|model_request:<id>".
-        const actor = this.actorFor(ns);
-        const modelSeg = ns.split('|').pop() ?? ns;
-        const id = `reason:${modelSeg}`;
-        const parentId = taskIdOf(ns);
-        const first = !this.openReason.has(id);
-        if (first) {
-          this.openReason.set(id, { actor, parentId });
-        }
-        return [{
-          type: 'trace_node',
-          id,
-          parentId,
-          actor,
-          kind: 'reason',
-          status: first ? 'start' : 'progress',
-          label: labelFor('reason', 'progress', ''),
-          delta: thinking,
-        }];
+        return this.reasonDelta(ns, thinking);
       }
 
       case 'on_tool_start': {

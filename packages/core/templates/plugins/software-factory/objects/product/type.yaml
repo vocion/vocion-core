@@ -12,19 +12,24 @@ schema:
   type: object
   properties:
     name:
+      x-display: {label: Name, group: Product}
       type: string
       description: What it is called in prose today.
     workingName:
+      x-display: {label: Working name, group: Product}
       type: string
       description: The name used while building, before launch. Kept beside `launchName` so a repository or a file named after the working name still resolves to this product.
     launchName:
+      x-display: {label: Launch name, group: Product}
       type: string
       description: The name it ships under. Empty until it is decided; a product may reach `dogfood` without one.
     stage:
+      x-display: {label: Stage, format: badge, group: Product, tones: {idea: muted, building: info, dogfood: warn, live: ok, retired: muted}}
       type: string
       description: '`idea` — not yet building. `building` — code, no users. `dogfood` — the team uses it daily. `live` — people outside the team rely on it. `retired` — no longer offered, still answered for.'
       enum: [idea, building, dogfood, live, retired]
     incumbent:
+      x-display: {label: Incumbent, role: prose, format: steps, order: 2}
       type: object
       description: The product people use instead today, and what it costs them — the number ours is judged against. Dated and sourced so a stale comparison is visible as stale.
       properties:
@@ -34,9 +39,11 @@ schema:
         checkedOn: {type: string, format: date, description: When the price was last read from the source.}
         sourceUrl: {type: string, description: Where it was read. One tap from the number to the page.}
     ourPrice:
+      x-display: {label: Our price, group: Money}
       type: string
       description: What we charge, with its unit. Changing it is a permanent gate — a person's decision every time, never something a task adjusts on the way past.
     urls:
+      x-display: {label: Where it lives, role: prose, format: steps, order: 3}
       type: object
       description: Where it is. What a verification curl hits and what a request's asker was looking at.
       properties:
@@ -44,13 +51,16 @@ schema:
         app: {type: string}
         api: {type: string}
     repos:
+      x-display: {label: Repositories, format: link, to: repo}
       type: array
       description: Slugs of the `repo` records that make this product.
       items: {type: string}
     accountableUser:
+      x-display: {label: Accountable, group: Product}
       type: string
       description: Email of the person who answers for this product — who a merge ask on it goes to when the repository does not say otherwise, and whose name is on its promises.
     promises:
+      x-display: {label: Written promises, role: prose, format: steps, order: 1}
       type: array
       description: >-
         The written commitments, one line each, in the words they were made in
@@ -60,36 +70,76 @@ schema:
         list before approving anything on this product.
       items: {type: string}
     health:
+      x-display: {label: Health, role: prose, format: steps, order: 4}
       type: string
       description: >-
         How the product is doing right now, from the last nightly black-box
         e2e and the newest release's `healthAfter`. AGENT-MAINTAINED — set by
         the lead's `keep-the-board-honest` tick from evidence it can point at,
         never typed by hand, and read with `countersUpdatedAt` beside it.
-      enum: [ok, degraded, down, unknown]
+        LEFT EMPTY when nothing is watching the product: there is no
+        `unknown` health, because "unknown" is doubt about the product when
+        the doubt is ours. A product nothing checks has no health reading and
+        `healthSource` says so; the board reads "monitoring not connected",
+        which names what is missing and can be acted on.
+      enum: [ok, degraded, down]
+    healthSource:
+      x-display: {label: Health source, group: Counters}
+      type: string
+      description: >-
+        What is actually watching this product: "nightly e2e", "deploy
+        check", the monitor's name. AGENT-MAINTAINED by the lead's tick, and
+        the thing that makes `health` a reading rather than a guess. Empty
+        means nothing is connected, and every surface must say that instead
+        of printing a health state nobody observed.
+    healthCheckedAt:
+      x-display: {label: Health checked}
+      type: string
+      format: date-time
+      description: When `healthSource` last reported. AGENT-MAINTAINED by the lead's tick. A health with no check behind it is not a health.
+    lastShipped:
+      x-display: {label: Last shipped}
+      type: string
+      description: >-
+        The announcement line of the newest `release` for this product, in the
+        words the public reads, so what shipped and not how many. AGENT-MAINTAINED
+        by the lead's tick, read with `lastReleaseAt` beside it so the
+        portfolio says "Email sharing, yesterday" rather than "7 this month".
+    inFlight:
+      x-display: {label: Being worked on, group: Counters}
+      type: integer
+      description: How many of this product's open requests are in state `building` right now. AGENT-MAINTAINED by the lead's tick. Open work needs shape, how much is moving and whether any of it is urgent, because a bare count of ten can be a disaster or a healthy backlog.
     openRequests:
+      x-display: {label: Open requests, group: Counters}
       type: integer
       description: How many `request` records for this product are still owed an outcome (state new, triaged, in_scope or building). AGENT-MAINTAINED by the lead's tick; a page's stats compute over their own rows, so a cross-type count lives here.
     p1Open:
+      x-display: {label: Open P1s, group: Counters}
       type: integer
       description: How many open requests for this product carry severity `p1`. AGENT-MAINTAINED by the lead's tick.
     shippedThisMonth:
+      x-display: {label: Shipped this month, group: Counters}
       type: integer
       description: How many `release` records for this product have a `releasedAt` in the current calendar month. AGENT-MAINTAINED by the lead's tick.
     medianDaysToShip:
+      x-display: {label: Median days to ship, group: Counters}
       type: number
-      description: Median days from `request.askedAt` to the `releasedAt` of the release that closed it, over the last ninety days of closed requests for this product. AGENT-MAINTAINED — the tick computes it from the records; the team measure that sums a counts key cannot, which is why it lives here and reads as the agent's own figure.
+      description: 'Median days from `request.askedAt` to the `releasedAt` of the release that closed it, over the last ninety days of closed requests for this product. AGENT-MAINTAINED, so the tick computes it from the records; the team measure that sums a counts key cannot, which is why it lives here and reads as the agent''s own figure. LEFT EMPTY below three closed requests that each name the release that closed them, and LEFT EMPTY whenever the median would round to 0 days: a median over a corpus two days old is an artifact of when the factory started, and a confident 0 is worse than no figure. Checked against the live records on 2026-09-21: five of Send''s seven shipped requests could be measured at all and every one of them closed within fifteen hours of being asked, so the three-request floor was cleared and the figure was still 0. Days is the wrong unit for a factory this young, and the honest reading is the sentence, not the number.'
     lastReleaseAt:
+      x-display: {label: Last release}
       type: string
       format: date-time
       description: The newest `release.releasedAt` for this product. AGENT-MAINTAINED by the lead's tick.
     revenueMonthCents:
+      x-display: {label: Revenue this month, format: money, group: Money}
       type: integer
       description: Revenue this month, in cents. LEFT EMPTY until a verified revenue source (Stripe) exists — the portfolio shows the column as "no source yet" rather than a zero nobody measured, because an empty cell is honest and a zero is a claim.
     countersUpdatedAt:
+      x-display: {label: Counters as of}
       type: string
       format: date-time
       description: When the agent-maintained counters above were last recomputed. Shown beside them; a counter older than a day is stale and the board says so.
     notes:
+      x-display: {label: Notes, role: prose, order: 5}
       type: string
       description: Standing knowledge about the product — positioning, who it is for, what was decided and when. Markdown.

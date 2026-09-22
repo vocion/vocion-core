@@ -326,6 +326,47 @@ describe('candidate extractor, one document end to end', () => {
     expect(input.imageUrl).toBe('https://cdn.venue.test/poster.png');
   });
 
+  it('puts the image the document published for itself on the one card it produced', async () => {
+    // The other hand-off this file exists to cover. The connector has kept the
+    // og:image since `pageMetadata.ts` was written and nothing downstream read
+    // it, so the gate dropped every one a model returned and a document that
+    // stated no image per record produced a card with no picture at all.
+    const page = {
+      externalId: 'https://bellwaterhall.example/e/open-mic',
+      uri: 'https://bellwaterhall.example/e/open-mic',
+      title: 'Open Mic Night',
+      // The shape `extractFromHtml` returns: the document's own image is the
+      // first line of the text, which is why the model is not sent it twice.
+      content: [
+        'Image: https://bellwaterhall.example/og-card.png',
+        'Open Mic Night at Bellwater Hall, Riverton. Every Thursday, 8pm.',
+      ].join('\n\n'),
+      metadata: { ogImage: 'https://bellwaterhall.example/og-card.png' },
+    };
+    invoke.mockResolvedValue({
+      content: JSON.stringify({
+        records: [{
+          fields: { title: 'Open Mic Night', startDate: day(7), venueName: 'Bellwater Hall', categories: ['Music'] },
+          confidence: 0.9,
+          suggestedDecision: 'approve',
+          suggestedDecisionReason: 'A public listing with its own date and venue.',
+        }],
+      }),
+      usage_metadata: { input_tokens: 700, output_tokens: 90 },
+    });
+
+    await run(context({ document: page }));
+
+    const runs = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+    const card = runs.find(row => (row.input as { title?: string }).title === 'Open Mic Night');
+    const input = card?.input as { imageUrl?: string; extractionNotes?: string };
+
+    expect(input.imageUrl).toBe('https://bellwaterhall.example/og-card.png');
+    // Said on the card, so a reviewer can see the picture is the document's
+    // own rather than one stated for this record.
+    expect(input.extractionNotes).toContain('the document published for itself');
+  });
+
   it('reports a skip instead of throwing when the model never answers', async () => {
     invoke.mockResolvedValue({ content: 'I could not read that page.' });
 

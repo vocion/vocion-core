@@ -7,7 +7,8 @@
  * promoted* into (promoteMissionToWorkflow drafts one).
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import type { CausalChain } from '@/services/automations/fireGuards';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { getCurrentWorkspaceSha } from '@/libs/workspace';
 import { missionRunSchema, missionSchema, workflowSchema } from '@/models/Schema';
@@ -15,6 +16,7 @@ import { clampAutonomyLevel } from './missions/autonomy';
 import { planMission } from './missions/planner';
 import { leadlessTeamsNote, resolveMissionRoster } from './missions/roster';
 import { executeMissionRun } from './missions/runtime';
+import { assertWorkspaceRunning } from './workspacePause';
 
 export type MissionRunSummary = typeof missionRunSchema.$inferSelect;
 
@@ -39,6 +41,8 @@ export function getMissionRun(runId: number, orgId: string) {
  * mission's runs — used by the `/api/v1/missions/:slug/runs` read route so
  * a caller only sees the runs of the mission it asked about, not every run
  * in the org.
+ * `id` breaks ties, which `createdAt` has whenever two runs are written in
+ * the same instant.
  * @param orgId
  * @param opts
  * @param opts.status
@@ -53,7 +57,74 @@ export function listMissionRuns(orgId: string, opts: { status?: string; limit?: 
   if (opts.missionId !== undefined) {
     conditions.push(eq(missionRunSchema.missionId, opts.missionId));
   }
-  return db.select().from(missionRunSchema).where(and(...conditions)).orderBy(desc(missionRunSchema.createdAt)).limit(opts.limit ?? 50);
+  return db.select().from(missionRunSchema).where(and(...conditions)).orderBy(desc(missionRunSchema.createdAt), desc(missionRunSchema.id)).limit(opts.limit ?? 50);
+}
+
+/** One row of the operator's run list — enough to find a runaway, not the plan. */
+export type MissionRunListItem = {
+  id: number;
+  missionId: number | null;
+  missionSlug: string | null;
+  title: string;
+  status: string;
+  createdBy: string | null;
+  causedBy: CausalChain | null;
+  createdAt: Date;
+  completedAt: Date | null;
+  error: string | null;
+};
+
+/** The most rows one page of the run list returns. */
+export const MISSION_RUN_LIST_MAX = 200;
+
+/**
+ * The run list an operator hunts a runaway with: filter by `status` and by
+ * the mission's slug, newest first, with the total the filters matched so
+ * "how many are still running" is one call and not a page count.
+ *
+ * `mission_list_runs` over MCP answered fifty rows and no total, so on 20
+ * September the sixty `wiki-debrief` runs had to be counted in `psql`.
+ * @param orgId - Tenant.
+ * @param opts - Filters and the page size (clamped to {@link MISSION_RUN_LIST_MAX}).
+ * @param opts.status
+ * @param opts.missionSlug
+ * @param opts.limit
+ */
+export async function listMissionRunsPage(
+  orgId: string,
+  opts: { status?: string; missionSlug?: string; limit?: number } = {},
+): Promise<{ runs: MissionRunListItem[]; total: number }> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), MISSION_RUN_LIST_MAX);
+  const where = and(
+    eq(missionRunSchema.orgId, orgId),
+    opts.status ? eq(missionRunSchema.status, opts.status) : undefined,
+    opts.missionSlug ? eq(missionSchema.slug, opts.missionSlug) : undefined,
+  );
+  const base = db
+    .select({
+      id: missionRunSchema.id,
+      missionId: missionRunSchema.missionId,
+      missionSlug: missionSchema.slug,
+      title: missionRunSchema.title,
+      status: missionRunSchema.status,
+      createdBy: missionRunSchema.createdBy,
+      causedBy: missionRunSchema.causedBy,
+      createdAt: missionRunSchema.createdAt,
+      completedAt: missionRunSchema.completedAt,
+      error: missionRunSchema.error,
+    })
+    .from(missionRunSchema)
+    .leftJoin(missionSchema, eq(missionRunSchema.missionId, missionSchema.id))
+    .where(where);
+  const [rows, [counted]] = await Promise.all([
+    base.orderBy(desc(missionRunSchema.createdAt), desc(missionRunSchema.id)).limit(limit),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(missionRunSchema)
+      .leftJoin(missionSchema, eq(missionRunSchema.missionId, missionSchema.id))
+      .where(where),
+  ]);
+  return { runs: rows.map(r => ({ ...r, causedBy: r.causedBy ?? null })), total: Number(counted?.n ?? 0) };
 }
 
 /**
@@ -205,6 +276,7 @@ export async function listMissionRunReportsForMission(
  * @param opts.autonomyLevel
  * @param opts.invokedBy
  * @param opts.mode
+ * @param opts.causedBy
  */
 export async function startMission(opts: {
   orgId: string;
@@ -222,7 +294,19 @@ export async function startMission(opts: {
    * tools, open-ended work), and reports. Cheap enough to run hourly.
    */
   mode?: 'planned' | 'check';
+  /**
+   * The automation fires behind this run, newest first — set by a check
+   * fire, absent for a brief a person gave. Stamped on the row and carried
+   * on `mission_run.completed`, so the automation that started the run is
+   * never fired again by its completion.
+   */
+  causedBy?: CausalChain | null;
 }): Promise<MissionRunSummary> {
+  // The workspace off switch, before the planner and before any model call:
+  // a mission run IS the factory working, whoever asked for it — the API, MCP
+  // `mission_start`, an automation's check, or a chat turn that reached for
+  // one. The refusal carries the pause note, so the person asking reads why.
+  await assertWorkspaceRunning(opts.orgId, 'mission_run');
   let team = opts.team;
   let goal: string | undefined;
   let missionId: number | undefined;
@@ -273,6 +357,7 @@ export async function startMission(opts: {
     plan: { tasks: [] },
     workspaceSha,
     createdBy: opts.invokedBy,
+    causedBy: opts.causedBy && opts.causedBy.length > 0 ? opts.causedBy : null,
   }).returning();
 
   // Check mode: one lead task, no planner. Planned mode: decompose first.

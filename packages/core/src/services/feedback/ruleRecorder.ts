@@ -22,6 +22,7 @@ import type { ExistingRule } from './duplicateDetection';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import {
+  agentSchema,
   learningCandidateSchema,
   learningFeedbackOccurrenceSchema,
   memoryNamespaceSchema,
@@ -48,18 +49,54 @@ export type RecordProposedRuleResult
  * writing a candidate that can never be approved.
  * @param orgId
  * @param preferredStepName
+ * @param input
+ * @param input.preferred
+ * @param input.agentSteps
+ * @param input.workspaceSteps
  */
-async function resolveStepName(orgId: string, preferredStepName?: string): Promise<string | null> {
+export function pickStepName(input: {
+  preferred?: string | null;
+  /** The steps this agent declares, in the order it declares them. */
+  agentSteps?: readonly string[];
+  /** Every step that exists in the workspace, oldest first. */
+  workspaceSteps: readonly string[];
+}): string | null {
+  const preferred = input.preferred?.trim();
+  if (preferred) {
+    return preferred;
+  }
+  // The agent's OWN first declared step, when it declares one that exists. A
+  // correction about client documents belongs with the writer that made the
+  // document, not in the workspace-wide bucket where it would mount for every
+  // agent (observed live 2026-09-20: a rule about proposals landed in
+  // `global`, because the only fallback was "the workspace's oldest step").
+  const own = (input.agentSteps ?? []).map(s => s.trim()).filter(Boolean).find(s => input.workspaceSteps.includes(s));
+  return own ?? input.workspaceSteps[0] ?? null;
+}
+
+async function resolveStepName(orgId: string, preferredStepName?: string, agentSlug?: string | null): Promise<string | null> {
   if (preferredStepName?.trim()) {
     return preferredStepName.trim();
   }
-  const [first] = await db
-    .select({ name: memoryNamespaceSchema.name })
-    .from(memoryNamespaceSchema)
-    .where(eq(memoryNamespaceSchema.orgId, orgId))
-    .orderBy(memoryNamespaceSchema.id)
-    .limit(1);
-  return first?.name ?? null;
+  const [steps, agentSteps] = await Promise.all([
+    db
+      .select({ name: memoryNamespaceSchema.name })
+      .from(memoryNamespaceSchema)
+      .where(eq(memoryNamespaceSchema.orgId, orgId))
+      .orderBy(memoryNamespaceSchema.id),
+    agentSlug
+      ? db
+          .select({ learningSteps: agentSchema.learningSteps })
+          .from(agentSchema)
+          .where(and(eq(agentSchema.orgId, orgId), eq(agentSchema.slug, agentSlug)))
+          .limit(1)
+      : Promise.resolve([] as Array<{ learningSteps: string[] }>),
+  ]);
+  return pickStepName({
+    preferred: preferredStepName ?? null,
+    agentSteps: agentSteps[0]?.learningSteps ?? [],
+    workspaceSteps: steps.map(s => s.name),
+  });
 }
 
 /**
@@ -139,7 +176,7 @@ export async function recordProposedRule(opts: {
   if (!ruleText) {
     return { outcome: 'skipped', reason: 'empty_rule_text' };
   }
-  const stepName = await resolveStepName(opts.orgId, opts.stepName);
+  const stepName = await resolveStepName(opts.orgId, opts.stepName, opts.agentSlug ?? null);
   if (!stepName) {
     return { outcome: 'skipped', reason: 'no_learning_step' };
   }

@@ -135,7 +135,15 @@ describe('readRollupDeclarations', () => {
 
     // The request sums its tasks through the task's requestId; the release
     // through its own taskIds. Both carry the estimate/actual pair.
-    expect(decls.filter(d => d.parentType === 'request').map(d => d.rollup.field).sort()).toEqual(['actualCents', 'estimateCents', 'taskCount', 'varianceCents']);
+    expect(decls.filter(d => d.parentType === 'request').map(d => d.rollup.field).sort()).toEqual(['actualCents', 'estimateCents', 'reworkCents', 'reworkTaskCount', 'runningTaskCount', 'shippedAt', 'taskCount', 'varianceCents']);
+    // Whether a worker is actually on it, so the Work queue can read a
+    // request that says `building` with nothing running as stopped.
+    expect(decls.find(d => d.parentType === 'request' && d.rollup.field === 'runningTaskCount')?.rollup).toEqual({ field: 'runningTaskCount', from: { type: 'engineering_task', by: 'requestId' }, where: { field: 'status', in: ['dispatched', 'running'] } });
+    // Rework is the same children, narrowed to the ones that were thrown
+    // away; the ship date comes the other way round, off the release that
+    // names the request.
+    expect(decls.find(d => d.parentType === 'request' && d.rollup.field === 'reworkCents')?.rollup).toEqual({ field: 'reworkCents', from: { type: 'engineering_task', by: 'requestId' }, sum: 'actualCents', where: { field: 'status', in: ['rejected', 'abandoned'] } });
+    expect(decls.find(d => d.parentType === 'request' && d.rollup.field === 'shippedAt')?.rollup).toEqual({ field: 'shippedAt', from: { type: 'release', inList: 'requestIds' }, min: 'releasedAt' });
     expect(decls.find(d => d.parentType === 'request' && d.rollup.field === 'actualCents')?.rollup).toEqual({ field: 'actualCents', from: { type: 'engineering_task', by: 'requestId' }, sum: 'actualCents' });
     expect(decls.find(d => d.parentType === 'release' && d.rollup.field === 'actualCents')?.rollup).toEqual({ field: 'actualCents', from: { type: 'engineering_task', ids: 'taskIds' }, sum: 'actualCents' });
     expect(decls.find(d => d.parentType === 'request' && d.rollup.field === 'taskCount')?.rollup.sum).toBeUndefined();
@@ -159,5 +167,60 @@ describe('readRollupDeclarations', () => {
     delete process.env.WORKSPACE_PATH;
 
     expect(await readRollupDeclarations(ORG)).toEqual([]);
+  });
+});
+
+describe('rollups that are not sums', () => {
+  it('counts only the children a `where` keeps, so rework sits beside total spend on one record', async () => {
+    const request = await seedObject('request', 'Rename Send to Stamp', {});
+    const kept = await seedObject('engineering_task', 'The one that landed', { requestId: request, actualCents: 1185 });
+    await db.update(businessObjectSchema).set({ status: 'accepted' }).where(eq(businessObjectSchema.id, kept));
+    for (const [title, cents, status] of [['Attempt one', 0, 'rejected'], ['Attempt two', 41, 'rejected'], ['Attempt three', 1186, 'abandoned']] as const) {
+      const id = await seedObject('engineering_task', title, { requestId: request, actualCents: cents });
+      await db.update(businessObjectSchema).set({ status }).where(eq(businessObjectSchema.id, id));
+    }
+    const declarations = [
+      { parentType: 'request', rollup: { field: 'actualCents', from: { type: 'engineering_task', by: 'requestId' }, sum: 'actualCents' } },
+      { parentType: 'request', rollup: { field: 'reworkCents', from: { type: 'engineering_task', by: 'requestId' }, sum: 'actualCents', where: { field: 'status', in: ['rejected', 'abandoned'] } } },
+      { parentType: 'request', rollup: { field: 'reworkTaskCount', from: { type: 'engineering_task', by: 'requestId' }, where: { field: 'status', in: ['rejected', 'abandoned'] } } },
+    ];
+
+    await recomputeRollups({ orgId: ORG, childType: 'engineering_task', childId: kept, declarations });
+    const meta = await metaOf(request);
+
+    // Everything it took, and the part of it that bought nothing.
+    expect(meta.actualCents).toBe(2412);
+    expect(meta.reworkCents).toBe(1227);
+    expect(meta.reworkTaskCount).toBe(3);
+  });
+
+  it('writes the earliest child date, through a link the CHILD holds as a list', async () => {
+    const request = await seedObject('request', 'Send a link by email', { askedAt: '2026-09-21T00:00:00Z' });
+    const other = await seedObject('request', 'Something else', {});
+    await seedObject('release', 'Second deploy of the same change', { requestIds: [request], releasedAt: '2026-09-21T14:37:06.740Z' });
+    const first = await seedObject('release', 'First deploy', { requestIds: [request, other], releasedAt: '2026-09-21T14:30:55.542Z' });
+    const declarations = [{ parentType: 'request', rollup: { field: 'shippedAt', from: { type: 'release', inList: 'requestIds' }, min: 'releasedAt' } }];
+
+    const written = await recomputeRollups({ orgId: ORG, childType: 'release', childId: first, declarations });
+
+    // Both requests the release names are recomputed, and each takes the
+    // EARLIEST release that carried it: the ship moment, not the latest
+    // redeploy of the same commit.
+    expect(written.map(w => w.id).sort()).toEqual([request, other].sort());
+    expect((await metaOf(request)).shippedAt).toBe('2026-09-21T14:30:55.542Z');
+    expect((await metaOf(other)).shippedAt).toBe('2026-09-21T14:30:55.542Z');
+  });
+
+  it('leaves the date unwritten rather than null when no child carries one', async () => {
+    const request = await seedObject('request', 'Not shipped yet', { kind: 'gap' });
+    const release = await seedObject('release', 'A deploy with no date', { requestIds: [request] });
+    const declarations = [{ parentType: 'request', rollup: { field: 'shippedAt', from: { type: 'release', inList: 'requestIds' }, min: 'releasedAt' } }];
+
+    await recomputeRollups({ orgId: ORG, childType: 'release', childId: release, declarations });
+
+    // An empty cell says "has not shipped"; a null would say "shipped at no
+    // time", and the page would have to guess which.
+    expect(await metaOf(request)).not.toHaveProperty('shippedAt');
+    expect((await metaOf(request)).kind).toBe('gap');
   });
 });

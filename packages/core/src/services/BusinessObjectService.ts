@@ -2,6 +2,7 @@ import type { AddDocumentLinkInput, CreateBusinessObjectInput, CreateObjectTypeI
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { businessObjectSchema, businessObjectTypeSchema, objectDocumentLinkSchema } from '@/models/Schema';
+import { recomputeRollupsForObject } from '@/services/objects/rollups';
 
 /* ------------------------------------------------------------------ */
 /* Object Types                                                        */
@@ -152,12 +153,16 @@ export const upsertBusinessObjectByExternalKey = async (
       .set({ title: input.title, ...(input.status === undefined ? {} : { status: input.status }), metadata: { ...(existing.metadata ?? {}), ...(input.metadata ?? {}) } })
       .where(eq(businessObjectSchema.id, existing.id))
       .returning();
+    await recomputeRollupsForObject(orgId, existing.id);
     return { object: updated!, created: false };
   }
   const [inserted] = await db
     .insert(businessObjectSchema)
     .values({ orgId, typeId: objType.id, title: input.title, status: input.status ?? 'active', metadata: input.metadata ?? {}, externalSystem: input.externalKey.system, externalId: input.externalKey.id, createdBy: actorId })
     .returning();
+  if (inserted) {
+    await recomputeRollupsForObject(orgId, inserted.id);
+  }
   return { object: inserted!, created: true };
 };
 
@@ -177,7 +182,7 @@ export const updateBusinessObject = async (input: UpdateBusinessObjectInput, org
     updates.summaryGeneratedAt = new Date();
   }
 
-  return db
+  const rows = await db
     .update(businessObjectSchema)
     .set(updates)
     .where(and(
@@ -185,6 +190,10 @@ export const updateBusinessObject = async (input: UpdateBusinessObjectInput, org
       eq(businessObjectSchema.orgId, orgId),
     ))
     .returning();
+  if (rows.length > 0) {
+    await recomputeRollupsForObject(orgId, input.id);
+  }
+  return rows;
 };
 
 export const deleteBusinessObject = async (id: number, orgId: string) => {

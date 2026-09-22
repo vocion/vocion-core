@@ -17,9 +17,12 @@ agentType: operational
 temperature: '0.1'
 eyebrow: Software factory · QA · Reviewer
 team: software-factory
+playbooks:
+  - designing-a-surface
 skills:
   - review-against-contract
 objectTypes:
+  - architecture_plan
   - engineering_task
   - repo
   - product

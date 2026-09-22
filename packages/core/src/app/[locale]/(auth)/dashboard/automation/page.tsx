@@ -21,6 +21,7 @@ import {
   lastRunBySlug,
   listAutomations,
   pausesFor,
+  recentSkipsBySlug,
   scheduleHealth,
 } from '@/services/AutomationService';
 import { listMissions } from '@/services/MissionService';
@@ -56,10 +57,11 @@ export default async function AutomationPage(props: {
     return null;
   }
 
-  const [missions, agents, lastRuns] = await Promise.all([
+  const [missions, agents, lastRuns, skips] = await Promise.all([
     listMissions(orgId),
     listAgents(orgId),
     lastRunBySlug(orgId),
+    recentSkipsBySlug(orgId),
   ]);
   const missionAgentBySlug = new Map(missions.map(m => [m.slug, m.agentSlug]));
   const agentNameBySlug = new Map(agents.map(ag => [ag.slug, ag.name]));
@@ -80,6 +82,7 @@ export default async function AutomationPage(props: {
         pause,
         ownerSlug: automationOwnerAgentSlug(a, missionAgentBySlug),
         lastRun,
+        skips: skips.get(a.slug) ?? null,
         health: scheduleHealth({
           cron: a.whenConfig.schedule ?? null,
           lastFireAt: lastRun?.startedAt ?? null,
@@ -199,7 +202,7 @@ export default async function AutomationPage(props: {
                         {a.whenConfig.schedule && !a.live && (
                           <div title="Temporal has no live schedule yet — run workspace:apply with Temporal up.">not scheduled yet</div>
                         )}
-                        <AutomationCardStatus run={a.lastRun} health={a.health} freshness={a.freshness} slug={a.slug} />
+                        <AutomationCardStatus run={a.lastRun} health={a.health} freshness={a.freshness} slug={a.slug} skips={a.skips} />
                       </div>
                     </div>
 

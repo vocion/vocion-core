@@ -73,6 +73,8 @@ async function main() {
           fetched += 1;
         } else if (e.kind === 'error') {
           console.error(`  error: ${e.uri ?? ''} ${e.message ?? ''}`);
+        } else if (e.kind === 'skipped') {
+          console.error(`  skipped: ${e.uri ?? ''} ${e.message ?? ''}`);
         }
       },
     });

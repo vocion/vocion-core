@@ -12,19 +12,23 @@
 
 import type { ScheduleOptions } from '@temporalio/client';
 import type { AutomationCheckResult } from '@/services/automations/checkSummary';
+import type { CausalChain, SkipReason } from '@/services/automations/fireGuards';
 import type { MirrorFreshness } from '@/services/CrmRecordsService';
 import type { AutomationRunCompletedPayload } from '@/services/EventService';
-import { and, desc, eq, gte, inArray, like, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, like, lt, notInArray, sql } from 'drizzle-orm';
 import { cronIntervalMs, humanizeAge, previousFire } from '@/libs/cron/schedule';
 import { db } from '@/libs/DB';
 import {
   AUTOMATION_FIRE_WORKFLOW,
+  automationCoalescedWorkflowIdFor,
   automationScheduleIdFor,
   getTemporalClient,
   VOCION_WORKFLOWS_TASK_QUEUE,
 } from '@/libs/temporal/client';
 import { automationRunSchema, automationSchema, knowledgeSourceSchema, userSchema } from '@/models/Schema';
+import { extendChain, RATE_LIMIT_WINDOW_MS } from '@/services/automations/fireGuards';
 import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
+import { assertWorkspaceRunning, WorkspacePausedError } from '@/services/workspacePause';
 
 /**
  * The `automation_run.kind` of a pause or a resume. Not a fire: it dispatches
@@ -32,6 +36,40 @@ import { judgeMirrorFreshness } from '@/services/CrmRecordsService';
  * "why did this go quiet on the 12th" is answered by the row above the gap.
  */
 export const CONTROL_RUN_KIND = 'control';
+
+/**
+ * The `automation_run.kind` of a fire the event matcher refused: the event was
+ * the automation's own run's residue, or the automation was over its ceiling
+ * for the window. Not a fire either — nothing was dispatched — but written
+ * down, because "why did the debrief not run on that" and "why did it run
+ * sixty times" are both answered from this log or from nowhere.
+ */
+export const SKIPPED_RUN_KIND = 'skipped';
+
+/** What a `skipped` run row carries in `result`. */
+export type AutomationSkipResult = {
+  kind: 'skipped';
+  reason: SkipReason;
+  /** The rule, in a sentence a person reads in the log. */
+  detail: string;
+  /** The event type that would have fired it. */
+  event: string;
+  /** The chain the event carried, so the loop it closed can be followed. */
+  causedBy: CausalChain | null;
+  /** On `rate_limited`: the ceiling in force. */
+  ceiling?: number;
+  /**
+   * On `rate_limited`: what became of the held fire. `scheduled` — one
+   * coalesced fire will run after the window; `pending` — one already was;
+   * `unreachable` — Temporal was away, so nothing will replay this.
+   */
+  coalesce?: 'scheduled' | 'pending' | 'unreachable';
+  /** On `rate_limited`: the `automation_run` of the coalesced fire that covered it, once it ran. */
+  coalescedInto?: number | null;
+};
+
+/** Every kind that is a fire — not a person's control, not a refused match. */
+const NON_FIRE_KINDS = [CONTROL_RUN_KIND, SKIPPED_RUN_KIND];
 
 export function listAutomations(orgId: string) {
   return db.select().from(automationSchema).where(eq(automationSchema.orgId, orgId));
@@ -85,10 +123,30 @@ export function getAutomation(orgId: string, slug: string) {
 export async function fireAutomation(
   orgId: string,
   slug: string,
-  opts: { input?: Record<string, unknown>; invokedBy?: string; dryRun?: boolean } = {},
+  opts: FireAutomationOptions = {},
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
   return completeAutomationFire(await beginAutomationFire(orgId, slug, opts));
 }
+
+export type FireAutomationOptions = {
+  /** Overrides merged over the automation's authored `do.input`. */
+  input?: Record<string, unknown>;
+  invokedBy?: string;
+  /** Recorded on the run row so a rehearsal is never mistaken for a real fire. */
+  dryRun?: boolean;
+  /**
+   * The fires that led to the event this fire answers, newest first. The
+   * fire adds itself and hands the chain to the work it starts, so every
+   * event that work raises can say which automations are already behind it.
+   */
+  causedBy?: CausalChain | null;
+  /**
+   * This is the one fire that stands in for the ones the ceiling held back.
+   * The held `skipped` rows are claimed onto this run and their count rides
+   * the result as `coalesced`.
+   */
+  coalesce?: boolean;
+};
 
 /** A fire whose run row exists and whose work has not been dispatched yet. */
 export type PendingAutomationFire = {
@@ -101,6 +159,10 @@ export type PendingAutomationFire = {
   /** What the CALLER handed in — an event's payload, or nothing for a schedule fire. */
   triggerInput?: Record<string, unknown>;
   invokedBy: string;
+  /** The chain the work this fire starts will carry: this fire, then what fired it. */
+  causedBy: CausalChain;
+  /** How many held fires this one stands in for. Zero for an ordinary fire. */
+  coalesced: number;
 };
 
 /**
@@ -123,7 +185,7 @@ export type PendingAutomationFire = {
 export async function beginAutomationFire(
   orgId: string,
   slug: string,
-  opts: { input?: Record<string, unknown>; invokedBy?: string; dryRun?: boolean } = {},
+  opts: FireAutomationOptions = {},
 ): Promise<PendingAutomationFire> {
   const automation = await getAutomation(orgId, slug);
   if (!automation) {
@@ -154,12 +216,52 @@ export async function beginAutomationFire(
     await db.insert(automationRunSchema).values({ ...row, status: 'error', error: message, finishedAt: new Date() });
     throw new Error(message);
   }
+  // The workspace's own off switch, which is a different fact from the
+  // automation's. It is asked here — the one place every fire passes,
+  // scheduled or event, test run or CLI call — and before any model call, so
+  // a stopped workspace spends nothing. The refusal is a `skipped` row rather
+  // than an `error`: nothing broke, a person said stop.
+  try {
+    await assertWorkspaceRunning(orgId, 'automation_fire');
+  } catch (err) {
+    if (err instanceof WorkspacePausedError) {
+      await recordSkippedFire(orgId, slug, {
+        event: opts.invokedBy ?? `automation:${slug}`,
+        payload: input,
+        invokedBy,
+        result: { kind: 'skipped', reason: 'workspace_paused', detail: err.message, event: invokedBy, causedBy: opts.causedBy ?? null },
+      });
+    }
+    throw err;
+  }
 
   const [runRow] = await db
     .insert(automationRunSchema)
     .values({ ...row, status: 'running' })
     .returning({ id: automationRunSchema.id });
-  return { orgId, slug, kind, automationRunId: runRow!.id, doCfg, input, triggerInput: opts.input, invokedBy };
+  const automationRunId = runRow!.id;
+  // A coalesced fire stands in for the held ones: they are claimed onto this
+  // run now, so a second coalesced fire never counts them again, and the
+  // count is what the work is told it is covering.
+  const coalesced = opts.coalesce ? await claimHeldFires(orgId, slug, automationRunId) : 0;
+  const triggerInput = coalesced > 0
+    ? { ...(opts.input ?? {}), coalesced, note: `${coalesced} fire${coalesced === 1 ? '' : 's'} in the last ten minutes were held by the rate ceiling; this one pass covers them.` }
+    : opts.input;
+  if (coalesced > 0) {
+    await db.update(automationRunSchema).set({ input: { ...input, ...triggerInput } }).where(eq(automationRunSchema.id, automationRunId));
+  }
+  return {
+    orgId,
+    slug,
+    kind,
+    automationRunId,
+    doCfg,
+    input: { ...input, ...(triggerInput ?? {}) },
+    triggerInput,
+    invokedBy,
+    causedBy: extendChain({ automationSlug: slug, automationRunId }, opts.causedBy),
+    coalesced,
+  };
 }
 
 /**
@@ -172,25 +274,30 @@ export async function beginAutomationFire(
 export async function completeAutomationFire(
   pending: PendingAutomationFire,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; automationRunId: number; result?: unknown }> {
-  const { orgId, slug, doCfg, input, triggerInput, invokedBy, automationRunId } = pending;
+  const { orgId, slug, doCfg, input, triggerInput, invokedBy, automationRunId, causedBy, coalesced } = pending;
   try {
     // The brief distinguishes an event fire from a schedule fire by what the
     // CALLER handed in, never by the merged input: a scheduled check with fixed
     // `do.input` is still a scheduled check.
-    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, triggerInput);
+    const dispatched = await dispatchDo(orgId, slug, doCfg, input, invokedBy, triggerInput, causedBy);
+    // `coalesced: n` on the result is how the log says this one run stood in
+    // for n held fires; a job's non-object result is wrapped rather than lost.
+    const result = coalesced > 0
+      ? { ...(dispatched.result && typeof dispatched.result === 'object' ? dispatched.result : { value: dispatched.result ?? null }), coalesced }
+      : dispatched.result;
     await db
       .update(automationRunSchema)
       .set({
         status: 'ok',
-        result: (dispatched.result ?? null) as never,
+        result: (result ?? null) as never,
         targetRunId: dispatched.runId || null,
         finishedAt: new Date(),
       })
       .where(eq(automationRunSchema.id, automationRunId));
     if (dispatched.kind === 'mission_check' && dispatched.result) {
-      await announceCheckCompleted(orgId, slug, automationRunId, invokedBy, dispatched.result as AutomationCheckResult);
+      await announceCheckCompleted(orgId, slug, automationRunId, invokedBy, dispatched.result as AutomationCheckResult, causedBy);
     }
-    return { ...dispatched, automationRunId };
+    return { ...dispatched, result, automationRunId };
   } catch (err) {
     await db
       .update(automationRunSchema)
@@ -211,15 +318,18 @@ export async function completeAutomationFire(
  * business. Deduped on the automation run id.
  *
  * The loop this could form — an automation on `automation_run.completed`
- * whose own check completes and fires it again — is closed here: a fire that
- * this event type started raises nothing.
+ * whose own check completes and fires it again — is closed twice: a fire
+ * that this event type started raises nothing, and the event carries the
+ * chain of fires behind it, so the matcher skips every automation on it
+ * (`services/automations/fireGuards.ts`).
  * @param orgId
  * @param slug - The automation.
  * @param automationRunId - Its run row.
  * @param invokedBy - Who started the fire; `event:automation_run.completed` means a debrief's own check.
  * @param result - The check summary.
+ * @param causedBy - This fire and the ones behind it, as the mission run carries them.
  */
-async function announceCheckCompleted(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, result: AutomationCheckResult): Promise<void> {
+async function announceCheckCompleted(orgId: string, slug: string, automationRunId: number, invokedBy: string | undefined, result: AutomationCheckResult, causedBy: CausalChain): Promise<void> {
   const { AUTOMATION_RUN_COMPLETED, emitEvent } = await import('@/services/EventService');
   if (invokedBy?.startsWith(`event:${AUTOMATION_RUN_COMPLETED}`)) {
     return;
@@ -242,6 +352,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
       payload,
       dedupeKey: `${AUTOMATION_RUN_COMPLETED}:${automationRunId}`,
       invokedBy: `automation_run:${automationRunId}`,
+      causedBy: causedBy.map((link, i) => (i === 0 ? { ...link, missionRunId: result.missionRunId } : link)),
     });
   } catch (error) {
     console.warn(`[automation] could not raise ${AUTOMATION_RUN_COMPLETED} for run ${automationRunId}`, error);
@@ -260,6 +371,7 @@ async function announceCheckCompleted(orgId: string, slug: string, automationRun
  * @param input - Merged `do.input` + caller overrides. `input.prompt` replaces the authored orders for this fire.
  * @param invokedBy
  * @param triggerInput - What the caller handed in: an event's payload, or nothing for a schedule fire.
+ * @param causedBy - The chain the started work carries: this fire, then the fires behind the event that made it.
  */
 async function dispatchDo(
   orgId: string,
@@ -267,7 +379,8 @@ async function dispatchDo(
   doCfg: { workflow?: string; checkMission?: string; job?: string; prompt?: string },
   input: Record<string, unknown>,
   invokedBy: string,
-  triggerInput?: Record<string, unknown>,
+  triggerInput: Record<string, unknown> | undefined,
+  causedBy: CausalChain,
 ): Promise<{ kind: 'workflow' | 'mission_check' | 'job'; runId: number; result?: unknown }> {
   if (doCfg.workflow) {
     const { startWorkflow } = await import('@/services/WorkflowService');
@@ -317,6 +430,9 @@ async function dispatchDo(
     title: `${slug}: ${template.name}`,
     mode: 'check',
     invokedBy,
+    // The run knows which fires are behind it, so `mission_run.completed`
+    // can say so and never fire this automation again.
+    causedBy,
   });
   // The summary the branch used to discard. Best-effort: a fire whose work
   // succeeded must not be recorded as failed because measuring it did.
@@ -336,8 +452,8 @@ export type AutomationRunFilter = {
   /** One automation. Omit for every fire in the org — the cross-automation log. */
   slug?: string;
   status?: 'running' | 'ok' | 'error';
-  /** The three do-types, or `control` — a person's pause or resume, kept in the same log. */
-  kind?: 'workflow' | 'mission_check' | 'job' | 'control';
+  /** The three do-types, `control` — a person's pause or resume — or `skipped`, a match the guard refused; all kept in the same log. */
+  kind?: 'workflow' | 'mission_check' | 'job' | 'control' | 'skipped';
   /** `schedule` for automation-fired, `test-run` for the dashboard control. */
   invokedBy?: 'schedule' | 'test-run';
   /** Inclusive lower bound on `started_at`. */
@@ -427,9 +543,10 @@ export async function lastRunBySlug(orgId: string): Promise<Map<string, Automati
   const rows = await db
     .select()
     .from(automationRunSchema)
-    // A pause or resume is written to the same log but is not a fire: it must
-    // not read as "last ran just now" on a card, nor reset the overdue clock.
-    .where(and(eq(automationRunSchema.orgId, orgId), ne(automationRunSchema.kind, CONTROL_RUN_KIND)))
+    // A pause, a resume or a refused match is written to the same log but is
+    // not a fire: it must not read as "last ran just now" on a card, nor
+    // reset the overdue clock.
+    .where(and(eq(automationRunSchema.orgId, orgId), notInArray(automationRunSchema.kind, NON_FIRE_KINDS)))
     .orderBy(desc(automationRunSchema.startedAt), desc(automationRunSchema.id));
   const out = new Map<string, AutomationRunRow>();
   for (const row of rows) {
@@ -458,6 +575,156 @@ export async function automationRunFacets(orgId: string): Promise<{ slugs: strin
     statuses: [...new Set(rows.map(r => r.status))].sort(),
     kinds: [...new Set(rows.map(r => r.kind))].sort(),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Event-fire guards — the database half of fireGuards.ts              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Write down a match the guard refused, so the log says why the automation
+ * did not run on that event — one row per refusal, `kind: skipped`,
+ * `status: ok` (nothing failed; the rule held).
+ * @param orgId - Tenant.
+ * @param slug - The automation that was not fired.
+ * @param opts - The event, and the rule's verdict.
+ * @param opts.event
+ * @param opts.payload
+ * @param opts.result
+ * @param opts.invokedBy - Who asked, when it was not an event — a schedule fire refused by the workspace switch.
+ */
+export async function recordSkippedFire(
+  orgId: string,
+  slug: string,
+  opts: { event: string; payload: Record<string, unknown>; result: AutomationSkipResult; invokedBy?: string },
+): Promise<number> {
+  const now = new Date();
+  const [row] = await db.insert(automationRunSchema).values({
+    orgId,
+    slug,
+    kind: SKIPPED_RUN_KIND,
+    status: 'ok',
+    invokedBy: opts.invokedBy ?? `event:${opts.event}`,
+    dryRun: false,
+    input: opts.payload,
+    result: opts.result as never,
+    startedAt: now,
+    finishedAt: now,
+  }).returning({ id: automationRunSchema.id });
+  return row!.id;
+}
+
+/**
+ * Event fires of one automation inside the rolling window — what the ceiling
+ * is measured against. A schedule fire (`automation:<slug>`) and a test run
+ * are not counted; nor are control rows or earlier refusals.
+ * @param orgId - Tenant.
+ * @param slug - The automation.
+ * @param now - Evaluation time.
+ */
+export async function countRecentEventFires(orgId: string, slug: string, now: Date = new Date()): Promise<number> {
+  const [counted] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(automationRunSchema)
+    .where(and(
+      eq(automationRunSchema.orgId, orgId),
+      eq(automationRunSchema.slug, slug),
+      notInArray(automationRunSchema.kind, NON_FIRE_KINDS),
+      like(automationRunSchema.invokedBy, 'event:%'),
+      gte(automationRunSchema.startedAt, new Date(now.getTime() - RATE_LIMIT_WINDOW_MS)),
+    ));
+  return Number(counted?.n ?? 0);
+}
+
+/**
+ * Arrange the one fire that stands in for the held ones: a Temporal
+ * `automationFire` workflow with `coalesce: true`, started after the window.
+ * Its id is per automation, so a second held fire while one is already
+ * waiting finds it there and arranges nothing — that is the coalescing.
+ * @param orgId - Tenant.
+ * @param slug - The automation.
+ */
+export async function scheduleCoalescedFire(orgId: string, slug: string): Promise<'scheduled' | 'pending' | 'unreachable'> {
+  try {
+    const client = await getTemporalClient();
+    await client.workflow.start(AUTOMATION_FIRE_WORKFLOW, {
+      taskQueue: VOCION_WORKFLOWS_TASK_QUEUE,
+      workflowId: automationCoalescedWorkflowIdFor(orgId, slug),
+      args: [{ orgId, slug, coalesce: true }],
+      startDelay: RATE_LIMIT_WINDOW_MS,
+    });
+    return 'scheduled';
+  } catch (err) {
+    if (isAlreadyStarted(err)) {
+      return 'pending';
+    }
+    // The refusal is on the record either way; what is lost is the replay,
+    // and the row says so rather than promising one that will not come.
+    console.warn(`[automation] could not arrange the coalesced fire for "${slug}"; the held fires will not be replayed`, { error: (err as Error).message });
+    return 'unreachable';
+  }
+}
+
+/**
+ * Claim every held fire not yet covered onto this coalesced run, and say how
+ * many there were. The claim is the `coalescedInto` on the skipped row, so a
+ * person reading the refusal can follow it to the run that covered it.
+ * @param orgId
+ * @param slug
+ * @param automationRunId - The coalesced fire's own row.
+ */
+async function claimHeldFires(orgId: string, slug: string, automationRunId: number): Promise<number> {
+  const rows = await db
+    .update(automationRunSchema)
+    .set({ result: sql`${automationRunSchema.result} || jsonb_build_object('coalescedInto', ${automationRunId}::int)` })
+    .where(and(
+      eq(automationRunSchema.orgId, orgId),
+      eq(automationRunSchema.slug, slug),
+      eq(automationRunSchema.kind, SKIPPED_RUN_KIND),
+      sql`${automationRunSchema.result}->>'reason' = 'rate_limited'`,
+      sql`${automationRunSchema.result}->>'coalescedInto' IS NULL`,
+    ))
+    .returning({ id: automationRunSchema.id });
+  return rows.length;
+}
+
+/** What the guard refused in the window, per automation — the card's warning. */
+export type RecentSkips = { selfTrigger: number; rateLimited: number; ceiling: number | null };
+
+/**
+ * Refusals inside the rolling window, by slug, in one query. Absent for an
+ * automation with none.
+ * @param orgId - Tenant.
+ * @param now - Evaluation time.
+ */
+export async function recentSkipsBySlug(orgId: string, now: Date = new Date()): Promise<Map<string, RecentSkips>> {
+  const rows = await db
+    .select({ slug: automationRunSchema.slug, result: automationRunSchema.result })
+    .from(automationRunSchema)
+    .where(and(
+      eq(automationRunSchema.orgId, orgId),
+      eq(automationRunSchema.kind, SKIPPED_RUN_KIND),
+      gte(automationRunSchema.startedAt, new Date(now.getTime() - RATE_LIMIT_WINDOW_MS)),
+    ));
+  const out = new Map<string, RecentSkips>();
+  for (const row of rows) {
+    const result = row.result as AutomationSkipResult | null;
+    const entry = out.get(row.slug) ?? { selfTrigger: 0, rateLimited: 0, ceiling: null };
+    if (result?.reason === 'rate_limited') {
+      entry.rateLimited += 1;
+      entry.ceiling = result.ceiling ?? entry.ceiling;
+    } else {
+      entry.selfTrigger += 1;
+    }
+    out.set(row.slug, entry);
+  }
+  return out;
+}
+
+function isAlreadyStarted(err: unknown): boolean {
+  const name = (err as { name?: string })?.name ?? '';
+  const message = (err as { message?: string })?.message ?? '';
+  return name === 'WorkflowExecutionAlreadyStartedError' || /already started|already exists/i.test(message);
 }
 
 /* ------------------------------------------------------------------ */

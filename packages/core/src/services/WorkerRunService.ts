@@ -6,6 +6,7 @@ import { businessObjectSchema, businessObjectTypeSchema, workerRunSchema } from 
 import { signClaim } from '@/services/agents/claims';
 import { chargeUsage, preflightCheck } from '@/services/BudgetService';
 import { recomputeRollups } from '@/services/objects/rollups';
+import { assertWorkspaceRunning } from '@/services/workspacePause';
 
 /**
  * WorkerRunService — the control plane for long-running agent runs that execute
@@ -121,6 +122,10 @@ export async function createWorkerRun(opts: {
   kind?: WorkerRunKind;
   model?: string | null;
 }): Promise<WorkerRun> {
+  // Queueing is where a paused workspace stops a worker run: the queue is the
+  // factory's intake, and a run added to it while the switch is off would sit
+  // there waiting to start the moment someone resumed.
+  await assertWorkspaceRunning(opts.orgId, 'worker_run');
   const [row] = await db.insert(workerRunSchema).values({
     orgId: opts.orgId,
     agentSlug: opts.agentSlug,
@@ -198,6 +203,12 @@ function capRemainingCents(run: WorkerRun): number | null {
  * @param opts.workerId
  */
 export async function claimWorkerRun(opts: { orgId: string; id: number; workerId: string }): Promise<{ run: WorkerRun; toolClaim: string }> {
+  // Claiming too, and this is the half that matters operationally: the
+  // Fargate worker polls, so refusing the claim is what actually stops work
+  // starting on runs that were queued before the switch was pulled. A worker
+  // that already HOLDS a lease is not touched — it finishes, reports, and its
+  // heartbeat, complete and fail endpoints stay open to it.
+  await assertWorkspaceRunning(opts.orgId, 'worker_run');
   const run = await mustGet(opts.orgId, opts.id);
   const now = new Date();
   const leaseLapsed = run.leaseExpiresAt !== null && run.leaseExpiresAt < now;
@@ -209,11 +220,11 @@ export async function claimWorkerRun(opts: { orgId: string; id: number; workerId
   if (!budget.ok) {
     await db.update(workerRunSchema).set({
       status: 'failed',
-      error: `Budget exceeded for agent "${run.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
+      error: `Budget exceeded for "${budget.agentSlug}" (${budget.reason}: ${budget.current}/${budget.limit})`,
       completedAt: now,
       updatedAt: now,
     }).where(eq(workerRunSchema.id, run.id));
-    throw new WorkerRunError('BUDGET_EXCEEDED', `Agent "${run.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
+    throw new WorkerRunError('BUDGET_EXCEEDED', `"${budget.agentSlug}" is over its ${budget.reason.replace('hard_', '').replace('_exceeded', '')} budget`, 402);
   }
   const [updated] = await db.update(workerRunSchema).set({
     status: 'running',
