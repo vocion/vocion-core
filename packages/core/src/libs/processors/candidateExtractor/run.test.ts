@@ -414,15 +414,16 @@ describe('candidate extractor, one document end to end', () => {
     expect(await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG))).toHaveLength(0);
   });
 
-  it('asks to be run again when the sync\'s proposal budget ran out before every record was proposed', async () => {
+  it('stops before the model call when the proposal budget is already spent, and asks to be run again', async () => {
     invoke.mockResolvedValue(answer());
 
     const result = await run(context({ budget: createSyncBudget({ limits: { maxProposalsPerSync: 0 } }) }));
 
-    expect(result.retry).toEqual({ reason: expect.stringContaining('proposal budget'), attempted: true });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result.retry).toEqual({ reason: expect.stringContaining('proposal budget'), countsAsTry: false });
   });
 
-  it('asks to be run again when the provider refused the call, and not when the answer was bad', async () => {
+  it('asks to be run again when the provider refused the call, without using a try', async () => {
     const refused = Object.assign(new Error('Too many tokens per day, please wait before trying again.'), {
       $metadata: { httpStatusCode: 429 },
     });
@@ -431,7 +432,7 @@ describe('candidate extractor, one document end to end', () => {
     const result = await run(context());
 
     expect(result).toMatchObject({ produced: 0, skipped: 1 });
-    expect(result.retry).toEqual({ reason: expect.stringContaining('model_throttled'), attempted: true });
+    expect(result.retry).toEqual({ reason: expect.stringContaining('model_throttled'), countsAsTry: false });
     expect(result.counts).toMatchObject({ model_throttled: 1 });
   });
 

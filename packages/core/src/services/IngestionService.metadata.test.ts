@@ -7,6 +7,8 @@
  * meant new filterable fields could never land on existing rows and no
  * re-sync could fix it. These tests pin the corrected contract, because it is
  * what makes a field-widening backfill possible without paying to re-embed.
+ *
+ * The unchanged path also carries a document's processor state, pinned at the end.
  */
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -135,7 +137,7 @@ describe('processor state on a document', () => {
 
     const again = await ingestDocument(ref, doc);
 
-    expect(again).toMatchObject({ status: 'unchanged', processorAttempts: 1, contentHash: created.contentHash });
+    expect(again).toMatchObject({ status: 'unchanged', processorAttempts: 1, processorDue: true, contentHash: created.contentHash });
 
     await markProcessorRun(created.documentId, { kind: 'started' });
 
@@ -143,13 +145,34 @@ describe('processor state on a document', () => {
     expect(await stateOf(created.documentId)).toEqual({ processedHash: created.contentHash, processorAttempts: 0, processorError: null });
   });
 
-  it('gives a try back when no work was spent, but keeps the document due', async () => {
+  it('gives a claimed try back when no work was spent, and still reads as due', async () => {
     const ref = await src();
-    const created = await ingestDocument(ref, { externalId: 'deals:10', title: 'Beta', content: 'dealname: Beta' });
+    const doc = { externalId: 'deals:10', title: 'Beta', content: 'dealname: Beta' };
+    const created = await ingestDocument(ref, doc);
     await markProcessorRun(created.documentId, { kind: 'started' });
 
-    expect(await markProcessorRun(created.documentId, { kind: 'deferred', error: 'budget', started: true })).toBe(1);
-    expect(await markProcessorRun(created.documentId, { kind: 'deferred', error: 'out of time', started: false })).toBe(1);
+    expect(await markProcessorRun(created.documentId, { kind: 'deferred', error: 'throttled', claimed: true })).toBe(0);
+    expect(await markProcessorRun(created.documentId, { kind: 'deferred', error: 'out of time', claimed: false })).toBe(0);
+    expect(await ingestDocument(ref, doc)).toMatchObject({ status: 'unchanged', processorAttempts: 0, processorDue: true });
+  });
+
+  it('does not let a run that finished on replaced content clear the new content', async () => {
+    const ref = await src();
+    const created = await ingestDocument(ref, { externalId: 'deals:12', title: 'Delta', content: 'dealname: Delta' });
+    await ingestDocument(ref, { externalId: 'deals:12', title: 'Delta', content: 'dealname: Delta\namount: 2' });
+    await markProcessorRun(created.documentId, { kind: 'started' });
+
+    await markProcessorRun(created.documentId, { kind: 'finished', contentHash: created.contentHash });
+
+    expect(await stateOf(created.documentId)).toMatchObject({ processorAttempts: 1, processedHash: null });
+  });
+
+  it('reads a legacy row, with no processor history, as not due', async () => {
+    const ref = await src();
+    const doc = { externalId: 'deals:13', title: 'Epsilon', content: 'dealname: Epsilon' };
+    await ingestDocument(ref, doc);
+
+    expect(await ingestDocument(ref, doc)).toMatchObject({ status: 'unchanged', processorAttempts: 0, processorDue: false });
   });
 
   it('starts the count over when the content changes', async () => {

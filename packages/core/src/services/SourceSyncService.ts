@@ -867,14 +867,10 @@ export async function runSync(opts: {
     if (!processor || !processorBudget) {
       return;
     }
-    // A document whose last run did not finish is due again even though its
-    // content is unchanged, up to the cap; new content starts the count over.
-    const priorAttempts = outcome.status === 'unchanged' ? outcome.processorAttempts : 0;
-    const retrying = outcome.status === 'unchanged' && priorAttempts > 0 && priorAttempts < MAX_PROCESSOR_ATTEMPTS;
+    const retrying = outcome.status === 'unchanged'
+      && outcome.processorDue
+      && outcome.processorAttempts < MAX_PROCESSOR_ATTEMPTS;
     const mark = async (step: ProcessorRunMark): Promise<void> => {
-      if (!outcome.documentId) {
-        return;
-      }
       let attempts: number;
       try {
         attempts = await markProcessorRun(outcome.documentId, step);
@@ -887,7 +883,7 @@ export async function runSync(opts: {
         });
         return;
       }
-      if (step.kind === 'failed' && attempts >= MAX_PROCESSOR_ATTEMPTS) {
+      if (step.kind === 'failed' && attempts === MAX_PROCESSOR_ATTEMPTS) {
         bumpProcessorCount('processorRetriesExhausted');
       }
     };
@@ -902,7 +898,7 @@ export async function runSync(opts: {
         return;
       }
       if (processorBudget.outOfTime()) {
-        await mark({ kind: 'deferred', error: 'the sync ran out of time before this document', started: false });
+        await mark({ kind: 'deferred', error: 'the sync ran out of time before this document', claimed: false });
         return;
       }
       if (retrying && !processor.runsOn.has(outcome.status)) {
@@ -947,10 +943,10 @@ export async function runSync(opts: {
       }
       if (!processed.retry) {
         await mark({ kind: 'finished', contentHash: outcome.contentHash });
-      } else if (processed.retry.attempted) {
+      } else if (processed.retry.countsAsTry) {
         await mark({ kind: 'failed', error: processed.retry.reason });
       } else {
-        await mark({ kind: 'deferred', error: processed.retry.reason, started: true });
+        await mark({ kind: 'deferred', error: processed.retry.reason, claimed: true });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

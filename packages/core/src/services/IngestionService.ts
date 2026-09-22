@@ -23,6 +23,7 @@
  * embed-span (most docs fit in 1 batch).
  */
 
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { traceFor } from '@/libs/Langfuse';
@@ -60,13 +61,9 @@ export type IngestDoc = {
   embedding?: number[];
 };
 
-/**
- * `contentHash` is the hash the stored row carries. `processorAttempts`, on an
- * unchanged document, is how many processor tries its content has had without
- * finishing, which is what makes the sync give it another run.
- */
+/** `contentHash` is the stored row's; on an unchanged document, the processor fields say whether its last run finished. */
 export type IngestResult
-  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean; contentHash: string; processorAttempts: number }
+  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean; contentHash: string; processorAttempts: number; processorDue: boolean }
     | { status: 'created'; documentId: number; chunks: number; contentHash: string }
     | { status: 'updated'; documentId: number; chunks: number; contentHash: string };
 
@@ -196,6 +193,7 @@ export async function ingestDocument(
         title: knowledgeDocumentSchema.title,
         uri: knowledgeDocumentSchema.uri,
         processorAttempts: knowledgeDocumentSchema.processorAttempts,
+        processorError: knowledgeDocumentSchema.processorError,
       })
       .from(knowledgeDocumentSchema)
       .where(and(
@@ -238,6 +236,7 @@ export async function ingestDocument(
         metadataRefreshed: refreshed,
         contentHash: hash,
         processorAttempts: prior.processorAttempts,
+        processorDue: prior.processorAttempts > 0 || prior.processorError !== null,
       };
     }
 
@@ -370,21 +369,19 @@ export async function ingestDocument(
   }
 }
 
+const PROCESSOR_ERROR_MAX_CHARS = 500;
+
 /**
- * One step of a document processor's run, as the sync reports it.
- *
- * - `started`: a try is handed out, counted before the processor runs so a run
- *   cut off by a crash or a deploy still leaves the document due.
- * - `finished`: stamps the hash it ran on and clears the count.
- * - `failed`: the try counts; says why.
- * - `deferred`: no work was spent on it (a budget or the sync's time ran out
- *   first), so the try is given back, and the document stays due.
+ * One step of a document processor's run: `started` hands out a try before the
+ * run, so a crash still leaves the document due; `finished` stamps the content
+ * and clears the count; `failed` keeps the try and why; `deferred` spent no
+ * work, so it gives back a claimed try and keeps why, which keeps it due.
  */
 export type ProcessorRunMark
   = | { kind: 'started' }
     | { kind: 'finished'; contentHash: string }
     | { kind: 'failed'; error: string }
-    | { kind: 'deferred'; error: string; started: boolean };
+    | { kind: 'deferred'; error: string; claimed: boolean };
 
 /**
  * Record a step of a document processor's run.
@@ -394,20 +391,31 @@ export type ProcessorRunMark
  */
 export async function markProcessorRun(documentId: number, mark: ProcessorRunMark): Promise<number> {
   const attempts = knowledgeDocumentSchema.processorAttempts;
-  const set = mark.kind === 'started'
-    ? { processorAttempts: sql<number>`${attempts} + 1` }
-    : mark.kind === 'finished'
-      ? { processedHash: mark.contentHash, processorAttempts: 0, processorError: null }
-      : mark.kind === 'failed'
-        ? { processorError: mark.error.slice(0, 500) }
-        : {
-            processorAttempts: sql<number>`greatest(${attempts} - ${mark.started ? 1 : 0}, 1)`,
-            processorError: mark.error.slice(0, 500),
-          };
+  let set: PgUpdateSetSource<typeof knowledgeDocumentSchema>;
+  let where = eq(knowledgeDocumentSchema.id, documentId);
+  switch (mark.kind) {
+    case 'started':
+      set = { processorAttempts: sql<number>`${attempts} + 1` };
+      break;
+    case 'finished':
+      set = { processedHash: mark.contentHash, processorAttempts: 0, processorError: null };
+      // A run that finished on content since replaced must not clear the new content's count.
+      where = and(where, eq(knowledgeDocumentSchema.contentHash, mark.contentHash))!;
+      break;
+    case 'failed':
+      set = { processorError: mark.error.slice(0, PROCESSOR_ERROR_MAX_CHARS) };
+      break;
+    case 'deferred':
+      set = {
+        ...(mark.claimed ? { processorAttempts: sql<number>`greatest(${attempts} - 1, 0)` } : {}),
+        processorError: mark.error.slice(0, PROCESSOR_ERROR_MAX_CHARS),
+      };
+      break;
+  }
   const [row] = await db
     .update(knowledgeDocumentSchema)
     .set(set)
-    .where(eq(knowledgeDocumentSchema.id, documentId))
+    .where(where)
     .returning({ processorAttempts: attempts });
   return row?.processorAttempts ?? 0;
 }

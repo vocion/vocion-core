@@ -34,10 +34,8 @@ import type { IngestDoc, IngestResult } from '@/services/IngestionService';
 export type ProcessorRunsOn = IngestResult['status'];
 
 /**
- * What a processor runs for when it does not say. An unchanged document has
- * the same content it had last run, so re-processing it buys nothing, unless
- * that run did not finish, which the runner tracks per document and retries
- * on its own (`ProcessorResult.retry`).
+ * What a processor runs for when it does not say. A processor that also asks
+ * for `unchanged` runs on every document every sync, outside the retry cap.
  */
 export const DEFAULT_RUNS_ON: ProcessorRunsOn[] = ['created', 'updated'];
 
@@ -59,7 +57,8 @@ export type ProcessorSyncContext = {
  *
  * Deliberately narrower than the connector's event: there is no `error` kind.
  * A processor reports a failure by throwing (the runner counts it under
- * `processorErrors`) or by returning it in `skipped`; letting it emit an error
+ * `processorErrors` and retries the document), by returning `retry`, or by
+ * returning it in `skipped` when it should not be retried; letting it emit an error
  * event would put processor trouble into the run's ingest error total, which
  * is what decides whether documents get tombstoned.
  */
@@ -75,7 +74,7 @@ export type ProcessorRunContext<TConfig = unknown> = {
   sourceSlug: string;
   /** The document as the connector yielded it. */
   document: IngestDoc;
-  /** What ingesting it did, created, updated, or unchanged. */
+  /** What ingesting it did. A retried document arrives as `unchanged`. */
   outcome: IngestResult;
   /** This source's processor config, already parsed by `configSchema`. */
   config: TConfig;
@@ -106,13 +105,13 @@ export type ProcessorResult = {
    */
   counts?: Record<string, number>;
   /**
-   * Set when the document was not fully processed for a reason that may clear
-   * by the next sync. The runner runs it again even though its content did not
-   * change, up to `MAX_PROCESSOR_ATTEMPTS`. `attempted: false` says no work was
-   * spent on it (a budget that ran out first), which keeps it due without
-   * counting towards the cap. Leave it unset for a deliberate skip.
+   * Set, alongside `skipped` if you like, when the document was not fully
+   * processed for a reason that may clear by the next sync; it is run again up
+   * to `MAX_PROCESSOR_ATTEMPTS` tries. `reason` is stored on the document,
+   * capped at 500 characters. `countsAsTry: false` when no work was spent, such
+   * as a refused call or a budget that ran out first. Unset for a deliberate skip.
    */
-  retry?: { reason: string; attempted: boolean };
+  retry?: { reason: string; countsAsTry: boolean };
 };
 
 export type DocumentProcessor<TConfig = unknown> = {

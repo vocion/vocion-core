@@ -1,5 +1,5 @@
 /**
- * The one model call per changed document.
+ * The one model call per changed or retried document.
  *
  * Control flow is `services/agents/skillTurn.ts`, a caller-supplied zod
  * output schema, `{ signal }` on `.invoke`, fences tolerated, one corrective
@@ -109,17 +109,14 @@ export type ExtractionSkip
     | 'budget_tokens'
     | 'budget_exceeded';
 
-/**
- * Whether a skip may clear by the next sync. `model_invalid` already had its
- * corrective retry, so reading the same text again is not likely to differ.
- */
-export const SKIP_IS_RETRYABLE: Record<ExtractionSkip, boolean> = {
-  model_invalid: false,
-  model_timeout: true,
-  model_throttled: true,
-  budget_model_calls: true,
-  budget_tokens: true,
-  budget_exceeded: true,
+/** What the runner does with a skip: a refused call or a spent budget cost no work, so it does not use a try. */
+export const SKIP_OUTCOME: Record<ExtractionSkip, 'finished' | 'retry' | 'defer'> = {
+  model_invalid: 'finished',
+  model_timeout: 'retry',
+  model_throttled: 'defer',
+  budget_model_calls: 'defer',
+  budget_tokens: 'defer',
+  budget_exceeded: 'defer',
 };
 
 /**
@@ -379,6 +376,7 @@ export async function extractRecords(opts: {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && !opts.budget.take('maxModelCalls')) {
+      lastFailure = 'budget_model_calls';
       break;
     }
     const generation = trace.generation({

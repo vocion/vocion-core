@@ -31,9 +31,9 @@ import { pushScore } from '@/libs/Langfuse';
 import { loadKnownCards } from './knownCards';
 import { labelRecords } from './labels';
 import { renderLearnings } from './learnings';
-import { extractRecords, SKIP_IS_RETRYABLE } from './model';
+import { extractRecords, SKIP_OUTCOME } from './model';
 import { buildExtractionPrompt } from './prompt';
-import { proposeRecords } from './propose';
+import { PROPOSAL_CAP_HIT_NOTE, proposeRecords } from './propose';
 import { proposeRelatedObjects, resolveRecords } from './resolve';
 import { calendarToday, validateRecords } from './validate';
 
@@ -116,6 +116,11 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   const config = ctx.config as CandidateExtractorConfig;
   const counts: Record<string, number> = {};
   const notes: string[] = [];
+
+  // Nothing it found could be proposed, so a model call now would be spent for nothing.
+  if (ctx.budget.spent.maxProposalsPerSync >= ctx.budget.caps.maxProposalsPerSync) {
+    return { produced: 0, skipped: 1, notes: [PROPOSAL_CAP_HIT_NOTE], counts, retry: { reason: PROPOSAL_CAP_HIT_NOTE, countsAsTry: false } };
+  }
   const today = calendarToday(config.timezone);
 
   const metadata = (ctx.document.metadata ?? {}) as {
@@ -174,13 +179,9 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     const skipMessage = `extraction skipped: ${extraction.reason}${extraction.detail ? ` (${extraction.detail})` : ''}`;
     ctx.onProgress({ kind: 'skipped', uri: ctx.document.uri, message: skipMessage });
     notes.push(skipMessage);
-    return {
-      produced: 0,
-      skipped: 1,
-      notes,
-      counts,
-      ...(SKIP_IS_RETRYABLE[extraction.reason] ? { retry: { reason: skipMessage, attempted: extraction.calls > 0 } } : {}),
-    };
+    const outcome = SKIP_OUTCOME[extraction.reason];
+    const retry = outcome === 'finished' ? undefined : { reason: skipMessage, countsAsTry: outcome === 'retry' };
+    return { produced: 0, skipped: 1, notes, counts, ...(retry ? { retry } : {}) };
   }
 
   counts.found = extraction.records.length;
@@ -248,8 +249,6 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   // Langfuse without reading the counters.
   pushScore({ traceId: extraction.traceId, name: 'extraction-ok', value: produced > 0 ? 1 : 0 });
 
-  const retry = proposed.budgetSpent
-    ? { reason: 'the sync\'s proposal budget ran out before every record was proposed', attempted: true }
-    : undefined;
+  const retry = proposed.proposalCapHit ? { reason: PROPOSAL_CAP_HIT_NOTE, countsAsTry: true } : undefined;
   return { produced, skipped: Math.max(0, skipped), notes, counts, ...(retry ? { retry } : {}) };
 };
