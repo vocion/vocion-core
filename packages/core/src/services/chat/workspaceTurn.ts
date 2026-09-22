@@ -373,7 +373,12 @@ export async function askWorkspace(input: AskWorkspaceInput, overrides: Partial<
         const full = collector.finalise().text || result.response;
         const rest = full.startsWith(partial.text) ? full.slice(partial.text.length).trim() : full.trim();
         if (rest) {
-          await appendMessage({ orgId, conversationId, role: 'assistant', content: rest, status: 'continued' });
+          // Caught here rather than below: a write that fails is not the turn
+          // failing, and saying "the turn failed after the cut" about a
+          // deleted conversation would send someone looking at the agent.
+          await appendMessage({ orgId, conversationId, role: 'assistant', content: rest, status: 'continued' }).catch((error: unknown) => {
+            console.warn('ask_workspace: the rest of the answer could not be written down', { conversationId }, error);
+          });
         }
       })
       .catch(async (error: unknown) => {

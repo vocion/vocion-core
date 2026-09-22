@@ -15,7 +15,7 @@ import { db } from '@/libs/DB';
 import { formatDateTime } from '@/libs/time/zone';
 import { conversationMessageSchema, conversationSchema } from '@/models/Schema';
 import { track } from '@/services/adoption/track';
-import { isDroppedFromHistory } from '@/services/chat/turnStatus';
+import { isDroppedFromHistory, isTurnStatus } from '@/services/chat/turnStatus';
 import { enqueue } from '@/services/FeedbackWorkerService';
 
 const DEFAULT_TITLE = 'New conversation';
@@ -205,6 +205,28 @@ export async function listMessages(opts: { orgId: string; conversationId: number
     .orderBy(asc(conversationMessageSchema.id));
 }
 
+/**
+ * The status to actually store, guarding the column against a word no reader knows.
+ *
+ * Every reader treats an unrecognised status as an ordinary finished turn — no
+ * notice, replayed as history, counted as healthy — so a typo would be wrong
+ * quietly and forever. The row is still written, because the person's answer
+ * matters more than the label on it, and the warning names the value so
+ * whoever added it finds out the first time they run it.
+ * @param status - What the caller asked for.
+ * @returns The status, or null when it is not one this product knows.
+ */
+function storableStatus(status: TurnStatus | null | undefined): TurnStatus | null {
+  if (status === null || status === undefined) {
+    return null;
+  }
+  if (!isTurnStatus(status)) {
+    console.warn('appendMessage: refusing to store an unknown turn status; the row is written without one', { status });
+    return null;
+  }
+  return status;
+}
+
 export async function appendMessage(opts: {
   orgId: string;
   conversationId: number;
@@ -249,7 +271,7 @@ export async function appendMessage(opts: {
       documentsJson: opts.documents && opts.documents.length > 0 ? opts.documents : null,
       traceJson: opts.trace && opts.trace.length > 0 ? opts.trace : null,
       routingJson: opts.routing ?? null,
-      status: opts.status ?? null,
+      status: storableStatus(opts.status),
       statusReason: opts.statusReason ?? null,
     })
     .returning();

@@ -479,6 +479,33 @@ describe('AgentMessage — a turn that died part-way (#114)', () => {
     expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
   });
 
+  it('says which message holds the rest, on the half that holds it', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '$1.4M across eleven deals.', status: 'continued' }}
+      />,
+    );
+
+    // Otherwise the second bubble reads as a new turn that started mid-sentence.
+    await expect.element(page.getByText(/the rest of the answer above/)).toBeInTheDocument();
+    expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
+  });
+
+  it('labels a refusal\'s reason without calling it a fault', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{ role: 'assistant', content: '', status: 'refused', statusReason: 'Budget exceeded for "revenue-lead".' }}
+      />,
+    );
+
+    // The sentence above just said nothing is broken; "what went wrong" would
+    // take that straight back.
+    await expect.element(page.getByText(/Why:/)).toBeInTheDocument();
+    expect(page.getByText(/What went wrong/).elements()).toHaveLength(0);
+  });
+
   it('says where the rest of a truncated answer went', async () => {
     await render(
       <AgentMessage
@@ -487,7 +514,7 @@ describe('AgentMessage — a turn that died part-way (#114)', () => {
       />,
     );
 
-    await expect.element(page.getByText(/cut the answer off at its time limit/)).toBeInTheDocument();
+    await expect.element(page.getByText(/cut off at a time limit/)).toBeInTheDocument();
     expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
   });
 });

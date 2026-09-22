@@ -50,7 +50,9 @@ describe('agent stream resume route', () => {
 
     const res = await resume('resume-theirs');
 
-    // Not one token of the other org's conversation.
+    // Not one token of the other org's conversation — and the same 404 an id
+    // that never existed gets, so this is not a way to test ids for existence.
+    expect(res.status).toBe(404);
     expect(res.body).not.toContain('Northwind');
     expect(res.body).not.toContain('response_delta');
   });

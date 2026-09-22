@@ -6,7 +6,7 @@
  * later: which endings are kept out of history, and which ones are failures.
  */
 import { describe, expect, it } from 'vitest';
-import { isDroppedFromHistory, isFailure } from './turnStatus';
+import { isDroppedFromHistory, isFailure, isTurnStatus, TURN_STATUSES } from './turnStatus';
 
 describe('isDroppedFromHistory', () => {
   it('drops the endings whose text would teach the model something false', () => {
@@ -48,5 +48,34 @@ describe('isFailure', () => {
     expect(isFailure('truncated')).toBe(false);
     expect(isFailure('continued')).toBe(false);
     expect(isFailure(null)).toBe(false);
+  });
+});
+
+describe('isTurnStatus', () => {
+  it('knows every ending this product writes', () => {
+    for (const status of TURN_STATUSES) {
+      expect(isTurnStatus(status)).toBe(true);
+    }
+  });
+
+  it('rejects anything else, so a typo is caught where it is written rather than read as a healthy turn', () => {
+    expect(isTurnStatus('stoped')).toBe(false);
+    expect(isTurnStatus('')).toBe(false);
+    expect(isTurnStatus(null)).toBe(false);
+    expect(isTurnStatus(7)).toBe(false);
+  });
+
+  it('covers every value the failure and history rules can be asked about', () => {
+    // Both rules take a status and answer; neither may throw or silently agree
+    // with a value the list does not carry.
+    for (const status of TURN_STATUSES) {
+      expect(typeof isFailure(status)).toBe('boolean');
+      expect(typeof isDroppedFromHistory(status)).toBe('boolean');
+    }
+    // Every failure is kept out of history, and nothing else is.
+    const failures = TURN_STATUSES.filter(s => isFailure(s));
+    const dropped = TURN_STATUSES.filter(s => isDroppedFromHistory(s));
+
+    expect(dropped).toEqual(failures);
   });
 });

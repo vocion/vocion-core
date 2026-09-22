@@ -1413,30 +1413,12 @@ export function useChatSession({
 
   // Abort the in-flight turn (Stop button). The reader loop throws AbortError,
   // which the catch above treats as a clean finalize (no error breadcrumb).
-  const handleStop = useCallback(() => {
+  const handleStop = useCallback(async () => {
     if (!streamingRef.current) {
       return;
     }
     streamingRef.current = false;
     stoppedControllerRef.current = abortRef.current;
-    // Tell the server BEFORE aborting. Aborting only closes the socket, which
-    // is exactly what a locked phone does, and that turn has to keep running
-    // so the person can come back to it. Stopping is a decision, so it is sent
-    // as one — the row is then stored `stopped` instead of `complete`, and the
-    // short answer reads as a choice rather than a fault (#114).
-    const streamId = streamStashRef.current?.streamId;
-    if (streamId) {
-      void fetch('/rpc/agent/stream/stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stream_id: streamId }),
-      }).catch((error: unknown) => {
-        // Worth saying out loud: the turn still stops here, but the stored row
-        // will say `complete`, and nobody will know why it looks cut short.
-        console.warn('useChatSession: the server was not told this turn was stopped', error);
-      });
-    }
-    abortRef.current?.abort();
     flushDeltas();
     // Close this turn's rows HERE rather than in the abort catch, so a
     // stop-and-send lands the tail on the turn that was stopped.
@@ -1454,9 +1436,36 @@ export function useChatSession({
     setPhase('idle');
     setActivity(null);
     setTurnOutcome('stopped');
+    // Tell the server, and WAIT for it before aborting.
+    //
+    // Aborting only closes this browser's socket, which is exactly what a
+    // locked phone does — and that turn has to keep running so the person can
+    // come back to it. Stopping is a decision, so it is sent as one, and the
+    // row is stored `stopped` instead of `complete`.
+    //
+    // The wait is what makes the two agree. The run reaches its own end on its
+    // own schedule; if the stop were still in flight when it got there, the
+    // row would say `complete` while this bubble said `stopped`, and a reload
+    // would quietly rewrite what the person remembers doing. Everything above
+    // has already happened, so the screen is not waiting on this.
+    const streamId = streamStashRef.current?.streamId;
     // A stopped turn has nothing to resume.
     streamStashRef.current = null;
     writeStreamStash(null);
+    if (streamId) {
+      try {
+        await fetch('/rpc/agent/stream/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stream_id: streamId }),
+        });
+      } catch (error) {
+        // The turn still stops here, but the stored row will say `complete`
+        // and nobody will know why it looks cut short. Worth a line.
+        console.warn('useChatSession: the server was not told this turn was stopped', error);
+      }
+    }
+    abortRef.current?.abort();
   }, [flushDeltas, appendToLatestAgent]);
 
   /**

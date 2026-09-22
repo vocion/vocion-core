@@ -12,6 +12,7 @@ import { openPreview } from '@/features/preview/previewState';
 import { normalizeAnswerHtml } from '@/libs/chat/answerText';
 import { splitScratch } from '@/libs/chat/scratch';
 import { Link } from '@/libs/I18nNavigation';
+import { isFailure } from '@/services/chat/turnStatus';
 import { AgentMark } from './AgentMark';
 import { ArtifactChips } from './ArtifactChips';
 import { liveWorkIndex, segmentTurn } from './interleave';
@@ -127,14 +128,36 @@ function citeLinkify(text: string): string {
  * @returns The sentence to show, or null when this ending needs no notice.
  */
 function turnEndingNotice(status: ChatMessage['status']): string | null {
-  if (status === 'incomplete') {
-    return 'This answer stopped partway through, so what you see above is unfinished. Ask again for a complete one.';
+  if (!isFailure(status)) {
+    return null;
   }
   if (status === 'failed') {
     return 'This turn did not run, so there is no answer above. Ask again.';
   }
   if (status === 'refused') {
     return 'This turn was not run. Nothing is broken — something needs changing before this agent can answer.';
+  }
+  return 'This answer stopped partway through, so what you see above is unfinished. Ask again for a complete one.';
+}
+
+/**
+ * The quiet line under an ending that is nobody's fault.
+ *
+ * These three did what was asked: the person stopped the turn, or a surface
+ * split one answer across two messages. They need a marker so the short text
+ * above is not read as the whole story — not a warning.
+ * @param status - How the turn ended.
+ * @returns The line to show, or null when this ending needs no marker.
+ */
+function turnEndingMarker(status: ChatMessage['status']): string | null {
+  if (status === 'stopped') {
+    return 'You stopped this answer.';
+  }
+  if (status === 'truncated') {
+    return 'This answer was cut off at a time limit; the rest is in the next message.';
+  }
+  if (status === 'continued') {
+    return 'This is the rest of the answer above.';
   }
   return null;
 }
@@ -149,6 +172,10 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
   const erroredRun = runs.find(r => r.type === 'tool' && r.state === 'error');
   const erroredNode = (message.trace ?? []).find(n => n.status === 'error');
   const hasToolError = Boolean(erroredRun || erroredNode);
+  // How this turn ended, read once: an explanation when it owes one, a quiet
+  // line when it does not, nothing at all when it simply finished (#114).
+  const endingNotice = turnEndingNotice(message.status);
+  const endingMarker = turnEndingMarker(message.status);
   // WHAT failed, not just THAT something did.
   //
   // The badge was a way in to the trace, which is right — but it opened the
@@ -426,7 +453,7 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             finished turn says nothing at all. A half-answer rendered like a
             whole one is worse than no answer, and a refusal rendered as a
             fault sends someone hunting a bug that is not there. */}
-        {turnEndingNotice(message.status) && (
+        {endingNotice && (
           <div
             data-testid="incomplete-turn-notice"
             role="status"
@@ -434,10 +461,12 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
           >
             <AlertCircle className="mt-0.5 size-3 shrink-0 text-[var(--brand-fail)]" aria-hidden />
             <span>
-              {turnEndingNotice(message.status)}
+              {endingNotice}
               {message.statusReason && (
                 <span className="mt-1 block text-foreground/60">
-                  What went wrong:
+                  {/* A refused turn was just told nothing is broken; calling the
+                      reason "what went wrong" would take that back. */}
+                  {message.status === 'refused' ? 'Why:' : 'What went wrong:'}
                   {' '}
                   {message.statusReason}
                 </span>
@@ -445,11 +474,9 @@ export const AgentMessage = memo(({ message, timestamp, agentName, onShowSources
             </span>
           </div>
         )}
-        {(message.status === 'stopped' || message.status === 'truncated') && (
+        {endingMarker && (
           <div data-testid="turn-ending-marker" className="mt-2 text-[12px] text-foreground/55">
-            {message.status === 'stopped'
-              ? 'You stopped this answer.'
-              : 'This surface cut the answer off at its time limit; the rest is in the next message.'}
+            {endingMarker}
           </div>
         )}
         {message.confidence && (

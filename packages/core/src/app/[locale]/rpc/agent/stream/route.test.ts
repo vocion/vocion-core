@@ -156,7 +156,9 @@ describe('agent stream route — a turn that dies part-way', () => {
     // `failed`, not `incomplete`: there is no half-answer above the notice, so
     // "this stopped partway through" would be describing nothing.
     expect(assistant?.status).toBe('failed');
-    expect(assistant?.statusReason).toBe('the model refused the request');
+    // The thrown message is a provider's, not ours: it can carry hostnames and
+    // request ids, and the row outlives the moment. It goes to the log instead.
+    expect(assistant?.statusReason).toBeNull();
   });
 
   it('keeps the fragment out of the history the next turn replays to the model', async () => {

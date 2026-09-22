@@ -234,7 +234,7 @@ export type ChatMessage = {
    * `services/chat/turnStatus.ts`. Absent or `complete` on a healthy turn;
    * `incomplete`, `failed` and `refused` each get their own notice and are
    * left out of the model's history; `stopped`, `truncated` and `continued`
-   * are ordinary endings that only carry a quiet marker.
+   * are ordinary endings, each with a quiet one-line marker instead.
    */
   status?: TurnStatus | null;
   /**

@@ -351,7 +351,20 @@ export async function POST(request: Request): Promise<Response> {
         } else {
           ending = spoken.text || spoken.runs.length > 0 ? 'incomplete' : 'failed';
         }
-        endingReason = m;
+        // What gets WRITTEN DOWN is not always what was thrown. A refusal's
+        // message is ours — "Budget exceeded for …, raise the cap under
+        // Budgets" — written to be read by the person it is about. Anything
+        // else is a provider or database error, and those messages carry
+        // hostnames, request ids and occasionally fragments of a payload;
+        // stored on the row they would sit in the transcript forever, in front
+        // of whoever opens that conversation next. The raw text goes to the
+        // log, where it is useful and nobody browses it.
+        if (ending === 'refused') {
+          endingReason = m;
+        } else {
+          endingReason = null;
+          console.warn('agent stream: the turn ended badly', { conversationId, agentSlug, ending }, err);
+        }
         sendEvent({ type: 'error', message: m, ending });
       } finally {
         clearInterval(keepaliveTimer);

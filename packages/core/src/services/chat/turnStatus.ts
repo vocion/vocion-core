@@ -18,22 +18,41 @@
  * Legacy rows are treated as `complete`, which is what they were.
  */
 
-/** Every way an assistant turn can end. */
-export type TurnStatus
-  /** The turn ran to the end and the answer is whole. */
-  = | 'complete'
-  /** The run threw with text already streamed: what is stored stops mid-thought. */
-    | 'incomplete'
-  /** The run threw before it said anything: the row exists so the turn does not vanish, but it holds nothing. */
-    | 'failed'
-  /** The turn was never attempted — budget spent, policy said no. Not a fault, and not something asking again will fix. */
-    | 'refused'
-  /** The person pressed Stop. The text is short because they chose that, not because anything broke. */
-    | 'stopped'
-  /** A surface cut the turn off at its own time limit (the MCP `ask_workspace` tool). The rest arrives as a `continued` row. */
-    | 'truncated'
-  /** The rest of an answer whose first half was `truncated` — one turn, two rows. */
-    | 'continued';
+/**
+ * Every way an assistant turn can end.
+ *
+ * A list rather than a bare union so the same set can be checked at runtime:
+ * `appendMessage` takes a status from callers TypeScript cannot always see,
+ * and a word no reader knows would be treated as an ordinary finished turn —
+ * no notice, replayed as history, counted as healthy. Silence is the worst
+ * failure this column can have.
+ *
+ *   - `complete`: the turn ran to the end and the answer is whole.
+ *   - `incomplete`: the run threw with text already streamed, so what is
+ *     stored stops mid-thought.
+ *   - `failed`: the run threw before it said anything. The row exists so the
+ *     turn does not vanish, but it holds nothing.
+ *   - `refused`: never attempted — budget spent, policy said no. Not a fault,
+ *     and not something asking again will fix.
+ *   - `stopped`: the person pressed Stop. The text is short because they chose
+ *     that, not because anything broke.
+ *   - `truncated`: a surface cut the turn off at its own time limit (the MCP
+ *     `ask_workspace` tool). The rest arrives as a `continued` row.
+ *   - `continued`: the rest of an answer whose first half was `truncated` —
+ *     one turn, two rows.
+ */
+export const TURN_STATUSES = [
+  'complete',
+  'incomplete',
+  'failed',
+  'refused',
+  'stopped',
+  'truncated',
+  'continued',
+] as const;
+
+/** How an assistant turn ended. */
+export type TurnStatus = typeof TURN_STATUSES[number];
 
 /**
  * Statuses whose text is NOT handed back to the model as history.
@@ -66,4 +85,13 @@ export function isDroppedFromHistory(status: string | null | undefined): boolean
  */
 export function isFailure(status: string | null | undefined): boolean {
   return status === 'incomplete' || status === 'failed' || status === 'refused';
+}
+
+/**
+ * Is this one of the endings this product knows about?
+ * @param status - A candidate value, from anywhere.
+ * @returns True when it is a status every reader here understands.
+ */
+export function isTurnStatus(status: unknown): status is TurnStatus {
+  return typeof status === 'string' && (TURN_STATUSES as readonly string[]).includes(status);
 }

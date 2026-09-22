@@ -135,12 +135,21 @@ export function attachStream(
 }
 
 /**
- * Is this stream still known (replayable or live)?
- * @param id
+ * Is this stream still known to this person — replayable or live?
+ *
+ * Owner-scoped like everything else here, and for the same reason: answering
+ * "yes, that stream exists" for somebody else's turn turns any endpoint that
+ * calls this into an oracle for guessing ids.
+ * @param id - The stream id.
+ * @param by - Who is asking; must be the person the turn was started for.
+ * @param by.orgId
+ * @param by.userId
+ * @returns True only when that person has a stream by this id.
  */
-export function hasStream(id: string): boolean {
+export function hasStream(id: string, by: { orgId: string; userId: string }): boolean {
   sweep();
-  return streams.has(id);
+  const s = streams.get(id);
+  return s !== undefined && s.owner.orgId === by.orgId && s.owner.userId === by.userId;
 }
 
 /**
@@ -161,6 +170,9 @@ export function markStopped(id: string, by: { orgId: string; userId: string }): 
   if (!s || s.owner.orgId !== by.orgId || s.owner.userId !== by.userId) {
     return false;
   }
+  // A stream that is `done` is deliberately still markable: the route closes
+  // the buffer BEFORE it writes the row, so a stop landing in that gap still
+  // reaches the row it is about.
   s.stopped = true;
   s.updatedAt = Date.now();
   return true;
