@@ -13,6 +13,7 @@ import {
   FileCode2,
   FileStack,
   FolderOpen,
+  Gauge,
   GitBranch,
   Inbox,
   LineChart,
@@ -125,6 +126,10 @@ export const DASHBOARD_ROUTES: readonly DashboardRoute[] = [
   // (`/dashboard/review` 308s there). The row stays as a PALETTE alias so typing
   // "review" still lands where the work is, without a second sidebar door.
   { url: '/dashboard/inbox?kind=proposal', title: 'Review · Recommendations', group: 'Workspace', icon: CheckSquare, paletteOnly: true, keywords: ['review', 'approve', 'queue', 'hitl', 'proposals'] },
+  // How the agents are doing, for the people working with them: agreement,
+  // confidence and usage per agent. In the WORK view and open to members on
+  // purpose (#342) — Adoption, under Insights, stays the admin's per-person view.
+  { url: '/dashboard/scorecard', title: 'Scorecard', group: 'Workspace', icon: Gauge, i18nKey: 'scorecard', pinnable: true, defaultPinned: true, keywords: ['agreement', 'confidence', 'performance', 'alignment', 'how are the agents doing'] },
   { url: '/dashboard/search', title: 'Search', group: 'Workspace', icon: BookOpen, i18nKey: 'search', keywords: ['knowledge', 'retrieval'], pinnable: true },
 
   // ── MANAGE · Team — who works for you and the shapes their work takes ───

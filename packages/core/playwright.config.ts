@@ -276,6 +276,14 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/reviews-suggested-decision',
       timeout: 60 * 1000,
     },
+    // #342 — the agent scorecard as a non-admin member sees it: signs in as a
+    // member seeded by its own support script, so it never depends on `setup`.
+    // Run with: npx playwright test --project=scorecard
+    {
+      name: 'scorecard',
+      testDir: './e2e/scorecard',
+      timeout: 60 * 1000,
+    },
     // Run with: npx playwright test --project=reviews-approved-by-agent
     {
       name: 'reviews-approved-by-agent',
