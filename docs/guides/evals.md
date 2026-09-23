@@ -435,8 +435,12 @@ run only makes when the email thread named a new stakeholder.
 **Every item of a list** is `*` in a path. `action_input.fields.attendees.*.email`
 reads each attendee's email, and the rule holds only when all of them do; a
 failure names the item that broke it (`attendees.2.email was missing`). A list
-with no items fails, because "every item of nothing" is not something the
-agent did. A `where` filter needs one value per call, so the workspace refuses
+with no items fails, whatever the rule — even `present: false` — because
+"every item of nothing" is not something the agent did. That holds for each
+list under a nested `*` too: in `groups.*.members.*.email`, one group with no
+members fails the rule even when the others have some. A `*` on something
+that is not a list, such as a single record, fails and says so rather than
+treating the record's keys as items. A `where` filter needs one value per call, so the workspace refuses
 a `*` there. In `timezoneFrom`, a `*` means the same item `path` is on:
 `path: "*.startDate"` with `timezoneFrom: "*.timezone"` judges each record's
 date by that record's own zone.

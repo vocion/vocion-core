@@ -103,6 +103,52 @@ describe('toolReturned', () => {
     expect(outcome?.explanation).toContain('reached no items');
   });
 
+  it('fails an empty list even for a rule that the path be absent', () => {
+    // "No record carries a deletedAt" says nothing about a lookup that
+    // returned no records, so it must not read as a pass.
+    const check: EvalCheck = { toolReturned: { tool: 'lookup_objects', path: '*.deletedAt', present: false } };
+
+    expect(runCheck(transcriptOf([lookup('event-candidate', [])]), check, CLOCK)?.passed).toBe(false);
+  });
+
+  it('fails when one inner list under a nested * is empty, even though another has items', () => {
+    // Only the whole result being empty used to count, so group 0 returning
+    // no records vanished and group 1 alone decided the rule.
+    const grouped: ToolCallRecord = {
+      tool: 'lookup_objects',
+      input: { type_slug: 'event-candidate' },
+      output: JSON.stringify({ groups: [{ records: [] }, { records: [{ id: 'x' }] }] }),
+    };
+    const check: EvalCheck = { toolReturned: { tool: 'lookup_objects', path: 'groups.*.records.*.id', present: true } };
+    const outcome = runCheck(transcriptOf([grouped]), check, CLOCK);
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('groups.0.records');
+    expect(outcome?.explanation).toContain('reached no items');
+  });
+
+  it('fails a * over a single record rather than walking its keys as items', () => {
+    // A tool that answers with one object, not a list, would otherwise have
+    // its keys ("id", "status") treated as records, and present: false on
+    // them would pass.
+    const single: ToolCallRecord = { tool: 'lookup_objects', input: { type_slug: 'event-candidate' }, output: JSON.stringify({ id: 't1', status: 'open' }) };
+    const absent: EvalCheck = { toolReturned: { tool: 'lookup_objects', path: '*.deletedAt', present: false } };
+    const outcome = runCheck(transcriptOf([single]), absent, CLOCK);
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('not a list');
+  });
+
+  it('says a cut return was cut even when the check has no path', () => {
+    // contains over the kept start of a cut return would blame the tool for
+    // text that may sit in the part that was dropped.
+    const cut: ToolCallRecord = { tool: 'lookup_objects', input: { type_slug: 'event-candidate' }, output: '[{"id":1,"title":"Blue', outputLength: 60_000 };
+    const outcome = runCheck(transcriptOf([cut]), { toolReturned: { tool: 'lookup_objects', contains: 'Contra Dance' } }, CLOCK);
+
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.explanation).toContain('only the first');
+  });
+
   it('judges returned dates against the run day', () => {
     const check: EvalCheck = { toolReturned: { tool: 'lookup_objects', where: EVENT_LOOKUP, path: '*.startDate', onOrAfter: 'today' } };
 

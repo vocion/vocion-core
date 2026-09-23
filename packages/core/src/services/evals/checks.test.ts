@@ -192,6 +192,15 @@ describe('runCheck', () => {
     expect(runCheck(mixed, check)?.passed).toBe(true);
   });
 
+  it('fails a some-calls check when no call matches', () => {
+    // "At least one proposal recommends rejecting" is false when every one
+    // recommends approving, however many there are.
+    const allApproved = proposalTranscript([proposal(), proposal()]);
+    const check: EvalCheck = { toolCalledWith: { tool: 'propose_action', path: 'suggested_decision', equals: 'reject', calls: 'some' } };
+
+    expect(runCheck(allApproved, check)?.passed).toBe(false);
+  });
+
   it('fails an argument check when the tool was never called at all', () => {
     // Vacuously passing here would turn "the agent proposed nothing" into a
     // green check, which is the silence this check exists to break.

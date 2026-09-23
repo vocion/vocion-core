@@ -163,29 +163,58 @@ const EVERY_ITEM = '*';
  * One value a path reached, the concrete path that reached it, and which
  * item each `*` stood for on the way — so `timezoneFrom: "*.timezone"` can
  * read the zone of the same record whose `*.startDate` is being judged.
+ *
+ * `listProblem` is set when a `*` found no items to stand for — an empty
+ * list, or something that is not a list at all. It fails the rule whatever
+ * the predicate, because `present: false` over no items would otherwise pass.
  */
-type ReachedValue = { found: boolean; value: unknown; path: string; itemKeys: string[] };
+type ReachedValue = { found: boolean; value: unknown; path: string; itemKeys: string[]; listProblem?: string };
 
 /**
- * Take one path segment from one value: its child, every child for `*`, or
+ * Every item a `*` stands for, or one miss saying why there were none.
+ *
+ * Only a list has items. An object's keys are not records, and an empty list
+ * inside another list is a branch with nothing in it, which has to fail on
+ * its own rather than vanish while a sibling branch decides the rule.
+ * @param from - The value the `*` is applied to.
+ */
+function everyItemOf(from: ReachedValue): ReachedValue[] {
+  const listPath = from.path;
+  if (!from.found) {
+    return [{ found: false, value: undefined, path: listPath, itemKeys: from.itemKeys, listProblem: 'was missing, so it has no items to check' }];
+  }
+  if (!Array.isArray(from.value)) {
+    return [{ found: false, value: undefined, path: listPath, itemKeys: from.itemKeys, listProblem: 'was not a list' }];
+  }
+  if (from.value.length === 0) {
+    return [{ found: false, value: undefined, path: listPath, itemKeys: from.itemKeys, listProblem: 'reached no items — the list was empty' }];
+  }
+  const items: ReachedValue[] = [];
+  for (const [index, value] of from.value.entries()) {
+    const key = String(index);
+    items.push({ found: true, value, path: listPath ? `${listPath}.${key}` : key, itemKeys: [...from.itemKeys, key] });
+  }
+  return items;
+}
+
+/**
+ * Take one path segment from one value: its child, every item for `*`, or
  * a miss that keeps the path so the failure sentence names it in full.
  * @param from - The value reached so far.
  * @param segment - The next segment of the path.
  */
 function stepInto(from: ReachedValue, segment: string): ReachedValue[] {
+  if (from.listProblem) {
+    return [from];
+  }
+  if (segment === EVERY_ITEM) {
+    return everyItemOf(from);
+  }
   const path = from.path ? `${from.path}.${segment}` : segment;
   if (!from.found || from.value === null || typeof from.value !== 'object') {
     return [{ found: false, value: undefined, path, itemKeys: from.itemKeys }];
   }
   const container = from.value as Record<string, unknown>;
-  if (segment === EVERY_ITEM) {
-    return Object.entries(container).map(([key, value]) => ({
-      found: true,
-      value,
-      path: from.path ? `${from.path}.${key}` : key,
-      itemKeys: [...from.itemKeys, key],
-    }));
-  }
   if (!(segment in container)) {
     return [{ found: false, value: undefined, path, itemKeys: from.itemKeys }];
   }
@@ -197,8 +226,9 @@ function stepInto(from: ReachedValue, segment: string): ReachedValue[] {
  *
  * `*.id` over a lookup's three records reaches three ids, and a check on it
  * holds only when all three do — "each returned record carries its id" is a
- * rule about every record, not the first. A list with no items reaches
- * nothing, which the caller reports rather than passing.
+ * rule about every record, not the first. A `*` with no items to stand for
+ * reaches one value marked with its `listProblem`, which the caller reports
+ * rather than passing.
  * @param root - The arguments, or the parsed return value.
  * @param path - Dot path; omit to reach the root itself.
  */
@@ -500,16 +530,18 @@ function callSatisfies(call: ToolCallRecord, condition: ToolArgumentCondition, c
   let root: unknown = call.input;
   if (check === 'toolReturned') {
     const parsed = parseToolReturn(call.output);
+    // A return cut on its way into the log is JSON that lost its end, or
+    // text whose rest was dropped. The tool answered; the rule simply cannot
+    // be judged, and the explanation has to say which of the two happened —
+    // with or without a path, since `contains` could be looking for text in
+    // the part that was cut.
+    if (!parsed.isJson && call.outputLength !== undefined && call.outputLength > call.output.length) {
+      return { ok: false, reason: `${condition.tool}'s return was ${call.outputLength} characters and only the first ${call.output.length} were kept, so ${condition.path ?? 'the whole return'} cannot be read from it` };
+    }
     // A path needs something to walk into. A tool that answered in a
     // sentence — "No records found for this type." — has no fields, and
     // saying so beats reporting every field it lacks as merely missing.
     if (!parsed.isJson && condition.path) {
-      // A return cut on its way into the log is JSON that lost its end. The
-      // tool answered correctly; the rule simply cannot be judged, and the
-      // explanation has to say which of the two happened.
-      if (call.outputLength !== undefined && call.outputLength > call.output.length) {
-        return { ok: false, reason: `${condition.tool}'s return was ${call.outputLength} characters and only the first ${call.output.length} were kept, so ${condition.path} cannot be read from it` };
-      }
       const preview = call.output.length > 80 ? `${call.output.slice(0, 80)}…` : call.output;
       return { ok: false, reason: `${condition.tool} returned text rather than JSON, so ${condition.path} cannot be read from it ("${preview}")` };
     }
@@ -517,8 +549,9 @@ function callSatisfies(call: ToolCallRecord, condition: ToolArgumentCondition, c
   }
 
   const reached = reachEveryValue(root, condition.path);
-  if (reached.length === 0) {
-    return { ok: false, reason: `${describeLocation(condition.tool, check, condition.path ?? '')} reached no items — the list was empty` };
+  const noItems = reached.find(item => item.listProblem !== undefined);
+  if (noItems) {
+    return { ok: false, reason: `${describeLocation(condition.tool, check, noItems.path)} ${noItems.listProblem}` };
   }
   for (const { found, value, path, itemKeys } of reached) {
     const zone = zoneForCall(root, condition, clock, itemKeys);
