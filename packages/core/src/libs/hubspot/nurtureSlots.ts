@@ -99,3 +99,54 @@ export async function writeNurtureSlots(
   }
   return { ok: true, data: { written: Object.keys(properties).length } };
 }
+
+/**
+ * Make sure the portal has a subject and a body property for every slot the
+ * draft needs, creating the ones it lacks. Idempotent: two GETs per slot
+ * when everything exists, the same shape as `ensureUnenrollBridge`.
+ *
+ * Until 2026-09-23 the four slots were created by hand in the portal
+ * (Jamie, 2026-09-04) and a fifth rung email had nowhere to go: `maxSlots`
+ * could be raised in the workspace, but the PATCH at Enroll would name a
+ * property HubSpot did not have and the enrollment would fail. Now raising
+ * `maxSlots` is the whole change on the platform side; the sequence template
+ * still has to reference the new tokens, which only a person can do.
+ * @param client
+ * @param cfg
+ * @param slotsNeeded - How many slots the draft uses; never more than `cfg.maxSlots`.
+ */
+export async function ensureNurtureSlotProperties(
+  client: HubspotClient,
+  cfg: NurtureSlotsConfig,
+  slotsNeeded: number,
+): Promise<HubspotResult<{ created: string[] }>> {
+  const created: string[] = [];
+  for (let n = 1; n <= Math.min(slotsNeeded, cfg.maxSlots); n += 1) {
+    const wanted: Array<{ name: string; label: string; fieldType: 'text' | 'textarea' }> = [
+      { name: cfg.subjectProperty.replaceAll('{n}', String(n)), label: `Vocion nurture · email ${n} subject`, fieldType: 'text' },
+      { name: cfg.bodyProperty.replaceAll('{n}', String(n)), label: `Vocion nurture · email ${n} body`, fieldType: 'textarea' },
+    ];
+    for (const prop of wanted) {
+      const existing = await client.get<{ name?: string }>(`/crm/v3/properties/contacts/${prop.name}`);
+      if (existing.ok) {
+        continue;
+      }
+      if (existing.error !== 'hubspot_error' || existing.status !== 404) {
+        return existing;
+      }
+      const made = await client.post(`/crm/v3/properties/contacts`, {
+        name: prop.name,
+        label: prop.label,
+        description: `Written by the Vocion platform at Enroll with the approved personalized send ${n}; the Personalized Nurture sequence templates render it.`,
+        groupName: 'contactinformation',
+        type: 'string',
+        fieldType: prop.fieldType,
+      });
+      if (!made.ok) {
+        return made;
+      }
+      created.push(prop.name);
+    }
+  }
+  return { ok: true, data: { created } };
+}
