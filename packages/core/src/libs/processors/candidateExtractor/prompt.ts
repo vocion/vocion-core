@@ -238,7 +238,7 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
   if (config.scores && config.scores.length > 0) {
     sections.push([
       '## Scores (operator policy)',
-      'Add "scores" to every record: an object with one number from 0 to 1 for each name below. Leave out a score the document gives you nothing to judge it by.',
+      `Every record carries "scores" inside the record, next to "confidence": {${config.scores.map(score => `"${score.name}": 0.0`).join(', ')}}. One number from 0 to 1 for each name, judged against what it says below; leave a name out only when the document gives you nothing to judge it by.`,
       ...config.scores.map(score => `- "${score.name}": ${score.describe}`),
     ].join('\n'));
   }

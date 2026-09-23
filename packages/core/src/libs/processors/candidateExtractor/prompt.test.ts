@@ -424,6 +424,7 @@ describe('scores and cited rules in the prompt', () => {
     const without = buildExtractionPrompt({ config, rules: '', ...bare });
 
     expect(withScores.system).toContain('## Scores (operator policy)');
+    expect(withScores.system).toContain('"scores" inside the record, next to "confidence": {"relevance": 0.0}');
     expect(withScores.system).toContain('- "relevance": How well it fits the audience.');
     expect(without.system).not.toContain('## Scores');
   });
