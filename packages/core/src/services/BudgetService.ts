@@ -72,9 +72,13 @@
  *      `VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS` (a whole number of cents, or
  *      `off` for none).
  *
- * Only agent turns get a default. The workspace-wide and per-feature rows stay
- * opt-in, because refusing a search or an ingest over a cap nobody chose would
- * break the product for pennies — see "What a cap may refuse" above.
+ * Only an agent's own scope gets a default. It covers everything billed to that
+ * agent — its chat turns, and also its worker runs and the source-sync
+ * extraction charged to it — since a runaway loop in any of them is the spend
+ * #272 is about; those paths refuse at the same cap. The workspace-wide and
+ * per-feature rows stay opt-in, because refusing a search or an ingest over a
+ * cap nobody chose would break the product for pennies — see "What a cap may
+ * refuse" above.
  *
  * ## Which column is the money
  *

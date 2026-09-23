@@ -43,6 +43,10 @@ An agent's daily cap is the first of these that is set:
    `VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS` (a whole number of cents), or turn it
    off with `VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS=off`.
 
+The cap covers everything billed to the agent, not just its chat turns: its
+background worker runs and the source-sync extraction charged to it count
+toward the same total, and are refused at the same cap.
+
 `defaults.agentBudget.dailyCents: null` means "this workspace chooses no
 default": agents without a budget of their own run with no cap from Vocion.
 Use it when you manage spend another way — see [provider
