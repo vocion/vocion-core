@@ -24,6 +24,7 @@ import { QuotedPassage } from './QuotedPassage';
 import { hasWorkspaceAgents, parseSearchCommand } from './routing';
 import { SourcesPanel } from './SourcesPanel';
 import { useComposerTags } from './tagSearch';
+import { transcriptOf } from './transcript';
 import { useChatCommands } from './useChatCommands';
 import { useChatSession } from './useChatSession';
 
@@ -257,6 +258,7 @@ function ChatShellInner({
             phone. No workspace name here — the sidebar says it (2026-09-18). */}
         <ChatHeaderActions
           onNewChat={startNewChat}
+          onCopy={session.messages.length > 0 ? () => transcriptOf(session.messages, session.workspaceName) : null}
           history={{
             recent: session.recentChats,
             currentId: session.conversationId,

@@ -23,6 +23,7 @@
  * embed-span (most docs fit in 1 batch).
  */
 
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { traceFor } from '@/libs/Langfuse';
@@ -60,10 +61,11 @@ export type IngestDoc = {
   embedding?: number[];
 };
 
+/** `contentHash` is the stored row's; on an unchanged document, the processor fields say whether its last run finished. */
 export type IngestResult
-  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean }
-    | { status: 'created'; documentId: number; chunks: number }
-    | { status: 'updated'; documentId: number; chunks: number };
+  = | { status: 'unchanged'; documentId: number; metadataRefreshed?: boolean; contentHash: string; processorAttempts: number; processorDue: boolean }
+    | { status: 'created'; documentId: number; chunks: number; contentHash: string }
+    | { status: 'updated'; documentId: number; chunks: number; contentHash: string };
 
 export type SourceRef = {
   orgId: string;
@@ -190,6 +192,8 @@ export async function ingestDocument(
         metadata: knowledgeDocumentSchema.metadata,
         title: knowledgeDocumentSchema.title,
         uri: knowledgeDocumentSchema.uri,
+        processorAttempts: knowledgeDocumentSchema.processorAttempts,
+        processorError: knowledgeDocumentSchema.processorError,
       })
       .from(knowledgeDocumentSchema)
       .where(and(
@@ -226,7 +230,14 @@ export async function ingestDocument(
         })
         .where(eq(knowledgeDocumentSchema.id, prior.id));
       trace.update({ output: { status: 'unchanged', documentId: prior.id, metadataRefreshed: refreshed } });
-      return { status: 'unchanged', documentId: prior.id, metadataRefreshed: refreshed };
+      return {
+        status: 'unchanged',
+        documentId: prior.id,
+        metadataRefreshed: refreshed,
+        contentHash: hash,
+        processorAttempts: prior.processorAttempts,
+        processorDue: prior.processorAttempts > 0 || prior.processorError !== null,
+      };
     }
 
     // Pre-computed-embedding fast path: when the caller ships a vector,
@@ -257,8 +268,8 @@ export async function ingestDocument(
             .returning({ id: knowledgeDocumentSchema.id }))[0]!.id;
       trace.update({ output: { status: existing[0] ? 'updated' : 'created', chunks: 0 } });
       return existing[0]
-        ? { status: 'updated', documentId: inserted, chunks: 0 }
-        : { status: 'created', documentId: inserted, chunks: 0 };
+        ? { status: 'updated', documentId: inserted, chunks: 0, contentHash: existing[0].contentHash }
+        : { status: 'created', documentId: inserted, chunks: 0, contentHash: hash };
     }
 
     // Keep this embedding call before the transaction below, not inside it.
@@ -300,6 +311,8 @@ export async function ingestDocument(
             lastModifiedAt: doc.lastModifiedAt ?? null,
             ingestedAt: new Date(),
             lastSeenAt: new Date(),
+            processorAttempts: 0,
+            processorError: null,
             ...scope,
           })
           .where(eq(knowledgeDocumentSchema.id, documentId));
@@ -345,7 +358,7 @@ export async function ingestDocument(
     });
 
     trace.update({ output: { ...result, chunks: chunks.length } });
-    return { ...result, chunks: chunks.length };
+    return { ...result, chunks: chunks.length, contentHash: hash };
   } catch (err) {
     trace.update({
       output: { error: err instanceof Error ? err.message : String(err) },
@@ -354,6 +367,57 @@ export async function ingestDocument(
     });
     throw err;
   }
+}
+
+const PROCESSOR_ERROR_MAX_CHARS = 500;
+
+/**
+ * One step of a document processor's run: `started` hands out a try before the
+ * run, so a crash still leaves the document due; `finished` stamps the content
+ * and clears the count; `failed` keeps the try and why; `deferred` spent no
+ * work, so it gives back a claimed try and keeps why, which keeps it due.
+ */
+export type ProcessorRunMark
+  = | { kind: 'started' }
+    | { kind: 'finished'; contentHash: string }
+    | { kind: 'failed'; error: string }
+    | { kind: 'deferred'; error: string; claimed: boolean };
+
+/**
+ * Record a step of a document processor's run.
+ * @param documentId - The document the processor ran on.
+ * @param mark - What happened.
+ * @returns The document's try count afterwards.
+ */
+export async function markProcessorRun(documentId: number, mark: ProcessorRunMark): Promise<number> {
+  const attempts = knowledgeDocumentSchema.processorAttempts;
+  let set: PgUpdateSetSource<typeof knowledgeDocumentSchema>;
+  let where = eq(knowledgeDocumentSchema.id, documentId);
+  switch (mark.kind) {
+    case 'started':
+      set = { processorAttempts: sql<number>`${attempts} + 1` };
+      break;
+    case 'finished':
+      set = { processedHash: mark.contentHash, processorAttempts: 0, processorError: null };
+      // A run that finished on content since replaced must not clear the new content's count.
+      where = and(where, eq(knowledgeDocumentSchema.contentHash, mark.contentHash))!;
+      break;
+    case 'failed':
+      set = { processorError: mark.error.slice(0, PROCESSOR_ERROR_MAX_CHARS) };
+      break;
+    case 'deferred':
+      set = {
+        ...(mark.claimed ? { processorAttempts: sql<number>`greatest(${attempts} - 1, 0)` } : {}),
+        processorError: mark.error.slice(0, PROCESSOR_ERROR_MAX_CHARS),
+      };
+      break;
+  }
+  const [row] = await db
+    .update(knowledgeDocumentSchema)
+    .set(set)
+    .where(where)
+    .returning({ processorAttempts: attempts });
+  return row?.processorAttempts ?? 0;
 }
 
 /**

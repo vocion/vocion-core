@@ -621,14 +621,25 @@ function splitIcs(page: FetchedPage): IngestDoc[] | null {
 const PUBLISHED_URL_CAP = 50;
 const PUBLISHED_URL_CHAR_CAP = 2048;
 
-/** Properties whose value is a URL the entry publishes about itself. */
-const ICS_URL_PROPERTIES = ['URL', 'ATTACH'] as const;
+/**
+ * Properties whose value is a URL the entry publishes about itself: its page,
+ * its attachments, and RFC 7986's `IMAGE`.
+ */
+const ICS_URL_PROPERTIES = ['URL', 'ATTACH', 'IMAGE'] as const;
+
+/**
+ * An exporter's own property for the event's picture, for platforms that ignore
+ * `ATTACH` and `IMAGE` (`X-TKF-FEATURED-IMAGE`, `X-WP-IMAGES-URL`). Anchored so
+ * a property about an image, such as a credit or alt text, is not read as one.
+ */
+const ICS_VENDOR_IMAGE_RE = /^X-[A-Z0-9-]*IMAGES?(?:-UR[LI])?$/;
 
 /** A relative reference written as a path, never a bare word like `None`. */
 const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
 
 /**
- * The URLs a VEVENT publishes about itself: its own page, and its attachments.
+ * The URLs a VEVENT publishes about itself: its own page, its attachments, its
+ * image, and any picture an exporter writes under its own `X-` image property.
  *
  * A document's URLs are how the extractor tells a link the page really carried
  * from one a model invented. For an HTML page that list is the parsed links;
@@ -660,10 +671,11 @@ const ICS_RELATIVE_PATH_RE = /^\.{0,2}\//;
  * @param feedUrl - the URL the feed was fetched from.
  */
 function icsPublishedUrls(block: string[], feedUrl: string): string[] {
+  const vendorImages = new Set(icsLines(block).map(line => line.property).filter(name => ICS_VENDOR_IMAGE_RE.test(name)));
   // Every occurrence, not the first: `ATTACH` repeats per RFC 5545, and a feed
   // that ships inline base64 bytes on the first line and the poster URL on the
   // second would otherwise lose the poster entirely.
-  const values = ICS_URL_PROPERTIES.flatMap(name => icsPublishedValues(block, name));
+  const values = [...ICS_URL_PROPERTIES, ...vendorImages].flatMap(name => icsPublishedValues(block, name));
   const base = icsNativeBase(block, feedUrl);
   const out: string[] = [];
   for (const value of values) {
@@ -1037,6 +1049,9 @@ const OWN_MARKS = /[]/g;
 const PARAGRAPH_MARK_RE = / ? ?/g;
 const LINE_MARK_RE = / ? ?/g;
 
+/** Counters a feed moves on every view, never an edit (Localist's view and attendance counts). */
+const ITEM_VOLATILE_FIELDS: ReadonlySet<string> = new Set(['detail_views', 'num_attending']);
+
 /** A string carrying markup rather than describing one. */
 const MARKUP_RE = /<[a-z!/][^>]*>/i;
 
@@ -1092,7 +1107,7 @@ function plainText(value: string): string {
 
 /**
  * The entry as it reads: markup reduced to the text it renders, a millisecond
- * timestamp written as the instant it names.
+ * timestamp written as the instant it names, view counters left out.
  *
  * Applied to the text a document carries, never to the values its identity is
  * read from. A feed's markup is the same prose rewritten by whatever built the
@@ -1122,7 +1137,9 @@ function readable(value: unknown, key?: string): unknown {
     return value.map(entry => readable(entry, key));
   }
   if (isRecord(value)) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, readable(v, k)]));
+    return Object.fromEntries(Object.entries(value)
+      .filter(([k]) => !ITEM_VOLATILE_FIELDS.has(k))
+      .map(([k, v]) => [k, readable(v, k)]));
   }
   return value;
 }
@@ -1145,13 +1162,26 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
   }
   const docs: IngestDoc[] = [];
   const seen = new Set<string>();
-  for (const item of items) {
+  // An envelope's inner key is used only where it is unique in this feed: a
+  // repeat with no occurrence to tell it apart keeps the content hash, since a
+  // collision would abandon the split for the whole file.
+  const enveloped = items.map(item => (declaredKey(item) === undefined ? envelopedKey(item) : undefined));
+  const envelopedCount = new Map<string, number>();
+  for (const key of enveloped) {
+    if (key) {
+      envelopedCount.set(key, (envelopedCount.get(key) ?? 0) + 1);
+    }
+  }
+  for (const [index, item] of items.entries()) {
     // The entry as written is what identity is read from: keying on the
     // readable form would re-key every document of a feed that publishes no id
     // of its own, and a moved key is not an update, it is a tombstone and a
     // new document that costs another model call.
     const body = JSON.stringify(item) ?? 'null';
-    const key = declaredKey(item) ?? createHash('sha256').update(body).digest('hex').slice(0, 16);
+    const inner = enveloped[index];
+    const key = declaredKey(item)
+      ?? (inner && envelopedCount.get(inner) === 1 ? inner : undefined)
+      ?? createHash('sha256').update(body).digest('hex').slice(0, 16);
     const externalId = `${page.url}#${key}`;
     if (seen.has(externalId)) {
       return null;
@@ -1178,6 +1208,9 @@ function splitJsonArray(page: FetchedPage, items: unknown[]): IngestDoc[] | null
 
 /** Keys a JSON feed item might state its own identity with, in order of trust. */
 const ITEM_KEY_FIELDS = ['@id', 'id', 'slug'] as const;
+
+/** Where an entry names which occurrence of a recurring record it is (Localist's `event_instances`). */
+const ITEM_OCCURRENCE_FIELDS = ['event_instances'] as const;
 /** Keys a JSON feed item might state its own name with, in order of trust. */
 const ITEM_TITLE_FIELDS = ['name', 'title', 'summary'] as const;
 /**
@@ -1216,10 +1249,8 @@ const UNLINKABLE_VALUE_RE = /^[^/.:]*$/;
 /**
  * The record an entry's links live on, unwrapping a single-key envelope.
  *
- * Read by `declaredUrls` only. The identity stays on the outer item: keying on
- * an inner id would re-key every already-ingested document of such a feed, and
- * Localist repeats an inner id across the instances of a recurring event, which
- * `splitJsonArray` answers by abandoning the split for the whole file.
+ * Read by `declaredUrls`, and by `envelopedKey` for an entry with no key of
+ * its own.
  *
  * The inner record has to carry a title, which is what separates an entry from
  * a nested value: `{"image": {"url": …, "id": …}}` has an id and is still not
@@ -1239,6 +1270,32 @@ function entryFields(item: unknown): Record<string, unknown> | undefined {
     return item;
   }
   return ITEM_TITLE_FIELDS.some(f => typeof inner[f] === 'string') ? inner : item;
+}
+
+/**
+ * The key of an entry wrapped in a one-key envelope: the inner record's id,
+ * with the id of the occurrence it lists when it names one, since a recurring
+ * record repeats its id on every occurrence.
+ * @param item - one entry from the array.
+ */
+function envelopedKey(item: unknown): string | undefined {
+  const fields = entryFields(item);
+  if (!fields || fields === item) {
+    return undefined;
+  }
+  const id = declaredKey(fields);
+  if (!id) {
+    return undefined;
+  }
+  for (const name of ITEM_OCCURRENCE_FIELDS) {
+    const list = fields[name];
+    const first: unknown = Array.isArray(list) ? list[0] : undefined;
+    const occurrence = declaredKey(isRecord(first) && Object.keys(first).length === 1 ? Object.values(first)[0] : first);
+    if (occurrence) {
+      return `${id}~${occurrence}`;
+    }
+  }
+  return id;
 }
 
 /**

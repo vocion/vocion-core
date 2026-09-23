@@ -276,6 +276,7 @@ export const actionStatusRoute = os
         decidedAt: actionRunSchema.decidedAt,
         regeneratingSince: actionRunSchema.regeneratingSince,
         regenerateNote: actionRunSchema.regenerateNote,
+        regenerateError: actionRunSchema.regenerateError,
         approvedByAgent: actionRunSchema.approvedByAgent,
         actionId: actionRunSchema.actionId,
         proposal: actionRunSchema.proposal,
@@ -302,6 +303,7 @@ export const actionStatusRoute = os
       // disabled on server truth rather than on the click that started it.
       regeneratingSince: row.regeneratingSince?.toISOString() ?? null,
       regenerateNote: row.regenerateNote,
+      regenerateError: row.regenerateError ?? null,
     };
   });
 
@@ -547,7 +549,7 @@ export const regenerateActionRoute = os
     // disabled everywhere before any work runs.
     await db
       .update(actionRunSchema)
-      .set({ regeneratingSince: new Date(), regenerateNote: input.feedback })
+      .set({ regeneratingSince: new Date(), regenerateNote: input.feedback, regenerateError: null })
       .where(eq(actionRunSchema.id, input.id));
 
     // The work dispatches in the background — the fast path is a model turn
@@ -566,12 +568,28 @@ export const regenerateActionRoute = os
       input.feedback,
       input.contentId ? { contentId: input.contentId } : {},
     ).catch(async (err) => {
-      logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: err instanceof Error ? err.message : String(err) });
+      const failure = err instanceof Error ? err.message : String(err);
+      logger.warn('regenerate dispatch failed — clearing the stamp', { runId: input.id, orgId, error: failure });
+      // The failure goes ON the run, not only in this log. Before 2026-09-22
+      // the stamp was cleared and nothing else was written, so the card
+      // polled, saw the stamp gone, reloaded the same copy, and a reviewer
+      // could not tell "it failed" from "it changed nothing" (ticket 069,
+      // proposal 509: the voice gate refused the redraft over em dashes in
+      // sends the reviewer had not touched, and the card said nothing).
       await db
         .update(actionRunSchema)
-        .set({ regeneratingSince: null })
+        .set({ regeneratingSince: null, regenerateError: failure })
         .where(eq(actionRunSchema.id, input.id))
         .catch(() => {});
+      const { recordRegenerationFailure } = await import('@/services/review/contentRecord');
+      await recordRegenerationFailure({
+        orgId,
+        runId: input.id,
+        ...(input.contentId ? { contentId: input.contentId } : {}),
+        ask: input.feedback,
+        failure,
+        ...(userId ? { by: userId } : {}),
+      }).catch(() => {});
     });
     // Next's request context must survive the work: `after` keeps the promise
     // alive past the response without holding the response for it.

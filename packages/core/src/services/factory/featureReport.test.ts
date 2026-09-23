@@ -203,25 +203,30 @@ function input(over: Partial<FeatureReportInput> = {}): FeatureReportInput {
 describe('the plan stage', () => {
   const noPlan = (over: Partial<ReportObject['meta']> = {}) => ({ ...task, meta: { ...task.meta, plan: undefined, ...over } });
 
-  it('sits between triage and the contract, because a plan reviewed after the run is a record and not a gate', () => {
+  it('comes after triage and before the contract, because a plan reviewed after the run is a record and not a gate', () => {
     const keys = assembleFeatureReport(input()).sections.map(s => s.key);
 
-    expect(keys.indexOf('plan')).toBe(keys.indexOf('triage') + 1);
+    expect(keys.indexOf('plan')).toBeGreaterThan(keys.indexOf('triage'));
     expect(keys.indexOf('plan')).toBe(keys.indexOf('contract') - 1);
   });
 
-  it('carries the approach, the interfaces, the data impact, what was rejected and how it will be verified', () => {
+  it('leads with the steps a person approves and keeps the reasoning behind them', () => {
     const s = section(assembleFeatureReport(input()), 'plan');
     const entry = s.entries[0]!;
 
     expect(s.absence).toBeNull();
     expect(entry.title).toBe('Render the PDF server side from the room model');
-    expect(entry.facts.find(f => f.label === 'The approach, and why this one')?.value).toContain('not from the DOM');
+    // What is being approved: the steps, and who approved it.
+    expect(entry.steps?.length).toBeGreaterThan(0);
     expect(entry.facts.find(f => f.label === 'Approved by')?.value).toBe('Chris');
-    expect(entry.facts.find(f => f.label === 'Data or migration impact')?.value).toContain('No migration');
-    expect(entry.facts.find(f => f.label === 'How it will be verified')?.value).toContain('diff the section list');
-    expect(s.lists.find(l => l.label.startsWith('Interfaces added or altered'))?.items).toContain('POST /rooms/:id/export returns a PDF stream');
-    expect(s.lists.find(l => l.label.startsWith('Considered and rejected'))?.items[0]).toContain('rejected');
+    // Four paragraphs of reasoning is a document, not a decision — it is one
+    // tap away rather than in front of the person saying yes.
+    expect(entry.facts.some(f => f.label === 'The approach, and why this one')).toBe(false);
+    expect(entry.detailFacts?.find(f => f.label === 'The approach, and why this one')?.value).toContain('not from the DOM');
+    expect(entry.detailFacts?.find(f => f.label === 'Data or migration impact')?.value).toContain('No migration');
+    expect(entry.detailFacts?.find(f => f.label === 'How it will be verified')?.value).toContain('diff the section list');
+    expect(s.detailLists.find(l => l.label === 'Interfaces added or altered')?.items).toContain('POST /rooms/:id/export returns a PDF stream');
+    expect(s.detailLists.find(l => l.label === 'Considered and rejected, and why')?.items[0]).toContain('rejected');
   });
 
   it('says a plan was required and none exists, rather than drawing a blank stage', () => {
@@ -319,17 +324,21 @@ describe('the plan stage', () => {
 });
 
 describe('the sections', () => {
-  it('always renders all ten, in reading order, with the plan between triage and the contract', () => {
+  it('always renders every stage, in reading order, with what it looks like beside the triage that classified it', () => {
     const report = assembleFeatureReport(input());
 
     expect(report.sections.map(s => s.key)).toEqual([...REPORT_SECTION_KEYS]);
-    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
   });
 
   it('a complete feature has every stage present and none of them absent', () => {
     const report = assembleFeatureReport(input());
 
-    expect(report.sections.filter(s => s.absence !== null)).toEqual([]);
+    // Visuals and today are the exceptions the fixture cannot satisfy: its
+    // artifacts are QA evidence on a task, and both of those read artifacts
+    // filed against the request. A feature with no mockup is a real state,
+    // not a broken one.
+    expect(report.sections.filter(s => s.absence !== null && s.key !== 'visuals' && s.key !== 'today')).toEqual([]);
   });
 
   it('carries the ask in the asker\'s own words, with who asked and through which door', () => {
@@ -404,15 +413,15 @@ describe('a stage that did not happen says so', () => {
     const report = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
 
     expect(section(report, 'contract').absence).toBe('No task contract was written for this request; nothing was dispatched.');
-    expect(section(report, 'runs').absence).toBe('No worker run is recorded against this work.');
+    expect(section(report, 'runs').absence).toBe('Nothing has been built yet — no worker run is recorded against this work.');
     expect(section(report, 'change').absence).toBe('No pull request is recorded for this work.');
-    expect(section(report, 'release').absence).toBe('No release carries this task.');
+    expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
   });
 
   it('a task with no release says no release carries it, and does not infer one from the merged PR', () => {
     const report = assembleFeatureReport(input({ releases: [] }));
 
-    expect(section(report, 'release').absence).toBe('No release carries this task.');
+    expect(section(report, 'release').absence).toBe('Not released. Nothing has carried this work to people yet.');
     expect(section(report, 'change').absence).toBeNull();
     expect(report.summary.shippedAt).toBeNull();
     expect(report.summary.elapsedOpen).toBe(true);
@@ -440,6 +449,12 @@ describe('QA evidence', () => {
     expect(qa.absence).toBeNull();
     expect(qa.evidence).toEqual([{
       id: 700,
+      // The kind rides along so a gallery can draw a picture as a picture —
+      // and so does the picture itself, because a tile naming the type is not
+      // evidence of anything.
+      kind: 'file',
+      imageUrl: 'https://files.example/qa/share-menu.png',
+      body: null,
       role: 'qa-screenshot',
       title: 'Share menu, PDF offered',
       caption: 'The share menu with the new PDF entry.',
@@ -451,15 +466,18 @@ describe('QA evidence', () => {
   it('says plainly that none was captured rather than hiding the section', () => {
     const qa = section(assembleFeatureReport(input({ artifacts: [] })), 'qa');
 
-    expect(qa.absence).toBe('No QA evidence was captured for this task.');
-    expect(qa.flags[0]).toContain('recordRole: qa-screenshot | qa-video | qa-report');
+    expect(qa.absence).toBe('Not ready for review — nobody has looked at this running yet.');
+    // It names what a person owes, not what the column is called: the old
+    // line printed the artifact's recordRole enum at a reader.
+    expect(qa.checks.map(c => c.name)).toContain('A shot of it working, on a phone');
+    expect(qa.checks.every(c => c.passed === null)).toBe(true);
   });
 
   it('ignores an artifact on the task that is not QA evidence', () => {
     const brief: ReportArtifact = { ...screenshot, id: 701, recordRole: 'brief', spec: {} };
     const qa = section(assembleFeatureReport(input({ artifacts: [brief] })), 'qa');
 
-    expect(qa.absence).toBe('No QA evidence was captured for this task.');
+    expect(qa.absence).toBe('Not ready for review — nobody has looked at this running yet.');
   });
 
   it('reads the marker off recordRole, or off spec.kind when a worker wrote it there', () => {
@@ -563,7 +581,14 @@ describe('the money line', () => {
     expect(report.money.actualCents).toBe(1450);
     expect(report.money.varianceCents).toBe(550);
     expect(report.money.variancePct).toBe(61);
-    expect(section(report, 'money').facts.find(f => f.label === 'Variance')?.value).toBe('+$5.50 (+61%)');
+
+    // One line in front: what it cost, against what it was expected to cost.
+    // The variance is part of the workings, one tap down.
+    const cost = section(report, 'money');
+
+    expect(cost.facts).toHaveLength(1);
+    expect(cost.facts[0]!.value).toBe('$14.50 · estimated $9.00');
+    expect(cost.detailLists[0]!.items.join(' ')).toContain('Variance: +$5.50 (+61%)');
   });
 
   it('falls back to what the runs charged when no task carries an actual', () => {
@@ -643,5 +668,254 @@ describe('a zero is a claim', () => {
 
     expect(report.summary.attempts).toBe(0);
     expect(report.summary.humanDecisions).toBe(0);
+  });
+});
+
+describe('the goal, as a subtitle', () => {
+  const withBody = (body: string) => {
+    const base = input({});
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body } } });
+  };
+
+  it('takes the first sentence, so a body full of criteria does not become the subtitle', () => {
+    const report = withBody('Launch the product as Stamp at stampsend.com without breaking existing links. 1. Every screen shows Stamp. 2. Old URLs redirect.');
+
+    expect(report.goal).toBe('Launch the product as Stamp at stampsend.com without breaking existing links.');
+  });
+
+  it('does not end a sentence inside a domain name', () => {
+    expect(withBody('Serve it at stampsend.com from Monday.').goal).toBe('Serve it at stampsend.com from Monday.');
+  });
+
+  it('caps a single enormous sentence rather than printing it whole', () => {
+    const long = `Do ${'a very long clause '.repeat(20)}thing.`;
+    const goal = withBody(long).goal!;
+
+    expect(goal.length).toBeLessThanOrEqual(180);
+    expect(goal.endsWith('…')).toBe(true);
+  });
+
+  it('is null when nobody wrote one', () => {
+    expect(withBody('   ').goal).toBeNull();
+  });
+});
+
+describe('not started is a claim too', () => {
+  const withRollup = (taskCount: number) => {
+    const base = input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] });
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, taskCount } } });
+  };
+
+  it('refuses to say "not started" when the record says work was written and none is linked', () => {
+    const report = withRollup(5);
+
+    expect(report.state.label).toBe('Unreadable');
+    expect(report.state.question).toMatch(/5 tasks were written/);
+    expect(report.contradictions.join(' ')).toMatch(/not one is linked/);
+  });
+
+  it('still says not started when nothing was ever written', () => {
+    expect(withRollup(0).state.label).toBe('Not started');
+  });
+});
+
+describe('the story, and the machinery behind it', () => {
+  it('puts the ask, triage, contracts and approvals one level down, and keeps the rest in the story', () => {
+    const report = assembleFeatureReport(input({}));
+    const detail = report.sections.filter(s => s.group === 'detail').map(s => s.key);
+    const story = report.sections.filter(s => s.group === 'story').map(s => s.key);
+
+    expect(detail).toEqual(['ask', 'triage', 'contract', 'approvals']);
+    // Nothing is dropped: every section still belongs to exactly one half.
+    expect([...story, ...detail].sort()).toEqual([...report.sections.map(s => s.key)].sort());
+    expect(story).toContain('plan');
+    expect(story).toContain('qa');
+    expect(story).toContain('release');
+  });
+});
+
+describe('done when', () => {
+  it('reads the contract off the work, counts what holds, and keeps unchecked separate from failed', () => {
+    const req = {
+      ...input({}).request,
+      meta: {
+        ...input({}).request.meta,
+        acceptanceFrozenAt: '2026-09-20T09:00:00.000Z',
+        acceptance: [
+          { statement: 'Every screen shows Stamp', met: true, evidenceUrl: '/runs/1' },
+          { statement: 'Old links still resolve', met: false },
+          { statement: 'Emails name the product' },
+        ],
+      },
+    };
+    const report = assembleFeatureReport({ ...input({}), request: req });
+
+    expect(report.acceptance.total).toBe(3);
+    expect(report.acceptance.met).toBe(1);
+    expect(report.acceptance.items[2]!.met).toBeNull();
+    expect(report.acceptance.frozenAt).not.toBeNull();
+  });
+
+  it('is empty, not invented, when nobody wrote a contract', () => {
+    const report = assembleFeatureReport(input({}));
+
+    expect(report.acceptance.total).toBe(0);
+    expect(report.acceptance.items).toEqual([]);
+  });
+});
+
+describe('what this piece of work cost', () => {
+  const req = (meta: Record<string, unknown>) => ({ ...input({}).request, meta: { ...input({}).request.meta, ...meta } });
+  const task = (estimate: number) => ({ id: 1, title: 't', status: 'accepted', meta: { estimateCents: estimate }, createdAt: new Date() }) as never;
+
+  it('will not compare against a sum of attempt contracts', () => {
+    // Five attempts at one rename summed to $85 and read as a 72% saving
+    // against $24.12 actually spent. The sum is reported; nothing divides by it.
+    const line = moneyLine(req({ estimateCents: null }), [task(1700), task(1700), task(1700), task(1700), task(1700)], []);
+
+    expect(line.estimateCents).toBe(8500);
+    expect(line.varianceCents).toBeNull();
+    expect(line.variancePct).toBeNull();
+    expect(line.estimateSource).toContain('not an estimate of this work');
+  });
+
+  it('compares against the work\'s own estimate when one was written before it started', () => {
+    const line = moneyLine(req({ estimateCents: 2000, actualCents: 2412 }), [task(1700), task(1700)], []);
+
+    expect(line.estimateCents).toBe(2000);
+    expect(line.varianceCents).toBe(412);
+    expect(line.estimateSource).toContain('before it started');
+  });
+
+  it('compares against a single contract, because one contract is the work', () => {
+    const line = moneyLine(req({ estimateCents: null, actualCents: 1500 }), [task(1700)], []);
+
+    expect(line.varianceCents).toBe(-200);
+  });
+});
+
+describe('the goal, when the body opens with a label', () => {
+  const withBody = (body: string) => {
+    const base = input({});
+    return assembleFeatureReport({ ...base, request: { ...base.request, meta: { ...base.request.meta, body } } });
+  };
+
+  it('says nothing rather than printing a label with a stray numeral', () => {
+    // The real body on the Stamp rename. Its first full stop is inside "1.",
+    // so the sentence rule kept it and the subtitle read
+    // "Acceptance criteria — each one a person can check: 1."
+    const report = withBody('Acceptance criteria — each one a person can check: 1. Every screen shows Stamp. 2. Old links resolve.');
+
+    expect(report.goal).toBeNull();
+  });
+
+  it('still takes a real opening sentence', () => {
+    expect(withBody('Launch as Stamp without breaking links. 1. Every screen shows Stamp.').goal)
+      .toBe('Launch as Stamp without breaking links.');
+  });
+});
+
+describe('build reads as a story', () => {
+  const run = (id: number, at: string) => ({ id, kind: 'worker', status: 'completed', attempt: null, agentSlug: 'eng', model: 'm', cents: 10, createdAt: new Date(at), claimedAt: new Date(at), completedAt: new Date(at), summary: null, error: null, meta: {} }) as never;
+
+  it('leads with the latest attempt and names the rest as superseded', () => {
+    // Five equal rows in the order they happened put the attempt that decided
+    // the work at the bottom, under four already superseded.
+    const report = assembleFeatureReport(input({ workerRuns: [run(1, '2026-09-20T10:00:00Z'), run(2, '2026-09-20T11:00:00Z'), run(3, '2026-09-20T12:00:00Z')] }));
+    const build = report.sections.find(x => x.key === 'runs')!;
+
+    expect(build.title).toBe('Build');
+    expect(build.entries[0]!.title).toContain('Latest attempt');
+    expect(build.entries[0]!.title).toContain('run 3');
+    expect(build.entries[1]!.title).toContain('superseded');
+    expect(build.entries).toHaveLength(3);
+  });
+
+  it('does not call a single run an attempt among others', () => {
+    const report = assembleFeatureReport(input({ workerRuns: [run(7, '2026-09-20T10:00:00Z')] }));
+    const build = report.sections.find(x => x.key === 'runs')!;
+
+    expect(build.entries[0]!.title).toBe('Latest attempt · run 7');
+  });
+});
+
+describe('what it looks like', () => {
+  const art = (id: number, title: string) => ({ id, kind: 'markdown', title, recordType: 'object', recordId: '7', recordRole: 'proposal-visual', spec: {}, url: null, createdAt: new Date('2026-09-22T10:00:00Z') }) as never;
+  const req = (meta: Record<string, unknown>) => {
+    const base = input({});
+    return { ...base, request: { ...base.request, id: 7, meta: { ...base.request.meta, ...meta } } };
+  };
+  const visuals = (r: ReturnType<typeof req>) => assembleFeatureReport(r).sections.find(s => s.key === 'visuals')!;
+
+  it('draws a mockup filed against the request, which nothing on this page used to do', () => {
+    const s = visuals({ ...req({ surface: 'ui', visuals: { beforeArtifactIds: [91] } }), artifacts: [art(91, 'Proposed flow')] } as never);
+
+    expect(s.evidence.map(e => e.title)).toEqual(['Proposed flow']);
+    expect(s.evidence[0]!.url).toBe('/dashboard/artifacts/91');
+    expect(s.absence).toBeNull();
+  });
+
+  it('says a decision is being made against a sentence when a visible change has no mockup', () => {
+    expect(visuals(req({ surface: 'ui', state: 'triaged' })).absence).toMatch(/approving this is approving a sentence/);
+  });
+
+  it('asks for the after-shot once the work says it is done', () => {
+    expect(visuals(req({ surface: 'flow', state: 'shipped' })).absence).toMatch(/not finished until somebody has looked at it/);
+  });
+
+  it('owes nothing when the work changes nothing a person looks at', () => {
+    expect(visuals(req({ surface: 'infra', state: 'shipped' })).absence).toMatch(/No visual is owed/);
+  });
+
+  it('takes a written reason instead of a picture, because a recorded way out is not a silent skip', () => {
+    expect(visuals(req({ surface: 'ui', state: 'shipped', visuals: { noVisualReason: 'Text-only change.' } })).absence).toMatch(/on purpose: Text-only change/);
+  });
+
+  it('flags work that was proposed with a visual and closed without one', () => {
+    const s = visuals({ ...req({ surface: 'ui', state: 'shipped', visuals: { beforeArtifactIds: [91] } }), artifacts: [art(91, 'Proposed flow')] } as never);
+
+    expect(s.flags.join(' ')).toMatch(/What was agreed can be seen; what shipped cannot/);
+  });
+});
+
+describe('the plan speaking for itself', () => {
+  const planned = (meta: Record<string, unknown>) => {
+    const base = input({ tasks: [] });
+    const plan = { id: 9, title: 'A plan', status: 'proposed', createdAt: new Date('2026-09-22T10:00:00Z'), meta: { requestId: base.request.id, ...meta } } as never;
+    return assembleFeatureReport({ ...base, plans: [plan] }).sections.find(s => s.key === 'plan')!;
+  };
+
+  it('answers the rule question from the plan when no task has been contracted yet', () => {
+    // The rule reads allowed paths and estimates off the TASKS, and before a
+    // plan is approved there are none — so the page printed "not recorded"
+    // directly above a plan that says why it was required.
+    const s = planned({ ruleLevel: 'required', ruleTriggers: ['the estimate is $22, over the $10 threshold'] });
+
+    expect(s.facts.find(f => f.label === 'Was a plan required?')?.value).toMatch(/^Yes —/);
+    expect(s.lists.find(l => l.label === 'Why the plan says it was required')?.items).toEqual(['the estimate is $22, over the $10 threshold']);
+  });
+
+  it('says nothing rather than guessing when the plan recorded no level', () => {
+    expect(planned({}).facts.find(f => f.label === 'Was a plan required?')?.value).toBeNull();
+  });
+});
+
+describe('one decision at a time', () => {
+  it('is proposed while nothing has been contracted, and the lifecycle says where it is', () => {
+    const r = assembleFeatureReport(input({ tasks: [], plans: [], workerRuns: [], asks: [], actionRuns: [], releases: [], artifacts: [] }));
+
+    expect(r.phase).toBe('proposed');
+    expect(r.lifecycle.map(l => `${l.label}:${l.state}`)).toEqual(['Plan:now', 'Build:todo', 'QA:todo', 'Release:todo']);
+  });
+
+  it('moves to building once there is work to watch', () => {
+    const r = assembleFeatureReport(input({ releases: [], artifacts: [] }));
+
+    expect(r.phase).toBe('review');
+    expect(r.lifecycle.find(l => l.label === 'Build')?.state).toBe('done');
+  });
+
+  it('is released once something carried it to people', () => {
+    expect(assembleFeatureReport(input()).phase).toBe('released');
   });
 });

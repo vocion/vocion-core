@@ -27,12 +27,11 @@ vi.mock('@/services/agents/harness', () => ({
   // The turn says which model answers it (`run_meta`); the mock keeps the agent's defaults.
   chatModelOptionsFor: () => ({}),
   chatModelOptionsWithOverride: (_h: unknown, o?: { model: string; provider?: string; thinking?: string }) => (o ? { ...o } : {}),
-  bindRequestEmit: vi.fn(),
   buildInitialFiles: vi.fn(async () => ({})),
-  getCompiledAgent: vi.fn(async () => ({
+  compileAgentForRequest: vi.fn(async () => ({
     graph: { streamEvents },
     agentRow: { id: 1, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} },
-    __ctx: { delegations: new Map() },
+    ctx: { delegations: new Map() },
   })),
 }));
 

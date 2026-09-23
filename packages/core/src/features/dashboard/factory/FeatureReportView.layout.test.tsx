@@ -106,13 +106,46 @@ async function draw(report: ReturnType<typeof fixture>) {
 }
 
 describe('the feature report, drawn', () => {
-  it('reads top to bottom in the ten sections, in order, with the plan between triage and the contract', async () => {
+  it('leads with the work and keeps the machinery behind Technical details', async () => {
+    // It used to read ask · triage · plan · contract · approvals · runs ·
+    // change · qa · release · money — the internal entities, in the order the
+    // records were written. The story a person follows comes first now; the
+    // ask as written, the triage figures, the contracts and the approval
+    // records are still on the page, one level down.
     await page.viewport(1440, 900);
     await draw(fixture());
 
     const keys = [...document.querySelectorAll('[data-section]')].map(el => el.getAttribute('data-section'));
 
-    expect(keys).toEqual(['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    // The fixture is a RELEASED feature, so the sections that lead are the
+    // result and its evidence; the plan is still on the page, behind Details,
+    // because it has nothing left to decide.
+    // Asserted as a property, because which sections lead depends on the
+    // PHASE now: a released feature leads with its result and its evidence,
+    // and a section whose only content is "this has not happened" is dropped
+    // rather than drawn.
+    // Asserted as a property, because which sections LEAD depends on the
+    // phase now. This fixture is mid-build, so Build leads and Release — which
+    // would only be able to say it has not happened — drops behind Details.
+    const leads = keys.slice(0, keys.indexOf('ask'));
+
+    expect(leads).toContain('runs');
+    expect(leads).not.toContain('release');
+
+    // Nothing is lost: every section is still on the page somewhere.
+    for (const k of ['ask', 'triage', 'contract', 'approvals', 'plan', 'release']) {
+      expect(keys).toContain(k);
+    }
+
+    // Nothing was dropped on the way.
+    expect(keys).toHaveLength(12);
+
+    // And the four that moved are inside the disclosure, not merely after it.
+    const technical = document.querySelector('#report-technical')!;
+
+    for (const key of ['ask', 'triage', 'contract', 'approvals']) {
+      expect(technical.querySelector(`[data-section="${key}"]`)).not.toBeNull();
+    }
   });
 
   it('puts the newest timeline entry last', async () => {
@@ -143,8 +176,8 @@ describe('the feature report, drawn', () => {
 
     const absences = [...document.querySelectorAll('[data-absence]')].map(el => el.textContent);
 
-    expect(absences).toContain('No QA evidence was captured for this task.');
-    expect(absences).toContain('No release carries this task.');
+    expect(absences).toContain('Not ready for review — nobody has looked at this running yet.');
+    expect(absences).toContain('Not released. Nothing has carried this work to people yet.');
   });
 
   it('flags the failed run whose pull request merged, in red, above the fold', async () => {

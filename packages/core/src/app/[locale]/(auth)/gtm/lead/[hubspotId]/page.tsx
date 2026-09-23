@@ -121,6 +121,7 @@ export default async function LeadPage(props: {
             // ISO across the server/client boundary, like the dates above.
             regeneratingSince: found.run.regeneratingSince?.toISOString() ?? null,
             regenerateNote: found.run.regenerateNote,
+            regenerateError: found.run.regenerateError ?? null,
             // The per-send walk reads these two off the run, so the lead page
             // has to carry them for the same reason the queue's loader does:
             // without them the checks are gone on every reload here, and the

@@ -1,7 +1,8 @@
 'use client';
 
-import { MessagesSquare, MoreHorizontal, SquarePen } from 'lucide-react';
+import { Check, ClipboardCopy, MessagesSquare, MoreHorizontal, SquarePen } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,10 +31,36 @@ import { chatHotkeyLabel } from './chatHotkeys';
 
 export type ChatMenuProps = {
   onNewChat: () => void;
+  /** The thread as plain text, built only when someone asks for it. Absent on a surface with nothing to copy yet. */
+  onCopy?: (() => string) | null;
 };
 
-export function ChatMenu({ onNewChat }: ChatMenuProps) {
+export function ChatMenu({ onNewChat, onCopy }: ChatMenuProps) {
   const t = useTranslations('Chat');
+  const [copied, setCopied] = useState(false);
+  // TAKING THE ANSWER WITH YOU.
+  //
+  // A conversation here is where the reasoning, the figures and the decision
+  // already live, and the only way out of it was to select text by hand on a
+  // phone — across message bubbles, tool rows and a live trace. Chris,
+  // 2026-09-22: *"I want a copy chat menu item."*
+  //
+  // The transcript is built at the moment of the click rather than kept in
+  // state: it can be long, it changes on every token, and nothing needs it
+  // until somebody asks.
+  const copy = async () => {
+    if (!onCopy) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(onCopy());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // A refused clipboard is not worth an error dialog; the label simply
+      // does not change, and the person can try again.
+    }
+  };
   return (
     <DropdownMenu>
       <Tooltip>
@@ -53,6 +80,21 @@ export function ChatMenu({ onNewChat }: ChatMenuProps) {
           {t('new_chat')}
           <DropdownMenuShortcut>{chatHotkeyLabel('new-chat')}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {onCopy && (
+          <DropdownMenuItem
+            data-testid="copy-conversation"
+            onSelect={(e) => {
+              // Keep the menu open long enough to show that it worked.
+              e.preventDefault();
+              void copy();
+            }}
+          >
+            {copied
+              ? <Check className="text-brand-ok mr-2 size-4" aria-hidden="true" />
+              : <ClipboardCopy className="mr-2 size-4 text-muted-foreground" aria-hidden="true" />}
+            {copied ? 'Copied' : 'Copy conversation'}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/dashboard/conversations">

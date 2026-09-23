@@ -64,6 +64,7 @@ import { pageContextTool } from './pageContext';
 import { personalizationTools } from './personalization';
 import { posthogCountTools } from './posthogCounts';
 import { proposeActionTool } from './proposeAction';
+import { readObjectTools } from './readObject';
 import { recommendActionTool } from './recommendAction';
 import { renderArtifactTools } from './renderArtifacts';
 import { runCodeTool } from './runCode';
@@ -148,6 +149,7 @@ export function buildDomainTools(ctx: RuntimeContext): StructuredToolInterface[]
     // The write beside the read: declared fields on a record of a type the
     // agent works with, through the `objects.update_meta` action. Empty for
     // an agent with no object types.
+    ...readObjectTools(ctx),
     ...updateObjectTools(ctx),
     listLearningStepsTool(ctx),
     getLearningsTool(ctx),

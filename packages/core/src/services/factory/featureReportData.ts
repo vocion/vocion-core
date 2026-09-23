@@ -205,11 +205,26 @@ export async function loadFeatureReport(orgId: string, requestId: number, now: D
       executedAt: a.executedAt ?? null,
     }));
 
-  // QA evidence hangs off the TASK, not the request: it proves a change, and
-  // the change is the task's. Business objects are `object` records.
-  const artifactRows = taskIds.size === 0
+  // QA evidence hangs off the TASK, because it proves a change and the change
+  // is the task's. VISUALS hang off the REQUEST: a mockup or a flow diagram is
+  // what the outcome should look like, and it exists before there is a task to
+  // attach it to. Both are ordinary artifacts, so both arrive the same way.
+  const visualIds = new Set<string>([String(request.id)]);
+  const requestVisuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  for (const key of ['beforeArtifactIds', 'afterArtifactIds']) {
+    const ids = requestVisuals[key];
+    if (Array.isArray(ids)) {
+      for (const id of ids) {
+        if (typeof id === 'number' || typeof id === 'string') {
+          visualIds.add(String(id));
+        }
+      }
+    }
+  }
+  const recordIds = [...new Set([...taskIds].map(String).concat([...visualIds]))];
+  const artifactRows = recordIds.length === 0
     ? []
-    : await listArtifactsForRecords({ orgId, recordType: 'object', recordIds: [...taskIds].map(String) });
+    : await listArtifactsForRecords({ orgId, recordType: 'object', recordIds });
   const artifacts: ReportArtifact[] = artifactRows.map(a => ({
     id: a.id,
     kind: a.kind,

@@ -469,12 +469,21 @@ export function withPageContext(message: string, ctx: PageContext | null, refs: 
   if (ctx.selection) {
     lines.push(`I highlighted this passage:\n> ${ctx.selection.text.replace(/\n/g, '\n> ')}`);
   }
+  // DO NOT ADVERTISE THE TOOL. The details are already above.
+  //
+  // These lines used to end with "the `page_context` tool returns the same
+  // details as JSON", which reads to a model in a hurry as an instruction to
+  // go and fetch what it has just been handed. What came back was a turn that
+  // announced an intention and stopped — *"I'll check what that page is."* —
+  // and needed a second prod to actually answer (Chris, 2026-09-22: "chat took
+  // two attempts"). The tool is in the tool list; a model that genuinely wants
+  // the JSON will find it there without the context inviting a detour.
   lines.push(
     ctx.record || ctx.selection
-      ? 'Unless I say otherwise, take my question to be about that record and passage. The `page_context` tool returns the same details as JSON.'
+      ? 'Unless I say otherwise, take my question to be about that record and passage. You already have what is above — answer from it rather than going to look it up again.'
       : ctx.thread
-        ? 'Unless I say otherwise, take my question to be about this thread and what it is discussing. The `page_context` tool returns the same details as JSON.'
-        : 'Unless I say otherwise, take my question to be about what that page shows.',
+        ? 'Unless I say otherwise, take my question to be about this thread and what it is discussing. You already have what is above — answer from it.'
+        : 'Unless I say otherwise, take my question to be about what that page shows. You already have what is above — answer from it.',
   );
   if (ctx.state && ctx.state.length > 0) {
     lines.push(`What the page currently shows: ${ctx.state.map(p => `${p.label}: ${p.value}`).join(' · ')}.`);

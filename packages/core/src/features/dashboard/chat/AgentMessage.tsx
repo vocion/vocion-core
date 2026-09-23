@@ -137,6 +137,11 @@ function turnEndingNotice(status: ChatMessage['status']): string | null {
   if (status === 'refused') {
     return 'This turn was not run. Nothing is broken — something needs changing before this agent can answer.';
   }
+  if (status === 'stalled') {
+    // The work happened; the answer did not. Say both, because the steps
+    // above are real and the person should not re-run them blind.
+    return 'The work above ran, and this turn ended without saying what it found. Ask again — it does not need to start over.';
+  }
   return 'This answer stopped partway through, so what you see above is unfinished. Ask again for a complete one.';
 }
 

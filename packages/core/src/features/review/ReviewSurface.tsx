@@ -91,6 +91,8 @@ export type ReviewCardRun = {
   regeneratingSince?: Date | string | null;
   /** The reviewer's instruction the regeneration is answering. */
   regenerateNote?: string | null;
+  /** Why the LAST regeneration did not land, when it did not; null once one lands. */
+  regenerateError?: string | null;
   /**
    * Which content items a reviewer has already approved, keyed by content id,
    * each holding a HASH of the copy that was approved. The check is derived
@@ -196,6 +198,7 @@ const REVISION_KIND: Record<NonNullable<ActionRevision['kind']>, string> = {
   proposed: 'proposed',
   regenerated: 'regenerated',
   approved: 'approved',
+  failed: 'did not land',
 };
 
 /**
@@ -305,6 +308,10 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
               <span>{` · ${REVISION_DATE.format(new Date(r.at))}`}</span>
             </p>
             {r.ask && <p className="mt-0.5 break-words text-muted-foreground/90">{`asked “${r.ask}”`}</p>}
+            {/* The outcome under the ask, so the history reads as a
+                conversation: asked this, and then this happened. An ask with
+                nothing after it was how a failed regenerate hid (ticket 069). */}
+            {r.kind === 'failed' && r.failure && <p className="mt-0.5 break-words text-brand-fail" data-testid={`history-failure-${props.id}`}>{r.failure}</p>}
           </li>
         ))}
       </ol>
@@ -347,6 +354,66 @@ function ItemHistory(props: { entries: readonly ActionRevision[]; id: string }) 
  * @param props.approved - Set once this send carries a check: the way back.
  * @param props.scoped - True when a regenerate rewrites this item alone.
  */
+/**
+ * Regenerate every send from one instruction.
+ *
+ * Sits under the strip rather than on the bar (one Regenerate on the bar
+ * meant whichever item its author had in mind) and rather than inside a
+ * pane (a pane is about one send). It says what it costs: every send is
+ * redrafted, so any per-send approval whose copy changes is cleared, which
+ * the walk derives from the copy's hash without anyone clearing it.
+ * @param props
+ * @param props.count - How many sends the instruction will rewrite.
+ * @param props.disabled
+ * @param props.regenerating
+ * @param props.onRegenerate - Runs the whole-card pass with the instruction.
+ */
+function RegenerateAll(props: {
+  count: number;
+  disabled: boolean;
+  regenerating: boolean;
+  onRegenerate: (instruction: string) => void;
+}) {
+  const [instruction, setInstruction] = useState('');
+  return (
+    <section className="mt-6 border-t border-rule pt-4" data-testid="regenerate-all-open" aria-label="Regenerate all sends">
+      <label className="block">
+        <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
+          {`What should all ${props.count} sends do differently?`}
+        </span>
+        <textarea
+          value={instruction}
+          onChange={e => setInstruction(e.target.value)}
+          rows={2}
+          disabled={props.disabled}
+          aria-label="Instruction for regenerating all sends"
+          placeholder="e.g. Replace every dash with a comma, and drop the sign-off."
+          className="mt-1.5 w-full resize-y rounded-lg bg-surface-soft px-3 py-2 text-sm leading-relaxed transition outline-none placeholder:text-muted-foreground/70 focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
+        />
+      </label>
+      <div className="mt-2 flex items-baseline justify-between gap-3">
+        <p className="text-[13px] text-muted-foreground">
+          {`Redrafts all ${props.count} sends from your instruction. Any send you had approved is unapproved if its copy changes.`}
+        </p>
+        <button
+          type="button"
+          data-testid="regenerate-all"
+          aria-label="Regenerate all sends"
+          disabled={props.disabled || instruction.trim().length === 0}
+          onClick={() => {
+            props.onRegenerate(instruction.trim());
+            setInstruction('');
+          }}
+          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[13px] text-muted-foreground transition hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+        >
+          {props.regenerating ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RefreshCw className="size-3.5" aria-hidden />}
+          {props.regenerating ? 'Regenerating…' : 'Regenerate all'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function ItemPane(props: {
   item: ReviewContent;
   label: string;
@@ -1217,7 +1284,7 @@ export function ReviewSurface(props: {
 
       {props.beforeTabs}
 
-      {(d.regenerating || d.regenStale || d.execError || props.hold) && (
+      {(d.regenerating || d.regenStale || d.regenError || d.execError || props.hold) && (
         <div className="flex flex-col gap-2 py-4">
           {d.regenerating && (
             <Notice tone="amber" icon={<Loader2 className="size-4 animate-spin" aria-hidden />} testid="regenerating-banner">
@@ -1229,6 +1296,13 @@ export function ReviewSurface(props: {
           {d.regenStale && (
             <Notice tone="amber" icon={<TriangleAlert className="size-4" aria-hidden />} testid="regenerating-stale-banner">
               <p className="text-muted-foreground">This regeneration is taking longer than expected. The decision is open again; the regenerated version updates the page if it still arrives.</p>
+            </Notice>
+          )}
+          {d.regenError && !d.regenerating && (
+            <Notice tone="red" icon={<TriangleAlert className="size-4" aria-hidden />} testid="regenerate-failed-banner">
+              <p className="font-medium text-brand-fail">The last regenerate did not land</p>
+              <p className="mt-0.5 text-[13px] break-words whitespace-pre-line text-muted-foreground">{d.regenError}</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">The copy on the card is unchanged. Fix what it names, or word the instruction differently, and regenerate again.</p>
             </Notice>
           )}
           {d.execError && (
@@ -1292,6 +1366,21 @@ export function ReviewSurface(props: {
             </TabsContent>
           ))}
         </Tabs>
+      )}
+
+      {/* The whole card, when the note is about all of it. Each send has its
+          own Regenerate beside it, and that is the right tool for one send;
+          "take the dashes out everywhere" is not a note about one send, and
+          the only way to say it was to type it four times (ticket 069). The
+          server has always taken a regenerate with no send named as a
+          redraft of every send; this is the first control that reaches it. */}
+      {decidable && d.canRegenerate && content.filter(i => contentKindEditable(i.kind)).length > 1 && (
+        <RegenerateAll
+          count={content.filter(i => contentKindEditable(i.kind)).length}
+          disabled={d.held}
+          regenerating={d.regenerating}
+          onRegenerate={instruction => void regenerate(instruction)}
+        />
       )}
 
       {/* The case and the citations, under what they are about. Off the tab

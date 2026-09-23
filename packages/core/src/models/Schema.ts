@@ -2802,6 +2802,12 @@ export const knowledgeDocumentSchema = pgTable(
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     /** SHA-256 of the canonical content. Re-ingest is a no-op when unchanged. */
     contentHash: text('content_hash').notNull(),
+    /** The `contentHash` a document processor last finished on. */
+    processedHash: text('processed_hash'),
+    /** Processor tries on this content without finishing; above zero and under the cap, the sync runs it again. */
+    processorAttempts: integer('processor_attempts').default(0).notNull(),
+    /** Why the last try did not finish. */
+    processorError: text('processor_error'),
     /** Last-modified hints from the upstream source (HTTP ETag / mtime). */
     etag: text('etag'),
     lastModifiedAt: timestamp('last_modified_at', { mode: 'date' }),
@@ -3436,6 +3442,14 @@ export const actionRunSchema = pgTable(
     /** The reviewer's instruction behind the in-flight regeneration, so every surface can show it. */
     regenerateNote: text('regenerate_note'),
     /**
+     * Why the LAST regeneration did not land, when it did not. Set by the
+     * regenerate route's dispatch failure handler, cleared when the next
+     * regeneration starts and when a redraft lands through the dedup refresh.
+     * Without it a failed regenerate was indistinguishable from one that
+     * changed nothing (ticket 069).
+     */
+    regenerateError: text('regenerate_error'),
+    /**
      * The audit record of AI rewrites asked during review, newest last. The
      * DRAFT itself is never touched by a rewrite (the reviewer carries the
      * copy and passes it back on approve); this is the record of what was
@@ -3459,7 +3473,9 @@ export const actionRunSchema = pgTable(
        * row written before this shipped is a rewrite's answer, which is what
        * an absent kind reads as.
        */
-      kind?: 'proposed' | 'regenerated' | 'approved';
+      kind?: 'proposed' | 'regenerated' | 'approved' | 'failed';
+      /** Why a regeneration asked here did not land; only on a `failed` entry. */
+      failure?: string;
     }>>(),
     /**
      * Which content items a reviewer has approved one at a time, keyed by the

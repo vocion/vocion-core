@@ -359,6 +359,9 @@ export async function proposeAction(input: {
           // it, and the card re-enables in place.
           regeneratingSince: null,
           regenerateNote: null,
+          // A redraft that landed supersedes whatever failure the last one
+          // left on the run.
+          regenerateError: null,
           // A refreshed card is open work again, so it carries no decision.
           // A run the ladder approved whose execution failed can be
           // re-proposed on the same dedup key and comes back to `pending`

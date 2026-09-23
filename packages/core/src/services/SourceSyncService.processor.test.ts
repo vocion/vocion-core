@@ -5,7 +5,8 @@
  * usually expensive, usually a model call. The whole design of the hook is
  * about containment, so that is what these tests pin:
  *
- *   - it runs for created and updated documents only;
+ *   - it runs for created and updated documents, and again for one whose last
+ *     run did not finish, up to a cap;
  *   - a processor that throws, or hangs, costs its own document and nothing
  *     else: the sync still completes, `errors` stays where it was, the
  *     watermark still advances and documents gone from the source are still
@@ -17,6 +18,8 @@
  * extended to return the `documentId` a real ingest returns; the processor
  * registry is patched so a fixture processor stands in for the real one.
  */
+import type { ProcessorResult } from '@/libs/processors/types';
+import type { ProcessorRunMark } from '@/services/IngestionService';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
@@ -41,9 +44,15 @@ type ProcessorLog = {
   /** The ingest outcome a document gets, so a test can pick created/updated/unchanged. */
   outcomeFor: (externalId: string) => Record<string, unknown>;
   /** What the processor does when it runs. */
-  behaviour: (ctx: any) => Promise<{ produced: number; skipped: number; counts?: Record<string, number> }>;
+  behaviour: (ctx: any) => Promise<ProcessorResult>;
   /** Whether the delete-what's-gone step ran. */
   deleteWasCalled: boolean;
+  /** Every processor run step the hook recorded, in call order. */
+  marks: Array<{ documentId: number } & ProcessorRunMark>;
+  /** The try count the fake store answers with after a step, by document. */
+  countAfter: Map<number, number>;
+  /** Makes recording a step fail, as a database outage would. */
+  markFails: boolean;
 };
 
 const processorLog: ProcessorLog = {
@@ -53,9 +62,12 @@ const processorLog: ProcessorLog = {
   loads: 0,
   lastSignal: null,
   documentTimeoutMs: undefined,
-  outcomeFor: () => ({ status: 'created', documentId: 41, chunks: 1 }),
+  outcomeFor: () => ({ status: 'created', documentId: 41, chunks: 1, contentHash: 'h41' }),
   behaviour: async () => ({ produced: 1, skipped: 0 }),
   deleteWasCalled: false,
+  marks: [],
+  countAfter: new Map(),
+  markFails: false,
 };
 
 vi.mock('@/services/IngestionService', () => ({
@@ -66,6 +78,13 @@ vi.mock('@/services/IngestionService', () => ({
     return { deleted: 2 };
   }),
   ingestDocument: vi.fn(async (_source: unknown, doc: { externalId: string }) => processorLog.outcomeFor(doc.externalId)),
+  markProcessorRun: vi.fn(async (documentId: number, step: ProcessorRunMark) => {
+    if (processorLog.markFails) {
+      throw new Error('database unavailable');
+    }
+    processorLog.marks.push({ documentId, ...step });
+    return processorLog.countAfter.get(documentId) ?? 0;
+  }),
 }));
 
 const { z } = await import('zod');
@@ -78,7 +97,10 @@ const fixtureProcessor = {
   description: 'test',
   configSchema: z.object({
     label: z.string().optional(),
-    limits: z.object({ maxModelCalls: z.number().int().nonnegative().optional() }).strict().optional(),
+    limits: z.object({
+      maxModelCalls: z.number().int().nonnegative().optional(),
+      maxWallClockMs: z.number().int().nonnegative().optional(),
+    }).strict().optional(),
   }).strict(),
   // A getter, so one test can declare a budget without giving every other
   // test in the file a 40ms document.
@@ -193,9 +215,12 @@ beforeEach(async () => {
   processorLog.loads = 0;
   processorLog.lastSignal = null;
   processorLog.documentTimeoutMs = undefined;
-  processorLog.outcomeFor = () => ({ status: 'created', documentId: 41, chunks: 1 });
+  processorLog.outcomeFor = () => ({ status: 'created', documentId: 41, chunks: 1, contentHash: 'h41' });
   processorLog.behaviour = async () => ({ produced: 1, skipped: 0 });
   processorLog.deleteWasCalled = false;
+  processorLog.marks = [];
+  processorLog.countAfter = new Map();
+  processorLog.markFails = false;
   vi.unstubAllEnvs();
 });
 
@@ -436,5 +461,145 @@ describe('the document processor hook', () => {
     await expect(runSync({ orgId: ORG_ID, sourceId })).rejects.toThrow();
 
     expect(await checkpointFor(sourceId)).toBeUndefined();
+  });
+});
+
+describe('a document whose processor did not finish', () => {
+  it('runs the processor again on unchanged content while it is due and under the cap', async () => {
+    registerFixtureConnector('proc-retry-gate', ['fresh', 'deferred', 'once', 'twice', 'spent']);
+    const sourceId = await createSource('proc-retry-gate', { slug: FIXTURE_SLUG, config: {} });
+    const unchanged = (documentId: number, processorAttempts: number, processorDue: boolean) =>
+      ({ status: 'unchanged', documentId, contentHash: `h${documentId}`, processorAttempts, processorDue });
+    const outcomes: Record<string, Record<string, unknown>> = {
+      fresh: unchanged(1, 0, false),
+      deferred: unchanged(2, 0, true),
+      once: unchanged(3, 1, true),
+      twice: unchanged(4, 2, true),
+      spent: unchanged(5, 3, true),
+    };
+    processorLog.outcomeFor = id => outcomes[id]!;
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.ran.map(r => r.externalId).sort()).toEqual(['deferred', 'once', 'twice']);
+    expect((await checkpointFor(sourceId))?.counts.processorRetries).toBe(3);
+    expect(processorLog.marks).toContainEqual({ documentId: 3, kind: 'finished', contentHash: 'h3' });
+    expect(processorLog.marks.some(m => m.documentId === 1 || m.documentId === 5)).toBe(false);
+  });
+
+  it('counts a try before the processor runs, so a run cut off midway still leaves it due', async () => {
+    registerFixtureConnector('proc-retry-claim', ['a']);
+    const sourceId = await createSource('proc-retry-claim', { slug: FIXTURE_SLUG, config: {} });
+    let marksWhileRunning: string[] = [];
+    processorLog.behaviour = async () => {
+      marksWhileRunning = processorLog.marks.map(m => m.kind);
+      return { produced: 1, skipped: 0 };
+    };
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(marksWhileRunning).toEqual(['started']);
+    expect(processorLog.marks.map(m => m.kind)).toEqual(['started', 'finished']);
+  });
+
+  it('keeps the reason of a failed try, and counts the one that reaches the cap once', async () => {
+    registerFixtureConnector('proc-retry-fail', ['new', 'last-try']);
+    const sourceId = await createSource('proc-retry-fail', { slug: FIXTURE_SLUG, config: {} });
+    const outcomes: Record<string, Record<string, unknown>> = {
+      'new': { status: 'created', documentId: 10, chunks: 1, contentHash: 'n1' },
+      'last-try': { status: 'unchanged', documentId: 11, contentHash: 'l1', processorAttempts: 2, processorDue: true },
+    };
+    processorLog.outcomeFor = id => outcomes[id]!;
+    processorLog.countAfter.set(10, 1);
+    processorLog.countAfter.set(11, 3);
+    processorLog.behaviour = async () => ({
+      produced: 0,
+      skipped: 1,
+      retry: { reason: 'extraction skipped: model_timeout', countsAsTry: true },
+    });
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.marks).toContainEqual({ documentId: 10, kind: 'failed', error: 'extraction skipped: model_timeout' });
+    expect(processorLog.marks).toContainEqual({ documentId: 11, kind: 'failed', error: 'extraction skipped: model_timeout' });
+    expect((await checkpointFor(sourceId))?.counts.processorRetriesExhausted).toBe(1);
+  });
+
+  it('gives back a claimed try when no work was spent, such as a refused call', async () => {
+    registerFixtureConnector('proc-retry-deferred', ['queued']);
+    const sourceId = await createSource('proc-retry-deferred', { slug: FIXTURE_SLUG, config: {} });
+    processorLog.behaviour = async () => ({
+      produced: 0,
+      skipped: 1,
+      retry: { reason: 'extraction skipped: model_throttled', countsAsTry: false },
+    });
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.marks.map(m => m.kind)).toEqual(['started', 'deferred']);
+    expect(processorLog.marks[1]).toMatchObject({ claimed: true, error: 'extraction skipped: model_throttled' });
+  });
+
+  it('treats a deliberate skip as finished, so it is not retried', async () => {
+    registerFixtureConnector('proc-retry-deliberate', ['past']);
+    const sourceId = await createSource('proc-retry-deliberate', { slug: FIXTURE_SLUG, config: {} });
+    processorLog.outcomeFor = () => ({ status: 'created', documentId: 20, chunks: 1, contentHash: 'p1' });
+    processorLog.behaviour = async () => ({ produced: 0, skipped: 1 });
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.marks).toEqual([
+      { documentId: 20, kind: 'started' },
+      { documentId: 20, kind: 'finished', contentHash: 'p1' },
+    ]);
+  });
+
+  it('records a processor that throws, or runs past its own timeout, as a failed try with its message', async () => {
+    registerFixtureConnector('proc-retry-throws', ['boom', 'slow']);
+    const sourceId = await createSource('proc-retry-throws', { slug: FIXTURE_SLUG, config: {} });
+    const outcomes: Record<string, Record<string, unknown>> = {
+      boom: { status: 'updated', documentId: 30, chunks: 1, contentHash: 'b1' },
+      slow: { status: 'created', documentId: 31, chunks: 1, contentHash: 's1' },
+    };
+    processorLog.outcomeFor = id => outcomes[id]!;
+    processorLog.documentTimeoutMs = 40;
+    processorLog.behaviour = async (ctx) => {
+      if (ctx.document.externalId === 'boom') {
+        throw new Error('upstream exploded');
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+      return { produced: 1, skipped: 0 };
+    };
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.errors).toBe(0);
+    expect(processorLog.marks).toContainEqual({ documentId: 30, kind: 'failed', error: 'upstream exploded' });
+    expect(processorLog.marks).toContainEqual({ documentId: 31, kind: 'failed', error: 'the processor did not finish within 40ms' });
+  });
+
+  it('leaves a document due, claiming no try, when the sync runs out of time before it', async () => {
+    registerFixtureConnector('proc-retry-out-of-time', ['late']);
+    const sourceId = await createSource('proc-retry-out-of-time', { slug: FIXTURE_SLUG, config: { limits: { maxWallClockMs: 0 } } });
+    processorLog.outcomeFor = () => ({ status: 'created', documentId: 40, chunks: 1, contentHash: 'o1' });
+
+    await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(processorLog.ran).toEqual([]);
+    expect(processorLog.marks).toEqual([
+      { documentId: 40, kind: 'deferred', error: 'the sync ran out of time before this document', claimed: false },
+    ]);
+  });
+
+  it('completes the sync with no ingest errors when recording a run fails', async () => {
+    registerFixtureConnector('proc-retry-record-fails', ['a', 'b']);
+    const sourceId = await createSource('proc-retry-record-fails', { slug: FIXTURE_SLUG, config: {} });
+    processorLog.markFails = true;
+
+    const result = await runSync({ orgId: ORG_ID, sourceId });
+
+    expect(result.errors).toBe(0);
+    expect(processorLog.ran).toHaveLength(2);
+    expect((await checkpointFor(sourceId))?.counts.processorErrors).toBe(0);
   });
 });

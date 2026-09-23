@@ -175,6 +175,10 @@ export type ReportEntry = {
   at: Date | null;
   cents: number | null;
   facts: ReportFact[];
+  /** The plan as a person approves it: numbered, in order, one line each. */
+  steps?: string[];
+  /** Facts that belong behind the entry's own disclosure — the reasoning, not the decision. */
+  detailFacts?: ReportFact[];
   checks: ReportCheck[];
   /** Flags shown on the entry itself, e.g. the failed-run-merged-PR contradiction. */
   flags: string[];
@@ -183,6 +187,12 @@ export type ReportEntry = {
 /** A QA artifact as the gallery reads it. */
 export type ReportEvidence = {
   id: number;
+  /** The artifact's kind, so a gallery can draw a picture as a picture and a document as a document. */
+  kind: string;
+  /** A picture to draw, when this evidence IS one. */
+  imageUrl: string | null;
+  /** The document itself, when the evidence is one — a mockup nobody can see is not evidence. */
+  body: string | null;
   role: string;
   title: string;
   caption: string | null;
@@ -192,11 +202,27 @@ export type ReportEvidence = {
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
 
-export const REPORT_SECTION_KEYS = ['ask', 'triage', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
+export const REPORT_SECTION_KEYS = ['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money'] as const;
 export type ReportSectionKey = typeof REPORT_SECTION_KEYS[number];
+
+/**
+ * Which half of the page a section belongs to.
+ *
+ * `story` is the work as a person follows it — the plan, what it will take to
+ * be done, what was built, the evidence, what remains, what it cost. `detail`
+ * is the machinery that produced it: the original ask, the triage figures, the
+ * per-task contracts, the approval records. Both are true and both are needed;
+ * only one of them is what somebody opened the page to read. Chris,
+ * 2026-09-22: *"Nothing is lost. It's simply put at the correct level."*
+ */
+export type ReportSectionGroup = 'story' | 'detail';
 
 export type ReportSection = {
   key: ReportSectionKey;
+  /** Lists that belong behind the section's own disclosure, not in front of the decision. */
+  detailLists: Array<{ label: string; items: string[] }>;
+  /** Where it sits: in the story, or behind Technical details. */
+  group: ReportSectionGroup;
   title: string;
   /** Null when the stage happened. Otherwise the plain sentence saying it did not. */
   absence: string | null;
@@ -253,8 +279,18 @@ export type FeatureReport = {
   money: MoneyLine;
   /** Where the work is and what it wants from a person — the top of the page. */
   state: ReportState;
+  /** Which decision this page is for right now, and therefore what leads it. */
+  phase: ReportPhase;
+  /** The four steps and where this has got to, in place of four empty sections. */
+  lifecycle: LifecycleStep[];
   /** What this work is FOR, in the requester's own words. Null when nobody wrote one. */
   goal: string | null;
+  /** The ask as it arrived, kept as evidence under the outcome the page leads with. */
+  asked: string;
+  /** The change as the person who will use it would tell it. Markdown. */
+  story: string | null;
+  /** The contract: what has to be true before this is done. */
+  acceptance: ReportAcceptance;
   sections: ReportSection[];
   /** Oldest first — a person reads top to bottom and the newest entry is last. */
   timeline: TimelineEntry[];
@@ -519,8 +555,15 @@ export function statusTone(status: string | null): Tone {
  * @param key - The section key.
  * @param title - Its heading.
  */
+/**
+ * The sections that are machinery rather than story: the original ask, the
+ * triage figures, the per-task contracts and the approval records. Useful,
+ * traceable, and not what a person opened this page to read.
+ */
+const DETAIL_SECTIONS: ReadonlySet<string> = new Set(['ask', 'triage', 'contract', 'approvals']);
+
 function blank(key: ReportSectionKey, title: string): ReportSection {
-  return { key, title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
+  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], detailLists: [], entries: [], checks: [], evidence: [], flags: [] };
 }
 
 /**
@@ -668,16 +711,37 @@ export function planRecordLine(plan: PlanRecord | null): string {
  * @param hasRuns - Whether any worker run exists, which changes what an absent plan means.
  */
 function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: boolean): ReportSection {
-  const s = blank('plan', 'The plan');
+  const s = blank('plan', 'Plan');
   const decision = planDecisionForRequest(tasks);
   const recorded = tasks.map(task => ({ task, plan: planRecordFromTask(task.meta) }));
   const skips = recorded.filter(r => r.plan?.skipped === true);
   const carried = recorded.filter(r => r.plan !== null && r.plan.skipped !== true);
 
+  // THE PLAN CAN SPEAK FOR ITSELF.
+  //
+  // The rule's verdict is read off the TASKS, because that is where the
+  // allowed paths and the estimate live — and before a plan is approved there
+  // are no tasks yet. So a request with a plan sitting on it, written because
+  // the rule required one, printed "Was a plan required? not recorded" above
+  // the plan that says why it was. The plan records its own `ruleLevel` and
+  // `ruleTriggers` at the moment it was written; when the tasks cannot answer,
+  // they can.
+  const fromPlan = plans.map(p => str(p.meta, 'ruleLevel')).find(level => level !== null) ?? null;
+  const planTriggers = plans.flatMap(p => list(p.meta, 'ruleTriggers'));
   s.facts = [
-    { label: 'Was a plan required?', value: decision === null ? null : planLevelSentence(decision) },
+    {
+      label: 'Was a plan required?',
+      value: decision !== null
+        ? planLevelSentence(decision)
+        : fromPlan === null
+          ? null
+          : `${fromPlan === 'required' ? 'Yes' : fromPlan === 'offered' ? 'It was offered' : 'No'} — as the plan itself recorded when it was written; no task has been contracted yet for the rule to re-read.`,
+    },
     { label: 'Plans on record', value: plans.length === 0 ? 'none' : String(plans.length) },
   ];
+  if (decision === null && planTriggers.length > 0) {
+    s.lists.push({ label: 'Why the plan says it was required', items: planTriggers });
+  }
   if (decision !== null && decision.triggers.length > 0) {
     s.lists.push({ label: 'Why a plan was required', items: decision.triggers.map(t => t.why) });
   }
@@ -728,11 +792,18 @@ function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: bool
       tone: statusTone(plan.status),
       at: asDate(meta.approvedAt) ?? plan.createdAt,
       cents: null,
+      // WHAT IS BEING APPROVED is the steps. The reasoning behind them is
+      // excellent and it is not the thing a person says yes to — four
+      // paragraphs of it at the top of a plan is a document, not a decision.
+      // It moves to `detailFacts`, behind "Why this plan".
       facts: [
-        { label: 'The approach, and why this one', value: str(meta, 'approach'), format: 'quote' },
-        { label: 'Written by', value: str(meta, 'writtenBy') },
         { label: 'Approved by', value: str(meta, 'approvedBy') ?? (plan.status === 'approved' ? 'not recorded' : 'nobody yet') },
         { label: 'Approved', value: asDate(meta.approvedAt) ? formatStamp(asDate(meta.approvedAt)) : null },
+      ],
+      steps: list(meta, 'components'),
+      detailFacts: [
+        { label: 'The approach, and why this one', value: str(meta, 'approach'), format: 'quote' },
+        { label: 'Written by', value: str(meta, 'writtenBy') },
         { label: 'Data or migration impact', value: str(meta, 'dataImpact'), format: 'quote' },
         { label: 'How it will be verified', value: str(meta, 'verification'), format: 'quote' },
       ],
@@ -743,9 +814,9 @@ function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: bool
     };
   });
   for (const plan of plans) {
-    for (const [key, label] of [['components', 'What changes, by component'], ['interfaces', 'Interfaces added or altered'], ['risks', 'What could go wrong, and what it would cost'], ['alternatives', 'Considered and rejected, and why']] as const) {
+    for (const [key, label] of [['interfaces', 'Interfaces added or altered'], ['risks', 'What could go wrong'], ['alternatives', 'Considered and rejected, and why']] as const) {
       const items = list(plan.meta, key);
-      s.lists.push({ label: `${label} · plan ${plan.id}`, items: items.length > 0 ? items : [`This plan does not say. A plan that answers nothing here is a document, not a design.`] });
+      s.detailLists.push({ label, items: items.length > 0 ? items : ['This plan does not say. A plan that answers nothing here is a document, not a design.'] });
     }
   }
   return s;
@@ -868,12 +939,24 @@ function approvalsSection(asks: ReportAsk[], actionRuns: ReportActionRun[], hasR
  * @param mergedPrs - Pull requests the records say merged, for the contradiction flag.
  */
 function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSection {
-  const s = blank('runs', 'The runs');
+  // BUILD, not "the runs" — and newest first.
+  //
+  // Five attempts at one rename drew as five equal rows in the order they
+  // happened, so the one that matters — the last one, the one that decided
+  // whether this work stands — was at the bottom, under four that had already
+  // been superseded. Chris, 2026-09-22: *"Translate that into a build story…
+  // the fact that the factory needed five attempts can be interesting; the
+  // contents of every failed contract are forensic."*
+  //
+  // So the latest attempt leads and says it is the latest; the earlier ones
+  // follow, numbered and named as superseded, which is what they are.
+  const s = blank('runs', 'Build');
   if (runs.length === 0) {
-    s.absence = 'No worker run is recorded against this work.';
+    s.absence = 'Nothing has been built yet — no worker run is recorded against this work.';
     return s;
   }
-  s.entries = runs.map((run) => {
+  const newestFirst = [...runs].reverse();
+  s.entries = newestFirst.map((run, index) => {
     const change = runChange(run);
     const ms = runDuration(run);
     const failed = TERMINAL_BAD.has(run.status);
@@ -901,7 +984,9 @@ function runsSection(runs: ReportWorkerRun[], mergedPrs: Set<string>): ReportSec
     }
     return {
       key: `run-${run.id}`,
-      title: `Run ${run.id} · ${run.kind}`,
+      title: index === 0
+        ? `Latest attempt · run ${run.id}`
+        : `Earlier attempt ${newestFirst.length - index} of ${newestFirst.length} · run ${run.id}, superseded`,
       status: run.status,
       tone: statusTone(run.status),
       at: runAt(run),
@@ -986,12 +1071,14 @@ function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSe
  * @param taskCount - How many tasks, so the sentence reads right.
  */
 function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSection {
-  const s = blank('qa', 'QA evidence');
+  const s = blank('qa', 'QA');
   s.evidence = artifacts
     .map(a => ({ a, role: qaEvidenceRole(a) }))
     .filter((x): x is { a: ReportArtifact; role: QaEvidenceRole } => x.role !== null)
     .map(({ a, role }) => ({
       id: a.id,
+      kind: a.kind,
+      ...drawOf(a),
       role,
       title: a.title,
       caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? str(a.spec, 'summary'),
@@ -1000,10 +1087,23 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
     }))
     .sort((x, y) => x.at.getTime() - y.at.getTime());
   if (s.evidence.length === 0) {
+    // SAY WHAT IS OWED, not what the schema expects.
+    //
+    // This read "No QA evidence was captured for this task. Evidence attaches
+    // as an artifact on the engineering task with recordRole: qa-screenshot |
+    // qa-video | qa-report. Nothing posts it yet." — a developer TODO
+    // accidentally exposed to the customer (Chris, 2026-09-22). A person
+    // reading it learns the column name and not the thing that matters: no
+    // one has looked at this yet, and here is what looking at it means.
     s.absence = taskCount === 0
-      ? 'No QA evidence was captured for this task — there is no task to attach it to.'
-      : 'No QA evidence was captured for this task.';
-    s.flags.push('Evidence attaches as an artifact on the engineering task with `recordRole: qa-screenshot | qa-video | qa-report`. Nothing posts it yet.');
+      ? 'Not ready for review — nothing has been built yet, so there is nothing to look at.'
+      : 'Not ready for review — nobody has looked at this running yet.';
+    s.checks = [
+      { name: 'A shot of it working, on a desktop', passed: null, detail: null },
+      { name: 'A shot of it working, on a phone', passed: null, detail: null },
+      { name: 'The thing it promised, done once end to end', passed: null, detail: null },
+      { name: 'Before and after, where something visible changed', passed: null, detail: null },
+    ];
   }
   return s;
 }
@@ -1014,9 +1114,12 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
  * @param releases - Releases carrying any of this work's tasks.
  */
 function releaseSection(releases: ReportObject[]): ReportSection {
-  const s = blank('release', 'The release');
+  const s = blank('release', 'Release');
   if (releases.length === 0) {
-    s.absence = 'No release carries this task.';
+    // "No release carries this task" is the join, said out loud. What a
+    // person wants here is whether this can go out and what is between it
+    // and going out.
+    s.absence = 'Not released. Nothing has carried this work to people yet.';
     return s;
   }
   s.entries = releases.map((release) => {
@@ -1056,23 +1159,39 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
   const runCents = runs.reduce((a, r) => a + (r.cents ?? 0), 0);
   const taskEstimates = tasks.map(t => num(t.meta, 'estimateCents')).filter((n): n is number => n !== null);
   const taskActuals = tasks.map(t => num(t.meta, 'actualCents')).filter((n): n is number => n !== null);
-  const estimateCents = taskEstimates.length > 0
-    ? taskEstimates.reduce((a, b) => a + b, 0)
-    : num(request.meta, 'estimateCents');
+  // THE WORK'S OWN ESTIMATE FIRST.
+  //
+  // Summing the task contracts was the only source, and when one piece of
+  // work is attempted five times that sums five estimates for one job: the
+  // Stamp rename read "$85 estimated" against "$24.12 actual", a 72% saving
+  // that never existed. Chris, 2026-09-22: *"You need one immutable
+  // work-level estimate before execution if you want meaningful
+  // estimate-vs-actual. Do not derive it retrospectively by adding
+  // attempt-level estimates."*
+  const workEstimate = num(request.meta, 'estimateCents');
+  const summed = taskEstimates.length > 0 ? taskEstimates.reduce((a, b) => a + b, 0) : null;
+  const estimateCents = workEstimate ?? summed;
+  // A sum over more than one attempt is not an estimate of this work, so it
+  // is reported and never divided into. A single contract is the work.
+  const comparable = workEstimate !== null || taskEstimates.length === 1;
   const actualCents = taskActuals.length > 0
     ? taskActuals.reduce((a, b) => a + b, 0)
     : runs.length > 0 ? runCents : num(request.meta, 'actualCents');
   return {
     estimateCents,
     actualCents,
-    varianceCents: estimateCents === null || actualCents === null ? null : actualCents - estimateCents,
-    variancePct: estimateCents === null || actualCents === null || estimateCents === 0
+    varianceCents: !comparable || estimateCents === null || actualCents === null ? null : actualCents - estimateCents,
+    variancePct: !comparable || estimateCents === null || actualCents === null || estimateCents === 0
       ? null
       : Math.round(((actualCents - estimateCents) / estimateCents) * 100),
     runCents,
-    estimateSource: taskEstimates.length > 0
-      ? `summed over ${taskEstimates.length} task contract${taskEstimates.length === 1 ? '' : 's'}`
-      : num(request.meta, 'estimateCents') === null ? 'nobody estimated this' : 'the request rollup',
+    estimateSource: workEstimate !== null
+      ? 'estimated for this work before it started'
+      : summed === null
+        ? 'nobody estimated this'
+        : taskEstimates.length === 1
+          ? 'the one task contract written for it'
+          : `added up from ${taskEstimates.length} attempt contracts — not an estimate of this work, so it is not compared against`,
     actualSource: taskActuals.length > 0
       ? `summed over ${taskActuals.length} task${taskActuals.length === 1 ? '' : 's'}`
       : runs.length > 0 ? `summed over ${runs.length} worker run${runs.length === 1 ? '' : 's'}` : 'nothing has been charged',
@@ -1084,21 +1203,35 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
  * @param line - The computed money line.
  */
 function moneySection(line: MoneyLine): ReportSection {
-  const s = blank('money', 'Estimate against actual');
-  s.facts = [
-    { label: 'Estimated', value: line.estimateCents === null ? 'nobody estimated this' : money(line.estimateCents), format: 'money' },
-    { label: 'Estimate from', value: line.estimateSource },
-    { label: 'Actual', value: line.actualCents === null ? 'nothing has been charged' : money(line.actualCents), format: 'money' },
-    { label: 'Actual from', value: line.actualSource },
-    {
-      label: 'Variance',
-      value: line.varianceCents === null
-        ? 'not computable without both figures'
-        : `${line.varianceCents >= 0 ? '+' : ''}${money(line.varianceCents)}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}`,
-      format: 'money',
-    },
-    { label: 'Charged across the runs', value: money(line.runCents), format: 'money' },
-  ];
+  const s = blank('money', 'Cost');
+  // ONE LINE, then the accounting.
+  //
+  // Six labelled figures gave money the same visual weight as the product
+  // change itself, on work costing between ten and a hundred dollars. Chris,
+  // 2026-09-22: *"Cost matters, but on a $10–$100 factory task it shouldn't
+  // occupy the same visual weight as the actual product change."* So: what it
+  // has cost and what it was expected to cost, in a sentence; the workings
+  // one tap down.
+  const spent = line.actualCents === null ? null : money(line.actualCents);
+  const estimated = line.estimateCents === null ? null : money(line.estimateCents);
+  s.facts = [{
+    label: spent === null ? 'Estimated' : 'Spent',
+    value: spent === null
+      ? estimated ?? 'nobody estimated this'
+      : estimated === null ? spent : `${spent} · estimated ${estimated}`,
+    format: 'money',
+  }];
+  s.detailLists.push({
+    label: 'How that is worked out',
+    items: [
+      `Estimate: ${estimated ?? 'nobody estimated this'} — ${line.estimateSource}.`,
+      `Actual: ${spent ?? 'nothing has been charged'} — ${line.actualSource}.`,
+      line.varianceCents === null
+        ? 'Variance: not computable without both figures.'
+        : `Variance: ${line.varianceCents >= 0 ? '+' : ''}${money(line.varianceCents)}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}.`,
+      `Charged across the worker runs: ${money(line.runCents)}.`,
+    ],
+  });
   return s;
 }
 
@@ -1388,6 +1521,11 @@ function findContradictions(input: FeatureReportInput, mergedPrs: Set<string>, l
   // The join that quietly became a zero. Tasks were written, and not one
   // worker run is linked to them — so every run-derived figure on this page
   // is reading an empty set, and says so rather than reading nothing as none.
+  // The rollup and the rows disagree about whether any work was written.
+  const written = num(input.request.meta, 'taskCount') ?? 0;
+  if (written > 0 && input.tasks.length === 0) {
+    out.push(`This work records ${written} task${written === 1 ? '' : 's'} written for it, and not one is linked to it. Everything below that reads off tasks — the plan, the contract, the change, the money — is reading an empty set.`);
+  }
   if (input.tasks.length > 0 && input.workerRuns.length === 0) {
     out.push(`Execution history is incomplete: ${input.tasks.length} task${input.tasks.length === 1 ? ' was' : 's were'} written for this work and no worker run is linked to ${input.tasks.length === 1 ? 'it' : 'them'}. Attempts, models and per-run cost are unreadable until that join is repaired.`);
   }
@@ -1466,7 +1604,320 @@ function buildState(input: FeatureReportInput): ReportState {
       ? { key: 'releasable', label: 'Ready to release', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review release', href: '#report-release' } }
       : { key: 'review', label: 'Ready for review', detail: 'waiting on you', needsYou: true, question: null, action: { label: 'Review changes', href: '#report-qa' } };
   }
+  // "NOT STARTED" IS A CLAIM TOO.
+  //
+  // The request keeps its own rollup of how many tasks were written for it,
+  // and that rollup can say five while not one task row links back — the same
+  // broken join that made the strip print "0 attempts". Drawing that as "not
+  // started", at the top of the page, in the place a person reads first, is
+  // the most confident version of the lie. So when the record says work was
+  // written and none of it is linked, the state says it cannot tell, and the
+  // contradictions block underneath says why.
+  const written = num(input.request.meta, 'taskCount') ?? 0;
+  if (written > 0) {
+    return {
+      key: 'waiting',
+      label: 'Unreadable',
+      detail: 'the records disagree',
+      needsYou: false,
+      question: `This work says ${written} task${written === 1 ? ' was' : 's were'} written for it and none of them is linked here.`,
+      action: null,
+    };
+  }
   return { key: 'waiting', label: 'Not started', detail: 'nothing has run yet', needsYou: false, question: null, action: null };
+}
+
+/**
+ * WHAT THIS WORK IS FOR, in a sentence.
+ *
+ * The subtitle reads the ask's own body, and a body can be anything a person
+ * or an agent put there — on the Stamp rename it was six numbered acceptance
+ * criteria, which drew a nine-line wall of text under the title where a goal
+ * belongs. A subtitle that has to be read is not a subtitle.
+ *
+ * So: the first sentence, capped. The whole body is still on the page, in the
+ * ask, where a reader goes when the sentence is not enough.
+ * @param request - The request record.
+ */
+function goalOf(request: ReportObject): string | null {
+  const raw = (str(request.meta, 'summary') ?? str(request.meta, 'body') ?? '').trim();
+  if (raw === '') {
+    return null;
+  }
+  const oneLine = raw.replace(/\s+/g, ' ');
+  // A sentence ends at a full stop followed by a space and then a capital or
+  // a digit — a capital for ordinary prose, a digit because a body that
+  // continues "1. Every screen shows Stamp" is a list, and the list is not
+  // the goal. Not the dot inside "stampsend.com", which is followed by a
+  // lowercase letter.
+  const cut = oneLine.search(/\.\s+[A-Z0-9]/);
+  const first = cut === -1 ? oneLine : oneLine.slice(0, cut + 1);
+  // A body that opens "Acceptance criteria — each one a person can check: 1.
+  // Every screen…" has its first full stop INSIDE the list marker, so the
+  // sentence rule above kept the "1." and the goal read
+  // "…each one a person can check: 1." — a label with a stray numeral glued
+  // to it. Drop a trailing enumeration marker, and if what is left is a
+  // colon-terminated label rather than a sentence, say nothing: a label is
+  // not a goal, and an empty subtitle is more honest than a broken one.
+  const trimmed = first.replace(/\s*\d+\.$/, '').trim();
+  if (trimmed === '' || trimmed.endsWith(':')) {
+    return null;
+  }
+  return trimmed.length > 180 ? `${trimmed.slice(0, 179).trimEnd()}…` : trimmed;
+}
+
+/**
+ * DONE WHEN — the contract, where a person looks when they ask how close it is.
+ *
+ * The criteria were on the page and several screens down, inside the per-task
+ * contracts, repeated once per attempt. Chris, 2026-09-22: *"You have very
+ * good acceptance criteria buried way down the page. Bring them up."* They are
+ * the answer to "how close are we?", so they sit with the state.
+ *
+ * Read off the request rather than the tasks: the contract belongs to the
+ * work, not to whichever attempt happened to carry it — which is also why five
+ * attempts used to render five copies of it.
+ */
+export type ReportAcceptance = {
+  /** Each criterion and whether it holds. `met` null means nobody checked, which is not false. */
+  items: Array<{ statement: string; met: boolean | null; evidenceUrl: string | null }>;
+  met: number;
+  total: number;
+  /** When the contract stopped being a draft. Null while it still is. */
+  frozenAt: Date | null;
+};
+
+/**
+ * The contract as the page reads it.
+ * @param request - The request record.
+ */
+function buildAcceptance(request: ReportObject): ReportAcceptance {
+  const raw = Array.isArray(request.meta.acceptance) ? request.meta.acceptance : [];
+  const items = raw
+    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
+    .map(c => ({
+      statement: str(c, 'statement') ?? 'an unnamed criterion',
+      met: typeof c.met === 'boolean' ? c.met : null,
+      evidenceUrl: str(c, 'evidenceUrl'),
+    }));
+  return {
+    items,
+    met: items.filter(i => i.met === true).length,
+    total: items.length,
+    frozenAt: asDate(request.meta.acceptanceFrozenAt),
+  };
+}
+
+/**
+ * Is this URL something an `img` can draw?
+ * @param url
+ * @param contentType
+ */
+function drawable(url: string | null, contentType: string | null): boolean {
+  if (contentType !== null && contentType.startsWith('image/')) {
+    return true;
+  }
+  return url !== null && (url.startsWith('data:image/') || /\.(?:png|jpe?g|gif|webp|svg)(?:\?|$)/i.test(url));
+}
+
+/**
+ * WHAT TO DRAW for one artifact, so the page shows the thing rather than a
+ * tile naming its type.
+ *
+ * A grey square reading "a document" is not a visual. If the evidence is a
+ * picture, the picture; if it is a document, the document; if it is a link
+ * out, the link — which is the only one a page cannot inline.
+ * @param a - The artifact.
+ */
+function drawOf(a: ReportArtifact): { imageUrl: string | null; body: string | null } {
+  const specUrl = str(a.spec, 'url');
+  const url = a.url ?? specUrl;
+  if (drawable(url, str(a.spec, 'contentType'))) {
+    return { imageUrl: url, body: null };
+  }
+  const md = str(a.spec, 'md');
+  return { imageUrl: null, body: md };
+}
+
+/**
+ * WHICH DECISION THIS PAGE IS FOR, right now.
+ *
+ * The page used to render the whole lifecycle at once — plan, build, change,
+ * QA, release, cost, history — with four of those saying "nothing has
+ * happened yet" on work nobody had started. Chris, 2026-09-22: *"The core
+ * issue is that the page is trying to be the operating surface and the audit
+ * trail at the same time… you don't need to show the entire lifecycle
+ * simultaneously to prove that the lifecycle exists."*
+ *
+ * So the page has a phase, and the phase decides what leads:
+ *
+ *   - `proposed` — the proposal. What we are changing, what it will look
+ *     like, the plan, what counts as done, and the one button.
+ *   - `building` — progress and exceptions. Nobody needs the mockup again.
+ *   - `review` — the result and the evidence for it.
+ *   - `released` — what shipped, and whether it worked.
+ *
+ * Everything else stays reachable and stops being in the way.
+ */
+export type ReportPhase = 'proposed' | 'building' | 'review' | 'released';
+
+/** One step of the lifecycle, as the strip draws it. */
+export type LifecycleStep = { key: string; label: string; state: 'done' | 'now' | 'todo' };
+
+/**
+ * The phase, read off the same records the state header reads.
+ * @param request - The request.
+ * @param input - Everything gathered.
+ */
+function buildPhase(input: FeatureReportInput): ReportPhase {
+  if (input.releases.length > 0) {
+    return 'released';
+  }
+  if (input.tasks.some(t => t.status === 'accepted') || input.artifacts.some(a => a.recordRole?.startsWith('qa-') === true)) {
+    return 'review';
+  }
+  if (input.workerRuns.length > 0 || input.tasks.length > 0) {
+    return 'building';
+  }
+  return 'proposed';
+}
+
+/**
+ * The four steps, and where this work has got to. A tiny strip replaces four
+ * sections that each said nothing had happened.
+ * @param phase - The phase.
+ */
+function buildLifecycle(phase: ReportPhase): LifecycleStep[] {
+  const order: Array<{ key: ReportPhase; label: string }> = [
+    { key: 'proposed', label: 'Plan' },
+    { key: 'building', label: 'Build' },
+    { key: 'review', label: 'QA' },
+    { key: 'released', label: 'Release' },
+  ];
+  const at = order.findIndex(o => o.key === phase);
+  return order.map((o, i) => ({
+    key: o.key,
+    label: o.label,
+    state: i < at ? 'done' : i === at ? 'now' : 'todo',
+  }));
+}
+
+/**
+ * HOW IT WORKS TODAY — the link to go and see it, and a shot of it as it is.
+ *
+ * Split out of Preview because they answer different questions: one is what
+ * we propose, the other is what a person would find if they went and looked
+ * right now. Kept together with the link, because a shot with no way to check
+ * it against the running product is decoration (principle 10).
+ * @param request - The request.
+ * @param artifacts - Every artifact gathered for this work.
+ */
+function todaySection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
+  const s = blank('today', 'How it works today');
+  const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  const surfaceUrl = str(visuals, 'surfaceUrl');
+  const shots = artifacts.filter(a => a.recordRole === 'before-shot');
+  s.facts = surfaceUrl === null
+    ? []
+    : [{ label: 'See it live', value: surfaceUrl, href: surfaceUrl }];
+  s.evidence = shots.map(a => ({
+    id: a.id,
+    kind: a.kind,
+    ...drawOf(a),
+    role: 'today',
+    title: a.title,
+    caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
+    url: `/dashboard/artifacts/${a.id}`,
+    at: a.createdAt,
+  }));
+  if (s.evidence.length === 0 && surfaceUrl === null) {
+    s.absence = 'Nothing says where this lives on the running product, so there is no way to go and see what it does today.';
+  }
+  return s;
+}
+
+/** Surfaces a person can see, and therefore owes a picture of. */
+const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
+
+/** States that mean a person should expect to use the thing, so the after-shot is owed. */
+const DONE_LIKE: ReadonlySet<string> = new Set(['shipped', 'accepted', 'released', 'answered']);
+
+/**
+ * WHAT THIS LOOKS LIKE — proposed before it is built, captured after it ships.
+ *
+ * The request type has carried `visuals` since the evidence gate shipped, and
+ * nothing on this page has ever drawn it: a mockup could be filed against a
+ * request and never appear anywhere a person reads the work. So the field
+ * described a promise the product did not keep.
+ *
+ * Before and after are the same noun — a core artifact — because a mockup, a
+ * flow diagram and an after-shot are all things that version, preview and can
+ * be cited. They are separated by ROLE, not by type.
+ * @param request - The request record.
+ * @param artifacts - Every artifact gathered for this work.
+ */
+function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
+  const s = blank('visuals', 'Preview');
+  const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
+  const surface = str(request.meta, 'surface');
+  const noVisualReason = str(visuals, 'noVisualReason');
+  const ids = (key: string): Set<string> => {
+    const raw = visuals[key];
+    return new Set(Array.isArray(raw) ? raw.map(String) : []);
+  };
+  const before = ids('beforeArtifactIds');
+  const after = ids('afterArtifactIds');
+  // An artifact filed against the REQUEST is about the outcome; one filed
+  // against a task is about the change and belongs to QA.
+  const onRequest = artifacts.filter(a => a.recordType === 'object' && a.recordId === String(request.id));
+  const pick = (want: Set<string>, role: string): ReportEvidence[] => artifacts
+    .filter(a => want.has(String(a.id)) || (want.size === 0 && role === 'proposed' && onRequest.includes(a) && a.recordRole === 'proposal-visual'))
+    .map(a => ({
+      id: a.id,
+      kind: a.kind,
+      ...drawOf(a),
+      role,
+      title: a.title,
+      caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,
+      url: `/dashboard/artifacts/${a.id}`,
+      at: a.createdAt,
+    }))
+    .sort((x, y) => x.at.getTime() - y.at.getTime());
+
+  // Preview is the MOCK — what we propose it will look like. What it looks
+  // like today, and where to go and see that for yourself, is its own section
+  // after the story: they answer different questions and were crowding each
+  // other in one list.
+  const isCurrent = (e: ReportEvidence): boolean => artifacts.some(a => a.id === e.id && a.recordRole === 'before-shot');
+  const all = [...pick(before, 'proposed'), ...pick(after, 'shipped')];
+  // A PICTURE LEADS. A visual that can only be opened somewhere else — a link
+  // to a document living outside the product — cannot be looked at here, so
+  // it sorts last however it was ordered on the record. On a phone it was the
+  // first thing under Preview: a grey box reading "opens somewhere else"
+  // where the mockup should have been.
+  const drawable = (e: ReportEvidence): number => (e.imageUrl !== null ? 0 : e.body !== null ? 1 : 2);
+  s.evidence = all.filter(e => !isCurrent(e)).sort((a, b) => drawable(a) - drawable(b));
+
+  if (s.evidence.length === 0) {
+    if (noVisualReason !== null) {
+      s.absence = `Nothing to show, on purpose: ${noVisualReason}`;
+      return s;
+    }
+    // The gate, said as a reading rather than as a rule. A surface nobody can
+    // see owes nothing; one a person looks at owes a picture in both
+    // directions, and which one is missing depends on where the work is.
+    const done = DONE_LIKE.has(str(request.meta, 'state') ?? '');
+    s.absence = surface !== null && VISIBLE_SURFACES.has(surface)
+      ? done
+        ? 'Nothing shows what this looks like now. A change a person can see is not finished until somebody has looked at it — an after-shot from the running product, or a written reason there is nothing to show.'
+        : 'Nothing shows what this will look like. A mockup or a flow diagram is what a decision is made against; without one, approving this is approving a sentence.'
+      : 'No visual is owed: this work does not change anything a person looks at.';
+    return s;
+  }
+  if (before.size > 0 && after.size === 0 && DONE_LIKE.has(str(request.meta, 'state') ?? '')) {
+    s.flags.push('This was proposed with a visual and closed without one. What was agreed can be seen; what shipped cannot.');
+  }
+  return s;
 }
 
 /**
@@ -1523,16 +1974,27 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
   const line = moneyLine(input.request, input.tasks, runs);
   return {
     requestId: input.request.id,
-    title: input.request.title,
+    // THE PAGE LEADS WITH THE OUTCOME. The request title is the asker's
+    // words and is evidence (`naming-the-work`), so it is never rewritten —
+    // which meant every surface led with a situation. The outcome line says
+    // what a person can do afterwards; the ask is kept underneath, verbatim.
+    title: str(input.request.meta, 'outcome') ?? input.request.title,
+    asked: input.request.title,
+    story: str(input.request.meta, 'story'),
     state: buildState(normalised),
+    phase: buildPhase(normalised),
+    lifecycle: buildLifecycle(buildPhase(normalised)),
     // The ask's own body, trimmed to a sentence or two — not the whole prompt,
     // which belongs behind "the original request" in the ask section.
-    goal: str(input.request.meta, 'body') ?? str(input.request.meta, 'summary') ?? null,
+    goal: goalOf(input.request),
+    acceptance: buildAcceptance(input.request),
     summary: buildSummary(normalised, line),
     money: line,
     sections: [
       askSection(input.request),
       triageSection(input.request),
+      visualsSection(input.request, input.artifacts),
+      todaySection(input.request, input.artifacts),
       planSection(input.plans, input.tasks, runs.length > 0),
       contractSection(input.tasks),
       approvalsSection(input.asks, input.actionRuns, runs.length > 0),
