@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSearch } from './searchParams';
+import { defaultSortFor, mergeSearch } from './searchParams';
 
 /**
  * The bug this exists to prevent: a filter that appears in the URL and then
@@ -28,5 +28,22 @@ describe('mergeSearch', () => {
 
   it('replaces rather than appends, so toggling a value twice is not two values', () => {
     expect(mergeSearch('kind=proposal', { kind: 'learning' })).toBe('kind=learning');
+  });
+});
+
+describe('defaultSortFor', () => {
+  it('reads a queue oldest first and a record of decisions newest first', () => {
+    expect(defaultSortFor('open')).toBe('oldest');
+    expect(defaultSortFor('snoozed')).toBe('oldest');
+    expect(defaultSortFor('decided')).toBe('newest');
+  });
+
+  it('is what the controls leave out of the URL, so choosing the other order always writes it', () => {
+    // The open queue defaults to oldest; picking newest must land in the URL.
+    const chosen = 'newest';
+
+    expect(chosen === defaultSortFor('open') ? null : chosen).toBe('newest');
+    // And on decided, picking oldest must land too.
+    expect(defaultSortFor('decided') === 'oldest' ? null : 'oldest').toBe('oldest');
   });
 });
