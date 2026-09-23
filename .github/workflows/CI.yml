@@ -7,13 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  # Two build jobs rather than one matrix, so E2E waits only for the build it
+  # restores. `needs` cannot name one leg of a matrix, and with [22.x, 24.x]
+  # every E2E run sat behind a 24.x build whose output nothing used (#629).
+  #
+  # The versions are the ones that ship: the agent runtime image is
+  # `node:22-slim`, and a client deployment (Veerio's compose overlay) runs
+  # the app on `node:20`. Nothing runs on 24, so nothing builds on it.
   build:
-    strategy:
-      matrix:
-        node-version: [22.x, 24.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
-
-    name: Build with ${{ matrix.node-version }}
+    name: Build with 22.x
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -23,7 +25,7 @@ jobs:
       - name: Set up Node.js environment
         uses: ./.github/actions/setup-project
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22.x
 
       - name: Restore or cache Next.js build
         uses: actions/cache@v5
@@ -31,10 +33,12 @@ jobs:
           path: |
             packages/core/.next/cache
           # Generate a new cache whenever packages or source files change.
-          key: nextjs-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
+          key: nextjs-22.x-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
 
       - name: Build Next.js
         # build-local lives in the @vocion/core workspace, not the repo root.
+        # In CI it skips Next's own type-check (next.config.ts): `static`
+        # already type-checks core once and fails the pull request there.
         run: npm run build-local --workspace @vocion/core
         env:
           NEXT_PUBLIC_SENTRY_DISABLED: 'true' # Only upload Sentry source maps in deployment
@@ -46,13 +50,44 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_build
           AUTH_SECRET: ci-only-secret-not-used-by-the-build
 
-      - if: matrix.node-version == '22.x' && success()
-        name: Cache Next.js build output
+      # The E2E shards restore this through setup-project, keyed by the same
+      # node version and commit.
+      - name: Cache Next.js build output
         uses: actions/cache/save@v5
         with:
           path: |
             packages/core/.next
-          key: nextjs-build-${{ matrix.node-version }}-${{ github.sha }}
+          key: nextjs-build-22.x-${{ github.sha }}
+
+  build-node-20:
+    name: Build with 20.x
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js environment
+        uses: ./.github/actions/setup-project
+        with:
+          node-version: 20.x
+
+      - name: Restore or cache Next.js build
+        uses: actions/cache@v5
+        with:
+          path: |
+            packages/core/.next/cache
+          key: nextjs-20.x-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('packages/core/src/**') }}
+
+      # Proves the app builds on the oldest Node a deployment runs. Its output
+      # is thrown away; E2E runs against the 22.x build. Same env as above.
+      - name: Build Next.js
+        run: npm run build-local --workspace @vocion/core
+        env:
+          NEXT_PUBLIC_SENTRY_DISABLED: 'true'
+          NEXT_PUBLIC_APP_URL: http://localhost:3008
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vocion_build
+          AUTH_SECRET: ci-only-secret-not-used-by-the-build
 
   static:
     strategy:
@@ -138,9 +173,8 @@ jobs:
       # typecheck ran was a deploy workflow that has been removed. Its suite
       # needs no database and no credentials, so it stands alone rather than
       # joining the unit job's coverage run.
-      - name: Type checking
-        run: npm run check:types --workspace @vocion/agent-runtime
-
+      # No type-check step here: the root `check:types` in `static` runs every
+      # workspace's, this one's included.
       - name: Unit tests
         run: npm run test --workspace @vocion/agent-runtime
 
@@ -205,30 +239,32 @@ jobs:
 
   e2e:
     strategy:
+      # One shard failing must not cancel the others: each reports its own
+      # first failure, and a cancelled shard uploads nothing to read.
+      fail-fast: false
       matrix:
         node-version: [22.x]
+        # The shards share nothing at runtime. Each boots its own `next start`
+        # and in-memory PGlite from `webServer`, runs the `setup`/`teardown`
+        # projects its tests depend on, and the self-seeding projects make
+        # their own admin. Each also repeats checkout, install, the build
+        # restore and the server boot, a minute or two apiece, so more shards
+        # stop paying for themselves quickly. Three is the count measured on
+        # #629; the `--shard` argument below has to match this list.
+        shard: [1, 2, 3]
 
-    name: Run E2E tests
+    name: Run E2E tests (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     # Playwright caps itself at 8 minutes (globalTimeout in
-    # packages/core/playwright.config.ts) and stops at the first failure, so
-    # this is the 8 plus setup, Chromatic and the artifact upload. It used to
-    # be 10 with no Playwright cap, and a red run hit this limit before
+    # packages/core/playwright.config.ts) and stops at the first failure, both
+    # per shard, so this is the 8 plus setup and the artifact upload. It used
+    # to be 10 with no Playwright cap, and a red run hit this limit before
     # Playwright could print its summary.
     timeout-minutes: 15
     needs: [build]
 
-    env:
-      # The visual-regression step below is skipped when this is empty. It
-      # has to travel through the job env because `secrets` is not one of the
-      # contexts available to a step-level `if` (GitHub context availability
-      # reference), while `env` is.
-      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0 # For chromatic
 
       - name: Set up Node.js environment
         uses: ./.github/actions/setup-project
@@ -239,7 +275,7 @@ jobs:
       - name: Run E2E tests
         uses: docker://mcr.microsoft.com/playwright:v1.58.2
         with:
-          args: sh -c "HOME=/root npm run test:e2e" # Set HOME to /root to avoid Playwright error with Firebox
+          args: sh -c "HOME=/root npm run test:e2e -- --shard=${{ matrix.shard }}/3" # Set HOME to /root to avoid Playwright error with Firebox
         env:
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           # Playwright boots `next start` next to a throwaway in-memory PGlite on
@@ -251,37 +287,73 @@ jobs:
       # Playwright's outputDir is relative to its config, so the traces land in
       # packages/core/test-results, not at the repo root. Runs on failure too:
       # that is when the traces matter.
-      - name: Fix test results permission # Give permissions to test results needed by Chromatic
+      - name: Fix test results permission # Give permissions to test results needed by the upload and Chromatic
         if: always()
         run: |
           if [ -d packages/core/test-results ]; then sudo chmod -R 777 packages/core/test-results; fi
 
-      - name: Run visual regression tests
-        # Skipped while the repository has no Chromatic token. Without one the
-        # action exits non-zero on `Missing project token` and fails the whole
-        # job, which buried a passing suite: the tests report `52 passed` and
-        # the check still reads red, so nobody can tell a real break from this.
-        # Setting the secret brings the step back with no further change.
-        if: env.CHROMATIC_PROJECT_TOKEN != ''
+      # Same path note as the chmod step. `error` rather than the default
+      # `warn`: with traces on for every test, an empty directory means the run
+      # never reached Playwright, which is worth a red step, and a silent
+      # "No files were found" hid the wrong path for a long time. One name per
+      # shard: upload-artifact@v6 refuses a second artifact with the same name.
+      - name: Upload test results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: test-results-${{ matrix.shard }}
+          path: packages/core/test-results/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Chromatic runs once, over every shard's results merged back into the one
+  # directory it used to read, instead of once per shard. Only after every
+  # shard passes, as when it was a step at the end of the single E2E job.
+  visual-regression:
+    name: Run visual regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [e2e]
+
+    env:
+      # Every step below is skipped while the repository has no Chromatic
+      # token. Without one the action exits non-zero on `Missing project
+      # token`, which buried a passing suite: the tests report `52 passed` and
+      # the check still reads red, so nobody can tell a real break from this.
+      # It travels through the job env because `secrets` is not one of the
+      # contexts available to a step-level `if` (GitHub context availability
+      # reference), while `env` is. Setting the secret brings the job back
+      # with no further change.
+      CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+
+    steps:
+      - if: env.CHROMATIC_PROJECT_TOKEN != ''
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # For chromatic
+
+      - if: env.CHROMATIC_PROJECT_TOKEN != ''
+        name: Set up Node.js environment
+        uses: ./.github/actions/setup-project
+        with:
+          node-version: 22.x
+
+      - if: env.CHROMATIC_PROJECT_TOKEN != ''
+        name: Download every shard's test results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: test-results-*
+          path: packages/core/test-results/
+          merge-multiple: true
+
+      - if: env.CHROMATIC_PROJECT_TOKEN != ''
+        name: Run visual regression tests
         uses: chromaui/action@v15
         with:
           playwright: true
           exitOnceUploaded: true # Speed up by skipping the build results
           outputDir: storybook-static
           projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-
-      # Same path note as the chmod step. `error` rather than the default
-      # `warn`: with traces on for every test, an empty directory means the run
-      # never reached Playwright, which is worth a red step, and a silent
-      # "No files were found" hid the wrong path for a long time.
-      - name: Upload test results
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: test-results
-          path: packages/core/test-results/
-          if-no-files-found: error
-          retention-days: 7
 
   synchronize-with-crowdin:
     name: GitHub PR synchronize with Crowdin
