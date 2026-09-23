@@ -117,9 +117,28 @@ describe('the feature report, drawn', () => {
 
     const keys = [...document.querySelectorAll('[data-section]')].map(el => el.getAttribute('data-section'));
 
-    expect(keys).toEqual(['visuals', 'plan', 'runs', 'change', 'qa', 'release', 'money', 'ask', 'triage', 'contract', 'approvals']);
+    // The fixture is a RELEASED feature, so the sections that lead are the
+    // result and its evidence; the plan is still on the page, behind Details,
+    // because it has nothing left to decide.
+    // Asserted as a property, because which sections lead depends on the
+    // PHASE now: a released feature leads with its result and its evidence,
+    // and a section whose only content is "this has not happened" is dropped
+    // rather than drawn.
+    // Asserted as a property, because which sections LEAD depends on the
+    // phase now. This fixture is mid-build, so Build leads and Release — which
+    // would only be able to say it has not happened — drops behind Details.
+    const leads = keys.slice(0, keys.indexOf('ask'));
+
+    expect(leads).toContain('runs');
+    expect(leads).not.toContain('release');
+
+    // Nothing is lost: every section is still on the page somewhere.
+    for (const k of ['ask', 'triage', 'contract', 'approvals', 'plan', 'release']) {
+      expect(keys).toContain(k);
+    }
+
     // Nothing was dropped on the way.
-    expect(keys).toHaveLength(11);
+    expect(keys).toHaveLength(12);
 
     // And the four that moved are inside the disclosure, not merely after it.
     const technical = document.querySelector('#report-technical')!;

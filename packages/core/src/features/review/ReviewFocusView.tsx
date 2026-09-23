@@ -45,6 +45,7 @@ export type ActionRun = {
   proposal: { confidence?: number; rationale?: string; evidence?: string[]; suggestedDecision?: 'approve' | 'reject' | 'snooze'; suggestedDecisionReason?: string } | null;
   regeneratingSince?: Date | string | null;
   regenerateNote?: string | null;
+  regenerateError?: string | null;
   /** Which content items carry a check, by the hash of the copy approved. */
   contentReview?: Record<string, { hash: string; at: string; by?: string }> | null;
   /** The per-item history: what was proposed, what was asked, what was approved. */
