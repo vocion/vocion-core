@@ -73,11 +73,17 @@ function Fact({ fact }: { fact: ReportFact }) {
       : fact.format === 'quote'
         ? <span className="block border-l-2 border-border pl-3 leading-relaxed whitespace-pre-line">{value}</span>
         : <span className={fact.format === 'mono' || fact.format === 'money' ? 'font-mono break-words tabular-nums' : 'break-words'}>{value}</span>;
-  // Label above value on a phone: 7.5rem of label beside a wrapping value gave
-  // the value a third of the screen and broke every sentence into a column.
+  // TWO SHAPES, decided by what the value is.
+  //
+  // A passage takes the full width with its label above it: 7.5rem of label
+  // beside a wrapping paragraph gave the paragraph a third of a phone screen
+  // and broke every sentence into a column. A figure does NOT — stacking
+  // "$9.00" under its own label turned the money section into six rows of
+  // mostly air, which is the opposite of the problem being fixed.
+  const prose = fact.format === 'quote';
   return (
-    <div className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-2 text-[15px] sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)]">
-      <dt className="text-xs leading-6 text-muted-foreground">{fact.label}</dt>
+    <div className={`gap-x-4 gap-y-0.5 py-2 text-[15px] ${prose ? 'block' : 'grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)]'}`}>
+      <dt className={`text-xs text-muted-foreground ${prose ? 'mb-1.5' : 'leading-6'}`}>{fact.label}</dt>
       <dd className="min-w-0 leading-relaxed">{body}</dd>
     </div>
   );
