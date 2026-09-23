@@ -136,6 +136,16 @@ describe('the referenced-objects policy', () => {
   });
 });
 
+describe('the known block rule', () => {
+  it('tells the model a listed record with the same title and date is a refresh, not a duplicate', () => {
+    const { system } = build();
+
+    expect(system).toContain('already waiting from an earlier read, not a duplicate');
+    expect(system).toContain('on the same date under a different title, set "duplicateOf"');
+    expect(system).toContain('a different date is another occurrence, never a duplicate');
+  });
+});
+
 describe('extraction prompt containment', () => {
   beforeEach(() => {
     invoke.mockReset();

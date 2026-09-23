@@ -103,11 +103,6 @@ export function scrubSeriesNote(value: unknown): string {
  * comparison available is the key the refresh would write against the key the
  * card is stored under. Both sides come from `candidateDedupKey`, so a rule
  * added to the key is added to this check on the same day.
- *
- * The prompt is deliberately left alone. The block is rendered once per call,
- * before any record exists, so nothing there can name the card a record has
- * not been extracted into yet, and a general warning would cost tokens on
- * every call to catch what one comparison catches for free.
  * @param card - The known card the model named, or undefined when it named none.
  * @param ownKey - The key this record would be stored under.
  */
@@ -153,13 +148,46 @@ export async function labelRecords(opts: {
   known: KnownCards;
 }): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
-  const series = opts.config.seriesLabel;
-  if (!series || opts.records.length === 0) {
+  if (opts.records.length === 0) {
     return counts;
   }
   const bump = (key: string): void => {
     counts[key] = (counts[key] ?? 0) + 1;
   };
+
+  for (const record of opts.records) {
+    // First, and before anything is written: an answer that names this
+    // record's own card says nothing about the queue, so it is dropped and
+    // noted rather than labelled. The record keeps its ordinary key, so the
+    // refresh it was always going to be still happens.
+    const ownKey = candidateDedupKey({
+      objectType: opts.config.objectType,
+      fields: record.fields,
+      dedupOn: opts.config.dedupOn,
+    });
+    for (const field of ['duplicateOf', 'seriesOf'] as const) {
+      const id = record[field];
+      if (id === undefined || !isOwnCard(opts.known.cards.find(card => card.runId === id), ownKey)) {
+        continue;
+      }
+      record[field] = undefined;
+      record.issues.push(`${field}: the model matched the card this record refreshes (#${id}), so it was not labelled`);
+      bump('self_match');
+      // A reject that rested on that match is the card asking for its own
+      // removal. With the match gone the verdict has nothing under it, and a
+      // blank reason is how propose.ts stores "no recommendation".
+      if (field === 'duplicateOf' && record.suggestedDecision === 'reject') {
+        record.suggestedDecisionReason = '';
+        record.issues.push('suggestedDecision: the reject rested on that match, so no recommendation was kept');
+        bump('self_match_verdict_dropped');
+      }
+    }
+  }
+
+  const series = opts.config.seriesLabel;
+  if (!series) {
+    return counts;
+  }
 
   // Every write goes through here, so the proposal can declare exactly which
   // fields this stage decided rather than read off the document. That list is
@@ -185,25 +213,6 @@ export async function labelRecords(opts: {
   };
 
   for (const record of opts.records) {
-    // First, and before anything is written: an answer that names this
-    // record's own card says nothing about the queue, so it is dropped and
-    // noted rather than labelled. The record keeps its ordinary key, so the
-    // refresh it was always going to be still happens.
-    const ownKey = candidateDedupKey({
-      objectType: opts.config.objectType,
-      fields: record.fields,
-      dedupOn: opts.config.dedupOn,
-    });
-    for (const field of ['duplicateOf', 'seriesOf'] as const) {
-      const id = record[field];
-      if (id === undefined || !isOwnCard(opts.known.cards.find(card => card.runId === id), ownKey)) {
-        continue;
-      }
-      record[field] = undefined;
-      record.issues.push(`${field}: the model matched the card this record refreshes (#${id}), so it was not labelled`);
-      bump('self_match');
-    }
-
     // A duplicate is a stronger statement than a series membership, and the
     // model is the only thing that can make it, so it short-circuits. No key
     // is written: a duplicate is not a member of a series, and the `continue`
