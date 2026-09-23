@@ -16,31 +16,37 @@ Five steps. Nothing here needs an AWS console visit except making the key.
 
 **1. Make an IAM key AWS will accept.** AgentCore Evaluations needs an access
 key pair — long-lived (`AKIA…`) or temporary (`ASIA…`) — whose policy allows
-the calls Vocion makes:
+every AgentCore call Vocion's eval code makes. Print that policy, with your
+account, region and eval execution role filled in, and attach it to the key's
+IAM user or role through your own IaC:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "bedrock-agentcore:Evaluate",
-      "bedrock-agentcore:CreateDataset",
-      "bedrock-agentcore:GetDataset",
-      "bedrock-agentcore:CreateDatasetVersion",
-      "bedrock-agentcore:ListDatasetExamples",
-      "bedrock-agentcore:AddDatasetExamples",
-      "bedrock-agentcore:UpdateDatasetExamples",
-      "bedrock-agentcore:DeleteDatasetExamples"
-    ],
-    "Resource": "*"
-  }]
-}
+```bash
+ENV=dev AWS_PROFILE=<operator-profile> REGION=<region> \
+  bash infra/agentcore/check-evals-key.sh --print-policy
 ```
 
-Add `bedrock-agentcore:CreateEvaluator` and `UpdateEvaluator` only if you plan
-to write a custom judge. Built-in evaluators need neither — they are named, not
-created.
+It covers the datasets (`CreateDataset` and the example calls), `Evaluate`,
+custom evaluators (`CreateEvaluator`, `UpdateEvaluator`), batch evaluations
+(`StartBatchEvaluation`, `GetBatchEvaluation`), online evaluation configs, and
+`iam:PassRole` on the eval execution role `provision.sh` created. The create,
+start and `Evaluate` calls sit on `"*"` because AWS gives them no resource type
+to scope to; everything else is scoped to your account's resources.
+
+A key missing any of these does not fail the run. It degrades it quietly:
+"Could not copy these cases to AgentCore" means no `CreateDataset`, "Some
+evaluators this dataset declares could not be set up" means no
+`CreateEvaluator`, and the scores come back without those checks. So check
+the key before the first run, and again after every core pin bump:
+
+```bash
+PRINCIPAL_ARN=arn:aws:iam::<account>:user/<key-user> \
+ENV=dev AWS_PROFILE=<operator-profile> REGION=<region> \
+  bash infra/agentcore/check-evals-key.sh
+```
+
+It asks IAM's policy simulator, so it makes no AgentCore call and costs
+nothing. Run it with an operator profile allowed `iam:SimulatePrincipalPolicy`,
+not with the eval key. It exits non-zero and names each denied action.
 
 **2. Connect it to the workspace.** `/dashboard/developers` → **API
 credentials** → add a credential on the **AWS** platform. It takes two fields,
@@ -814,9 +820,8 @@ page says which it is.
 
 ## Requirements and limits
 
-- An AWS credential connected to the workspace, with permission for
-  `bedrock-agentcore:Evaluate`, and for `CreateEvaluator` / `UpdateEvaluator`
-  if you author custom evaluators.
+- An AWS credential connected to the workspace whose policy passes
+  `infra/agentcore/check-evals-key.sh` (step 1 above).
 - A region where AgentCore Evaluations exists. Vocion checks this before the
   run and says so, rather than failing every case. Set
   `VOCION_AGENTCORE_EVAL_REGIONS` to override the list when AWS adds a region.
