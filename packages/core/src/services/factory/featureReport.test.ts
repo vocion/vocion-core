@@ -443,8 +443,12 @@ describe('QA evidence', () => {
     expect(qa.absence).toBeNull();
     expect(qa.evidence).toEqual([{
       id: 700,
-      // The kind rides along so a gallery can draw a picture as a picture.
+      // The kind rides along so a gallery can draw a picture as a picture —
+      // and so does the picture itself, because a tile naming the type is not
+      // evidence of anything.
       kind: 'file',
+      imageUrl: 'https://files.example/qa/share-menu.png',
+      body: null,
       role: 'qa-screenshot',
       title: 'Share menu, PDF offered',
       caption: 'The share menu with the new PDF entry.',

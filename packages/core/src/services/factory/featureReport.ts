@@ -185,6 +185,10 @@ export type ReportEvidence = {
   id: number;
   /** The artifact's kind, so a gallery can draw a picture as a picture and a document as a document. */
   kind: string;
+  /** A picture to draw, when this evidence IS one. */
+  imageUrl: string | null;
+  /** The document itself, when the evidence is one — a mockup nobody can see is not evidence. */
+  body: string | null;
   role: string;
   title: string;
   caption: string | null;
@@ -1053,6 +1057,7 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
     .map(({ a, role }) => ({
       id: a.id,
       kind: a.kind,
+      ...drawOf(a),
       role,
       title: a.title,
       caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? str(a.spec, 'summary'),
@@ -1668,6 +1673,37 @@ function buildAcceptance(request: ReportObject): ReportAcceptance {
   };
 }
 
+/**
+ * Is this URL something an `img` can draw?
+ * @param url
+ * @param contentType
+ */
+function drawable(url: string | null, contentType: string | null): boolean {
+  if (contentType !== null && contentType.startsWith('image/')) {
+    return true;
+  }
+  return url !== null && (url.startsWith('data:image/') || /\.(?:png|jpe?g|gif|webp|svg)(?:\?|$)/i.test(url));
+}
+
+/**
+ * WHAT TO DRAW for one artifact, so the page shows the thing rather than a
+ * tile naming its type.
+ *
+ * A grey square reading "a document" is not a visual. If the evidence is a
+ * picture, the picture; if it is a document, the document; if it is a link
+ * out, the link — which is the only one a page cannot inline.
+ * @param a - The artifact.
+ */
+function drawOf(a: ReportArtifact): { imageUrl: string | null; body: string | null } {
+  const specUrl = str(a.spec, 'url');
+  const url = a.url ?? specUrl;
+  if (drawable(url, str(a.spec, 'contentType'))) {
+    return { imageUrl: url, body: null };
+  }
+  const md = str(a.spec, 'md');
+  return { imageUrl: null, body: md };
+}
+
 /** Surfaces a person can see, and therefore owes a picture of. */
 const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
 
@@ -1708,6 +1744,7 @@ function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): Rep
     .map(a => ({
       id: a.id,
       kind: a.kind,
+      ...drawOf(a),
       role,
       title: a.title,
       caption: str(a.spec, 'caption') ?? str(a.spec, 'description') ?? null,

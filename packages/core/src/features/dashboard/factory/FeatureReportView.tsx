@@ -1,5 +1,7 @@
 import type { FeatureReport, ReportAcceptance, ReportCheck, ReportEntry, ReportEvidence, ReportFact, ReportSection, ReportState, Tone } from '@/services/factory/featureReport';
 import type { Status } from '@/types/Status';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { StatusPill } from '@/components/ui/status-pill';
 import { formatStamp, money } from '@/services/factory/featureReport';
 
@@ -61,17 +63,28 @@ function pillStatus(tone: Tone): Status {
  */
 function Fact({ fact }: { fact: ReportFact }) {
   const value = fact.value;
+  // A long passage is prose, not an aside. It used to be set in italics, which
+  // is legible for a phrase and a wall at four paragraphs — the plan's own
+  // approach is four paragraphs. It reads as prose now, held by a quiet rule.
   const body = value === null
-    ? <span className="text-muted-foreground italic">not recorded</span>
+    ? <span className="text-muted-foreground">not recorded</span>
     : fact.href
-      ? <a href={fact.href} target="_blank" rel="noreferrer" className="break-all underline underline-offset-2">{value}</a>
+      ? <a href={fact.href} target="_blank" rel="noreferrer" className="break-words underline underline-offset-2">{value}</a>
       : fact.format === 'quote'
-        ? <span className="whitespace-pre-line italic">{value}</span>
-        : <span className={fact.format === 'mono' || fact.format === 'money' ? 'font-mono break-all tabular-nums' : 'break-words'}>{value}</span>;
+        ? <span className="block border-l-2 border-border pl-3 leading-relaxed whitespace-pre-line">{value}</span>
+        : <span className={fact.format === 'mono' || fact.format === 'money' ? 'font-mono break-words tabular-nums' : 'break-words'}>{value}</span>;
+  // TWO SHAPES, decided by what the value is.
+  //
+  // A passage takes the full width with its label above it: 7.5rem of label
+  // beside a wrapping paragraph gave the paragraph a third of a phone screen
+  // and broke every sentence into a column. A figure does NOT — stacking
+  // "$9.00" under its own label turned the money section into six rows of
+  // mostly air, which is the opposite of the problem being fixed.
+  const prose = fact.format === 'quote';
   return (
-    <div className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] gap-x-3 gap-y-0.5 py-1 text-sm">
-      <dt className="text-xs text-muted-foreground">{fact.label}</dt>
-      <dd className="min-w-0">{body}</dd>
+    <div className={`gap-x-4 gap-y-0.5 py-2 text-[15px] ${prose ? 'block' : 'grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)]'}`}>
+      <dt className={`text-xs text-muted-foreground ${prose ? 'mb-1.5' : 'leading-6'}`}>{fact.label}</dt>
+      <dd className="min-w-0 leading-relaxed">{body}</dd>
     </div>
   );
 }
@@ -108,7 +121,7 @@ function Checks({ checks }: { checks: ReportCheck[] }) {
  */
 function Entry({ entry }: { entry: ReportEntry }) {
   return (
-    <article className="border-t border-border py-3 first:border-t-0 first:pt-0">
+    <article className="border-t border-border/60 py-5 first:border-t-0 first:pt-0">
       <header className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <h4 className="min-w-0 text-sm font-medium break-words">{entry.title}</h4>
         {entry.status && <StatusPill status={pillStatus(entry.tone)} label={entry.status} size="sm" />}
@@ -117,7 +130,7 @@ function Entry({ entry }: { entry: ReportEntry }) {
           {entry.cents !== null && ` · ${money(entry.cents)}`}
         </span>
       </header>
-      <dl className="mt-1">
+      <dl className="mt-2">
         {entry.facts.map(f => <Fact key={f.label} fact={f} />)}
       </dl>
       <Checks checks={entry.checks} />
@@ -135,17 +148,6 @@ function Entry({ entry }: { entry: ReportEntry }) {
  * @param props.items - The artifacts.
  */
 /** What the tile says when there is no picture to draw — the artifact's own kind, not "report". */
-const KIND_WORD: Record<string, string> = {
-  markdown: 'a document',
-  chart: 'a chart',
-  table: 'a table',
-  sequence: 'a sequence',
-  document: 'a document',
-  link: 'a link',
-  file: 'a file',
-  record: 'a record',
-};
-
 /** What this evidence is FOR, in the reader's words rather than the field's. */
 const ROLE_WORD: Record<string, string> = {
   'proposed': 'Proposed',
@@ -155,38 +157,55 @@ const ROLE_WORD: Record<string, string> = {
   'qa-report': 'Report',
 };
 
+/**
+ * SHOW THE THING.
+ *
+ * This drew a grey square labelled "a document" over every mockup, flow and
+ * diagram filed against a work item — a caption where a picture was meant to
+ * be, and as useless as the empty field it replaced. Chris, 2026-09-22,
+ * looking at two of them: *"Still no screenshots for before, mock or diagrams
+ * visible."*
+ *
+ * So: a picture is drawn, a document is rendered where it sits, and only a
+ * link out — the one thing a page genuinely cannot inline — stays a card to
+ * open.
+ * @param props
+ * @param props.items - The evidence to draw.
+ */
 function Gallery({ items }: { items: ReportEvidence[] }) {
   return (
-    <ul className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((item) => {
-        // A picture is drawn as a picture. Everything else says what it is and
-        // opens where it renders — a grey square labelled "report" told a
-        // reader nothing about a flow diagram sitting behind it.
-        const isImage = item.role === 'qa-screenshot' || item.kind === 'image';
-        const proposed = item.role === 'proposed';
-        return (
-          <li key={item.id} className={`min-w-0 overflow-hidden rounded-lg border ${proposed ? 'border-dashed border-border' : 'border-border'}`}>
-            {isImage && item.url
-              ? <img src={item.url} alt={item.caption ?? item.title} loading="lazy" className="block aspect-video w-full object-cover" />
-              : (
-                  <div className="flex aspect-video w-full flex-col items-center justify-center gap-1 bg-surface-soft px-3 text-center">
-                    <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
-                    <span className="text-xs text-muted-foreground">{KIND_WORD[item.kind] ?? item.kind}</span>
-                  </div>
-                )}
-            <div className="p-2.5">
-              <p className="text-sm font-medium break-words">{item.title}</p>
-              <p className="mt-0.5 text-xs break-words text-muted-foreground">{item.caption ?? 'No caption was posted with this artifact.'}</p>
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                {ROLE_WORD[item.role] ?? item.role}
-                {' · '}
-                {formatStamp(item.at)}
-              </p>
-              {item.url && <a href={item.url} className="mt-1 inline-block text-xs break-all underline underline-offset-2">Open it</a>}
-            </div>
-          </li>
-        );
-      })}
+    // ONE PER ROW. A mockup is the thing a decision is made against, and two
+    // to a row on a laptop halves the only part of the page that has to be
+    // looked at rather than read. The caption sits under it like a figure's,
+    // not as a header competing with the image above it.
+    <ul className="mt-3 space-y-6">
+      {items.map(item => (
+        <li key={item.id} className="min-w-0">
+          <figure className={`m-0 overflow-hidden rounded-xl border bg-surface-soft ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
+            {item.imageUrl !== null && (
+              <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full" />
+            )}
+            {item.imageUrl === null && item.body !== null && (
+              <div className="max-h-[32rem] overflow-y-auto px-4 py-3.5 sm:px-5">
+                <div className="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:text-[13px] prose-headings:tracking-wide prose-headings:text-muted-foreground prose-headings:uppercase prose-p:leading-relaxed prose-pre:bg-background prose-pre:text-[11px] prose-pre:leading-snug prose-table:text-xs">
+                  <Markdown remarkPlugins={[remarkGfm]}>{item.body}</Markdown>
+                </div>
+              </div>
+            )}
+            {item.imageUrl === null && item.body === null && (
+              <div className="flex aspect-[3/1] w-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                Opens somewhere else
+              </div>
+            )}
+          </figure>
+          <figcaption className="mt-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{ROLE_WORD[item.role] ?? item.role}</span>
+            <span className="min-w-0 text-[15px] break-words">{item.title}</span>
+            {item.url && <a href={item.url} className="text-xs whitespace-nowrap text-muted-foreground underline underline-offset-2 hover:text-foreground">Open it</a>}
+          </figcaption>
+          {item.caption !== null && <p className="mt-0.5 max-w-prose text-[13px] leading-relaxed break-words text-muted-foreground">{item.caption}</p>}
+        </li>
+      ))}
     </ul>
   );
 }
@@ -199,18 +218,18 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
  */
 function Section({ section }: { section: ReportSection }) {
   return (
-    <section id={`report-${section.key}`} data-section={section.key} className="border-t border-border pt-5">
-      <h3 className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{section.title}</h3>
+    <section id={`report-${section.key}`} data-section={section.key} className="border-t border-border/60 pt-8">
+      <h3 className="mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">{section.title}</h3>
       {section.absence
-        ? <p data-absence className="mt-2 text-sm text-muted-foreground">{section.absence}</p>
+        ? <p data-absence className="max-w-prose text-[15px] leading-relaxed text-muted-foreground">{section.absence}</p>
         : (
             <>
-              {section.facts.length > 0 && <dl className="mt-2">{section.facts.map(f => <Fact key={f.label} fact={f} />)}</dl>}
-              {section.entries.length > 0 && <div className="mt-2">{section.entries.map(e => <Entry key={e.key} entry={e} />)}</div>}
+              {section.facts.length > 0 && <dl>{section.facts.map(f => <Fact key={f.label} fact={f} />)}</dl>}
+              {section.entries.length > 0 && <div className="mt-3">{section.entries.map(e => <Entry key={e.key} entry={e} />)}</div>}
               {section.lists.map(l => (
-                <div key={l.label} className="mt-3">
+                <div key={l.label} className="mt-5">
                   <p className="text-xs text-muted-foreground">{l.label}</p>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+                  <ul className="mt-1.5 max-w-prose list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed">
                     {l.items.map(item => <li key={item} className="break-words">{item}</li>)}
                   </ul>
                 </div>
@@ -219,7 +238,7 @@ function Section({ section }: { section: ReportSection }) {
             </>
           )}
       {section.flags.map(flag => (
-        <p key={flag} className="mt-2 text-xs text-muted-foreground">{flag}</p>
+        <p key={flag} className="mt-3 max-w-prose text-[13px] leading-relaxed text-muted-foreground">{flag}</p>
       ))}
     </section>
   );
@@ -419,7 +438,7 @@ function Timeline({ report }: { report: FeatureReport }) {
  */
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
-    <div className="max-w-3xl space-y-6 overflow-x-hidden">
+    <div className="max-w-4xl space-y-8 overflow-x-hidden">
       <StateHeader state={report.state} />
       <DoneWhen acceptance={report.acceptance} />
       <SummaryStrip report={report} />
@@ -439,7 +458,7 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
           machinery that produced it — the original ask, the triage figures,
           the per-task contracts, the approval records — is all still here,
           one level down, where it is traceable without being in the way. */}
-      <div className="space-y-5">
+      <div className="space-y-8">
         {report.sections.filter(x => x.group === 'story').map(section => <Section key={section.key} section={section} />)}
       </div>
 
