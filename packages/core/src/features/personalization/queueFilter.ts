@@ -1,0 +1,136 @@
+import type { BriefRow } from './PersonalizationQueue';
+/**
+ * What the personalization queue shows, as pure functions, so the queue and
+ * the bulk actions view (Metacto ticket 071) agree to the row on "the leads
+ * you are looking at". Lane, search and the briefed-window chips live in the
+ * URL (`useListUrlState`); this module reads that state and applies it.
+ */
+import type { ListStateConfig } from '@/components/patterns';
+
+/**
+ * Lane order is the review order: what needs you, then what you did with it.
+ * There is no lane for unbriefed leads because there is no such row on this
+ * page.
+ */
+export const QUEUE_LANES = [
+  { key: 'ready_for_review', label: 'Review' },
+  { key: 'handed_off', label: 'Hand off' },
+  { key: 'held', label: 'Held' },
+  { key: 'sent', label: 'Sent' },
+  { key: 'all', label: 'All' },
+] as const;
+
+/**
+ * Arrival order is the default and the first option. Confidence sorts a row
+ * with no score (a lead that ran out of tries) to the bottom rather than
+ * dropping it, because that row is the one most worth reading.
+ */
+export const QUEUE_SORTS = [
+  { key: 'arrived', label: 'Arrived' },
+  { key: 'briefed', label: 'Briefed' },
+  { key: 'confidence', label: 'Confidence' },
+  { key: 'name', label: 'Name' },
+] as const;
+
+/**
+ * When the brief was written, as a filter. A reviewer working through the
+ * cards drafted before a rule changed (the voice gate on 2026-09-19, the
+ * sequence ladder on 2026-09-13) needs to find "the old ones" in one move;
+ * a sort alone makes them scroll to the end and guess where the line is
+ * (Valerie, 2026-09-23). Chips, because a reviewer may want two windows at
+ * once ("this week and today"), and kept in the URL with the lane and sort.
+ */
+export const BRIEFED_WINDOWS = [
+  { key: 'today', label: 'Briefed today' },
+  { key: 'week', label: 'Briefed this week' },
+  { key: 'earlier', label: 'Briefed earlier' },
+] as const;
+export type BriefedWindow = (typeof BRIEFED_WINDOWS)[number]['key'];
+
+/** The page opens where the work is; the clean URL means this state. */
+export const QUEUE_LIST: ListStateConfig = {
+  defaults: { tab: 'ready_for_review', q: '', sort: 'arrived', dir: 'desc' as const, chips: [] },
+  tabs: QUEUE_LANES.map(l => l.key),
+  sorts: QUEUE_SORTS.map(s => s.key),
+  chips: BRIEFED_WINDOWS.map(w => w.key),
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Which window a brief falls in, by its age at `now`. Null for a row with no
+ * brief timestamp, which no window claims.
+ * @param briefedAt - ISO timestamp, or null.
+ * @param now - The moment the list was rendered, in ms.
+ */
+export function briefedWindowOf(briefedAt: string | null, now: number): BriefedWindow | null {
+  if (!briefedAt) {
+    return null;
+  }
+  const t = new Date(briefedAt).getTime();
+  if (Number.isNaN(t)) {
+    return null;
+  }
+  const age = now - t;
+  if (age < DAY_MS) {
+    return 'today';
+  }
+  if (age < 7 * DAY_MS) {
+    return 'week';
+  }
+  return 'earlier';
+}
+
+export type QueueView = { lane: string; q: string; chips: readonly string[] };
+
+/**
+ * The rows the queue shows for a view: lane, then search, then the briefed
+ * windows. Unbriefed leads are never on this page and are dropped first.
+ * @param rows - Every brief row the page loaded.
+ * @param view - Lane, search and chips, as the URL carries them.
+ * @param now - The moment to bucket the briefed windows against.
+ */
+export function filterQueueRows(rows: readonly BriefRow[], view: QueueView, now: number): BriefRow[] {
+  const q = view.q.trim().toLowerCase();
+  const inLane = rows
+    .filter(b => b.status !== 'queued')
+    .filter(b => view.lane === 'all' || b.status === view.lane)
+    .filter(b => !q
+      || b.contactName.toLowerCase().includes(q)
+      || (b.companyName ?? '').toLowerCase().includes(q));
+  if (view.chips.length === 0) {
+    return inLane;
+  }
+  return inLane.filter((b) => {
+    const w = briefedWindowOf(b.briefedAt, now);
+    return w !== null && view.chips.includes(w);
+  });
+}
+
+/**
+ * `filterQueueRows` against the clock, for a server page that has no clock of
+ * its own to pass (a component may not read one during render).
+ * @param rows
+ * @param view
+ */
+export function filterQueueRowsNow(rows: readonly BriefRow[], view: QueueView): BriefRow[] {
+  return filterQueueRows(rows, view, Date.now());
+}
+
+/**
+ * The view in words, for the bulk page's heading: "Review · briefed earlier ·
+ * matching “acme”".
+ * @param view
+ */
+export function describeQueueView(view: QueueView): string {
+  const lane = QUEUE_LANES.find(l => l.key === view.lane)?.label ?? view.lane;
+  const parts = [lane];
+  const windows = BRIEFED_WINDOWS.filter(w => view.chips.includes(w.key)).map(w => w.label.toLowerCase());
+  if (windows.length > 0) {
+    parts.push(windows.join(' or '));
+  }
+  if (view.q.trim()) {
+    parts.push(`matching “${view.q.trim()}”`);
+  }
+  return parts.join(' · ');
+}

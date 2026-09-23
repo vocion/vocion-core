@@ -3816,6 +3816,121 @@
         ]
       }
     },
+    "/api/v1/personalization/bulk": {
+      "post": {
+        "operationId": "post_personalization_bulk",
+        "summary": "Start a bulk action on the personalization queue (Metacto ticket 071).",
+        "tags": [
+          "personalization"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `BAD_REQUEST`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Start a bulk action on the personalization queue (Metacto ticket 071).\nBody: `{ kind: 'regenerate_brief', leadIds: number[], note: string }`.\nAnswers with the job id; the job page polls `GET /bulk/{id}`."
+      }
+    },
+    "/api/v1/personalization/bulk/{id}": {
+      "get": {
+        "operationId": "get_personalization_bulk_id",
+        "summary": "One bulk job, with its per-lead outcomes: what the job page polls.",
+        "tags": [
+          "personalization"
+        ],
+        "security": [
+          {
+            "bearerToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request was malformed or failed validation. Codes: `BAD_REQUEST`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token or session was missing or invalid. Codes: `UNAUTHORIZED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this organization. Codes: `NOT_FOUND`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "One bulk job, with its per-lead outcomes: what the job page polls.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id from the URL.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/personalization/leads/{id}/regenerate": {
       "post": {
         "operationId": "post_personalization_leads_id_regenerate",
