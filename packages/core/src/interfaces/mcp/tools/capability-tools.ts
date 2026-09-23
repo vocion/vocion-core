@@ -47,11 +47,11 @@ export function capabilityTools(config: McpConfig): ToolModule[] {
     {
       name: 'crawl_site',
       title: 'Crawl a site',
-      description: 'Same-origin BFS crawl; returns pages (capped depth + count).',
+      description: 'Same-origin BFS crawl; returns pages (depth defaults to 1, page count to 20).',
       inputSchema: {
         start_url: z.string().url(),
-        max_depth: z.number().int().min(0).max(3).default(1),
-        max_pages: z.number().int().min(1).max(50).default(20),
+        max_depth: z.number().int().min(0).default(1),
+        max_pages: z.number().int().min(1).default(20),
       },
       handler: async (input) => {
         const { start_url, max_depth, max_pages } = input as { start_url: string; max_depth?: number; max_pages?: number };

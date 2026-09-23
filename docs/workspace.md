@@ -183,6 +183,21 @@ copy. For a YAML kind that copy needs `extends: core` to be read as an
 override — the save reports the loader's message if it is missing. Skills and
 playbooks replace by slug, so no marker is needed.
 
+## The default agent budget (`defaults.agentBudget`)
+
+```yaml
+# workspace.yaml
+defaults:
+  agentBudget:
+    dailyCents: 10000 # $100 per UTC day for any agent without its own `budget:`
+```
+
+The spend cap for every agent that sets no `budget:` of its own. Omit it and
+the built-in $100 a day applies; `dailyCents: null` chooses no default, for a
+workspace that manages spend with its provider's limits instead. Per-agent caps,
+what happens at the cap, and how this compares with AWS and Anthropic limits:
+[budgets guide](./guides/budgets.md).
+
 ## How eager the system is to improve itself (`defaults.learningEagerness`)
 
 ```yaml

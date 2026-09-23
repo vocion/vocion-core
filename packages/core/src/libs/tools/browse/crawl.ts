@@ -5,12 +5,16 @@ import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '../
 /**
  * Same-origin BFS crawl shared by both browse providers. Uses the
  * provider's `fetchPage` for content; pulls links from the raw HTML
- * (same extractor the `web` connector uses). Capped depth + page count.
+ * (same extractor the `web` connector uses).
+ *
+ * Depth and page count default to 1 and 20 and have no ceiling: the caller
+ * decides how much of a site it needs. A silent clamp at 50 pages used to drop
+ * the rest of a large listing with no sign anything was missing.
  * @param provider
  * @param startUrl
  * @param opts
- * @param opts.maxDepth
- * @param opts.maxPages
+ * @param opts.maxDepth - Link depth to follow; defaults to 1.
+ * @param opts.maxPages - Pages to read at most; defaults to 20.
  * @param opts.orgId
  */
 export async function bfsCrawl(
@@ -18,8 +22,8 @@ export async function bfsCrawl(
   startUrl: string,
   opts: { maxDepth?: number; maxPages?: number; orgId?: string } = {},
 ): Promise<Page[]> {
-  const maxDepth = Math.min(opts.maxDepth ?? 1, 3);
-  const maxPages = Math.min(opts.maxPages ?? 20, 50);
+  const maxDepth = opts.maxDepth ?? 1;
+  const maxPages = opts.maxPages ?? 20;
   const startOrigin = new URL(startUrl).origin;
   const visited = new Set<string>();
   const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }];

@@ -16,31 +16,37 @@ Five steps. Nothing here needs an AWS console visit except making the key.
 
 **1. Make an IAM key AWS will accept.** AgentCore Evaluations needs an access
 key pair — long-lived (`AKIA…`) or temporary (`ASIA…`) — whose policy allows
-the calls Vocion makes:
+every AgentCore call Vocion's eval code makes. Print that policy, with your
+account, region and eval execution role filled in, and attach it to the key's
+IAM user or role through your own IaC:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": [
-      "bedrock-agentcore:Evaluate",
-      "bedrock-agentcore:CreateDataset",
-      "bedrock-agentcore:GetDataset",
-      "bedrock-agentcore:CreateDatasetVersion",
-      "bedrock-agentcore:ListDatasetExamples",
-      "bedrock-agentcore:AddDatasetExamples",
-      "bedrock-agentcore:UpdateDatasetExamples",
-      "bedrock-agentcore:DeleteDatasetExamples"
-    ],
-    "Resource": "*"
-  }]
-}
+```bash
+ENV=dev AWS_PROFILE=<operator-profile> REGION=<region> \
+  bash infra/agentcore/check-evals-key.sh --print-policy
 ```
 
-Add `bedrock-agentcore:CreateEvaluator` and `UpdateEvaluator` only if you plan
-to write a custom judge. Built-in evaluators need neither — they are named, not
-created.
+It covers the datasets (`CreateDataset` and the example calls), `Evaluate`,
+custom evaluators (`CreateEvaluator`, `UpdateEvaluator`), batch evaluations
+(`StartBatchEvaluation`, `GetBatchEvaluation`), online evaluation configs, and
+`iam:PassRole` on the eval execution role `provision.sh` created. The create,
+start and `Evaluate` calls sit on `"*"` because AWS gives them no resource type
+to scope to; everything else is scoped to your account's resources.
+
+A key missing any of these does not fail the run. It degrades it quietly:
+"Could not copy these cases to AgentCore" means no `CreateDataset`, "Some
+evaluators this dataset declares could not be set up" means no
+`CreateEvaluator`, and the scores come back without those checks. So check
+the key before the first run, and again after every core pin bump:
+
+```bash
+PRINCIPAL_ARN=arn:aws:iam::<account>:user/<key-user> \
+ENV=dev AWS_PROFILE=<operator-profile> REGION=<region> \
+  bash infra/agentcore/check-evals-key.sh
+```
+
+It asks IAM's policy simulator, so it makes no AgentCore call and costs
+nothing. Run it with an operator profile allowed `iam:SimulatePrincipalPolicy`,
+not with the eval key. It exits non-zero and names each denied action.
 
 **2. Connect it to the workspace.** `/dashboard/developers` → **API
 credentials** → add a credential on the **AWS** platform. It takes two fields,
@@ -703,6 +709,73 @@ Because the workflow id is the run group, a retried activity finds the rows it
 already created. A worker dying halfway through does not put a second point on
 your trend line for work that happened once.
 
+### More than one box: choose which ones run it
+
+A deployment with a dev box and a production box usually applies the same
+workspace to both, so both schedule `nightly-evals` and both run the whole
+suite. If the two boxes share one AWS account, they also share its Bedrock
+quotas. There are two kinds, and a second box hurts each one differently:
+
+- **Rate: tokens per minute (TPM) and requests per minute (RPM).** These are
+  set per model, per region, for the account. Boxes that fire at the same
+  minute add together. Each dataset runs eight cases at once, and every agent
+  turn re-sends the page it fetched, so two boxes running the suite on the
+  same cron can reach TPM when one box alone would not. When that happens,
+  calls fail with a `ThrottlingException` until the minute rolls over.
+  Staggering the two crons fixes this.
+- **Total: tokens per day (TPD).** This limit covers every model in the
+  account. Staggering does not help here, because a second run spends the
+  same tokens whenever it runs. One eval run has already used up an account's
+  daily quota in an afternoon (`ThrottlingException: Too many tokens per
+  day`), and that stopped the day's scheduled agent work. Running the suite on
+  one box is the only thing that halves this cost.
+
+Bedrock counts a Claude call against both kinds before it answers. It takes
+the input tokens plus the call's `max_tokens` up front, then settles to input
+plus five times the output tokens for Claude 4.7 and older. Later Claude
+models count output at 10x or 15x. See AWS's [How tokens are counted in Amazon
+Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/quotas-token-burndown.html).
+Prompt-cache reads are not counted. To see an account's per-model rate limits:
+
+```bash
+aws service-quotas list-service-quotas --service-code bedrock \
+  --query "Quotas[?contains(QuotaName,'<model name>')].[QuotaName,Value]" --output text
+```
+
+The daily limit may not appear in that list. You find it when a call is refused.
+
+Core has no per-box setting for this. It does not need one: workspace files
+resolve `{{env.NAME}}` tokens before they are parsed, so an automation's
+`status` can come from the box's environment:
+
+```yaml
+# automations/nightly-evals.yaml
+slug: nightly-evals
+status: '{{env.NIGHTLY_EVALS_STATUS}}'
+when: {schedule: '0 4 * * *'}
+do: {job: refresh-evals}
+```
+
+Then set this on each box, for both the app and the Temporal worker:
+
+```bash
+WORKSPACE_TEMPLATE_VARS=NIGHTLY_EVALS_STATUS   # append to the list if one exists
+NIGHTLY_EVALS_STATUS=active                    # or disabled
+```
+
+- `active` schedules the suite on that box. `disabled` applies the automation
+  without a schedule. The refresh button still works on that box either way.
+- To run on every box, set `active` everywhere. Changing your mind later is an
+  env change and a re-apply, with no YAML edit.
+- If the variable is unset or empty on a box, `workspace:apply` fails there and
+  names it. Any value other than `active` or `disabled` fails schema
+  validation. Neither case quietly picks a default for you.
+- Pick the hour away from the day's other scheduled agent work, so the two
+  never compete for the same minute's TPM. If more than one box runs the
+  suite, stagger them by putting the schedule behind a token the same way:
+  `schedule: '{{env.NIGHTLY_EVALS_CRON}}'`. That fixes the rate limit. The
+  daily total still doubles.
+
 ## Reading the result honestly
 
 Three things the UI does on purpose:
@@ -747,9 +820,8 @@ page says which it is.
 
 ## Requirements and limits
 
-- An AWS credential connected to the workspace, with permission for
-  `bedrock-agentcore:Evaluate`, and for `CreateEvaluator` / `UpdateEvaluator`
-  if you author custom evaluators.
+- An AWS credential connected to the workspace whose policy passes
+  `infra/agentcore/check-evals-key.sh` (step 1 above).
 - A region where AgentCore Evaluations exists. Vocion checks this before the
   run and says so, rather than failing every case. Set
   `VOCION_AGENTCORE_EVAL_REGIONS` to override the list when AWS adds a region.

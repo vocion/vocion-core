@@ -1374,7 +1374,11 @@ export function ReviewSurface(props: {
           the only way to say it was to type it four times (ticket 069). The
           server has always taken a regenerate with no send named as a
           redraft of every send; this is the first control that reaches it. */}
-      {decidable && d.canRegenerate && content.filter(i => contentKindEditable(i.kind)).length > 1 && (
+      {/* And only while a SEND is what you are looking at. The lead page
+          mounts this shell with a Brief tab beside the sends, and an
+          instruction box about the sends under the research brief was the
+          first thing Valerie noticed (2026-09-23). */}
+      {decidable && d.canRegenerate && active.startsWith('item-') && content.filter(i => contentKindEditable(i.kind)).length > 1 && (
         <RegenerateAll
           count={content.filter(i => contentKindEditable(i.kind)).length}
           disabled={d.held}

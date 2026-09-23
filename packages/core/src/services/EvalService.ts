@@ -400,13 +400,28 @@ export type RunDatasetOptions = {
   providerOverride?: LangChainProvider;
 };
 
-export async function runDataset(opts: RunDatasetOptions): Promise<{ runId: number; metrics: typeof evalRunSchema.$inferSelect['metrics'] }> {
+export async function runDataset(opts: RunDatasetOptions): Promise<{
+  runId: number;
+  metrics: typeof evalRunSchema.$inferSelect['metrics'];
+  /**
+   * The pass rate this dataset asked to be held to, or null when it named
+   * none. Returned because the caller deciding pass or fail — the CLI, which
+   * turns it into an exit code — has no other way to learn it without going
+   * back to the database for a row this call already read.
+   */
+  passThreshold: number | null;
+}> {
   const result = await runDatasetAndScore(opts);
   const [row] = await db
     .select({ metrics: evalRunSchema.metrics })
     .from(evalRunSchema)
     .where(eq(evalRunSchema.id, result.run.runId));
-  return { runId: result.run.runId, metrics: row?.metrics ?? {} };
+  const dataset = await getDataset(opts.orgId, opts.datasetSlug);
+  return {
+    runId: result.run.runId,
+    metrics: row?.metrics ?? {},
+    passThreshold: dataset?.passThreshold ?? null,
+  };
 }
 
 export type RunDatasetAndScoreOptions = RunDatasetOptions & {

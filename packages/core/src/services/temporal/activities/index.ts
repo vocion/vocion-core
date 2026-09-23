@@ -232,6 +232,7 @@ export async function recordWorkflowCompletedActivity(input: RecordWorkflowCompl
 }
 
 /* Schedule-fired starters: automations + legacy mission/workflow crons. */
+export * from './bulkRegenerate';
 export * from './fireAutomation';
 /* Daily Langfuse trace pruning (Temporal Schedule). */
 export * from './langfuseRetention';

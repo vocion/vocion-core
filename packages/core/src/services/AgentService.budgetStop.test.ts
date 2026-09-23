@@ -1,0 +1,199 @@
+/**
+ * An in-process agent turn that spends through its cap partway stops at the
+ * next model call instead of running to the end (#272).
+ *
+ * The loop is a stand-in that behaves like LangGraph where it matters: each
+ * model call finishes by reporting usage through the Langfuse callback's
+ * `onTurnEnd` (which is where the charge and the re-check happen), and the
+ * stream throws once the `signal` it was given is aborted. What is under test
+ * is the wiring in `runAgentDeep` — that the re-check runs after every call,
+ * that its abort reaches the stream, and that the turn ends as a refusal
+ * naming the cap rather than as an unexplained failure.
+ */
+import type { AgentEvent } from '@/services/agents/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/libs/DB');
+
+const streamEvents = vi.fn();
+const turnEndHooks: Array<(turn: { model: string; inputTokens?: number; outputTokens?: number; askedForTools?: boolean }) => Promise<void>> = [];
+
+vi.mock('@/services/agents/harness', () => ({
+  chatModelOptionsFor: () => ({}),
+  chatModelOptionsWithOverride: (_h: unknown, o?: { model: string }) => (o ? { ...o } : {}),
+  buildInitialFiles: vi.fn(async () => ({})),
+  compileAgentForRequest: vi.fn(async () => ({
+    graph: { streamEvents },
+    agentRow: { id: 1, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} },
+    ctx: { delegations: new Map() },
+  })),
+}));
+
+vi.mock('@/libs/Langfuse', () => ({
+  createLangfuseCallback: vi.fn((opts: { onTurnEnd: (typeof turnEndHooks)[number] }) => {
+    turnEndHooks.push(opts.onTurnEnd);
+    return { handler: {}, trace: { id: 'trace-1', update: vi.fn() } };
+  }),
+  flushTraces: vi.fn(async () => {}),
+}));
+
+const preflightCheck = vi.fn();
+const chargeUsage = vi.fn(async () => {});
+vi.mock('@/services/BudgetService', () => ({ preflightCheck, chargeUsage }));
+
+const { db } = await import('@/libs/DB');
+const { agentSchema } = await import('@/models/Schema');
+const { runAgentDeep } = await import('@/services/AgentService');
+
+const ORG = 'org_agent_budget_stop';
+
+const BREACH = {
+  ok: false,
+  reason: 'hard_cents_exceeded',
+  scope: 'agent',
+  agentSlug: 'lead',
+  limit: 10_000,
+  current: 10_050,
+  limitFrom: 'built_in_agent_default',
+} as const;
+
+/**
+ * `AIMessageChunk` content shape the answer streamer reads.
+ * @param t - The text.
+ */
+function text(t: string): unknown {
+  return { content: [{ type: 'text', text: t }] };
+}
+
+/** The part of the `streamEvents` config the stand-in loop reads. */
+type StreamConfig = { signal?: AbortSignal; callbacks?: Array<{ handleChatModelStart?: () => Promise<void> }> };
+
+/** Whether the stand-in calls say if they asked for tools; some outputs carry no message to tell by. */
+let reportsToolUse = true;
+
+/** How many model calls the stand-in loop actually started. */
+let modelCallsStarted = 0;
+/** What the usage hook threw, kept the way the real adapter drops it. */
+const hookErrors: unknown[] = [];
+
+/**
+ * A loop that makes `calls` model calls, each streaming a word and then
+ * reporting its usage, and that gives up the way LangGraph does once its
+ * signal is aborted.
+ * @param calls - Model calls the loop would make if nothing stopped it.
+ * @param config - The stream config `runAgentDeep` passed: its callbacks and abort signal.
+ */
+function modelCallsStream(calls: number, config: StreamConfig): AsyncIterable<unknown> {
+  return { async* [Symbol.asyncIterator]() {
+    for (let call = 1; call <= calls; call += 1) {
+      // LangChain tells every callback a model call is starting before its
+      // request goes out; the budget gate aborts there.
+      for (const callback of config.callbacks ?? []) {
+        await callback.handleChatModelStart?.();
+      }
+      if (config.signal?.aborted) {
+        throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+      }
+      modelCallsStarted += 1;
+      yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: `model_request:m${call}` }, data: { chunk: text(`part${call} `) } };
+      // The real adapter (`libs/Langfuse.ts`) swallows whatever the hook
+      // throws, so a failed charge never reaches the stream — only the abort does.
+      // Every call but the last asks for tools, the way a working turn does.
+      const toolUse = reportsToolUse ? { askedForTools: call < calls } : {};
+      await turnEndHooks.at(-1)!({ model: 'claude-haiku-4-5-20251001', inputTokens: 1_000, outputTokens: 100, ...toolUse })
+        .catch((hookError: unknown) => hookErrors.push(hookError));
+    }
+  } };
+}
+
+async function run() {
+  const events: AgentEvent[] = [];
+  const outcome = await runAgentDeep({
+    orgId: ORG,
+    agentSlug: 'lead',
+    message: 'work the whole queue',
+    onEvent: e => void events.push(e),
+  }).then(result => ({ result, error: null }), (error: unknown) => ({ result: null, error }));
+  return { ...outcome, events };
+}
+
+beforeEach(async () => {
+  await db.delete(agentSchema);
+  await db.insert(agentSchema).values({ orgId: ORG, slug: 'lead', name: 'Revenue Lead', systemPrompt: 'Be useful.', harnessConfig: {} } as never);
+  streamEvents.mockReset().mockImplementation(async (_input: unknown, config: StreamConfig) => modelCallsStream(3, config));
+  preflightCheck.mockReset();
+  chargeUsage.mockClear();
+  turnEndHooks.length = 0;
+  modelCallsStarted = 0;
+  hookErrors.length = 0;
+  reportsToolUse = true;
+});
+
+describe('a turn that crosses its budget partway', () => {
+  it('stops before the next model call and ends as a refusal naming the cap', async () => {
+    // Preflight, then the re-check after each call: under, under, over.
+    preflightCheck
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce(BREACH);
+
+    const { error, events } = await run();
+
+    expect(modelCallsStarted).toBe(2);
+    expect(chargeUsage).toHaveBeenCalledTimes(2);
+    expect(error).toMatchObject({ name: 'TurnRefusedError', message: expect.stringContaining('stopped partway') });
+    expect((error as Error).message).toContain('$100.50 of a $100.00 cap');
+    expect(events).toContainEqual({ type: 'error', message: (error as Error).message });
+  });
+
+  it('still re-checks after a model call whose charge could not be written', async () => {
+    chargeUsage.mockRejectedValueOnce(new Error('database unavailable'));
+    preflightCheck
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce(BREACH);
+
+    const { error } = await run();
+
+    expect(modelCallsStarted).toBe(1);
+    expect(error).toMatchObject({ name: 'TurnRefusedError' });
+    expect(hookErrors).toEqual([expect.objectContaining({ message: 'database unavailable' })]);
+  });
+
+  it('keeps the answer of a turn whose last model call is the one that crossed the cap', async () => {
+    // Preflight, then under, under, and over after the third and last call.
+    preflightCheck
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce(BREACH);
+
+    const { result, error } = await run();
+
+    expect(error).toBeNull();
+    expect(modelCallsStarted).toBe(3);
+    expect(result?.response).toContain('part3');
+  });
+
+  it('stops a turn over its cap when the call does not say whether more work follows', async () => {
+    reportsToolUse = false;
+    preflightCheck
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce(BREACH);
+
+    const { error } = await run();
+
+    // Unknown is taken as "goes on": the cheaper mistake is a lost answer, not a runaway turn.
+    expect(modelCallsStarted).toBe(1);
+    expect(error).toMatchObject({ name: 'TurnRefusedError' });
+  });
+
+  it('runs every model call and answers when the agent stays under its cap', async () => {
+    preflightCheck.mockResolvedValue({ ok: true });
+
+    const { result, error } = await run();
+
+    expect(error).toBeNull();
+    expect(modelCallsStarted).toBe(3);
+    expect(result?.response).toContain('part3');
+  });
+});

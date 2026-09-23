@@ -136,6 +136,7 @@ function defaultHarnessTargetFor(
 export type FailedDelegation = { name: string; message: string };
 
 /** Words a model uses when it HAS owned up to a failure. */
+
 const ADMITS_FAILURE = /\b(?:fail(?:ed|ure)?|could ?n[o']t|was ?n[o']t able|unable|errored|error|did ?n[o']t (?:complete|finish|work)|broke)\b/i;
 
 /**
@@ -433,6 +434,12 @@ export async function runAgentDeep(opts: {
 }): Promise<{
   response: string;
   traceId: string;
+  /**
+   * Every tool call, with its whole output. The agent already holds that
+   * string in its own history, so keeping it here costs a reference, not a
+   * copy — and an eval check reading a lookup's JSON or a page's text sees
+   * exactly what the agent saw.
+   */
   toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }>;
   /**
    * Token usage across every model turn of this run, priced by
@@ -448,6 +455,7 @@ export async function runAgentDeep(opts: {
   const { buildInitialFiles, compileAgentForRequest } = await import('./agents/harness');
   const { createLangfuseCallback } = await import('@/libs/Langfuse');
   const { chargeUsage, preflightCheck } = await import('./BudgetService');
+  const { BudgetGateCallback, budgetRefusalMessage, TurnBudgetGuard } = await import('./agents/budgetStop');
 
   const rawEmit = opts.onEvent ?? (() => {});
   // Demo sandbox record buffer — every emitted event, in order (turnReplay).
@@ -493,8 +501,9 @@ export async function runAgentDeep(opts: {
   if (!budgetCheck.ok) {
     // Names the row that refused, not the agent that asked: since #279 the
     // check also covers the workspace-wide cap, and "raise the cap on this
-    // agent" would send someone to a page that cannot fix it.
-    const message = `Budget exceeded for "${budgetCheck.agentSlug}" (${budgetCheck.reason}: ${budgetCheck.current}/${budgetCheck.limit}). Raise the cap under Budgets or wait for the next period.`;
+    // agent" would send someone to a page that cannot fix it. An agent with no
+    // cap of its own is told which default held it (#272).
+    const message = budgetRefusalMessage(budgetCheck);
     emit({ type: 'error', message });
     // Refused, not broken: no run started, so the turn is stored as `refused`
     // and the person reads what to change rather than "the answer stopped
@@ -586,6 +595,12 @@ export async function runAgentDeep(opts: {
   const failures: TurnFailure[] = [];
   const failedDelegations: FailedDelegation[] = [];
 
+  // Reads the caps again after every charged model call and, once one is
+  // crossed, stops the stream before the next model call — the preflight above
+  // only sees the turn's start, and a long turn used to spend past its cap
+  // until it finished (#272). A turn that crossed on its final answer keeps it.
+  const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
+
   // What this run cost, summed over every model turn the callback sees.
   const usage: RunUsage = { model: '', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, microCents: 0, cents: 0, turns: 0 };
 
@@ -599,17 +614,26 @@ export async function runAgentDeep(opts: {
     metadata: { agentId: compiled.agentRow.id, runtime: 'deepagents' },
     onTurnEnd: async (turn) => {
       addTurnToRunUsage(usage, turn);
-      await chargeUsage({
-        orgId: opts.orgId,
-        agentSlug: opts.agentSlug,
-        model: turn.model,
-        usage: {
-          inputTokens: turn.inputTokens,
-          outputTokens: turn.outputTokens,
-          cacheReadTokens: turn.cacheReadTokens,
-          cacheWriteTokens: turn.cacheWriteTokens,
-        },
-      });
+      try {
+        await chargeUsage({
+          orgId: opts.orgId,
+          agentSlug: opts.agentSlug,
+          model: turn.model,
+          usage: {
+            inputTokens: turn.inputTokens,
+            outputTokens: turn.outputTokens,
+            cacheReadTokens: turn.cacheReadTokens,
+            cacheWriteTokens: turn.cacheWriteTokens,
+          },
+        });
+      } finally {
+        // Even when the charge could not be written (it logs the lost spend
+        // itself): the earlier calls' charges may already be over the cap.
+        // A call that did not say whether it asked for tools is taken to go
+        // on: stopping a turn that was done costs an answer, letting one run
+        // on costs a model call per step.
+        await budgetGuard.afterModelCall({ turnGoesOn: turn.askedForTools !== false });
+      }
     },
   });
 
@@ -713,7 +737,8 @@ export async function runAgentDeep(opts: {
   try {
     const stream = await compiled.graph.streamEvents(input as never, {
       version: 'v2',
-      callbacks: [langfuseHandler],
+      callbacks: [langfuseHandler, new BudgetGateCallback(budgetGuard)],
+      signal: budgetGuard.signal,
       ...stepLimitStreamConfig(maxSteps),
     } as never);
 
@@ -836,9 +861,14 @@ export async function runAgentDeep(opts: {
           }
           if (tool !== 'task' && !PLUMBING.has(tool)) {
             const input = parseJsonArgs(ev.data?.input);
+            // The live event stays short: it streams to the browser on every
+            // call. The log keeps the whole output, because an eval check
+            // reads it back — a lookup's JSON cut at 2,000 characters no
+            // longer parses, and every rule about its records would fail for
+            // the cut.
             const outputStr = outputFull.slice(0, 2000);
             emit({ type: 'tool_end', tool, input, output: outputStr });
-            toolCallLog.push({ tool, input, output: outputStr });
+            toolCallLog.push({ tool, input, output: outputFull });
           }
           break;
         }
@@ -873,8 +903,18 @@ export async function runAgentDeep(opts: {
       await Promise.race([Promise.allSettled(labelJobs), new Promise(r => setTimeout(r, 1500))]);
     }
   } catch (err) {
-    // A step-limit stop is reworded for the person; anything else keeps its own message.
-    const { message, rethrow } = describeTurnFailure(err, maxSteps);
+    // A budget stop ends the turn as a refusal carrying the cap that was hit —
+    // whatever the aborted stream threw on its way out. A step-limit stop is
+    // reworded for the person; anything else keeps its own message.
+    const budgetStop = budgetGuard.stopError();
+    if (budgetStop) {
+      // Almost always the abort itself; logged in case something else broke
+      // as the stop landed, since the person only sees the budget message.
+      console.warn('agent turn: stopped at its budget', { orgId: opts.orgId, agentSlug: opts.agentSlug, thrown: err instanceof Error ? err.message : String(err) });
+    }
+    const { message, rethrow } = budgetStop
+      ? { message: budgetStop.message, rethrow: budgetStop }
+      : describeTurnFailure(err, maxSteps);
     // The run died. Close anything still open as a FAILURE first, so the
     // persisted trace carries a terminal node instead of stopping at
     // "Delegating to <specialist>" — the exact trace this turn used to leave.

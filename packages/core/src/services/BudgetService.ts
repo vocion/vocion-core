@@ -50,13 +50,35 @@
  *
  * ## Recording without a cap
  *
- * A charge creates the row it lands on. Budgets stay opt-in in the sense that
- * matters — an org that set no limit is refused nothing — but its usage is
- * recorded either way, because "what did we spend" is the question the budget
- * page exists to answer and a no-op charge could never answer it.
+ * A charge creates the row it lands on, so usage is recorded whether or not
+ * anyone set a limit — "what did we spend" is the question the budget page
+ * exists to answer and a no-op charge could never answer it.
  *
  * Period boundaries roll inside the charge statement itself rather than on a
  * cron tick, so two concurrent charges across a rollover cannot both reset.
+ *
+ * ## Every agent has a cap, even one nobody set (#272)
+ *
+ * An agent turn is never unlimited. When the agent's own row sets no hard
+ * cents cap — including when it has no row at all, which is every agent the
+ * moment it is created — the workspace's default agent cap applies instead:
+ *
+ *   1. The workspace's `platform:agent-default` row, when an admin set one
+ *      (through the same `setLimits` / budgets API as any other row). A row
+ *      whose hard cents cap is null means "this workspace chose no default",
+ *      and agents without a cap of their own run unlimited.
+ *   2. Otherwise the built-in default, {@link DEFAULT_AGENT_DAILY_HARD_CENTS}
+ *      a day, which a deployment can change with
+ *      `VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS` (a whole number of cents, or
+ *      `off` for none).
+ *
+ * Only an agent's own scope gets a default. It covers everything billed to that
+ * agent — its chat turns, and also its worker runs and the source-sync
+ * extraction charged to it — since a runaway loop in any of them is the spend
+ * #272 is about; those paths refuse at the same cap. The workspace-wide and
+ * per-feature rows stay opt-in, because refusing a search or an ingest over a
+ * cap nobody chose would break the product for pennies — see "What a cap may
+ * refuse" above.
  *
  * ## Which column is the money
  *
@@ -77,7 +99,7 @@ import type { TokenUsage } from '@/libs/pricing';
 import { and, eq, inArray, notLike, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { tokenCostMicroCents, totalTokens } from '@/libs/pricing';
-import { agentBudgetSchema } from '@/models/Schema';
+import { agentBudgetSchema, agentSchema } from '@/models/Schema';
 
 export type BudgetPeriod = 'daily' | 'monthly';
 
@@ -97,7 +119,16 @@ export type BudgetCheck
       limit: number;
       /** Exact spend against that cap, in the same unit. Cents carry a fraction. */
       current: number;
+      /**
+       * Where the cap came from: the refusing row itself, or — for an agent
+       * that set no cap of its own — the workspace's default agent cap or the
+       * built-in one. Tells the person which setting to change.
+       */
+      limitFrom: BudgetLimitSource;
     };
+
+/** Whose setting a refusing cap is. See the module docstring, #272. */
+export type BudgetLimitSource = 'own' | 'workspace_agent_default' | 'built_in_agent_default';
 
 /**
  * The scope that holds an org's whole spend for a period. Every charge lands
@@ -105,6 +136,24 @@ export type BudgetCheck
  * this workspace spent" and one cap covers everything.
  */
 export const ORG_SCOPE_SLUG = 'platform:all';
+
+/**
+ * The scope whose caps are the default for every agent in the workspace that
+ * set none of its own. Nothing is ever charged to it; it holds limits only.
+ */
+export const AGENT_DEFAULT_SCOPE_SLUG = 'platform:agent-default';
+
+/**
+ * The daily hard cap, in cents, on an agent nobody gave a cap — $100 a day.
+ *
+ * Deliberately generous: it is a backstop against a runaway loop, not a
+ * spending plan, and a default that trips on a busy ordinary day would teach
+ * people to switch it off. An agent that should spend less gets a cap of its
+ * own; `GET /api/v1/budgets/agents` shows every agent's cap and where it came
+ * from. Daily only: a monthly check on an
+ * agent with no row falls through to no cap, as it always did.
+ */
+export const DEFAULT_AGENT_DAILY_HARD_CENTS = 10_000;
 
 /**
  * How a reserved scope is spelled. No agent slug can collide: agent slugs are
@@ -215,17 +264,45 @@ async function getOrCreateBudget(orgId: string, agentSlug: string, period: Budge
   return created!;
 }
 
-async function maybeResetPeriod(row: typeof agentBudgetSchema.$inferSelect) {
-  const now = new Date();
-  if (!shouldReset(row.period as BudgetPeriod, row.periodStartedAt, now)) {
+/**
+ * Roll a row read from the database into the current period when its period
+ * has passed, and return the row as it now stands.
+ *
+ * The reset is conditional on the row STILL being in the old period, decided
+ * by the database in the same statement — exactly the rule `writeCharge`
+ * rolls by. Resetting by id alone lost money at every midnight (#272): a read
+ * picked up yesterday's row, a model call from a turn already running charged
+ * (rolling the row itself and recording today's first spend), and the read
+ * then zeroed the row from its stale copy, wiping that charge. Now the second
+ * roll matches nothing, and the row is read again instead.
+ *
+ * The new period starts at the database's midnight rather than at the moment
+ * of the read, so a row rolled by a read and one rolled by a charge carry the
+ * same start.
+ *
+ * Exported for the test that replays that race; callers go through the
+ * reading functions below.
+ * @param row - A budget row as it was read.
+ * @returns The row in the active period.
+ */
+export async function rollPeriodIfStale(row: typeof agentBudgetSchema.$inferSelect) {
+  if (!shouldReset(row.period as BudgetPeriod, row.periodStartedAt, new Date())) {
     return row;
   }
-  const [updated] = await db
+  const periodStart = periodStartExpression(row.period as BudgetPeriod);
+  const [rolled] = await db
     .update(agentBudgetSchema)
-    .set({ currentTokens: 0, currentMicroCents: 0, periodStartedAt: now })
-    .where(eq(agentBudgetSchema.id, row.id))
+    .set({ currentTokens: 0, currentMicroCents: 0, periodStartedAt: periodStart })
+    .where(and(eq(agentBudgetSchema.id, row.id), sql`${agentBudgetSchema.periodStartedAt} < ${periodStart}`))
     .returning();
-  return updated!;
+  if (rolled) {
+    return rolled;
+  }
+  // Already in the current period: a charge rolled it first (and what it
+  // recorded is on the row now), or the database's clock has not reached the
+  // boundary this process's clock has. Either way the stored row is the truth.
+  const [current] = await db.select().from(agentBudgetSchema).where(eq(agentBudgetSchema.id, row.id));
+  return current ?? row;
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,17 +351,43 @@ async function readScope(
   if (!row) {
     return null;
   }
-  return withSpentCents(await maybeResetPeriod(row));
+  return withSpentCents(await rollPeriodIfStale(row));
 }
+
+/**
+ * The part of a budget row a cap is decided on.
+ *
+ * Narrower than the stored row so a brand-new agent — which has no row yet —
+ * can be checked against its default cap exactly as a real row would be.
+ */
+type CappedCounter = Pick<
+  typeof agentBudgetSchema.$inferSelect,
+  'agentSlug' | 'currentTokens' | 'currentMicroCents' | 'hardTokenLimit' | 'hardCentsLimit'
+>;
+
+/**
+ * Whose setting each of a counter's two caps is.
+ *
+ * Kept per cap because an agent can set a token cap of its own and still take
+ * its cents cap from the workspace default, and a refusal has to name the one
+ * that actually tripped.
+ */
+type CapSources = { tokens: BudgetLimitSource; cents: BudgetLimitSource };
+
+/** Both caps are the row's own — every scope but a defaulted agent. */
+const OWN_CAPS: CapSources = { tokens: 'own', cents: 'own' };
 
 /**
  * The breach one row reports, or null when it is under its caps (or has none).
  * @param row - A budget row, already rolled to the active period.
  * @param scope - Which kind of row this is, for the caller's message.
+ * @param sources - Whose setting each cap is; the row's own unless they were
+ *   filled in from a default (see {@link withAgentDefaultCaps}).
  */
 function breachOf(
-  row: typeof agentBudgetSchema.$inferSelect,
+  row: CappedCounter,
   scope: BudgetScope,
+  sources: CapSources = OWN_CAPS,
 ): Extract<BudgetCheck, { ok: false }> | null {
   if (row.hardTokenLimit !== null && row.currentTokens >= row.hardTokenLimit) {
     return {
@@ -294,6 +397,7 @@ function breachOf(
       agentSlug: row.agentSlug,
       limit: row.hardTokenLimit,
       current: row.currentTokens,
+      limitFrom: sources.tokens,
     };
   }
   // Compared in micro-cents, which is where the money is. A limit is whole
@@ -312,6 +416,7 @@ function breachOf(
       agentSlug: row.agentSlug,
       limit: row.hardCentsLimit,
       current: spentCents(row),
+      limitFrom: sources.cents,
     };
   }
   return null;
@@ -349,31 +454,122 @@ export async function preflightCheck(opts: {
   }
   scopes.push({ slug: ORG_SCOPE_SLUG, scope: 'org' });
 
-  // One query for all three scopes rather than one per scope. This runs before
-  // every search's rerank and every agent turn, so the difference is two saved
-  // round trips on a hot path; the unique index covers the lookup either way.
+  // One query for every scope rather than one per scope — the workspace's
+  // default agent cap rides along when this is an agent turn. This runs before
+  // every search's rerank and after every model call of an agent turn, so the
+  // saved round trips are on a hot path; the unique index covers the lookup.
+  const slugs = scopes.map(target => target.slug);
+  if (opts.agentSlug) {
+    slugs.push(AGENT_DEFAULT_SCOPE_SLUG);
+  }
   const rows = await db
     .select()
     .from(agentBudgetSchema)
     .where(and(
       eq(agentBudgetSchema.orgId, opts.orgId),
-      inArray(agentBudgetSchema.agentSlug, scopes.map(target => target.slug)),
+      inArray(agentBudgetSchema.agentSlug, slugs),
       eq(agentBudgetSchema.period, period),
     ));
+  const workspaceAgentDefault = rows.find(candidate => candidate.agentSlug === AGENT_DEFAULT_SCOPE_SLUG);
 
   // Reported in scope order — agent, then feature, then workspace — so the
   // message names the most specific cap that refused.
   for (const target of scopes) {
     const row = rows.find(candidate => candidate.agentSlug === target.slug);
+    if (target.scope === 'agent') {
+      const { capped, sources } = withAgentDefaultCaps({
+        agentRow: row ? await rollPeriodIfStale(row) : emptyAgentCounter(target.slug),
+        workspaceAgentDefault,
+        period,
+      });
+      const breach = breachOf(capped, target.scope, sources);
+      if (breach) {
+        return breach;
+      }
+      continue;
+    }
     if (!row) {
       continue;
     }
-    const breach = breachOf(await maybeResetPeriod(row), target.scope);
+    const breach = breachOf(await rollPeriodIfStale(row), target.scope);
     if (breach) {
       return breach;
     }
   }
   return { ok: true };
+}
+
+/**
+ * An agent's counter before its first charge: nothing spent, no caps.
+ * @param agentSlug - The agent.
+ */
+function emptyAgentCounter(agentSlug: string): CappedCounter {
+  return { agentSlug, currentTokens: 0, currentMicroCents: 0, hardTokenLimit: null, hardCentsLimit: null };
+}
+
+/**
+ * The built-in daily default cap for an agent, after the deployment's say.
+ *
+ * `VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS` may be a whole number of cents, or
+ * `off` for no built-in default. Anything else is a typo in somebody's
+ * environment, and falling back to the built-in number is the safe direction
+ * to be wrong in: an agent with a cap it was not meant to have is refused and
+ * says why; one with no cap it was meant to have spends silently.
+ * @returns The cap in cents, or null for none.
+ */
+export function builtInAgentDailyHardCents(): number | null {
+  const configured = process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS?.trim();
+  if (!configured) {
+    return DEFAULT_AGENT_DAILY_HARD_CENTS;
+  }
+  if (configured.toLowerCase() === 'off') {
+    return null;
+  }
+  if (/^\d+$/.test(configured)) {
+    return Number(configured);
+  }
+  console.warn('VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS is neither a whole number of cents nor "off"; using the built-in default', { configured, fallbackCents: DEFAULT_AGENT_DAILY_HARD_CENTS });
+  return DEFAULT_AGENT_DAILY_HARD_CENTS;
+}
+
+/**
+ * An agent's row with the workspace's default caps filled into whatever it
+ * left unset — the rule in the module docstring, #272.
+ *
+ * Only a cap the agent left null is filled; a cap it set, even one higher than
+ * the default, is its own. The token cap follows the workspace default row
+ * when there is one; there is no built-in token default, because money is
+ * what a runaway turn costs.
+ * @param opts - The pieces.
+ * @param opts.agentRow - The agent's row, rolled to the active period.
+ * @param opts.workspaceAgentDefault - The workspace's `platform:agent-default` row, if it has one.
+ * @param opts.period - The period being checked; the built-in default is daily only.
+ * @returns The row to check, and whose setting its cents cap is.
+ */
+function withAgentDefaultCaps(opts: {
+  agentRow: CappedCounter;
+  workspaceAgentDefault: CappedCounter | undefined;
+  period: BudgetPeriod;
+}): { capped: CappedCounter; sources: CapSources } {
+  const { agentRow, workspaceAgentDefault, period } = opts;
+  const defaultSource: BudgetLimitSource = workspaceAgentDefault ? 'workspace_agent_default' : 'built_in_agent_default';
+  const defaultCents = workspaceAgentDefault
+    ? workspaceAgentDefault.hardCentsLimit
+    : (period === 'daily' ? builtInAgentDailyHardCents() : null);
+  const defaultTokens = workspaceAgentDefault?.hardTokenLimit ?? null;
+  const ownCents = agentRow.hardCentsLimit !== null;
+  const ownTokens = agentRow.hardTokenLimit !== null;
+  return {
+    capped: {
+      ...agentRow,
+      hardCentsLimit: ownCents ? agentRow.hardCentsLimit : defaultCents,
+      hardTokenLimit: ownTokens ? agentRow.hardTokenLimit : defaultTokens,
+    },
+    sources: {
+      cents: ownCents ? 'own' : defaultSource,
+      tokens: ownTokens ? 'own' : defaultSource,
+    },
+  };
 }
 
 /**
@@ -609,6 +805,34 @@ export async function setLimits(opts: {
 }
 
 /**
+ * Set only the money caps on one budget row, leaving its token caps as they
+ * are. Workspace apply writes a YAML `budget:` block through this: the YAML
+ * owns the dollar caps, and a token cap an admin set elsewhere must survive
+ * every apply, where {@link setLimits} would write it back to null.
+ * @param opts
+ * @param opts.orgId - The workspace.
+ * @param opts.agentSlug - The agent, or a reserved platform scope.
+ * @param opts.period - `daily` or `monthly`.
+ * @param opts.softCentsLimit - The soft cap in cents, or null for none.
+ * @param opts.hardCentsLimit - The hard cap in cents, or null for none.
+ */
+export async function setCentsLimits(opts: {
+  orgId: string;
+  agentSlug: string;
+  period: BudgetPeriod;
+  softCentsLimit: number | null;
+  hardCentsLimit: number | null;
+}) {
+  const row = await getOrCreateBudget(opts.orgId, opts.agentSlug, opts.period);
+  const [updated] = await db
+    .update(agentBudgetSchema)
+    .set({ softCentsLimit: opts.softCentsLimit, hardCentsLimit: opts.hardCentsLimit })
+    .where(eq(agentBudgetSchema.id, row.id))
+    .returning();
+  return updated!;
+}
+
+/**
  * Every budget row this org has, platform scopes included.
  *
  * Rolls each period boundary before returning, so the caller sees the active
@@ -620,7 +844,7 @@ export async function listAllBudgets(orgId: string) {
     .select()
     .from(agentBudgetSchema)
     .where(eq(agentBudgetSchema.orgId, orgId));
-  const current = await Promise.all(rows.map(r => maybeResetPeriod(r)));
+  const current = await Promise.all(rows.map(r => rollPeriodIfStale(r)));
   return current.map(r => withSpentCents(r));
 }
 
@@ -752,4 +976,119 @@ export async function removeBudget(opts: { orgId: string; agentSlug: string; per
       eq(agentBudgetSchema.agentSlug, opts.agentSlug),
       eq(agentBudgetSchema.period, period),
     ));
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent caps as they apply — what the API and the shell banner read    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One agent's budget as it actually applies right now: the cap it is held to
+ * (its own or a default), what it has spent against it, and whether its next
+ * turn would be refused.
+ */
+export type AgentBudgetStatus = {
+  agentSlug: string;
+  agentName: string;
+  period: BudgetPeriod;
+  /** Spend this period, in cents; carries a fraction. */
+  spentCents: number;
+  tokens: number;
+  /** The hard cents cap in force, or null when there is none at all. */
+  hardCentsLimit: number | null;
+  /** The hard token cap in force, or null. */
+  hardTokenLimit: number | null;
+  /** Whose setting the cents cap is. */
+  hardCentsLimitFrom: BudgetLimitSource;
+  /** `hardCentsLimit − spentCents`, never below zero; null with no cap. */
+  remainingCents: number | null;
+  /** True when the agent's next turn would be refused by one of its own caps. */
+  blocked: boolean;
+  /** The refusal the next turn would get, when blocked. */
+  breach: Extract<BudgetCheck, { ok: false }> | null;
+  /** When this period's counters go back to zero, ISO-8601 UTC. */
+  periodResetsAt: string;
+};
+
+/**
+ * The instant the period that contains `now` ends, in UTC.
+ * @param period - daily or monthly.
+ * @param now - The moment to measure from.
+ */
+export function periodEndsAt(period: BudgetPeriod, now: Date): Date {
+  if (period === 'daily') {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  }
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+}
+
+/**
+ * An agent's counter for a status read: its stored row, rolled into the
+ * current period if that ended, or an empty counter when it has none yet.
+ * @param stored - The agent's budget row, if it has one.
+ * @param agentSlug - The agent.
+ */
+async function rollStoredOrEmpty(stored: typeof agentBudgetSchema.$inferSelect | undefined, agentSlug: string) {
+  return stored ? rollPeriodIfStale(stored) : emptyAgentCounter(agentSlug);
+}
+
+/**
+ * Every agent in the workspace with the budget it is actually held to.
+ *
+ * Covers agents that have never been charged and so have no budget row — the
+ * very agents a default cap exists for, and the ones a row listing cannot
+ * show. Built from {@link withAgentDefaultCaps} and {@link breachOf}, the
+ * same two pieces `preflightCheck` refuses with, so what this reports as
+ * blocked is exactly what gets refused (by the agent's own scope — the
+ * workspace-wide cap is reported by {@link orgUsageTotals}).
+ * @param orgId - The workspace.
+ * @param period - `daily` (default) or `monthly`.
+ */
+export async function agentBudgetStatuses(orgId: string, period: BudgetPeriod = 'daily'): Promise<{
+  period: BudgetPeriod;
+  /** The workspace's default agent cap in cents, when an admin set one (null there means "no default"). */
+  workspaceAgentDefaultCents: number | null | undefined;
+  /** The deployment's built-in daily default in cents, or null when switched off. */
+  builtInAgentDailyCents: number | null;
+  agents: AgentBudgetStatus[];
+}> {
+  const [agents, rows] = await Promise.all([
+    db.select({ slug: agentSchema.slug, name: agentSchema.name }).from(agentSchema).where(eq(agentSchema.orgId, orgId)),
+    db.select().from(agentBudgetSchema).where(and(eq(agentBudgetSchema.orgId, orgId), eq(agentBudgetSchema.period, period))),
+  ]);
+  const workspaceAgentDefault = rows.find(row => row.agentSlug === AGENT_DEFAULT_SCOPE_SLUG);
+  const bySlug = new Map(rows.map(row => [row.agentSlug, row]));
+  const resetsAt = periodEndsAt(period, new Date()).toISOString();
+
+  // Only a row whose period has ended costs a round trip here; they are rolled
+  // together rather than one after another.
+  const counters = await Promise.all(agents.map(agent => rollStoredOrEmpty(bySlug.get(agent.slug), agent.slug)));
+  const statuses: AgentBudgetStatus[] = [];
+  for (const [index, agent] of agents.entries()) {
+    const counter = counters[index]!;
+    const { capped, sources } = withAgentDefaultCaps({ agentRow: counter, workspaceAgentDefault, period });
+    const breach = breachOf(capped, 'agent', sources);
+    const spent = spentCents(capped);
+    statuses.push({
+      agentSlug: agent.slug,
+      agentName: agent.name,
+      period,
+      spentCents: spent,
+      tokens: capped.currentTokens,
+      hardCentsLimit: capped.hardCentsLimit,
+      hardTokenLimit: capped.hardTokenLimit,
+      hardCentsLimitFrom: sources.cents,
+      remainingCents: capped.hardCentsLimit === null ? null : Math.max(0, capped.hardCentsLimit - spent),
+      blocked: breach !== null,
+      breach,
+      periodResetsAt: resetsAt,
+    });
+  }
+  statuses.sort((a, b) => a.agentSlug.localeCompare(b.agentSlug));
+  return {
+    period,
+    workspaceAgentDefaultCents: workspaceAgentDefault ? workspaceAgentDefault.hardCentsLimit : undefined,
+    builtInAgentDailyCents: builtInAgentDailyHardCents(),
+    agents: statuses,
+  };
 }

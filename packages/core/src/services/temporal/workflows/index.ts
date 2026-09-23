@@ -5,6 +5,7 @@
  */
 
 export * from './automationFire';
+export * from './bulkBriefRegenerate';
 export * from './evalRefresh';
 export * from './langfuseRetention';
 export * from './missionScheduledCheck';

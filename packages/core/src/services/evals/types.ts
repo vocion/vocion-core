@@ -44,11 +44,128 @@ export type EvalDatasetItem = {
 export type EvalCheck
   = | { toolCalled: string }
     | { toolNotCalled: string }
+    | { toolCalledWith: ToolArgumentCondition }
+    /**
+     * What a tool handed back had to look like — the same condition as
+     * `toolCalledWith`, read from the call's return value instead of its
+     * arguments. `where` still picks calls by their arguments; `path` and
+     * `timezoneFrom` read the return, parsed as JSON.
+     */
+    | { toolReturned: ToolArgumentCondition }
+    | { toolCallCount: ToolCallCountCondition }
     | { outputMatches: string }
     | { outputContains: string }
     | { outputNotContains: string }
     | { latencyUnderMs: number }
     | { turnsUnder: number };
+
+/**
+ * One narrowing of which calls a rule is about: the value at `path` equals
+ * `equals`, or holds a value (`present: true`) or does not (`present: false`).
+ * A list of them all have to hold.
+ */
+export type ToolCallFilter = {
+  path: string;
+  equals?: unknown;
+  present?: boolean;
+};
+
+/**
+ * What one tool call's arguments have to look like.
+ *
+ * The tool name and the output text were the only things a check could read
+ * until now, which left the arguments — where the envelope shape, the dedup
+ * key and the suggested decision all live — unmeasurable by any grader we
+ * have. A rule the agent breaks inside `action_input` looked exactly like a
+ * rule it kept.
+ *
+ * `path` walks into the arguments with dots, so `action_input.dedupOn` reads
+ * that array out of a `propose_action` call. Omit it to test the whole
+ * argument object.
+ *
+ * Whichever predicates are given must all hold. `calls` says how many of the
+ * tool's calls have to satisfy them: `every` — the default, and what a rule
+ * like "every proposal carries a reason" means — or `some`, for "at least one
+ * call did this". A case where the tool was never called fails either way,
+ * because a rule about calls that never happened is not a rule anyone kept.
+ */
+export type ToolArgumentCondition = {
+  /** Which tool's calls to read. */
+  tool: string;
+  /**
+   * Narrows those calls to the ones this describes.
+   *
+   * One tool often files several different things: `propose_action` proposes
+   * an event and a venue with the same name and different payloads, and a
+   * rule about one is false of the other — an event's dedup key is
+   * `[title, startDate, venueName]`, a venue's is `[name, city]`. Without a
+   * way to say which calls a rule is about, the rule fails on every call it
+   * was never meant to describe.
+   */
+  where?: ToolCallFilter | ToolCallFilter[];
+  /**
+   * What it means when no call matched: `fail`, the default, because a rule
+   * about calls that never happened is not a rule anything kept and an agent
+   * that silently stopped doing the thing is the regression most worth
+   * catching. `pass` is for a rule shaped "if it did this, it did it right" —
+   * a venue proposal the run only makes when the venue is new.
+   */
+  noCalls?: 'fail' | 'pass';
+  /**
+   * Dot path into the call's arguments (or, for `toolReturned`, its return
+   * value). Omit for the whole object. A `*` segment stands for every item of
+   * a list, so `*.id` means "each returned record's id", and every item has
+   * to satisfy the predicates.
+   */
+  path?: string;
+  /** The value at `path` must equal this, compared by value, not identity. */
+  equals?: unknown;
+  /** The value at `path`, rendered as text, must contain this. */
+  contains?: string;
+  /** Whether the value at `path` has to be there at all. */
+  present?: boolean;
+  /** Every element of the value at `path` must be one of these. */
+  subsetOf?: string[];
+  /**
+   * The value at `path` must fall on or after this calendar day: `today`,
+   * `yesterday`, `last week`, `3 days ago`, `in 2 weeks`, or `YYYY-MM-DD`.
+   * Resolved when the check runs, so `today` means the day of the run.
+   */
+  onOrAfter?: string;
+  /** The value at `path` must fall on or before this calendar day. Same words as `onOrAfter`. */
+  onOrBefore?: string;
+  /**
+   * Which zone "today" is in: `utc` (the default), `local` (the machine
+   * running the check), `workspace` (the workspace's `defaults.timezone`),
+   * or an IANA name like `America/New_York`.
+   */
+  timezone?: string;
+  /**
+   * A dot path into the same call whose value names the zone, such as an
+   * event's `action_input.fields.timezone`, so each record is judged by its
+   * own clock. When the call holds no real zone there, `timezone` applies.
+   */
+  timezoneFrom?: string;
+  /** How many of the tool's calls must satisfy the predicates. Default `every`. */
+  calls?: 'every' | 'some';
+};
+
+/**
+ * How many times a tool was allowed to be called.
+ *
+ * Counting is its own question. "Refreshed the existing card instead of
+ * opening a second one" is a rule about how many proposals went out, and
+ * `toolCalled` answers only whether any did.
+ *
+ * At least one of `exactly`, `min` or `max` has to be given, or the check has
+ * nothing to decide.
+ */
+export type ToolCallCountCondition = {
+  tool: string;
+  exactly?: number;
+  min?: number;
+  max?: number;
+};
 
 /** The grain an evaluator judges at. Mirrors AgentCore's `EvaluatorLevel`. */
 export type EvalScoreLevel = 'TOOL_CALL' | 'TRACE' | 'SESSION';

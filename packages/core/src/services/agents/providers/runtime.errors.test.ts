@@ -23,11 +23,35 @@ vi.mock('@/libs/DB');
 
 const mintBedrockSessionForRuntime = vi.fn(async () => null);
 const chargeUsage = vi.fn(async () => {});
+const preflightCheck = vi.fn(async (): Promise<unknown> => ({ ok: true }));
 vi.mock('@/libs/llm/bedrockCredentials', () => ({ mintBedrockSessionForRuntime }));
 vi.mock('@/services/agents/harness', () => ({ buildInitialFiles: vi.fn(async () => ({})) }));
 vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog: vi.fn(() => []) }));
 vi.mock('@/services/agents/claims', () => ({ signClaim: vi.fn(() => 'signed-claim') }));
-vi.mock('@/services/BudgetService', () => ({ chargeUsage }));
+vi.mock('@/services/BudgetService', () => ({ chargeUsage, preflightCheck }));
+
+/** What the deployed (AgentCore) transport was handed, and the frames it streams back. */
+const agentCore = { frames: [] as string[], abortSignal: undefined as AbortSignal | undefined };
+
+/**
+ * The frames an AgentCore response streams, one chunk each.
+ * @param frames - Raw SSE frames.
+ */
+async function* agentCoreStream(frames: string[]): AsyncGenerator<Uint8Array> {
+  for (const frame of frames) {
+    yield new TextEncoder().encode(frame);
+  }
+}
+
+vi.mock('@aws-sdk/client-bedrock-agentcore', () => ({
+  BedrockAgentCoreClient: class {
+    async send(_command: unknown, options: { abortSignal?: AbortSignal }) {
+      agentCore.abortSignal = options.abortSignal;
+      return { response: agentCoreStream(agentCore.frames) };
+    }
+  },
+  InvokeAgentRuntimeCommand: class {},
+}));
 
 const { db } = await import('@/libs/DB');
 const { agentSchema } = await import('@/models/Schema');
@@ -74,6 +98,7 @@ beforeEach(async () => {
   await db.delete(agentSchema);
   mintBedrockSessionForRuntime.mockReset().mockResolvedValue(null);
   chargeUsage.mockReset().mockResolvedValue(undefined);
+  preflightCheck.mockReset().mockResolvedValue({ ok: true });
 });
 
 afterEach(async () => {
@@ -196,6 +221,101 @@ describe('budget-charge failure', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('budget service unavailable'));
 
     errorSpy.mockRestore();
+  });
+});
+
+describe('a turn that crosses its budget partway (#272)', () => {
+  const breach = {
+    ok: false,
+    reason: 'hard_cents_exceeded',
+    scope: 'agent',
+    agentSlug: 'sales-assistant',
+    limit: 10_000,
+    current: 10_004.5,
+    limitFrom: 'built_in_agent_default',
+  };
+
+  it('stops at the first sign of another model call after one crossed the cap, and relays nothing after it', async () => {
+    await seedAgent(ORG_A);
+    // Under the cap after the first call, over it after the second.
+    preflightCheck.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(breach);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      body: bodyOf(
+        sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'response_delta', delta: 'first part ' }))
+        + sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'response_delta', delta: 'spent past the cap' }))
+        + sseFrame(JSON.stringify({ type: 'done', response: 'first part spent past the cap' })),
+      ),
+    })));
+    const events: Array<Record<string, unknown>> = [];
+
+    const run = runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi', onEvent: event => events.push(event as never) });
+
+    await expect(run).rejects.toMatchObject({ name: 'TurnRefusedError', message: expect.stringContaining('stopped partway') });
+    expect(events).toContainEqual({ type: 'response_delta', delta: 'first part ' });
+    expect(events).not.toContainEqual({ type: 'response_delta', delta: 'spent past the cap' });
+    expect(events).toContainEqual({ type: 'error', message: expect.stringContaining('$100.00 cap') });
+  });
+
+  it('keeps the answer of a turn whose last model call is the one that crossed the cap', async () => {
+    await seedAgent(ORG_A);
+    preflightCheck.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(breach);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      body: bodyOf(
+        sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'response_delta', delta: 'the whole answer' }))
+        + sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'done', response: 'the whole answer' })),
+      ),
+    })));
+    const events: Array<Record<string, unknown>> = [];
+
+    const result = await runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi', onEvent: event => events.push(event as never) });
+
+    expect(result.response).toBe('the whole answer');
+    expect(events.filter(event => event.type === 'error')).toEqual([]);
+  });
+
+  it('stops the deployed AgentCore transport too, aborting the request it made', async () => {
+    await seedAgent(ORG_A);
+    vi.stubEnv('VOCION_AGENT_RUNTIME_ARN', 'arn:aws:bedrock-agentcore:us-west-2:000000000000:runtime/test');
+    preflightCheck.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(breach);
+    agentCore.frames = [
+      sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 })),
+      sseFrame(JSON.stringify({ type: 'tool_start', tool: 'search_knowledge', input: {} })),
+      sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 })),
+      sseFrame(JSON.stringify({ type: 'response_delta', delta: 'spent past the cap' })),
+      sseFrame(JSON.stringify({ type: 'done', response: 'spent past the cap' })),
+    ];
+    const events: Array<Record<string, unknown>> = [];
+
+    const run = runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi', onEvent: event => events.push(event as never) });
+
+    await expect(run).rejects.toMatchObject({ name: 'TurnRefusedError' });
+    expect(agentCore.abortSignal?.aborted).toBe(true);
+    expect(events).not.toContainEqual({ type: 'response_delta', delta: 'spent past the cap' });
+
+    vi.unstubAllEnvs();
+  });
+
+  it('runs to the end unchanged when every call stays under the cap', async () => {
+    await seedAgent(ORG_A);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      body: bodyOf(
+        sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'usage', model: 'claude', inputTokens: 10, outputTokens: 5 }))
+        + sseFrame(JSON.stringify({ type: 'done', response: 'all of it' })),
+      ),
+    })));
+
+    const result = await runAgentOnRuntime({ orgId: ORG_A, agentSlug: 'sales-assistant', message: 'hi' });
+
+    expect(result.response).toBe('all of it');
+    expect(preflightCheck).toHaveBeenCalledTimes(2);
   });
 });
 

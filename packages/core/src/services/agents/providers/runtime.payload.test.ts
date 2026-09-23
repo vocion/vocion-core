@@ -17,7 +17,7 @@ vi.mock('@/libs/llm/bedrockCredentials', () => ({ mintBedrockSessionForRuntime }
 vi.mock('@/services/agents/harness', () => ({ buildInitialFiles: vi.fn(async () => ({})) }));
 vi.mock('@/services/agents/tools/registry', () => ({ buildToolCatalog: vi.fn(() => []) }));
 vi.mock('@/services/agents/claims', () => ({ signClaim: vi.fn(() => 'signed-claim') }));
-vi.mock('@/services/BudgetService', () => ({ chargeUsage: vi.fn(async () => {}) }));
+vi.mock('@/services/BudgetService', () => ({ chargeUsage: vi.fn(async () => {}), preflightCheck: vi.fn(async () => ({ ok: true })) }));
 
 const { db } = await import('@/libs/DB');
 const { agentSchema } = await import('@/models/Schema');

@@ -26,7 +26,7 @@ const { db } = await import('@/libs/DB');
 const { evalCaseResultSchema, evalDatasetRemoteSchema, evalDatasetSchema, evalRunSchema, evalScoreSchema } = await import('@/models/Schema');
 const { runAgentDeep } = await import('@/services/AgentService');
 const { eq } = await import('drizzle-orm');
-const { EvalProviderUnavailableError, runDatasetAndScore, UnknownEvalProviderError } = await import('@/services/EvalService');
+const { EvalProviderUnavailableError, runDataset, runDatasetAndScore, UnknownEvalProviderError } = await import('@/services/EvalService');
 
 const mockAgent = vi.mocked(runAgentDeep);
 const ORG = 'org_run_with_providers';
@@ -51,7 +51,7 @@ function fakeProvider(id: string, label = id) {
   return { id, label, isAvailable: vi.fn(async () => ({ available: true, reason: '' })), score };
 }
 
-async function seedDataset(items: Array<{ input: string }>, provider = 'vocion') {
+async function seedDataset(items: Array<{ input: string }>, provider = 'vocion', passThreshold: number | null = null) {
   await db.delete(evalDatasetSchema);
   await db.insert(evalDatasetSchema).values({
     orgId: ORG,
@@ -59,6 +59,7 @@ async function seedDataset(items: Array<{ input: string }>, provider = 'vocion')
     name: 'Refund quality',
     agentSlug: 'support-agent',
     provider,
+    passThreshold,
     items,
   });
 }
@@ -264,5 +265,28 @@ describe('runDatasetAndScore', () => {
     const scores = await db.select().from(evalScoreSchema);
 
     expect(new Set(scores.map(score => score.provider))).toEqual(new Set(['vocion']));
+  });
+});
+
+describe('runDataset', () => {
+  it('hands back the bar the dataset asked to be held to', async () => {
+    // The CLI turns this into an exit code. Without it the caller would have
+    // to go back to the database for a row this call already read, and the
+    // dataset's bar would quietly never apply.
+    await seedDataset([{ input: 'one' }], 'vocion', 0.6);
+    getProvider.mockReturnValue(fakeProvider('vocion'));
+
+    const result = await runDataset({ orgId: ORG, datasetSlug: SLUG });
+
+    expect(result.passThreshold).toBe(0.6);
+  });
+
+  it('hands back null for a dataset that names no bar, so the runner default applies', async () => {
+    await seedDataset([{ input: 'one' }], 'vocion');
+    getProvider.mockReturnValue(fakeProvider('vocion'));
+
+    const result = await runDataset({ orgId: ORG, datasetSlug: SLUG });
+
+    expect(result.passThreshold).toBeNull();
   });
 });

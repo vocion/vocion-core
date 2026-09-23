@@ -37,7 +37,7 @@ import { candidateKeySegments, normaliseForKey } from '@/libs/actions/objects-pr
  * Rows read per sync. The query cannot be narrowed further by index today, so
  * it is bounded by the newest N runs instead.
  */
-const SCAN_LIMIT = 5_000;
+export const SCAN_LIMIT = 5_000;
 
 /** Statuses a card can be in and still be worth comparing against. */
 const KNOWN_STATUSES = ['pending', 'failed', 'done'] as const;
@@ -117,11 +117,12 @@ function dayPlus(day: string, days: number): string {
  * Strip what semi-trusted text is not allowed to carry: no code fences, no
  * closing-tag openers, one line.
  *
- * No trim and no cap here, deliberately. Its two callers apply their own and
- * they are different lengths (`scrubCardText` below, `scrubSeriesNote` in
- * `labels.ts`, which also has a step of its own to run after this one). What
- * is shared is the defence, so a step added to it reaches both callers instead
- * of whichever file the next reader happened to open.
+ * No trim and no cap here, deliberately. Each caller applies its own and
+ * they are different lengths (`scrubCardText` below, `noteValue` in
+ * `identity.ts`, `scrubSeriesNote` in `labels.ts`, which also has a step of
+ * its own to run after this one). What is shared is the defence, so a step
+ * added to it reaches every caller instead of whichever file the next reader
+ * happened to open.
  * @param value - Any stored or model-written string.
  */
 export function defangText(value: string): string {

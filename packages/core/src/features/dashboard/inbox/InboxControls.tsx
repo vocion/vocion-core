@@ -11,7 +11,7 @@ import { usePathname, useRouter } from '@/libs/I18nNavigation';
 import { humaniseActionId } from '@/services/inbox/describeActionRun';
 import { INBOX_KINDS } from '@/services/inbox/kinds';
 import { INBOX_KIND_META } from './inboxMeta';
-import { mergeSearch } from './searchParams';
+import { defaultSortFor, mergeSearch } from './searchParams';
 
 const SORTS: readonly InboxSort[] = ['oldest', 'newest', 'value', 'confidence'];
 
@@ -96,7 +96,7 @@ export function InboxControls({ tab, q, sort, kinds, actionKinds, agents, facets
   // dead. Chris, 2026-09-17: *"maybe default to newest first?"* The oldest age
   // is still stated in the header line, so the backlog does not become
   // invisible — it just stops being the only thing you can see.
-  const defaultSort: InboxSort = 'newest';
+  const defaultSort: InboxSort = defaultSortFor(tab);
 
   const kindChips: Chip[] = [
     { key: 'all', label: t('all'), count: total, active: kinds.length === 0, pinned: true, onToggle: () => go({ kind: null }) },

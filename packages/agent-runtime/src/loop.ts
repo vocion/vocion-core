@@ -217,10 +217,15 @@ async function getGraph(req: InvocationRequest): Promise<GraphEntry> {
  * @param req - The invocation payload: agent definition, message, tool spec,
  * and this caller's temporary Bedrock session.
  * @param emit - Where this turn's events go. Belongs to this caller alone.
+ * @param signal - Aborts the turn: the server fires it when the caller hangs
+ * up, which is how vocion-core stops a turn that reached its budget (#272).
+ * Without it the loop would go on calling the model with nobody left to
+ * charge the spend to.
  */
 export async function runInvocation(
   req: InvocationRequest,
   emit: (event: AgentEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const context: InvocationContext = {
     emit,
@@ -228,12 +233,13 @@ export async function runInvocation(
     toolEndpoint: req.tools.endpoint,
     toolClaim: req.tools.claim,
   };
-  return invocationContext.run(context, () => withSession(sessionIdFor(req), () => runTurn(req, emit)));
+  return invocationContext.run(context, () => withSession(sessionIdFor(req), () => runTurn(req, emit, signal)));
 }
 
 async function runTurn(
   req: InvocationRequest,
   emit: (event: AgentEvent) => void,
+  signal: AbortSignal | undefined,
 ): Promise<void> {
   const entry = await getGraph(req);
 
@@ -304,6 +310,7 @@ async function runTurn(
     const run = await entry.graph.streamEvents(input as never, {
       version: 'v3',
       callbacks: [trace.handler],
+      signal,
       ...stepLimitStreamConfig(req.agent.maxSteps),
     } as never);
 

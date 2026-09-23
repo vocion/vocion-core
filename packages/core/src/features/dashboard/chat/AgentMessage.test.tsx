@@ -523,6 +523,23 @@ describe('AgentMessage — a turn that died part-way (#114)', () => {
     expect(page.getByTestId('incomplete-turn-notice').elements()).toHaveLength(0);
   });
 
+  it('does not say "not run" under the answer of a turn stopped partway by its budget', async () => {
+    await render(
+      <AgentMessage
+        agentName="Revenue"
+        message={{
+          role: 'assistant',
+          content: 'Northwind renews in March and',
+          status: 'refused',
+          statusReason: 'This turn stopped partway because it reached its budget.',
+        }}
+      />,
+    );
+
+    await expect.element(page.getByText(/This answer stopped before it finished/)).toBeInTheDocument();
+    expect(page.getByText(/This turn was not run/).elements()).toHaveLength(0);
+  });
+
   it('labels a refusal\'s reason without calling it a fault', async () => {
     await render(
       <AgentMessage

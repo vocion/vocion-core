@@ -118,27 +118,47 @@ function writeChecksFixture(provider: string, checksOnCase: number): string {
   return dir;
 }
 
+/**
+ * A dataset file that names a pass threshold, or names none at all.
+ * @param threshold - The YAML line's value, or null to leave the field out.
+ */
+function writeThresholdFixture(threshold: number | null): string {
+  const dir = mkdtempSync(join(tmpdir(), 'cc-eval-threshold-'));
+  dirs.push(dir);
+  writeFileSync(join(dir, 'workspace.yaml'), `version: 1\norgId: ${ORG}\nname: eval-threshold\n`);
+  mkdirSync(join(dir, 'agents'));
+  writeFileSync(join(dir, 'agents', 'support-agent.yaml'), 'slug: support-agent\nname: Support Agent\nsystemPrompt: Be helpful.\n');
+  mkdirSync(join(dir, 'evals'));
+  const thresholdLine = threshold === null ? '' : `passThreshold: ${threshold}\n`;
+  writeFileSync(
+    join(dir, 'evals', `${DATASET}.yaml`),
+    `slug: ${DATASET}\nname: Refund quality\nagentSlug: support-agent\nprovider: vocion\n${thresholdLine}items:\n  - input: Case 1\n`,
+  );
+  return dir;
+}
+
 describe('workspace apply — eval evaluators', () => {
-  it('refuses deterministic checks on a dataset another grader scores', async () => {
-    // `checks` run inside our own judge. On an AgentCore dataset they would be
-    // written, applied and silently never run, while the case still reported a
-    // pass rate — which reads as though they had passed.
+  it('applies deterministic checks on a dataset AgentCore scores', async () => {
+    // They used to be refused here, because only our own judge ran them. They
+    // now run over the transcript whoever grades the case, so a dataset can
+    // send its cases to AWS and still assert the things no model should be
+    // asked to judge — the shape of the dedup key, say.
     const dir = writeChecksFixture('agentcore', 1);
+    const loaded = await loadWorkspace(dir);
 
-    await expect(async () => loadWorkspace(dir)).rejects.toThrow(/case 1 has checks/);
-  });
+    await applyWorkspace(loaded, { orgId: ORG });
 
-  it('names the case that carries the checks, not the first one', async () => {
-    // The message is the whole value of the refusal: a file with twenty cases
-    // and one stray checks block is unfixable without being told which.
-    const dir = writeChecksFixture('agentcore', 2);
+    const [stored] = await db
+      .select({ items: evalDatasetSchema.items })
+      .from(evalDatasetSchema)
+      .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
 
-    await expect(async () => loadWorkspace(dir)).rejects.toThrow(/case 2 has checks/);
+    expect(stored?.items?.[0]?.checks).toEqual([{ outputContains: 'refund' }]);
   });
 
   it('still applies a Vocion dataset that uses checks', async () => {
-    // The refusal is about the grader, not about checks — our own judge runs
-    // them, and this is what stops the rule being written as a blanket ban.
+    // The same block on the other grader, so neither path can regress into
+    // dropping checks on the floor.
     const dir = writeChecksFixture('vocion', 1);
     const loaded = await loadWorkspace(dir);
 
@@ -150,6 +170,50 @@ describe('workspace apply — eval evaluators', () => {
       .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
 
     expect(stored?.items?.[0]?.checks).toEqual([{ outputContains: 'refund' }]);
+  });
+
+  it('stores the pass rate a dataset asks to be held to', async () => {
+    // The runner's floor is one number for every dataset everywhere. A set
+    // spread over a dozen live websites loses a case whenever one of them
+    // redesigns a page, and a gate that fails a build for that gets ignored.
+    await applyWorkspace(await loadWorkspace(writeThresholdFixture(0.6)), { orgId: ORG });
+
+    const [stored] = await db
+      .select({ passThreshold: evalDatasetSchema.passThreshold })
+      .from(evalDatasetSchema)
+      .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
+
+    // Exact, not approximate: the column is double precision so 0.6 comes
+    // back as 0.6, which is what lets the applier compare it without a
+    // tolerance and report an unchanged file as unchanged.
+    expect(stored?.passThreshold).toBe(0.6);
+  });
+
+  it('leaves the threshold unset when the file names none, so the runner default still applies', async () => {
+    await applyWorkspace(await loadWorkspace(writeThresholdFixture(null)), { orgId: ORG });
+
+    const [stored] = await db
+      .select({ passThreshold: evalDatasetSchema.passThreshold })
+      .from(evalDatasetSchema)
+      .where(and(eq(evalDatasetSchema.orgId, ORG), eq(evalDatasetSchema.slug, DATASET)));
+
+    expect(stored?.passThreshold).toBeNull();
+  });
+
+  it('reports the same threshold applied twice as unchanged, not as an update every time', async () => {
+    // A `real` column would have failed this: Postgres hands 0.6 back to
+    // JavaScript as 0.6000000238418579, the comparison would never match,
+    // and every apply would rewrite the row and report it as a change.
+    const dir = writeThresholdFixture(0.6);
+    await applyWorkspace(await loadWorkspace(dir), { orgId: ORG });
+
+    const second = await applyWorkspace(await loadWorkspace(dir), { orgId: ORG });
+
+    expect(second.counts.evalDatasets).toMatchObject({ updated: 0, unchanged: 1 });
+  });
+
+  it('refuses a pass rate outside 0 to 1, where it could never be met or never be missed', async () => {
+    await expect(async () => loadWorkspace(writeThresholdFixture(1.5))).rejects.toThrow();
   });
 
   it('refuses a file whose evaluator is for a grader the dataset does not use', async () => {

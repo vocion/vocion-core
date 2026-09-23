@@ -251,6 +251,8 @@ export async function proposeAction(input: {
     suggestedDecisionReason: string | null;
     suggestedSnoozeUntil?: string;
     labels?: string[];
+    scores?: Record<string, number>;
+    matchedRules?: Array<{ id: string; title?: string; text: string; evidence?: string }>;
   };
   /**
    * Upsert key for agent-suggested actions — (object type + id + action slug).

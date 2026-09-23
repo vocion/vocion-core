@@ -1,6 +1,7 @@
 import type { HarnessTarget } from '@/services/agents/harnessTarget';
 import { z } from 'zod';
 import { agentSkillsNameError } from '@/libs/skills/name';
+import { isDayZone, isRelativeDay } from '@/libs/time/relativeDay';
 import { isValidTimeZone } from '@/libs/time/zone';
 import { harnessTargetSchema } from '@/services/agents/harnessTarget';
 
@@ -139,6 +140,23 @@ export const WorkspaceManifestSchema = z.object({
      * dial for that kind — pin one action without changing the appetite.
      */
     learningEagerness: z.number().int().min(0).max(10).optional(),
+    /**
+     * The spend cap every agent in this workspace is held to when its own
+     * YAML sets no `budget:` — the workspace's default agent cap (#272).
+     *
+     * `dailyCents` is a hard cap in cents per UTC day: `10000` is $100. `null`
+     * means this workspace chose no default, so an agent without a budget of
+     * its own runs unlimited — for a workspace that manages spend with its
+     * provider's limits instead (AWS Budgets, the Anthropic Console's spend
+     * limits); see `docs/guides/budgets.md` for what those do and do not catch.
+     *
+     * Omit the block and apply leaves whatever default is stored alone, and
+     * with none stored the built-in $100 a day applies
+     * (`BudgetService.DEFAULT_AGENT_DAILY_HARD_CENTS`).
+     */
+    agentBudget: z.object({
+      dailyCents: z.number().int().min(0).nullable(),
+    }).optional(),
   }).partial().optional(),
   /**
    * Optional dashboard surfaces to switch on, by registry id (see
@@ -557,6 +575,25 @@ export const AgentManifestSchema = z.object({
   description: z.string().optional(),
   icon: z.string().optional(),
   active: z.boolean().default(true),
+  /**
+   * This agent's spend caps, in cents. A turn is refused once the period's
+   * spend reaches the cap, and a turn that crosses it partway is stopped at
+   * its next model call (#272). `dailyCents: 5000` is $50 per UTC day;
+   * `monthlyCents` is per UTC calendar month. Either may be left out.
+   *
+   * An agent with no daily cap of its own is held to the workspace's default
+   * agent cap (`defaults.agentBudget` in workspace.yaml) and, failing that, to
+   * the built-in $100 a day. So leaving this out is not "unlimited".
+   *
+   * Omit the block and apply leaves the agent's stored caps alone — a cap set
+   * when the agent was hired, or by an admin, survives. Write it and the YAML
+   * owns those caps: the next apply puts them back to what is written here.
+   * See `docs/guides/budgets.md`.
+   */
+  budget: z.object({
+    dailyCents: z.number().int().min(0).optional(),
+    monthlyCents: z.number().int().min(0).optional(),
+  }).optional(),
   /**
    * Slug of the primary agent this specialist reports to. Omit for
    * primary agents. One level deep: the referenced agent must itself
@@ -1288,6 +1325,78 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
  * `workspace/<org>/evals/<slug>.yaml` declares one dataset.
  */
 /**
+ * Whether a dot path names one value rather than every item of a list. A
+ * `where` filter needs a single answer per call, so `*` is refused there.
+ * @param path - A dot path from the manifest.
+ */
+function readsOneValue(path: string): boolean {
+  return !path.split('.').includes('*');
+}
+
+/**
+ * How many `*` segments a dot path has.
+ * @param path - A dot path from the manifest, or nothing.
+ */
+function countEveryItem(path: string | undefined): number {
+  return path ? path.split('.').filter(segment => segment === '*').length : 0;
+}
+
+/**
+ * One `where` filter on a `toolCalledWith` or `toolReturned` check. `present: false` exists so
+ * a rule can step around the one legitimate exception to it — a series
+ * refresh, which is the only event proposal carrying a `recurrence`, keeps
+ * its first `startDate` even when that day has passed.
+ */
+const ToolCallFilterSchema = z.object({
+  path: z.string().refine(readsOneValue, { message: 'a where path reads one value; a * segment only belongs in path' }),
+  equals: z.unknown().optional(),
+  present: z.boolean().optional(),
+}).refine(
+  filter => filter.equals !== undefined || filter.present !== undefined,
+  { message: 'a where filter needs equals or present — otherwise it matches every call' },
+);
+
+/**
+ * The condition a `toolCalledWith` or `toolReturned` check carries. The two
+ * differ only in what `path` and `timezoneFrom` read — the call's arguments
+ * or what the tool handed back — so they share one shape and one set of
+ * refusals.
+ * @param checkName - The check's key, for the refusal message.
+ * @param readsFrom - What `path` reads, for the field descriptions.
+ */
+function toolConditionSchema(checkName: 'toolCalledWith' | 'toolReturned', readsFrom: string) {
+  return z.object({
+    tool: z.string(),
+    where: z.union([ToolCallFilterSchema, z.array(ToolCallFilterSchema).min(1)]).optional().describe('only the calls whose arguments match this filter, or every filter in a list — one tool often files several kinds of thing'),
+    noCalls: z.enum(['fail', 'pass']).optional().describe('what no matching call means; fail by default'),
+    path: z.string().optional().describe(`dot path into ${readsFrom}; a * segment means every item of a list`),
+    equals: z.unknown().optional(),
+    contains: z.string().optional(),
+    present: z.boolean().optional(),
+    subsetOf: z.array(z.string()).optional().describe('every element at the path must be one of these'),
+    onOrAfter: z.string().refine(isRelativeDay, { message: 'onOrAfter must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or after this day, resolved when the check runs'),
+    onOrBefore: z.string().refine(isRelativeDay, { message: 'onOrBefore must be today, yesterday, tomorrow, last/next week|month|year, "N days|weeks|months|years ago", "in N days|weeks|months|years", or YYYY-MM-DD' }).optional().describe('the date at the path must fall on or before this day, resolved when the check runs'),
+    timezone: z.string().refine(isDayZone, { message: 'timezone must be utc, local, workspace, or an IANA zone like America/New_York' }).optional().describe('which zone "today" is in for onOrAfter and onOrBefore; utc by default'),
+    timezoneFrom: z.string().min(1).optional().describe(`dot path into ${readsFrom} naming the zone; a * means the same item path is on; timezone applies when it names none`),
+    calls: z.enum(['every', 'some']).optional().describe('how many of the tool\'s calls must match; every by default'),
+  }).refine(
+    condition => condition.equals !== undefined
+      || condition.contains !== undefined
+      || condition.present !== undefined
+      || condition.subsetOf !== undefined
+      || condition.onOrAfter !== undefined
+      || condition.onOrBefore !== undefined,
+    { message: `${checkName} needs one of equals, contains, present, subsetOf, onOrAfter or onOrBefore — otherwise it asserts nothing` },
+  ).refine(
+    // Each `*` in timezoneFrom is the item the matching `*` in path is on, so
+    // it cannot have more of them than path does — there would be no item to
+    // stand for.
+    condition => countEveryItem(condition.timezoneFrom) <= countEveryItem(condition.path),
+    { message: 'timezoneFrom has more * segments than path; each * in timezoneFrom stands for the item the matching * in path is on' },
+  );
+}
+
+/**
  * One deterministic check we run ourselves.
  *
  * A closed list, deliberately. Arbitrary code in a manifest would need a
@@ -1299,6 +1408,36 @@ export type ObjectTypeManifest = z.infer<typeof ObjectTypeManifestSchema>;
 const EvalCheckSchema = z.union([
   z.object({ toolCalled: z.string() }),
   z.object({ toolNotCalled: z.string() }),
+  z.object({
+    /**
+     * What a tool call's arguments had to look like. The tool name and the
+     * answer text were all a check could read before this, which left the
+     * envelope shape, the dedup key and the suggested decision — all of them
+     * arguments — measurable by nothing we have.
+     */
+    toolCalledWith: toolConditionSchema('toolCalledWith', 'the call\'s arguments, e.g. action_input.dedupOn'),
+  }),
+  z.object({
+    /**
+     * What the tool handed back had to look like. Arguments say what the
+     * agent asked for; only the return says whether it got what it needed —
+     * a lookup that returns records without their ids leaves the agent
+     * unable to write anything back to them.
+     */
+    toolReturned: toolConditionSchema('toolReturned', 'the tool\'s return value, parsed as JSON, e.g. *.id'),
+  }),
+  z.object({
+    /** How many times the tool was allowed to be called. */
+    toolCallCount: z.object({
+      tool: z.string(),
+      exactly: z.number().int().nonnegative().optional(),
+      min: z.number().int().nonnegative().optional(),
+      max: z.number().int().nonnegative().optional(),
+    }).refine(
+      condition => condition.exactly !== undefined || condition.min !== undefined || condition.max !== undefined,
+      { message: 'toolCallCount needs one of exactly, min or max — otherwise it asserts nothing' },
+    ),
+  }),
   z.object({ outputMatches: z.string().describe('regular expression the answer must match') }),
   z.object({ outputContains: z.string() }),
   z.object({ outputNotContains: z.string() }),
@@ -1369,6 +1508,16 @@ export const EvalDatasetManifestSchema = z.object({
    */
   provider: z.enum(['vocion', 'agentcore']).default('vocion'),
   /**
+   * The pass rate this dataset has to reach for `eval:run` to exit 0.
+   *
+   * A single number for the whole dataset, not a bar every case has to clear,
+   * because a dataset spread across a dozen live sources will lose a case to
+   * one of them redesigning a page, and a gate that fails the build for that
+   * teaches people to ignore the gate. Omitted, the runner's own floor
+   * applies, so every dataset written before this field keeps its behaviour.
+   */
+  passThreshold: z.number().min(0).max(1).optional().describe('pass rate the run must reach, 0 to 1'),
+  /**
    * The evaluators this dataset's grader should use. Each one names its own
    * provider, which must be the dataset's — a dataset scored by Vocion cannot
    * carry an AgentCore evaluator, because nothing would ever run it.
@@ -1411,22 +1560,12 @@ export const EvalDatasetManifestSchema = z.object({
     }
   }
 
-  // `checks` run inside our own judge and nowhere else, so on a dataset graded
-  // by anyone else they are written, applied, and then silently never run —
-  // and the case still reports a pass rate, which reads as if they had. Refuse
-  // the file instead. A dataset that needs deterministic checks belongs to
-  // Vocion; inside AgentCore the equivalent is a `codeBased` evaluator.
-  if (dataset.provider !== 'vocion') {
-    dataset.items.forEach((item, index) => {
-      if (item.checks?.length) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['items', index, 'checks'],
-          message: `case ${index + 1} has checks, which only run under the vocion grader — this dataset is graded by ${dataset.provider}`,
-        });
-      }
-    });
-  }
+  // `checks` used to be refused on anything but a Vocion dataset, because
+  // only the Vocion grader ran them. They now run over the transcript
+  // whichever grader scores the case — the transcript is ours either way —
+  // so a dataset can send its cases to AWS and still assert the things a
+  // model should never be asked to judge, like whether the dedup key had the
+  // right three fields in it.
 });
 export type EvalDatasetManifest = z.infer<typeof EvalDatasetManifestSchema>;
 export type EvalEvaluatorManifest = z.infer<typeof EvalEvaluatorManifestSchema>;

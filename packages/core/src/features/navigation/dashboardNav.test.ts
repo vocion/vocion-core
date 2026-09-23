@@ -7,6 +7,7 @@ import {
   DEFAULT_WORK_PINS,
   manageNavGroups,
   manageRoutes,
+  routeVisible,
   tabsOf,
   workCoreRoutes,
   workPinnableRoutes,
@@ -34,11 +35,13 @@ describe('dashboardNav registry', () => {
   it('keeps WORK to the daily driver — no reports, no developers, no configuration, and no second decision door', () => {
     const work = workRoutes().map(r => r.url);
 
-    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search', '/dashboard/rooms']);
-    // Chat and Review are the surface; the rest earn a row by being pinned, Briefings from the start.
+    // The one report in WORK is the client scorecard (#342): the view a
+    // business user opens on their own, so it must not sit under MANAGE.
+    expect(work).toEqual(['/dashboard/chat', '/dashboard/inbox', '/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms']);
+    // Chat and Review are the surface; the rest earn a row by being pinned, Briefings and the Scorecard from the start.
     expect(workCoreRoutes().map(r => r.url)).toEqual(['/dashboard/chat', '/dashboard/inbox']);
-    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/artifacts', '/dashboard/search', '/dashboard/rooms']);
-    expect(DEFAULT_WORK_PINS).toEqual(['/dashboard/briefings']);
+    expect(workPinnableRoutes().map(r => r.url)).toEqual(['/dashboard/briefings', '/dashboard/artifacts', '/dashboard/scorecard', '/dashboard/search', '/dashboard/rooms']);
+    expect(DEFAULT_WORK_PINS).toEqual(['/dashboard/briefings', '/dashboard/scorecard']);
     // Artifacts replaced Canvases, which never earned a row of its own.
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/canvases')).toBe(false);
     expect(work).not.toContain('/dashboard/team-report');
@@ -47,6 +50,18 @@ describe('dashboardNav registry', () => {
     // Review folded into the review queue: no sidebar row, no route of its own.
     expect(work).not.toContain('/dashboard/review');
     expect(DASHBOARD_ROUTES.some(r => r.url === '/dashboard/review')).toBe(false);
+  });
+
+  it('offers the scorecard to a non-admin member, while Adoption stays admin-only (#342)', () => {
+    const memberWork = workRoutes({ isAdmin: false }).map(r => r.url);
+    const scorecard = DASHBOARD_ROUTES.find(r => r.url === '/dashboard/scorecard');
+    const adoption = DASHBOARD_ROUTES.find(r => r.url === '/dashboard/adoption');
+
+    expect(memberWork).toContain('/dashboard/scorecard');
+    expect(scorecard && routeVisible(scorecard, { isAdmin: false })).toBe(true);
+    expect(adoption && routeVisible(adoption, { isAdmin: false })).toBe(false);
+    // Client-facing label: "Evals" is an engineering word.
+    expect(scorecard?.title).not.toMatch(/eval/i);
   });
 
   it('keeps the review alias in the palette only — the muscle memory, not a second door', () => {

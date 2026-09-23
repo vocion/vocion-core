@@ -6,3 +6,8 @@ description: acme-revops workspace
 defaults:
   model: gpt-5.4-mini
   temperature: '0.3'
+  # Spend cap for any agent without a `budget:` of its own, in cents per UTC
+  # day. Leave it out for the built-in $100 a day; `null` for no default.
+  # See docs/guides/budgets.md.
+  agentBudget:
+    dailyCents: 10000

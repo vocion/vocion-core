@@ -54,7 +54,7 @@ export const CANDIDATE_STATUS = {
   rejected: 'rejected',
 } as const;
 
-const candidateInputShape = z.object({
+export const candidateInputShape = z.object({
   /** Slug of an object type in this org's registry, e.g. `event-candidate`. */
   objectType: z.string().min(1).max(200),
   /** What to call this candidate in the queue and on the object row. */

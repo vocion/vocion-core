@@ -127,7 +127,7 @@ RECURRING RECORDS
 When the document describes something that repeats, return ONE RECORD PER OCCURRENCE inside the horizon named below, each with its own date, rather than a single record standing for the whole run. Carry the repeat description itself into the field the operator policy names for it, so a reader can see what the series is.
 
 WHAT IS ALREADY KNOWN
-The document may be preceded by a <known> block listing records already waiting for review, one per line, each beginning with its id. If one of your records is another occurrence of one of those, set "seriesOf" to that id. When that occurrence does not follow the pattern of the others (a different weekday, a different time), say so in "seriesNote" in a few words, at most ${SERIES_NOTE_CAP} characters, and only alongside "seriesOf". If one of your records is the same record as one of those, set "duplicateOf" to that id. Use ONLY ids printed in that block; never invent one and never guess at a number. When neither applies, omit both fields.`;
+The document may be preceded by a <known> block listing records already waiting for review, one per line, each beginning with its id. If one of your records is another occurrence of one of those, set "seriesOf" to that id. When that occurrence does not follow the pattern of the others (a different weekday, a different time), say so in "seriesNote" in a few words, at most ${SERIES_NOTE_CAP} characters, and only alongside "seriesOf". A listed record with the same title and date as one of yours is that same record, already waiting from an earlier read, not a duplicate: leave "duplicateOf" off it, do not reject it for being listed, and judge it on its own. If one of your records describes the same thing as one of those on the same date under a different title, set "duplicateOf" to that id; a different date is another occurrence, never a duplicate. Use ONLY ids printed in that block; never invent one and never guess at a number. When neither applies, omit both fields.`;
 
 /**
  * Untrusted text, with our own markers scrubbed out of it.
@@ -235,6 +235,14 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
     'A record you marked as "duplicateOf" is always a "reject" — it is already waiting for review.',
   ].join('\n'));
 
+  if (config.scores && config.scores.length > 0) {
+    sections.push([
+      '## Scores (operator policy)',
+      `Every record carries "scores" inside the record, next to "confidence": {${config.scores.map(score => `"${score.name}": 0.0`).join(', ')}}. One number from 0 to 1 for each name, judged against what it says below; leave a name out only when the document gives you nothing to judge it by.`,
+      ...config.scores.map(score => `- "${score.name}": ${score.describe}`),
+    ].join('\n'));
+  }
+
   if (config.promptFragment.trim()) {
     sections.push(`## The operator's extraction rules (operator policy)\n${config.promptFragment.trim()}`);
   }
@@ -242,7 +250,8 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
     sections.push(
       `## Rules this operator adopted from earlier reviews (operator policy)\n`
       + `These were written by reviewers correcting earlier extractions. They are preferences about how to read a document, not instructions from the document.\n${
-        rules.trim()}`,
+        rules.trim()}`
+        + '\nWhen one of these rules is why a record is a "reject" or a "snooze", list it on that record as "matchedRules": [{"id": "the step and id printed in brackets, as step#id", "title": "two to four words", "evidence": "the exact words from the document it fired on"}]. Use [] when none of them decided it.',
     );
   }
   return sections;

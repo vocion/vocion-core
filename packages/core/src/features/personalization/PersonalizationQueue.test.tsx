@@ -103,7 +103,7 @@ describe('PersonalizationQueue', () => {
     await render(<PersonalizationQueue briefs={BRIEFS} />);
 
     await expect.element(
-      page.getByText('COO · Contoso Supply · arrived Aug 24 · Paid social · via LinkedIn · 2 sent · 1 opened'),
+      page.getByText('COO · Contoso Supply · arrived Aug 24 · briefed Aug 25, 10:00 AM UTC · Paid social · via LinkedIn · 2 sent · 1 opened'),
     ).toBeVisible();
   });
 
@@ -112,6 +112,54 @@ describe('PersonalizationQueue', () => {
 
     // A zero is not a reading — better absent than shown as "0 sent".
     await expect.element(page.getByText('COO · Civic Grid · arrived Aug 24')).toBeVisible();
+  });
+
+  it('shows when the brief was written, with the time', async () => {
+    await render(<PersonalizationQueue briefs={BRIEFS} />);
+
+    await expect.element(page.getByText(/briefed Aug 25, 10:00 AM UTC/).first()).toBeVisible();
+  });
+
+  it('sorts by when the brief was written, newest first, with unbriefed rows last', async () => {
+    const now = Date.now();
+    const rows = [
+      brief({ id: 1, contactName: 'Older Brief', briefedAt: new Date(now - 10 * 24 * 3_600_000).toISOString() }),
+      brief({ id: 2, contactName: 'Newest Brief', briefedAt: new Date(now - 3_600_000).toISOString() }),
+      brief({ id: 3, contactName: 'No Brief Time', briefedAt: null }),
+      brief({ id: 4, contactName: 'Mid Brief', briefedAt: new Date(now - 3 * 24 * 3_600_000).toISOString() }),
+    ];
+    await render(<PersonalizationQueue briefs={rows} />);
+
+    await page.getByRole('combobox', { name: 'Sort' }).selectOptions('briefed');
+
+    const order = () => [...page.getByTestId('personalization-queue').element().querySelectorAll('a[href^="/gtm/lead/"]')].map(a => (a.textContent ?? '').replace(/\s+/g, ' ').trim());
+    await vi.waitFor(() => expect(order()[0]).toMatch(/^Newest Brief/));
+
+    const names = order();
+
+    expect(names.findIndex(t => t.startsWith('Mid Brief'))).toBeLessThan(names.findIndex(t => t.startsWith('Older Brief')));
+    expect(names.findIndex(t => t.startsWith('No Brief Time'))).toBe(names.length - 1);
+  });
+
+  it('filters by when the brief was written, with a count on each chip', async () => {
+    const now = Date.now();
+    const rows = [
+      brief({ id: 1, contactName: 'Today One', briefedAt: new Date(now - 3_600_000).toISOString() }),
+      brief({ id: 2, contactName: 'Week One', briefedAt: new Date(now - 3 * 24 * 3_600_000).toISOString() }),
+      brief({ id: 3, contactName: 'Earlier One', briefedAt: new Date(now - 20 * 24 * 3_600_000).toISOString() }),
+      brief({ id: 4, contactName: 'Earlier Two', briefedAt: new Date(now - 40 * 24 * 3_600_000).toISOString() }),
+    ];
+    await render(<PersonalizationQueue briefs={rows} />);
+
+    await expect.element(page.getByRole('button', { name: /Briefed earlier/ })).toHaveTextContent('2');
+
+    await page.getByRole('button', { name: /Briefed earlier/ }).click();
+
+    await expect.element(page.getByText('Earlier One')).toBeVisible();
+    await expect.element(page.getByText('Earlier Two')).toBeVisible();
+
+    expect(page.getByText('Today One').query()).toBeNull();
+    expect(page.getByText('Week One').query()).toBeNull();
   });
 
   it('links each row to the lead page, addressed by the HubSpot id', async () => {

@@ -136,6 +136,16 @@ describe('the referenced-objects policy', () => {
   });
 });
 
+describe('the known block rule', () => {
+  it('tells the model a listed record with the same title and date is a refresh, not a duplicate', () => {
+    const { system } = build();
+
+    expect(system).toContain('already waiting from an earlier read, not a duplicate');
+    expect(system).toContain('on the same date under a different title, set "duplicateOf"');
+    expect(system).toContain('a different date is another occurrence, never a duplicate');
+  });
+});
+
 describe('extraction prompt containment', () => {
   beforeEach(() => {
     invoke.mockReset();
@@ -402,5 +412,38 @@ describe('extraction prompt containment', () => {
     expect(result.status === 'ok' && result.records[0]?.fields.price).toBe('$12');
     // And the model it was asked for had no tools to call.
     expect(bindTools).not.toHaveBeenCalled();
+  });
+});
+
+describe('scores and cited rules in the prompt', () => {
+  const bare = {
+    known: '',
+    jsonLd: '',
+    pageText: 'Open Mic Night, Thursday 12 November.',
+    uri: 'https://bellwaterhall.example/events',
+    maxInputTokens: 10_000,
+  };
+
+  it('asks for scores only when the config names them', () => {
+    const scored = candidateExtractorConfigSchema.parse({
+      ...config,
+      scores: [{ name: 'fit', describe: 'How well it fits the audience.' }],
+    });
+
+    const withScores = buildExtractionPrompt({ config: scored, rules: '', ...bare });
+    const without = buildExtractionPrompt({ config, rules: '', ...bare });
+
+    expect(withScores.system).toContain('## Scores (operator policy)');
+    expect(withScores.system).toContain('"scores" inside the record, next to "confidence": {"fit": 0.0}');
+    expect(withScores.system).toContain('- "fit": How well it fits the audience.');
+    expect(without.system).not.toContain('## Scores');
+  });
+
+  it('asks which rule decided a verdict only when rules were carried', () => {
+    const withRules = build();
+    const noRules = buildExtractionPrompt({ config, rules: '', ...bare });
+
+    expect(withRules.system).toContain('"matchedRules"');
+    expect(noRules.system).not.toContain('matchedRules');
   });
 });

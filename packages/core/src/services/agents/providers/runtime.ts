@@ -41,10 +41,20 @@ import { mintBedrockSessionForRuntime } from '@/libs/llm/bedrockCredentials';
 import { agentSchema } from '@/models/Schema';
 import { chargeUsage } from '@/services/BudgetService';
 import { conversationSessionId } from '@/services/evals/sessionIds';
+import { TurnBudgetGuard } from '../budgetStop';
 import { signClaim } from '../claims';
 import { buildInitialFiles } from '../harness';
 import { memoryMountPaths } from '../memoryDigest';
 import { buildToolCatalog } from '../tools/registry';
+
+/**
+ * Container events that mean the turn is going on to another model call or
+ * tool: after a charged call crossed its budget, the first of these stops the
+ * relay (#272). `done`, `error`, `usage` and the ends of tools and delegations
+ * already running are let through, so a turn that finished on the call that
+ * crossed the cap keeps its answer.
+ */
+const STARTS_MORE_WORK: ReadonlySet<AgentEvent['type']> = new Set(['thinking', 'answering', 'response_delta', 'thinking_delta', 'tool_start', 'subagent_start']);
 
 const RUNTIME_URL = (): string => process.env.VOCION_AGENT_RUNTIME_URL ?? 'http://localhost:8080';
 const TOOL_ENDPOINT = (): string =>
@@ -216,8 +226,17 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   let traceId = '';
   const toolCalls: Array<{ tool: string; input: Record<string, unknown>; output: string }> = [];
   let errorMessage: string | null = null;
+  // Reads the caps again after each model call the container reports, and
+  // once one is crossed aborts the stream at the first sign of more work
+  // (#272) — the preflight in `runAgent` only sees the turn's start. A turn
+  // that crossed its cap on its last call still delivers its `done`.
+  const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
 
   const handleEvent = async (event: AgentEvent): Promise<void> => {
+    if (budgetGuard.crossed && STARTS_MORE_WORK.has(event.type)) {
+      budgetGuard.beforeModelCall();
+      return;
+    }
     if (event.type === 'usage') {
       await chargeUsage({
         orgId: opts.orgId,
@@ -238,6 +257,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
           `runtime provider: budget charge failed for org ${opts.orgId} agent ${opts.agentSlug} (usage NOT recorded): ${(err as Error).message}`,
         );
       });
+      await budgetGuard.afterModelCall();
       return;
     }
     if (event.type === 'tool_end') {
@@ -302,7 +322,9 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
   const handleChunk = async (chunk: string): Promise<void> => {
     buffer += chunk;
     let sep = buffer.indexOf('\n\n');
-    while (sep >= 0) {
+    // A budget stop ends the relay at the frame that would have started more
+    // work: whatever the container sent after it is not the person's answer.
+    while (sep >= 0 && !budgetGuard.stoppedBy) {
       const frame = buffer.slice(0, sep);
       buffer = buffer.slice(sep + 2);
       sep = buffer.indexOf('\n\n');
@@ -351,7 +373,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
         contentType: 'application/json',
         accept: 'text/event-stream',
         payload: Buffer.from(JSON.stringify(payload), 'utf8'),
-      }));
+      }), { abortSignal: budgetGuard.signal });
       const stream = res.response as unknown as AsyncIterable<Uint8Array> | undefined;
       if (!stream) {
         throw new Error('agent runtime (AgentCore) returned no stream');
@@ -359,6 +381,9 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
       const decoder = new TextDecoder();
       for await (const value of stream) {
         await handleChunk(decoder.decode(value, { stream: true }));
+        if (budgetGuard.stoppedBy) {
+          break;
+        }
       }
     } else {
       // Local transport: plain HTTP to the artifact.
@@ -366,6 +391,7 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: budgetGuard.signal,
       });
       if (!res.ok || !res.body) {
         const body = await res.text().catch(() => '');
@@ -379,15 +405,32 @@ export async function runAgentOnRuntime(opts: RuntimeRunOptions): Promise<{
           break;
         }
         await handleChunk(decoder.decode(value, { stream: true }));
+        if (budgetGuard.stoppedBy) {
+          await reader.cancel().catch((cancelError: unknown) => console.warn(`agent runtime provider: could not close the stream after a budget stop: ${(cancelError as Error).message}`));
+          break;
+        }
       }
     }
   } catch (err) {
+    // The abort itself surfaces here as the transport failing; it is the
+    // budget stop, and ends the turn the same way the break below does.
+    const budgetStop = budgetGuard.stopError();
+    if (budgetStop) {
+      console.warn(`agent runtime provider: stopped at its budget for org ${opts.orgId} agent ${opts.agentSlug}: ${(err as Error).message}`);
+      emit({ type: 'error', message: budgetStop.message });
+      throw budgetStop;
+    }
     const message = (err as Error).message ?? 'agent runtime transport failed';
     console.error(`agent runtime provider: transport failed for org ${opts.orgId} agent ${opts.agentSlug}: ${message}`);
     emit({ type: 'error', message });
     throw err;
   }
 
+  const budgetStop = budgetGuard.stopError();
+  if (budgetStop) {
+    emit({ type: 'error', message: budgetStop.message });
+    throw budgetStop;
+  }
   if (errorMessage) {
     throw new Error(errorMessage);
   }

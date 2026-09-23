@@ -276,6 +276,14 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/reviews-suggested-decision',
       timeout: 60 * 1000,
     },
+    // #342 — the agent scorecard as a non-admin member sees it: signs in as a
+    // member seeded by its own support script, so it never depends on `setup`.
+    // Run with: npx playwright test --project=scorecard
+    {
+      name: 'scorecard',
+      testDir: './e2e/scorecard',
+      timeout: 60 * 1000,
+    },
     // Run with: npx playwright test --project=reviews-approved-by-agent
     {
       name: 'reviews-approved-by-agent',
@@ -290,6 +298,14 @@ export default defineConfig<ChromaticConfig>({
     {
       name: 'worker-run-usage',
       testDir: './e2e/worker-run-usage',
+      timeout: 60 * 1000,
+    },
+    // #272 — every agent's cap and spend over real HTTP, including agents
+    // with no budget row that run on the default cap. `request` fixture only.
+    // Run with: npx playwright test --project=agent-budgets
+    {
+      name: 'agent-budgets',
+      testDir: './e2e/agent-budgets',
       timeout: 60 * 1000,
     },
     // #396 — the generated OpenAPI document, and the reference page that

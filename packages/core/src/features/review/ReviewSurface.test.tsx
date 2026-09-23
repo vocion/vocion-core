@@ -396,6 +396,23 @@ describe('one flat template, every object type', () => {
     expect(regenerateAction.mock.calls[0]![0]).toEqual({ id: 501, feedback: 'Replace every dash with a comma.' });
   });
 
+  it('shows Regenerate all only while a send is the open tab, never under the Brief', async () => {
+    await render(
+      <ReviewSurface
+        run={enrollment(3)}
+        crumbs={CRUMBS}
+        extraTabs={[{ id: 'brief', label: 'Brief', children: <p>The research.</p>, first: true }]}
+        defaultTab="extra-brief"
+      />,
+    );
+
+    expect(page.getByTestId('regenerate-all-open').query()).toBeNull();
+
+    await page.getByTestId('tab-item-send-1').click();
+
+    await expect.element(page.getByTestId('regenerate-all-open')).toBeVisible();
+  });
+
   it('draws no Regenerate all on a card with one send: the send\'s own Regenerate is the whole card', async () => {
     await render(<ReviewSurface run={enrollment(1)} crumbs={CRUMBS} />);
 

@@ -16,9 +16,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
+const { eq } = await import('drizzle-orm');
+
 const { db } = await import('@/libs/DB');
 const { agentBudgetSchema } = await import('@/models/Schema');
+const { agentSchema } = await import('@/models/Schema');
 const {
+  AGENT_DEFAULT_SCOPE_SLUG,
+  agentBudgetStatuses,
   chargeUsage,
   featureScopeSlug,
   getBudget,
@@ -26,7 +31,9 @@ const {
   listPlatformBudgets,
   ORG_SCOPE_SLUG,
   orgUsageTotals,
+  periodEndsAt,
   preflightCheck,
+  rollPeriodIfStale,
   setLimits,
 } = await import('@/services/BudgetService');
 
@@ -39,13 +46,33 @@ const EMBEDDING_MODEL = 'text-embedding-3-small';
 /** `claude-haiku-4-5-20251001` at 100 / 500 cents per million. */
 const CHAT_MODEL = 'claude-haiku-4-5-20251001';
 
+const savedDefaultCents = process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS;
+
 beforeEach(async () => {
   await db.delete(agentBudgetSchema);
+  await db.delete(agentSchema);
+  delete process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS;
 });
 
 afterEach(async () => {
   await db.delete(agentBudgetSchema);
+  await db.delete(agentSchema);
+  if (savedDefaultCents === undefined) {
+    delete process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS;
+  } else {
+    process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS = savedDefaultCents;
+  }
 });
+
+/**
+ * Spend `dollars` on the test agent's chat model: the Haiku price is one
+ * dollar per million input tokens, so a million tokens per dollar.
+ * @param dollars - How much to charge.
+ * @param agentSlug - Whose turn it was.
+ */
+async function spendOnAgent(dollars: number, agentSlug: string = AGENT): Promise<void> {
+  await chargeUsage({ orgId: ORG, agentSlug, model: CHAT_MODEL, usage: { inputTokens: dollars * 1_000_000 } });
+}
 
 describe('where a charge lands', () => {
   it('records an agent turn on the agent and on the workspace, and nowhere else', async () => {
@@ -261,15 +288,16 @@ describe('what a cap refuses', () => {
     expect((await orgUsageTotals({ orgId: ORG })).spentCents).toBe(4.9);
   });
 
-  it('lets an org with no cap through however much it has spent', async () => {
+  it('lets a workspace with no workspace-wide cap spend however much it likes on non-agent work', async () => {
     await chargeUsage({
       orgId: ORG,
-      agentSlug: AGENT,
-      model: CHAT_MODEL,
-      usage: { inputTokens: 500_000_000 },
+      feature: 'retrieval.embed',
+      model: EMBEDDING_MODEL,
+      usage: { inputTokens: 50_000_000_000 },
     });
 
-    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+    // $10,000 of embedding, and no default applies to anything but an agent turn.
+    expect((await preflightCheck({ orgId: ORG, feature: 'retrieval.embed' })).ok).toBe(true);
   });
 
   it('keeps one org\'s spend out of another org\'s cap', async () => {
@@ -415,5 +443,253 @@ describe('the rows add up', () => {
     // 12,345 tokens x 2 micro-cents each x 3 agents.
     expect(workspace!.currentMicroCents).toBe(74_070);
     expect(workspace!.currentCents).toBe(0.07407);
+  });
+});
+
+describe('an agent nobody gave a cap (#272)', () => {
+  it('is held to the built-in $100 a day, and the refusal says the default is why', async () => {
+    await spendOnAgent(101);
+
+    const check = await preflightCheck({ orgId: ORG, agentSlug: AGENT });
+
+    expect(check).toMatchObject({ ok: false, scope: 'agent', agentSlug: AGENT, limit: 10_000, limitFrom: 'built_in_agent_default' });
+  });
+
+  it('runs freely under the built-in default', async () => {
+    await spendOnAgent(99);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+  });
+
+  it('takes the workspace default over the built-in one when an admin set it', async () => {
+    await setLimits({ orgId: ORG, agentSlug: AGENT_DEFAULT_SCOPE_SLUG, hardCentsLimit: 500 });
+    await spendOnAgent(6);
+
+    const check = await preflightCheck({ orgId: ORG, agentSlug: AGENT });
+
+    expect(check).toMatchObject({ ok: false, limit: 500, limitFrom: 'workspace_agent_default' });
+  });
+
+  it('runs unlimited when the workspace chose no default', async () => {
+    await setLimits({ orgId: ORG, agentSlug: AGENT_DEFAULT_SCOPE_SLUG, hardCentsLimit: null });
+    await spendOnAgent(500);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+  });
+
+  it('keeps an agent\'s own cap even when it is higher than the default', async () => {
+    await setLimits({ orgId: ORG, agentSlug: AGENT, hardCentsLimit: 20_000 });
+    await spendOnAgent(150);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+  });
+
+  it('names the agent\'s own cap as the source when that is what refused', async () => {
+    await setLimits({ orgId: ORG, agentSlug: AGENT, hardCentsLimit: 100 });
+    await spendOnAgent(2);
+
+    expect(await preflightCheck({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, limit: 100, limitFrom: 'own' });
+  });
+
+  it('follows the deployment\'s built-in figure, and switches off on `off`', async () => {
+    process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS = '300';
+    await spendOnAgent(4);
+
+    expect(await preflightCheck({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, limit: 300 });
+
+    process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS = 'off';
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+  });
+
+  it('keeps the built-in figure when the deployment\'s value is a typo, rather than dropping the cap', async () => {
+    process.env.VOCION_DEFAULT_AGENT_DAILY_HARD_CENTS = '100 dollars';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await spendOnAgent(101);
+
+    expect(await preflightCheck({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, limit: 10_000 });
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('puts no built-in default on the monthly period', async () => {
+    await chargeUsage({ orgId: ORG, agentSlug: AGENT, model: CHAT_MODEL, usage: { inputTokens: 500_000_000 }, period: 'monthly' });
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT, period: 'monthly' })).ok).toBe(true);
+  });
+});
+
+describe('what GET /api/v1/budgets/agents reads (#272)', () => {
+  async function seedAgents(slugs: string[]): Promise<void> {
+    await db.insert(agentSchema).values(slugs.map(slug => ({ orgId: ORG, slug, name: `Agent ${slug}`, systemPrompt: 'x' })) as never);
+  }
+
+  it('lists an agent that has never spent, with the default cap it is held to', async () => {
+    await seedAgents(['fresh-agent']);
+
+    const { agents } = await agentBudgetStatuses(ORG);
+
+    expect(agents).toEqual([expect.objectContaining({
+      agentSlug: 'fresh-agent',
+      spentCents: 0,
+      hardCentsLimit: 10_000,
+      hardCentsLimitFrom: 'built_in_agent_default',
+      remainingCents: 10_000,
+      blocked: false,
+    })]);
+  });
+
+  it('marks exactly the agents whose next turn would be refused, with the same breach', async () => {
+    await seedAgents(['over', 'under']);
+    await spendOnAgent(101, 'over');
+    await spendOnAgent(5, 'under');
+
+    const { agents } = await agentBudgetStatuses(ORG);
+    const over = agents.find(agent => agent.agentSlug === 'over')!;
+    const under = agents.find(agent => agent.agentSlug === 'under')!;
+
+    expect(over).toMatchObject({ blocked: true, remainingCents: 0 });
+    expect(over.breach).toEqual(await preflightCheck({ orgId: ORG, agentSlug: 'over' }));
+    expect(under).toMatchObject({ blocked: false, spentCents: 500, remainingCents: 9_500 });
+  });
+
+  it('reports the period ending at the next UTC midnight', async () => {
+    await seedAgents(['fresh-agent']);
+
+    const { agents } = await agentBudgetStatuses(ORG);
+    const resets = new Date(agents[0]!.periodResetsAt);
+
+    expect(resets.getUTCHours()).toBe(0);
+    expect(resets.getTime() - Date.now()).toBeGreaterThan(0);
+    expect(resets.getTime() - Date.now()).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+  });
+
+  it('tells "no workspace default set" apart from "the workspace chose none"', async () => {
+    await seedAgents(['fresh-agent']);
+
+    expect((await agentBudgetStatuses(ORG)).workspaceAgentDefaultCents).toBeUndefined();
+
+    await setLimits({ orgId: ORG, agentSlug: AGENT_DEFAULT_SCOPE_SLUG, hardCentsLimit: null });
+    const status = await agentBudgetStatuses(ORG);
+
+    expect(status.workspaceAgentDefaultCents).toBeNull();
+    expect(status.agents[0]).toMatchObject({ hardCentsLimit: null, remainingCents: null, blocked: false });
+  });
+});
+
+/**
+ * The start of yesterday, UTC — what a daily row's period start reads the
+ * morning after. An exact midnight rather than "now minus 24 hours", so a run
+ * of this file just after midnight still lands the row in yesterday.
+ */
+function startOfYesterdayUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+}
+
+/** Move every row of the test org into yesterday, as the next morning finds it. */
+async function itIsTheNextDay(): Promise<void> {
+  await db.update(agentBudgetSchema).set({ periodStartedAt: startOfYesterdayUtc() }).where(eq(agentBudgetSchema.orgId, ORG));
+}
+
+describe('the next day (#272)', () => {
+  it('lets an agent that was refused yesterday run again today', async () => {
+    await spendOnAgent(101);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(false);
+
+    await itIsTheNextDay();
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+  });
+
+  it('refuses it again, the same way, once today\'s spend reaches the cap', async () => {
+    await spendOnAgent(101);
+    const yesterday = await preflightCheck({ orgId: ORG, agentSlug: AGENT });
+    await itIsTheNextDay();
+
+    await spendOnAgent(101);
+    const today = await preflightCheck({ orgId: ORG, agentSlug: AGENT });
+
+    expect(today).toEqual(yesterday);
+  });
+
+  it('shows the agent unblocked in the status the API reads, with today\'s spend at zero', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: AGENT, name: 'Deal Lead', systemPrompt: 'x' } as never);
+    await spendOnAgent(101);
+    await itIsTheNextDay();
+
+    const { agents } = await agentBudgetStatuses(ORG);
+
+    expect(agents[0]).toMatchObject({ blocked: false, spentCents: 0, remainingCents: 10_000 });
+  });
+});
+
+describe('a turn that runs across midnight (#272)', () => {
+  // The mid-turn guard charges a model call and then re-reads the cap; these
+  // replay that pair of calls across the rollover.
+
+  it('is not stopped by yesterday\'s spend once its next call lands in the new day', async () => {
+    await spendOnAgent(99);
+    await itIsTheNextDay();
+
+    await spendOnAgent(5);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+    expect((await getBudget({ orgId: ORG, agentSlug: AGENT }))?.currentCents).toBe(500);
+  });
+
+  it('is stopped when its calls after midnight cross the new day\'s cap', async () => {
+    await spendOnAgent(99);
+    await itIsTheNextDay();
+
+    await spendOnAgent(60);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+
+    await spendOnAgent(41);
+
+    expect(await preflightCheck({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, limit: 10_000, current: 10_100 });
+  });
+
+  it('keeps a charge that lands between a stale read and the rollover it triggers', async () => {
+    // The race: a budget read picks up yesterday's row, a model call from a
+    // turn already running charges (rolling the row itself and recording
+    // today's first spend), and only then does the read act on what it saw.
+    // Resetting by id alone wiped that charge.
+    await spendOnAgent(99);
+    await itIsTheNextDay();
+    const [staleRead] = await db.select().from(agentBudgetSchema).where(eq(agentBudgetSchema.agentSlug, AGENT));
+
+    await spendOnAgent(7);
+    const rolled = await rollPeriodIfStale(staleRead!);
+
+    expect(rolled.currentMicroCents).toBe(700 * 1_000_000);
+    expect((await getBudget({ orgId: ORG, agentSlug: AGENT }))?.currentCents).toBe(700);
+  });
+
+  it('starts the new period at midnight, not at whenever the first read happened', async () => {
+    await spendOnAgent(1);
+    await itIsTheNextDay();
+
+    const row = await getBudget({ orgId: ORG, agentSlug: AGENT });
+    const startedAt = row!.periodStartedAt;
+
+    expect([startedAt.getUTCHours(), startedAt.getUTCMinutes(), startedAt.getUTCSeconds()]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('when a period ends', () => {
+  it('ends a day at the next UTC midnight, a millisecond before it too', () => {
+    expect(periodEndsAt('daily', new Date('2026-09-23T23:59:59.999Z')).toISOString()).toBe('2026-09-24T00:00:00.000Z');
+  });
+
+  it('counts exactly midnight as the start of the new day, so it ends a full day later', () => {
+    expect(periodEndsAt('daily', new Date('2026-09-24T00:00:00.000Z')).toISOString()).toBe('2026-09-25T00:00:00.000Z');
+  });
+
+  it('carries a month into the next year in December', () => {
+    expect(periodEndsAt('monthly', new Date('2026-12-31T23:59:59.999Z')).toISOString()).toBe('2027-01-01T00:00:00.000Z');
   });
 });
