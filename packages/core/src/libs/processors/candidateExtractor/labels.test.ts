@@ -50,6 +50,13 @@ const noKeyConfig = candidateExtractorConfigSchema.parse({
 });
 
 /** A call whose prompt carried no known cards: the aggregator shape. */
+const noSeriesConfig = candidateExtractorConfigSchema.parse({
+  objectType: 'event-candidate',
+  agentSlug: 'event-ingestion-lead',
+  dedupOn: ['title', 'startDate', 'venueName'],
+  titleFrom: 'title',
+  promptFragment: 'Only public events.',
+});
 function noKnown(): KnownCards {
   return { cards: [], text: '', ids: new Set() };
 }
@@ -180,6 +187,53 @@ describe('series and duplicate labels', () => {
     expect(counts.duplicate_flagged).toBeUndefined();
     expect(counts.self_match).toBe(1);
     expect(records[0]?.issues[0]).toContain('the model matched the card this record refreshes');
+  });
+
+  it('keeps no recommendation when a reject rested on the card the record refreshes', async () => {
+    const records = [record({ duplicateOf: 88, suggestedDecision: 'reject', suggestedDecisionReason: 'Already waiting as #88.' })];
+
+    const counts = await labelRecords({
+      orgId: ORG,
+      config,
+      records,
+      known: knownWith([{ runId: 88, dedupKey: keyFor('2026-11-19') }]),
+    });
+
+    expect(records[0]?.duplicateOf).toBeUndefined();
+    expect(records[0]?.suggestedDecisionReason).toBe('');
+    expect(counts.self_match).toBe(1);
+    expect(counts.self_match_verdict_dropped).toBe(1);
+    expect(records[0]?.issues.join(' ')).toContain('no recommendation was kept');
+  });
+
+  it('keeps a reject that names a different card', async () => {
+    const records = [record({ duplicateOf: 77, suggestedDecision: 'reject', suggestedDecisionReason: 'Same show listed twice.' })];
+
+    const counts = await labelRecords({
+      orgId: ORG,
+      config,
+      records,
+      known: knownWith([{ runId: 77, dedupKey: keyFor('2026-11-12') }]),
+    });
+
+    expect(records[0]?.duplicateOf).toBe(77);
+    expect(records[0]?.suggestedDecisionReason).toBe('Same show listed twice.');
+    expect(counts.self_match_verdict_dropped).toBeUndefined();
+  });
+
+  it('drops a self duplicate for a source with no series label, where nothing else would', async () => {
+    const records = [record({ duplicateOf: 88 })];
+
+    const counts = await labelRecords({
+      orgId: ORG,
+      config: noSeriesConfig,
+      records,
+      known: knownWith([{ runId: 88, dedupKey: keyFor('2026-11-19') }]),
+    });
+
+    expect(records[0]?.duplicateOf).toBeUndefined();
+    expect(records[0]?.fields.seriesMatch).toBeUndefined();
+    expect(counts).toEqual({ self_match: 1 });
   });
 
   it('does not point a record at itself as a series anchor', async () => {
