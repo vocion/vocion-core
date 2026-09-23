@@ -127,6 +127,7 @@ import {
   unapproveContentRoute,
   undoActionRoute,
 } from './Review';
+import { scorecardAgentsRoute } from './Scorecard';
 import { applyConfigRoute as applyTeamReportConfigRoute, planConfigRoute as planTeamReportConfigRoute, lineageRoute as teamReportLineageRoute } from './TeamReport';
 import { list as listTeamsRoute, seedSample as seedSampleTeamsRoute } from './Teams';
 import { applyNow as applyWorkspaceNow, pause as pauseWorkspaceRoute, readPrimitive, resume as resumeWorkspaceRoute, driftDiff as workspaceDriftDiff, driftStatus as workspaceDriftStatus, pauseState as workspacePauseState, writeFile } from './Workspace';
@@ -313,6 +314,9 @@ export const router = {
   briefings: {
     regenerate: briefingsRegenerateRoute,
     latest: briefingsLatestRoute,
+  },
+  scorecard: {
+    agents: scorecardAgentsRoute,
   },
   review: {
     listPendingActions: listPendingActionsRoute,
