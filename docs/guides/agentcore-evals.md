@@ -703,6 +703,47 @@ Because the workflow id is the run group, a retried activity finds the rows it
 already created. A worker dying halfway through does not put a second point on
 your trend line for work that happened once.
 
+### More than one box: choose which ones run it
+
+A deployment with a dev box and a production box usually applies the same
+workspace to both, so both schedule `nightly-evals` and both run the whole
+suite. If the two boxes share one AWS account, they also share its Bedrock
+quotas, including the daily token quota. Two copies of the suite then cost
+twice as much for the same answer, and they eat into the quota the day's other
+scheduled work needs. This has happened: one eval run used up an account's
+daily token quota in an afternoon.
+
+Core has no per-box setting for this. It does not need one: workspace files
+resolve `{{env.NAME}}` tokens before they are parsed, so an automation's
+`status` can come from the box's environment:
+
+```yaml
+# automations/nightly-evals.yaml
+slug: nightly-evals
+status: '{{env.NIGHTLY_EVALS_STATUS}}'
+when: {schedule: '0 4 * * *'}
+do: {job: refresh-evals}
+```
+
+Then set this on each box, for both the app and the Temporal worker:
+
+```bash
+WORKSPACE_TEMPLATE_VARS=NIGHTLY_EVALS_STATUS   # append to the list if one exists
+NIGHTLY_EVALS_STATUS=active                    # or disabled
+```
+
+- `active` schedules the suite on that box. `disabled` applies the automation
+  without a schedule. The refresh button still works on that box either way.
+- To run on every box, set `active` everywhere. Changing your mind later is an
+  env change and a re-apply, with no YAML edit.
+- If the variable is unset or empty on a box, `workspace:apply` fails there and
+  names it. Any value other than `active` or `disabled` fails schema
+  validation. Neither case quietly picks a default for you.
+- Pick the hour away from the day's other scheduled agent work. Boxes that
+  share a cron all spend the shared quota at the same moment. To stagger them,
+  put the schedule behind a token the same way:
+  `schedule: '{{env.NIGHTLY_EVALS_CRON}}'`.
+
 ## Reading the result honestly
 
 Three things the UI does on purpose:
