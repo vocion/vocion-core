@@ -1378,6 +1378,39 @@ describe('feed discovery on a listing that redirected', () => {
     expect(docs.map(d => d.externalId)).toEqual([CALENDAR_URL]);
   });
 
+  it('still reads a feed under the requested listing path when the listing lands on its site root', async () => {
+    stubFetch((url) => {
+      if (url === CALENDAR_URL) {
+        return redirectedTo(
+          listing('<link rel="alternate" type="application/rss+xml" href="https://www.venue.test/calendar/feed/">'),
+          'https://www.venue.test/',
+        );
+      }
+      return url === 'https://www.venue.test/calendar/feed/' ? typed(RSS, 'application/rss+xml') : undefined;
+    });
+
+    const { docs, events } = await run({ crawl: { startUrl: CALENDAR_URL } });
+
+    expect(events.some(e => e.message === 'source: discovered rss feed, 1 document')).toBe(true);
+    expect(docs.map(d => d.externalId)).toEqual(['https://www.venue.test/calendar/feed/']);
+  });
+
+  it('reads a feed under the path a listing moved to', async () => {
+    stubFetch((url) => {
+      if (url === CALENDAR_URL) {
+        return redirectedTo(
+          listing('<link rel="alternate" type="application/rss+xml" href="https://venue.test/whats-on/feed/">'),
+          'https://venue.test/whats-on/',
+        );
+      }
+      return url === 'https://venue.test/whats-on/feed/' ? typed(RSS, 'application/rss+xml') : undefined;
+    });
+
+    const { docs } = await run({ crawl: { startUrl: CALENDAR_URL } });
+
+    expect(docs.map(d => d.externalId)).toEqual(['https://venue.test/whats-on/feed/']);
+  });
+
   it('still drops a feed on the host of a redirect to another site', async () => {
     const fetchFn = stubFetch(url => url === LISTING_URL
       ? redirectedTo(

@@ -1447,10 +1447,9 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
     add(withFormatJson(page.url), 'json');
   }
 
-  // A listing that redirected to its site root must not widen the scope to the whole site.
-  const landedListing = isUnderListingPath(new URL(page.base), new URL(page.url)) ? page.base : page.url;
+  const landedListing = listingAsLanded(page).toString();
   const eligible = found.filter((candidate) => {
-    if (describesTheListing(candidate, page.url) || describesTheListing(candidate, landedListing)) {
+    if (describesTheListing(candidate, page.url) || (landedListing !== page.url && describesTheListing(candidate, landedListing))) {
       return true;
     }
     runNote(ctx, candidate.url, `source: skipped ${candidate.kind} feed outside the listing path ${candidate.url}`);
@@ -1487,6 +1486,19 @@ function isUnderListingPath(url: URL, listing: URL): boolean {
   const path = listing.pathname.replace(INDEX_SEGMENT_RE, '$1');
   const directory = path.endsWith('/') ? path : `${path}/`;
   return url.pathname === path || url.pathname.startsWith(directory);
+}
+
+/**
+ * The listing a fetched page stands for once its redirect is followed: where
+ * it landed, unless that path is an ancestor of the one requested, so a
+ * listing that redirects to its site root never widens its scope to the site.
+ * @param page - the fetched listing.
+ */
+function listingAsLanded(page: FetchedPage): URL {
+  const landed = new URL(page.base);
+  const requested = new URL(page.url);
+  const broader = landed.pathname !== requested.pathname && isUnderListingPath(requested, landed);
+  return broader ? new URL(requested.pathname, landed.origin) : landed;
 }
 
 /**
@@ -2041,7 +2053,7 @@ async function* crawl(
   pages: PageBudget,
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
-  const start = new URL(seed.base);
+  const start = listingAsLanded(seed);
   const startOrigin = start.origin;
   const visited = new Set<string>();
   const queue: QueueEntry[] = [{ url: startUrl, depth: 0 }];

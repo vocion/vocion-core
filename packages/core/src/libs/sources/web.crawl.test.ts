@@ -326,6 +326,22 @@ describe('a seed that redirects within its site', () => {
     ]);
   });
 
+  it('keeps the requested listing path first when the seed lands on its site root', async () => {
+    const fetchFn = stubFetch(url => url === 'https://venue.test/calendar/'
+      ? redirectedTo(page(`
+          <nav><a href="/about">About</a></nav>
+          <p><a href="/calendar/next-month">Next month</a></p>
+        `), 'https://www.venue.test/')
+      : page('<p>An event.</p>'));
+
+    await run({ crawl: { startUrl: 'https://venue.test/calendar/', maxPages: 2 } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([
+      'https://venue.test/calendar/',
+      'https://www.venue.test/calendar/next-month',
+    ]);
+  });
+
   it('does not fetch the landed listing again', async () => {
     const fetchFn = stubFetch(url => url === LISTING_URL
       ? redirectedTo(page(`
