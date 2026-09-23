@@ -838,3 +838,17 @@ export async function apiListAgentBudgets(caller: ApiCaller): Promise<{ budgets:
     })),
   };
 }
+
+/**
+ * `GET /api/v1/budgets/agents` — every agent with the cap it is actually held
+ * to, including agents that have no budget row yet and so run on a default
+ * (#272). Answers "why was this agent refused, and by whose setting" without a
+ * database connection: `hardCentsLimitFrom` says whether the cap is the
+ * agent's own, the workspace's default agent cap, or the built-in default.
+ * @param caller - Authenticated API caller.
+ * @param period - `daily` (default) or `monthly`.
+ */
+export async function apiAgentBudgetStatuses(caller: ApiCaller, period: 'daily' | 'monthly' = 'daily') {
+  const { agentBudgetStatuses } = await import('@/services/BudgetService');
+  return agentBudgetStatuses(caller.orgId, period);
+}

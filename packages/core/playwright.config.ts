@@ -292,6 +292,14 @@ export default defineConfig<ChromaticConfig>({
       testDir: './e2e/worker-run-usage',
       timeout: 60 * 1000,
     },
+    // #272 — every agent's cap and spend over real HTTP, including agents
+    // with no budget row that run on the default cap. `request` fixture only.
+    // Run with: npx playwright test --project=agent-budgets
+    {
+      name: 'agent-budgets',
+      testDir: './e2e/agent-budgets',
+      timeout: 60 * 1000,
+    },
     // #396 — the generated OpenAPI document, and the reference page that
     // renders it. Mostly the `request` fixture; one browser check that the
     // page is behind the login.

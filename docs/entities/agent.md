@@ -142,6 +142,17 @@ For how the loop, the model vendor, and the AWS account relate — and why two f
 
 On `agentcore-container` the container signs Bedrock with a short-lived session core mints from the org's own stored AWS key, so model spend lands on the customer's account. An org that has stored no key gets no session and the container falls through to the platform's own credentials.
 
+## Budget
+
+`budget` caps what this agent may spend, in cents. See the [budgets guide](../guides/budgets.md).
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| `dailyCents` | int ≥ 0 | the workspace's `defaults.agentBudget`, else **$100** (`10000`) | Hard cap per UTC day. A turn is refused once the day's spend reaches it, and a turn that crosses it partway stops at its next model call. |
+| `monthlyCents` | int ≥ 0 | none | Hard cap per UTC calendar month. |
+
+Leaving `budget` out is **not** unlimited: the agent is held to the workspace default, and failing that to $100 a day. Written, the block owns the agent's caps and apply resets them to it; left out, apply leaves any stored cap alone. `GET /api/v1/budgets/agents` shows the cap in force for every agent and where it came from.
+
 ## Example
 
 ```yaml
@@ -156,6 +167,8 @@ agentType: mission
 skills:
   - pipeline-health-report
 connectorSources: [hubspot]
+budget:
+  dailyCents: 5000 # $50 a day; leave out for the workspace default ($100 a day unless set)
 suggestions:
   - label: What's stalling?
     prompt: Which open deals have gone quiet, and what would you do about each?
