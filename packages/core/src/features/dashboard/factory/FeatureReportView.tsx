@@ -209,8 +209,14 @@ function Gallery({ items }: { items: ReportEvidence[] }) {
           {(item.imageUrl !== null || item.body !== null) && (
             <figure className={`m-0 overflow-hidden rounded-xl border bg-surface-soft ${item.role === 'proposed' ? 'border-dashed border-border' : 'border-border'}`}>
               {item.imageUrl !== null && (
-              // A desktop mockup at 430px is a thumbnail. It opens.
-                <a href={item.url ?? undefined} aria-label={`Open ${item.title}`}>
+              // A desktop mockup at 430px is a thumbnail — the one thing on
+              // this page that has to be LOOKED at, and at phone width you
+              // cannot read a word of it. So the picture opens the picture,
+              // full size. It used to open `item.url`, the artifact's own
+              // record page, which is exactly what the "Open" link in the
+              // caption below it already does: two tap targets, one outcome,
+              // and no way at all to enlarge the mockup.
+                <a href={item.imageUrl} target="_blank" rel="noreferrer" aria-label={`Open ${item.title} full size`}>
                   <img src={item.imageUrl} alt={item.caption ?? item.title} loading="lazy" className="block w-full" />
                 </a>
               )}
