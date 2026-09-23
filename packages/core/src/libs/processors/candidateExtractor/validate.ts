@@ -23,13 +23,19 @@
  */
 
 import type { CandidateExtractorConfig } from './config';
-import type { ExtractedRecord, MatchedRuleAnswer } from './model';
+import type { ExtractedRecord } from './model';
 import type { PageLink } from '@/libs/sources/pageMetadata';
 import { normaliseForKey } from '@/libs/actions/objects-propose-candidate';
 import { calendarDayOf } from './knownCards';
 
+/** An adopted rule a record cites, with the text the model was shown. */
+export type CitedRule = { id: string; title?: string; text: string; evidence?: string };
+
 /** A record that survived the gates, with whatever the gates had to say. */
-export type ValidatedRecord = ExtractedRecord & {
+export type ValidatedRecord = Omit<ExtractedRecord, 'scores' | 'matchedRules'> & {
+  scores?: Record<string, number>;
+  /** Absent: not recorded. `[]`: the rules were checked and none decided it. */
+  matchedRules?: CitedRule[];
   /** Per-record notes, shown to the reviewer as extraction notes. */
   issues: string[];
   /**
@@ -92,15 +98,15 @@ function cleanScores(
  * @param answer - The id as the model wrote it.
  * @param rules - The rules the call carried.
  */
-function resolveRuleId(answer: string, rules: Array<{ id: string }>): string | null {
+function resolveRule<T extends { id: string }>(answer: string, rules: T[]): T | null {
   const compact = answer.replace(/\s+/g, '').replace(/^\(|\)$/g, '');
   const exact = rules.find(rule => rule.id === compact);
   if (exact) {
-    return exact.id;
+    return exact;
   }
   const bare = compact.replace(/^#/, '');
   const bySuffix = rules.filter(rule => rule.id.endsWith(`#${bare}`));
-  return bySuffix.length === 1 ? bySuffix[0]!.id : null;
+  return bySuffix.length === 1 ? bySuffix[0]! : null;
 }
 
 /**
@@ -265,7 +271,6 @@ export function validateRecords(opts: {
   baseUrl?: string;
   knownIds: Set<number>;
   today: string;
-  /** The adopted rules the call carried; a cited rule outside this list is dropped. */
   rules?: Array<{ id: string; text: string }>;
 }): ValidationOutput {
   const { config } = opts;
@@ -309,7 +314,8 @@ export function validateRecords(opts: {
   const kept: ValidatedRecord[] = [];
   let pageHaystack: string | null = null;
   for (const raw of opts.records) {
-    const record: ValidatedRecord = { ...raw, fields: { ...raw.fields }, issues: [] };
+    const { scores: rawScores, matchedRules: rawRules, ...rest } = raw;
+    const record: ValidatedRecord = { ...rest, fields: { ...raw.fields }, issues: [] };
 
     // Defaults first: they are what a venue site's page leaves unsaid, and the
     // identity check below has to see them.
@@ -441,37 +447,44 @@ export function validateRecords(opts: {
       record.seriesNote = undefined;
     }
 
-    const scores = cleanScores(record.scores, config.scores);
+    const scores = cleanScores(rawScores, config.scores);
     if (scores.dropped.length > 0) {
       record.issues.push(`scores: ${scores.dropped.join(', ')} dropped, not a configured score between 0 and 1`);
+      scores.dropped.forEach(() => bump('skipped.score_invalid'));
     }
-    record.scores = scores.kept;
+    if (scores.kept) {
+      record.scores = scores.kept;
+    }
 
-    if (record.matchedRules !== undefined) {
-      const known = opts.rules ?? [];
-      if (known.length === 0) {
-        record.matchedRules = undefined;
-      } else {
-        pageHaystack ??= squash(opts.pageText);
-        const cited: MatchedRuleAnswer[] = [];
-        for (const answer of record.matchedRules) {
-          const id = resolveRuleId(answer.id, known);
-          if (!id) {
-            record.issues.push(`matchedRules: ${answer.id} was not among the rules this call carried, so it was ignored`);
-            bump('skipped.rule_not_in_list');
-            continue;
-          }
-          const evidence = answer.evidence?.trim();
-          const found = evidence ? pageHaystack.includes(squash(evidence)) : false;
-          if (evidence && !found) {
-            record.issues.push(`matchedRules: the evidence for ${id} is not in the document, so it was dropped`);
-          }
-          cited.push({
-            id,
-            ...(answer.title?.trim() ? { title: answer.title.trim().slice(0, RULE_TITLE_CAP) } : {}),
-            ...(found && evidence ? { evidence: evidence.slice(0, RULE_EVIDENCE_CAP) } : {}),
-          });
+    const known = opts.rules ?? [];
+    if (rawRules !== undefined && known.length > 0) {
+      pageHaystack ??= squash(`${opts.pageText}\n${opts.jsonLd?.length ? JSON.stringify(opts.jsonLd) : ''}`);
+      const cited: CitedRule[] = [];
+      for (const answer of rawRules) {
+        const rule = resolveRule(answer.id, known);
+        if (!rule) {
+          record.issues.push(`matchedRules: ${answer.id} was not among the rules this call carried, so it was ignored`);
+          bump('skipped.rule_not_in_list');
+          continue;
         }
+        if (cited.some(entry => entry.id === rule.id)) {
+          continue;
+        }
+        const evidence = answer.evidence?.trim() ?? '';
+        const needle = squash(evidence);
+        const found = needle.length > 0 && pageHaystack.includes(needle);
+        if (evidence && !found) {
+          record.issues.push(`matchedRules: the evidence for ${rule.id} is not in the document, so it was dropped`);
+          bump('skipped.evidence_not_in_document');
+        }
+        cited.push({
+          id: rule.id,
+          ...(answer.title?.trim() ? { title: answer.title.trim().slice(0, RULE_TITLE_CAP) } : {}),
+          text: rule.text,
+          ...(found ? { evidence: evidence.slice(0, RULE_EVIDENCE_CAP) } : {}),
+        });
+      }
+      if (cited.length > 0 || rawRules.length === 0) {
         record.matchedRules = cited;
       }
     }

@@ -372,37 +372,38 @@ describe('candidate extractor validation', () => {
 
 describe('scores and cited rules', () => {
   const RULES = [
-    { id: 'event-extraction#ws-no-cure-claims', text: 'Events may not promise medical outcomes.' },
-    { id: 'event-extraction#rmuda051hrb1', text: 'Reject listings that only sell tickets.' },
+    { id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' },
+    { id: 'event-extraction#rtestkey01', text: 'Reject records that only advertise a sale.' },
   ];
 
   it('keeps a configured score in range and drops the rest', () => {
-    const scored = configWith({ scores: [{ name: 'relevance', describe: 'How well it fits the audience.' }] });
-    const out = run([record({ scores: { relevance: 0.7, mood: 0.9 } }), record({ scores: { relevance: 1.4 } })], scored);
+    const scored = configWith({ scores: [{ name: 'fit', describe: 'How well it fits the audience.' }] });
+    const out = run([record({ scores: { fit: 0.7, mood: 0.9 } }), record({ scores: { fit: 1.4 } })], scored);
 
-    expect(out.records[0]?.scores).toEqual({ relevance: 0.7 });
+    expect(out.records[0]?.scores).toEqual({ fit: 0.7 });
     expect(out.records[0]?.issues.join(' ')).toContain('mood dropped');
     expect(out.records[1]?.scores).toBeUndefined();
+    expect(out.counts['skipped.score_invalid']).toBe(2);
   });
 
   it('drops every score when the config names none', () => {
-    const out = run([record({ scores: { relevance: 0.7 } })]);
+    const out = run([record({ scores: { fit: 0.7 } })]);
 
     expect(out.records[0]?.scores).toBeUndefined();
   });
 
-  it('resolves a cited rule however the model echoed its id', () => {
+  it('resolves a cited rule however the model echoed its id, with the text the call carried', () => {
     const out = run([record({
       suggestedDecision: 'reject',
       matchedRules: [
         { id: 'event-extraction #ws-no-cure-claims', title: 'No cure claims', evidence: 'Doors at 7' },
-        { id: '#rmuda051hrb1' },
+        { id: '#rtestkey01' },
       ],
     })], configWith(), { rules: RULES });
 
     expect(out.records[0]?.matchedRules).toEqual([
-      { id: 'event-extraction#ws-no-cure-claims', title: 'No cure claims', evidence: 'Doors at 7' },
-      { id: 'event-extraction#rmuda051hrb1' },
+      { id: 'event-extraction#ws-no-cure-claims', title: 'No cure claims', text: 'Listings may not promise medical outcomes.', evidence: 'Doors at 7' },
+      { id: 'event-extraction#rtestkey01', text: 'Reject records that only advertise a sale.' },
     ]);
   });
 
@@ -414,9 +415,28 @@ describe('scores and cited rules', () => {
       ],
     })], configWith(), { rules: RULES });
 
-    expect(out.records[0]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims' }]);
+    expect(out.records[0]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' }]);
     expect(out.counts['skipped.rule_not_in_list']).toBe(1);
+    expect(out.counts['skipped.evidence_not_in_document']).toBe(1);
     expect(out.records[0]?.issues.join(' ')).toContain('not in the document');
+  });
+
+  it('finds evidence in the structured data the prompt showed', () => {
+    const out = run([record({
+      matchedRules: [{ id: 'event-extraction#ws-no-cure-claims', evidence: 'A guaranteed cure' }],
+    })], configWith(), { rules: RULES, jsonLd: [{ '@type': 'Thing', 'description': 'A guaranteed cure, every Thursday.' }] });
+
+    expect(out.records[0]?.matchedRules?.[0]?.evidence).toBe('A guaranteed cure');
+  });
+
+  it('cites a rule once, and records nothing when no citation survives', () => {
+    const out = run([
+      record({ matchedRules: [{ id: 'event-extraction #ws-no-cure-claims' }, { id: '#ws-no-cure-claims' }] }),
+      record({ fields: { startDate: '2026-11-19' }, matchedRules: [{ id: 'event-extraction#ws-invented' }] }),
+    ], configWith(), { rules: RULES });
+
+    expect(out.records[0]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' }]);
+    expect(out.records[1]?.matchedRules).toBeUndefined();
   });
 
   it('keeps an empty list as checked, and an omitted one as not recorded', () => {

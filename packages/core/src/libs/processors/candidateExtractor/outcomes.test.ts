@@ -197,6 +197,17 @@ describe('candidate extractor outcomes', () => {
     expect(await db.select().from(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG))).toHaveLength(0);
   });
 
+  it('logs the verdict a live run would store, not the one the model wrote', async () => {
+    dryRunLines.mockClear();
+
+    await propose([record({ duplicateOf: 41 })], { config: dryConfig });
+
+    await vi.waitFor(() => expect(dryRunLines).toHaveBeenCalledWith('candidate extractor dry run', expect.objectContaining({
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'Already waiting for review as action run #41.',
+    })));
+  });
+
   it('logs the fields and the exact dedup key the live run would have written', async () => {
     // The log line is the dry run's entire output, and the rollout step it
     // serves diffs a would-be card against the card a person actually got.
@@ -272,30 +283,26 @@ describe('candidate extractor outcomes', () => {
   });
 
   it('stores the scores and each cited rule with the text the model was shown', async () => {
+    const cited = {
+      id: 'event-extraction#ws-no-cure-claims',
+      title: 'No cure claims',
+      text: 'Listings may not promise medical outcomes.',
+      evidence: 'Live',
+    };
     await propose([record({
       suggestedDecision: 'reject',
       suggestedDecisionReason: 'A rule fired.',
-      scores: { relevance: 0.4 },
-      matchedRules: [{ id: 'event-extraction#ws-no-cure-claims', title: 'No cure claims', evidence: 'Live' }],
-    })], { learningRules: [{ id: 'event-extraction#ws-no-cure-claims', text: 'Events may not promise medical outcomes.' }] });
+      scores: { fit: 0.4 },
+      matchedRules: [cited],
+    })]);
 
     const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
 
-    expect(run?.proposal).toMatchObject({
-      scores: { relevance: 0.4 },
-      matchedRules: [{
-        id: 'event-extraction#ws-no-cure-claims',
-        title: 'No cure claims',
-        text: 'Events may not promise medical outcomes.',
-        evidence: 'Live',
-      }],
-    });
+    expect(run?.proposal).toMatchObject({ scores: { fit: 0.4 }, matchedRules: [cited] });
   });
 
   it('keeps an empty rule list, which says the rules were checked', async () => {
-    await propose([record({ matchedRules: [] })], {
-      learningRules: [{ id: 'event-extraction#ws-no-cure-claims', text: 'Events may not promise medical outcomes.' }],
-    });
+    await propose([record({ matchedRules: [] })]);
 
     const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
 

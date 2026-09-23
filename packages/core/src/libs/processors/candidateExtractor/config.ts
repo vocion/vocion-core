@@ -204,11 +204,7 @@ export const candidateExtractorConfigSchema = z.object({
       });
     }
   }).optional(),
-  /**
-   * Named 0..1 judgements the model adds to every record, each with the rubric
-   * the operator wrote for it. Core never knows what a name means; the review
-   * surface reads them back by name.
-   */
+  /** Named 0..1 judgements the model adds to every record, each with the operator's rubric. */
   scores: z.array(z.object({
     name: FieldName,
     describe: z.string().min(1).max(400),

@@ -192,14 +192,17 @@ function envelopeSchema(maxRecords: number) {
         suggestedDecision: z.enum(SUGGESTED_DECISIONS),
         suggestedDecisionReason: z.string().transform(value => value.trim()),
       }).nullable().catch(null)).optional().transform(entries => entries?.filter(entry => entry !== null)),
-      // Both optional and both forgiving, like `referencedObjects`: a malformed
-      // score or rule costs that value, never the corrective retry.
+      // Forgiving like `referencedObjects`: a malformed value is dropped, never retried.
       scores: z.record(z.string(), z.unknown()).optional().catch(undefined),
       matchedRules: z.array(z.object({
         id: z.string().min(1),
         title: z.string().optional().catch(undefined),
         evidence: z.string().optional().catch(undefined),
-      }).nullable().catch(null)).optional().catch(undefined).transform(entries => entries?.filter(entry => entry !== null)),
+      }).nullable().catch(null)).optional().catch(undefined).transform((entries) => {
+        const kept = entries?.filter(entry => entry !== null);
+        // A list the model filled with nothing usable says nothing, not "no rule decided it".
+        return entries && entries.length > 0 && kept?.length === 0 ? undefined : kept;
+      }),
     })).max(maxRecords).default([]),
   });
 }

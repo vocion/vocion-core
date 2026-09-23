@@ -417,15 +417,15 @@ describe('scores and cited rules in the prompt', () => {
   it('asks for scores only when the config names them', () => {
     const scored = candidateExtractorConfigSchema.parse({
       ...config,
-      scores: [{ name: 'relevance', describe: 'How well it fits the audience.' }],
+      scores: [{ name: 'fit', describe: 'How well it fits the audience.' }],
     });
 
     const withScores = buildExtractionPrompt({ config: scored, rules: '', ...bare });
     const without = buildExtractionPrompt({ config, rules: '', ...bare });
 
     expect(withScores.system).toContain('## Scores (operator policy)');
-    expect(withScores.system).toContain('"scores" inside the record, next to "confidence": {"relevance": 0.0}');
-    expect(withScores.system).toContain('- "relevance": How well it fits the audience.');
+    expect(withScores.system).toContain('"scores" inside the record, next to "confidence": {"fit": 0.0}');
+    expect(withScores.system).toContain('- "fit": How well it fits the audience.');
     expect(without.system).not.toContain('## Scores');
   });
 

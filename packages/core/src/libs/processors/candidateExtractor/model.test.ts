@@ -350,7 +350,8 @@ describe('candidate extractor model call', () => {
     invoke.mockResolvedValueOnce({
       content: '{"records":['
         + '{"fields":{"title":"Open Mic"},"confidence":0.9,"suggestedDecision":"reject","suggestedDecisionReason":"A rule fired.","scores":"high","matchedRules":"none"},'
-        + '{"fields":{"title":"Jazz Brunch"},"confidence":0.8,"suggestedDecision":"reject","suggestedDecisionReason":"A rule fired.","matchedRules":[42,{"id":"event-extraction#ws-no-cure-claims","title":7}]}'
+        + '{"fields":{"title":"Jazz Brunch"},"confidence":0.8,"suggestedDecision":"reject","suggestedDecisionReason":"A rule fired.","matchedRules":[42,{"id":"event-extraction#ws-no-cure-claims","title":7}]},'
+        + '{"fields":{"title":"Doors at 7"},"confidence":0.8,"suggestedDecision":"reject","suggestedDecisionReason":"A rule fired.","matchedRules":[42,{"title":"no id"}]}'
         + ']}',
     });
 
@@ -366,5 +367,6 @@ describe('candidate extractor model call', () => {
     expect(result.records[0]?.scores).toBeUndefined();
     expect(result.records[0]?.matchedRules).toBeUndefined();
     expect(result.records[1]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims' }]);
+    expect(result.records[2]?.matchedRules).toBeUndefined();
   });
 });

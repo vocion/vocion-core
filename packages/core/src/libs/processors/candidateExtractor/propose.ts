@@ -85,7 +85,6 @@ export type ProposeOutput = {
  * @param opts.documentId - Its `knowledge_document` id, for `rawExtractRef`.
  * @param opts.objectSchema - The object type's JSON Schema, for the report-only check.
  * @param opts.learningIds - Rule ids the prompt carried, echoed onto the card.
- * @param opts.learningRules - The rules the prompt carried, so a cited rule is stored with its text.
  * @param opts.budget - The sync's shared caps.
  */
 export async function proposeRecords(opts: {
@@ -97,11 +96,8 @@ export async function proposeRecords(opts: {
   documentId: number;
   objectSchema: Record<string, unknown> | null;
   learningIds: string[];
-  /** The rules the call carried, so a cited rule is stored with the text the model was shown. */
-  learningRules?: Array<{ id: string; text: string }>;
   budget: SyncBudget;
 }): Promise<ProposeOutput> {
-  const ruleText = new Map((opts.learningRules ?? []).map(rule => [rule.id, rule.text]));
   const counts: Record<string, number> = {};
   const notes: string[] = [];
   const bump = (key: string, by = 1): void => {
@@ -145,6 +141,24 @@ export async function proposeRecords(opts: {
       rawExtractRef: `knowledge_document:${opts.documentId}`,
     };
 
+    // Computed once so the dry-run line logs exactly what a live run stores.
+    //
+    // What the model thinks should happen to this card, and why, in one
+    // sentence. Distinct from the proposal's `rationale`: that says where the card
+    // came from, this says what to do with it, and for a `reject` the two
+    // are nothing alike, because the extraction can be perfect and the
+    // record still not belong in the queue.
+    //
+    // A card the model called a duplicate of a known one is a `reject`
+    // whatever it recommended, and the reason says so in core's words
+    // rather than the model's: the duplicate id is our determination, and
+    // a reviewer reading "duplicate of #412" should be reading a claim we
+    // can stand behind. Still only a recommendation: core keeps the card
+    // pending for a person and scores agreement against what they do.
+    const verdict = record.duplicateOf !== undefined
+      ? { suggestedDecision: 'reject' as const, suggestedDecisionReason: `Already waiting for review as action run #${record.duplicateOf}.` }
+      : recordVerdict(record);
+
     if (opts.config.dryRun) {
       // One structured line per would-be candidate: the dry run's entire
       // output, and what the first rollout step is read from.
@@ -169,8 +183,7 @@ export async function proposeRecords(opts: {
         }),
         fields: record.fields,
         confidence: record.confidence,
-        suggestedDecision: record.suggestedDecision,
-        suggestedDecisionReason: record.suggestedDecisionReason,
+        ...verdict,
         scores: record.scores,
         matchedRules: record.matchedRules,
         document: opts.document.uri ?? opts.document.externalId,
@@ -202,34 +215,9 @@ export async function proposeRecords(opts: {
         // and a declared field nobody wrote would score as cleared on every
         // approve.
         ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
-        ...(record.scores ? { scores: record.scores as Record<string, number> } : {}),
-        // Absent means "not recorded", [] means "checked, no rule decided it".
-        ...(record.matchedRules
-          ? {
-              matchedRules: record.matchedRules.flatMap((rule) => {
-                const text = ruleText.get(rule.id);
-                return text ? [{ ...rule, text }] : [];
-              }),
-            }
-          : {}),
-        // What the model thinks should happen to this card, and why, in one
-        // sentence. Distinct from `rationale` above: that says where the card
-        // came from, this says what to do with it — and for a `reject` the two
-        // are nothing alike, because the extraction can be perfect and the
-        // record still not belong in the queue.
-        //
-        // A card the model called a duplicate of a known one is a `reject`
-        // whatever it recommended, and the reason says so in core's words
-        // rather than the model's: the duplicate id is our determination, and
-        // a reviewer reading "duplicate of #412" should be reading a claim we
-        // can stand behind. Still only a recommendation — core keeps the card
-        // pending for a person and scores agreement against what they do.
-        ...(record.duplicateOf !== undefined
-          ? {
-              suggestedDecision: 'reject' as const,
-              suggestedDecisionReason: `Already waiting for review as action run #${record.duplicateOf}.`,
-            }
-          : recordVerdict(record)),
+        ...(record.scores ? { scores: record.scores } : {}),
+        ...(record.matchedRules ? { matchedRules: record.matchedRules } : {}),
+        ...verdict,
       },
     });
 
