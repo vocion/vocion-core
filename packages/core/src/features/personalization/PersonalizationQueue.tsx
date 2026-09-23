@@ -1,11 +1,11 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Column, ListEmpty, ListRow, ListRows, ListToolbar, Subline, useListUrlState } from '@/components/patterns';
 import { ConfidenceBars } from '@/components/ui/confidence-indicator';
 import { StatusPill } from '@/components/ui/status-pill';
 import { confidenceLevel } from './confidence';
-import { entranceLabel, LANE_PILL, shortDate } from './leadFormat';
+import { entranceLabel, LANE_PILL, shortDate, shortDateTime } from './leadFormat';
 
 /**
  * The personalization queue — a pure list, and the reference implementation
@@ -61,15 +61,58 @@ const LANES = [
  */
 const SORTS = [
   { key: 'arrived', label: 'Arrived' },
+  { key: 'briefed', label: 'Briefed' },
   { key: 'confidence', label: 'Confidence' },
   { key: 'name', label: 'Name' },
 ] as const;
+
+/**
+ * When the brief was written, as a filter. A reviewer working through the
+ * cards drafted before a rule changed (the voice gate on 2026-09-19, the
+ * sequence ladder on 2026-09-13) needs to find "the old ones" in one move;
+ * a sort alone makes them scroll to the end and guess where the line is
+ * (Valerie, 2026-09-23). Chips, because a reviewer may want two windows at
+ * once ("this week and today"), and kept in the URL with the lane and sort.
+ */
+const BRIEFED_WINDOWS = [
+  { key: 'today', label: 'Briefed today' },
+  { key: 'week', label: 'Briefed this week' },
+  { key: 'earlier', label: 'Briefed earlier' },
+] as const;
+type BriefedWindow = (typeof BRIEFED_WINDOWS)[number]['key'];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Which window a brief falls in, by its age at `now`. Null for a row with no
+ * brief timestamp, which no window claims.
+ * @param briefedAt - ISO timestamp, or null.
+ * @param now - The moment the list was rendered, in ms.
+ */
+export function briefedWindowOf(briefedAt: string | null, now: number): BriefedWindow | null {
+  if (!briefedAt) {
+    return null;
+  }
+  const t = new Date(briefedAt).getTime();
+  if (Number.isNaN(t)) {
+    return null;
+  }
+  const age = now - t;
+  if (age < DAY_MS) {
+    return 'today';
+  }
+  if (age < 7 * DAY_MS) {
+    return 'week';
+  }
+  return 'earlier';
+}
 
 /** The page opens where the work is; the clean URL means this state. */
 const LIST = {
   defaults: { tab: 'ready_for_review', q: '', sort: 'arrived', dir: 'desc' as const, chips: [] },
   tabs: LANES.map(l => l.key),
   sorts: SORTS.map(s => s.key),
+  chips: BRIEFED_WINDOWS.map(w => w.key),
 };
 
 const BriefListRow = ({ row }: { row: BriefRow }) => {
@@ -94,6 +137,10 @@ const BriefListRow = ({ row }: { row: BriefRow }) => {
             // The true stage-entry date wins; the create date is labeled as
             // arrival, never as when they became an MQL.
             row.mqlAt ? `MQL ${shortDate(row.mqlAt)}` : row.arrivedAt ? `arrived ${shortDate(row.arrivedAt)}` : null,
+            // The moment the brief was written, with the time: two passes on
+            // one day are two different briefs, and this is what the Briefed
+            // sort and chips read.
+            row.briefedAt ? `briefed ${shortDateTime(row.briefedAt)}` : null,
             row.entranceSource ? entranceLabel(row.entranceSource) : null,
             // "via", not "utm=": what the CRM carries is the source detail
             // (the ad network, the keyword), only sometimes a campaign tag.
@@ -115,7 +162,14 @@ const BriefListRow = ({ row }: { row: BriefRow }) => {
   );
 };
 
-export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
+export const PersonalizationQueue = (props: {
+  briefs: BriefRow[];
+  /**
+   * The moment the briefed windows are measured from. Tests and stories pin
+   * it; the page leaves it out and the component reads its own clock once.
+   */
+  now?: number;
+}) => {
   // The page query already excludes unbriefed rows. Repeated here so the
   // guarantee holds whatever the caller passes: `queued` has no lane, and a
   // row in it would otherwise still be reachable through All and the search.
@@ -124,7 +178,11 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
     [props.briefs],
   );
   const [list, setList] = useListUrlState(LIST);
-  const { tab: lane, q: query, sort, dir } = list;
+  const { tab: lane, q: query, sort, dir, chips } = list;
+  // One clock for the whole list, so every row is bucketed against the same
+  // moment, and read once rather than on every render.
+  const [ownClock] = useState(() => Date.now());
+  const now = props.now ?? ownClock;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: briefs.length };
@@ -134,15 +192,38 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
     return c;
   }, [briefs]);
 
-  const rows = useMemo(() => {
+  // The chip counts are taken on the lane and the search, before the chips
+  // narrow anything, so a chip's number is what picking it would show.
+  const inLane = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = briefs
+    return briefs
       .filter(b => lane === 'all' || b.status === lane)
       .filter(b => !q
         || b.contactName.toLowerCase().includes(q)
         || (b.companyName ?? '').toLowerCase().includes(q));
+  }, [briefs, lane, query]);
+
+  const windowCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const b of inLane) {
+      const w = briefedWindowOf(b.briefedAt, now);
+      if (w) {
+        c[w] = (c[w] ?? 0) + 1;
+      }
+    }
+    return c;
+  }, [inLane, now]);
+
+  const rows = useMemo(() => {
+    const filtered = chips.length === 0
+      ? inLane
+      : inLane.filter((b) => {
+          const w = briefedWindowOf(b.briefedAt, now);
+          return w !== null && chips.includes(w);
+        });
 
     const direction = dir === 'desc' ? -1 : 1;
+    const byTime = (at: string, bt: string) => (at === bt ? 0 : (at < bt ? -1 : 1) * direction);
     return [...filtered].sort((a, b) => {
       if (sort === 'name') {
         return a.contactName.localeCompare(b.contactName) * -direction;
@@ -150,16 +231,18 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
       if (sort === 'arrived') {
         // Falls back to briefed time so a row with no CRM create date still
         // orders, rather than collapsing to the top in an arbitrary spot.
-        const at = a.arrivedAt ?? a.briefedAt ?? '';
-        const bt = b.arrivedAt ?? b.briefedAt ?? '';
-        if (at === bt) {
-          return 0;
+        return byTime(a.arrivedAt ?? a.briefedAt ?? '', b.arrivedAt ?? b.briefedAt ?? '');
+      }
+      if (sort === 'briefed') {
+        // A row with no brief time sorts last whichever way the list runs.
+        if (!a.briefedAt || !b.briefedAt) {
+          return a.briefedAt ? -1 : b.briefedAt ? 1 : 0;
         }
-        return (at < bt ? -1 : 1) * direction;
+        return byTime(a.briefedAt, b.briefedAt);
       }
       return ((a.confidence ?? 0) - (b.confidence ?? 0)) * direction;
     });
-  }, [briefs, lane, query, sort, dir]);
+  }, [inLane, chips, now, sort, dir]);
 
   return (
     <div className="flex flex-col" data-testid="personalization-queue">
@@ -173,6 +256,12 @@ export const PersonalizationQueue = (props: { briefs: BriefRow[] }) => {
         search={{ value: query, onChange: q => setList({ q }), placeholder: 'Find a lead or company' }}
         sort={{ value: sort, onChange: s => setList({ sort: s }), options: SORTS }}
         direction={{ value: dir, onChange: d => setList({ dir: d }) }}
+        chips={{
+          label: 'Briefed',
+          items: BRIEFED_WINDOWS.map(w => ({ key: w.key, label: w.label, count: windowCounts[w.key] ?? 0 })),
+          active: chips,
+          onChange: next => setList({ chips: next }),
+        }}
       />
 
       {rows.length === 0
