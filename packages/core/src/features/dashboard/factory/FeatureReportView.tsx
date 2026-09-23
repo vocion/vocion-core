@@ -560,6 +560,39 @@ function Timeline({ report }: { report: FeatureReport }) {
 }
 
 /**
+ * WHICH WORK THIS IS — product, size, spend, age. The breadcrumb names the
+ * factory and a row id; neither of those is the product a person means.
+ *
+ * It renders inside the title block, under the goal, because that is where it
+ * belongs and because the alternative bit us: as the first child of the report
+ * column it needed a negative top margin to sit close to the title, and that
+ * column is a scroll container (`overflow-x-hidden` beside the shell's
+ * `overflow-y: auto`). A scrollport does not extend above its own top edge, so
+ * `-mt-4` put the line 16px above the origin and the browser clipped all but
+ * its bottom 3px. Production rendered two grey specks — the descenders of
+ * "change" and "ago" — while `getBoundingClientRect` still reported a full
+ * 398x19 box. Layout said it was there; paint said it was not.
+ * Chris, 2026-09-23.
+ * @param props - The context bits.
+ * @param props.bits - Short facts, in reading order.
+ */
+export function ReportContextLine({ bits }: { bits: readonly string[] }) {
+  if (bits.length === 0) {
+    return null;
+  }
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+      {bits.map((bit, i) => (
+        <span key={bit} className="flex items-center gap-2">
+          {i > 0 && <span aria-hidden className="text-border">·</span>}
+          {bit}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
  * The whole page body.
  * @param props - The report.
  * @param props.report - The assembled report.
@@ -567,18 +600,6 @@ function Timeline({ report }: { report: FeatureReport }) {
 export function FeatureReportView({ report }: { report: FeatureReport }) {
   return (
     <div className="max-w-4xl space-y-8 overflow-x-hidden">
-      {/* WHICH WORK THIS IS. The breadcrumb names the factory and a row id;
-          neither is the product. */}
-      {report.context.length > 0 && (
-        <p className="-mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
-          {report.context.map((bit, i) => (
-            <span key={bit} className="flex items-center gap-2">
-              {i > 0 && <span aria-hidden className="text-border">·</span>}
-              {bit}
-            </span>
-          ))}
-        </p>
-      )}
       <StateHeader state={report.state} />
       <Lifecycle steps={report.lifecycle} />
 
