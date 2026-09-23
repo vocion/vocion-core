@@ -114,6 +114,14 @@ export const candidateExtractorConfigSchema = z.object({
     maxItems: z.number().int().positive().max(500).default(60),
     maxChars: z.number().int().positive().max(20_000).default(4000),
   }).strict().optional(),
+  /**
+   * A record matching on `sameOn` a card this document already filed takes
+   * that card's other `dedupOn` values, so the card is refreshed rather than
+   * duplicated.
+   */
+  keepIdentityOnReread: z.object({
+    sameOn: z.array(FieldName).min(1).max(8),
+  }).strict().optional(),
   /** Drop a record whose date has already passed, as a calendar day in `timezone`. */
   dropIfPast: z.object({
     field: FieldName,

@@ -94,6 +94,24 @@ describe('processor cross-field validation', () => {
     }))).rejects.toThrow(/venueName.*seriesLabel\.keyField/);
   });
 
+  it('accepts keepIdentityOnReread over identity fields that leave one to keep', async () => {
+    const outcome = await apply(processorConfig({ keepIdentityOnReread: { sameOn: ['title', 'startDate'] } }));
+
+    expect(outcome.outcome).toBe('created');
+  });
+
+  it('refuses a keepIdentityOnReread.sameOn field that is not part of the identity', async () => {
+    await expect(apply(processorConfig({
+      keepIdentityOnReread: { sameOn: ['title', 'venueCity'] },
+    }))).rejects.toThrow(/venueCity.*keepIdentityOnReread\.sameOn/);
+  });
+
+  it('refuses keepIdentityOnReread.sameOn naming every identity field, which leaves nothing to keep', async () => {
+    await expect(apply(processorConfig({
+      keepIdentityOnReread: { sameOn: ['title', 'startDate', 'venueName'] },
+    }))).rejects.toThrow(/every dedupOn field in keepIdentityOnReread\.sameOn/);
+  });
+
   it('still refuses an unknown agent, which is the check this one was modelled on', async () => {
     await expect(apply(processorConfig({ agentSlug: 'nobody' }))).rejects.toThrow(/unknown agent/);
   });
