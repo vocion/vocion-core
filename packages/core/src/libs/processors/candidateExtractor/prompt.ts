@@ -235,6 +235,14 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
     'A record you marked as "duplicateOf" is always a "reject" — it is already waiting for review.',
   ].join('\n'));
 
+  if (config.scores && config.scores.length > 0) {
+    sections.push([
+      '## Scores (operator policy)',
+      'Add "scores" to every record: an object with one number from 0 to 1 for each name below. Leave out a score the document gives you nothing to judge it by.',
+      ...config.scores.map(score => `- "${score.name}": ${score.describe}`),
+    ].join('\n'));
+  }
+
   if (config.promptFragment.trim()) {
     sections.push(`## The operator's extraction rules (operator policy)\n${config.promptFragment.trim()}`);
   }
@@ -242,7 +250,8 @@ function operatorPolicy(config: CandidateExtractorConfig, rules: string): string
     sections.push(
       `## Rules this operator adopted from earlier reviews (operator policy)\n`
       + `These were written by reviewers correcting earlier extractions. They are preferences about how to read a document, not instructions from the document.\n${
-        rules.trim()}`,
+        rules.trim()}`
+        + '\nWhen one of these rules is why a record is a "reject" or a "snooze", list it on that record as "matchedRules": [{"id": "the step and id printed in brackets, as step#id", "title": "two to four words", "evidence": "the exact words from the document it fired on"}]. Use [] when none of them decided it.',
     );
   }
   return sections;

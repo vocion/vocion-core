@@ -205,6 +205,18 @@ export const candidateExtractorConfigSchema = z.object({
     }
   }).optional(),
   /**
+   * Named 0..1 judgements the model adds to every record, each with the rubric
+   * the operator wrote for it. Core never knows what a name means; the review
+   * surface reads them back by name.
+   */
+  scores: z.array(z.object({
+    name: FieldName,
+    describe: z.string().min(1).max(400),
+  }).strict()).max(4).optional().refine(
+    scores => !scores || new Set(scores.map(score => score.name)).size === scores.length,
+    { message: 'score names must be unique' },
+  ),
+  /**
    * Lower this sync's spending caps. Every value is optional and may only
    * LOWER the code default, see `libs/processors/budget.ts`.
    */

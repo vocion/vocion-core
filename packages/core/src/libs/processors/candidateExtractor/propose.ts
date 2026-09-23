@@ -85,6 +85,7 @@ export type ProposeOutput = {
  * @param opts.documentId - Its `knowledge_document` id, for `rawExtractRef`.
  * @param opts.objectSchema - The object type's JSON Schema, for the report-only check.
  * @param opts.learningIds - Rule ids the prompt carried, echoed onto the card.
+ * @param opts.learningRules - The rules the prompt carried, so a cited rule is stored with its text.
  * @param opts.budget - The sync's shared caps.
  */
 export async function proposeRecords(opts: {
@@ -96,8 +97,11 @@ export async function proposeRecords(opts: {
   documentId: number;
   objectSchema: Record<string, unknown> | null;
   learningIds: string[];
+  /** The rules the call carried, so a cited rule is stored with the text the model was shown. */
+  learningRules?: Array<{ id: string; text: string }>;
   budget: SyncBudget;
 }): Promise<ProposeOutput> {
+  const ruleText = new Map((opts.learningRules ?? []).map(rule => [rule.id, rule.text]));
   const counts: Record<string, number> = {};
   const notes: string[] = [];
   const bump = (key: string, by = 1): void => {
@@ -165,6 +169,10 @@ export async function proposeRecords(opts: {
         }),
         fields: record.fields,
         confidence: record.confidence,
+        suggestedDecision: record.suggestedDecision,
+        suggestedDecisionReason: record.suggestedDecisionReason,
+        scores: record.scores,
+        matchedRules: record.matchedRules,
         document: opts.document.uri ?? opts.document.externalId,
       });
       bump('dry_run');
@@ -194,6 +202,16 @@ export async function proposeRecords(opts: {
         // and a declared field nobody wrote would score as cleared on every
         // approve.
         ...(record.labelledFields?.length ? { labels: record.labelledFields } : {}),
+        ...(record.scores ? { scores: record.scores as Record<string, number> } : {}),
+        // Absent means "not recorded", [] means "checked, no rule decided it".
+        ...(record.matchedRules
+          ? {
+              matchedRules: record.matchedRules.flatMap((rule) => {
+                const text = ruleText.get(rule.id);
+                return text ? [{ ...rule, text }] : [];
+              }),
+            }
+          : {}),
         // What the model thinks should happen to this card, and why, in one
         // sentence. Distinct from `rationale` above: that says where the card
         // came from, this says what to do with it — and for a `reject` the two

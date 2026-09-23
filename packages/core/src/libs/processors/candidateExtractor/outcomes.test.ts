@@ -270,4 +270,44 @@ describe('candidate extractor outcomes', () => {
     expect(out.counts.proposed).toBe(1);
     expect(out.notes.join(' ')).toContain('proposal budget is spent');
   });
+
+  it('stores the scores and each cited rule with the text the model was shown', async () => {
+    await propose([record({
+      suggestedDecision: 'reject',
+      suggestedDecisionReason: 'A rule fired.',
+      scores: { relevance: 0.4 },
+      matchedRules: [{ id: 'event-extraction#ws-no-cure-claims', title: 'No cure claims', evidence: 'Live' }],
+    })], { learningRules: [{ id: 'event-extraction#ws-no-cure-claims', text: 'Events may not promise medical outcomes.' }] });
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).toMatchObject({
+      scores: { relevance: 0.4 },
+      matchedRules: [{
+        id: 'event-extraction#ws-no-cure-claims',
+        title: 'No cure claims',
+        text: 'Events may not promise medical outcomes.',
+        evidence: 'Live',
+      }],
+    });
+  });
+
+  it('keeps an empty rule list, which says the rules were checked', async () => {
+    await propose([record({ matchedRules: [] })], {
+      learningRules: [{ id: 'event-extraction#ws-no-cure-claims', text: 'Events may not promise medical outcomes.' }],
+    });
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).toMatchObject({ matchedRules: [] });
+  });
+
+  it('writes neither field when the record carries neither', async () => {
+    await propose([record()]);
+
+    const [run] = await db.select().from(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+
+    expect(run?.proposal).not.toHaveProperty('scores');
+    expect(run?.proposal).not.toHaveProperty('matchedRules');
+  });
 });

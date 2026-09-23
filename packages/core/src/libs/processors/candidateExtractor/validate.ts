@@ -23,7 +23,7 @@
  */
 
 import type { CandidateExtractorConfig } from './config';
-import type { ExtractedRecord } from './model';
+import type { ExtractedRecord, MatchedRuleAnswer } from './model';
 import type { PageLink } from '@/libs/sources/pageMetadata';
 import { normaliseForKey } from '@/libs/actions/objects-propose-candidate';
 import { calendarDayOf } from './knownCards';
@@ -48,6 +48,60 @@ export type ValidationOutput = {
   /** Run-level notes, for the processor result. */
   notes: string[];
 };
+
+const RULE_TITLE_CAP = 60;
+const RULE_EVIDENCE_CAP = 300;
+
+/**
+ * Lowercase, quotes dropped, whitespace collapsed: enough that evidence the
+ * model quoted with typographic quotes or a line break still matches the page.
+ * @param text - Page text or a quoted phrase.
+ */
+function squash(text: string): string {
+  return text.toLowerCase().replace(/[\u2018\u2019\u201C\u201D"'`]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The configured scores the model returned in range; everything else named.
+ * @param raw - The model's `scores` object.
+ * @param configured - The config's `scores`.
+ */
+function cleanScores(
+  raw: Record<string, unknown> | undefined,
+  configured: CandidateExtractorConfig['scores'],
+): { kept: Record<string, number> | undefined; dropped: string[] } {
+  if (!raw) {
+    return { kept: undefined, dropped: [] };
+  }
+  const names = new Set((configured ?? []).map(score => score.name));
+  const kept: Record<string, number> = {};
+  const dropped: string[] = [];
+  for (const [name, value] of Object.entries(raw)) {
+    if (names.has(name) && typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1) {
+      kept[name] = value;
+    } else {
+      dropped.push(name);
+    }
+  }
+  return { kept: Object.keys(kept).length > 0 ? kept : undefined, dropped };
+}
+
+/**
+ * The carried rule an answer names. The prompt prints `(step #id)`, so a model
+ * may echo the space, only the `#id`, or the bare id.
+ * @param answer - The id as the model wrote it.
+ * @param rules - The rules the call carried.
+ */
+function resolveRuleId(answer: string, rules: Array<{ id: string }>): string | null {
+  const compact = answer.replace(/\s+/g, '').replace(/^\(|\)$/g, '');
+  const exact = rules.find(rule => rule.id === compact);
+  if (exact) {
+    return exact.id;
+  }
+  const bare = compact.replace(/^#/, '');
+  const bySuffix = rules.filter(rule => rule.id.endsWith(`#${bare}`));
+  return bySuffix.length === 1 ? bySuffix[0]!.id : null;
+}
 
 /**
  * Today as a calendar day in a given zone.
@@ -198,6 +252,7 @@ function documentUrls(
  * back as a path can be resolved before the gate compares it.
  * @param opts.knownIds - Run ids the prompt actually carried.
  * @param opts.today - Today as a calendar day in the config's timezone.
+ * @param opts.rules - The adopted rules the prompt carried, by `step#id`.
  */
 export function validateRecords(opts: {
   records: ExtractedRecord[];
@@ -210,6 +265,8 @@ export function validateRecords(opts: {
   baseUrl?: string;
   knownIds: Set<number>;
   today: string;
+  /** The adopted rules the call carried; a cited rule outside this list is dropped. */
+  rules?: Array<{ id: string; text: string }>;
 }): ValidationOutput {
   const { config } = opts;
   const counts: Record<string, number> = {};
@@ -250,6 +307,7 @@ export function validateRecords(opts: {
   };
 
   const kept: ValidatedRecord[] = [];
+  let pageHaystack: string | null = null;
   for (const raw of opts.records) {
     const record: ValidatedRecord = { ...raw, fields: { ...raw.fields }, issues: [] };
 
@@ -381,6 +439,41 @@ export function validateRecords(opts: {
     // longer claims.
     if (record.seriesOf === undefined && record.seriesNote !== undefined) {
       record.seriesNote = undefined;
+    }
+
+    const scores = cleanScores(record.scores, config.scores);
+    if (scores.dropped.length > 0) {
+      record.issues.push(`scores: ${scores.dropped.join(', ')} dropped, not a configured score between 0 and 1`);
+    }
+    record.scores = scores.kept;
+
+    if (record.matchedRules !== undefined) {
+      const known = opts.rules ?? [];
+      if (known.length === 0) {
+        record.matchedRules = undefined;
+      } else {
+        pageHaystack ??= squash(opts.pageText);
+        const cited: MatchedRuleAnswer[] = [];
+        for (const answer of record.matchedRules) {
+          const id = resolveRuleId(answer.id, known);
+          if (!id) {
+            record.issues.push(`matchedRules: ${answer.id} was not among the rules this call carried, so it was ignored`);
+            bump('skipped.rule_not_in_list');
+            continue;
+          }
+          const evidence = answer.evidence?.trim();
+          const found = evidence ? pageHaystack.includes(squash(evidence)) : false;
+          if (evidence && !found) {
+            record.issues.push(`matchedRules: the evidence for ${id} is not in the document, so it was dropped`);
+          }
+          cited.push({
+            id,
+            ...(answer.title?.trim() ? { title: answer.title.trim().slice(0, RULE_TITLE_CAP) } : {}),
+            ...(found && evidence ? { evidence: evidence.slice(0, RULE_EVIDENCE_CAP) } : {}),
+          });
+        }
+        record.matchedRules = cited;
+      }
     }
 
     kept.push(record);

@@ -85,7 +85,13 @@ export type ExtractedRecord = {
    * which is the honest reading and stays out of the agreement rate.
    */
   referencedObjects?: ReferencedObjectVerdict[];
+  /** Raw from the model; `validate.ts` keeps only configured names in 0..1. */
+  scores?: Record<string, unknown>;
+  /** The adopted rules the model says decided its verdict; `validate.ts` keeps only rules the call carried. */
+  matchedRules?: MatchedRuleAnswer[];
 };
+
+export type MatchedRuleAnswer = { id: string; title?: string; evidence?: string };
 
 /** What the model thinks of one object a record points at. */
 export type ReferencedObjectVerdict = {
@@ -186,6 +192,14 @@ function envelopeSchema(maxRecords: number) {
         suggestedDecision: z.enum(SUGGESTED_DECISIONS),
         suggestedDecisionReason: z.string().transform(value => value.trim()),
       }).nullable().catch(null)).optional().transform(entries => entries?.filter(entry => entry !== null)),
+      // Both optional and both forgiving, like `referencedObjects`: a malformed
+      // score or rule costs that value, never the corrective retry.
+      scores: z.record(z.string(), z.unknown()).optional().catch(undefined),
+      matchedRules: z.array(z.object({
+        id: z.string().min(1),
+        title: z.string().optional().catch(undefined),
+        evidence: z.string().optional().catch(undefined),
+      }).nullable().catch(null)).optional().catch(undefined).transform(entries => entries?.filter(entry => entry !== null)),
     })).max(maxRecords).default([]),
   });
 }

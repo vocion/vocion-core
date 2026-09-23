@@ -29,6 +29,8 @@ export type RenderedLearnings = {
   text: string;
   /** Rule ids that actually reached the prompt, echoed into the extraction notes. */
   ids: string[];
+  /** The rules that reached the prompt, by the same `step#id` as `ids`, so a verdict can cite one. */
+  rules: Array<{ id: string; text: string }>;
   /** Steps that could not be read, for the notes. */
   failedSteps: string[];
 };
@@ -55,7 +57,7 @@ function scrubRule(text: string): string {
  */
 export async function renderLearnings(orgId: string, steps: string[] | undefined): Promise<RenderedLearnings> {
   if (!steps || steps.length === 0) {
-    return { text: '', ids: [], failedSteps: [] };
+    return { text: '', ids: [], rules: [], failedSteps: [] };
   }
   const { getNamespace } = await import('@/services/MemoryService');
 
@@ -81,6 +83,7 @@ export async function renderLearnings(orgId: string, steps: string[] | undefined
 
   const lines: string[] = [];
   const ids: string[] = [];
+  const rendered: Array<{ id: string; text: string }> = [];
   let chars = 0;
   for (const rule of rules) {
     if (lines.length >= RULES_MAX) {
@@ -92,8 +95,9 @@ export async function renderLearnings(orgId: string, steps: string[] | undefined
     }
     lines.push(line);
     ids.push(`${rule.step}#${rule.id}`);
+    rendered.push({ id: `${rule.step}#${rule.id}`, text: rule.text });
     chars += line.length + 1;
   }
 
-  return { text: lines.join('\n'), ids, failedSteps };
+  return { text: lines.join('\n'), ids, rules: rendered, failedSteps };
 }
