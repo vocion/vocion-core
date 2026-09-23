@@ -12,8 +12,13 @@ jobs:
   # every E2E run sat behind a 24.x build whose output nothing used (#629).
   #
   # The versions are the ones that ship: the agent runtime image is
-  # `node:22-slim`, and a client deployment runs
-  # the app on `node:20`. Nothing runs on 24, so nothing builds on it.
+  # `node:22-slim`, and both client deployments run the app on `node:20`.
+  #
+  # Node 24 is no longer built. `engines` in package.json still says
+  # `>=20.3`, which covers 24, but nothing in CI now proves the app builds
+  # on it. Before any deployment moves to 24 (or a newer major), add a
+  # `build-node-24` job shaped like `build-node-20` below. It costs runner
+  # minutes, not wall-clock time, because nothing waits on it.
   build:
     name: Build with 22.x
     runs-on: ubuntu-latest
