@@ -62,8 +62,9 @@ export const BUILTIN_TOOLS: BuiltinTool[] = [
     sourceFile: 'src/services/agents/tools/crawlSite.ts',
     params: [
       { name: 'start_url', type: 'string (URL)', required: true, description: 'URL to start crawling from' },
-      { name: 'max_depth', type: 'number', required: false, description: 'Link depth to follow (default 1, max 3)' },
-      { name: 'max_pages', type: 'number', required: false, description: 'Max pages to fetch (default 20, max 50)' },
+      { name: 'max_depth', type: 'number', required: false, description: 'Link depth to follow (default 1)' },
+      { name: 'max_pages', type: 'number', required: false, description: 'Most pages to fetch (default 20)' },
+      { name: 'chars_per_page', type: 'number', required: false, description: 'Characters of each page to return (default 1,200)' },
     ],
   },
   {

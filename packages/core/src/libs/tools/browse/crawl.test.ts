@@ -10,7 +10,7 @@
  * The provider is mocked; no test here reaches the network.
  */
 import type { BrowseProvider, Page } from './types';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderNotConfiguredError, ToolProviderKeyUnavailableError } from '../types';
 import { bfsCrawl } from './crawl';
 
@@ -85,11 +85,27 @@ describe('a crawl whose key cannot be read', () => {
 
   it('asks for the key once rather than once per queued page', async () => {
     // The lookup is a database read plus a decrypt. Swallowing the failure
-    // would retry it for every one of the up-to-50 pages in the queue.
+    // would retry it for every page in the queue.
     fetchPage.mockRejectedValue(new ToolProviderKeyUnavailableError('firecrawl'));
 
     await expect(bfsCrawl(provider, START_URL, { maxPages: 50, orgId: 'org_crawl' })).rejects.toThrow();
 
     expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('how far a crawl goes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reads as many pages as it was asked for, past the old ceiling of 50', async () => {
+    // A listing with 80 detail pages lost 30 of them to a silent clamp.
+    const detailLinks = Array.from({ length: 80 }, (_, index) => `<a href="/events/${index}">Event ${index}</a>`).join('');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(`<html><body>${detailLinks}</body></html>`)));
+
+    const pages = await bfsCrawl(provider, START_URL, { maxDepth: 1, maxPages: 81 });
+
+    expect(pages).toHaveLength(81);
   });
 });
