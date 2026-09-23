@@ -117,10 +117,10 @@ function dayPlus(day: string, days: number): string {
  * Strip what semi-trusted text is not allowed to carry: no code fences, no
  * closing-tag openers, one line.
  *
- * No trim and no cap here, deliberately. Its two callers apply their own and
+ * No trim and no cap here, deliberately. Each caller applies its own and
  * they are different lengths (`scrubCardText` below, `scrubSeriesNote` in
  * `labels.ts`, which also has a step of its own to run after this one). What
- * is shared is the defence, so a step added to it reaches both callers instead
+ * is shared is the defence, so a step added to it reaches every caller instead
  * of whichever file the next reader happened to open.
  * @param value - Any stored or model-written string.
  */

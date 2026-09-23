@@ -147,17 +147,19 @@ async function approveVenue(name: string, city: string) {
   });
 }
 
+async function resetOrg() {
+  invoke.mockReset();
+  await db.delete(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
+  await db.delete(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
+  await db.delete(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, ORG));
+  forgetCachedObjectTypes();
+  for (const slug of ['event-candidate', 'venue-candidate']) {
+    await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug, label: slug, schema: {} });
+  }
+}
+
 describe('an ingestion run, venue by venue', () => {
-  beforeEach(async () => {
-    invoke.mockReset();
-    await db.delete(actionRunSchema).where(eq(actionRunSchema.orgId, ORG));
-    await db.delete(businessObjectSchema).where(eq(businessObjectSchema.orgId, ORG));
-    await db.delete(businessObjectTypeSchema).where(eq(businessObjectTypeSchema.orgId, ORG));
-    forgetCachedObjectTypes();
-    for (const slug of ['event-candidate', 'venue-candidate']) {
-      await db.insert(businessObjectTypeSchema).values({ orgId: ORG, slug, label: slug, schema: {} });
-    }
-  });
+  beforeEach(resetOrg);
 
   it('files both cards with a recommendation and a reason when the model judged both', async () => {
     invoke.mockResolvedValue(answer([eventRecord({
@@ -312,5 +314,61 @@ describe('an ingestion run, venue by venue', () => {
       suggestedDecision: 'approve',
       suggestedDecisionReason: 'The address is printed now, so it reads as a real room.',
     });
+  });
+});
+
+describe('a document read again with its venue worded differently', () => {
+  const base = {
+    objectType: 'event-candidate',
+    agentSlug: 'event-ingestion-lead',
+    dedupOn: ['title', 'startDate', 'venueName'],
+    titleFrom: 'title',
+    promptFragment: 'Only events open to the public.',
+    timezone: 'America/New_York',
+  };
+  const plain = candidateExtractorConfigSchema.parse(base);
+  const keeping = candidateExtractorConfigSchema.parse({ ...base, keepIdentityOnReread: { sameOn: ['title', 'startDate'] } });
+  const read = (venueName: string) => answer([eventRecord({
+    fields: { title: 'Open Mic Night', startDate: day(7), venueName, venueCity: 'Riverton' },
+  })]);
+
+  beforeEach(resetOrg);
+
+  it('files a second card when nothing keeps the identity', async () => {
+    invoke.mockResolvedValueOnce(read('The Ember Room'));
+    await run({ ...context(), config: plain });
+    invoke.mockResolvedValueOnce(read('The Ember Room [and online]'));
+    const second = await run({ ...context(), config: plain });
+
+    expect(second.counts).toMatchObject({ proposed: 1 });
+    expect((await cards()).events).toHaveLength(2);
+  });
+
+  it('refreshes the card this document filed, with the new wording in its notes', async () => {
+    invoke.mockResolvedValueOnce(read('The Ember Room'));
+    await run({ ...context(), config: keeping });
+    invoke.mockResolvedValueOnce(read('The Ember Room [and online]'));
+    const second = await run({ ...context(), config: keeping });
+    const { events } = await cards();
+
+    expect(second.counts).toMatchObject({ refreshed: 1, identity_kept: 1 });
+    expect(second.counts).not.toHaveProperty('proposed');
+    expect(events).toHaveLength(1);
+
+    const input = events[0]!.input as { fields: Record<string, unknown>; extractionNotes?: string };
+
+    expect(input.fields.venueName).toBe('The Ember Room');
+    expect(input.extractionNotes).toContain(`venueName: read as "The Ember Room [and online]" this time; kept "The Ember Room" from card #${events[0]!.id}, which this document filed`);
+  });
+
+  it('stops at the decision when the card this document filed was already approved', async () => {
+    invoke.mockResolvedValueOnce(read('The Ember Room'));
+    await run({ ...context(), config: keeping });
+    await db.update(actionRunSchema).set({ status: 'done', decidedAt: new Date() }).where(eq(actionRunSchema.orgId, ORG));
+    invoke.mockResolvedValueOnce(read('The Ember Room [and online]'));
+    const second = await run({ ...context(), config: keeping });
+
+    expect(second.counts).toMatchObject({ already_decided: 1, identity_kept: 1 });
+    expect((await cards()).events).toHaveLength(1);
   });
 });

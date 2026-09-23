@@ -28,10 +28,12 @@ import type { DocumentProcessor, ProcessorResult } from '../types';
 import type { CandidateExtractorConfig } from './config';
 import type { PageLink } from '@/libs/sources/pageMetadata';
 import { pushScore } from '@/libs/Langfuse';
+import { keepIdentity, loadDocumentCards } from './identity';
 import { loadKnownCards } from './knownCards';
 import { labelRecords } from './labels';
 import { renderLearnings } from './learnings';
 import { extractRecords, SKIP_OUTCOME } from './model';
+import { oncePerSync } from './oncePerSync';
 import { buildExtractionPrompt } from './prompt';
 import { PROPOSAL_CAP_HIT_NOTE, proposeRecords } from './propose';
 import { proposeRelatedObjects, resolveRecords } from './resolve';
@@ -96,22 +98,6 @@ async function learningStepsFor(orgId: string, config: CandidateExtractorConfig)
   }
 }
 
-/**
- * Anything cached for the length of one sync, keyed on the object type.
- * @param cache - The sync-wide cache from the processor context.
- * @param key - Cache key.
- * @param build - Builds the value on a miss.
- */
-async function oncePerSync<T>(cache: Map<string, unknown>, key: string, build: () => Promise<T>): Promise<T> {
-  const cached = cache.get(key);
-  if (cached !== undefined) {
-    return cached as T;
-  }
-  const value = await build();
-  cache.set(key, value);
-  return value;
-}
-
 export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResult> => {
   const config = ctx.config as CandidateExtractorConfig;
   const counts: Record<string, number> = {};
@@ -132,12 +118,13 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
   };
   const jsonLdBlocks = metadata.jsonLd ?? [];
 
-  const [known, rules, objectSchema] = await Promise.all([
+  const [known, rules, objectSchema, documentCards] = await Promise.all([
     loadKnownCards({ orgId: ctx.orgId, config, syncContext: ctx.syncContext, today }),
     oncePerSync(ctx.syncContext.cache, `rules:${config.agentSlug}`, async () =>
       renderLearnings(ctx.orgId, await learningStepsFor(ctx.orgId, config))),
     oncePerSync(ctx.syncContext.cache, `schema:${config.objectType}`, () =>
       loadObjectSchema(ctx.orgId, config.objectType)),
+    loadDocumentCards({ orgId: ctx.orgId, sourceSlug: ctx.sourceSlug, config, syncContext: ctx.syncContext }),
   ]);
   if (rules.failedSteps.length > 0) {
     notes.push(`learning steps that could not be read: ${rules.failedSteps.join(', ')}`);
@@ -215,6 +202,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     syncContext: ctx.syncContext,
   });
   merge(counts, resolved.counts);
+  merge(counts, keepIdentity({ config, records: validated.records, stored: documentCards.get(ctx.document.externalId) ?? [] }));
 
   merge(counts, await proposeRelatedObjects({
     orgId: ctx.orgId,
