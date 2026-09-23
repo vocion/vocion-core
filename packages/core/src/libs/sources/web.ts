@@ -382,6 +382,8 @@ function usableUrl(raw: unknown, urlKey: string): string | undefined {
 type FetchedPage = {
   /** The URL actually fetched, after the `webcal:` rewrite. */
   url: string;
+  /** Where the response came from after redirects; equals `url` when there were none. */
+  finalUrl: string;
   raw: string;
   contentType: string;
   isHtml: boolean;
@@ -438,10 +440,12 @@ async function fetchPage(
       return null;
     }
     const raw = await res.text();
-    const extracted = isHtml ? extractFromHtml(raw, target) : { title: undefined, content: raw, structure: undefined };
+    const finalUrl = res.redirected && HTTP_URL_RE.test(res.url) ? res.url : target;
+    const extracted = isHtml ? extractFromHtml(raw, sameSiteUrl({ url: target, finalUrl })) : { title: undefined, content: raw, structure: undefined };
     const lastModifiedHeader = res.headers.get('last-modified');
     return {
       url: target,
+      finalUrl,
       raw,
       contentType,
       isHtml,
@@ -455,6 +459,14 @@ async function fetchPage(
     report((err as Error).message);
     return null;
   }
+}
+
+function sameSiteUrl(page: Pick<FetchedPage, 'url' | 'finalUrl'>): string {
+  const requested = new URL(page.url);
+  const landed = new URL(page.finalUrl);
+  const site = (url: URL): string => url.hostname.replace(/^www\./, '');
+  const upgradedAtMost = landed.protocol === requested.protocol || (requested.protocol === 'http:' && landed.protocol === 'https:');
+  return upgradedAtMost && landed.port === requested.port && site(landed) === site(requested) ? page.finalUrl : page.url;
 }
 
 /**
@@ -1436,7 +1448,7 @@ function discoverFeeds(page: FetchedPage, ctx: SourceContext): FeedCandidate[] {
   }
 
   const eligible = found.filter((candidate) => {
-    if (describesTheListing(candidate, page.url)) {
+    if (describesTheListing(candidate, [page.url, sameSiteUrl(page)])) {
       return true;
     }
     runNote(ctx, candidate.url, `source: skipped ${candidate.kind} feed outside the listing path ${candidate.url}`);
@@ -1493,24 +1505,21 @@ function isUnderListingPath(url: URL, listing: URL): boolean {
  * A Squarespace `?format=json` candidate is the listing URL itself, so it
  * passes on the paths being equal.
  * @param candidate - the discovered feed.
- * @param listingUrl - the listing it was discovered on, as actually fetched.
+ * @param listingUrls - the listing it was discovered on, as requested and as landed on the same site.
  */
-function describesTheListing(candidate: FeedCandidate, listingUrl: string): boolean {
+function describesTheListing(candidate: FeedCandidate, listingUrls: string[]): boolean {
   if (candidate.kind === 'ics') {
     return true;
   }
   let feed: URL;
-  let listing: URL;
+  let listings: URL[];
   try {
     feed = new URL(candidate.url);
-    listing = new URL(listingUrl);
+    listings = listingUrls.map(url => new URL(url));
   } catch {
     return false;
   }
-  if (feed.origin !== listing.origin) {
-    return false;
-  }
-  return isUnderListingPath(feed, listing);
+  return listings.some(listing => feed.origin === listing.origin && isUnderListingPath(feed, listing));
 }
 
 /**
@@ -2010,7 +2019,7 @@ function collapse(text: string): string {
  *
  * The crawl starts at the SEED, not at `cfg.startUrl`: with a list of seeds
  * they are not the same URL, and the origin the same-origin rule is read
- * against is the seed's.
+ * against is the seed's, where its redirect landed when that stayed on the site.
  *
  * A page's links are queued in two batches, the seed's own path first and the
  * rest of the origin after, each in page order. See the partition below.
@@ -2027,7 +2036,7 @@ async function* crawl(
   pages: PageBudget,
 ): AsyncIterable<IngestDoc> {
   const startUrl = seed.url;
-  const start = new URL(startUrl);
+  const start = crawlStart(seed);
   const startOrigin = start.origin;
   const visited = new Set<string>();
   const queue: QueueEntry[] = [{ url: startUrl, depth: 0 }];
@@ -2045,6 +2054,7 @@ async function* crawl(
     }
     const page = prefetched ?? await fetchPage(url, ctx);
     if (page) {
+      visited.add(page.finalUrl);
       for (const doc of docsFromPage(page, ctx)) {
         yield doc;
       }
@@ -2076,9 +2086,10 @@ async function* crawl(
     // `/about-us/`, none of which has ever held an event.
     const ownPath: QueueEntry[] = [];
     const elsewhere: QueueEntry[] = [];
+    const base = sameSiteUrl(page);
     for (const href of pageLinks(page)) {
       try {
-        const next = new URL(href, url);
+        const next = new URL(href, base);
         // Strip fragments so #section links don't blow up the queue.
         next.hash = '';
         if (next.origin === startOrigin && !visited.has(next.toString()) && followable(next, cfg)) {
@@ -2099,6 +2110,10 @@ async function* crawl(
   }
 }
 
+function crawlStart(seed: FetchedPage): URL {
+  return new URL(sameSiteUrl(seed));
+}
+
 /** One page waiting to be crawled, and how many hops from the seed it sits. */
 type QueueEntry = { url: string; depth: number };
 
@@ -2112,7 +2127,7 @@ function pageLinks(page: FetchedPage): string[] {
   }
   // Non-HTML bodies never went through cheerio. The old regex still covers the
   // odd page served as text/plain with markup inside it.
-  return extractLinks(page.raw, page.url);
+  return extractLinks(page.raw, sameSiteUrl(page));
 }
 
 /**

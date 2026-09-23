@@ -48,6 +48,16 @@ function page(body: string): Response {
 }
 
 /**
+ * Make a response look like the one fetch returns after following a redirect.
+ * @param res - the response the redirect landed on.
+ * @param finalUrl - where the redirect landed.
+ */
+function redirectedTo(res: Response, finalUrl: string): Response {
+  Object.defineProperties(res, { url: { value: finalUrl }, redirected: { value: true } });
+  return res;
+}
+
+/**
  * Run one sync to completion.
  * @param config - the connector config under test.
  */
@@ -264,5 +274,183 @@ describe('link order', () => {
     // The listing's own pages lost the whitelist, so the menu page is all
     // that is left, partition or no partition.
     expect(included.mock.calls.map(c => String(c[0]))).toEqual([CALENDAR_URL, NOTARY_URL]);
+  });
+});
+
+describe('a seed that redirects within its site', () => {
+  const WWW_LISTING_URL = 'https://www.venue.test/shows/';
+
+  it.each([
+    ['an https', LISTING_URL],
+    ['an http', 'http://venue.test/shows/'],
+  ])('follows the absolute and relative links of the www host %s apex seed landed on', async (_scheme, seedUrl) => {
+    const fetchFn = stubFetch(url => url === seedUrl
+      ? redirectedTo(page(`
+          <p><a href="https://www.venue.test/shows/opening">Opening Night</a></p>
+          <p><a href="/shows/second">Second Show</a></p>
+        `), WWW_LISTING_URL)
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: seedUrl } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([
+      seedUrl,
+      'https://www.venue.test/shows/opening',
+      'https://www.venue.test/shows/second',
+    ]);
+  });
+
+  it('resolves relative links against the URL the seed landed on', async () => {
+    const fetchFn = stubFetch(url => url === 'https://venue.test/shows'
+      ? redirectedTo(page('<p><a href="opening">Opening Night</a></p>'), LISTING_URL)
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: 'https://venue.test/shows' } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual(['https://venue.test/shows', 'https://venue.test/shows/opening']);
+  });
+
+  it('queues the landed listing\'s own pages first', async () => {
+    const fetchFn = stubFetch(url => url === 'https://venue.test/calendar'
+      ? redirectedTo(page(`
+          <nav><a href="/about">About</a></nav>
+          <p><a href="/whats-on/next-month">Next month</a></p>
+        `), 'https://venue.test/whats-on/')
+      : page('<p>An event.</p>'));
+
+    await run({ crawl: { startUrl: 'https://venue.test/calendar', maxPages: 2 } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([
+      'https://venue.test/calendar',
+      'https://venue.test/whats-on/next-month',
+    ]);
+  });
+
+  it('does not fetch the landed listing again', async () => {
+    const fetchFn = stubFetch(url => url === LISTING_URL
+      ? redirectedTo(page(`
+          <nav><a href="https://www.venue.test/shows/">Shows</a></nav>
+          <p><a href="/shows/opening">Opening Night</a></p>
+        `), WWW_LISTING_URL)
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://www.venue.test/shows/opening']);
+  });
+
+  it('keeps the requested URL as the document id', async () => {
+    stubFetch((url) => {
+      if (url === LISTING_URL) {
+        return redirectedTo(page('<p><a href="/shows/opening">Opening Night</a></p>'), WWW_LISTING_URL);
+      }
+      return url === 'https://www.venue.test/shows/opening'
+        ? redirectedTo(page('<p>Opening Night, 7:30pm.</p>'), 'https://www.venue.test/shows/opening/')
+        : undefined;
+    });
+
+    const { docs } = await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(docs.map(d => [d.externalId, d.uri])).toEqual([
+      [LISTING_URL, LISTING_URL],
+      ['https://www.venue.test/shows/opening', 'https://www.venue.test/shows/opening'],
+    ]);
+  });
+
+  it('judges same-origin by the landed host only', async () => {
+    const fetchFn = stubFetch(url => url === LISTING_URL
+      ? redirectedTo(page(`
+          <p><a href="https://venue.test/shows/apex-only">Apex only</a></p>
+          <p><a href="/shows/opening">Opening Night</a></p>
+        `), WWW_LISTING_URL)
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://www.venue.test/shows/opening']);
+  });
+
+  it('keeps the page set when the listing moves within its own origin', async () => {
+    const seedUrl = 'https://venue.test/shows/';
+    const fetchFn = stubFetch(url => url === seedUrl
+      ? redirectedTo(page(`
+          <nav><a href="/about">About</a></nav>
+          <p><a href="/events/opening">Opening Night</a></p>
+          <p><a href="/events/second">Second Show</a></p>
+        `), 'https://venue.test/shows-at-venue/')
+      : page('<p>A show.</p>'));
+
+    const { docs } = await run({ crawl: { startUrl: seedUrl } });
+    const expected = [
+      seedUrl,
+      'https://venue.test/about',
+      'https://venue.test/events/opening',
+      'https://venue.test/events/second',
+    ];
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual(expected);
+    expect(docs.map(d => d.externalId)).toEqual(expected);
+  });
+
+  it('a response that did not redirect is read as before', async () => {
+    const fetchFn = stubFetch(url => url === LISTING_URL
+      ? page(`
+          <p><a href="https://www.venue.test/shows/opening">Opening Night</a></p>
+          <p><a href="/shows/second">Second Show</a></p>
+        `)
+      : page('<p>A show.</p>'));
+
+    await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([LISTING_URL, 'https://venue.test/shows/second']);
+  });
+});
+
+/** Expectations are what origin/main did before redirects were read at all. */
+describe('a redirect to another site', () => {
+  it.each([
+    ['another registrable domain', 'https://tickets.example'],
+    ['another port', 'https://venue.test:8443'],
+  ])('a seed that lands on %s is read as before', async (_what, landedOrigin) => {
+    const fetchFn = stubFetch(url => url === LISTING_URL
+      ? redirectedTo(page(`
+          <p><a href="${landedOrigin}/venue/opening">Opening Night</a></p>
+          <p><a href="/venue/second">Second Show</a></p>
+          <p><a href="https://venue.test/shows/third">Third Show</a></p>
+        `), `${landedOrigin}/venue/`)
+      : page('<p>A show.</p>'));
+
+    const { docs } = await run({ crawl: { startUrl: LISTING_URL } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([
+      LISTING_URL,
+      'https://venue.test/shows/third',
+      'https://venue.test/venue/second',
+    ]);
+    expect(docs[0]?.externalId).toBe(LISTING_URL);
+    expect(docs[0]?.content).toContain('Second Show (https://venue.test/venue/second)');
+  });
+
+  it('a detail page that lands on another site is read as before', async () => {
+    const fetchFn = stubFetch((url) => {
+      if (url === LISTING_URL) {
+        return page('<p><a href="/shows/opening">Opening Night</a></p>');
+      }
+      if (url === 'https://venue.test/shows/opening') {
+        return redirectedTo(page(`
+          <p><a href="https://tickets.example/e/opening/seats">Seats</a></p>
+          <p><a href="/shows/after-party">After party</a></p>
+        `), 'https://tickets.example/e/opening');
+      }
+      return page('<p>A show.</p>');
+    });
+
+    await run({ crawl: { startUrl: LISTING_URL, maxDepth: 2 } });
+
+    expect(fetchFn.mock.calls.map(c => String(c[0]))).toEqual([
+      LISTING_URL,
+      'https://venue.test/shows/opening',
+      'https://venue.test/shows/after-party',
+    ]);
   });
 });
