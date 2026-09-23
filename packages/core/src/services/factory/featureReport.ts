@@ -175,6 +175,10 @@ export type ReportEntry = {
   at: Date | null;
   cents: number | null;
   facts: ReportFact[];
+  /** The plan as a person approves it: numbered, in order, one line each. */
+  steps?: string[];
+  /** Facts that belong behind the entry's own disclosure — the reasoning, not the decision. */
+  detailFacts?: ReportFact[];
   checks: ReportCheck[];
   /** Flags shown on the entry itself, e.g. the failed-run-merged-PR contradiction. */
   flags: string[];
@@ -215,6 +219,8 @@ export type ReportSectionGroup = 'story' | 'detail';
 
 export type ReportSection = {
   key: ReportSectionKey;
+  /** Lists that belong behind the section's own disclosure, not in front of the decision. */
+  detailLists: Array<{ label: string; items: string[] }>;
   /** Where it sits: in the story, or behind Technical details. */
   group: ReportSectionGroup;
   title: string;
@@ -273,6 +279,10 @@ export type FeatureReport = {
   money: MoneyLine;
   /** Where the work is and what it wants from a person — the top of the page. */
   state: ReportState;
+  /** Which decision this page is for right now, and therefore what leads it. */
+  phase: ReportPhase;
+  /** The four steps and where this has got to, in place of four empty sections. */
+  lifecycle: LifecycleStep[];
   /** What this work is FOR, in the requester's own words. Null when nobody wrote one. */
   goal: string | null;
   /** The contract: what has to be true before this is done. */
@@ -549,7 +559,7 @@ export function statusTone(status: string | null): Tone {
 const DETAIL_SECTIONS: ReadonlySet<string> = new Set(['ask', 'triage', 'contract', 'approvals']);
 
 function blank(key: ReportSectionKey, title: string): ReportSection {
-  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], entries: [], checks: [], evidence: [], flags: [] };
+  return { key, group: DETAIL_SECTIONS.has(key) ? 'detail' : 'story', title, absence: null, facts: [], lists: [], detailLists: [], entries: [], checks: [], evidence: [], flags: [] };
 }
 
 /**
@@ -697,7 +707,7 @@ export function planRecordLine(plan: PlanRecord | null): string {
  * @param hasRuns - Whether any worker run exists, which changes what an absent plan means.
  */
 function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: boolean): ReportSection {
-  const s = blank('plan', 'The plan');
+  const s = blank('plan', 'Plan');
   const decision = planDecisionForRequest(tasks);
   const recorded = tasks.map(task => ({ task, plan: planRecordFromTask(task.meta) }));
   const skips = recorded.filter(r => r.plan?.skipped === true);
@@ -778,11 +788,18 @@ function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: bool
       tone: statusTone(plan.status),
       at: asDate(meta.approvedAt) ?? plan.createdAt,
       cents: null,
+      // WHAT IS BEING APPROVED is the steps. The reasoning behind them is
+      // excellent and it is not the thing a person says yes to — four
+      // paragraphs of it at the top of a plan is a document, not a decision.
+      // It moves to `detailFacts`, behind "Why this plan".
       facts: [
-        { label: 'The approach, and why this one', value: str(meta, 'approach'), format: 'quote' },
-        { label: 'Written by', value: str(meta, 'writtenBy') },
         { label: 'Approved by', value: str(meta, 'approvedBy') ?? (plan.status === 'approved' ? 'not recorded' : 'nobody yet') },
         { label: 'Approved', value: asDate(meta.approvedAt) ? formatStamp(asDate(meta.approvedAt)) : null },
+      ],
+      steps: list(meta, 'components'),
+      detailFacts: [
+        { label: 'The approach, and why this one', value: str(meta, 'approach'), format: 'quote' },
+        { label: 'Written by', value: str(meta, 'writtenBy') },
         { label: 'Data or migration impact', value: str(meta, 'dataImpact'), format: 'quote' },
         { label: 'How it will be verified', value: str(meta, 'verification'), format: 'quote' },
       ],
@@ -793,9 +810,9 @@ function planSection(plans: ReportObject[], tasks: ReportObject[], hasRuns: bool
     };
   });
   for (const plan of plans) {
-    for (const [key, label] of [['components', 'What changes, by component'], ['interfaces', 'Interfaces added or altered'], ['risks', 'What could go wrong, and what it would cost'], ['alternatives', 'Considered and rejected, and why']] as const) {
+    for (const [key, label] of [['interfaces', 'Interfaces added or altered'], ['risks', 'What could go wrong'], ['alternatives', 'Considered and rejected, and why']] as const) {
       const items = list(plan.meta, key);
-      s.lists.push({ label: `${label} · plan ${plan.id}`, items: items.length > 0 ? items : [`This plan does not say. A plan that answers nothing here is a document, not a design.`] });
+      s.detailLists.push({ label, items: items.length > 0 ? items : ['This plan does not say. A plan that answers nothing here is a document, not a design.'] });
     }
   }
   return s;
@@ -1050,7 +1067,7 @@ function changeSection(tasks: ReportObject[], runs: ReportWorkerRun[]): ReportSe
  * @param taskCount - How many tasks, so the sentence reads right.
  */
 function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSection {
-  const s = blank('qa', 'QA evidence');
+  const s = blank('qa', 'QA');
   s.evidence = artifacts
     .map(a => ({ a, role: qaEvidenceRole(a) }))
     .filter((x): x is { a: ReportArtifact; role: QaEvidenceRole } => x.role !== null)
@@ -1093,7 +1110,7 @@ function qaSection(artifacts: ReportArtifact[], taskCount: number): ReportSectio
  * @param releases - Releases carrying any of this work's tasks.
  */
 function releaseSection(releases: ReportObject[]): ReportSection {
-  const s = blank('release', 'The release');
+  const s = blank('release', 'Release');
   if (releases.length === 0) {
     // "No release carries this task" is the join, said out loud. What a
     // person wants here is whether this can go out and what is between it
@@ -1182,21 +1199,35 @@ export function moneyLine(request: ReportObject, tasks: ReportObject[], runs: Re
  * @param line - The computed money line.
  */
 function moneySection(line: MoneyLine): ReportSection {
-  const s = blank('money', 'Estimate against actual');
-  s.facts = [
-    { label: 'Estimated', value: line.estimateCents === null ? 'nobody estimated this' : money(line.estimateCents), format: 'money' },
-    { label: 'Estimate from', value: line.estimateSource },
-    { label: 'Actual', value: line.actualCents === null ? 'nothing has been charged' : money(line.actualCents), format: 'money' },
-    { label: 'Actual from', value: line.actualSource },
-    {
-      label: 'Variance',
-      value: line.varianceCents === null
-        ? 'not computable without both figures'
-        : `${line.varianceCents >= 0 ? '+' : ''}${money(line.varianceCents)}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}`,
-      format: 'money',
-    },
-    { label: 'Charged across the runs', value: money(line.runCents), format: 'money' },
-  ];
+  const s = blank('money', 'Cost');
+  // ONE LINE, then the accounting.
+  //
+  // Six labelled figures gave money the same visual weight as the product
+  // change itself, on work costing between ten and a hundred dollars. Chris,
+  // 2026-09-22: *"Cost matters, but on a $10–$100 factory task it shouldn't
+  // occupy the same visual weight as the actual product change."* So: what it
+  // has cost and what it was expected to cost, in a sentence; the workings
+  // one tap down.
+  const spent = line.actualCents === null ? null : money(line.actualCents);
+  const estimated = line.estimateCents === null ? null : money(line.estimateCents);
+  s.facts = [{
+    label: spent === null ? 'Estimated' : 'Spent',
+    value: spent === null
+      ? estimated ?? 'nobody estimated this'
+      : estimated === null ? spent : `${spent} · estimated ${estimated}`,
+    format: 'money',
+  }];
+  s.detailLists.push({
+    label: 'How that is worked out',
+    items: [
+      `Estimate: ${estimated ?? 'nobody estimated this'} — ${line.estimateSource}.`,
+      `Actual: ${spent ?? 'nothing has been charged'} — ${line.actualSource}.`,
+      line.varianceCents === null
+        ? 'Variance: not computable without both figures.'
+        : `Variance: ${line.varianceCents >= 0 ? '+' : ''}${money(line.varianceCents)}${line.variancePct === null ? '' : ` (${line.variancePct >= 0 ? '+' : ''}${line.variancePct}%)`}.`,
+      `Charged across the worker runs: ${money(line.runCents)}.`,
+    ],
+  });
   return s;
 }
 
@@ -1704,6 +1735,69 @@ function drawOf(a: ReportArtifact): { imageUrl: string | null; body: string | nu
   return { imageUrl: null, body: md };
 }
 
+/**
+ * WHICH DECISION THIS PAGE IS FOR, right now.
+ *
+ * The page used to render the whole lifecycle at once — plan, build, change,
+ * QA, release, cost, history — with four of those saying "nothing has
+ * happened yet" on work nobody had started. Chris, 2026-09-22: *"The core
+ * issue is that the page is trying to be the operating surface and the audit
+ * trail at the same time… you don't need to show the entire lifecycle
+ * simultaneously to prove that the lifecycle exists."*
+ *
+ * So the page has a phase, and the phase decides what leads:
+ *
+ *   - `proposed` — the proposal. What we are changing, what it will look
+ *     like, the plan, what counts as done, and the one button.
+ *   - `building` — progress and exceptions. Nobody needs the mockup again.
+ *   - `review` — the result and the evidence for it.
+ *   - `released` — what shipped, and whether it worked.
+ *
+ * Everything else stays reachable and stops being in the way.
+ */
+export type ReportPhase = 'proposed' | 'building' | 'review' | 'released';
+
+/** One step of the lifecycle, as the strip draws it. */
+export type LifecycleStep = { key: string; label: string; state: 'done' | 'now' | 'todo' };
+
+/**
+ * The phase, read off the same records the state header reads.
+ * @param request - The request.
+ * @param input - Everything gathered.
+ */
+function buildPhase(input: FeatureReportInput): ReportPhase {
+  if (input.releases.length > 0) {
+    return 'released';
+  }
+  if (input.tasks.some(t => t.status === 'accepted') || input.artifacts.some(a => a.recordRole?.startsWith('qa-') === true)) {
+    return 'review';
+  }
+  if (input.workerRuns.length > 0 || input.tasks.length > 0) {
+    return 'building';
+  }
+  return 'proposed';
+}
+
+/**
+ * The four steps, and where this work has got to. A tiny strip replaces four
+ * sections that each said nothing had happened.
+ * @param phase - The phase.
+ */
+function buildLifecycle(phase: ReportPhase): LifecycleStep[] {
+  const order: Array<{ key: ReportPhase; label: string }> = [
+    { key: 'proposed', label: 'Plan' },
+    { key: 'building', label: 'Build' },
+    { key: 'review', label: 'QA' },
+    { key: 'released', label: 'Release' },
+  ];
+  const at = order.findIndex(o => o.key === phase);
+  return order.map((o, i) => ({
+    key: o.key,
+    label: o.label,
+    state: i < at ? 'done' : i === at ? 'now' : 'todo',
+  }));
+}
+
 /** Surfaces a person can see, and therefore owes a picture of. */
 const VISIBLE_SURFACES: ReadonlySet<string> = new Set(['ui', 'flow']);
 
@@ -1725,7 +1819,7 @@ const DONE_LIKE: ReadonlySet<string> = new Set(['shipped', 'accepted', 'released
  * @param artifacts - Every artifact gathered for this work.
  */
 function visualsSection(request: ReportObject, artifacts: ReportArtifact[]): ReportSection {
-  const s = blank('visuals', 'What it looks like');
+  const s = blank('visuals', 'Preview');
   const visuals = (request.meta.visuals ?? {}) as Record<string, unknown>;
   const surface = str(request.meta, 'surface');
   const surfaceUrl = str(visuals, 'surfaceUrl');
@@ -1837,6 +1931,8 @@ export function assembleFeatureReport(input: FeatureReportInput): FeatureReport 
     requestId: input.request.id,
     title: input.request.title,
     state: buildState(normalised),
+    phase: buildPhase(normalised),
+    lifecycle: buildLifecycle(buildPhase(normalised)),
     // The ask's own body, trimmed to a sentence or two — not the whole prompt,
     // which belongs behind "the original request" in the ask section.
     goal: goalOf(input.request),
