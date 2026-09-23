@@ -369,3 +369,86 @@ describe('candidate extractor validation', () => {
     expect(calendarToday(undefined, at)).toBe('2026-11-11');
   });
 });
+
+describe('scores and cited rules', () => {
+  const RULES = [
+    { id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' },
+    { id: 'event-extraction#rtestkey01', text: 'Reject records that only advertise a sale.' },
+  ];
+
+  it('keeps a configured score in range and drops the rest', () => {
+    const scored = configWith({ scores: [{ name: 'fit', describe: 'How well it fits the audience.' }] });
+    const out = run([record({ scores: { fit: 0.7, mood: 0.9 } }), record({ scores: { fit: 1.4 } })], scored);
+
+    expect(out.records[0]?.scores).toEqual({ fit: 0.7 });
+    expect(out.records[0]?.issues.join(' ')).toContain('mood dropped');
+    expect(out.records[1]?.scores).toBeUndefined();
+    expect(out.counts['skipped.score_invalid']).toBe(2);
+  });
+
+  it('drops every score when the config names none', () => {
+    const out = run([record({ scores: { fit: 0.7 } })]);
+
+    expect(out.records[0]?.scores).toBeUndefined();
+  });
+
+  it('resolves a cited rule however the model echoed its id, with the text the call carried', () => {
+    const out = run([record({
+      suggestedDecision: 'reject',
+      matchedRules: [
+        { id: 'event-extraction #ws-no-cure-claims', title: 'No cure claims', evidence: 'Doors at 7' },
+        { id: '#rtestkey01' },
+      ],
+    })], configWith(), { rules: RULES });
+
+    expect(out.records[0]?.matchedRules).toEqual([
+      { id: 'event-extraction#ws-no-cure-claims', title: 'No cure claims', text: 'Listings may not promise medical outcomes.', evidence: 'Doors at 7' },
+      { id: 'event-extraction#rtestkey01', text: 'Reject records that only advertise a sale.' },
+    ]);
+  });
+
+  it('drops a rule the call never carried, and evidence the page does not contain', () => {
+    const out = run([record({
+      matchedRules: [
+        { id: 'event-extraction#ws-invented' },
+        { id: 'event-extraction#ws-no-cure-claims', evidence: 'guaranteed cure' },
+      ],
+    })], configWith(), { rules: RULES });
+
+    expect(out.records[0]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' }]);
+    expect(out.counts['skipped.rule_not_in_list']).toBe(1);
+    expect(out.counts['skipped.evidence_not_in_document']).toBe(1);
+    expect(out.records[0]?.issues.join(' ')).toContain('not in the document');
+  });
+
+  it('finds evidence in the structured data the prompt showed', () => {
+    const out = run([record({
+      matchedRules: [{ id: 'event-extraction#ws-no-cure-claims', evidence: 'A guaranteed cure' }],
+    })], configWith(), { rules: RULES, jsonLd: [{ '@type': 'Thing', 'description': 'A guaranteed cure, every Thursday.' }] });
+
+    expect(out.records[0]?.matchedRules?.[0]?.evidence).toBe('A guaranteed cure');
+  });
+
+  it('cites a rule once, and records nothing when no citation survives', () => {
+    const out = run([
+      record({ matchedRules: [{ id: 'event-extraction #ws-no-cure-claims' }, { id: '#ws-no-cure-claims' }] }),
+      record({ fields: { startDate: '2026-11-19' }, matchedRules: [{ id: 'event-extraction#ws-invented' }] }),
+    ], configWith(), { rules: RULES });
+
+    expect(out.records[0]?.matchedRules).toEqual([{ id: 'event-extraction#ws-no-cure-claims', text: 'Listings may not promise medical outcomes.' }]);
+    expect(out.records[1]?.matchedRules).toBeUndefined();
+  });
+
+  it('keeps an empty list as checked, and an omitted one as not recorded', () => {
+    const out = run([record({ matchedRules: [] }), record({ fields: { startDate: '2026-11-19' } })], configWith(), { rules: RULES });
+
+    expect(out.records[0]?.matchedRules).toEqual([]);
+    expect(out.records[1]?.matchedRules).toBeUndefined();
+  });
+
+  it('records no rules when the call carried none', () => {
+    const out = run([record({ matchedRules: [{ id: 'event-extraction#ws-no-cure-claims' }] })]);
+
+    expect(out.records[0]?.matchedRules).toBeUndefined();
+  });
+});

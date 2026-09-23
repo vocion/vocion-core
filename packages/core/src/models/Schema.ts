@@ -3379,6 +3379,10 @@ export const actionRunSchema = pgTable(
        * field was read off the page.
        */
       labels?: string[];
+      /** Named 0..1 judgements, names from the source's config. */
+      scores?: Record<string, number>;
+      /** Adopted rules the proposer said decided its verdict. Absent: not recorded. [] : checked, none did. */
+      matchedRules?: Array<{ id: string; title?: string; text: string; evidence?: string }>;
     }>(),
     /**
      * Idempotency/upsert key for agent-suggested actions — the review-card

@@ -191,6 +191,7 @@ export const run: DocumentProcessor['run'] = async (ctx): Promise<ProcessorResul
     ogImage: metadata.ogImage,
     knownIds: known.ids,
     today,
+    rules: rules.rules,
   });
   merge(counts, validated.counts);
   notes.push(...validated.notes);
