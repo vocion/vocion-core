@@ -16,6 +16,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/libs/DB');
 
+const { eq } = await import('drizzle-orm');
+
 const { db } = await import('@/libs/DB');
 const { agentBudgetSchema } = await import('@/models/Schema');
 const { agentSchema } = await import('@/models/Schema');
@@ -29,7 +31,9 @@ const {
   listPlatformBudgets,
   ORG_SCOPE_SLUG,
   orgUsageTotals,
+  periodEndsAt,
   preflightCheck,
+  rollPeriodIfStale,
   setLimits,
 } = await import('@/services/BudgetService');
 
@@ -571,5 +575,121 @@ describe('what GET /api/v1/budgets/agents reads (#272)', () => {
 
     expect(status.workspaceAgentDefaultCents).toBeNull();
     expect(status.agents[0]).toMatchObject({ hardCentsLimit: null, remainingCents: null, blocked: false });
+  });
+});
+
+/**
+ * The start of yesterday, UTC — what a daily row's period start reads the
+ * morning after. An exact midnight rather than "now minus 24 hours", so a run
+ * of this file just after midnight still lands the row in yesterday.
+ */
+function startOfYesterdayUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+}
+
+/** Move every row of the test org into yesterday, as the next morning finds it. */
+async function itIsTheNextDay(): Promise<void> {
+  await db.update(agentBudgetSchema).set({ periodStartedAt: startOfYesterdayUtc() }).where(eq(agentBudgetSchema.orgId, ORG));
+}
+
+describe('the next day (#272)', () => {
+  it('lets an agent that was refused yesterday run again today', async () => {
+    await spendOnAgent(101);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(false);
+
+    await itIsTheNextDay();
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+  });
+
+  it('refuses it again, the same way, once today\'s spend reaches the cap', async () => {
+    await spendOnAgent(101);
+    const yesterday = await preflightCheck({ orgId: ORG, agentSlug: AGENT });
+    await itIsTheNextDay();
+
+    await spendOnAgent(101);
+    const today = await preflightCheck({ orgId: ORG, agentSlug: AGENT });
+
+    expect(today).toEqual(yesterday);
+  });
+
+  it('shows the agent unblocked in the status the API reads, with today\'s spend at zero', async () => {
+    await db.insert(agentSchema).values({ orgId: ORG, slug: AGENT, name: 'Deal Lead', systemPrompt: 'x' } as never);
+    await spendOnAgent(101);
+    await itIsTheNextDay();
+
+    const { agents } = await agentBudgetStatuses(ORG);
+
+    expect(agents[0]).toMatchObject({ blocked: false, spentCents: 0, remainingCents: 10_000 });
+  });
+});
+
+describe('a turn that runs across midnight (#272)', () => {
+  // The mid-turn guard charges a model call and then re-reads the cap; these
+  // replay that pair of calls across the rollover.
+
+  it('is not stopped by yesterday\'s spend once its next call lands in the new day', async () => {
+    await spendOnAgent(99);
+    await itIsTheNextDay();
+
+    await spendOnAgent(5);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+    expect((await getBudget({ orgId: ORG, agentSlug: AGENT }))?.currentCents).toBe(500);
+  });
+
+  it('is stopped when its calls after midnight cross the new day\'s cap', async () => {
+    await spendOnAgent(99);
+    await itIsTheNextDay();
+
+    await spendOnAgent(60);
+
+    expect((await preflightCheck({ orgId: ORG, agentSlug: AGENT })).ok).toBe(true);
+
+    await spendOnAgent(41);
+
+    expect(await preflightCheck({ orgId: ORG, agentSlug: AGENT })).toMatchObject({ ok: false, limit: 10_000, current: 10_100 });
+  });
+
+  it('keeps a charge that lands between a stale read and the rollover it triggers', async () => {
+    // The race: a budget read picks up yesterday's row, a model call from a
+    // turn already running charges (rolling the row itself and recording
+    // today's first spend), and only then does the read act on what it saw.
+    // Resetting by id alone wiped that charge.
+    await spendOnAgent(99);
+    await itIsTheNextDay();
+    const [staleRead] = await db.select().from(agentBudgetSchema).where(eq(agentBudgetSchema.agentSlug, AGENT));
+
+    await spendOnAgent(7);
+    const rolled = await rollPeriodIfStale(staleRead!);
+
+    expect(rolled.currentMicroCents).toBe(700 * 1_000_000);
+    expect((await getBudget({ orgId: ORG, agentSlug: AGENT }))?.currentCents).toBe(700);
+  });
+
+  it('starts the new period at midnight, not at whenever the first read happened', async () => {
+    await spendOnAgent(1);
+    await itIsTheNextDay();
+
+    const row = await getBudget({ orgId: ORG, agentSlug: AGENT });
+    const startedAt = row!.periodStartedAt;
+
+    expect([startedAt.getUTCHours(), startedAt.getUTCMinutes(), startedAt.getUTCSeconds()]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('when a period ends', () => {
+  it('ends a day at the next UTC midnight, a millisecond before it too', () => {
+    expect(periodEndsAt('daily', new Date('2026-09-23T23:59:59.999Z')).toISOString()).toBe('2026-09-24T00:00:00.000Z');
+  });
+
+  it('counts exactly midnight as the start of the new day, so it ends a full day later', () => {
+    expect(periodEndsAt('daily', new Date('2026-09-24T00:00:00.000Z')).toISOString()).toBe('2026-09-25T00:00:00.000Z');
+  });
+
+  it('carries a month into the next year in December', () => {
+    expect(periodEndsAt('monthly', new Date('2026-12-31T23:59:59.999Z')).toISOString()).toBe('2027-01-01T00:00:00.000Z');
   });
 });

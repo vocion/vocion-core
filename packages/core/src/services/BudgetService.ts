@@ -260,17 +260,45 @@ async function getOrCreateBudget(orgId: string, agentSlug: string, period: Budge
   return created!;
 }
 
-async function maybeResetPeriod(row: typeof agentBudgetSchema.$inferSelect) {
-  const now = new Date();
-  if (!shouldReset(row.period as BudgetPeriod, row.periodStartedAt, now)) {
+/**
+ * Roll a row read from the database into the current period when its period
+ * has passed, and return the row as it now stands.
+ *
+ * The reset is conditional on the row STILL being in the old period, decided
+ * by the database in the same statement — exactly the rule `writeCharge`
+ * rolls by. Resetting by id alone lost money at every midnight (#272): a read
+ * picked up yesterday's row, a model call from a turn already running charged
+ * (rolling the row itself and recording today's first spend), and the read
+ * then zeroed the row from its stale copy, wiping that charge. Now the second
+ * roll matches nothing, and the row is read again instead.
+ *
+ * The new period starts at the database's midnight rather than at the moment
+ * of the read, so a row rolled by a read and one rolled by a charge carry the
+ * same start.
+ *
+ * Exported for the test that replays that race; callers go through the
+ * reading functions below.
+ * @param row - A budget row as it was read.
+ * @returns The row in the active period.
+ */
+export async function rollPeriodIfStale(row: typeof agentBudgetSchema.$inferSelect) {
+  if (!shouldReset(row.period as BudgetPeriod, row.periodStartedAt, new Date())) {
     return row;
   }
-  const [updated] = await db
+  const periodStart = periodStartExpression(row.period as BudgetPeriod);
+  const [rolled] = await db
     .update(agentBudgetSchema)
-    .set({ currentTokens: 0, currentMicroCents: 0, periodStartedAt: now })
-    .where(eq(agentBudgetSchema.id, row.id))
+    .set({ currentTokens: 0, currentMicroCents: 0, periodStartedAt: periodStart })
+    .where(and(eq(agentBudgetSchema.id, row.id), sql`${agentBudgetSchema.periodStartedAt} < ${periodStart}`))
     .returning();
-  return updated!;
+  if (rolled) {
+    return rolled;
+  }
+  // Already in the current period: a charge rolled it first (and what it
+  // recorded is on the row now), or the database's clock has not reached the
+  // boundary this process's clock has. Either way the stored row is the truth.
+  const [current] = await db.select().from(agentBudgetSchema).where(eq(agentBudgetSchema.id, row.id));
+  return current ?? row;
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,7 +347,7 @@ async function readScope(
   if (!row) {
     return null;
   }
-  return withSpentCents(await maybeResetPeriod(row));
+  return withSpentCents(await rollPeriodIfStale(row));
 }
 
 /**
@@ -446,7 +474,7 @@ export async function preflightCheck(opts: {
     const row = rows.find(candidate => candidate.agentSlug === target.slug);
     if (target.scope === 'agent') {
       const { capped, sources } = withAgentDefaultCaps({
-        agentRow: row ? await maybeResetPeriod(row) : emptyAgentCounter(target.slug),
+        agentRow: row ? await rollPeriodIfStale(row) : emptyAgentCounter(target.slug),
         workspaceAgentDefault,
         period,
       });
@@ -459,7 +487,7 @@ export async function preflightCheck(opts: {
     if (!row) {
       continue;
     }
-    const breach = breachOf(await maybeResetPeriod(row), target.scope);
+    const breach = breachOf(await rollPeriodIfStale(row), target.scope);
     if (breach) {
       return breach;
     }
@@ -784,7 +812,7 @@ export async function listAllBudgets(orgId: string) {
     .select()
     .from(agentBudgetSchema)
     .where(eq(agentBudgetSchema.orgId, orgId));
-  const current = await Promise.all(rows.map(r => maybeResetPeriod(r)));
+  const current = await Promise.all(rows.map(r => rollPeriodIfStale(r)));
   return current.map(r => withSpentCents(r));
 }
 
@@ -993,7 +1021,7 @@ export async function agentBudgetStatuses(orgId: string, period: BudgetPeriod = 
   const statuses: AgentBudgetStatus[] = [];
   for (const agent of agents) {
     const stored = bySlug.get(agent.slug);
-    const counter = stored ? await maybeResetPeriod(stored) : emptyAgentCounter(agent.slug);
+    const counter = stored ? await rollPeriodIfStale(stored) : emptyAgentCounter(agent.slug);
     const { capped, sources } = withAgentDefaultCaps({ agentRow: counter, workspaceAgentDefault, period });
     const breach = breachOf(capped, 'agent', sources);
     const spent = spentCents(capped);
