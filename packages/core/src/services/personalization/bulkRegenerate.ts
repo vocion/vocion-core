@@ -15,7 +15,6 @@ import type { BulkLeadOutcome } from '@/models/Schema';
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/libs/DB';
-import { logger } from '@/libs/Logger';
 import { getTemporalClient, VOCION_WORKFLOWS_TASK_QUEUE } from '@/libs/temporal/client';
 import { leadBriefSchema, personalizationBulkJobSchema } from '@/models/Schema';
 import { REVIEW_STATUS } from '@/services/PersonalizationQueueService';
@@ -95,6 +94,7 @@ export async function startBulkBriefRegenerate(orgId: string, opts: { leadIds: n
     // The row must not outlive a workflow that never started: a job page
     // showing "queued" forever would be a promise nothing is keeping.
     await db.delete(personalizationBulkJobSchema).where(eq(personalizationBulkJobSchema.id, jobId)).catch(() => {});
+    const { logger } = await import('@/libs/Logger');
     logger.warn('bulk brief regenerate could not start its workflow', { orgId, jobId, error: err instanceof Error ? err.message : String(err) });
     return { ok: false, reason: 'queue_unreachable', message: 'The work queue could not be reached, so nothing was changed. Try again in a minute.' };
   }

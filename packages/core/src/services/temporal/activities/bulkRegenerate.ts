@@ -10,7 +10,6 @@
  * job sees each lead settle.
  */
 import { Context } from '@temporalio/activity';
-import { logger } from '@/libs/Logger';
 import { finishBulkJob, markBulkJobRunning, recordBulkLeadOutcome } from '@/services/personalization/bulkRegenerate';
 
 export type RegenerateLeadBriefActivityInput = { orgId: string; jobId: number; leadId: number; note: string; by: string };
@@ -58,6 +57,9 @@ export async function regenerateLeadBriefActivity(input: RegenerateLeadBriefActi
     return { state: 'landed' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Dynamic: the worker bundle must never statically reach libs/Logger
+    // (its top-level await is fatal under tsx CommonJS; temporal-worker.imports.test).
+    const { logger } = await import('@/libs/Logger');
     logger.warn('bulk regenerate: lead did not land', { orgId: input.orgId, jobId: input.jobId, leadId: input.leadId, error: message });
     await recordBulkLeadOutcome(input.orgId, input.jobId, { leadId: input.leadId, contactName: null, state: 'failed', error: message }).catch(() => {});
     // Rethrown so Temporal retries once; a retry that lands overwrites the failure.
