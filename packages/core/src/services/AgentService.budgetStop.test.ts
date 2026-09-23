@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/libs/DB');
 
 const streamEvents = vi.fn();
-const turnEndHooks: Array<(turn: { model: string; inputTokens?: number; outputTokens?: number }) => Promise<void>> = [];
+const turnEndHooks: Array<(turn: { model: string; inputTokens?: number; outputTokens?: number; askedForTools?: boolean }) => Promise<void>> = [];
 
 vi.mock('@/services/agents/harness', () => ({
   chatModelOptionsFor: () => ({}),
@@ -95,7 +95,8 @@ function modelCallsStream(calls: number, config: StreamConfig): AsyncIterable<un
       yield { event: 'on_chat_model_stream', metadata: { checkpoint_ns: `model_request:m${call}` }, data: { chunk: text(`part${call} `) } };
       // The real adapter (`libs/Langfuse.ts`) swallows whatever the hook
       // throws, so a failed charge never reaches the stream — only the abort does.
-      await turnEndHooks.at(-1)!({ model: 'claude-haiku-4-5-20251001', inputTokens: 1_000, outputTokens: 100 })
+      // Every call but the last asks for tools, the way a working turn does.
+      await turnEndHooks.at(-1)!({ model: 'claude-haiku-4-5-20251001', inputTokens: 1_000, outputTokens: 100, askedForTools: call < calls })
         .catch((hookError: unknown) => hookErrors.push(hookError));
     }
   } };

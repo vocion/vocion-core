@@ -68,10 +68,10 @@ only.
   it starts. The person sees why, and which setting to change.
 - **During a turn:** every model call is charged as it finishes, and the cap is
   read again straight after. Once a call takes the agent over its cap, the turn
-  ends before its next model call starts. A turn that was already finishing on
-  the call that crossed the line keeps its answer; the next turn is refused. A
-  turn can go over by the one model call that crossed the line (one per branch
-  when an agent runs delegations side by side).
+  ends before its next model call starts. A call that crossed the line with its
+  final answer keeps that answer; the next turn is refused. A turn can go over
+  by the one model call that crossed the line (one per branch when an agent
+  runs delegations side by side).
 - **The stop reason is kept.** The turn is stored as *refused* with the message
   on the record, so it reads the same after a reload and in the conversation
   history.

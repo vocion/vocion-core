@@ -588,10 +588,10 @@ export async function runAgentDeep(opts: {
   const failures: TurnFailure[] = [];
   const failedDelegations: FailedDelegation[] = [];
 
-  // Reads the caps again after every charged model call and aborts the stream
-  // at the next model call once one is crossed — the preflight above only sees
-  // the turn's start, and a long turn used to spend past its cap until it
-  // finished (#272). A turn whose last call crossed the cap keeps its answer.
+  // Reads the caps again after every charged model call and, once one is
+  // crossed, stops the stream before the next model call — the preflight above
+  // only sees the turn's start, and a long turn used to spend past its cap
+  // until it finished (#272). A turn that crossed on its final answer keeps it.
   const budgetGuard = new TurnBudgetGuard(opts.orgId, opts.agentSlug);
 
   // What this run cost, summed over every model turn the callback sees.
@@ -622,7 +622,10 @@ export async function runAgentDeep(opts: {
       } finally {
         // Even when the charge could not be written (it logs the lost spend
         // itself): the earlier calls' charges may already be over the cap.
-        await budgetGuard.afterModelCall();
+        // A call that did not say whether it asked for tools is taken to go
+        // on: stopping a turn that was done costs an answer, letting one run
+        // on costs a model call per step.
+        await budgetGuard.afterModelCall({ turnGoesOn: turn.askedForTools !== false });
       }
     },
   });

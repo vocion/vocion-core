@@ -41,25 +41,19 @@ describe('the turn budget guard', () => {
     expect(guard.stopError()).toBeNull();
   });
 
-  it('stops the turn at the next model call after a check finds the cap crossed, with a refusal naming it', async () => {
+  it('stops a turn that goes on as soon as a check finds the cap crossed, with a refusal naming it', async () => {
     const check = vi.fn()
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce(breach());
     const guard = new TurnBudgetGuard(ORG, AGENT, check);
 
-    await guard.afterModelCall();
-    guard.beforeModelCall();
+    await guard.afterModelCall({ turnGoesOn: true });
 
     expect(guard.signal.aborted).toBe(false);
 
-    await guard.afterModelCall();
+    await guard.afterModelCall({ turnGoesOn: true });
 
-    // Crossed, but a call that crossed on the turn's last step must keep its answer.
-    expect(guard.signal.aborted).toBe(false);
-    expect(guard.stopError()).toBeNull();
-
-    guard.beforeModelCall();
-
+    // Right away: the next call would not listen to an abort once it started.
     expect(guard.signal.aborted).toBe(true);
     expect(check).toHaveBeenLastCalledWith({ orgId: ORG, agentSlug: AGENT });
     // A refusal, so the stream route stores the message on the turn record.
@@ -68,10 +62,10 @@ describe('the turn budget guard', () => {
     expect(guard.stopError()?.message).toContain('stopped partway');
   });
 
-  it('never stops a turn whose last model call is the one that crossed the cap', async () => {
+  it('never stops a turn whose final answer is the call that crossed the cap', async () => {
     const guard = new TurnBudgetGuard(ORG, AGENT, vi.fn().mockResolvedValue(breach()));
 
-    await guard.afterModelCall();
+    await guard.afterModelCall({ turnGoesOn: false });
 
     expect(guard.crossed).not.toBeNull();
     expect(guard.stoppedBy).toBeNull();
@@ -81,7 +75,7 @@ describe('the turn budget guard', () => {
   it('stops the turn from the LangGraph callback when the next model call starts', async () => {
     const guard = new TurnBudgetGuard(ORG, AGENT, vi.fn().mockResolvedValue(breach()));
     const gate = new BudgetGateCallback(guard);
-    await guard.afterModelCall();
+    await guard.afterModelCall({ turnGoesOn: false });
 
     await gate.handleChatModelStart();
 

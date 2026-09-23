@@ -5,10 +5,10 @@
  * its cap could then make any number of model calls with nothing reading the
  * running total, so one long turn spent without limit until it finished. Every
  * model call already charges as it completes; the guard here reads the caps
- * again right after each charge and, the first time one is crossed, aborts the
- * turn at the next model call — a turn whose last call is the one that crossed
- * the cap has already finished, and keeps its answer; the next turn is refused
- * before it starts.
+ * again right after each charge and, the first time one is crossed, stops the
+ * turn before its next model call. A call that crossed the cap with a final
+ * answer (no tools asked for) has finished the turn, which keeps its answer;
+ * the next turn is refused before it starts.
  *
  * The stop is a refusal, not a failure (`TurnRefusedError`, #114): nothing
  * broke, and asking again will not help until somebody raises the cap or the
@@ -89,14 +89,14 @@ export function budgetStopMessage(breach: BudgetBreach): string {
 }
 
 /**
- * Watches one agent turn's spend and stops it at the first model call that
- * would start after a cap was crossed.
+ * Watches one agent turn's spend and stops it before the next model call once
+ * a cap is crossed.
  *
  * Call {@link afterModelCall} after each model call's usage is charged, and
- * {@link beforeModelCall} when the next one starts. Pass {@link signal} to
- * whatever runs the turn so the abort reaches it. Once stopped,
- * {@link stopError} is what the turn should end with; a turn that crossed its
- * cap on its last call never stops, and ends the way it would have.
+ * {@link beforeModelCall} when a call starts. Pass {@link signal} to whatever
+ * runs the turn so the abort reaches it. Once stopped, {@link stopError} is
+ * what the turn should end with; a turn that crossed its cap on its final
+ * answer never stops, and ends the way it would have.
  */
 export class TurnBudgetGuard {
   private readonly controller = new AbortController();
@@ -148,14 +148,22 @@ export class TurnBudgetGuard {
   }
 
   /**
-   * Read the caps again after a model call was charged, and remember a cap it
-   * crossed so the next {@link beforeModelCall} stops the turn.
+   * Read the caps again after a model call was charged. When one is crossed
+   * and the call said the turn goes on (it asked for tools), stop the turn
+   * now: an in-process model call does not listen to the abort once its
+   * request is out, and LangGraph only checks between steps, so waiting for
+   * the next call to start would let that call run and be paid for. When the
+   * call was a final answer, only remember the cap, so the turn finishes with
+   * its answer, and a call that starts anyway is stopped by
+   * {@link beforeModelCall}.
+   * @param call - What the finished call said about the turn.
+   * @param call.turnGoesOn - True when more work follows this call.
    *
    * A check that fails to read is logged and the turn carries on: refusing
    * somebody's answer because the database hiccupped once would be the more
    * expensive mistake, and the next model call checks again.
    */
-  async afterModelCall(): Promise<void> {
+  async afterModelCall(call: { turnGoesOn?: boolean } = {}): Promise<void> {
     if (this.breach) {
       return;
     }
@@ -174,6 +182,9 @@ export class TurnBudgetGuard {
       return;
     }
     this.breach = result;
+    if (call.turnGoesOn) {
+      this.beforeModelCall();
+    }
   }
 }
 

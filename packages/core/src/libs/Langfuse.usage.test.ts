@@ -185,3 +185,22 @@ describe('onTurnEnd names the model a Bedrock turn ran on', () => {
     expect(tokenCostMicroCents(reported!.model, { inputTokens: 10_000, outputTokens: 1_000 })).toBe(1_500_000);
   });
 });
+
+describe('onTurnEnd says whether the turn goes on', () => {
+  // The budget guard stops a turn at once when the call that crossed its cap
+  // asked for tools, and lets a final answer finish (#272).
+  it('reports a call that asked for tools', async () => {
+    const message = new AIMessage({ content: '', tool_calls: [{ id: 't1', name: 'write_todos', args: {} }] });
+    (message as unknown as { usage_metadata: unknown }).usage_metadata = { input_tokens: 10, output_tokens: 5 };
+
+    const reported = await usageReportedFor({ generations: [[{ text: '', message }]] } as unknown as LLMResult);
+
+    expect(reported).toMatchObject({ askedForTools: true });
+  });
+
+  it('reports a final answer as not going on', async () => {
+    const reported = await usageReportedFor(bedrockShaped({ input_tokens: 10, output_tokens: 5 }));
+
+    expect(reported).toMatchObject({ askedForTools: false });
+  });
+});

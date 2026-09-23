@@ -345,6 +345,13 @@ export type LangfuseTurnUsage = {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /**
+   * Whether the call ended by asking for tools, so the turn goes on to run
+   * them and call the model again; false for a final answer. Undefined when
+   * the output carried no message to tell by. The budget guard reads it to
+   * stop a turn that has more calls coming, and let one that is done finish.
+   */
+  askedForTools?: boolean;
 };
 
 export type CreateLangfuseCallbackOptions = TraceFor & {
@@ -360,6 +367,19 @@ export type LangfuseCallback = {
   handler: BaseCallbackHandler;
   trace: TraceLike;
 };
+
+/**
+ * Whether a finished model call asked for tools, read off its message's
+ * `tool_calls`; undefined when there is no message to read.
+ * @param generation - The call's first generation.
+ */
+function askedForToolsOf(generation: ChatGeneration | undefined): boolean | undefined {
+  const toolCalls = (generation?.message as { tool_calls?: unknown[] } | undefined)?.tool_calls;
+  if (!generation?.message) {
+    return undefined;
+  }
+  return Array.isArray(toolCalls) && toolCalls.length > 0;
+}
 
 export function createLangfuseCallback(
   opts: CreateLangfuseCallbackOptions,
@@ -484,6 +504,7 @@ export function createLangfuseCallback(
             outputTokens: normalised?.outputTokens ?? usage?.completionTokens ?? anthropicUsage?.output_tokens,
             cacheReadTokens: normalised?.cacheReadTokens ?? anthropicUsage?.cache_read_input_tokens,
             cacheWriteTokens: normalised?.cacheWriteTokens ?? anthropicUsage?.cache_creation_input_tokens,
+            askedForTools: askedForToolsOf(firstGen),
           });
         } catch {
           /* never let the budget hook break the agent run */
