@@ -36,10 +36,38 @@ schema:
       x-display: {hidden: true}
       type: string
       description: One line, in the asker's terms where possible. The row on the backlog.
+    outcome:
+      x-display: {label: Outcome, role: prose, order: 0}
+      type: string
+      description: >-
+        WHAT A PERSON CAN DO AFTERWARDS THAT THEY CANNOT DO NOW, in one
+        sentence, and the line every surface leads with.
+
+        The title is the asker's words and is evidence, so it is never
+        rewritten — which left the work with no line stating the change. A
+        page that leads with the ask leads with a situation; a person deciding
+        needs the outcome. "Add send/share to the file detail page" is a
+        control and a place. "Allow users to send files to email recipients"
+        is a capability, and a stranger can tell what will be different
+        afterwards.
+
+        Written at triage, to the task-title rules in the `naming-the-work`
+        playbook: start with a verb, name the user-visible outcome, no file
+        paths or modules, one sentence, one change. It fails review if a
+        stranger would have to open the record to know what changes.
     body:
       x-display: {label: In their words, role: prose, order: 1}
       type: string
       description: The request as it arrived — the asker's own words, unedited. Triage summarises beside it, never instead of it.
+    story:
+      x-display: {label: The story, role: prose, order: 2}
+      type: string
+      description: >-
+        The change as the person who will use it would tell it: who they are,
+        what they are trying to get done, and what happens today instead.
+        Markdown, a few lines. Not a specification and not a substitute for
+        the acceptance criteria — the criteria say how we will know; this says
+        why anybody wants it.
     askedBy:
       x-display: {label: Asked by, group: Where it came from}
       type: object

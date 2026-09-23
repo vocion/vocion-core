@@ -328,16 +328,17 @@ describe('the sections', () => {
     const report = assembleFeatureReport(input());
 
     expect(report.sections.map(s => s.key)).toEqual([...REPORT_SECTION_KEYS]);
-    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'visuals', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
+    expect(report.sections.map(s => s.key)).toEqual(['ask', 'triage', 'visuals', 'today', 'plan', 'contract', 'approvals', 'runs', 'change', 'qa', 'release', 'money']);
   });
 
   it('a complete feature has every stage present and none of them absent', () => {
     const report = assembleFeatureReport(input());
 
-    // Visuals is the exception the fixture cannot satisfy: the fixture's
-    // artifacts are QA evidence on a task, and a visual is filed against the
-    // request. A feature with no mockup is a real state, not a broken one.
-    expect(report.sections.filter(s => s.absence !== null && s.key !== 'visuals')).toEqual([]);
+    // Visuals and today are the exceptions the fixture cannot satisfy: its
+    // artifacts are QA evidence on a task, and both of those read artifacts
+    // filed against the request. A feature with no mockup is a real state,
+    // not a broken one.
+    expect(report.sections.filter(s => s.absence !== null && s.key !== 'visuals' && s.key !== 'today')).toEqual([]);
   });
 
   it('carries the ask in the asker\'s own words, with who asked and through which door', () => {

@@ -283,6 +283,27 @@ function Section({ section }: { section: ReportSection }) {
 }
 
 /**
+ * THE STORY — the change as the person who will use it would tell it.
+ *
+ * Between the mock and the plan on purpose: a reader has just seen what it
+ * will look like and has not yet been asked to judge how it will be built.
+ * This is the part that says why anybody wants it, which neither the mock nor
+ * the criteria ever say.
+ * @param props
+ * @param props.story - The story, as markdown.
+ */
+function Story({ story }: { story: string }) {
+  return (
+    <section id="report-story" className="border-t border-border/60 pt-8">
+      <h3 className="mb-3 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">The story</h3>
+      <div className="prose prose-sm max-w-prose text-foreground dark:prose-invert prose-p:text-[15px] prose-p:leading-relaxed prose-li:text-[15px]">
+        <Markdown remarkPlugins={[remarkGfm]}>{story}</Markdown>
+      </div>
+    </section>
+  );
+}
+
+/**
  * WHERE THIS IS, in four dots.
  *
  * It replaces four whole sections that each said nothing had happened yet:
@@ -319,7 +340,7 @@ function Lifecycle({ steps }: { steps: LifecycleStep[] }) {
  * has not happened.
  */
 const PHASE_LEADS: Record<ReportPhase, readonly string[]> = {
-  proposed: ['visuals', 'plan'],
+  proposed: ['visuals', 'today', 'plan'],
   building: ['runs', 'plan'],
   review: ['qa', 'change', 'visuals'],
   released: ['release', 'qa'],
@@ -558,8 +579,14 @@ export function FeatureReportView({ report }: { report: FeatureReport }) {
           machinery that produced it — the original ask, the triage figures,
           the per-task contracts, the approval records — is all still here,
           one level down, where it is traceable without being in the way. */}
+      {/* THE ORDER A PERSON READS IT IN (Chris, 2026-09-23): the outcome, then
+          the mock, then the story, then where to go and see how it works
+          today, then the plan and what counts as done. The mock comes before
+          the prose because it answers the question the prose is about. */}
       <div className="space-y-8">
-        {report.sections.filter(x => showsOnPage(x, report.phase)).map(section => <Section key={section.key} section={section} />)}
+        {report.sections.filter(x => showsOnPage(x, report.phase) && x.key === 'visuals').map(section => <Section key={section.key} section={section} />)}
+        {report.story !== null && <Story story={report.story} />}
+        {report.sections.filter(x => showsOnPage(x, report.phase) && x.key !== 'visuals').map(section => <Section key={section.key} section={section} />)}
       </div>
 
       {/* WHAT COUNTS AS DONE, under the proposal rather than above it: it is
